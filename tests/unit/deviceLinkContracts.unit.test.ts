@@ -32,7 +32,6 @@ import {
 } from '../../packages/shared-ts/src/device-linking';
 import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
-import { buildUnlockedCustodyCapabilityFixtureV1 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerEnrollmentCeremonyV1,
@@ -112,12 +111,7 @@ test.describe('R103 shared linked-device contracts', () => {
         authMethod: projection.authMethod,
       }),
       readOwnerSourceLaneHintsV1: async () => [sourceHint],
-      readUnlockedCustodyCapabilityV1: () =>
-        buildUnlockedCustodyCapabilityFixtureV1({
-          walletId: String(projection.walletId),
-          walletSessionId: String(projection.walletSessionId),
-          expiresAtMs: projection.expiresAtMs,
-        }),
+      readUnlockedEd25519ExportRootCapabilityV1: () => undefined,
     });
 
     await expect(
@@ -170,8 +164,8 @@ test.describe('R103 shared linked-device contracts', () => {
       readOwnerSourceLaneHintsV1: async () => {
         throw new Error('owner lane hints are not exercised by management requests');
       },
-      readUnlockedCustodyCapabilityV1: () => {
-        throw new Error('custody capability is not exercised by management requests');
+      readUnlockedEd25519ExportRootCapabilityV1: () => {
+        throw new Error('export-root capability is not exercised by management requests');
       },
     });
 
@@ -215,7 +209,7 @@ test.describe('R103 shared linked-device contracts', () => {
     expect(claimDigest).toBe('_6s0uInyXmAM1z09l78oUxD2Ays1gs9TOJLsfe3hwJA');
     // Phase 8 moved the owner enrollment ceremony inside the approval, so the
     // ceremony is part of what the owner's digest commits to.
-    expect(approvalDigest).toBe('bvphbI50NPB7ORiofhZZknNZwcepw3AW7BoYcgJnHQU');
+    expect(approvalDigest).toBe('CAz5oqU1KfpEdugQ2E63XtazVrcTG25kA5MdTt3IJmo');
   });
 
   test('rejects dormant QR permissions, unknown fields, non-canonical keys, and invalid expiry', () => {
@@ -525,6 +519,7 @@ test.describe('R103 shared linked-device contracts', () => {
       deviceId: fixture.approval.deviceId,
       targetFactor: fixture.approval.targetFactor,
       ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1({ expiresAtMs: 2_000 }),
+      ed25519ExportRoot: null,
       orderedChildren: [
         {
           kind: 'linked_device_target_preparation_child_v1',

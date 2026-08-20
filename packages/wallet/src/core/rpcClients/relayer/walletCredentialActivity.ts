@@ -144,6 +144,7 @@ function parseProjection(raw: unknown): WalletCredentialActivityProjection {
   if (
     index.kind !== 'wallet_custody_envelope_index_v2' ||
     (index.custodySecretKind !== 'wallet_custody_seed_v1' &&
+      index.custodySecretKind !== 'ed25519_yao_client_root_v1' &&
       index.custodySecretKind !== 'ed25519_lane_holder_share_v1' &&
       index.custodySecretKind !== 'ecdsa_lane_holder_share_v1')
   ) {

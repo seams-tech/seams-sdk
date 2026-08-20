@@ -56,7 +56,10 @@ import type {
   AuthFactorIdentity,
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import type { QrLinkedDevicePermissionRequest } from '@shared/device-linking/contracts';
+import {
+  parseDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 
 /** A server-only identity for one consumed owner authentication result. */
 export type VerifiedOwnerProofId = DomainId<'VerifiedOwnerProofId'>;
@@ -212,7 +215,7 @@ export type WalletSessionAuthorization = {
   readonly expiresAtMs: number;
 };
 
-export type LinkedDeviceWalletSessionPermissionV1 = QrLinkedDevicePermissionRequest;
+export type LinkedDeviceWalletSessionPermissionV1 = DelegatedWalletAuthorityV1;
 
 export type LinkedDeviceWalletSessionAuthorizationV1 = {
   readonly kind: 'linked_device_wallet_session_authorization_v1';
@@ -852,28 +855,11 @@ function parseMpcWalletSigningQuotaIdRequired(value: unknown): MpcWalletSigningQ
 function parseLinkedDeviceWalletSessionPermission(
   value: unknown,
 ): LinkedDeviceWalletSessionPermissionV1 {
-  if (!isRecord(value)) throw new Error('linked-device authorization permission must be an object');
-  const keys = Object.keys(value).sort();
-  if (
-    keys.length !== 3 ||
-    keys[0] !== 'administrationScope' ||
-    keys[1] !== 'kind' ||
-    keys[2] !== 'localUserPresence'
-  ) {
-    throw new Error('linked-device authorization permission contains unexpected fields');
+  const parsed = parseDelegatedWalletAuthorityV1(value);
+  if (!parsed.ok) {
+    throw new Error(`linked-device authorization permission: ${parsed.error.message}`);
   }
-  if (
-    value.kind !== 'owner_equivalent_signing' ||
-    value.administrationScope !== 'signing_only' ||
-    value.localUserPresence !== 'required'
-  ) {
-    throw new Error('linked-device authorization permission is unsupported');
-  }
-  return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
-  };
+  return parsed.value;
 }
 
 function requireLinkedDeviceWalletSessionPermission(

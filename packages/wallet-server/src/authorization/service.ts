@@ -51,6 +51,7 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { delegatedWalletPermissionNamesV1 } from '@shared/authorization/delegatedAuthority';
 import {
   buildVerifiedWalletOperationFactorEvidenceSet,
   buildVerifiedOwnerProof,
@@ -1082,9 +1083,7 @@ async function deriveLinkedDeviceWalletSessionId(
         input.deviceId,
         input.keyManifestDigestB64u,
         String(input.revocationEpoch),
-        input.permission.kind,
-        input.permission.administrationScope,
-        input.permission.localUserPresence,
+        delegatedWalletPermissionNamesV1(input.permission).join(','),
         String(input.remainingUses),
         String(input.issuedAtMs),
         String(input.expiresAtMs),

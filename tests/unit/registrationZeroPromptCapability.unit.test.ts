@@ -1,26 +1,26 @@
 import { expect, test } from '@playwright/test';
 import {
-  establishPasskeyRegistrationCustodyTransferCapability,
+  establishPasskeyRegistrationEd25519ExportRootCapability,
 } from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
 import type { RegistrationWebContext } from '../../packages/wallet/src/SeamsWeb/signingSurface/types';
 import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 
-test('establishes the zero-prompt capability after passkey ECDSA registration', async () => {
+test('establishes the zero-prompt Ed25519 export-root capability after passkey registration', async () => {
   type EstablishInput = Parameters<
-    RegistrationWebContext['signingEngine']['establishUnlockedWalletCustodyTransferCapabilityV1']
+    RegistrationWebContext['signingEngine']['establishUnlockedWalletEd25519ExportRootCapabilityV1']
   >[0];
   let received: EstablishInput | null = null;
   const signingEngine: Pick<
     RegistrationWebContext['signingEngine'],
-    'establishUnlockedWalletCustodyTransferCapabilityV1'
+    'establishUnlockedWalletEd25519ExportRootCapabilityV1'
   > = {
-    establishUnlockedWalletCustodyTransferCapabilityV1: async (input) => {
+    establishUnlockedWalletEd25519ExportRootCapabilityV1: async (input) => {
       received = input;
     },
   };
   const expiresAtMs = Date.now() + 60_000;
 
-  await establishPasskeyRegistrationCustodyTransferCapability({
+  await establishPasskeyRegistrationEd25519ExportRootCapability({
     signingEngine,
     commit: buildWalletCustodyCommitPayloadFixture({ walletId: 'alice.testnet' }),
     passkeyPrfFirstB64u: 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA',
@@ -29,7 +29,7 @@ test('establishes the zero-prompt capability after passkey ECDSA registration', 
     expiresAtMs,
   });
 
-  if (!received) throw new Error('registration did not establish a custody capability');
+  if (!received) throw new Error('registration did not establish an export-root capability');
   expect(received.walletId).toBe('alice.testnet');
   expect(received.walletSessionId).toBe('wallet-session:registration');
   expect(received.expiresAtMs).toBe(expiresAtMs);

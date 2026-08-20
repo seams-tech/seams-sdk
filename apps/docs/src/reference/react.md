@@ -14,14 +14,39 @@ import { SeamsWebProvider, SeamsAuthMenu, useSeams } from '@seams/wallet/react';
 
 ## Providers and hooks
 
-| Export                                            | Purpose                                                  |
-| ------------------------------------------------- | -------------------------------------------------------- |
-| `SeamsWebProvider`                                | Creates and owns the SDK client for a React subtree.     |
-| `SeamsContextProvider`                            | Supplies an existing context value.                      |
-| `useSeams`                                        | Reads the current SDK capabilities and lifecycle state.  |
-| `useWallet`                                       | The signed-in wallet, with signing bound to it.          |
-| `useDeviceLinking`                                | Runs the approving-device side of a link flow.           |
-| `useNearClient`, `useAccountInput`, `useQRCamera` | Focused integration helpers.                             |
+| Export                                            | Purpose                                                 |
+| ------------------------------------------------- | ------------------------------------------------------- |
+| `SeamsWebProvider`                                | Creates and owns the SDK client for a React subtree.    |
+| `SeamsContextProvider`                            | Supplies an existing context value.                     |
+| `useSeams`                                        | Reads the current SDK capabilities and lifecycle state. |
+| `useWallet`                                       | The signed-in wallet, with signing bound to it.         |
+| `useWalletAuth`                                   | The sign-in, sign-out, and registration slice.          |
+| `useWalletDevices`                                | The linked-device slice.                                |
+| `useDeviceLinking`                                | Runs the approving-device side of a link flow.          |
+| `useNearClient`, `useAccountInput`, `useQRCamera` | Focused integration helpers.                            |
+
+### `useWallet`
+
+Returns `{ status, wallet, near, evm, tempo, walletId, nearAccountId }`.
+`near`, `evm`, and `tempo` are lifted to the top level so the common path is a
+single check:
+
+```tsx [Partial example]
+const { near } = useWallet();
+if (!near) return <SignInButton />;
+
+await near.signAndSendTransaction({
+  receiverId: 'guest-book.testnet',
+  actions: [functionCall({ method: 'set_greeting', args: { greeting: 'hi' } })],
+});
+```
+
+`near` is `null` both when nobody is signed in and when the signed-in wallet has
+no NEAR account. Read `status` — `'signed_out' | 'no_near_account' | 'ready'` —
+when the UI needs to say something different about each.
+
+`useWalletAuth` and `useWalletDevices` are views over the same context, not a
+second one; `useSeams` still exposes everything.
 
 ## Components
 

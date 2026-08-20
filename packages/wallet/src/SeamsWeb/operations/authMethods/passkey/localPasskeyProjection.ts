@@ -194,9 +194,9 @@ export async function persistRecoveredPasskeyLocalProjectionV1(
  * whose key was created in another slot produces a profile that unlocks nothing
  * and fails far from the cause.
  *
- * Writes are ordered so the binding lands last: an auth method referencing an
- * authenticator that is not there yet reads as "no active passkey binding",
- * which is indistinguishable from a genuinely revoked device.
+ * Writes are ordered so the binding lands after the profile and authenticator.
+ * The last-profile pointer lands last so Lock returns to the wallet that was
+ * just linked instead of a wallet previously used by this browser.
  */
 export async function persistFinalizedLinkedOwnerPasskeyV1(args: {
   readonly credential: FinalizedPasskeyAuthMethodV1;
@@ -229,4 +229,8 @@ export async function persistFinalizedLinkedOwnerPasskeyV1(args: {
     syncedAt: new Date(authMethod.updatedAtMs).toISOString(),
   });
   await IndexedDBManager.upsertWalletAuthMethod(authMethod);
+  await IndexedDBManager.setLastProfileStateForProfile(
+    String(localAccount.walletId),
+    localAccount.signerSlot,
+  );
 }

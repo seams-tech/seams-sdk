@@ -15,7 +15,7 @@ import {
   type EmailOtpThresholdEcdsaLoginResult,
   type LoginEmailOtpEcdsaCapabilityArgs,
 } from '@/core/signingEngine/session/emailOtp/ecdsaLogin';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   isEmailOtpWalletAuthAuthority,
   type EmailOtpWalletAuthAuthority,
@@ -81,7 +81,7 @@ function committedEmailOtpLaneFixture(args: {
     participantIds: publicFacts.participantIds,
     thresholdOwnerAddress: publicFacts.ethereumAddress,
   });
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization.projection, 'ecdsa');
+  const walletSessionJwt = walletSessionTokenForCurve(args.authorization.projection, 'ecdsa');
   if (!walletSessionJwt) {
     throw new Error('ECDSA Email OTP fixture is missing its wallet-session JWT');
   }

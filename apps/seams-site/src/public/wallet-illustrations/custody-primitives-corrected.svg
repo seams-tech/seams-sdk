@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">Wallet custody primitives</title>
+  <desc id="desc">Geometrically constructed line illustrations for split-key custody, policy enforcement, scoped credentials, and audit records.</desc>
+  <rect width="1200" height="900" fill="#fff"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M600 42V858M42 450H1158" stroke="#ebe8e4" stroke-width="1" stroke-dasharray="3 7"/>
+
+    <g stroke="#57534e" stroke-width="1.35">
+      <path d="M200 165L270 130L340 165L270 200ZM200 165V285L270 320L340 285V165M270 200V320"/>
+      <path d="M270 200L340 165L410 200L340 235ZM340 235V355L410 320V200M270 200V320L340 355V235"/>
+    </g>
+    <g stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6">
+      <path d="M200 285L270 250L340 285M270 130V250M340 165V285"/>
+      <path d="M270 320L340 285L410 320M340 165V285M410 200V320"/>
+      <path d="M165 147L270 94L445 182M165 147V303L340 391L445 338V182"/>
+    </g>
+    <g fill="#a59f97">
+      <circle cx="165" cy="147" r="2.5"/><circle cx="270" cy="94" r="2.5"/>
+      <circle cx="445" cy="182" r="2.5"/><circle cx="165" cy="303" r="2.5"/>
+      <circle cx="340" cy="391" r="2.5"/><circle cx="445" cy="338" r="2.5"/>
+    </g>
+
+    <g transform="translate(900 226)">
+      <path d="M0-126V150M-156 0H156" stroke="#d6d3d1" stroke-width="1" stroke-dasharray="3 7"/>
+      <path d="M-112-72L0-126L112-72M-112 72L0 150L112 72" stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6"/>
+      <path d="M0-91L92-58V18C92 82 48 120 0 141C-48 120-92 82-92 18V-58Z" stroke="#57534e" stroke-width="1.45"/>
+      <path d="M0-70L72-44V17C72 66 39 96 0 114C-39 96-72 66-72 17V-44Z" stroke="#57534e" stroke-width="1.15"/>
+      <path d="M0-49L52-30V16C52 51 28 73 0 87C-28 73-52 51-52 16V-30Z" stroke="#a59f97" stroke-width="1"/>
+      <path d="M-25 16L-7 34L31-11" stroke="#57534e" stroke-width="1.8"/>
+      <g fill="#a59f97">
+        <circle cx="0" cy="-126" r="2.5"/><circle cx="0" cy="150" r="2.5"/>
+        <circle cx="-156" cy="0" r="2.5"/><circle cx="156" cy="0" r="2.5"/>
+      </g>
+    </g>
+
+    <g transform="translate(270 662)">
+      <path d="M0-110V110M-110 0H276" stroke="#d6d3d1" stroke-width="1" stroke-dasharray="3 7"/>
+      <circle r="72" stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6"/>
+      <circle r="53" stroke="#57534e" stroke-width="1.4"/>
+      <circle r="33" stroke="#57534e" stroke-width="1.2"/>
+      <circle r="13" stroke="#a59f97" stroke-width="1"/>
+      <path d="M53-8H218V18H190V42H166V18H143V36H119V18H53Z" stroke="#57534e" stroke-width="1.4"/>
+      <path d="M53 0H218M72 0L242-94M72 0L242 94" stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6"/>
+      <path d="M242-94A260 260 0 0 1 242 94" stroke="#57534e" stroke-width="1.1"/>
+      <g fill="#a59f97">
+        <circle cx="242" cy="-94" r="2.5"/><circle cx="242" cy="94" r="2.5"/>
+        <circle cx="72" cy="0" r="2.5"/>
+      </g>
+    </g>
+
+    <g transform="translate(780 555)">
+      <path d="M48-28H228V142H48ZM24-14H204V156H24Z" stroke="#a59f97" stroke-width="1"/>
+      <path d="M0 0H180V170H0Z" stroke="#57534e" stroke-width="1.4"/>
+      <g stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6">
+        <path d="M0 0L48-28M180 0L228-28M180 170L228 142M0 170L48 142"/>
+      </g>
+      <g stroke="#57534e" stroke-width="1.05">
+        <path d="M28 42H146M28 63H155M28 84H139M28 105H150M28 126H114"/>
+      </g>
+      <g fill="#fff" stroke="#a59f97" stroke-width="1">
+        <circle cx="14" cy="42" r="3"/><circle cx="14" cy="63" r="3"/>
+        <circle cx="14" cy="84" r="3"/><circle cx="14" cy="105" r="3"/>
+        <circle cx="14" cy="126" r="3"/>
+      </g>
+    </g>
+  </g>
+</svg>

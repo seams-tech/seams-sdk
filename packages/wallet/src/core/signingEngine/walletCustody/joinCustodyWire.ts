@@ -56,6 +56,9 @@ export function joinCustodyWireFromEnvelopeRecord(record: unknown): JoinCustodyW
   if (!isRecord(factor) || !isRecord(binding)) {
     return { ok: false, reason: 'custody envelope is missing its binding' };
   }
+  if (binding.kind !== 'wallet_custody_seed_v1') {
+    return { ok: false, reason: 'generic custody wire rejects non-seed envelopes' };
+  }
 
   const envelopeRevision = record.envelopeRevision;
   if (typeof envelopeRevision !== 'number' || !Number.isInteger(envelopeRevision)) {

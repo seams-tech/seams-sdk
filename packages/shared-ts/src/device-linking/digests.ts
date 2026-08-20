@@ -1,6 +1,11 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
+import {
+  delegatedWalletPermissionNamesV1,
+  type DelegatedWalletAuthorityV1,
+  type DelegatedWalletPermissionV1,
+} from '../authorization/delegatedAuthority';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
@@ -11,6 +16,7 @@ import type {
   LinkedDeviceSessionClaimV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationChildV1,
+  LinkedDeviceEd25519ExportRootPreparationV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetFactorV1,
 } from './contracts';
@@ -118,6 +124,25 @@ function encodeOwnerAuthorization(value: LinkedDeviceOwnerAuthorizationSourceV1)
     text(value.kind, 'ownerAuthorization.kind'),
     text(value.evidenceSetId, 'ownerAuthorization.evidenceSetId'),
   ]);
+}
+
+function encodeDelegatedWalletAuthority(value: DelegatedWalletAuthorityV1): Uint8Array {
+  const encodedPermissions = delegatedWalletPermissionNamesV1(value).map(
+    encodeDelegatedWalletPermission,
+  );
+  return concat([
+    text(value.kind, 'permission.kind'),
+    u32(encodedPermissions.length, 'permission.permissions'),
+    ...encodedPermissions.map(lengthPrefixedPermission),
+  ]);
+}
+
+function encodeDelegatedWalletPermission(permission: DelegatedWalletPermissionV1): Uint8Array {
+  return text(permission, 'permission.permissions.item');
+}
+
+function lengthPrefixedPermission(permission: Uint8Array): Uint8Array {
+  return lp32(permission, 'permission.permissions.item');
 }
 
 function encodeKeyBinding(value: LinkedDeviceEnrollmentKeyBindingV1): Uint8Array {
@@ -229,6 +254,19 @@ function encodeTargetPreparationChild(value: LinkedDeviceTargetPreparationChildV
   ]);
 }
 
+function encodeEd25519ExportRootPreparation(
+  value: LinkedDeviceEd25519ExportRootPreparationV1 | null,
+): Uint8Array {
+  if (value === null) return text('none', 'ed25519ExportRoot.kind');
+  return concat([
+    text(value.kind, 'ed25519ExportRoot.kind'),
+    text(value.walletKeyId, 'ed25519ExportRoot.walletKeyId'),
+    rawDigest(value.applicationBindingDigestB64u, 'ed25519ExportRoot.applicationBindingDigestB64u'),
+    rawPublicKey(value.registeredPublicKeyB64u, 'ed25519ExportRoot.registeredPublicKeyB64u'),
+    u64(value.revocationEpoch, 'ed25519ExportRoot.revocationEpoch'),
+  ]);
+}
+
 export function encodeLinkedDeviceSessionClaimV1(value: LinkedDeviceSessionClaimV1): Uint8Array {
   return concat([
     text(CLAIM_DOMAIN, 'domain'),
@@ -264,9 +302,7 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     text(value.deviceId, 'deviceId'),
     lp32(rawPublicKey(value.linkPublicKeyB64u, 'linkPublicKeyB64u'), 'linkPublicKeyB64u'),
     lp32(rawPublicKey(value.devicePublicKeyB64u, 'devicePublicKeyB64u'), 'devicePublicKeyB64u'),
-    text(value.permission.kind, 'permission.kind'),
-    text(value.permission.administrationScope, 'permission.administrationScope'),
-    text(value.permission.localUserPresence, 'permission.localUserPresence'),
+    lp32(encodeDelegatedWalletAuthority(value.permission), 'permission'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
     lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
@@ -299,6 +335,7 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletId, 'walletId'),
     text(value.enrollmentId, 'enrollmentId'),
     text(value.deviceId, 'deviceId'),
+    lp32(encodeEd25519ExportRootPreparation(value.ed25519ExportRoot), 'ed25519ExportRoot'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     u32(children.length, 'orderedChildren'),

@@ -47,10 +47,10 @@ import {
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type {
   MpcWalletSigningQuotaId,
+  ReusableWalletSessionAuthorizationId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,

@@ -164,8 +164,8 @@ const ed25519HolderShareWithSecpKey: PasskeyCustodySecretBinding = {
 };
 void ed25519HolderShareWithSecpKey;
 
+// @ts-expect-error An owner root cannot carry lane-holder identity fields.
 const retiredEd25519Root: PasskeyCustodySecretBinding = {
-  // @ts-expect-error The retired per-curve owner root branches no longer exist.
   kind: 'ed25519_yao_client_root_v1',
   walletKeyId,
   laneId,

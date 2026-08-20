@@ -66,7 +66,10 @@ import type {
   WalletRegistrationAuthorityInput,
   WalletRevokeAuthMethodResponse,
 } from '../../../../core/registrationContracts';
-import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
 import { parseWalletIdForIntent } from '../registration/d1RegistrationCeremonyRecords';
@@ -657,16 +660,22 @@ export class CloudflareD1WalletAuthMethodService {
         };
       }
       if (ceremony.kind === 'passkey') {
+        const hasWebAuthnRegistration = request.webauthnRegistration !== undefined;
+        const hasCustodyEnvelope = request.custodyEnvelope !== undefined;
+        const linkedFinalizeWithoutCustody =
+          request.authorization.kind === 'linked_device' && !hasCustodyEnvelope;
         if (
-          !('webauthnRegistration' in request) ||
-          !('custodyEnvelope' in request) ||
-          request.webauthnRegistration === undefined ||
-          request.custodyEnvelope === undefined
+          !hasWebAuthnRegistration ||
+          (!hasCustodyEnvelope && !linkedFinalizeWithoutCustody) ||
+          (hasCustodyEnvelope && request.authorization.kind === 'linked_device')
         ) {
           return {
             ok: false,
             code: 'invalid_body',
-            message: 'Passkey add-auth-method finalize requires registration and custody envelope',
+            message:
+              request.authorization.kind === 'linked_device'
+                ? 'Linked-device passkey finalize does not accept a custody envelope'
+                : 'Passkey add-auth-method finalize requires registration and custody envelope',
           };
         }
         const expectedOrigin = toOptionalTrimmedString(
@@ -709,48 +718,50 @@ export class CloudflareD1WalletAuthMethodService {
           };
         }
 
-        let replacementEnvelope;
-        try {
-          replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(request.custodyEnvelope);
-        } catch {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'custodyEnvelope is invalid',
-          };
-        }
-        const expectedCiphertextDigestB64u = base64UrlEncode(
-          await this.sha256Bytes(base64UrlDecode(replacementEnvelope.sealedCustodySecretB64u)),
-        );
-        if (
-          replacementEnvelope.walletId !== walletId ||
-          replacementEnvelope.factor.kind !== 'passkey' ||
-          replacementEnvelope.factor.rpId !== ceremony.passkeyRegistration.rpId ||
-          replacementEnvelope.factor.credentialIdB64u !== credential.credentialIdB64u ||
-          replacementEnvelope.envelopeRevision !== 1 ||
-          replacementEnvelope.lifecycle.state !== 'active' ||
-          replacementEnvelope.envelopeId === ceremony.custodyEnvelope.envelopeId ||
-          replacementEnvelope.ciphertextDigestB64u !== expectedCiphertextDigestB64u
-        ) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'custodyEnvelope is not bound to the verified passkey',
-          };
-        }
-        const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
-          walletId,
-          factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
-        });
-        if (
-          currentEnvelope.kind !== 'active' ||
-          currentEnvelope.envelope.envelopeId !== ceremony.custodyEnvelope.envelopeId
-        ) {
-          return {
-            ok: false,
-            code: 'conflict',
-            message: 'Existing passkey custody changed; retry add-auth-method linking',
-          };
+        let replacementEnvelope: PasskeyCustodyEnvelopeRecord | null = null;
+        if (hasCustodyEnvelope) {
+          try {
+            replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(request.custodyEnvelope);
+          } catch {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'custodyEnvelope is invalid',
+            };
+          }
+          const expectedCiphertextDigestB64u = base64UrlEncode(
+            await this.sha256Bytes(base64UrlDecode(replacementEnvelope.sealedCustodySecretB64u)),
+          );
+          if (
+            replacementEnvelope.walletId !== walletId ||
+            replacementEnvelope.factor.kind !== 'passkey' ||
+            replacementEnvelope.factor.rpId !== ceremony.passkeyRegistration.rpId ||
+            replacementEnvelope.factor.credentialIdB64u !== credential.credentialIdB64u ||
+            replacementEnvelope.envelopeRevision !== 1 ||
+            replacementEnvelope.lifecycle.state !== 'active' ||
+            replacementEnvelope.envelopeId === ceremony.custodyEnvelope.envelopeId ||
+            replacementEnvelope.ciphertextDigestB64u !== expectedCiphertextDigestB64u
+          ) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'custodyEnvelope is not bound to the verified passkey',
+            };
+          }
+          const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
+            walletId,
+            factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
+          });
+          if (
+            currentEnvelope.kind !== 'active' ||
+            currentEnvelope.envelope.envelopeId !== ceremony.custodyEnvelope.envelopeId
+          ) {
+            return {
+              ok: false,
+              code: 'conflict',
+              message: 'Existing passkey custody changed; retry add-auth-method linking',
+            };
+          }
         }
         const authority: RegistrationAuthority = {
           kind: 'passkey',
@@ -822,9 +833,7 @@ export class CloudflareD1WalletAuthMethodService {
           createdAtMs: now,
           expiresAtMs: now + ADD_AUTH_METHOD_FINALIZE_REPLAY_TTL_MS,
         });
-        const link = await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
-          envelope: replacementEnvelope,
-          additionalStatements: [
+        const additionalStatements = [
             this.webAuthnStore.prepareAuthenticatorInsertStatement({
               userId: String(walletId),
               record: {
@@ -843,8 +852,16 @@ export class CloudflareD1WalletAuthMethodService {
             // Last, so the session CAS guard sees `changes()` from its own
             // update rather than from a statement that follows it.
             ...atomicCompanionStatements,
-          ],
-        });
+        ];
+        const link =
+          replacementEnvelope === null
+            ? await this.passkeyCustodyEnvelopes.commitPasskeyFactorWithoutCustodyAtomically({
+                additionalStatements,
+              })
+            : await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
+                envelope: replacementEnvelope,
+                additionalStatements,
+              });
         if (link.kind === 'version_mismatch' || link.kind === 'conflict') {
           return {
             ok: false,

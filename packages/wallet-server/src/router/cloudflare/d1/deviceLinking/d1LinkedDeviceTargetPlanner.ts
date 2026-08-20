@@ -1,4 +1,5 @@
 import type { AuthorizedOperationId } from '@shared/authorization/capabilityKinds';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   LinkedDeviceApprovalV1,
@@ -55,6 +56,7 @@ import type {
 import { parseLaneHolderParticipantId } from '@shared/signing-lanes/participants';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import type { KeyCreationSignerSlot } from '@shared/passkey-custody/primitives';
+import type { Ed25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type { Ed25519YaoSuiteId } from '@shared/signing-lanes/ids';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
@@ -88,7 +90,8 @@ type LinkedDeviceOwnerSourceChildResolutionBaseV1 = {
 type LinkedDeviceOwnerEd25519SourceChildResolutionV1 =
   LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
     readonly keyFamily: 'ed25519';
-    readonly registeredPublicKeyB64u: string;
+    readonly applicationBindingDigestB64u: DigestB64u;
+    readonly registeredPublicKeyB64u: Ed25519PublicKeyB64u;
     readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     readonly keyCreationSignerSlot: KeyCreationSignerSlot;
     readonly stableContextBindingB64u: string;
@@ -191,6 +194,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     }
 
     const children: LinkedDeviceTargetPreparationChildV1[] = [];
+    let ed25519ExportRoot: LinkedDeviceTargetPreparationV1['ed25519ExportRoot'] = null;
     for (
       let childIndex = 0;
       childIndex < input.approval.orderedKeyBindings.length;
@@ -207,6 +211,21 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       });
       assertResolutionMatchesBinding(resolution, binding, childIndex);
       assertResolutionAuthorizationMatchesApproval(resolution.authorization, input.approval);
+      if (
+        resolution.keyFamily === 'ed25519' &&
+        hasDelegatedWalletPermissionV1(input.approval.permission, 'export_keys')
+      ) {
+        if (ed25519ExportRoot !== null) {
+          throw new Error('linked-device approval contains multiple Ed25519 source children');
+        }
+        ed25519ExportRoot = {
+          kind: 'linked_device_ed25519_export_root_preparation_v1',
+          walletKeyId: resolution.walletKeyId,
+          applicationBindingDigestB64u: resolution.applicationBindingDigestB64u,
+          registeredPublicKeyB64u: resolution.registeredPublicKeyB64u,
+          revocationEpoch: resolution.source.revocationEpoch,
+        };
+      }
       children.push({
         kind: 'linked_device_target_preparation_child_v1',
         operationId: createChildOperationId(input.approval.operationId, childIndex),
@@ -227,6 +246,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       walletId: input.approval.walletId,
       enrollmentId: input.approval.enrollmentId,
       deviceId: input.approval.deviceId,
+      ed25519ExportRoot,
       targetFactor: input.approval.targetFactor,
       // The planner no longer mints a relying party, challenge, or user handle
       // of its own. They come from the ceremony Device 1 started during

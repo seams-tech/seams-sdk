@@ -1,5 +1,12 @@
 import { parseWalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import {
+  delegatedWalletPermissionNamesV1,
+  parseDelegatedWalletAuthorityV1 as parseDelegatedWalletAuthorityResult,
+  sameDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+  type DelegatedWalletPermissionV1,
+} from '../authorization/delegatedAuthority';
+import {
   parseAuthorizationEvidenceSetId,
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
@@ -77,14 +84,13 @@ import { decodeJwtPayloadRecord } from '../utils/sessionTokens';
 const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
   'router_ab_ecdsa_derivation_wallet_session_v1';
 const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND = 'router_ab_ed25519_wallet_session_v1';
-import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
-import { parseNearAccountId } from '../utils/near';
-import { normalizeRuntimePolicyScope } from '../threshold/signingRootScope';
-import { requireRouterAbEd25519NormalSigningState } from '../utils/signingSessionSeal';
 import {
-  parseRouterAbEcdsaDerivationPublicCapabilityV1,
-  parseRouterAbEcdsaRegistrationActivationReceiptV1,
-} from '../utils/routerAbEcdsaDerivation';
+  parseEd25519PublicKeyB64u,
+  parseUnixMs,
+  requireRecord,
+  rejectUnknownFields,
+} from '../passkey-custody/primitives';
+import { parseNearAccountId } from '../utils/near';
 import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import {
   assertNeverLinkedDeviceSessionState,
@@ -108,8 +114,6 @@ import {
   type LinkedDeviceSummaryV1,
   type LinkedOwnerCredentialMetadataV1,
   type LinkedDeviceWalletSessionDeliveryV1,
-  type LinkedDeviceEd25519OwnerActivationV1,
-  type LinkedDeviceEcdsaOwnerActivationV1,
   type LinkedDeviceWalletSessionTokenV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
   type LinkedDeviceOwnerAuthorizationRequestV1,
@@ -124,6 +128,7 @@ import {
   type LinkedDeviceSessionTransportEventV1,
   type LinkedDeviceSessionTransportRequestV1,
   type LinkedDeviceTargetCredentialRegistrationV1,
+  type LinkedDeviceEd25519ExportRootPreparationV1,
   type LinkedDeviceEmailOtpVerificationGrantV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   type LinkedDeviceEmailOtpChallengeStartRequestV1,
@@ -138,7 +143,6 @@ import {
   type LinkedDeviceTargetReadyR102InputV1,
   type LinkedDeviceWebAuthnRegistrationV1,
   type LinkDevicePublicKeyB64u,
-  type QrLinkedDevicePermissionRequest,
   type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceTargetFactorV1,
   type LinkedDeviceLocalAccountProjectionV1,
@@ -158,7 +162,7 @@ const QR_FIELDS = [
   'issuedAtMs',
   'expiresAtMs',
 ] as const;
-const COMPACT_QR_FIELDS = ['v', 's', 'l', 'd', 'f', 'i', 'e'] as const;
+const COMPACT_QR_FIELDS = ['v', 's', 'l', 'd', 'a', 'f', 'i', 'e'] as const;
 const OWNER_AUTHORIZATION_REQUEST_FIELDS = [
   'payload',
   'requestedAtMs',
@@ -187,8 +191,6 @@ const LINKED_WALLET_SESSION_DELIVERY_FIELDS = [
   'remainingUses',
   'issuedAtMs',
   'expiresAtMs',
-  'ed25519OwnerActivation',
-  'ecdsaOwnerActivation',
   'orderedTokens',
 ] as const;
 const LINKED_WALLET_SESSION_DELIVERY_WITH_NEAR_FIELDS = [
@@ -223,7 +225,6 @@ const LINKED_WALLET_SESSION_JWT_FIELDS = [
   'exp',
 ] as const;
 const LINKED_WALLET_SESSION_JWT_OPTIONAL_FIELDS = ['iss', 'aud'] as const;
-const PERMISSION_FIELDS = ['kind', 'administrationScope', 'localUserPresence'] as const;
 const CLAIM_REQUEST_FIELDS = ['kind', 'payload'] as const;
 const CLAIM_FIELDS = [
   'kind',
@@ -374,6 +375,7 @@ const TARGET_PREPARATION_FIELDS = [
   'walletId',
   'enrollmentId',
   'deviceId',
+  'ed25519ExportRoot',
   'targetFactor',
   'ownerEnrollment',
   'orderedChildren',
@@ -751,22 +753,33 @@ function nonEmptyTuple<T>(values: readonly T[], label: string): [T, ...T[]] {
   return [first, ...rest];
 }
 
-function parsePermission(
-  raw: unknown,
-  label = 'requestedPermission',
-): QrLinkedDevicePermissionRequest {
-  const record = exactRecord(raw, PERMISSION_FIELDS, label);
-  if (record.kind !== 'owner_equivalent_signing') throw new Error(`${label}.kind is unsupported`);
-  if (record.administrationScope !== 'signing_only') {
-    throw new Error(`${label}.administrationScope is unsupported`);
-  }
-  if (record.localUserPresence !== 'required') {
-    throw new Error(`${label}.localUserPresence is unsupported`);
-  }
+function parseDelegatedWalletAuthority(raw: unknown, label: string): DelegatedWalletAuthorityV1 {
+  const result = parseDelegatedWalletAuthorityResult(raw);
+  if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
+  return result.value;
+}
+
+function delegatedWalletAuthorityWireValue(value: DelegatedWalletAuthorityV1): {
+  readonly kind: DelegatedWalletAuthorityV1['kind'];
+  readonly permissions: readonly DelegatedWalletPermissionV1[];
+} {
   return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
+    kind: value.kind,
+    permissions: [...delegatedWalletPermissionNamesV1(value)],
+  };
+}
+
+function qrPayloadWireValue(payload: QrLinkedDeviceSessionPayloadV5): UnknownRecord {
+  return {
+    version: payload.version,
+    purpose: payload.purpose,
+    linkSessionId: payload.linkSessionId,
+    linkPublicKeyB64u: payload.linkPublicKeyB64u,
+    devicePublicKeyB64u: payload.devicePublicKeyB64u,
+    requestedPermission: delegatedWalletAuthorityWireValue(payload.requestedPermission),
+    targetFactor: payload.targetFactor,
+    issuedAtMs: payload.issuedAtMs,
+    expiresAtMs: payload.expiresAtMs,
   };
 }
 
@@ -894,7 +907,10 @@ function parseLinkedDeviceSummaryRecord(record: UnknownRecord): LinkedDeviceSumm
       record.credential,
       'LinkedDeviceSummaryV1.credential',
     ),
-    permission: parsePermission(record.permission, 'LinkedDeviceSummaryV1.permission'),
+    permission: parseDelegatedWalletAuthority(
+      record.permission,
+      'LinkedDeviceSummaryV1.permission',
+    ),
     keyManifestDigestB64u: parseDigest(
       record.keyManifestDigestB64u,
       'LinkedDeviceSummaryV1.keyManifestDigestB64u',
@@ -1086,269 +1102,6 @@ function parseLinkedDeviceEcdsaChainTarget(raw: unknown, label: string) {
   };
 }
 
-function parseEd25519Bytes32(raw: unknown, label: string): readonly number[] {
-  if (
-    !Array.isArray(raw) ||
-    raw.length !== 32 ||
-    raw.some((value) => !Number.isSafeInteger(value) || value < 0 || value > 255)
-  ) {
-    throw new Error(`${label} must be 32 bytes`);
-  }
-  return raw.map(Number);
-}
-
-export function parseLinkedDeviceEd25519OwnerActivation(
-  raw: unknown,
-  walletId: WalletId,
-): LinkedDeviceEd25519OwnerActivationV1 {
-  const label = 'LinkedDeviceWalletSessionDeliveryV1.ed25519OwnerActivation';
-  const record = requireRecord(raw, label);
-  if (record.kind === 'absent') {
-    exactRecord(record, ['kind'], label);
-    return { kind: 'absent' };
-  }
-  const exact = exactRecord(
-    record,
-    [
-      'kind',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'signerSlot',
-      'signingWorkerId',
-      'thresholdSessionId',
-      'signingRootId',
-      'signingRootVersion',
-      'walletSessionToken',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-      'recoveryBasis',
-    ],
-    label,
-  );
-  if (exact.kind !== 'present') throw new Error(`${label}.kind is invalid`);
-  const recoveryBasis = exactRecord(
-    exact.recoveryBasis,
-    [
-      'materialActivation',
-      'activeCapabilityBinding',
-      'registeredPublicKey',
-      'applicationBinding',
-      'participantIds',
-      'lifecycle',
-    ],
-    `${label}.recoveryBasis`,
-  );
-  const applicationBinding = exactRecord(
-    recoveryBasis.applicationBinding,
-    ['wallet_id', 'near_ed25519_signing_key_id', 'signing_root_id', 'key_creation_signer_slot'],
-    `${label}.recoveryBasis.applicationBinding`,
-  );
-  if (
-    parseWallet(
-      applicationBinding.wallet_id,
-      `${label}.recoveryBasis.applicationBinding.wallet_id`,
-    ) !== walletId
-  ) {
-    throw new Error(`${label} changed wallet identity`);
-  }
-  const participantIds = recoveryBasis.participantIds;
-  if (!Array.isArray(participantIds) || participantIds.length !== 2) {
-    throw new Error(`${label}.recoveryBasis.participantIds is invalid`);
-  }
-  const lifecycle = exactRecord(
-    recoveryBasis.lifecycle,
-    [
-      'lifecycleId',
-      'rootShareEpoch',
-      'accountId',
-      'thresholdSessionId',
-      'signerSetId',
-      'signingWorkerId',
-    ],
-    `${label}.recoveryBasis.lifecycle`,
-  );
-  const materialActivation = parseMpcMaterialActivationRef(recoveryBasis.materialActivation);
-  if (!materialActivation.ok)
-    throw new Error(`${label}.recoveryBasis.materialActivation is invalid`);
-  const nearAccountId = parseNearAccountId(exact.nearAccountId);
-  if (!nearAccountId.ok) throw new Error(`${label}.nearAccountId is invalid`);
-  const nearEd25519SigningKeyId = parseNonEmptyToken(
-    exact.nearEd25519SigningKeyId,
-    `${label}.nearEd25519SigningKeyId`,
-  );
-  const signingWorkerId = parseNonEmptyToken(exact.signingWorkerId, `${label}.signingWorkerId`);
-  const thresholdSessionId = parseNonEmptyToken(
-    exact.thresholdSessionId,
-    `${label}.thresholdSessionId`,
-  );
-  if (
-    applicationBinding.near_ed25519_signing_key_id !== nearEd25519SigningKeyId ||
-    lifecycle.thresholdSessionId !== thresholdSessionId ||
-    lifecycle.signingWorkerId !== signingWorkerId
-  ) {
-    throw new Error(`${label} contains conflicting signer identity`);
-  }
-  return {
-    kind: 'present',
-    nearAccountId: nearAccountId.value,
-    nearEd25519SigningKeyId,
-    signerSlot: parsePositiveSafeInteger(exact.signerSlot, `${label}.signerSlot`),
-    signingWorkerId,
-    thresholdSessionId,
-    signingRootId: parseNonEmptyToken(exact.signingRootId, `${label}.signingRootId`),
-    signingRootVersion: parseNonEmptyToken(exact.signingRootVersion, `${label}.signingRootVersion`),
-    walletSessionToken: parseNonEmptyToken(exact.walletSessionToken, `${label}.walletSessionToken`),
-    runtimePolicyScope: normalizeRuntimePolicyScope(exact.runtimePolicyScope),
-    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(exact.routerAbNormalSigning),
-    recoveryBasis: {
-      materialActivation: materialActivation.value,
-      activeCapabilityBinding: parseEd25519Bytes32(
-        recoveryBasis.activeCapabilityBinding,
-        `${label}.recoveryBasis.activeCapabilityBinding`,
-      ),
-      registeredPublicKey: parseEd25519Bytes32(
-        recoveryBasis.registeredPublicKey,
-        `${label}.recoveryBasis.registeredPublicKey`,
-      ),
-      applicationBinding: {
-        wallet_id: walletId,
-        near_ed25519_signing_key_id: nearEd25519SigningKeyId,
-        signing_root_id: parseNonEmptyToken(
-          applicationBinding.signing_root_id,
-          `${label}.recoveryBasis.applicationBinding.signing_root_id`,
-        ),
-        key_creation_signer_slot: parsePositiveSafeInteger(
-          applicationBinding.key_creation_signer_slot,
-          `${label}.recoveryBasis.applicationBinding.key_creation_signer_slot`,
-        ),
-      },
-      participantIds: [
-        parsePositiveSafeInteger(participantIds[0], `${label}.recoveryBasis.participantIds[0]`),
-        parsePositiveSafeInteger(participantIds[1], `${label}.recoveryBasis.participantIds[1]`),
-      ],
-      lifecycle: {
-        lifecycleId: parseNonEmptyToken(
-          lifecycle.lifecycleId,
-          `${label}.recoveryBasis.lifecycle.lifecycleId`,
-        ),
-        rootShareEpoch: parseNonEmptyToken(
-          lifecycle.rootShareEpoch,
-          `${label}.recoveryBasis.lifecycle.rootShareEpoch`,
-        ),
-        accountId: parseNonEmptyToken(
-          lifecycle.accountId,
-          `${label}.recoveryBasis.lifecycle.accountId`,
-        ),
-        thresholdSessionId,
-        signerSetId: parseNonEmptyToken(
-          lifecycle.signerSetId,
-          `${label}.recoveryBasis.lifecycle.signerSetId`,
-        ),
-        signingWorkerId,
-      },
-    },
-  };
-}
-
-export function parseLinkedDeviceEcdsaOwnerActivation(
-  raw: unknown,
-  walletId: WalletId,
-): LinkedDeviceEcdsaOwnerActivationV1 {
-  const label = 'LinkedDeviceWalletSessionDeliveryV1.ecdsaOwnerActivation';
-  const record = requireRecord(raw, label);
-  if (record.kind === 'absent') {
-    exactRecord(record, ['kind'], label);
-    return { kind: 'absent' };
-  }
-  const exact = exactRecord(record, ['kind', 'signers'], label);
-  if (exact.kind !== 'present' || !Array.isArray(exact.signers)) {
-    throw new Error(`${label} is invalid`);
-  }
-  const signers = exact.signers.map((rawSigner, index) => {
-    const signerLabel = `${label}.signers[${index}]`;
-    const signer = exactRecord(
-      rawSigner,
-      ['chainTarget', 'walletKey', 'activationReceipt', 'runtimePolicyScope'],
-      signerLabel,
-    );
-    const walletKey = exactRecord(
-      signer.walletKey,
-      [
-        'walletId',
-        'keyHandle',
-        'ecdsaThresholdKeyId',
-        'signingRootId',
-        'signingRootVersion',
-        'relayerKeyId',
-        'contextBinding32B64u',
-        'derivationClientSharePublicKey33B64u',
-        'participantIds',
-        'publicCapability',
-      ],
-      `${signerLabel}.walletKey`,
-    );
-    const parsedWalletId = parseWallet(walletKey.walletId, `${signerLabel}.walletKey.walletId`);
-    if (parsedWalletId !== walletId) throw new Error(`${signerLabel} changed wallet identity`);
-    if (!Array.isArray(walletKey.participantIds) || walletKey.participantIds.length !== 2) {
-      throw new Error(`${signerLabel}.walletKey.participantIds is invalid`);
-    }
-    return {
-      chainTarget: parseLinkedDeviceEcdsaChainTarget(
-        signer.chainTarget,
-        `${signerLabel}.chainTarget`,
-      ),
-      walletKey: {
-        walletId: parsedWalletId,
-        keyHandle: parseNonEmptyToken(walletKey.keyHandle, `${signerLabel}.walletKey.keyHandle`),
-        ecdsaThresholdKeyId: parseNonEmptyToken(
-          walletKey.ecdsaThresholdKeyId,
-          `${signerLabel}.walletKey.ecdsaThresholdKeyId`,
-        ),
-        signingRootId: parseNonEmptyToken(
-          walletKey.signingRootId,
-          `${signerLabel}.walletKey.signingRootId`,
-        ),
-        signingRootVersion: parseNonEmptyToken(
-          walletKey.signingRootVersion,
-          `${signerLabel}.walletKey.signingRootVersion`,
-        ),
-        relayerKeyId: parseNonEmptyToken(
-          walletKey.relayerKeyId,
-          `${signerLabel}.walletKey.relayerKeyId`,
-        ),
-        contextBinding32B64u: parseCanonicalFixedBase64UrlBytes(
-          walletKey.contextBinding32B64u,
-          32,
-          `${signerLabel}.walletKey.contextBinding32B64u`,
-        ),
-        derivationClientSharePublicKey33B64u: parseCanonicalFixedBase64UrlBytes(
-          walletKey.derivationClientSharePublicKey33B64u,
-          33,
-          `${signerLabel}.walletKey.derivationClientSharePublicKey33B64u`,
-        ),
-        participantIds: [
-          parsePositiveSafeInteger(
-            walletKey.participantIds[0],
-            `${signerLabel}.walletKey.participantIds[0]`,
-          ),
-          parsePositiveSafeInteger(
-            walletKey.participantIds[1],
-            `${signerLabel}.walletKey.participantIds[1]`,
-          ),
-        ] as const,
-        publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
-          walletKey.publicCapability,
-        ),
-      },
-      activationReceipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(
-        signer.activationReceipt,
-      ),
-      runtimePolicyScope: normalizeRuntimePolicyScope(signer.runtimePolicyScope),
-    };
-  });
-  return { kind: 'present', signers: nonEmptyTuple(signers, `${label}.signers`) };
-}
-
 export function parseLinkedDeviceWalletSessionDeliveryV1(
   raw: unknown,
 ): LinkedDeviceWalletSessionDeliveryV1 {
@@ -1404,7 +1157,7 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
       record.keyManifestDigestB64u,
       'LinkedDeviceWalletSessionDeliveryV1.keyManifestDigestB64u',
     ),
-    permission: parsePermission(
+    permission: parseDelegatedWalletAuthority(
       record.permission,
       'LinkedDeviceWalletSessionDeliveryV1.permission',
     ),
@@ -1418,14 +1171,6 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
     ),
     issuedAtMs,
     expiresAtMs,
-    ed25519OwnerActivation: parseLinkedDeviceEd25519OwnerActivation(
-      record.ed25519OwnerActivation,
-      parseWallet(record.walletId, 'LinkedDeviceWalletSessionDeliveryV1.walletId'),
-    ),
-    ecdsaOwnerActivation: parseLinkedDeviceEcdsaOwnerActivation(
-      record.ecdsaOwnerActivation,
-      parseWallet(record.walletId, 'LinkedDeviceWalletSessionDeliveryV1.walletId'),
-    ),
   };
   if (!Array.isArray(record.orderedTokens)) {
     throw new Error('LinkedDeviceWalletSessionDeliveryV1.orderedTokens must be an array');
@@ -1543,12 +1288,11 @@ function parseLinkedDeviceWalletSessionTokenV1(
   ) {
     throw new Error(`${label}.walletSessionJwt identity does not match its delivery`);
   }
-  const permission = parsePermission(claims.permission, `${label}.walletSessionJwt.permission`);
-  if (
-    permission.kind !== expected.permission.kind ||
-    permission.administrationScope !== expected.permission.administrationScope ||
-    permission.localUserPresence !== expected.permission.localUserPresence
-  ) {
+  const permission = parseDelegatedWalletAuthority(
+    claims.permission,
+    `${label}.walletSessionJwt.permission`,
+  );
+  if (!sameDelegatedWalletAuthorityV1(permission, expected.permission)) {
     throw new Error(`${label}.walletSessionJwt permission does not match its delivery`);
   }
   return {
@@ -1616,7 +1360,10 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
       record.devicePublicKeyB64u,
       'QrLinkedDeviceSessionPayloadV5.devicePublicKeyB64u',
     ),
-    requestedPermission: parsePermission(record.requestedPermission),
+    requestedPermission: parseDelegatedWalletAuthority(
+      record.requestedPermission,
+      'QrLinkedDeviceSessionPayloadV5.requestedPermission',
+    ),
     targetFactor: parseTargetFactor(
       record.targetFactor,
       'QrLinkedDeviceSessionPayloadV5.targetFactor',
@@ -1633,12 +1380,13 @@ export function parseQrLinkedDeviceSessionPayloadV5(raw: unknown): QrLinkedDevic
 export function serializeQrLinkedDeviceSessionPayloadV5(
   payload: QrLinkedDeviceSessionPayloadV5,
 ): string {
-  const parsed = parseQrLinkedDeviceSessionPayloadV5(payload);
+  const parsed = parseQrPayloadRecord(qrPayloadWireValue(payload));
   return JSON.stringify({
     v: 5,
     s: parsed.linkSessionId,
     l: parsed.linkPublicKeyB64u,
     d: parsed.devicePublicKeyB64u,
+    a: delegatedWalletAuthorityWireValue(parsed.requestedPermission),
     f: parsed.targetFactor.kind === 'passkey_prf' ? 'p' : 'e',
     i: parsed.issuedAtMs,
     e: parsed.expiresAtMs,
@@ -1663,7 +1411,7 @@ export function parseQrLinkedDeviceSessionTextV5(raw: string): QrLinkedDeviceSes
     linkSessionId: compact.s,
     linkPublicKeyB64u: compact.l,
     devicePublicKeyB64u: compact.d,
-    requestedPermission: buildQrLinkedDevicePermissionRequest(),
+    requestedPermission: compact.a,
     targetFactor: { kind: compact.f === 'p' ? 'passkey_prf' : 'email_otp' },
     issuedAtMs: compact.i,
     expiresAtMs: compact.e,
@@ -2309,7 +2057,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
     deviceId: parseDeviceId(record.deviceId, `${label}.deviceId`),
     linkPublicKeyB64u: parsePublicKey(record.linkPublicKeyB64u, `${label}.linkPublicKeyB64u`),
     devicePublicKeyB64u: parsePublicKey(record.devicePublicKeyB64u, `${label}.devicePublicKeyB64u`),
-    permission: parsePermission(record.permission, `${label}.permission`),
+    permission: parseDelegatedWalletAuthority(record.permission, `${label}.permission`),
     targetFactor: parseTargetFactor(record.targetFactor, `${label}.targetFactor`),
     ownerAuthorization: parseLinkedDeviceOwnerAuthorizationSourceV1(
       record.ownerAuthorization,
@@ -3025,6 +2773,9 @@ export function parseLinkedDeviceTargetPreparationV1(
     throw new Error('LinkedDeviceTargetPreparationV1.expiresAtMs must follow issuedAtMs');
   }
   const ownerEnrollment = parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
+  const ed25519ExportRoot = parseLinkedDeviceEd25519ExportRootPreparationV1(
+    record.ed25519ExportRoot,
+  );
   const targetFactor = parseTargetFactor(
     record.targetFactor,
     'LinkedDeviceTargetPreparationV1.targetFactor',
@@ -3049,6 +2800,7 @@ export function parseLinkedDeviceTargetPreparationV1(
       'LinkedDeviceTargetPreparationV1.enrollmentId',
     ),
     deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceTargetPreparationV1.deviceId'),
+    ed25519ExportRoot,
     orderedChildren,
     issuedAtMs,
     expiresAtMs,
@@ -3066,6 +2818,41 @@ export function parseLinkedDeviceTargetPreparationV1(
     return { ...base, targetFactor, ownerEnrollment };
   }
   throw new Error('LinkedDeviceTargetPreparationV1 target factor differs from owner enrollment');
+}
+
+function parseLinkedDeviceEd25519ExportRootPreparationV1(
+  raw: unknown,
+): LinkedDeviceEd25519ExportRootPreparationV1 | null {
+  if (raw === null) return null;
+  const record = exactRecord(
+    raw,
+    ['kind', 'walletKeyId', 'applicationBindingDigestB64u', 'registeredPublicKeyB64u', 'revocationEpoch'],
+    'LinkedDeviceTargetPreparationV1.ed25519ExportRoot',
+  );
+  if (record.kind !== 'linked_device_ed25519_export_root_preparation_v1') {
+    throw new Error(
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.kind is invalid',
+    );
+  }
+  return {
+    kind: 'linked_device_ed25519_export_root_preparation_v1',
+    walletKeyId: parseWalletKey(
+      record.walletKeyId,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.walletKeyId',
+    ),
+    applicationBindingDigestB64u: parseDigest(
+      record.applicationBindingDigestB64u,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.applicationBindingDigestB64u',
+    ),
+    registeredPublicKeyB64u: parseEd25519PublicKeyB64u(
+      record.registeredPublicKeyB64u,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.registeredPublicKeyB64u',
+    ),
+    revocationEpoch: parseNonNegativeSafeInteger(
+      record.revocationEpoch,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.revocationEpoch',
+    ),
+  };
 }
 
 function assertUniqueTargetPreparationChildren(
@@ -3693,18 +3480,11 @@ export function parseLinkedDeviceSessionTransportEventV1(
   };
 }
 
-export function buildQrLinkedDevicePermissionRequest(): QrLinkedDevicePermissionRequest {
-  return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
-  };
-}
-
 export function buildQrLinkedDeviceSessionPayloadV5(args: {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+  readonly requestedPermission: DelegatedWalletAuthorityV1;
   readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -3718,7 +3498,10 @@ export function buildQrLinkedDeviceSessionPayloadV5(args: {
     linkSessionId: args.linkSessionId,
     linkPublicKeyB64u: args.linkPublicKeyB64u,
     devicePublicKeyB64u: args.devicePublicKeyB64u,
-    requestedPermission: buildQrLinkedDevicePermissionRequest(),
+    requestedPermission: parseDelegatedWalletAuthority(
+      delegatedWalletAuthorityWireValue(args.requestedPermission),
+      'QrLinkedDeviceSessionPayloadV5.requestedPermission',
+    ),
     targetFactor: parseTargetFactor(
       args.targetFactor,
       'QrLinkedDeviceSessionPayloadV5.targetFactor',
@@ -4148,7 +3931,6 @@ const OWNER_FINALIZE_REQUEST_FIELDS = [
   'kind',
   'addAuthMethodCeremonyId',
   'webauthnRegistration',
-  'custodyEnvelope',
 ] as const;
 
 export function parseLinkedDeviceOwnerFinalizeRequestV1(
@@ -4174,7 +3956,6 @@ export function parseLinkedDeviceOwnerFinalizeRequestV1(
     kind: 'linked_device_owner_finalize_request_v1',
     addAuthMethodCeremonyId,
     webauthnRegistration: parseLinkedDeviceWebAuthnRegistrationV1(record.webauthnRegistration),
-    custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
   };
 }
 

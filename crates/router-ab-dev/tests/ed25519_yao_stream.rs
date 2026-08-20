@@ -23,7 +23,7 @@ use signer_core::ed25519_yao_derivation::{
     derive_ed25519_yao_deriver_b_server_contribution_v1, Ed25519YaoApplicationBindingFactsV1,
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
-    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientDerivationRootV1,
+    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientRootV1,
     Ed25519YaoDeriverAClientContributionV1, Ed25519YaoDeriverADerivationRootV1,
     Ed25519YaoDeriverAServerContributionV1, Ed25519YaoDeriverBClientContributionV1,
     Ed25519YaoDeriverBDerivationRootV1, Ed25519YaoDeriverBServerContributionV1,
@@ -92,7 +92,7 @@ fn derived_contributions() -> (
     );
     let context = Ed25519YaoStableKeyDerivationContextV1::new(application.digest(), 1, 2)
         .expect("stable context");
-    let client_root = Ed25519YaoClientDerivationRootV1::from_secret_bytes([0x11; 32]);
+    let client_root = Ed25519YaoClientRootV1::from_secret_bytes([0x11; 32]);
     let deriver_a_root = Ed25519YaoDeriverADerivationRootV1::from_secret_bytes([0x22; 32]);
     let deriver_b_root = Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes([0x33; 32]);
     let (client_a, client_b) = derive_ed25519_yao_client_contributions_v1(&client_root, &context)

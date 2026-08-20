@@ -19,7 +19,6 @@ import type {
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWalletSessionTokenV1,
-  LinkedDeviceEd25519OwnerActivationV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
@@ -58,20 +57,24 @@ import {
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
-  parseLinkedDeviceCustodyTransferRecipientV1,
-  parseLinkedDeviceCustodyTransferSubmissionV1,
-} from '@shared/device-linking/custodyTransfer';
+  parseLinkedDeviceEd25519ExportRootRecipientV1,
+  parseLinkedDeviceEd25519ExportRootSubmissionV1,
+} from '@shared/device-linking/ed25519ExportRoot';
 import type {
-  LinkedDeviceCustodyTransferPortV1,
-  LinkedDeviceCustodyTransferWriteResultV1,
-} from '../../../../core/deviceLinking/linkedDeviceCustodyTransfer';
+  LinkedDeviceEd25519ExportRootPortV1,
+  LinkedDeviceEd25519ExportRootWriteResultV1,
+} from '../../../../core/deviceLinking/linkedDeviceEd25519ExportRoot';
 import { alphabetizeStringify, sha256Bytes } from '@shared/utils/digests';
+import {
+  hasDelegatedWalletPermissionV1,
+  sameDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 import type {
   LinkedDeviceSessionRecordV1,
   LinkedDeviceSessionState,
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
-  LinkedDeviceRecoveryContinuationV1,
   LinkedOwnerEnrollmentCompletionRefusalV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { LinkedDeviceOwnerAuthorizationContextV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
@@ -130,41 +133,6 @@ export type DeviceLinkingOwnerRequestInputV1 = {
   /** SHA-256 of the exact request body bytes, computed before authentication. */
   readonly bodyDigestB64u: DigestB64u;
   readonly requestedAtMs: number;
-};
-
-export type DeviceLinkingOperatorRequestInputV1 = {
-  readonly request: Request;
-  readonly method: string;
-  readonly pathname: string;
-  /** SHA-256 of the exact request body bytes, computed before authentication. */
-  readonly bodyDigestB64u: DigestB64u;
-  readonly requestedAtMs: number;
-};
-
-export type DeviceLinkingOperatorRequestBindingV1 = {
-  readonly kind: 'linked_device_operator_request_binding_v1';
-  readonly method: 'GET' | 'POST';
-  readonly pathname: string;
-  readonly bodyDigestB64u: DigestB64u;
-  readonly expiresAtMs: number;
-};
-
-export type DeviceLinkingOperatorAuthenticatedRequestV1 = {
-  readonly kind: 'authorized';
-  /** Operator auth owns the request body read and binds it to its authority. */
-  readonly body: unknown;
-  readonly binding: DeviceLinkingOperatorRequestBindingV1;
-};
-
-/**
- * Operator recovery is intentionally a separate authority boundary from owner
- * and Device 2 authentication. The existing retry adapter performs the
- * durable committed-delivery mutation once this authority has authenticated.
- */
-export type DeviceLinkingOperatorRecoveryProviderV1 = {
-  authenticateOperatorRecoveryRequestV1(
-    input: DeviceLinkingOperatorRequestInputV1,
-  ): Promise<DeviceLinkingOperatorAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
 };
 
 /** Signed Device2 proof. The verifier must reject a nonce replay durably. */
@@ -347,7 +315,6 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'recordOwnerApprovalV1'
     | 'recordTargetCredentialV1'
     | 'recordEmailOtpChallengeStateV1'
-    | 'bindRecoveryContinuationV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
   > & {
@@ -391,7 +358,6 @@ export type DeviceLinkingRouteServiceV1 = {
   finalizeLinkedOwnerEnrollmentV1(input: {
     readonly addAuthMethodCeremonyId: string;
     readonly webauthnRegistration: unknown;
-    readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly admission: LinkedOwnerEnrollmentAdmissionV1;
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
@@ -425,8 +391,6 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<DeviceLinkingRouteMutationResultV1>;
-  /** Optional only when the operator-recovery route is intentionally disabled. */
-  readonly operatorRecovery?: DeviceLinkingOperatorRecoveryProviderV1;
   readWalletSessionAuthorizationV1(input: {
     readonly session: Extract<
       LinkedDeviceSessionRecordV1,
@@ -459,22 +423,11 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly walletId: LinkedDeviceApprovalV1['walletId'];
     readonly walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'];
   }): Promise<string>;
-  resolveEd25519OwnerActivationV1(input: {
-    readonly walletId: LinkedDeviceApprovalV1['walletId'];
-    readonly walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'];
-    readonly walletSessionToken: string;
-  }): Promise<LinkedDeviceEd25519OwnerActivationV1>;
   readonly provisioning: DeviceLinkingProvisioningProviderV1;
   readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
   /** Owner-authenticated R102 source handoff and Device2 refetch source. */
   readonly sourceHandoff: DeviceLinkingOwnerSourceHandoffProviderV1;
-  /**
-   * Optional only while the Phase 8 owner-credential cutover is landing. A
-   * deployment without it serves the temporary signing-only path and answers
-   * the custody-transfer routes with `not_supported` rather than 404, so a
-   * Device 2 that expects them fails with a diagnosable reason.
-   */
-  readonly custodyTransfer?: LinkedDeviceCustodyTransferPortV1;
+  readonly ed25519ExportRoot?: LinkedDeviceEd25519ExportRootPortV1;
 };
 
 type DeviceLinkingCreateRequestV1 = {
@@ -524,10 +477,10 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       });
     if (action.kind === 'email-otp-verify')
       return await handleEmailOtpVerify(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'custody-transfer-recipient')
-      return await handleCustodyTransferRecipient(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'custody-transfer')
-      return await handleCustodyTransfer(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'ed25519-export-root-recipient')
+      return await handleEd25519ExportRootRecipient(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'ed25519-export-root')
+      return await handleEd25519ExportRoot(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'receipt')
       return await handleReceipt(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'wallet-session')
@@ -536,8 +489,6 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleWalletSessionRenewal(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'retry')
       return await handleRetry(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'operator-recovery')
-      return await handleOperatorRecovery(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'cancel')
       return await handleCancel(ctx, service, action.linkSessionId, nowMs);
     return null;
@@ -1213,7 +1164,6 @@ async function handleOwnerFinalize(
     webauthnRegistration: linkedDeviceWebAuthnRegistrationCredentialV1(
       request.webauthnRegistration,
     ),
-    custodyEnvelope: request.custodyEnvelope,
     admission: admitted.admission,
     linkSessionId: session.linkSessionId,
     expectedRevision: session.revision,
@@ -1392,49 +1342,65 @@ async function handleReceipt(
 }
 
 /**
- * The recipient key Device 1 seals the wallet custody seed to.
+ * The recipient key Device 1 seals the Ed25519 Yao Client export root to.
  *
  * POST is Device 2 publishing it — device-authenticated, because only the
  * device holding the link identity key may say where its own seed should go.
  * GET is Device 1 reading it before sealing, and is owner-authenticated
  * against the claimed session for the same reason the approval route is.
  */
-async function handleCustodyTransferRecipient(
+async function handleEd25519ExportRootRecipient(
   ctx: FetchRouterApiContext,
   service: DeviceLinkingRouteServiceV1,
   rawLinkSessionId: string,
   nowMs: number,
 ): Promise<Response> {
-  const custodyTransfer = service.custodyTransfer;
-  if (!custodyTransfer) return custodyTransferUnsupportedResponse();
+  const ed25519ExportRoot = service.ed25519ExportRoot;
+  if (!ed25519ExportRoot) return exportRootUnsupportedResponse();
   if (ctx.method === 'GET') {
     const owner = await authenticateOwnerForSession(ctx, service, rawLinkSessionId, nowMs);
     if (owner.kind !== 'authorized') return ownerSessionAuthResponse(owner);
-    const transfer = await custodyTransfer.readTransferV1(owner.linkSessionId);
+    const parentAuthorization = authorizeExportRootParentAuthorityV1(owner.permission);
+    if (parentAuthorization.kind === 'denied') {
+      return exportRootPermissionDeniedResponse(parentAuthorization.message);
+    }
+    const childAuthorization = authorizeExportRootChildAuthorityV1(owner.session);
+    if (childAuthorization.kind === 'denied') {
+      return exportRootPermissionDeniedResponse(childAuthorization.message);
+    }
+    const approval = childAuthorization.approval;
+    const transfer = await ed25519ExportRoot.readTransferV1(owner.linkSessionId);
     if (!transfer) return new Response(null, { status: 204 });
+    assertEd25519ExportRootWalletKeyIdV1(transfer.recipient.walletKeyId, approval);
     return json(transfer.recipient, { status: 200 });
   }
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
+  const childAuthorization = authorizeExportRootChildAuthorityV1(authenticated.session);
+  if (childAuthorization.kind === 'denied') {
+    return exportRootPermissionDeniedResponse(childAuthorization.message);
+  }
+  const approval = childAuthorization.approval;
   const recipient = parseBoundary(() =>
-    parseLinkedDeviceCustodyTransferRecipientV1(authenticated.body),
+    parseLinkedDeviceEd25519ExportRootRecipientV1(authenticated.body),
   );
   if (recipient.linkSessionId !== String(authenticated.linkSessionId))
     return invalidInputResponse('link session id does not match route');
   if (recipient.registeredAtMs > nowMs)
-    return invalidInputResponse('custody transfer recipient is from the future');
-  const identity = requireClaimedTransferIdentity(authenticated.session);
+    return invalidInputResponse('export-root recipient is from the future');
+  const identity = requireClaimedExportRootIdentity(authenticated.session);
   if (
     !identity ||
     identity.walletId !== recipient.walletId ||
     identity.enrollmentId !== recipient.enrollmentId ||
     identity.deviceId !== recipient.deviceId
   ) {
-    return invalidInputResponse('custody transfer recipient binding does not match session');
+    return invalidInputResponse('export-root recipient binding does not match session');
   }
-  return custodyTransferWriteResponse(await custodyTransfer.registerRecipientV1({ recipient }));
+  assertEd25519ExportRootWalletKeyIdV1(recipient.walletKeyId, approval);
+  return exportRootWriteResponse(await ed25519ExportRoot.registerRecipientV1({ recipient }));
 }
 
 /**
@@ -1446,44 +1412,62 @@ async function handleCustodyTransferRecipient(
  * ciphertext plus public routing facts, and the recipient private key never
  * leaves Device 2's custody module.
  */
-async function handleCustodyTransfer(
+async function handleEd25519ExportRoot(
   ctx: FetchRouterApiContext,
   service: DeviceLinkingRouteServiceV1,
   rawLinkSessionId: string,
   nowMs: number,
 ): Promise<Response> {
-  const custodyTransfer = service.custodyTransfer;
-  if (!custodyTransfer) return custodyTransferUnsupportedResponse();
+  const ed25519ExportRoot = service.ed25519ExportRoot;
+  if (!ed25519ExportRoot) return exportRootUnsupportedResponse();
   if (ctx.method === 'GET') {
     const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
     if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
     if (authenticated.kind === 'not_found') return notFoundResponse();
-    const transfer = await custodyTransfer.readTransferV1(authenticated.linkSessionId);
+    const childAuthorization = authorizeExportRootChildAuthorityV1(authenticated.session);
+    if (childAuthorization.kind === 'denied') {
+      return exportRootPermissionDeniedResponse(childAuthorization.message);
+    }
+    const approval = childAuthorization.approval;
+    const transfer = await ed25519ExportRoot.readTransferV1(authenticated.linkSessionId);
     if (!transfer || transfer.state !== 'sealed') return new Response(null, { status: 204 });
+    assertEd25519ExportRootWalletKeyIdV1(transfer.package.walletKeyId, approval);
     return json(transfer.package, { status: 200 });
   }
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const owner = await authenticateOwnerForSession(ctx, service, rawLinkSessionId, nowMs);
   if (owner.kind !== 'authorized') return ownerSessionAuthResponse(owner);
-  const submission = parseBoundary(() => parseLinkedDeviceCustodyTransferSubmissionV1(owner.body));
+  const parentAuthorization = authorizeExportRootParentAuthorityV1(owner.permission);
+  if (parentAuthorization.kind === 'denied') {
+    return exportRootPermissionDeniedResponse(parentAuthorization.message);
+  }
+  const childAuthorization = authorizeExportRootChildAuthorityV1(owner.session);
+  if (childAuthorization.kind === 'denied') {
+    return exportRootPermissionDeniedResponse(childAuthorization.message);
+  }
+  const approval = childAuthorization.approval;
+  const submission = parseBoundary(() =>
+    parseLinkedDeviceEd25519ExportRootSubmissionV1(owner.body),
+  );
   if (submission.linkSessionId !== String(owner.linkSessionId))
     return invalidInputResponse('link session id does not match route');
   if (submission.package.sealedAtMs > nowMs)
-    return invalidInputResponse('custody transfer package is from the future');
-  const identity = requireClaimedTransferIdentity(owner.session);
+    return invalidInputResponse('export-root package is from the future');
+  const identity = requireClaimedExportRootIdentity(owner.session);
   if (
     !identity ||
     identity.walletId !== submission.package.walletId ||
     identity.enrollmentId !== submission.package.enrollmentId ||
     identity.deviceId !== submission.package.deviceId
   ) {
-    return invalidInputResponse('custody transfer package binding does not match session');
+    return invalidInputResponse('export-root package binding does not match session');
   }
   if (owner.walletId !== submission.package.walletId) {
-    return invalidInputResponse('custody transfer package names another wallet');
+    return invalidInputResponse('export-root package names another wallet');
   }
-  return custodyTransferWriteResponse(
-    await custodyTransfer.submitPackageV1({
+  assertEd25519ExportRootWalletKeyIdV1(submission.package.walletKeyId, approval);
+  return exportRootWriteResponse(
+    await ed25519ExportRoot.submitPackageV1({
       linkSessionId: owner.linkSessionId,
       package: submission.package,
     }),
@@ -1495,6 +1479,7 @@ type DeviceLinkingOwnerSessionContextV1 =
       readonly kind: 'authorized';
       readonly body: unknown;
       readonly walletId: WalletId;
+      readonly permission: LinkedDeviceOwnerAuthorizationContextV1['permission'];
       readonly linkSessionId: LinkDeviceSessionId;
       readonly session: LinkedDeviceSessionRecordV1;
     }
@@ -1524,6 +1509,7 @@ async function authenticateOwnerForSession(
     kind: 'authorized',
     body: authenticated.body,
     walletId: authenticated.owner.walletId,
+    permission: authenticated.owner.permission,
     linkSessionId,
     session,
   };
@@ -1535,11 +1521,61 @@ function ownerSessionAuthResponse(
   return context.kind === 'denied' ? authDeniedResponse(context) : notFoundResponse();
 }
 
+function authorizeExportRootChildAuthorityV1(
+  session: LinkedDeviceSessionRecordV1,
+):
+  | { readonly kind: 'authorized'; readonly approval: LinkedDeviceApprovalV1 }
+  | { readonly kind: 'denied'; readonly message: string } {
+  const approval = session.approvalTranscript?.value;
+  if (!approval) {
+    return { kind: 'denied', message: 'export-root relay requires an approved link session' };
+  }
+  assertApprovalMatchesPersistedSession(session, approval);
+  if (!hasDelegatedWalletPermissionV1(approval.permission, 'export_keys')) {
+    return { kind: 'denied', message: 'export-root relay requires export_keys permission' };
+  }
+  if (!approval.orderedKeyBindings.some((binding) => binding.keyFamily === 'ed25519')) {
+    return { kind: 'denied', message: 'export-root relay requires an Ed25519 enrollment child' };
+  }
+  return { kind: 'authorized', approval };
+}
+
+function authorizeExportRootParentAuthorityV1(
+  permission: DelegatedWalletAuthorityV1,
+): { readonly kind: 'authorized' } | { readonly kind: 'denied'; readonly message: string } {
+  if (!hasDelegatedWalletPermissionV1(permission, 'link_devices')) {
+    return { kind: 'denied', message: 'export-root publication requires link_devices permission' };
+  }
+  return { kind: 'authorized' };
+}
+
+function exportRootPermissionDeniedResponse(message: string): Response {
+  return json(
+    { ok: false, outcome: 'unauthorized', code: 'unauthorized', message },
+    { status: 403 },
+  );
+}
+
+function assertEd25519ExportRootWalletKeyIdV1(
+  walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'],
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (
+    !approval.orderedKeyBindings.some(
+      (binding) => binding.keyFamily === 'ed25519' && binding.walletKeyId === walletKeyId,
+    )
+  ) {
+    throw new DeviceLinkingInputError(
+      'export-root package wallet key is not an approved Ed25519 enrollment child',
+    );
+  }
+}
+
 /**
  * The claim and the approval must already agree before a transfer identity is
  * usable; an unclaimed session has no wallet to seal for.
  */
-function requireClaimedTransferIdentity(session: LinkedDeviceSessionRecordV1): {
+function requireClaimedExportRootIdentity(session: LinkedDeviceSessionRecordV1): {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
@@ -1556,27 +1592,27 @@ function requireClaimedTransferIdentity(session: LinkedDeviceSessionRecordV1): {
   };
 }
 
-function custodyTransferWriteResponse(result: LinkedDeviceCustodyTransferWriteResultV1): Response {
+function exportRootWriteResponse(result: LinkedDeviceEd25519ExportRootWriteResultV1): Response {
   switch (result.outcome) {
     case 'applied':
     case 'replayed':
       return json({ ok: true, outcome: result.outcome }, { status: 200 });
     case 'conflict':
       return json(
-        { ok: false, code: result.reason, message: 'custody transfer conflict' },
+        { ok: false, code: result.reason, message: 'export-root relay conflict' },
         { status: 409 },
       );
   }
   result satisfies never;
-  throw new Error('unsupported custody transfer write outcome');
+  throw new Error('unsupported export-root relay write outcome');
 }
 
-function custodyTransferUnsupportedResponse(): Response {
+function exportRootUnsupportedResponse(): Response {
   return json(
     {
       ok: false,
       code: 'not_supported',
-      message: 'Linked-device custody transfer is not configured',
+      message: 'Linked-device Ed25519 export-root relay is not configured',
     },
     { status: 501 },
   );
@@ -1736,19 +1772,12 @@ async function respondWithLinkedDeviceWalletSessionDelivery(input: {
   for (const token of signed.orderedTokens) {
     if (token.keyFamily === 'ed25519') ed25519Token = token;
   }
-  const ed25519OwnerActivation = ed25519Token
-    ? await input.service.resolveEd25519OwnerActivationV1({
+  const nearAccountId = ed25519Token
+    ? await input.service.resolveNearAccountIdForEd25519WalletKeyV1({
         walletId: authorization.walletId,
         walletKeyId: ed25519Token.walletKeyId,
-        walletSessionToken: ed25519Token.walletSessionJwt,
       })
-    : { kind: 'absent' as const };
-  const nearAccountId =
-    ed25519OwnerActivation.kind === 'present' ? ed25519OwnerActivation.nearAccountId : null;
-  const ecdsaContinuity =
-    await input.ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
-      walletId: authorization.walletId,
-    });
+    : null;
   return json(
     buildLinkedDeviceWalletSessionDeliveryV1({
       kind: 'linked_device_wallet_session_delivery_v1',
@@ -1765,31 +1794,6 @@ async function respondWithLinkedDeviceWalletSessionDelivery(input: {
       remainingUses: input.authorization.quota.remainingUses,
       issuedAtMs: authorization.issuedAtMs,
       expiresAtMs: authorization.expiresAtMs,
-      ed25519OwnerActivation,
-      ecdsaOwnerActivation:
-        ecdsaContinuity.length === 0
-          ? { kind: 'absent' }
-          : {
-              kind: 'present',
-              signers: ecdsaContinuity.map((signer) => ({
-                chainTarget: signer.chainTarget,
-                walletKey: {
-                  walletId: signer.walletKey.walletId,
-                  keyHandle: signer.walletKey.keyHandle,
-                  ecdsaThresholdKeyId: signer.walletKey.ecdsaThresholdKeyId,
-                  signingRootId: signer.walletKey.signingRootId,
-                  signingRootVersion: signer.walletKey.signingRootVersion,
-                  relayerKeyId: signer.walletKey.relayerKeyId,
-                  contextBinding32B64u: signer.walletKey.contextBinding32B64u,
-                  derivationClientSharePublicKey33B64u:
-                    signer.walletKey.derivationClientSharePublicKey33B64u,
-                  participantIds: signer.walletKey.participantIds,
-                  publicCapability: signer.walletKey.publicCapability,
-                },
-                activationReceipt: signer.activationReceipt,
-                runtimePolicyScope: signer.runtimePolicyScope,
-              })),
-            },
       ...(nearAccountId ? { nearAccountId } : {}),
       orderedTokens: signed.orderedTokens,
     }),
@@ -1915,9 +1919,7 @@ function assertIssuedAuthorizationMatchesSession(
     authorization.enrollmentId !== approval.enrollmentId ||
     authorization.deviceId !== approval.deviceId ||
     authorization.keyManifestDigestB64u !== receipt.manifestDigestB64u ||
-    authorization.permission.kind !== approval.permission.kind ||
-    authorization.permission.administrationScope !== approval.permission.administrationScope ||
-    authorization.permission.localUserPresence !== approval.permission.localUserPresence ||
+    !sameDelegatedWalletAuthorityV1(authorization.permission, approval.permission) ||
     authorization.issuedAtMs < receipt.activatedAtMs ||
     authorization.issuedAtMs > nowMs ||
     authorization.expiresAtMs <= nowMs ||
@@ -1959,109 +1961,6 @@ async function handleRetry(
     return invalidInputResponse('delivery retry binding does not match session');
   return mutationResultResponse(
     await service.retryCommittedDeliveryV1({ request, session, requestedAtMs: nowMs }),
-  );
-}
-
-async function handleOperatorRecovery(
-  ctx: FetchRouterApiContext,
-  service: DeviceLinkingRouteServiceV1,
-  rawLinkSessionId: string,
-  nowMs: number,
-): Promise<Response> {
-  const operatorRecovery = service.operatorRecovery;
-  if (!operatorRecovery) {
-    return json(
-      {
-        ok: false,
-        code: 'not_supported',
-        message: 'Operator recovery is not configured',
-      },
-      { status: 501 },
-    );
-  }
-  const bodyDigestB64u = await requestBodyDigest(ctx.request);
-  const authentication = await operatorRecovery.authenticateOperatorRecoveryRequestV1({
-    request: ctx.request,
-    method: ctx.method,
-    pathname: ctx.pathname,
-    bodyDigestB64u,
-    requestedAtMs: nowMs,
-  });
-  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
-  validateOperatorRequestBinding(
-    authentication.binding,
-    ctx.method,
-    ctx.pathname,
-    bodyDigestB64u,
-    nowMs,
-  );
-  if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const request = parseBoundary(() => parseOperatorRecoveryRequest(authentication.body));
-  const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
-  if (request.linkSessionId !== linkSessionId) {
-    return invalidInputResponse('operator recovery link session id does not match route');
-  }
-  if (request.requestedAtMs > nowMs) {
-    return invalidInputResponse('operator recovery request is from the future');
-  }
-  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
-  if (!session) return notFoundResponse();
-  if (session.state.state !== 'committed_completion_required') {
-    return invalidStateResponse(session);
-  }
-  const approval = requireProvisioningApproval(session);
-  if (approval.enrollmentId !== request.enrollmentId) {
-    return invalidInputResponse('operator recovery enrollment does not match session');
-  }
-  if (approval.deviceId !== request.deviceId) {
-    return invalidInputResponse('operator recovery device does not match session');
-  }
-  const requestProofKeyDigestB64u = await computeLinkedDevicePublicKeyDigestV1(
-    request.devicePublicKeyB64u,
-  );
-  if (requestProofKeyDigestB64u !== request.devicePublicKeyDigestB64u) {
-    return invalidInputResponse('operator recovery key digest does not match public key');
-  }
-  if (request.devicePublicKeyB64u === approval.devicePublicKeyB64u) {
-    return invalidInputResponse('operator recovery requires a fresh device request-proof key');
-  }
-  const continuation: LinkedDeviceRecoveryContinuationV1 = {
-    kind: 'linked_device_recovery_continuation_v1',
-    linkSessionId,
-    enrollmentId: request.enrollmentId,
-    deviceId: request.deviceId,
-    devicePublicKeyB64u: request.devicePublicKeyB64u,
-    devicePublicKeyDigestB64u: request.devicePublicKeyDigestB64u,
-    boundAtMs: nowMs,
-  };
-  const bound = await service.sessionService.bindRecoveryContinuationV1({
-    linkSessionId,
-    expectedRevision: session.revision,
-    continuation,
-    nowMs,
-  });
-  if (bound.outcome === 'unauthorized') {
-    return json(
-      { ok: false, outcome: bound.outcome, code: bound.code, message: bound.message },
-      { status: 401 },
-    );
-  }
-  if (bound.outcome !== 'applied' && bound.outcome !== 'replayed') {
-    return mutationResultResponse(bound);
-  }
-  const retryRequest = {
-    kind: 'linked_device_session_retry_committed_delivery_request_v1' as const,
-    linkSessionId,
-    enrollmentId: request.enrollmentId,
-    deviceId: approval.deviceId,
-    requestedAtMs: request.requestedAtMs,
-  };
-  return mutationResultResponse(
-    await service.retryCommittedDeliveryV1({
-      request: retryRequest,
-      session: bound.record,
-      requestedAtMs: nowMs,
-    }),
   );
 }
 
@@ -2144,13 +2043,9 @@ async function authenticateDeviceForSession(
   const rawSession = await service.sessionService.getSessionV1(linkSessionId);
   if (!rawSession) return { kind: 'not_found' };
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
-  const recovery = rawSession.recovery;
-  const expectedDevicePublicKeyB64u =
-    (rawSession.state.state === 'committed_completion_required' ||
-      rawSession.state.state === 'active') &&
-    recovery?.kind === 'bound'
-      ? recovery.continuation.devicePublicKeyB64u
-      : rawSession.qrPayload.devicePublicKeyB64u;
+  // Every linked-device request, including committed-delivery retry, stays
+  // authenticated by the original proof key carried in the QR payload.
+  const expectedDevicePublicKeyB64u = rawSession.qrPayload.devicePublicKeyB64u;
   const devicePublicKeyDigestB64u = await computeDevicePublicKeyDigestB64u(
     expectedDevicePublicKeyB64u,
   );
@@ -2213,13 +2108,12 @@ function parseRoutePath(pathname: string):
         | 'email-otp-challenge'
         | 'email-otp-resend'
         | 'email-otp-verify'
-        | 'custody-transfer'
-        | 'custody-transfer-recipient'
+        | 'ed25519-export-root'
+        | 'ed25519-export-root-recipient'
         | 'receipt'
         | 'wallet-session'
         | 'wallet-session-renew'
         | 'retry'
-        | 'operator-recovery'
         | 'cancel';
       readonly linkSessionId: string;
     }
@@ -2263,13 +2157,12 @@ function parseRoutePath(pathname: string):
     parts[1] !== 'provision' &&
     parts[1] !== 'holder-receipts' &&
     parts[1] !== 'credential' &&
-    parts[1] !== 'custody-transfer' &&
-    parts[1] !== 'custody-transfer-recipient' &&
+    parts[1] !== 'ed25519-export-root' &&
+    parts[1] !== 'ed25519-export-root-recipient' &&
     parts[1] !== 'receipt' &&
     parts[1] !== 'wallet-session' &&
     parts[1] !== 'wallet-session-renew' &&
     parts[1] !== 'retry' &&
-    parts[1] !== 'operator-recovery' &&
     parts[1] !== 'cancel'
   )
     return null;
@@ -2308,11 +2201,10 @@ function assertApprovalMatchesPersistedSession(
     approval.linkPublicKeyB64u !== session.qrPayload.linkPublicKeyB64u ||
     approval.devicePublicKeyB64u !== session.qrPayload.devicePublicKeyB64u ||
     approval.targetFactor.kind !== session.qrPayload.targetFactor.kind ||
-    approval.permission.kind !== session.qrPayload.requestedPermission.kind ||
-    approval.permission.administrationScope !==
-      session.qrPayload.requestedPermission.administrationScope ||
-    approval.permission.localUserPresence !==
-      session.qrPayload.requestedPermission.localUserPresence ||
+    !sameDelegatedWalletAuthorityV1(
+      approval.permission,
+      session.qrPayload.requestedPermission,
+    ) ||
     session.claimTranscript?.value.deviceId !== approval.deviceId ||
     !('walletId' in session.state) ||
     !('enrollmentId' in session.state) ||
@@ -2475,83 +2367,6 @@ function parseWalletSessionRenewalRequest(raw: unknown): WalletSessionRenewalReq
     throw new Error('linked-device Wallet Session renewal key family is invalid');
   }
   return { keyFamily: record.keyFamily, localPresenceAssertion: record.localPresenceAssertion };
-}
-
-type DeviceLinkingOperatorRecoveryRequestV1 = {
-  readonly kind: 'linked_device_session_operator_recovery_request_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly devicePublicKeyB64u: string;
-  readonly devicePublicKeyDigestB64u: DigestB64u;
-  readonly reason: 'original_link_session_lost';
-  readonly requestedAtMs: number;
-};
-
-function parseOperatorRecoveryRequest(raw: unknown): DeviceLinkingOperatorRecoveryRequestV1 {
-  const record = requireRecord(raw, 'operator recovery request');
-  requireExactKeys(record, [
-    'kind',
-    'linkSessionId',
-    'enrollmentId',
-    'deviceId',
-    'devicePublicKeyB64u',
-    'devicePublicKeyDigestB64u',
-    'reason',
-    'requestedAtMs',
-  ]);
-  if (record.kind !== 'linked_device_session_operator_recovery_request_v1') {
-    throw new Error('operator recovery request kind is invalid');
-  }
-  if (record.reason !== 'original_link_session_lost') {
-    throw new Error('operator recovery reason is invalid');
-  }
-  if (
-    typeof record.requestedAtMs !== 'number' ||
-    !Number.isSafeInteger(record.requestedAtMs) ||
-    record.requestedAtMs < 0
-  ) {
-    throw new Error('operator recovery requestedAtMs is invalid');
-  }
-  if (typeof record.linkSessionId !== 'string') {
-    throw new Error('operator recovery linkSessionId is invalid');
-  }
-  if (typeof record.enrollmentId !== 'string') {
-    throw new Error('operator recovery enrollmentId is invalid');
-  }
-  const linkSessionId = parseSessionId(record.linkSessionId);
-  const enrollmentId = parseLinkedDeviceEnrollmentId(record.enrollmentId);
-  if (!enrollmentId.ok) throw new Error(enrollmentId.error.message);
-  const deviceId = parseLinkedDeviceId(record.deviceId);
-  if (!deviceId.ok) throw new Error(deviceId.error.message);
-  const devicePublicKeyB64u = parseOperatorRecoveryPublicKey(record.devicePublicKeyB64u);
-  const devicePublicKeyDigestB64u = parseDigestB64u(record.devicePublicKeyDigestB64u);
-  return {
-    kind: 'linked_device_session_operator_recovery_request_v1',
-    linkSessionId,
-    enrollmentId: enrollmentId.value,
-    deviceId: deviceId.value,
-    devicePublicKeyB64u,
-    devicePublicKeyDigestB64u,
-    reason: 'original_link_session_lost',
-    requestedAtMs: record.requestedAtMs,
-  };
-}
-
-function parseOperatorRecoveryPublicKey(raw: unknown): string {
-  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw)) {
-    throw new Error('operator recovery devicePublicKeyB64u is invalid');
-  }
-  let bytes: Uint8Array;
-  try {
-    bytes = base64UrlDecode(raw);
-  } catch {
-    throw new Error('operator recovery devicePublicKeyB64u is invalid');
-  }
-  if (bytes.length !== 32 || base64UrlEncode(bytes) !== raw) {
-    throw new Error('operator recovery devicePublicKeyB64u is not canonical');
-  }
-  return raw;
 }
 
 function parseSessionId(raw: string): LinkDeviceSessionId {
@@ -2917,29 +2732,6 @@ function validateOwnerRequestBinding(
   }
   if (!Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= nowMs) {
     throw new DeviceLinkingInputError('owner request proof is expired');
-  }
-}
-
-function validateOperatorRequestBinding(
-  binding: DeviceLinkingOperatorRequestBindingV1,
-  method: string,
-  pathname: string,
-  bodyDigestB64u: DigestB64u,
-  nowMs: number,
-): void {
-  if (binding.kind !== 'linked_device_operator_request_binding_v1') {
-    throw new DeviceLinkingInputError('operator request binding kind is invalid');
-  }
-  if (binding.method !== method || binding.pathname !== pathname) {
-    throw new DeviceLinkingInputError('operator request binding does not match method or path');
-  }
-  if (binding.bodyDigestB64u !== bodyDigestB64u) {
-    throw new DeviceLinkingInputError(
-      'operator request body digest does not match authenticated bytes',
-    );
-  }
-  if (!Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= nowMs) {
-    throw new DeviceLinkingInputError('operator request proof is expired');
   }
 }
 

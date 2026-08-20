@@ -43,6 +43,7 @@ import type {
 } from '@shared/authorization/capabilityKinds';
 import type { SigningLaneId, LaneShareEpoch } from '@shared/signing-lanes/ids';
 import type { RouterAbNormalSigningMaterialSourceV1 } from './routerAbPrivateSigningWorker';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 
 export type ClaimedAuthorizedOperation = AuthorizedOperation & {
   readonly lifecycle: 'claimed';
@@ -456,11 +457,7 @@ export async function prepareLinkedDeviceWalletExecution(input: {
   if (operation.claimedAtMs < grant.issuedAtMs || operation.claimedAtMs >= grant.expiresAtMs) {
     return linkedRefused('authorization_expired');
   }
-  if (
-    grant.permission.kind !== 'owner_equivalent_signing' ||
-    grant.permission.administrationScope !== 'signing_only' ||
-    grant.permission.localUserPresence !== 'required'
-  ) {
+  if (!hasDelegatedWalletPermissionV1(grant.permission, 'sign')) {
     return linkedRefused('authorization_permission_mismatch');
   }
   if (

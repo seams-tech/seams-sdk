@@ -176,20 +176,17 @@ When the customer is ready to self-host:
 
 ## Threshold Backend Migration Notes
 
-The wallet-domain plan removes the passkey-domain migration problem, but the customer still needs compatible signing backend state.
+The wallet-domain plan removes the passkey-domain migration problem, but the
+customer still needs compatible signing backend state. The earlier
+shared-master-secret migration approach is retired. Managed deployment roots,
+role KEKs, environment secrets, and raw databases never enter a tenant export.
 
-Preferred shape:
-
-- use derived relayer-share modes where available,
-- migrate master-secret material and environment config rather than exporting per-user plaintext key material,
-- treat in-flight sessions and presign caches as disposable cutover state.
-
-Operationally, the self-host cutover should preserve:
-
-- Router API compatibility,
-- session minting behavior,
-- threshold master-secret configuration,
-- audit and observability paths expected by the customer deployment.
+[Refactor 121](../refactor-121-deployment-portability.md) owns the current
+design. It moves tenant-scoped wallet server participants through
+curve-specific handoff capsules, creates fresh destination deployment secrets,
+and verifies that every wallet public key and address remains unchanged.
+In-flight sessions, presignatures, replay leases, and unresolved operations are
+reconciled or discarded at the fenced cutover boundary.
 
 ## Tradeoffs With Wallet Composability
 

@@ -58,6 +58,7 @@ import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { resolveOpaqueOwnerWalletSessionAdmission } from '../../auth/commonRouterUtils';
 import { parseLinkedDeviceWalletSession } from '../../domains/signingOperations/linkedDeviceNormalSigning';
+import { sameDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
@@ -189,7 +190,8 @@ async function authorizeSigningSessionSealWithOpaqueWalletSession(
       authorization.enrollmentId !== linked.claims.enrollmentId ||
       authorization.deviceId !== linked.claims.deviceId ||
       authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
-      authorization.revocationEpoch !== linked.claims.revocationEpoch
+      authorization.revocationEpoch !== linked.claims.revocationEpoch ||
+      !sameDelegatedWalletAuthorityV1(authorization.permission, linked.claims.permission)
     ) {
       return {
         ok: false,

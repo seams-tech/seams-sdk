@@ -16,9 +16,9 @@ import { signingLaneAuthMethod, type OwnerLaneScope } from '../identity/signingL
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   MpcWalletSigningQuotaId,
+  ReusableWalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import { walletSessionAuthorizationIdForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';

@@ -1,5 +1,6 @@
 export * from './contracts';
-export * from './custodyTransfer';
+export * from './ed25519ExportRoot';
+export * from './delegatedActivationPlan';
 export * from './ownerAuthBinding';
 export * from './parsers';
 export * from './digests';

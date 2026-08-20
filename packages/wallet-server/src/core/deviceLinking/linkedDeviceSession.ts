@@ -32,7 +32,6 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import {
-  computeLinkedDevicePublicKeyDigestV1,
   LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
 } from '@shared/device-linking/requestProof';
 import type {
@@ -46,34 +45,35 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type {
-  LaneHolderParticipantId,
-  SigningWorkerParticipantId,
-} from '@shared/signing-lanes/participants';
-import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceEnrollmentChildReceiptV1,
   LinkedDeviceEnrollmentKeyBindingV1,
-  LinkedDeviceOwnerEnrollmentKeyBindingV1,
-  LinkedDeviceProvisionedEnrollmentKeyBindingV1,
+  LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceProtocolVersionV1,
   LinkedDeviceSessionState,
   LinkedDeviceTargetFactorV1,
   LinkDevicePublicKeyB64u,
-  QrLinkedDevicePermissionRequest,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
-import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/ownerContinuity';
-import { parseLinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/parsers';
+import {
+  parseLinkedDeviceApprovalV1 as parseSharedLinkedDeviceApprovalV1,
+  parseLinkedDeviceReceiptAcknowledgementV1 as parseSharedLinkedDeviceReceiptAcknowledgementV1,
+  parseQrLinkedDeviceSessionPayloadV5 as parseSharedQrLinkedDeviceSessionPayloadV5,
+} from '@shared/device-linking/parsers';
+import {
+  buildFullOwnerDelegatedWalletAuthorityV1,
+  hasDelegatedWalletPermissionV1,
+  sameDelegatedWalletAuthorityV1,
+  validateDelegatedWalletAuthorityAttenuationV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 import {
   admitLinkedOwnerEnrollmentProvenanceV1,
   type LinkedOwnerEmailOtpBaseFactorReaderV1,
   type LinkedOwnerEnrollmentCeremonyReaderV1,
 } from './linkedOwnerEnrollmentProvenance';
-import type { SigningLaneKind } from '@shared/signing-lanes/records';
-
 type LinkedDeviceClaimV1 = LinkedDeviceSessionClaimV1;
 
 export type LinkedDeviceSessionListCursorV1 = {
@@ -108,7 +108,6 @@ type LinkedDeviceSessionUnclaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript?: never;
   readonly approvalTranscript?: never;
   readonly aggregateReceipt?: never;
-  readonly recovery?: never;
 };
 
 type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -116,7 +115,6 @@ type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: never;
   readonly aggregateReceipt?: never;
-  readonly recovery?: never;
 };
 
 type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -129,7 +127,6 @@ type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
   readonly aggregateReceipt?: never;
-  readonly recovery?: never;
 };
 
 type LinkedDeviceSessionCommittedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -140,7 +137,6 @@ type LinkedDeviceSessionCommittedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
   readonly aggregateReceipt?: never;
-  readonly recovery: LinkedDeviceRecoveryBindingV1;
 };
 
 type LinkedDeviceSessionActiveRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -148,7 +144,6 @@ type LinkedDeviceSessionActiveRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
   readonly aggregateReceipt: LinkedDeviceEnrollmentReceiptV1;
-  readonly recovery: LinkedDeviceRecoveryBindingV1;
 };
 
 type LinkedDeviceSessionExpiredClaimedRecordV1 =
@@ -157,14 +152,12 @@ type LinkedDeviceSessionExpiredClaimedRecordV1 =
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript?: never;
       readonly aggregateReceipt?: never;
-      readonly recovery?: never;
     })
   | (LinkedDeviceSessionRecordBaseV1 & {
       readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'expired_claimed' }>;
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
       readonly aggregateReceipt?: never;
-      readonly recovery?: never;
     });
 
 type LinkedDeviceSessionCancelledClaimedRecordV1 =
@@ -176,7 +169,6 @@ type LinkedDeviceSessionCancelledClaimedRecordV1 =
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript?: never;
       readonly aggregateReceipt?: never;
-      readonly recovery?: never;
     })
   | (LinkedDeviceSessionRecordBaseV1 & {
       readonly state: Extract<
@@ -186,7 +178,6 @@ type LinkedDeviceSessionCancelledClaimedRecordV1 =
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
       readonly aggregateReceipt?: never;
-      readonly recovery?: never;
     });
 
 export type LinkedDeviceSessionRecordV1 =
@@ -214,23 +205,6 @@ export type LinkedDeviceApprovalTranscriptV1 = {
   readonly sourceKeyManifestDigestB64u: DigestB64u;
 };
 
-export type LinkedDeviceRecoveryContinuationV1 = {
-  readonly kind: 'linked_device_recovery_continuation_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly devicePublicKeyB64u: string;
-  readonly devicePublicKeyDigestB64u: DigestB64u;
-  readonly boundAtMs: number;
-};
-
-export type LinkedDeviceRecoveryBindingV1 =
-  | { readonly kind: 'unbound' }
-  | {
-      readonly kind: 'bound';
-      readonly continuation: LinkedDeviceRecoveryContinuationV1;
-    };
-
 export type LinkedDeviceSessionClaimIdentityV1 = {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
@@ -250,6 +224,7 @@ export type LinkedDeviceOwnerAuthorizationContextV1 = {
   readonly walletSessionId: WalletSessionId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly expiresAtMs: number;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly curve: 'ed25519' | 'ecdsa';
   /**
    * The manifest the source device's key set for this curve was registered
@@ -331,13 +306,6 @@ export type LinkedDeviceSessionStoreV1 = {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
     readonly transcriptSetDigestB64u: DigestB64u;
-    readonly nextRecord: LinkedDeviceSessionRecordV1;
-    readonly nowMs: number;
-  }): Promise<LinkedDeviceSessionMutationResultV1>;
-  bindRecoveryContinuationV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly expectedRevision: number;
-    readonly continuation: LinkedDeviceRecoveryContinuationV1;
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1>;
@@ -428,13 +396,6 @@ export type LinkedDeviceSessionCommitInputV1 = {
   readonly nowMs: number;
 };
 
-export type LinkedDeviceSessionRecoveryRebindInputV1 = {
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly expectedRevision: number;
-  readonly continuation: LinkedDeviceRecoveryContinuationV1;
-  readonly nowMs: number;
-};
-
 export type LinkedDeviceSessionTargetCredentialInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
@@ -509,7 +470,7 @@ export type LinkedOwnerEnrollmentCompletionRefusalV1 =
 export type LinkedDeviceSessionAggregateActivationInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
-  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+  readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
   readonly nowMs: number;
 };
 
@@ -584,6 +545,16 @@ export class LinkedDeviceSessionServiceV1 {
         input.nowMs >= existing.qrPayload.expiresAtMs
       ) {
         return { outcome: 'expired', record: existing };
+      }
+      const requestedAuthorityError = validateLinkedDeviceRequestedAuthorityV1(
+        payload.requestedPermission,
+      );
+      if (requestedAuthorityError) {
+        return {
+          outcome: 'unauthorized',
+          code: 'unauthorized',
+          message: requestedAuthorityError,
+        };
       }
       const authorization = await this.authorization.authorizeOwnerClaimV1({
         payload,
@@ -665,6 +636,16 @@ export class LinkedDeviceSessionServiceV1 {
         return { outcome: 'expired', record: existing };
       }
       validateApprovalMatchesSession(existing, approval, input.nowMs);
+      const requestedAuthorityError = validateLinkedDeviceRequestedAuthorityV1(
+        approval.permission,
+      );
+      if (requestedAuthorityError) {
+        return {
+          outcome: 'unauthorized',
+          code: 'unauthorized',
+          message: requestedAuthorityError,
+        };
+      }
       // Provenance before immutability: the approval digest would otherwise
       // seal whatever ceremony the caller named, including one belonging to
       // another wallet.
@@ -744,88 +725,6 @@ export class LinkedDeviceSessionServiceV1 {
         linkSessionId: input.linkSessionId,
         expectedRevision: input.expectedRevision,
         transcriptSetDigestB64u: digestB64u,
-        nextRecord,
-        nowMs: input.nowMs,
-      });
-    } catch (error: unknown) {
-      return { outcome: 'invalid_input', message: errorMessage(error) };
-    }
-  }
-
-  async bindRecoveryContinuationV1(
-    input: LinkedDeviceSessionRecoveryRebindInputV1,
-  ): Promise<LinkedDeviceSessionServiceResultV1> {
-    try {
-      requireTimestamp(input.nowMs, 'nowMs');
-      const continuation = input.continuation;
-      if (continuation.linkSessionId !== input.linkSessionId) {
-        return {
-          outcome: 'invalid_input',
-          message: 'recovery continuation session does not match',
-        };
-      }
-      requireTimestamp(continuation.boundAtMs, 'recovery continuation boundAtMs');
-      if (continuation.boundAtMs > input.nowMs) {
-        return { outcome: 'invalid_input', message: 'recovery continuation is from the future' };
-      }
-      const devicePublicKeyDigestB64u = requireDigest(
-        continuation.devicePublicKeyDigestB64u,
-        'recovery continuation devicePublicKeyDigestB64u',
-      );
-      const computedDigestB64u = await computeLinkedDevicePublicKeyDigestV1(
-        continuation.devicePublicKeyB64u,
-      );
-      if (computedDigestB64u !== devicePublicKeyDigestB64u) {
-        return {
-          outcome: 'invalid_input',
-          message: 'recovery continuation key digest does not match public key',
-        };
-      }
-      const existing = await this.requireSession(input.linkSessionId);
-      if (existing.state.state !== 'committed_completion_required') {
-        return invalidStateResult(existing);
-      }
-      const recovery = existing.recovery;
-      if (!recovery) {
-        return {
-          outcome: 'invalid_input',
-          message: 'committed session is missing recovery binding',
-        };
-      }
-      const approval = existing.approvalTranscript?.value;
-      const deviceId = deviceIdFromRecord(existing);
-      if (
-        !approval ||
-        continuation.enrollmentId !== existing.state.enrollmentId ||
-        continuation.enrollmentId !== approval.enrollmentId ||
-        continuation.deviceId !== deviceId ||
-        continuation.devicePublicKeyB64u === approval.devicePublicKeyB64u
-      ) {
-        return {
-          outcome: 'invalid_input',
-          message: 'recovery continuation identity or freshness does not match session',
-        };
-      }
-      if (recovery.kind === 'bound') {
-        return alphabetizeStringify(recovery.continuation) === alphabetizeStringify(continuation)
-          ? { outcome: 'replayed', record: existing }
-          : {
-              outcome: 'conflict',
-              expectedRevision: existing.revision,
-              actualRevision: existing.revision,
-              record: existing,
-            };
-      }
-      const nextRecord = replaceSessionRecordV1(existing, {
-        state: existing.state,
-        revision: existing.revision + 1,
-        recovery: { kind: 'bound', continuation },
-        updatedAtMs: input.nowMs,
-      });
-      return await this.store.bindRecoveryContinuationV1({
-        linkSessionId: input.linkSessionId,
-        expectedRevision: input.expectedRevision,
-        continuation,
         nextRecord,
         nowMs: input.nowMs,
       });
@@ -979,7 +878,10 @@ export class LinkedDeviceSessionServiceV1 {
   ): Promise<LinkedDeviceSessionServiceResultV1> {
     try {
       requireTimestamp(input.nowMs, 'nowMs');
-      const receipt = parseAggregateReceiptV1(input.receipt);
+      const acknowledgement = parseSharedLinkedDeviceReceiptAcknowledgementV1(
+        input.acknowledgement,
+      );
+      const receipt = parseAggregateReceiptV1(acknowledgement.receipt);
       const existing = await this.requireSession(input.linkSessionId);
       if (
         existing.state.state === 'active' &&
@@ -990,6 +892,22 @@ export class LinkedDeviceSessionServiceV1 {
       }
       if (existing.state.state !== 'committed_completion_required') {
         return invalidStateResult(existing);
+      }
+      if (
+        acknowledgement.linkSessionId !== existing.linkSessionId ||
+        acknowledgement.enrollmentId !== existing.state.enrollmentId ||
+        acknowledgement.deviceId !== deviceIdFromRecord(existing)
+      ) {
+        return {
+          outcome: 'invalid_input',
+          message: 'aggregate receipt acknowledgement identity does not match session',
+        };
+      }
+      if (acknowledgement.acknowledgedAtMs < receipt.activatedAtMs) {
+        return {
+          outcome: 'invalid_input',
+          message: 'aggregate receipt acknowledgement precedes activation',
+        };
       }
       if (
         receipt.enrollmentId !== existing.state.enrollmentId ||
@@ -1228,7 +1146,6 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     'claimTranscript',
     'approvalTranscript',
     'aggregateReceipt',
-    'recovery',
     'createdAtMs',
     'updatedAtMs',
   ]);
@@ -1257,18 +1174,6 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     record.aggregateReceipt === undefined
       ? undefined
       : parseAggregateReceiptV1(record.aggregateReceipt);
-  const parsedRecovery = parseRecoveryBindingV1(record.recovery);
-  const recovery =
-    state.state === 'committed_completion_required' || state.state === 'active'
-      ? parsedRecovery
-      : undefined;
-  if (
-    state.state !== 'committed_completion_required' &&
-    state.state !== 'active' &&
-    record.recovery
-  ) {
-    throw new Error('recovery binding is only valid for committed or active sessions');
-  }
   validateRecordTranscriptState(state, claimTranscript, approvalTranscript, aggregateReceipt);
   return buildSessionRecordV1({
     linkSessionId,
@@ -1278,47 +1183,13 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     claimTranscript,
     approvalTranscript,
     aggregateReceipt,
-    recovery,
     createdAtMs,
     updatedAtMs,
   });
 }
 
 export function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDeviceSessionPayloadV5 {
-  const record = requireRecord(raw, 'QR payload');
-  requireExactKeys(record, [
-    'version',
-    'purpose',
-    'linkSessionId',
-    'linkPublicKeyB64u',
-    'devicePublicKeyB64u',
-    'requestedPermission',
-    'targetFactor',
-    'issuedAtMs',
-    'expiresAtMs',
-  ]);
-  if (record.version !== 'v5') throw new Error('QR payload version is invalid');
-  if (record.purpose !== 'linked_device_lane_creation')
-    throw new Error('QR payload purpose is invalid');
-  const linkSessionId = parseId(record.linkSessionId, parseLinkDeviceSessionId, 'linkSessionId');
-  const linkPublicKeyB64u = parsePublicKeyB64u(record.linkPublicKeyB64u, 'linkPublicKeyB64u');
-  const devicePublicKeyB64u = parsePublicKeyB64u(record.devicePublicKeyB64u, 'devicePublicKeyB64u');
-  const requestedPermission = parsePermissionV1(record.requestedPermission);
-  const targetFactor = parseTargetFactorV1(record.targetFactor);
-  const issuedAtMs = requireTimestamp(record.issuedAtMs, 'issuedAtMs');
-  const expiresAtMs = requireTimestamp(record.expiresAtMs, 'expiresAtMs');
-  if (expiresAtMs <= issuedAtMs) throw new Error('QR payload expiresAtMs must be after issuedAtMs');
-  return {
-    version: 'v5',
-    purpose: 'linked_device_lane_creation',
-    linkSessionId,
-    linkPublicKeyB64u,
-    devicePublicKeyB64u,
-    requestedPermission,
-    targetFactor,
-    issuedAtMs,
-    expiresAtMs,
-  };
+  return parseSharedQrLinkedDeviceSessionPayloadV5(raw);
 }
 
 function parseTargetFactorV1(raw: unknown): LinkedDeviceTargetFactorV1 {
@@ -1331,7 +1202,10 @@ function parseTargetFactorV1(raw: unknown): LinkedDeviceTargetFactorV1 {
 
 type LinkedDeviceEmailOtpChallengeStateV1 = Extract<
   LinkedDeviceSessionState,
-  { readonly state: 'awaiting_target_factor'; readonly targetFactor: { readonly kind: 'email_otp' } }
+  {
+    readonly state: 'awaiting_target_factor';
+    readonly targetFactor: { readonly kind: 'email_otp' };
+  }
 >['emailOtpChallenge'];
 
 function parseEmailOtpChallengeStateV1(raw: unknown): LinkedDeviceEmailOtpChallengeStateV1 {
@@ -1341,7 +1215,10 @@ function parseEmailOtpChallengeStateV1(raw: unknown): LinkedDeviceEmailOtpChalle
       requireExactKeys(record, ['state', 'maskedEmailHint']);
       return {
         state: 'available',
-        maskedEmailHint: parseIdentityString(record.maskedEmailHint, 'emailOtpChallenge.maskedEmailHint'),
+        maskedEmailHint: parseIdentityString(
+          record.maskedEmailHint,
+          'emailOtpChallenge.maskedEmailHint',
+        ),
       };
     case 'sent': {
       requireExactKeys(record, [
@@ -1628,19 +1505,8 @@ function replaceSessionRecordV1(
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly aggregateReceipt?: LinkedDeviceEnrollmentReceiptV1;
-    readonly recovery?: LinkedDeviceRecoveryBindingV1;
   },
 ): LinkedDeviceSessionRecordV1 {
-  const existingRecovery =
-    record.state.state === 'committed_completion_required' || record.state.state === 'active'
-      ? record.recovery
-      : undefined;
-  const nextRecovery =
-    patch.recovery ??
-    existingRecovery ??
-    (patch.state.state === 'committed_completion_required' || patch.state.state === 'active'
-      ? { kind: 'unbound' as const }
-      : undefined);
   return buildSessionRecordV1({
     linkSessionId: record.linkSessionId,
     qrPayload: record.qrPayload,
@@ -1649,7 +1515,6 @@ function replaceSessionRecordV1(
     claimTranscript: patch.claimTranscript || record.claimTranscript,
     approvalTranscript: patch.approvalTranscript || record.approvalTranscript,
     aggregateReceipt: patch.aggregateReceipt || record.aggregateReceipt,
-    recovery: nextRecovery,
     createdAtMs: record.createdAtMs,
     updatedAtMs: patch.updatedAtMs,
   });
@@ -1663,23 +1528,9 @@ function buildSessionRecordV1(input: {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1 | undefined;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1 | undefined;
   readonly aggregateReceipt: LinkedDeviceEnrollmentReceiptV1 | undefined;
-  readonly recovery: LinkedDeviceRecoveryBindingV1 | undefined;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 }): LinkedDeviceSessionRecordV1 {
-  if (
-    input.recovery &&
-    input.state.state !== 'committed_completion_required' &&
-    input.state.state !== 'active'
-  ) {
-    throw new Error('recovery continuation requires committed or active state');
-  }
-  if (
-    !input.recovery &&
-    (input.state.state === 'committed_completion_required' || input.state.state === 'active')
-  ) {
-    throw new Error('committed or active session is missing recovery binding');
-  }
   const base = {
     version: 'linked_device_session_v1' as const,
     linkSessionId: input.linkSessionId,
@@ -1716,26 +1567,22 @@ function buildSessionRecordV1(input: {
       if (!input.claimTranscript || !input.approvalTranscript || input.aggregateReceipt) {
         throw new Error('approved session transcript facts are invalid');
       }
-      if (!input.recovery) throw new Error('committed session is missing recovery binding');
       return {
         ...base,
         state: input.state,
         claimTranscript: input.claimTranscript,
         approvalTranscript: input.approvalTranscript,
-        recovery: input.recovery,
       };
     case 'active':
       if (!input.claimTranscript || !input.approvalTranscript || !input.aggregateReceipt) {
         throw new Error('active session transcript facts are incomplete');
       }
-      if (!input.recovery) throw new Error('active session is missing recovery binding');
       return {
         ...base,
         state: input.state,
         claimTranscript: input.claimTranscript,
         approvalTranscript: input.approvalTranscript,
         aggregateReceipt: input.aggregateReceipt,
-        recovery: input.recovery,
       };
     case 'expired_claimed':
       if (!input.claimTranscript || input.aggregateReceipt) {
@@ -1793,6 +1640,9 @@ function validateApprovalMatchesSession(
   if (approval.devicePublicKeyB64u !== record.qrPayload.devicePublicKeyB64u) {
     throw new Error('approval device public key does not match QR payload');
   }
+  if (!sameDelegatedWalletAuthorityV1(approval.permission, record.qrPayload.requestedPermission)) {
+    throw new Error('approval permission does not match QR payload');
+  }
   // The factor branch is chosen once, in the QR, and every artifact after it
   // must repeat that exact choice. Approval is the last owner-authenticated
   // step, so a cross-branch approval fails here — before any credential,
@@ -1815,134 +1665,22 @@ function validateApprovalMatchesSession(
   }
 }
 
+function validateLinkedDeviceRequestedAuthorityV1(
+  authority: DelegatedWalletAuthorityV1,
+): string | null {
+  const parent = buildFullOwnerDelegatedWalletAuthorityV1();
+  if (!hasDelegatedWalletPermissionV1(parent, 'link_devices')) {
+    return 'linking authority does not contain link_devices';
+  }
+  const attenuation = validateDelegatedWalletAuthorityAttenuationV1({
+    parent,
+    child: authority,
+  });
+  return attenuation.ok ? null : attenuation.error.message;
+}
+
 function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
-  const record = requireRecord(raw, 'approval transcript');
-  requireExactKeys(record, [
-    'kind',
-    'linkSessionId',
-    'walletId',
-    'enrollmentId',
-    'deviceId',
-    'linkPublicKeyB64u',
-    'devicePublicKeyB64u',
-    'permission',
-    'targetFactor',
-    'ownerAuthorization',
-    'ownerEnrollment',
-    'policyDigestB64u',
-    'operationId',
-    'idempotencyKey',
-    'orderedKeyBindings',
-    'protocolVersions',
-    'approvedAtMs',
-    'expiresAtMs',
-  ]);
-  if (record.kind !== 'linked_device_approval_v1') throw new Error('approval kind is invalid');
-  const orderedKeyBindings = parseKeyBindingsV1(record.orderedKeyBindings);
-  const protocolVersions = parseProtocolVersionsV1(record.protocolVersions);
-  const targetFactor = parseTargetFactorV1(record.targetFactor);
-  // The ceremony is read back through its own canonical parser rather than
-  // re-validated here: the transcript must round-trip the exact registration
-  // options the approval digest covers.
-  const ownerEnrollment = parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
-  const base = {
-    kind: 'linked_device_approval_v1' as const,
-    linkSessionId: parseId(
-      record.linkSessionId,
-      parseLinkDeviceSessionId,
-      'approval.linkSessionId',
-    ),
-    walletId: parseId(record.walletId, parseWalletId, 'approval.walletId'),
-    enrollmentId: parseId(
-      record.enrollmentId,
-      parseLinkedDeviceEnrollmentId,
-      'approval.enrollmentId',
-    ),
-    deviceId: parseId(record.deviceId, parseLinkedDeviceId, 'approval.deviceId'),
-    linkPublicKeyB64u: parsePublicKeyB64u(record.linkPublicKeyB64u, 'approval.linkPublicKeyB64u'),
-    devicePublicKeyB64u: parsePublicKeyB64u(
-      record.devicePublicKeyB64u,
-      'approval.devicePublicKeyB64u',
-    ),
-    permission: parsePermissionV1(record.permission),
-    ownerAuthorization: parseOwnerAuthorizationV1(record.ownerAuthorization),
-    policyDigestB64u: requireDigest(record.policyDigestB64u, 'approval.policyDigestB64u'),
-    operationId: parseId(record.operationId, parseLaneOperationId, 'approval.operationId'),
-    idempotencyKey: parseId(
-      record.idempotencyKey,
-      parseLaneOperationIdempotencyKey,
-      'approval.idempotencyKey',
-    ),
-    orderedKeyBindings,
-    protocolVersions,
-    approvedAtMs: requireTimestamp(record.approvedAtMs, 'approval.approvedAtMs'),
-    expiresAtMs: requireTimestamp(record.expiresAtMs, 'approval.expiresAtMs'),
-  };
-  // The factor and its ceremony are one correlated choice; an approval pairing
-  // them across branches is rejected here, before any digest seals it.
-  if (targetFactor.kind === 'passkey_prf') {
-    if (ownerEnrollment.kind !== 'linked_device_passkey_owner_enrollment_v1') {
-      throw new Error('approval owner enrollment ceremony does not match its target factor');
-    }
-    return { ...base, targetFactor: { kind: 'passkey_prf' }, ownerEnrollment };
-  }
-  if (ownerEnrollment.kind !== 'linked_device_email_otp_owner_enrollment_v1') {
-    throw new Error('approval owner enrollment ceremony does not match its target factor');
-  }
-  return { ...base, targetFactor: { kind: 'email_otp' }, ownerEnrollment };
-}
-
-function parseRecoveryContinuationV1(raw: unknown): LinkedDeviceRecoveryContinuationV1 {
-  const record = requireRecord(raw, 'recovery continuation');
-  requireExactKeys(record, [
-    'kind',
-    'linkSessionId',
-    'enrollmentId',
-    'deviceId',
-    'devicePublicKeyB64u',
-    'devicePublicKeyDigestB64u',
-    'boundAtMs',
-  ]);
-  if (record.kind !== 'linked_device_recovery_continuation_v1') {
-    throw new Error('recovery continuation kind is invalid');
-  }
-  return {
-    kind: 'linked_device_recovery_continuation_v1',
-    linkSessionId: parseId(
-      record.linkSessionId,
-      parseLinkDeviceSessionId,
-      'recovery continuation.linkSessionId',
-    ),
-    enrollmentId: parseId(
-      record.enrollmentId,
-      parseLinkedDeviceEnrollmentId,
-      'recovery continuation.enrollmentId',
-    ),
-    deviceId: parseId(record.deviceId, parseLinkedDeviceId, 'recovery continuation.deviceId'),
-    devicePublicKeyB64u: parsePublicKeyB64u(
-      record.devicePublicKeyB64u,
-      'recovery continuation.devicePublicKeyB64u',
-    ),
-    devicePublicKeyDigestB64u: requireDigest(
-      record.devicePublicKeyDigestB64u,
-      'recovery continuation.devicePublicKeyDigestB64u',
-    ),
-    boundAtMs: requireTimestamp(record.boundAtMs, 'recovery continuation.boundAtMs'),
-  };
-}
-
-function parseRecoveryBindingV1(rawBinding: unknown): LinkedDeviceRecoveryBindingV1 {
-  if (rawBinding === undefined) {
-    return { kind: 'unbound' };
-  }
-  const record = requireRecord(rawBinding, 'recovery binding');
-  if (record.kind === 'unbound') {
-    requireExactKeys(record, ['kind']);
-    return { kind: 'unbound' };
-  }
-  requireExactKeys(record, ['kind', 'continuation']);
-  if (record.kind !== 'bound') throw new Error('recovery binding kind is invalid');
-  return { kind: 'bound', continuation: parseRecoveryContinuationV1(record.continuation) };
+  return parseSharedLinkedDeviceApprovalV1(raw);
 }
 
 function parseClaimTranscriptV1(raw: unknown): LinkedDeviceClaimTranscriptV1 {
@@ -1997,23 +1735,6 @@ function parseClaimV1(raw: unknown): LinkedDeviceClaimV1 {
   };
 }
 
-function parsePermissionV1(raw: unknown): QrLinkedDevicePermissionRequest {
-  const record = requireRecord(raw, 'permission');
-  requireExactKeys(record, ['kind', 'administrationScope', 'localUserPresence']);
-  if (
-    record.kind !== 'owner_equivalent_signing' ||
-    record.administrationScope !== 'signing_only' ||
-    record.localUserPresence !== 'required'
-  ) {
-    throw new Error('linked-device permission is not supported');
-  }
-  return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
-  };
-}
-
 function parseOwnerAuthorizationV1(raw: unknown): LinkedDeviceOwnerAuthorizationSourceV1 {
   const record = requireRecord(raw, 'ownerAuthorization');
   switch (record.kind) {
@@ -2047,143 +1768,6 @@ function parseOwnerAuthorizationV1(raw: unknown): LinkedDeviceOwnerAuthorization
     default:
       throw new Error('ownerAuthorization.kind is invalid');
   }
-}
-
-function parseKeyBindingsV1(
-  raw: unknown,
-): readonly [LinkedDeviceEnrollmentKeyBindingV1, ...LinkedDeviceEnrollmentKeyBindingV1[]] {
-  if (!Array.isArray(raw) || raw.length === 0)
-    throw new Error('orderedKeyBindings must be nonempty');
-  const values = raw.map(parseKeyBindingV1);
-  return values as unknown as readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-}
-
-function parseKeyBindingV1(raw: unknown): LinkedDeviceEnrollmentKeyBindingV1 {
-  const record = requireRecord(raw, 'key binding');
-  if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1')
-    throw new Error('key binding family is invalid');
-  const keyFamily: 'ed25519' | 'ecdsa_secp256k1' = record.keyFamily;
-  const sourceLaneKind = parseSigningLaneKindV1(record.sourceLaneKind);
-  const sourceKind = parseSourceKindV1(record.sourceKind);
-  const common = {
-    walletKeyId: parseId(record.walletKeyId, parseWalletKeyId, 'key binding.walletKeyId'),
-    keyFamily,
-    sourceLaneId: parseId(record.sourceLaneId, parseSigningLaneId, 'key binding.sourceLaneId'),
-    sourceLaneKind,
-    sourceKind,
-    sourceLaneShareEpoch: parseId(
-      record.sourceLaneShareEpoch,
-      parseLaneShareEpoch,
-      'key binding.sourceLaneShareEpoch',
-    ),
-    sourceRevocationEpoch: requireNonNegativeInteger(
-      record.sourceRevocationEpoch,
-      'key binding.sourceRevocationEpoch',
-    ),
-    targetLaneId: parseId(record.targetLaneId, parseSigningLaneId, 'key binding.targetLaneId'),
-    targetLaneShareEpoch: parseId(
-      record.targetLaneShareEpoch,
-      parseLaneShareEpoch,
-      'key binding.targetLaneShareEpoch',
-    ),
-  };
-  if (sourceKind === 'owner_registration') {
-    if (sourceLaneKind !== 'owner_passkey' && sourceLaneKind !== 'owner_email_otp')
-      throw new Error('key binding source lane kind must be owner');
-    requireExactKeys(record, [
-      'walletKeyId',
-      'keyFamily',
-      'sourceLaneId',
-      'sourceLaneKind',
-      'sourceKind',
-      'sourceLaneShareEpoch',
-      'sourceRevocationEpoch',
-      'ownerParticipantContinuity',
-      'targetLaneId',
-      'targetLaneShareEpoch',
-    ]);
-    const ownerBinding = {
-      ...common,
-      sourceKind: 'owner_registration',
-      sourceLaneKind,
-      ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
-        record.ownerParticipantContinuity,
-        'key binding.ownerParticipantContinuity',
-      ),
-    } satisfies LinkedDeviceOwnerEnrollmentKeyBindingV1;
-    return ownerBinding;
-  }
-  if (sourceLaneKind === 'owner_passkey' || sourceLaneKind === 'owner_email_otp')
-    throw new Error('key binding source lane kind must be provisioned');
-  requireExactKeys(record, [
-    'walletKeyId',
-    'keyFamily',
-    'sourceLaneId',
-    'sourceLaneKind',
-    'sourceKind',
-    'sourceLaneShareEpoch',
-    'sourceRevocationEpoch',
-    'sourceHolderParticipantId',
-    'sourceSigningWorkerParticipantId',
-    'targetLaneId',
-    'targetLaneShareEpoch',
-  ]);
-  const provisionedBinding = {
-    ...common,
-    sourceKind: 'provisioned_lane',
-    sourceLaneKind,
-    sourceHolderParticipantId: parseIdentityString(
-      record.sourceHolderParticipantId,
-      'key binding.sourceHolderParticipantId',
-    ) as LaneHolderParticipantId,
-    sourceSigningWorkerParticipantId: parseIdentityString(
-      record.sourceSigningWorkerParticipantId,
-      'key binding.sourceSigningWorkerParticipantId',
-    ) as SigningWorkerParticipantId,
-  } satisfies LinkedDeviceProvisionedEnrollmentKeyBindingV1;
-  return provisionedBinding;
-}
-
-function parseSigningLaneKindV1(raw: unknown): SigningLaneKind {
-  switch (raw) {
-    case 'owner_passkey':
-    case 'owner_email_otp':
-    case 'linked_device':
-    case 'delegated_execution':
-    case 'recovery':
-    case 'break_glass':
-      return raw;
-    default:
-      throw new Error('key binding source lane kind is invalid');
-  }
-}
-
-function parseSourceKindV1(raw: unknown): 'owner_registration' | 'provisioned_lane' {
-  if (raw === 'owner_registration' || raw === 'provisioned_lane') return raw;
-  throw new Error('key binding source kind is invalid');
-}
-
-function parseProtocolVersionsV1(
-  raw: unknown,
-): readonly [LinkedDeviceProtocolVersionV1, ...LinkedDeviceProtocolVersionV1[]] {
-  if (!Array.isArray(raw) || raw.length === 0) throw new Error('protocolVersions must be nonempty');
-  const values = raw.map((item) => {
-    const record = requireRecord(item, 'protocol version');
-    requireExactKeys(record, ['keyFamily', 'version']);
-    if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1')
-      throw new Error('protocol version family is invalid');
-    const version = parseIdentityString(record.version, 'protocol version.version');
-    if (version !== 'rotatable_signing_lane_protocol_v1')
-      throw new Error('protocol version is invalid');
-    return { keyFamily: record.keyFamily, version };
-  });
-  return values as unknown as readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
-  ];
 }
 
 function parseAggregateReceiptV1(raw: unknown): LinkedDeviceEnrollmentReceiptV1 {

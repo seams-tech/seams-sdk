@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
-  parseRouterAbEd25519WalletSessionClaims,
-  parseRouterAbEcdsaDerivationWalletSessionClaims,
+  parseRouterAbEd25519LinkedDeviceWalletSessionClaims,
+  parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
   type RouterAbEd25519LinkedDeviceWalletSessionClaims,
 } from '../../packages/wallet-server/src/core/ThresholdService/validation';
 import {
@@ -47,7 +47,7 @@ function linkedClaims(): Record<string, unknown> {
 
 test.describe('R103 linked-device Wallet Session claims', () => {
   test('accepts exact linked claims and preserves the discriminant', () => {
-    const claims = parseRouterAbEd25519WalletSessionClaims(linkedClaims());
+    const claims = parseRouterAbEd25519LinkedDeviceWalletSessionClaims(linkedClaims());
     expect(claims?.authorizationKind).toBe('linked_device_wallet_session');
     expect(claims).toMatchObject({
       tenantId: 'tenant:1',
@@ -72,49 +72,49 @@ test.describe('R103 linked-device Wallet Session claims', () => {
 
   test('rejects owner and linked fields mixed in one JWT', () => {
     expect(
-      parseRouterAbEd25519WalletSessionClaims({
+      parseRouterAbEd25519LinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         authority: { kind: 'passkey' },
       }),
     ).toBeNull();
 
     expect(
-      parseRouterAbEd25519WalletSessionClaims({
+      parseRouterAbEd25519LinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         thresholdSessionId: 'threshold-session:linked',
       }),
     ).toBeNull();
 
     expect(
-      parseRouterAbEd25519WalletSessionClaims({
+      parseRouterAbEd25519LinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         routerAbNormalSigning: { kind: 'router_ab_ed25519_normal_signing_v1' },
       }),
     ).toBeNull();
 
     expect(
-      parseRouterAbEd25519WalletSessionClaims({
+      parseRouterAbEd25519LinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         authorizationKind: 'owner_wallet_session',
       }),
     ).toBeNull();
 
     expect(
-      parseRouterAbEd25519WalletSessionClaims({
+      parseRouterAbEd25519LinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         sub: 'linked-device:device:substituted',
       }),
     ).toBeNull();
 
     expect(
-      parseRouterAbEcdsaDerivationWalletSessionClaims({
+      parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
         keyHandle: 'ecdsa-key-handle',
       }),
     ).toBeNull();
     expect(
-      parseRouterAbEcdsaDerivationWalletSessionClaims({
+      parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims({
         ...linkedClaims(),
         kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
         materialActivation: { kind: 'router_ab_mpc_material_activation_ref_v1' },
@@ -125,7 +125,7 @@ test.describe('R103 linked-device Wallet Session claims', () => {
   test('rejects missing authorization kind instead of defaulting to owner', () => {
     const raw = linkedClaims();
     delete raw.authorizationKind;
-    expect(parseRouterAbEd25519WalletSessionClaims(raw)).toBeNull();
+    expect(parseRouterAbEd25519LinkedDeviceWalletSessionClaims(raw)).toBeNull();
   });
 
   test('linked signing builders emit only authorization and binding claims', async () => {
@@ -179,11 +179,11 @@ test.describe('R103 linked-device Wallet Session claims', () => {
     expect(ed25519).toMatchObject({ ok: true, authorizationKind: 'linked_device_wallet_session' });
     expect(ecdsa).toMatchObject({ ok: true, authorizationKind: 'linked_device_wallet_session' });
     expect(signedPayloads).toHaveLength(2);
-    expect(parseRouterAbEd25519WalletSessionClaims(signedPayloads[0])).toMatchObject({
+    expect(parseRouterAbEd25519LinkedDeviceWalletSessionClaims(signedPayloads[0])).toMatchObject({
       kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
       authorizationKind: 'linked_device_wallet_session',
     });
-    expect(parseRouterAbEcdsaDerivationWalletSessionClaims(signedPayloads[1])).toMatchObject({
+    expect(parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(signedPayloads[1])).toMatchObject({
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       authorizationKind: 'linked_device_wallet_session',
     });

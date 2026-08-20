@@ -1386,8 +1386,25 @@ seams-auth-menu-surface {
   animation-delay: calc((var(--dot-index) - 12) / 12 * 1s);
 }
 
+.w3a-link-device-dot-ring.is-idle > span,
 .w3a-link-device-dot-ring.is-approved > span {
   opacity: 0.25;
+}
+
+/* The badge's centre. A view can hand the ring a glyph (the envelope, for the
+   email code) to name what is being waited on; the check replaces it on
+   approval so the two never stack. */
+.w3a-link-device-dot-ring-glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  transition: opacity 160ms ease;
+}
+
+.w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-glyph {
+  opacity: 0;
 }
 
 .w3a-link-device-dot-ring-check {
@@ -1527,6 +1544,123 @@ seams-auth-menu-surface {
   line-height: 1.5;
   text-wrap: pretty;
   overflow-wrap: anywhere;
+}
+
+/* Email-OTP variant of the link-device confirmation. Same skeleton as the
+   passkey view — badge, title, copy, controls — so the two ways of finishing a
+   link read as one flow and only the badge's centre changes. */
+.w3a-link-device-email-otp {
+  gap: 0.625rem;
+}
+
+/* The masked address is the one fact the user has to check, so it leaves the
+   sentence and becomes an object: a quiet pill directly under the title. */
+.w3a-link-device-email-chip {
+  box-sizing: border-box;
+  max-width: min(100%, 260px);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary, #d7dde5), transparent 25%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--w3a-colors-surface, #f1f5f9), transparent 45%);
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.w3a-link-device-email-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w3a-link-device-email-status {
+  max-width: 30ch;
+  margin: 0;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 15%);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: pretty;
+  animation: status-enter 200ms var(--w3a-ease-out, ease-out) both;
+}
+
+/* A rejected or expired code is not a failure of the flow, so the error tone
+   stays inside the type and the slot borders — no red banner, no red badge
+   ring that would outrank the still-usable input below it. */
+.w3a-link-device-email-otp[data-tone='error'] .w3a-link-device-email-status {
+  color: color-mix(in srgb, var(--w3a-colors-error, #ef4444), var(--w3a-colors-textPrimary) 20%);
+}
+
+.w3a-link-device-email-otp[data-tone='error'] .w3a-link-device-dot-ring {
+  color: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 45%);
+}
+
+.w3a-link-device-email-otp[data-tone='error'] .w3a-link-device-dot-ring-glyph {
+  color: var(--w3a-colors-error, #ef4444);
+}
+
+/* Six slots at card width read as a keypad; capped so they stay finger-sized
+   rather than stretching to the full 360px card. */
+.w3a-link-device-email-otp .w3a-otp-code-field {
+  width: min(100%, 296px);
+  margin-block: 0.125rem;
+}
+
+/* Tinted against the surface rather than toward transparency: a translucent
+   red washes out to nothing on the dark theme, where the card is already
+   near-black. */
+.w3a-link-device-email-otp[data-tone='error'] .w3a-otp-slot {
+  border-color: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 45%);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), var(--w3a-colors-surface) 82%);
+}
+
+.w3a-link-device-email-otp[data-otp-phase='incorrect'] .w3a-otp-slots {
+  animation: w3a-otp-reject 320ms var(--w3a-ease-out, ease-out) both;
+}
+
+/* Quiet neutral under an ink button: a brand-blue link below a black primary
+   reads as a second, competing call to action. */
+.w3a-link-device-email-otp .w3a-otp-resend {
+  margin-top: -0.125rem;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 30%);
+  font-size: 0.8125rem;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition:
+    color 160ms ease,
+    text-decoration-color 160ms ease;
+}
+
+.w3a-link-device-email-otp .w3a-otp-resend:hover:not(:disabled),
+.w3a-link-device-email-otp .w3a-otp-resend:focus-visible {
+  color: var(--w3a-colors-textPrimary);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+
+@keyframes w3a-otp-reject {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  45% {
+    transform: translateX(4px);
+  }
+  70% {
+    transform: translateX(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w3a-link-device-email-otp[data-otp-phase='incorrect'] .w3a-otp-slots {
+    animation: none;
+  }
 }
 
 /* Status message row */
@@ -1873,6 +2007,31 @@ seams-auth-menu-surface {
 .w3a-link-device-btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* The link-device confirmations commit in ink, not in brand blue: these views
+   are the end of a flow the user is already inside, so the one control reads
+   as "the next step" rather than as an offer. Derived from the text colour so
+   it inverts with the theme — near-black on light, near-white on dark — which
+   is what "black button" has to mean on a card that is itself near-black. */
+.w3a-link-device-confirmation .w3a-link-device-btn-primary {
+  background: color-mix(in srgb, var(--w3a-colors-textPrimary, #1e293b), #000000 25%) !important;
+  border-color: transparent;
+  color: var(--w3a-colors-colorBackground, #ffffff);
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn-primary:hover:not(:disabled),
+.w3a-link-device-confirmation .w3a-link-device-btn-primary:focus-visible {
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-textPrimary, #1e293b),
+    var(--w3a-colors-colorBackground, #ffffff) 14%
+  ) !important;
+  color: var(--w3a-colors-colorBackground, #ffffff);
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn-primary:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-textPrimary), transparent 78%);
 }
 
 .w3a-signup-menu-root {

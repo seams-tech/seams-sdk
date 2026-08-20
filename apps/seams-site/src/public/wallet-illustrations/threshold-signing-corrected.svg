@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Two-of-two threshold signing</title>
+  <desc id="desc">Two geometrically constructed key-share modules converge through a policy gate into one approved signature.</desc>
+  <rect width="1600" height="900" fill="#fff"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(270 245)">
+      <g stroke="#57534e" stroke-width="1.4">
+        <path d="M0-95L105-43L0 9L-105-43ZM-105-43V87L0 139L105 87V-43M0 9V139"/>
+        <path d="M0-42L52-16L0 10L-52-16ZM-52-16V49L0 75L52 49V-16M0 10V75"/>
+      </g>
+      <g stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6">
+        <path d="M-105 87L0 35L105 87M0-95V35M105-43V87"/>
+        <path d="M-145-63L0-135L145-63M-145-63V107L0 179L145 107V-63M0-135V35"/>
+      </g>
+      <g fill="#a59f97">
+        <circle cx="0" cy="-135" r="2.5"/><circle cx="-145" cy="-63" r="2.5"/>
+        <circle cx="145" cy="-63" r="2.5"/><circle cx="-145" cy="107" r="2.5"/>
+        <circle cx="0" cy="179" r="2.5"/><circle cx="145" cy="107" r="2.5"/>
+      </g>
+    </g>
+
+    <g transform="translate(270 655)">
+      <g stroke="#57534e" stroke-width="1.4">
+        <path d="M0-139L105-87L0-35L-105-87ZM-105-87V43L0 95L105 43V-87M0-35V95"/>
+        <path d="M0-75L52-49L0-23L-52-49ZM-52-49V16L0 42L52 16V-49M0-23V42"/>
+      </g>
+      <g stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6">
+        <path d="M-105 43L0-9L105 43M0-139V-9M105-87V43"/>
+        <path d="M-145-107L0-179L145-107M-145-107V63L0 135L145 63V-107M0-179V-9"/>
+      </g>
+      <g fill="#a59f97">
+        <circle cx="0" cy="-179" r="2.5"/><circle cx="-145" cy="-107" r="2.5"/>
+        <circle cx="145" cy="-107" r="2.5"/><circle cx="-145" cy="63" r="2.5"/>
+        <circle cx="0" cy="135" r="2.5"/><circle cx="145" cy="63" r="2.5"/>
+      </g>
+    </g>
+
+    <path d="M415 352C535 352 552 424 650 442M415 548C535 548 552 476 650 458" stroke="#a59f97" stroke-width="2" stroke-dasharray="3 9"/>
+
+    <g transform="translate(800 450)">
+      <path d="M0-206V230M-205 0H205" stroke="#d6d3d1" stroke-width="1" stroke-dasharray="3 8"/>
+      <path d="M-146-103L0-174L146-103M-146 103L0 206L146 103" stroke="#a59f97" stroke-width="1" stroke-dasharray="2 7"/>
+      <path d="M0-138L120-95V4C120 88 62 138 0 166C-62 138-120 88-120 4V-95Z" stroke="#57534e" stroke-width="1.7"/>
+      <path d="M0-108L92-75V3C92 67 48 106 0 128C-48 106-92 67-92 3V-75Z" stroke="#57534e" stroke-width="1.25"/>
+      <path d="M0-78L64-55V2C64 46 33 74 0 89C-33 74-64 46-64 2V-55Z" stroke="#a59f97" stroke-width="1"/>
+      <path d="M-29 5L-8 26L36-26" stroke="#57534e" stroke-width="2"/>
+      <g fill="#a59f97">
+        <circle cx="0" cy="-206" r="2.5"/><circle cx="0" cy="230" r="2.5"/>
+        <circle cx="-205" cy="0" r="2.5"/><circle cx="205" cy="0" r="2.5"/>
+      </g>
+    </g>
+
+    <path d="M1006 450H1250" stroke="#57534e" stroke-width="1.6"/>
+    <path d="M1238 438L1250 450L1238 462" stroke="#57534e" stroke-width="1.6"/>
+
+    <g transform="translate(1370 450)">
+      <path d="M0-106V106M-106 0H106" stroke="#a59f97" stroke-width="1" stroke-dasharray="2 7"/>
+      <circle r="82" stroke="#a59f97" stroke-width="1" stroke-dasharray="2 6"/>
+      <circle r="65" stroke="#157f5f" stroke-width="1.4"/>
+      <circle r="47" stroke="#157f5f" stroke-width="1" opacity=".6"/>
+      <path d="M-31 12C-19-18-7-29-4-17C-1-5-20 20-8 18C4 16 11-4 17 0C23 4 17 17 26 17H39M-39 34H42" stroke="#157f5f" stroke-width="2.5"/>
+      <g fill="#157f5f">
+        <circle cx="0" cy="-106" r="2.5"/><circle cx="0" cy="106" r="2.5"/>
+        <circle cx="-106" cy="0" r="2.5"/><circle cx="106" cy="0" r="2.5"/>
+      </g>
+    </g>
+  </g>
+</svg>

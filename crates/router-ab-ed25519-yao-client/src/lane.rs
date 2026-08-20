@@ -25,7 +25,7 @@ use router_ab_ed25519_yao_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use signer_core::ed25519_yao_derivation::{
-    derive_ed25519_yao_client_contributions_v1, Ed25519YaoClientDerivationRootV1,
+    derive_ed25519_yao_client_contributions_v1, Ed25519YaoClientRootV1,
 };
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -223,7 +223,7 @@ pub fn prepare_client_lane_dispatch_with_root_v1(
     binding: &Ed25519YaoCeremonyBindingV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    root: &Ed25519YaoClientDerivationRootV1,
+    root: &Ed25519YaoClientRootV1,
     deriver_a_input_public_key: [u8; 32],
     deriver_b_input_public_key: [u8; 32],
     mut entropy: ClientLaneExecutionEntropyV1,

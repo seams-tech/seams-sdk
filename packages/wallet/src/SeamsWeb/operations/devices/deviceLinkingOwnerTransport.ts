@@ -10,7 +10,7 @@ import type {
   LinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
-import { parseLinkedDeviceCustodyTransferRecipientV1 } from '@shared/device-linking/custodyTransfer';
+import { parseLinkedDeviceEd25519ExportRootRecipientV1 } from '@shared/device-linking/ed25519ExportRoot';
 import type {
   LinkSessionAuthenticationV1,
   LinkSessionOwnerTransportPortV1,
@@ -90,23 +90,23 @@ export function createDeviceLinkingOwnerTransportV1(
       });
       return parseOwnerResponseV1(response, parseLinkedDeviceProvisioningDeliveriesSubmissionV1);
     },
-    getCustodyTransferRecipientV1: async (input) => {
+    getEd25519ExportRootRecipientV1: async (input) => {
       const response = await options.request.requestOwnerV1({
         method: 'GET',
-        canonicalPath: `${sessionPath(input.linkSessionId)}/custody-transfer-recipient`,
+        canonicalPath: `${sessionPath(input.linkSessionId)}/ed25519-export-root-recipient`,
         authentication: input.authentication,
       });
       // Device 2 has not published a recipient key yet. Normal while the
       // target device is still preparing, so it is a value rather than a throw.
       if (response.status === 204) return null;
-      return parseOwnerResponseV1(response, parseLinkedDeviceCustodyTransferRecipientV1);
+      return parseOwnerResponseV1(response, parseLinkedDeviceEd25519ExportRootRecipientV1);
     },
-    submitCustodyTransferPackageV1: async (input) => {
+    submitEd25519ExportRootPackageV1: async (input) => {
       const response = await options.request.requestOwnerV1({
         method: 'POST',
         canonicalPath: `${sessionPath(
           requireLinkSessionId(input.submission.linkSessionId),
-        )}/custody-transfer`,
+        )}/ed25519-export-root`,
         body: input.submission,
         authentication: input.authentication,
       });

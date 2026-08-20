@@ -68,10 +68,10 @@ export type EmailOtpEd25519YaoUnlockResult =
 export type EmailOtpWalletUnlockCapabilityResults = {
   kind: 'wallet_unlock_capabilities';
   recovery: EmailOtpWalletUnlockRecovery;
-  custodyTransfer: Extract<
+  ed25519ExportRootCustody: Extract<
     EmailOtpWalletUnlockMaterialResult,
     { kind: 'wallet_unlock_capabilities' }
-  >['custodyTransfer'];
+  >['ed25519ExportRootCustody'];
   ecdsa: Extract<EmailOtpWalletUnlockResult, { operation: 'wallet_unlock' }>;
   ed25519Yao: EmailOtpEd25519YaoUnlockResult;
 };
@@ -284,7 +284,7 @@ export async function unlockEmailOtpWalletCapabilities(
   return {
     kind: 'wallet_unlock_capabilities',
     recovery: result.recovery,
-    custodyTransfer: result.custodyTransfer,
+    ed25519ExportRootCustody: result.ed25519ExportRootCustody,
     ecdsa: {
       kind: 'ecdsa',
       operation: 'wallet_unlock',

@@ -1600,12 +1600,6 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
       challengeId,
     });
     await otpInput.fill(otpCode);
-    const verifyCodeButton = device2Wallet.getByRole('button', {
-      name: 'Verify code',
-      exact: true,
-    });
-    await verifyCodeButton.focus();
-    await verifyCodeButton.press('Enter');
     const credentialCommitted = await Promise.race([
       targetCredentialCommit,
       device2Cancellation.then(async (response) => {

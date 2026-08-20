@@ -12,6 +12,8 @@ pub mod codec;
 pub mod commands;
 #[cfg(feature = "ecdsa-role-local-client")]
 pub mod ecdsa_role_local_client;
+#[cfg(feature = "ed25519-yao-client-root-transfer")]
+pub mod ed25519_yao_client_root_transfer;
 #[cfg(feature = "ed25519-yao-derivation")]
 pub mod ed25519_yao_derivation;
 #[cfg(feature = "tx-finalization")]
@@ -24,8 +26,6 @@ pub mod near_ed25519_recovery;
 pub mod near_threshold_ed25519;
 #[cfg(feature = "near-threshold-ed25519")]
 pub mod near_threshold_frost;
-#[cfg(feature = "linked-device-custody-transfer")]
-pub mod linked_device_custody_transfer;
 #[cfg(feature = "passkey-custody")]
 pub mod passkey_custody;
 #[cfg(feature = "secp256k1")]

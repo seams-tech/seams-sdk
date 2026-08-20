@@ -1,5 +1,5 @@
 export * from './linkedDeviceSession';
 export * from './requestProof';
 export * from './linkedDeviceManagement';
-export * from './linkedDeviceCustodyTransfer';
+export * from './linkedDeviceEd25519ExportRoot';
 export * from './linkedOwnerEnrollmentAdmission';

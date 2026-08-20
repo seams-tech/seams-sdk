@@ -101,6 +101,9 @@ export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
 export type LinkedDeviceWalletSessionAuthorizationId =
   DomainId<'LinkedDeviceWalletSessionAuthorizationId'>;
+export type ReusableWalletSessionAuthorizationId =
+  | WalletSessionAuthorizationId
+  | LinkedDeviceWalletSessionAuthorizationId;
 
 export const AUTHORIZATION_GRANT_KINDS = {
   walletSession: 'wallet_session_authorization',
@@ -355,6 +358,12 @@ export function parseLinkedDeviceWalletSessionAuthorizationId(
   value: unknown,
 ): AuthorizationParseResult<LinkedDeviceWalletSessionAuthorizationId> {
   return parseAuthorizationId(value, 'linkedDeviceWalletSessionAuthorizationId');
+}
+
+export function parseReusableWalletSessionAuthorizationId(
+  value: unknown,
+): AuthorizationParseResult<ReusableWalletSessionAuthorizationId> {
+  return parseAuthorizationId(value, 'reusableWalletSessionAuthorizationId');
 }
 
 export function parseAuthorizedOperationId(

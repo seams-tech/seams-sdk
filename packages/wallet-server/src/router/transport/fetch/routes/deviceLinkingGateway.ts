@@ -1,5 +1,3 @@
-import type { LinkedDeviceEnrollmentReceiptV1 } from '@shared/device-linking/contracts';
-import { parseLinkedDeviceEnrollmentReceiptV1 } from '@shared/device-linking/parsers';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -38,7 +36,7 @@ export type DeviceLinkingGatewayAuthDeniedV1 = {
 export type DeviceLinkingGatewayCompletionServiceV1 = {
   readonly sessionService: Pick<
     LinkedDeviceSessionServiceV1,
-    'markCommittedCompletionRequiredV1' | 'recordAggregateActivationV1'
+    'markCommittedCompletionRequiredV1'
   >;
   readonly nowV1: () => number;
   authenticateGatewayRequestV1(input: {
@@ -61,15 +59,7 @@ type GatewayCommitRequestV1 = {
   readonly requestedAtMs: number;
 };
 
-type GatewayActivationRequestV1 = {
-  readonly kind: 'linked_device_gateway_activation_request_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly expectedRevision: number;
-  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-  readonly requestedAtMs: number;
-};
-
-type GatewayCompletionRequestV1 = GatewayCommitRequestV1 | GatewayActivationRequestV1;
+type GatewayCompletionRequestV1 = GatewayCommitRequestV1;
 
 export async function handleDeviceLinkingGatewayCompletion(
   ctx: FetchRouterApiContext,
@@ -105,28 +95,16 @@ export async function handleDeviceLinkingGatewayCompletion(
     if (body.requestedAtMs > nowMs) {
       throw new GatewayCompletionInputError('completion request is from the future');
     }
-    if (action.kind === 'commit') {
-      if (body.kind !== 'linked_device_gateway_commit_request_v1') {
-        throw new GatewayCompletionInputError('gateway completion request kind is invalid');
-      }
-      const result = await service.sessionService.markCommittedCompletionRequiredV1({
-        linkSessionId: body.linkSessionId,
-        expectedRevision: body.expectedRevision,
-        transcriptSetDigestB64u: body.transcriptSetDigestB64u,
-        nowMs: body.requestedAtMs,
-      });
-      return commitResultResponse(result);
+    if (body.kind !== 'linked_device_gateway_commit_request_v1') {
+      throw new GatewayCompletionInputError('gateway completion request kind is invalid');
     }
-    if (body.kind !== 'linked_device_gateway_activation_request_v1') {
-      throw new GatewayCompletionInputError('gateway activation request kind is invalid');
-    }
-    const result = await service.sessionService.recordAggregateActivationV1({
+    const result = await service.sessionService.markCommittedCompletionRequiredV1({
       linkSessionId: body.linkSessionId,
       expectedRevision: body.expectedRevision,
-      receipt: body.receipt,
+      transcriptSetDigestB64u: body.transcriptSetDigestB64u,
       nowMs: body.requestedAtMs,
     });
-    return activationResultResponse(result);
+    return commitResultResponse(result);
   } catch (error: unknown) {
     if (error instanceof GatewayCompletionInputError) {
       return json({ ok: false, outcome: 'invalid_input', message: error.message }, { status: 400 });
@@ -140,11 +118,11 @@ export async function handleDeviceLinkingGatewayCompletion(
 
 function parseGatewayCompletionPath(
   pathname: string,
-): { readonly kind: 'commit' | 'activate'; readonly linkSessionId: LinkDeviceSessionId } | null {
+): { readonly kind: 'commit'; readonly linkSessionId: LinkDeviceSessionId } | null {
   const prefix = `${LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1}/`;
   if (!pathname.startsWith(prefix)) return null;
   const parts = pathname.slice(prefix.length).split('/');
-  if (parts.length !== 2 || !parts[0] || (parts[1] !== 'commit' && parts[1] !== 'activate')) {
+  if (parts.length !== 2 || !parts[0] || parts[1] !== 'commit') {
     return null;
   }
   let rawSessionId: string;
@@ -155,7 +133,7 @@ function parseGatewayCompletionPath(
   }
   const parsed = parseLinkDeviceSessionId(rawSessionId);
   if (!parsed.ok) throw new GatewayCompletionInputError('link session id is invalid');
-  return { kind: parts[1], linkSessionId: parsed.value };
+  return { kind: 'commit', linkSessionId: parsed.value };
 }
 
 function parseBoundary<T>(parse: () => T): T {
@@ -180,16 +158,6 @@ function parseGatewayRequest(raw: unknown): GatewayCompletionRequestV1 {
       requestedAtMs: parseTimestamp(record.requestedAtMs, 'requestedAtMs'),
     };
   }
-  if (kind === 'linked_device_gateway_activation_request_v1') {
-    requireExactKeys(record, ['kind', 'linkSessionId', 'expectedRevision', 'receipt', 'requestedAtMs']);
-    return {
-      kind,
-      linkSessionId: parseSessionId(record.linkSessionId),
-      expectedRevision: parseRevision(record.expectedRevision),
-      receipt: parseLinkedDeviceEnrollmentReceiptV1(record.receipt),
-      requestedAtMs: parseTimestamp(record.requestedAtMs, 'requestedAtMs'),
-    };
-  }
   throw new GatewayCompletionInputError('gateway completion request kind is invalid');
 }
 
@@ -205,32 +173,6 @@ function commitResultResponse(result: LinkedDeviceSessionServiceResultV1): Respo
           revision: result.record.revision,
           updatedAtMs: result.record.updatedAtMs,
         },
-        { status: 200 },
-      );
-    case 'conflict':
-      return json({ ok: false, outcome: result.outcome, expectedRevision: result.expectedRevision, actualRevision: result.actualRevision }, { status: 409 });
-    case 'expired':
-      return json({ ok: false, outcome: result.outcome, state: result.record.state }, { status: 410 });
-    case 'invalid_state':
-      return json({ ok: false, outcome: result.outcome, state: result.state }, { status: 409 });
-    case 'invalid_input':
-      return json({ ok: false, outcome: result.outcome, message: result.message }, { status: 400 });
-    case 'unauthorized':
-      return json({ ok: false, outcome: result.outcome, code: result.code, message: result.message }, { status: 401 });
-    default:
-      return assertNever(result);
-  }
-}
-
-function activationResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {
-  switch (result.outcome) {
-    case 'applied':
-    case 'replayed':
-      if (!result.record.aggregateReceipt) {
-        return json({ ok: false, outcome: 'invalid_state', state: result.record.state.state }, { status: 409 });
-      }
-      return json(
-        { ok: true, outcome: result.outcome, receipt: result.record.aggregateReceipt },
         { status: 200 },
       );
     case 'conflict':
