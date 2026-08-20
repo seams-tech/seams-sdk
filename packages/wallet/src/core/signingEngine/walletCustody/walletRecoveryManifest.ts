@@ -32,7 +32,7 @@ import type {
 } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { buildPasskeyEnvelopeFactor } from '@shared/passkey-custody';
-import type { WebAuthnCredentialIdB64u, WebAuthnRpId } from '@shared/utils/domainIds';
+import type { WalletId, WebAuthnCredentialIdB64u, WebAuthnRpId } from '@shared/utils/domainIds';
 
 type NearRecoveryEntry = Extract<
   WalletRecoveryPreparationKeyManifestEntry,
@@ -136,7 +136,7 @@ function recordReplacementEnvelope(input: {
 }
 
 export async function recoverWalletCustodyManifestV1(input: {
-  readonly walletId: string;
+  readonly walletId: WalletId;
   readonly prepared: PreparedWalletRecovery;
   readonly custodyJson: string;
   readonly recoveryCodeBytes: Uint8Array;
@@ -152,20 +152,27 @@ export async function recoverWalletCustodyManifestV1(input: {
   let replacementEnvelope: RecoveryReplacementEnvelopePayload | null = null;
 
   for (const [entryIndex, entry] of input.prepared.keyManifest.entries.entries()) {
-    const recoveryCode = recoveryCodeBuffer(input.recoveryCodeBytes);
-    const credentialReplacement = replacementForEntry({
-      entryIndex,
-      replacementId: input.prepared.registration.replacementId,
-      rpId: input.prepared.registration.rpId,
-      credentialIdB64u: input.replacementCredentialIdB64u,
-      factorSecret: input.replacementFactorSecret,
-    });
+    let copiedRecoveryCode: ArrayBuffer | null = null;
+    let credentialReplacement: RecoveryCredentialReplacement | null = null;
     try {
+      const recoveryCode = recoveryCodeBuffer(input.recoveryCodeBytes);
+      copiedRecoveryCode = recoveryCode;
+      const replacement = replacementForEntry({
+        entryIndex,
+        replacementId: input.prepared.registration.replacementId,
+        rpId: input.prepared.registration.rpId,
+        credentialIdB64u: input.replacementCredentialIdB64u,
+        factorSecret: input.replacementFactorSecret,
+      });
+      credentialReplacement = replacement;
       switch (entry.kind) {
         case 'near_ed25519': {
           const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
             routerOrigin: new URL(input.relayUrl).origin,
-            authorization: `Bearer ${entry.recoveryAuthorizationJwt}`,
+            authorization: {
+              kind: 'recovery_challenge',
+              challengeId: input.prepared.registration.challengeId,
+            },
             fetch: globalThis.fetch,
           });
           const request = await buildWalletRecoveryEd25519AdmissionRequestV1({
@@ -179,7 +186,7 @@ export async function recoverWalletCustodyManifestV1(input: {
             custodyJson: input.custodyJson,
             recoveryCode,
             recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-            credentialReplacement,
+            credentialReplacement: replacement,
             nearEd25519SigningKeyId:
               entry.recoveryBasis.applicationBinding.near_ed25519_signing_key_id,
             recoveryLifecycleId: request.scope.lifecycle_id,
@@ -219,7 +226,7 @@ export async function recoverWalletCustodyManifestV1(input: {
             custodyJson: input.custodyJson,
             recoveryCode,
             recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-            credentialReplacement,
+            credentialReplacement: replacement,
             evmFamilySigningKeySlotId: entry.evmFamilySigningKeySlotId,
             applicationBindingDigestB64u:
               entry.recoveryBasis.publicCapability.context.application_binding_digest_b64u,
@@ -264,8 +271,8 @@ export async function recoverWalletCustodyManifestV1(input: {
         }
       }
     } finally {
-      zeroizeCredentialReplacement(credentialReplacement);
-      new Uint8Array(recoveryCode).fill(0);
+      if (credentialReplacement) zeroizeCredentialReplacement(credentialReplacement);
+      if (copiedRecoveryCode) new Uint8Array(copiedRecoveryCode).fill(0);
     }
   }
 

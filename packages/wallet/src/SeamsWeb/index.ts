@@ -73,8 +73,6 @@ export type {
   RecoveryCapability,
   WalletRecoveryRotationAuthorization,
   WalletRecoveryRotationOutcome,
-  CompleteWalletRecoveryResult,
-  PrepareWalletWithCodeResult,
   ReconcileTempoNonceLaneArgs,
   ReportTempoBroadcastAcceptedArgs,
   ReportTempoBroadcastRejectedArgs,

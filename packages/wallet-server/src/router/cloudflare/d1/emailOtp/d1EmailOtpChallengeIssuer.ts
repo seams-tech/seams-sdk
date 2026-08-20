@@ -4,7 +4,6 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
-  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
@@ -45,10 +44,6 @@ export type EmailOtpChallengeIssueInput =
   | (EmailOtpChallengeIssueBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
       readonly operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
-    })
-  | (EmailOtpChallengeIssueBaseInput & {
-      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
-      readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     })
   | (EmailOtpChallengeIssueBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceLink;
@@ -267,10 +262,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
         maxAttempts: this.config.maxAttempts,
       });
       await this.emailOtpChallenges.put(record);
-      const delivery = await this.emailOtpDelivery.deliverEmailOtpCode(
-        record,
-        input.requestOrigin,
-      );
+      const delivery = await this.emailOtpDelivery.deliverEmailOtpCode(record, input.requestOrigin);
       if (!delivery.ok) {
         await this.emailOtpChallenges.delete(challengeId);
         return delivery;

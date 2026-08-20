@@ -157,12 +157,53 @@ export type AuthMenuLinkDeviceViewModel = AuthMenuViewModelCommon & {
   readonly passkeyNameLabel?: never;
 };
 
+export type AuthMenuRecoveryStage =
+  | 'enter_code'
+  | 'preparing'
+  | 'passkey_ready'
+  | 'finalizing'
+  | 'sign_in_ready';
+
+type AuthMenuIdleStatus = Extract<AuthMenuSurfaceStatus, { readonly kind: 'idle' }>;
+type AuthMenuBusyStatus = Extract<AuthMenuSurfaceStatus, { readonly kind: 'busy' }>;
+type AuthMenuRecoverableStatus = Extract<AuthMenuSurfaceStatus, { readonly kind: 'recoverable' }>;
+
+export type AuthMenuRecoveryViewModel = AuthMenuViewModelCommon & {
+  readonly kind: 'recovery';
+  readonly mode: 'login';
+  readonly walletId: string;
+  readonly recoveryCode: string;
+  readonly walletIdError: string | null;
+  readonly recoveryCodeError: string | null;
+  readonly passkeyName?: never;
+  readonly passkeyNameLabel?: never;
+} & (
+    | {
+        readonly stage: 'enter_code';
+        readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
+      }
+    | { readonly stage: 'preparing'; readonly status: AuthMenuBusyStatus }
+    | {
+        readonly stage: 'passkey_ready';
+        readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
+      }
+    | {
+        readonly stage: 'finalizing';
+        readonly status: AuthMenuBusyStatus | AuthMenuRecoverableStatus;
+      }
+    | {
+        readonly stage: 'sign_in_ready';
+        readonly status: AuthMenuIdleStatus | AuthMenuBusyStatus | AuthMenuRecoverableStatus;
+      }
+  );
+
 export type AuthMenuViewModel =
   | AuthMenuLoginViewModel
   | AuthMenuRegisterViewModel
   | AuthMenuGoogleLoginViewModel
   | AuthMenuGoogleRegistrationViewModel
-  | AuthMenuLinkDeviceViewModel;
+  | AuthMenuLinkDeviceViewModel
+  | AuthMenuRecoveryViewModel;
 
 export type AuthMenuCloseReason = 'close_button' | 'escape';
 
@@ -180,6 +221,26 @@ export type AuthMenuIntent =
     }
   | {
       readonly kind: 'link_device_open';
+    }
+  | {
+      readonly kind: 'recovery_open';
+    }
+  | {
+      readonly kind: 'recovery_wallet_id_changed';
+      readonly walletId: string;
+    }
+  | {
+      readonly kind: 'recovery_code_changed';
+      readonly recoveryCode: string;
+    }
+  | {
+      readonly kind: 'recovery_submit';
+    }
+  | {
+      readonly kind: 'recovery_create_passkey';
+    }
+  | {
+      readonly kind: 'recovery_sign_in';
     }
   | {
       readonly kind: 'link_device_create_passkey';
@@ -259,12 +320,20 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
       return record.mode === 'login' || record.mode === 'register';
     case 'back':
     case 'link_device_open':
+    case 'recovery_open':
+    case 'recovery_submit':
+    case 'recovery_create_passkey':
+    case 'recovery_sign_in':
     case 'link_device_create_passkey':
     case 'link_device_start':
     case 'link_device_email_otp_resend':
     case 'link_device_email_otp_submit':
     case 'registration_reroll':
       return true;
+    case 'recovery_wallet_id_changed':
+      return typeof record.walletId === 'string';
+    case 'recovery_code_changed':
+      return typeof record.recoveryCode === 'string';
     case 'link_device_factor_selected':
       return (
         isPlainObject(record.targetFactor) &&
@@ -335,6 +404,12 @@ export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
       return !viewModel.rerollBusy && !viewModel.submitBusy;
     case 'link_device':
       return false;
+    case 'recovery':
+      return (
+        viewModel.stage === 'enter_code' ||
+        viewModel.stage === 'passkey_ready' ||
+        viewModel.stage === 'sign_in_ready'
+      );
     case 'passkey':
       return viewModel.mode === 'login'
         ? true

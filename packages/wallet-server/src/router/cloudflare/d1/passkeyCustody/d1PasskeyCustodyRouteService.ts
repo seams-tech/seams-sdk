@@ -72,6 +72,7 @@ import {
   resolveWalletRecoveryKeyManifestV1,
   verifyWalletRecoveryKeyActivationsV1,
   buildWalletRecoveryEcdsaPossessionChallengesV1,
+  type PreparedEd25519RecoveryAdmissionV1,
   type WalletUnlockKeyManifestV1,
   type WalletRecoveryPreparationKeyManifestV1,
 } from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
@@ -162,7 +163,7 @@ export interface RouterApiPasskeyCustodyService {
     | { readonly kind: 'invalid_envelope_id' }
   >;
 
-  /** Holds one code after Refactor 90 admits fresh Email OTP evidence. */
+  /** Reserves one recovery code while the replacement Passkey is created. */
   prepareRecovery(request: {
     readonly walletId: WalletId;
     readonly rpId: string;
@@ -170,6 +171,11 @@ export interface RouterApiPasskeyCustodyService {
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
   }): Promise<WalletRecoveryRoutePreparationResult>;
+
+  readPreparedEd25519RecoveryAdmission(request: {
+    readonly challengeId: string;
+    readonly nowMs: number;
+  }): Promise<PreparedEd25519RecoveryAdmissionV1 | null>;
 
   /**
    * Installs the credential a recovery enrolled and retires the old ones.
@@ -444,6 +450,10 @@ export function createD1PasskeyCustodyRouteService(assembly: {
     },
 
     prepareRecovery: prepareRecoveryForRoute.bind(undefined, assembly),
+    readPreparedEd25519RecoveryAdmission: readPreparedEd25519RecoveryAdmission.bind(
+      undefined,
+      assembly,
+    ),
 
     finalizeRecovery: finalizeRecoveryForRoute.bind(undefined, assembly),
 
@@ -511,6 +521,49 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         ? { kind: 'ready', record: stored.record, storeVersion: stored.storeVersion }
         : { kind: 'no_recovery_set' };
     },
+  };
+}
+
+async function readPreparedEd25519RecoveryAdmission(
+  assembly: {
+    readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+    readonly walletStore: D1WalletStore;
+    readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  },
+  request: {
+    readonly challengeId: string;
+    readonly nowMs: number;
+  },
+): Promise<PreparedEd25519RecoveryAdmissionV1 | null> {
+  const challenge = await assembly.webAuthnStore.readRecoveryRegistrationChallenge(
+    request.challengeId,
+    request.nowMs,
+  );
+  if (!challenge) return null;
+  const storedRecoverySet = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
+    challenge.walletId,
+  );
+  const hasActiveReservation = storedRecoverySet?.record.manifestKekWraps.some(
+    (wrap) =>
+      wrap.lifecycle.state === 'reserved' &&
+      wrap.lifecycle.reservationId === challenge.reservationId &&
+      wrap.lifecycle.reservationExpiresAtMs > request.nowMs,
+  );
+  if (!hasActiveReservation) return null;
+  const manifest = await resolveWalletRecoveryKeyManifestV1({
+    registry: assembly.walletStore,
+    walletId: challenge.walletId,
+  });
+  return {
+    kind: 'prepared_ed25519_recovery_admission_v1',
+    walletId: challenge.walletId,
+    reservationId: challenge.reservationId,
+    entries: manifest.entries.filter(
+      (
+        entry,
+      ): entry is Extract<(typeof manifest.entries)[number], { readonly kind: 'near_ed25519' }> =>
+        entry.kind === 'near_ed25519',
+    ),
   };
 }
 

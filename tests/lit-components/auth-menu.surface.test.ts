@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { setupBasicPasskeyTest, sdkEsmPath } from '../setup';
 import { ensureComponentModule, mountComponent } from './harness';
+import type { AuthMenuRecoveryViewModel } from '@/SeamsWeb/walletIframe/host/lit-ui/auth-menu/auth-menu-domain';
 
 const AUTH_MENU_MODULE = sdkEsmPath(
   'SeamsWeb/walletIframe/host/lit-ui/auth-menu/seams-auth-menu-surface.js',
@@ -52,6 +53,36 @@ function loginViewModel(status: unknown = { kind: 'idle', interaction: 'actionab
     accountOptions: [],
     selectedWalletId: null,
     status,
+  };
+}
+
+type RecoveryEntryViewModel = Extract<AuthMenuRecoveryViewModel, { readonly stage: 'enter_code' }>;
+
+function recoveryEntryViewModel(
+  overrides: Partial<{
+    walletId: string;
+    recoveryCode: string;
+    walletIdError: string | null;
+    recoveryCodeError: string | null;
+  }> = {},
+): RecoveryEntryViewModel {
+  return {
+    appearance: { ...APPEARANCE, theme: { ...APPEARANCE.theme, mode: 'light' as const } },
+    hostname: 'wallet.example.test',
+    closeLabel: 'Close authentication menu',
+    kind: 'recovery',
+    mode: 'login',
+    heading: 'Recover account',
+    subtitle: 'Enter one recovery code to create a new passkey for this wallet.',
+    ctaLabel: 'Continue',
+    showProgress: true,
+    enabledExternalProviders: [],
+    stage: 'enter_code',
+    walletId: overrides.walletId ?? '',
+    recoveryCode: overrides.recoveryCode ?? '',
+    walletIdError: overrides.walletIdError ?? null,
+    recoveryCodeError: overrides.recoveryCodeError ?? null,
+    status: { kind: 'idle', interaction: 'actionable' },
   };
 }
 
@@ -136,6 +167,107 @@ test.describe('wallet-host Lit auth menu surface', () => {
       { kind: 'submit', mode: 'register', passkeyName: 'Ledger passkey' },
       { kind: 'back' },
     ]);
+  });
+
+  test('keeps recovery in the hosted menu with accessible validation and focus return', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await mountAuthMenu(page, loginViewModel());
+    await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement & { intents?: unknown[] };
+      element.intents = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        element.intents?.push((event as CustomEvent<unknown>).detail);
+      });
+    }, AUTH_MENU_TAG);
+
+    await page.locator(`${AUTH_MENU_TAG} [data-recovery-action]`).click();
+    expect(
+      await page.evaluate(
+        (tagName) =>
+          (document.querySelector(tagName) as HTMLElement & { intents?: unknown[] }).intents,
+        AUTH_MENU_TAG,
+      ),
+    ).toEqual([{ kind: 'recovery_open' }]);
+
+    await page.evaluate(
+      async ({ tagName, viewModel }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: unknown;
+          updateComplete: Promise<unknown>;
+        };
+        element.viewModel = viewModel;
+        await element.updateComplete;
+      },
+      { tagName: AUTH_MENU_TAG, viewModel: recoveryEntryViewModel() },
+    );
+
+    const walletInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-wallet-id]`);
+    const codeInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-code]`);
+    await expect(walletInput).toHaveAttribute('aria-invalid', 'false');
+    await expect(codeInput).toHaveCSS('font-size', '16px');
+    await expect(page.locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`)).toBeEnabled();
+    await walletInput.fill('wallet-1.test');
+    await codeInput.fill('ABCD-EFGH');
+    await page.locator(`${AUTH_MENU_TAG} form`).press('Enter');
+
+    await page.evaluate(
+      async ({ tagName, viewModel }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: unknown;
+          updateComplete: Promise<unknown>;
+        };
+        element.viewModel = viewModel;
+        await element.updateComplete;
+      },
+      {
+        tagName: AUTH_MENU_TAG,
+        viewModel: recoveryEntryViewModel({
+          walletIdError: 'Enter a valid wallet ID.',
+          recoveryCodeError: 'Enter a recovery code.',
+        }),
+      },
+    );
+    await expect(walletInput).toBeFocused();
+    await expect(walletInput).toHaveAttribute('aria-describedby', 'w3a-recovery-wallet-id-error');
+
+    await page.evaluate(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    const intents = await page.evaluate(
+      (tagName) =>
+        (document.querySelector(tagName) as HTMLElement & { intents?: unknown[] }).intents,
+      AUTH_MENU_TAG,
+    );
+    expect(intents).toEqual([
+      { kind: 'recovery_open' },
+      { kind: 'recovery_wallet_id_changed', walletId: 'wallet-1.test' },
+      { kind: 'recovery_code_changed', recoveryCode: 'ABCD-EFGH' },
+      { kind: 'recovery_submit' },
+      { kind: 'back' },
+    ]);
+
+    await page.evaluate(
+      async ({ tagName, viewModel }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: unknown;
+          updateComplete: Promise<unknown>;
+        };
+        element.viewModel = viewModel;
+        await element.updateComplete;
+      },
+      { tagName: AUTH_MENU_TAG, viewModel: loginViewModel() },
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} [data-recovery-action]`)).toBeFocused();
+    const reflow = await page
+      .locator(`${AUTH_MENU_TAG} .w3a-signup-menu-root`)
+      .evaluate((root) => ({
+        clientWidth: root.clientWidth,
+        scrollWidth: root.scrollWidth,
+      }));
+    expect(reflow.clientWidth).toBeGreaterThanOrEqual(318);
+    expect(reflow.scrollWidth).toBeLessThanOrEqual(reflow.clientWidth);
   });
 
   test('renders the device-link QR menu and returns through the Back control', async ({ page }) => {

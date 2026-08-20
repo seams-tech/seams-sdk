@@ -1,21 +1,51 @@
 import { expect, test } from '@playwright/test';
+import type { WebAuthnRegistrationCredential } from '../../packages/wallet/src/core/types/webauthn';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
 } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 import { finalizeWalletRecovery } from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryFinalize';
+import {
+  ENVELOPE_ID,
+  WALLET_ID,
+  passkeyCustodyEnvelope,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
 
-/**
- * The recovery-finalization client boundary.
- *
- * `retireFailures` is what these tests exist for. It is the field a caller
- * forgets, and forgetting it is silent: the wallet is recovered, the new
- * credential works, and a credential the user was replacing still opens their
- * wallet with nobody aware of it. So the route must surface it and the client
- * must not drop it.
- */
+const REGISTRATION: WebAuthnRegistrationCredential = {
+  id: 'replacement-credential',
+  rawId: 'replacement-credential',
+  type: 'public-key',
+  authenticatorAttachment: 'platform',
+  response: {
+    clientDataJSON: 'client-data',
+    attestationObject: 'attestation',
+    transports: ['internal'],
+  },
+  clientExtensionResults: {
+    prf: {
+      results: {
+        first: 'secret-first',
+        second: 'secret-second',
+      },
+    },
+  },
+};
 
-const routeDefinitions = createRouterApiRouteDefinitions();
+type CapturedRequest = {
+  url: string;
+  body: Record<string, unknown> | null;
+};
+
+function captureRequest(capture: CapturedRequest, body: unknown): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capture.url = String(input);
+    capture.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+}
 
 function respondWith(status: number, body: unknown): typeof fetch {
   return (async () =>
@@ -25,52 +55,69 @@ function respondWith(status: number, body: unknown): typeof fetch {
     })) as unknown as typeof fetch;
 }
 
+function finalizeWith(fetchImpl: typeof fetch) {
+  return finalizeWalletRecovery({
+    relayUrl: 'https://relay.localhost/',
+    walletId: WALLET_ID,
+    reservationId: 'reservation-1',
+    challengeId: 'challenge-1',
+    replacementId: ENVELOPE_ID,
+    webauthnRegistration: REGISTRATION,
+    replacementEnvelope: passkeyCustodyEnvelope(),
+    ecdsaMaterialPossessionProofs: [],
+    fetchImpl,
+  });
+}
+
 test('the route is registered where the client posts', () => {
+  const routeDefinitions = createRouterApiRouteDefinitions();
   const route = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_finalize');
   expect(route?.path).toBe('/wallets/recovery/finalize');
 });
 
-test('the client keeps retireFailures, and defaults it to empty', async () => {
-  const withFailures = await finalizeWalletRecovery({
-    relayUrl: 'https://relay.localhost',
-    walletId: 'alice.testnet',
-    sessionToken: 'app-session',
-    reservationId: 'reservation-1',
-    replacementEnvelope: {},
-    fetchImpl: respondWith(200, {
-      ok: true,
-      storeVersion: '2',
-      retiredEnvelopeIds: ['old-1'],
-      retireFailures: ['old-2'],
-    }),
-  });
-  expect(withFailures).toMatchObject({ kind: 'promoted', retireFailures: ['old-2'] });
+test('finalize posts only the atomic R114 promotion request', async () => {
+  const captured: CapturedRequest = { url: '', body: null };
+  const result = await finalizeWith(captureRequest(captured, { ok: true, storeVersion: '2' }));
 
-  const clean = await finalizeWalletRecovery({
-    relayUrl: 'https://relay.localhost',
-    walletId: 'alice.testnet',
-    sessionToken: 'app-session',
+  expect(captured.url).toBe('https://relay.localhost/wallets/recovery/finalize');
+  expect(Object.keys(captured.body ?? {}).sort()).toEqual([
+    'challengeId',
+    'ecdsaMaterialPossessionProofs',
+    'replacementEnvelope',
+    'replacementId',
+    'reservationId',
+    'walletId',
+    'webauthnRegistration',
+  ]);
+  expect(captured.body).toMatchObject({
+    walletId: WALLET_ID,
     reservationId: 'reservation-1',
-    replacementEnvelope: {},
-    fetchImpl: respondWith(200, { ok: true, storeVersion: '2', retiredEnvelopeIds: ['old-1'] }),
+    challengeId: 'challenge-1',
+    replacementId: ENVELOPE_ID,
+    ecdsaMaterialPossessionProofs: [],
+    webauthnRegistration: { clientExtensionResults: null },
   });
-  // Always an array: a caller checking `.length` should not need to know the
-  // field is conditional on the wire.
-  expect(clean).toMatchObject({ kind: 'promoted', retireFailures: [] });
+  expect(result).toEqual({ kind: 'promoted', storeVersion: '2' });
 });
 
-test('a finalization conflict remains distinct from incomplete activation', async () => {
-  const result = await finalizeWalletRecovery({
-    relayUrl: 'https://relay.localhost',
-    walletId: 'alice.testnet',
-    sessionToken: 'app-session',
-    reservationId: 'reservation-1',
-    replacementEnvelope: {},
-    fetchImpl: respondWith(409, {
-      ok: false,
-      code: 'recovery_conflict',
-      message: 'recovery state changed',
+test('finalize accepts only the exact success response', async () => {
+  const legacyResponse = await finalizeWith(
+    respondWith(200, {
+      ok: true,
+      storeVersion: '2',
+      retiredEnvelopeIds: ['old-envelope'],
     }),
-  });
-  expect(result).toEqual({ kind: 'conflict', message: 'recovery state changed' });
+  );
+
+  expect(legacyResponse).toEqual({ kind: 'transport_uncertain' });
+});
+
+test('finalize preserves the three exact failure classifications', async () => {
+  const refused = await finalizeWith(respondWith(400, { ok: false }));
+  const conflict = await finalizeWith(respondWith(409, { ok: false }));
+  const uncertain = await finalizeWith(respondWith(503, { ok: false }));
+
+  expect(refused).toEqual({ kind: 'refused' });
+  expect(conflict).toEqual({ kind: 'retryable_conflict' });
+  expect(uncertain).toEqual({ kind: 'transport_uncertain' });
 });

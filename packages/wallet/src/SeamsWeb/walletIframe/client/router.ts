@@ -146,12 +146,6 @@ import {
   type LinkedDeviceRevokeResultV1,
 } from '@shared/device-linking';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
-import type {
-  CompleteWalletRecoveryResult,
-  PrepareWalletWithCodeResult,
-  WalletRecoveryBootstrapChallengeResult,
-  WalletRecoveryBootstrapVerifyResult,
-} from '@/SeamsWeb/operations/recovery/walletRecovery';
 import type { ExportKeypairWithUIInput } from '@/SeamsWeb/signingSurface/types';
 import type {
   FundImplicitNearAccountForTestingResult,
@@ -412,7 +406,6 @@ function requestSurfaceKindForMessage(
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
     case 'PM_ADD_PASSKEY':
-    case 'PM_COMPLETE_WALLET_RECOVERY':
     case 'PM_ROTATE_WALLET_RECOVERY_CODES':
       return 'registration';
     case 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP':
@@ -3032,69 +3025,6 @@ export class WalletIframeRouter {
       type: 'PM_ROTATE_WALLET_RECOVERY_CODES',
       payload,
     });
-    return res.result;
-  }
-
-  async requestWalletRecoveryBootstrapChallenge(payload: {
-    walletId: string;
-    orgId: string;
-    relayUrl?: string;
-  }): Promise<WalletRecoveryBootstrapChallengeResult> {
-    const { relayUrl, ...wirePayload } = payload;
-    const res = await this.post<WalletRecoveryBootstrapChallengeResult>({
-      type: 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
-      payload: { ...wirePayload, ...(relayUrl ? { relayUrl } : {}) },
-    });
-    return res.result;
-  }
-
-  async verifyWalletRecoveryBootstrap(payload: {
-    walletId: string;
-    orgId: string;
-    challengeId: string;
-    otpCode: string;
-    relayUrl?: string;
-  }): Promise<WalletRecoveryBootstrapVerifyResult> {
-    const { relayUrl, ...wirePayload } = payload;
-    const res = await this.post<WalletRecoveryBootstrapVerifyResult>({
-      type: 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP',
-      payload: { ...wirePayload, ...(relayUrl ? { relayUrl } : {}) },
-    });
-    return res.result;
-  }
-
-  async prepareWalletRecoveryWithBootstrap(payload: {
-    walletId: string;
-    orgId: string;
-    challengeId: string;
-    recoveryBootstrapGrant: string;
-    replacedCredentialIdB64u: string;
-    recoveryCode: string;
-    relayUrl?: string;
-    abortSignal?: AbortSignal;
-  }): Promise<PrepareWalletWithCodeResult> {
-    const { abortSignal: _abortSignal, ...wirePayload } = payload;
-    const res = await this.post<PrepareWalletWithCodeResult>({
-      type: 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP',
-      payload: wirePayload,
-    });
-    return res.result;
-  }
-
-  async completeWalletRecovery(payload: {
-    walletId: string;
-    recoveryOperationId: string;
-    relayUrl?: string;
-    abortSignal?: AbortSignal;
-  }): Promise<CompleteWalletRecoveryResult> {
-    const { abortSignal: _abortSignal, ...wirePayload } = payload;
-    const res = await this.post<CompleteWalletRecoveryResult>(
-      {
-        type: 'PM_COMPLETE_WALLET_RECOVERY',
-        payload: wirePayload,
-      },
-      { timeout: 'interactive' },
-    );
     return res.result;
   }
 

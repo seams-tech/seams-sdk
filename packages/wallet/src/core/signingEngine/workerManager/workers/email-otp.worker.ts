@@ -528,9 +528,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
   signerSlot: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
-  resolveCustodyEnvelope: (
-    release: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
-  ) => Promise<{
+  resolveCustodyEnvelope: (release: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1) => Promise<{
     factorSecret: Uint8Array;
     bindingJson: string;
     nonce: Uint8Array;
@@ -611,6 +609,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
       resolveCustodyEnvelope: args.resolveCustodyEnvelope,
       transport: new RouterAbEd25519YaoHttpActivationTransportV1({
         routerOrigin: new URL(args.relayUrl).origin,
+        authorization: { kind: 'cookies' },
         fetch: globalThis.fetch.bind(globalThis),
       }),
     });
@@ -1889,35 +1888,37 @@ async function decryptEmailOtpFactorReleaseEnvelope(args: {
   }
 }
 
-async function releaseEmailOtpFactorSecret(args: {
-  relayUrl: string;
-  walletId: string;
-} & (
-  | {
-      kind: 'verified_grant';
-      challengeId: string;
-      loginGrant: string;
-      sessionAuth: WalletSessionRouteAuth | undefined;
-      otpCode?: never;
-      operation?: never;
-    }
-  | {
-      kind: 'email_otp';
-      challengeId: string;
-      otpCode: string;
-      operation: WalletEmailOtpOperation;
-      sessionAuth: WalletSessionRouteAuth | undefined;
-      loginGrant?: never;
-    }
-  | {
-      kind: 'wallet_session';
-      sessionAuth: WalletSessionRouteAuth;
-      challengeId?: never;
-      loginGrant?: never;
-      otpCode?: never;
-      operation?: never;
-    }
-)): Promise<{
+async function releaseEmailOtpFactorSecret(
+  args: {
+    relayUrl: string;
+    walletId: string;
+  } & (
+    | {
+        kind: 'verified_grant';
+        challengeId: string;
+        loginGrant: string;
+        sessionAuth: WalletSessionRouteAuth | undefined;
+        otpCode?: never;
+        operation?: never;
+      }
+    | {
+        kind: 'email_otp';
+        challengeId: string;
+        otpCode: string;
+        operation: WalletEmailOtpOperation;
+        sessionAuth: WalletSessionRouteAuth | undefined;
+        loginGrant?: never;
+      }
+    | {
+        kind: 'wallet_session';
+        sessionAuth: WalletSessionRouteAuth;
+        challengeId?: never;
+        loginGrant?: never;
+        otpCode?: never;
+        operation?: never;
+      }
+  ),
+): Promise<{
   challengeId: string;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
@@ -1952,10 +1953,10 @@ async function releaseEmailOtpFactorSecret(args: {
           ? { kind: 'verified_grant', loginGrant: args.loginGrant }
           : args.kind === 'email_otp'
             ? {
-              kind: 'email_otp',
-              challengeId: args.challengeId,
-              otpCode: args.otpCode,
-              operation: args.operation,
+                kind: 'email_otp',
+                challengeId: args.challengeId,
+                otpCode: args.otpCode,
+                operation: args.operation,
               }
             : { kind: 'wallet_session' }),
         workerEphemeralPublicKey65B64u: base64UrlEncode(workerPublicKey),
@@ -2161,9 +2162,7 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
         kind: 'opaque_wallet_session',
         walletSessionToken: requireOpaqueWalletSessionToken(credential.walletSessionToken),
       },
-      ed25519WalletSessionToken: requireOpaqueWalletSessionToken(
-        credential.walletSessionToken,
-      ),
+      ed25519WalletSessionToken: requireOpaqueWalletSessionToken(credential.walletSessionToken),
     });
     if (unlocked.kind !== 'ed25519_yao_capability') {
       throw new Error('Email OTP operation material did not activate an Ed25519 capability');
@@ -2806,7 +2805,10 @@ async function rejoinEmailOtpEd25519FromCustody(args: {
   });
   const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
     routerOrigin: new URL(args.relayUrl).origin,
-    authorization: `Bearer ${capabilitySessionWalletToken(args.bootstrap)}`,
+    authorization: {
+      kind: 'bearer',
+      value: `Bearer ${capabilitySessionWalletToken(args.bootstrap)}`,
+    },
     fetch: globalThis.fetch,
   });
   const admitted = await admitWalletRecoveryEd25519V1({ request: recoveryRequest, transport });
