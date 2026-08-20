@@ -3,7 +3,6 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
-  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -39,10 +38,6 @@ export type EmailOtpExistingChallengeVerifyInput =
   | (EmailOtpExistingChallengeVerifyBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
       readonly operation: EmailOtpLoginChallengeOperation;
-    })
-  | (EmailOtpExistingChallengeVerifyBaseInput & {
-      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
-      readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     })
   | (EmailOtpExistingChallengeVerifyBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceLink;
@@ -530,7 +525,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       return {
         ok: true,
         challengeId: consumed.challengeId,
-            challengeSubjectId: resolvedProviderSubject,
+        challengeSubjectId: resolvedProviderSubject,
         walletId,
         orgId,
         email: consumed.email,

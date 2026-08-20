@@ -19,6 +19,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 import { LINKED_DEVICE_REQUEST_PROOF_HEADER_V1 } from '@shared/device-linking';
+import { ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1 } from '@shared/utils/routerAbEd25519Yao';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 import { callCf, makeCfCtx } from '../relayer/helpers';
 
@@ -184,7 +185,6 @@ function testExtensionRoute(id: string, method: 'GET' | 'POST', path: string) {
     summary: `Test extension route ${id}`,
   });
 }
-
 
 test.describe('Router API route surface wiring', () => {
   test('Express public entrypoint composes the canonical Ed25519 Yao module and envelope', async () => {
@@ -372,7 +372,7 @@ test.describe('Router API route surface wiring', () => {
     }
   });
 
-  test('fetch preflight allows trace and linked-device proof headers', async () => {
+  test('fetch preflight allows protocol headers', async () => {
     const origin = 'https://sign.seams.sh';
     const handler = createFetchRouter(
       makeRouterApiServiceBagFixture(),
@@ -385,8 +385,7 @@ test.describe('Router API route surface wiring', () => {
       path: '/wallets/register/setup',
       origin,
       headers: {
-        'Access-Control-Request-Headers':
-          `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1},${LINKED_DEVICE_REQUEST_PROOF_HEADER_V1}`,
+        'Access-Control-Request-Headers': `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1},${LINKED_DEVICE_REQUEST_PROOF_HEADER_V1},${ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1}`,
         'Access-Control-Request-Method': 'POST',
       },
     });
@@ -400,6 +399,7 @@ test.describe('Router API route surface wiring', () => {
     );
     expect(allowedHeaders.has(ROUTER_AB_TRACE_ID_HEADER_V1)).toBe(true);
     expect(allowedHeaders.has(LINKED_DEVICE_REQUEST_PROOF_HEADER_V1)).toBe(true);
+    expect(allowedHeaders.has(ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1)).toBe(true);
   });
 
   test('route extensions are surfaced and mounted by supported transport', async () => {

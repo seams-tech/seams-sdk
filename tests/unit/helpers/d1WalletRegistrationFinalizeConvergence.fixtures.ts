@@ -871,7 +871,10 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
           message: thresholdSessionId.error.message,
         };
       }
-      return { ok: true as const, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } };
+      return {
+        ok: true as const,
+        authorizationIdentity: { thresholdSessionId: thresholdSessionId.value },
+      };
     },
     async resolveAuthorizationIdentity() {
       const thresholdSessionId = parseThresholdEd25519SessionId(
@@ -885,7 +888,10 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
           message: thresholdSessionId.error.message,
         };
       }
-      return { ok: true as const, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } };
+      return {
+        ok: true as const,
+        authorizationIdentity: { thresholdSessionId: thresholdSessionId.value },
+      };
     },
   };
   const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
@@ -896,7 +902,11 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     ),
     recoveryService,
     capabilities: recoveryService,
-    recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
+    recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => {
+        throw new Error('Recovery authorization is outside the finalize convergence fixture');
+      },
+    ),
     exportService,
     exportAuthorization,
     session,

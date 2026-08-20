@@ -457,11 +457,11 @@ import type {
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
 import {
-  isSerializedRegistrationCredential,
+  redactedPasskeyRegistrationCredential,
   serializeRegistrationCredentialWithPRF,
 } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
 import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
 import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import {
@@ -514,10 +514,8 @@ async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
   readonly maskedEmailHint: string;
 }> {
-  const activeEmailMethods: Extract<
-    LocalWalletAuthMethodRecord,
-    { readonly kind: 'email_otp' }
-  >[] = [];
+  const activeEmailMethods: Extract<LocalWalletAuthMethodRecord, { readonly kind: 'email_otp' }>[] =
+    [];
   for (const record of input.authMethods) {
     if (
       record.kind === 'email_otp' &&
@@ -528,7 +526,9 @@ async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
     }
   }
   if (activeEmailMethods.length !== 1) {
-    throw new Error('Linked-device Email OTP owner enrollment requires exactly one active local factor');
+    throw new Error(
+      'Linked-device Email OTP owner enrollment requires exactly one active local factor',
+    );
   }
   const [record] = activeEmailMethods;
   if (!record) {
@@ -2246,7 +2246,7 @@ export class BrowserSigningSurface {
   }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1> {
     const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
       routerOrigin: args.routerOrigin,
-      authorization: args.authorization,
+      authorization: { kind: 'bearer', value: args.authorization },
       fetch: globalThis.fetch,
       ...(args.traceContext ? { traceContext: args.traceContext } : {}),
     });
@@ -2318,31 +2318,33 @@ export class BrowserSigningSurface {
   }
 
   async createWalletRecoveryReplacementCredential(args: {
-    readonly walletId: string;
+    readonly walletId: WalletId;
     readonly registration: WalletRecoveryRegistrationOptions;
+    readonly cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
   }): Promise<WalletRecoveryReplacementCredential> {
-    const requestId = `wallet-recovery:${args.registration.challengeId}`;
-    const decision = await this.touchConfirm.requestUserConfirmation({
-      requestId,
-      type: UserConfirmationType.REGISTER_ACCOUNT,
-      summary: {
-        walletId: args.walletId,
-        title: 'Recover wallet',
-        body: 'Create a replacement passkey to finish wallet recovery.',
+    const requestId = walletIframeRequestIdFromBoundary(
+      `wallet-recovery:${args.registration.challengeId}`,
+    );
+    const credentialPromise = this.touchIdPrompt.generateRegistrationCredentialsInternal({
+      kind: 'wallet_recovery',
+      walletId: args.walletId,
+      intendedUserName: args.walletId,
+      recoveryRegistration: args.registration,
+      prompt: {
+        kind: 'immediate',
+        requestId,
+        cancellation: args.cancellation,
       },
-      payload: {
-        walletId: args.walletId,
-        walletRecoveryRegistration: args.registration,
-      },
-      intentDigest: `wallet-recovery:${args.walletId}:${args.registration.replacementId}`,
     });
-    if (!decision.confirmed) {
-      throw new Error(decision.error || 'wallet recovery was cancelled');
-    }
-    if (!isSerializedRegistrationCredential(decision.credential)) {
-      throw new Error('wallet recovery confirmation returned no replacement passkey');
-    }
-    return walletRecoveryReplacementCredentialFromRegistrationV1(decision.credential);
+    const credential = await credentialPromise;
+    const replacement = walletRecoveryReplacementCredentialFromRegistrationV1(
+      serializePreparedRegistrationCredential(credential),
+    );
+    return {
+      registration: redactedPasskeyRegistrationCredential(replacement.registration),
+      credentialIdB64u: replacement.credentialIdB64u,
+      factorSecret: replacement.factorSecret,
+    };
   }
 
   async joinWalletCustodyNearEd25519KeySet(args: {
@@ -2359,7 +2361,7 @@ export class BrowserSigningSurface {
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
     const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
       routerOrigin: args.routerOrigin,
-      authorization: args.authorization,
+      authorization: { kind: 'bearer', value: args.authorization },
       fetch: globalThis.fetch,
       ...(args.traceContext ? { traceContext: args.traceContext } : {}),
     });
@@ -2417,7 +2419,7 @@ export class BrowserSigningSurface {
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
     const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
       routerOrigin: args.routerOrigin,
-      authorization: `Bearer ${args.walletSessionToken}`,
+      authorization: { kind: 'bearer', value: `Bearer ${args.walletSessionToken}` },
       fetch: globalThis.fetch,
     });
     const recoveryRequest = await buildWalletSessionEd25519RecoveryAdmissionRequestV1({
@@ -3257,9 +3259,7 @@ export class BrowserSigningSurface {
         break;
       }
       case WALLET_AUTH_METHODS.emailOtp: {
-        const capability = readUnlockedWalletCustodyTransferCapabilityV1(
-          String(args.job.walletId),
-        );
+        const capability = readUnlockedWalletCustodyTransferCapabilityV1(String(args.job.walletId));
         if (!capability) {
           throw new Error('Wallet-host Email OTP custody capability is unavailable');
         }
@@ -3430,9 +3430,7 @@ export class BrowserSigningSurface {
             'Linked-device owner enrollment could not resolve the wallet relying party',
           );
         }
-        const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(
-          this.seamsWebConfigs,
-        );
+        const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(this.seamsWebConfigs);
         if (!managedRuntimeScope) {
           throw new Error('Linked-device owner enrollment requires a managed runtime scope');
         }

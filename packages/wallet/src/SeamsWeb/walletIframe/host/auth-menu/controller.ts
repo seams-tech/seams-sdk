@@ -14,7 +14,7 @@ import {
   buildNearWalletRegistrationSignerSetSelection,
   resolvePasskeyRegistrationAccountProvisioning,
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   walletIframeRequestIdFromBoundary,
@@ -38,6 +38,7 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
+import { createHostedRecoveryPort } from '../recovery-entrypoint';
 
 export type AuthMenuControllerDeps = {
   readonly getSeamsWeb: () => SeamsWeb;
@@ -87,6 +88,7 @@ export class AuthMenuController {
     if (this.sessions.has(args.request.authMenuSessionId)) {
       throw new Error('Hosted auth-menu session is already active');
     }
+    const seamsWeb = this.deps.getSeamsWeb();
     const session = new AuthMenuSession({
       request: args.request,
       requestId,
@@ -96,6 +98,15 @@ export class AuthMenuController {
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
       cancelDeviceLinking: this.cancelDeviceLinking,
+      recoveryPort: createHostedRecoveryPort({
+        context: seamsWeb.getContext(),
+        relayUrl: String(seamsWeb.configs.network.relayer.url),
+      }),
+      prepareRecoveredLogin: this.prepareRecoveredLogin.bind(
+        this,
+        requestId,
+        args.request.authMenuSessionId,
+      ),
       sendToParent: this.deps.send,
     });
     const outcomePromise = session.waitForOutcome();
@@ -206,6 +217,21 @@ export class AuthMenuController {
     return await prepareHostedPasskeyAccountSync({
       context,
       walletId: selectedWalletId,
+      authMenuSessionId,
+      requestId,
+      cancellation,
+    });
+  }
+
+  private async prepareRecoveredLogin(
+    requestId: WalletIframeRequestId,
+    authMenuSessionId: HostedAuthMenuOpenRequest['authMenuSessionId'],
+    walletId: WalletId,
+    cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
+  ): Promise<HostedPasskeyPrepared> {
+    return await prepareHostedPasskeyLogin({
+      context: createHostedPasskeyContext(this.deps.getSeamsWeb().getContext()),
+      walletId: String(walletId),
       authMenuSessionId,
       requestId,
       cancellation,

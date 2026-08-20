@@ -25,6 +25,7 @@ import type { D1WalletStore } from '../../../core/d1WalletStore';
 import {
   deriveWalletRecoveryKeyLifecycleId,
   parseRecoveryCodeReservationId,
+  type RecoveryCodeReservationId,
   type WalletRecoveryKeySetId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEcdsaPossessionChallengeV1 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
@@ -84,6 +85,16 @@ export type WalletRecoveryKeyManifestV1 = {
   readonly version: 'wallet_recovery_key_manifest_v1';
   readonly walletId: WalletId;
   readonly entries: readonly WalletRecoveryKeyManifestEntryV1[];
+};
+
+export type PreparedEd25519RecoveryAdmissionV1 = {
+  readonly kind: 'prepared_ed25519_recovery_admission_v1';
+  readonly walletId: WalletId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly entries: readonly Extract<
+    WalletRecoveryKeyManifestEntryV1,
+    { readonly kind: 'near_ed25519' }
+  >[];
 };
 
 export type WalletRecoveryPreparationKeyManifestEntryV1 =

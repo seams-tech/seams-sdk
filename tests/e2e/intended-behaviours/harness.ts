@@ -3,6 +3,7 @@ import {
   test as base,
   type APIRequestContext,
   type BrowserContext,
+  type CDPSession,
   type FrameLocator,
   type Page,
   type Request,
@@ -37,6 +38,7 @@ import {
 export type IntendedLifecycleFlow =
   | 'passkey.registration'
   | 'passkey.unlock'
+  | 'passkey.recovery'
   | 'email_otp.registration'
   | 'email_otp.unlock';
 
@@ -79,6 +81,7 @@ type IntendedHarnessAction =
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
+  | 'recoverPasskeyWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -94,6 +97,33 @@ type TraceEntry = {
   url?: string;
   status?: number;
 };
+
+type WebAuthnVirtualAuthenticatorHandle = {
+  readonly client: CDPSession;
+  readonly authenticatorId: string;
+};
+
+const WEB_AUTHN_VIRTUAL_AUTHENTICATOR_OPTIONS = {
+  protocol: 'ctap2',
+  transport: 'internal',
+  hasResidentKey: true,
+  hasUserVerification: true,
+  isUserVerified: true,
+  hasPrf: true,
+  automaticPresenceSimulation: true,
+} as const;
+
+function requireWebAuthnAuthenticatorId(raw: unknown): string {
+  const response = requireRecord(raw, 'WebAuthn virtual authenticator response');
+  return requireString(response.authenticatorId, 'WebAuthn virtual authenticator id');
+}
+
+async function addWebAuthnVirtualAuthenticator(client: CDPSession): Promise<string> {
+  const response = await client.send('WebAuthn.addVirtualAuthenticator', {
+    options: WEB_AUTHN_VIRTUAL_AUTHENTICATOR_OPTIONS,
+  });
+  return requireWebAuthnAuthenticatorId(response);
+}
 
 const ROUTER_AB_ED25519_SIGNING_PATHS = [
   '/router-ab/ed25519/sign/prepare',
@@ -336,6 +366,13 @@ type PasskeySyncResultSnapshot = {
   operationalPublicKey: string;
 };
 
+type PasskeyRecoveryResultSnapshot = {
+  kind: 'passkey_recovery_success';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
 type EmailOtpUnlockCoreSnapshot = {
   kind: 'email_otp_unlock_success';
   walletId: string;
@@ -389,6 +426,7 @@ type IntendedActionResultSnapshot =
   | NearProvisioningReadySnapshot
   | NearSigningResultSnapshot
   | PasskeySyncResultSnapshot
+  | PasskeyRecoveryResultSnapshot
   | PasskeyUnlockResultSnapshot
   | EmailOtpUnlockResultSnapshot
   | TempoSigningResultSnapshot
@@ -751,6 +789,8 @@ export class IntendedBehaviourHarness {
 
   private readonly violations: string[] = [];
 
+  private webAuthnVirtualAuthenticator: WebAuthnVirtualAuthenticatorHandle | null = null;
+
   private emailOtpVerificationCount = 0;
 
   private passkeyPromptCount = 0;
@@ -765,6 +805,8 @@ export class IntendedBehaviourHarness {
   private reloadIntendedPageBeforeNextAction = true;
 
   private registeredWallet: RegisteredWalletSnapshot | null = null;
+
+  private recoveryCodes: readonly string[] = [];
 
   private nearSignerSlot = 1;
 
@@ -813,7 +855,16 @@ export class IntendedBehaviourHarness {
     const snapshot = await this.runIntendedPageAction(
       'registerPasskeyWallet',
       'intended-register-passkey',
+      { onRecoveryCodes: this.captureRecoveryCodes },
     );
+    if (this.recoveryCodes.length === 0) {
+      this.captureRecoveryCodes(
+        await waitForWalletRecoveryCodeBackup(
+          this.page,
+          this.latestWalletIframeAutoConfirmDiagnostics || undefined,
+        ),
+      );
+    }
     const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
     if (this.config.passkeyEcdsaTargetProfile !== 'none' && result.nearReadiness !== 'pending') {
       throw new Error('Mixed passkey registration did not return ECDSA-ready with NEAR pending');
@@ -1046,6 +1097,71 @@ export class IntendedBehaviourHarness {
     this.recordService(
       `passkey cold sync restored wallet=${result.walletId} near=${result.nearAccountId}`,
     );
+  }
+
+  async recoverPasskeyWalletFromFreshBrowser(): Promise<void> {
+    this.recordStage('recover_passkey_wallet_from_fresh_browser');
+    const registration = this.requireRegisteredWalletForSigning();
+    const recoveryCode = this.recoveryCodes[0];
+    if (!recoveryCode) throw new Error('Passkey recovery requires a captured recovery code');
+    await this.clearBrowserStorageForColdSync();
+    await this.replaceWebAuthnVirtualAuthenticatorForRecovery();
+    await this.ensureIntendedPageOpen();
+    await this.page.getByTestId('intended-recover-passkey').click();
+    await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
+    await driveHostedPasskeyRecovery(this.page, this.walletId, recoveryCode);
+    const snapshot = await this.waitForIntendedPageActionCompletion(
+      'recoverPasskeyWallet',
+      'success',
+    );
+    const result = requirePasskeyRecoveryResult(snapshot, this.walletId);
+    if (result.totalRecoveryCodeCount !== this.recoveryCodes.length) {
+      throw new Error('Recovery changed the recovery-set size');
+    }
+    if (result.activeRecoveryCodeCount !== this.recoveryCodes.length - 1) {
+      throw new Error('Recovery did not consume exactly one recovery code');
+    }
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-wallet-id',
+      registration.walletId,
+    );
+    this.passkeyPromptCount += 2;
+    this.currentWarmSigningStage = 'post_unlock';
+    this.recordService('fresh-browser passkey recovery completed through normal passkey login');
+  }
+
+  async assertSourceWalletSessionRevoked(): Promise<void> {
+    const captured = this.latestWalletBudgetStatusRequest;
+    if (!captured) throw new Error('Source Wallet Session authorization was not captured');
+    const response = await this.request.post(captured.url, {
+      headers: {
+        Authorization: captured.authorization,
+        'Content-Type': captured.contentType,
+      },
+      data: captured.body,
+    });
+    if (response.status() !== 401 && response.status() !== 403) {
+      throw new Error(
+        `Source Wallet Session remained usable after recovery (${response.status()})`,
+      );
+    }
+    this.recordService('source Wallet Session authorization rejected after recovery');
+  }
+
+  async assertConsumedRecoveryCodeRefusedGenerically(): Promise<void> {
+    const recoveryCode = this.recoveryCodes[0];
+    if (!recoveryCode) throw new Error('Recovery-code reuse requires a captured recovery code');
+    await this.page.getByTestId('intended-recover-passkey').click();
+    await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
+    const frame = await fillHostedRecoveryCode(this.page, this.walletId, recoveryCode);
+    await expect(frame.locator('.w3a-recovery-status')).toHaveText(
+      'That recovery code can’t be used. Check the wallet ID and code, then try again.',
+      { timeout: 30_000 },
+    );
+    await this.page.goto('about:blank');
+    this.intendedPageReady = false;
+    this.reloadIntendedPageBeforeNextAction = true;
+    this.recordService('consumed recovery code received the generic refusal');
   }
 
   async unlockEmailOtpWallet(): Promise<void> {
@@ -1426,18 +1542,20 @@ export class IntendedBehaviourHarness {
   private async installWebAuthnVirtualAuthenticator(): Promise<void> {
     const client = await this.context.newCDPSession(this.page);
     await client.send('WebAuthn.enable');
-    await client.send('WebAuthn.addVirtualAuthenticator', {
-      options: {
-        protocol: 'ctap2',
-        transport: 'internal',
-        hasResidentKey: true,
-        hasUserVerification: true,
-        isUserVerified: true,
-        hasPrf: true,
-        automaticPresenceSimulation: true,
-      },
-    });
+    const authenticatorId = await addWebAuthnVirtualAuthenticator(client);
+    this.webAuthnVirtualAuthenticator = { client, authenticatorId };
     this.recordService('webauthn virtual authenticator ready');
+  }
+
+  private async replaceWebAuthnVirtualAuthenticatorForRecovery(): Promise<void> {
+    const current = this.webAuthnVirtualAuthenticator;
+    if (!current) throw new Error('WebAuthn virtual authenticator is unavailable');
+    await current.client.send('WebAuthn.removeVirtualAuthenticator', {
+      authenticatorId: current.authenticatorId,
+    });
+    const authenticatorId = await addWebAuthnVirtualAuthenticator(current.client);
+    this.webAuthnVirtualAuthenticator = { client: current.client, authenticatorId };
+    this.recordService('webauthn virtual authenticator replaced for recovery');
   }
 
   private async resetBrowserStorage(): Promise<void> {
@@ -1524,6 +1642,7 @@ export class IntendedBehaviourHarness {
     opts?: {
       nearAccountId?: string;
       expectedOutcome?: 'success' | 'error';
+      onRecoveryCodes?: (codes: readonly string[]) => void;
     },
   ): Promise<IntendedPageSnapshot> {
     if (opts?.nearAccountId && !this.registeredWallet) {
@@ -1542,6 +1661,7 @@ export class IntendedBehaviourHarness {
           timeoutMs: 120_000,
           intervalMs: 250,
           diagnostics,
+          onRecoveryCodes: opts?.onRecoveryCodes,
         },
       );
       this.latestPageSnapshot = snapshot;
@@ -1564,6 +1684,10 @@ export class IntendedBehaviourHarness {
       }
     }
   }
+
+  private captureRecoveryCodes = (codes: readonly string[]): void => {
+    this.recoveryCodes = [...codes];
+  };
 
   private async waitForIntendedPageActionStarted(action: IntendedHarnessAction): Promise<void> {
     try {
@@ -2179,6 +2303,7 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
     return 'passkey.registration';
   }
   if (normalized.endsWith('passkey.unlock.contract.test.ts')) return 'passkey.unlock';
+  if (normalized.endsWith('passkey.recovery.contract.test.ts')) return 'passkey.recovery';
   if (
     normalized.endsWith('email-otp.registration.contract.test.ts') ||
     normalized.endsWith('email-otp.registration.benchmark.test.ts')
@@ -2878,6 +3003,23 @@ function requirePasskeySyncResult(
   }
   if (result.operationalPublicKey !== expected.operationalPublicKey) {
     throw new Error('Passkey cold sync changed the Ed25519 public key');
+  }
+  return result;
+}
+
+function requirePasskeyRecoveryResult(
+  snapshot: IntendedPageSnapshot,
+  expectedWalletId: string,
+): PasskeyRecoveryResultSnapshot {
+  if (snapshot.action.status !== 'success') {
+    throw new Error(`Passkey recovery did not succeed: ${snapshot.action.status}`);
+  }
+  const result = snapshot.action.result;
+  if (result.kind !== 'passkey_recovery_success') {
+    throw new Error(`Passkey recovery returned unexpected result kind: ${result.kind}`);
+  }
+  if (result.walletId !== expectedWalletId) {
+    throw new Error(`Passkey recovery wallet mismatch: ${result.walletId}`);
   }
   return result;
 }
@@ -3648,6 +3790,19 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
           'passkey sync operationalPublicKey',
         ),
       };
+    case 'passkey_recovery_success':
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'passkey recovery walletId'),
+        activeRecoveryCodeCount: requireNonNegativeInteger(
+          record.activeRecoveryCodeCount,
+          'passkey recovery activeRecoveryCodeCount',
+        ),
+        totalRecoveryCodeCount: requirePositiveInteger(
+          record.totalRecoveryCodeCount,
+          'passkey recovery totalRecoveryCodeCount',
+        ),
+      };
     case 'email_otp_unlock_success':
       return {
         kind,
@@ -3843,6 +3998,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'registerEmailOtpWallet':
     case 'awaitNearReady':
     case 'syncPasskeyWallet':
+    case 'recoverPasskeyWallet':
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
     case 'signNearTransaction':
@@ -4081,6 +4237,62 @@ function assertNever(value: never): never {
   throw new Error(`Unexpected intended e2e value: ${String(value)}`);
 }
 
+async function hostedAuthMenuFrame(page: Page): Promise<FrameLocator> {
+  const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
+  await iframe.waitFor({ state: 'attached', timeout: 15_000 });
+  return iframe.contentFrame();
+}
+
+async function fillHostedRecoveryCode(
+  page: Page,
+  walletId: string,
+  recoveryCode: string,
+): Promise<FrameLocator> {
+  const frame = await hostedAuthMenuFrame(page);
+  await frame.getByRole('button', { name: 'Recover account' }).click({ timeout: 15_000 });
+  await frame.locator('[data-recovery-wallet-id]').fill(walletId);
+  await frame.locator('[data-recovery-code]').fill(recoveryCode);
+  await frame.getByRole('button', { name: 'Continue', exact: true }).click();
+  return frame;
+}
+
+async function waitForHostedPasskeyRecoverySignIn(page: Page, frame: FrameLocator): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  const primary = frame.locator('[data-auth-menu-primary]');
+  const status = frame.locator('.w3a-recovery-status').last();
+  while (Date.now() < deadline) {
+    const label = (await primary.textContent().catch(() => null))?.trim() ?? '';
+    const message = (await status.textContent().catch(() => null))?.trim() ?? '';
+    if (label === 'Sign in with new passkey') {
+      await primary.click({ timeout: 15_000 });
+      return;
+    }
+    const createFailed =
+      label === 'Create new passkey' &&
+      message !== 'Creating new passkey…' &&
+      message !== 'Finishing recovery…';
+    if (label === 'Retry finalization' || label === 'Continue' || createFailed) {
+      throw new Error(`Passkey recovery returned to "${label}": ${message || 'no status message'}`);
+    }
+    await page.waitForTimeout(250);
+  }
+  const label = (await primary.textContent().catch(() => null))?.trim() || 'no recovery control';
+  const message = (await status.textContent().catch(() => null))?.trim() || 'no status message';
+  throw new Error(`Passkey recovery did not reach sign-in-ready: ${label}; ${message}`);
+}
+
+async function driveHostedPasskeyRecovery(
+  page: Page,
+  walletId: string,
+  recoveryCode: string,
+): Promise<void> {
+  const frame = await fillHostedRecoveryCode(page, walletId, recoveryCode);
+  await frame.getByRole('button', { name: 'Create new passkey', exact: true }).click({
+    timeout: 30_000,
+  });
+  await waitForHostedPasskeyRecoverySignIn(page, frame);
+}
+
 function recordAutoConfirmMark(
   diagnostics: WalletIframeAutoConfirmDiagnostics | undefined,
   startedAtMs: number | undefined,
@@ -4278,13 +4490,17 @@ async function closeExportViewerFrameButton(page: Page): Promise<boolean> {
 async function acknowledgeWalletRecoveryCodeBackup(
   page: Page,
   diagnostics?: WalletIframeAutoConfirmDiagnostics,
-): Promise<boolean> {
+): Promise<readonly string[] | null> {
   for (const frame of page.frames()) {
     const acknowledgement = frame
       .locator('[data-w3a-wallet-recovery-backup-acknowledgement]')
       .first();
     const visible = await acknowledgement.isVisible().catch(() => false);
     if (!visible) continue;
+    const recoveryCodes = await frame.locator('.recovery-code-value').allTextContents();
+    if (recoveryCodes.length === 0 || recoveryCodes.some((code) => !code.trim())) {
+      throw new Error('Wallet recovery backup omitted its recovery codes');
+    }
     if (!(await acknowledgement.isChecked())) {
       await acknowledgement.evaluate((input) => {
         if (!(input instanceof HTMLInputElement)) {
@@ -4303,9 +4519,22 @@ async function acknowledgeWalletRecoveryCodeBackup(
       button.click();
     });
     if (diagnostics) diagnostics.recoveryBackupAcknowledged = true;
-    return true;
+    return recoveryCodes.map((code) => code.trim());
   }
-  return false;
+  return null;
+}
+
+async function waitForWalletRecoveryCodeBackup(
+  page: Page,
+  diagnostics?: WalletIframeAutoConfirmDiagnostics,
+): Promise<readonly string[]> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const recoveryCodes = await acknowledgeWalletRecoveryCodeBackup(page, diagnostics);
+    if (recoveryCodes) return recoveryCodes;
+    await page.waitForTimeout(100);
+  }
+  throw new Error('Passkey registration did not present recovery codes');
 }
 
 async function autoConfirmWalletIframeUntil<T>(
@@ -4317,6 +4546,7 @@ async function autoConfirmWalletIframeUntil<T>(
     retryDelayMs?: number;
     stopAfterClick?: boolean;
     diagnostics?: WalletIframeAutoConfirmDiagnostics;
+    onRecoveryCodes?: (codes: readonly string[]) => void;
   },
 ): Promise<T> {
   const timeoutMs = Math.max(250, Math.floor(opts?.timeoutMs ?? 55_000));
@@ -4338,6 +4568,7 @@ async function autoConfirmWalletIframeUntil<T>(
     retryDelayMs,
     stopAfterClick,
     diagnostics,
+    onRecoveryCodes: opts?.onRecoveryCodes,
     startedAtMs,
     isDone: () => done,
   });
@@ -4360,16 +4591,15 @@ async function runWalletIframeAutoConfirmLoop(args: {
   retryDelayMs: number;
   stopAfterClick: boolean;
   diagnostics?: WalletIframeAutoConfirmDiagnostics;
+  onRecoveryCodes?: (codes: readonly string[]) => void;
   startedAtMs: number;
   isDone: () => boolean;
 }): Promise<void> {
   const deadline = Date.now() + args.timeoutMs;
   while (!args.isDone() && Date.now() < deadline) {
-    const recoveryBackupAcknowledged = await acknowledgeWalletRecoveryCodeBackup(
-      args.page,
-      args.diagnostics,
-    );
-    if (recoveryBackupAcknowledged) {
+    const recoveryCodes = await acknowledgeWalletRecoveryCodeBackup(args.page, args.diagnostics);
+    if (recoveryCodes) {
+      args.onRecoveryCodes?.(recoveryCodes);
       if (args.stopAfterClick) return;
       if (args.retryDelayMs > 0) {
         await args.page.waitForTimeout(args.retryDelayMs);

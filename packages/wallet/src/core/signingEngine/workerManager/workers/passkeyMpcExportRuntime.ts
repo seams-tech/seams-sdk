@@ -447,7 +447,10 @@ function assertExactEd25519ExportWorkerBinding(
     application.near_ed25519_signing_key_id !== payload.exactLane.nearEd25519SigningKeyId ||
     application.key_creation_signer_slot !== payload.exactLane.signerSlot ||
     scope.account_id !== payload.walletId ||
-    !mpcMaterialActivationRefsEqual(capability.materialActivation, payload.exactLane.materialActivation) ||
+    !mpcMaterialActivationRefsEqual(
+      capability.materialActivation,
+      payload.exactLane.materialActivation,
+    ) ||
     !mpcMaterialActivationRefsEqual(scopeMaterialActivation, payload.exactLane.materialActivation)
   ) {
     throw new Error('Ed25519 Yao export capability does not match the exact requested lane');
@@ -605,7 +608,10 @@ async function runEd25519YaoExportWithUi(
       authorization: { kind: 'passkey', webauthnAuthentication: credential },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1({
         routerOrigin: new URL(payload.relayerUrl).origin,
-        authorization: `Bearer ${payload.authorization.walletSessionToken}`,
+        authorization: {
+          kind: 'bearer',
+          value: `Bearer ${payload.authorization.walletSessionToken}`,
+        },
         fetch: globalThis.fetch.bind(globalThis),
       }),
     });

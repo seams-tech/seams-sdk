@@ -11,6 +11,8 @@ import {
   type AuthMenuIntent,
   type AuthMenuLinkDeviceState,
   type AuthMenuLoginViewModel,
+  type AuthMenuRecoveryStage,
+  type AuthMenuRecoveryViewModel,
   type AuthMenuRegisterViewModel,
   type AuthMenuViewModel,
 } from './auth-menu-domain';
@@ -21,7 +23,16 @@ const AUTH_MENU_TITLE_ID = 'w3a-auth-menu-title';
 const AUTH_MENU_ACCOUNT_LIST_ID = 'w3a-auth-menu-account-list';
 
 function authViewKey(viewModel: AuthMenuViewModel): string {
-  return `${viewModel.kind}:${viewModel.mode}:${viewModel.status.kind}`;
+  const stage = viewModel.kind === 'recovery' ? `:${viewModel.stage}` : '';
+  return `${viewModel.kind}:${viewModel.mode}:${viewModel.status.kind}${stage}`;
+}
+
+function recoveryAnnouncement(viewModel: AuthMenuRecoveryViewModel): string {
+  if (viewModel.status.kind === 'busy') return viewModel.status.headline;
+  if (viewModel.status.kind === 'recoverable') return viewModel.status.message;
+  if (viewModel.stage === 'passkey_ready') return 'Recovery code accepted.';
+  if (viewModel.stage === 'sign_in_ready') return 'Account recovered. Sign in to continue.';
+  return '';
 }
 
 function modeSwitchCopy(mode: AuthMenuViewModel['mode']): {
@@ -261,6 +272,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private contentResizeObserver: ResizeObserver | null = null;
   private contentHeightFrame: number | null = null;
   private previousLinkDeviceStateKind: AuthMenuLinkDeviceState['kind'] | null = null;
+  private previousRecoveryStage: AuthMenuRecoveryStage | null = null;
 
   constructor() {
     super();
@@ -324,9 +336,46 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   protected updated(changedProperties: Map<string | number | symbol, unknown>): void {
     super.updated(changedProperties);
     if (this.shouldFocusInitialControl) this.focusInitialControl();
+    this.focusRecoveryControl(changedProperties.get('viewModel'));
     this.focusLinkDevicePasskeyAction();
     this.observeContentSize();
     this.queueContentHeightSync();
+  }
+
+  private focusRecoveryControl(previousValue: unknown): void {
+    const previous = previousValue as AuthMenuViewModel | undefined;
+    const current = this.viewModel;
+    if (previous?.kind === 'recovery' && current.kind !== 'recovery') {
+      this.previousRecoveryStage = null;
+      this.querySelector<HTMLElement>('[data-recovery-action]')?.focus();
+      return;
+    }
+    if (current.kind !== 'recovery') return;
+    const stageChanged = this.previousRecoveryStage !== current.stage;
+    this.previousRecoveryStage = current.stage;
+    if (current.stage === 'enter_code') {
+      const invalid = this.querySelector<HTMLElement>('[aria-invalid="true"]');
+      if (invalid) {
+        invalid.focus();
+        return;
+      }
+      if (previous?.kind !== 'recovery' || previous.stage !== 'enter_code') {
+        this.querySelector<HTMLElement>('[data-recovery-wallet-id]')?.focus();
+      }
+      return;
+    }
+    const becameRecoverable =
+      current.status.kind === 'recoverable' &&
+      previous?.kind === 'recovery' &&
+      previous.status.kind !== 'recoverable';
+    if (
+      (stageChanged || becameRecoverable) &&
+      (current.stage === 'passkey_ready' ||
+        current.stage === 'finalizing' ||
+        current.stage === 'sign_in_ready')
+    ) {
+      this.querySelector<HTMLElement>('[data-auth-menu-primary]')?.focus();
+    }
   }
 
   private focusLinkDevicePasskeyAction(): void {
@@ -423,7 +472,12 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
     const viewModel = this.viewModel;
-    if (!viewModel || !isAuthMenuLoadingStatus(viewModel.status)) return;
+    if (
+      !viewModel ||
+      (viewModel.kind !== 'recovery' && !isAuthMenuLoadingStatus(viewModel.status))
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     this.emitIntent({ kind: 'back' });
@@ -508,6 +562,33 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     this.emitIntent({ kind: 'link_device_open' });
   };
 
+  private onRecoveryOpen = (): void => {
+    this.emitIntent({ kind: 'recovery_open' });
+  };
+
+  private onRecoveryWalletIdInput = (event: Event): void => {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    this.emitIntent({ kind: 'recovery_wallet_id_changed', walletId: event.currentTarget.value });
+  };
+
+  private onRecoveryCodeInput = (event: Event): void => {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    this.emitIntent({ kind: 'recovery_code_changed', recoveryCode: event.currentTarget.value });
+  };
+
+  private onRecoverySubmit = (event: SubmitEvent): void => {
+    event.preventDefault();
+    this.emitIntent({ kind: 'recovery_submit' });
+  };
+
+  private onRecoveryCreatePasskey = (): void => {
+    this.emitIntent({ kind: 'recovery_create_passkey' });
+  };
+
+  private onRecoverySignIn = (): void => {
+    this.emitIntent({ kind: 'recovery_sign_in' });
+  };
+
   private onLinkDeviceCreatePasskey = (): void => {
     this.emitIntent({ kind: 'link_device_create_passkey' });
   };
@@ -527,7 +608,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
 
   private onLinkDeviceEmailOtpCodeInput = (event: Event): void => {
     if (!(event.currentTarget instanceof HTMLInputElement)) return;
-    this.emitIntent({ kind: 'link_device_email_otp_code_changed', code: event.currentTarget.value });
+    this.emitIntent({
+      kind: 'link_device_email_otp_code_changed',
+      code: event.currentTarget.value,
+    });
   };
 
   private onLinkDeviceEmailOtpKeydown = (event: KeyboardEvent): void => {
@@ -556,6 +640,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     const linkDevice = viewModel.kind === 'link_device';
     const otpPrompt = viewModel.kind === 'google_otp_login';
     const registrationPrompt = viewModel.kind === 'google_registration';
+    const recovery = viewModel.kind === 'recovery';
 
     return html`
       <div
@@ -565,6 +650,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         data-scan-device=${linkDevice ? 'true' : 'false'}
         data-otp-prompt=${otpPrompt ? 'true' : 'false'}
         data-registration-prompt=${registrationPrompt ? 'true' : 'false'}
+        data-recovery=${recovery ? 'true' : 'false'}
         aria-labelledby=${AUTH_MENU_TITLE_ID}
         aria-busy=${loading ? 'true' : 'false'}
         tabindex="-1"
@@ -572,16 +658,25 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
       >
         <div class="w3a-content-switcher">
           <button
-            class="w3a-back-button ${loading || linkDevice || otpPrompt || registrationPrompt
+            class="w3a-back-button ${loading ||
+            linkDevice ||
+            otpPrompt ||
+            registrationPrompt ||
+            recovery
               ? 'is-visible'
               : ''}"
             type="button"
-            aria-label="Back"
+            aria-label=${recovery ? 'Back to sign in' : 'Back'}
             data-auth-menu-close
             @click=${this.onBackClick}
           >
             ${backIcon()}
           </button>
+          ${recovery
+            ? html`<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                ${recoveryAnnouncement(viewModel)}
+              </div>`
+            : null}
           <div class="w3a-content-area">
             <div class="w3a-content-sizer">
               ${loading
@@ -599,6 +694,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   }
 
   private renderActiveView(viewModel: AuthMenuViewModel): TemplateResult {
+    if (viewModel.kind === 'recovery') return this.renderRecovery(viewModel);
     if (viewModel.kind === 'link_device') return this.renderLinkDevice(viewModel);
     if (viewModel.kind === 'google_otp_login') return this.renderGoogleOtp(viewModel);
     if (viewModel.kind === 'google_registration') return this.renderGoogleRegistration(viewModel);
@@ -793,7 +889,109 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           <button class="w3a-link-device-btn" type="button" @click=${this.onLinkDeviceOpen}>
             ${linkDeviceIcon()} Scan and Link Device
           </button>
+          ${viewModel.mode === 'login'
+            ? html`
+                <button
+                  class="w3a-link-device-btn"
+                  type="button"
+                  data-recovery-action
+                  @click=${this.onRecoveryOpen}
+                >
+                  Recover account
+                </button>
+              `
+            : null}
         </div>
+      </div>
+    `;
+  }
+
+  private renderRecovery(viewModel: AuthMenuRecoveryViewModel): TemplateResult {
+    if (viewModel.stage === 'enter_code') {
+      const statusMessage = viewModel.status.kind === 'recoverable' ? viewModel.status.message : '';
+      return html`
+        ${this.renderHeader(viewModel)}
+        <form class="w3a-recovery-form" novalidate @submit=${this.onRecoverySubmit}>
+          <div class="w3a-recovery-field">
+            <label class="w3a-field-label" for="w3a-recovery-wallet-id">Wallet ID</label>
+            <input
+              id="w3a-recovery-wallet-id"
+              class="w3a-recovery-input"
+              data-auth-menu-input
+              data-recovery-wallet-id
+              name="walletId"
+              type="text"
+              autocomplete="username"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              aria-invalid=${viewModel.walletIdError ? 'true' : 'false'}
+              aria-describedby=${viewModel.walletIdError ? 'w3a-recovery-wallet-id-error' : ''}
+              .value=${viewModel.walletId}
+              @input=${this.onRecoveryWalletIdInput}
+            />
+            <p id="w3a-recovery-wallet-id-error" class="w3a-recovery-error">
+              ${viewModel.walletIdError ?? ''}
+            </p>
+          </div>
+          <div class="w3a-recovery-field">
+            <label class="w3a-field-label" for="w3a-recovery-code">Recovery code</label>
+            <input
+              id="w3a-recovery-code"
+              class="w3a-recovery-input w3a-recovery-code-input"
+              data-recovery-code
+              name="recoveryCode"
+              type="text"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              autocorrect="off"
+              spellcheck="false"
+              aria-invalid=${viewModel.recoveryCodeError ? 'true' : 'false'}
+              aria-describedby=${viewModel.recoveryCodeError ? 'w3a-recovery-code-error' : ''}
+              .value=${viewModel.recoveryCode}
+              @input=${this.onRecoveryCodeInput}
+            />
+            <p id="w3a-recovery-code-error" class="w3a-recovery-error">
+              ${viewModel.recoveryCodeError ?? ''}
+            </p>
+          </div>
+          <p class="w3a-recovery-status" aria-hidden="true">${statusMessage}</p>
+          <button
+            class="w3a-link-device-btn w3a-link-device-btn-primary"
+            type="submit"
+            data-auth-menu-primary
+          >
+            Continue
+          </button>
+        </form>
+      `;
+    }
+    const finalizationRetry =
+      viewModel.stage === 'finalizing' && viewModel.status.kind === 'recoverable';
+    const signIn = viewModel.stage === 'sign_in_ready';
+    const message =
+      viewModel.status.kind === 'recoverable'
+        ? viewModel.status.message
+        : signIn
+          ? 'Your new passkey is ready.'
+          : 'Create a new passkey to finish recovering this account.';
+    return html`
+      ${this.renderHeader(viewModel)}
+      <div class="w3a-recovery-confirmation">
+        <p class="w3a-recovery-wallet" title=${viewModel.walletId}>${viewModel.walletId}</p>
+        <p class="w3a-recovery-status">${message}</p>
+        <button
+          class="w3a-link-device-btn w3a-link-device-btn-primary"
+          type="button"
+          data-auth-menu-primary
+          @click=${signIn ? this.onRecoverySignIn : this.onRecoveryCreatePasskey}
+        >
+          ${signIn
+            ? 'Sign in with new passkey'
+            : finalizationRetry
+              ? 'Retry finalization'
+              : 'Create new passkey'}
+        </button>
       </div>
     `;
   }

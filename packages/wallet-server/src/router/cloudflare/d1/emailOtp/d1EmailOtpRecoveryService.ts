@@ -1,10 +1,6 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import {
-  EMAIL_OTP_CHANNEL,
-  WALLET_EMAIL_OTP_ACTIONS,
-  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-} from '@shared/utils/emailOtpDomain';
+import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_ACTIONS } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpWalletEnrollmentRecord } from '../../../../core/EmailOtpStores';
 import {
   validateSecp256k1PublicKey33,
@@ -24,42 +20,48 @@ import {
   bytesEqual,
   clampedEmailOtpUnlockTtlMs,
   decodeFixedBase64Url,
-  emailOtpGrantRecord,
   emailOtpUnlockChallengeRecord,
 } from './d1EmailOtpRecords';
 
-type ReadActiveEmailOtpEnrollmentInput =
-  Parameters<RouterApiEmailOtpRouteService['readActiveEmailOtpEnrollment']>[0];
+type ReadActiveEmailOtpEnrollmentInput = Parameters<
+  RouterApiEmailOtpRouteService['readActiveEmailOtpEnrollment']
+>[0];
 type ReadActiveEmailOtpEnrollmentResult = Awaited<
   ReturnType<RouterApiEmailOtpRouteService['readActiveEmailOtpEnrollment']>
 >;
-type ReadEmailOtpEnrollmentInput =
-  Parameters<RouterApiEmailOtpRouteService['readEmailOtpEnrollment']>[0];
+type ReadEmailOtpEnrollmentInput = Parameters<
+  RouterApiEmailOtpRouteService['readEmailOtpEnrollment']
+>[0];
 type ReadEmailOtpEnrollmentResult = Awaited<
   ReturnType<RouterApiEmailOtpRouteService['readEmailOtpEnrollment']>
 >;
-type IsEmailOtpStrongAuthRequiredInput =
-  Parameters<RouterApiEmailOtpRouteService['isEmailOtpStrongAuthRequired']>[0];
+type IsEmailOtpStrongAuthRequiredInput = Parameters<
+  RouterApiEmailOtpRouteService['isEmailOtpStrongAuthRequired']
+>[0];
 type IsEmailOtpStrongAuthRequiredResult = Awaited<
   ReturnType<RouterApiEmailOtpRouteService['isEmailOtpStrongAuthRequired']>
 >;
-type MarkEmailOtpStrongAuthSatisfiedInput =
-  Parameters<RouterApiEmailOtpRouteService['markEmailOtpStrongAuthSatisfied']>[0];
+type MarkEmailOtpStrongAuthSatisfiedInput = Parameters<
+  RouterApiEmailOtpRouteService['markEmailOtpStrongAuthSatisfied']
+>[0];
 type MarkEmailOtpStrongAuthSatisfiedResult = Awaited<
   ReturnType<RouterApiEmailOtpRouteService['markEmailOtpStrongAuthSatisfied']>
 >;
-type CreateEmailOtpUnlockChallengeInput =
-  Parameters<RouterApiWalletUnlockService['createEmailOtpUnlockChallenge']>[0];
+type CreateEmailOtpUnlockChallengeInput = Parameters<
+  RouterApiWalletUnlockService['createEmailOtpUnlockChallenge']
+>[0];
 type CreateEmailOtpUnlockChallengeResult = Awaited<
   ReturnType<RouterApiWalletUnlockService['createEmailOtpUnlockChallenge']>
 >;
-type VerifyEmailOtpUnlockProofInput =
-  Parameters<RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']>[0];
+type VerifyEmailOtpUnlockProofInput = Parameters<
+  RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']
+>[0];
 type VerifyEmailOtpUnlockProofResult = Awaited<
   ReturnType<RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']>
 >;
-type ConsumeEmailOtpGrantInput =
-  Parameters<RouterApiEmailOtpRouteService['consumeEmailOtpGrant']>[0];
+type ConsumeEmailOtpGrantInput = Parameters<
+  RouterApiEmailOtpRouteService['consumeEmailOtpGrant']
+>[0];
 type ConsumeEmailOtpGrantResult = Awaited<
   ReturnType<RouterApiEmailOtpRouteService['consumeEmailOtpGrant']>
 >;
@@ -487,43 +489,6 @@ export class CloudflareD1EmailOtpRecoveryService {
       };
     }
   }
-
-  async consumeEmailOtpWalletRecoveryBootstrap(
-    input: Parameters<
-      RouterApiEmailOtpRouteService['consumeEmailOtpWalletRecoveryBootstrap']
-    >[0],
-  ): Promise<
-    Awaited<ReturnType<RouterApiEmailOtpRouteService['consumeEmailOtpWalletRecoveryBootstrap']>>
-  > {
-    const recoveryBootstrapGrant = toOptionalTrimmedString(input.recoveryBootstrapGrant);
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const orgId = toOptionalTrimmedString(input.orgId);
-    if (!recoveryBootstrapGrant || !walletId || !orgId) {
-      return { ok: false, code: 'invalid_body', message: 'recovery bootstrap grant is incomplete' };
-    }
-    const record = await this.emailOtpGrants.consume(recoveryBootstrapGrant);
-    if (
-      !record ||
-      record.action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap ||
-      record.walletId !== walletId ||
-      record.orgId !== orgId ||
-      Date.now() > record.expiresAtMs
-    ) {
-      return {
-        ok: false,
-        code: 'recovery_bootstrap_grant_invalid_or_expired',
-        message: 'Recovery bootstrap grant is invalid or expired',
-      };
-    }
-    return {
-      ok: true,
-      walletId: record.walletId,
-      providerUserId: record.userId,
-      orgId: record.orgId || orgId,
-      challengeId: record.challengeId,
-      grantExpiresAtMs: record.expiresAtMs,
-    };
-  }
 }
 
 function normalizeUnlockChallengeInput(
@@ -583,9 +548,7 @@ function normalizeGrantConsumptionInput(
       ? input.subject.principalId
       : input.subject.providerSubject;
   const orgId =
-    input.subject.kind === 'authorization_session'
-      ? input.subject.tenantId
-      : input.subject.orgId;
+    input.subject.kind === 'authorization_session' ? input.subject.tenantId : input.subject.orgId;
   const otpChannel = toOptionalTrimmedString(input.otpChannel);
   const clientIp = toOptionalTrimmedString(input.clientIp);
   if (!loginGrant) return invalidGrantConsumptionBody('Missing loginGrant');
