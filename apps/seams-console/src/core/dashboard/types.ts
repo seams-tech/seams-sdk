@@ -59,6 +59,8 @@ export type SidebarItem = {
   path: DashboardRoute;
   icon: SidebarIconComponent;
   component: DashboardViewComponent;
+  /** Renders a trailing "+" in the rail that opens this route's create dialog. */
+  createLabel?: string;
 };
 
 export type SidebarGroup = {

@@ -159,3 +159,10 @@ export const ChevronDownIcon: React.FC<SidebarIconProps> = (props) => (
     <path d="m6 9 6 6 6-6" />
   </SidebarIconBase>
 );
+
+export const PlusIcon: React.FC<SidebarIconProps> = (props) => (
+  <SidebarIconBase iconName="plus" {...props}>
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </SidebarIconBase>
+);

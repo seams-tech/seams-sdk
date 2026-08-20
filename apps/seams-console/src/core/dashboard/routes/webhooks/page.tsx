@@ -7,6 +7,7 @@ import {
 import {
   DashboardTable,
   DashboardTableActionButton,
+  DashboardTableBadge,
   DashboardTableActionGroup,
   DashboardTableActionMenu,
   DashboardTableCell,
@@ -14,10 +15,18 @@ import {
   DashboardTableHeaderCell,
   DashboardTableRow,
   DashboardTableState,
+  DashboardTableStatus,
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import {
+  DASHBOARD_EMPTY_VALUE,
+  dashboardStatusLabel,
+  dashboardStatusTone,
+} from '../../utils/statusTone';
+import { WebhookIcon } from '../../icons/SidebarIcons';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
+import { DashboardPageActions } from '../../components/DashboardPageActions';
 import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
@@ -60,20 +69,11 @@ const WEBHOOK_EVENT_CATEGORY_OPTIONS: readonly DashboardScopeOption<ConsoleWebho
                 ? 'Invoices, usage, and payment lifecycle events.'
                 : 'Session creation, refresh, and teardown events.',
   }));
-const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(1, 1.5, 1.05, 0.7, 0.85, 1);
-const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(
-  1,
-  0.95,
-  0.9,
-  0.65,
-  0.8,
-  0.75,
-  0.9,
-  0.8,
-);
+const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(2.5, 0.7, 0.9, 0.95);
+const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(1.9, 0.8, 0.65, 0.6, 0.9, 0.6);
 
 function formatTimestamp(value: string | null): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function readWebhooksRouteSelection(): {
@@ -379,28 +379,16 @@ export function WebhooksPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Webhooks page">
-      <section
-        className="dashboard-view__section dashboard-view__section--toolbar"
-        aria-label="Webhook endpoint controls"
-      >
-        <div className="dashboard-section-toolbar dashboard-section-toolbar--stacked-start">
-          <div className="dashboard-section-toolbar__copy">
-            <h2>Webhook endpoints</h2>
-            <p className="dashboard-form-hint">
-              Register delivery URLs and subscribe them to the event categories your integration
-              needs.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="dashboard-pagination-button dashboard-pagination-button--primary"
-            onClick={onOpenCreateModal}
-            disabled={creating || session.loading || !session.claims || Boolean(errorMessage)}
-          >
-            Create Webhook
-          </button>
-        </div>
-      </section>
+      <DashboardPageActions>
+        <button
+          type="button"
+          className="dashboard-pagination-button dashboard-pagination-button--primary"
+          onClick={onOpenCreateModal}
+          disabled={creating || session.loading || !session.claims || Boolean(errorMessage)}
+        >
+          Create webhook
+        </button>
+      </DashboardPageActions>
 
       {mutationError && !isCreateModalOpen ? (
         <p className="dashboard-form-alert" role="alert">
@@ -421,9 +409,7 @@ export function WebhooksPage(): React.JSX.Element {
         pagination={endpointsPagination.pagination}
       >
         <DashboardTableHeader>
-          <DashboardTableHeaderCell>Endpoint ID</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>URL</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Event categories</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Endpoint</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
@@ -440,20 +426,38 @@ export function WebhooksPage(): React.JSX.Element {
           <>
             {endpointsPagination.rows.map((endpoint) => (
               <DashboardTableRow key={endpoint.id}>
-                <DashboardTableCell title={endpoint.id}>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => setSelectedEndpointId(endpoint.id)}
-                  >
-                    {endpoint.id}
-                  </button>
+                <DashboardTableCell
+                  title={`${endpoint.url} · ${endpoint.id}`}
+                  className="dashboard-data-table__cell--lead"
+                >
+                  <div className="dashboard-lead">
+                    <span className="dashboard-lead__icon" aria-hidden="true">
+                      <WebhookIcon size={16} />
+                    </span>
+                    <span className="dashboard-lead__copy">
+                      <span className="dashboard-lead__title">
+                        <button
+                          type="button"
+                          className="dashboard-inline-link"
+                          onClick={() => setSelectedEndpointId(endpoint.id)}
+                        >
+                          {endpoint.url}
+                        </button>
+                      </span>
+                      <span className="dashboard-lead__sub">
+                        {endpoint.id}
+                        {endpoint.eventCategories.length > 0
+                          ? ` · ${endpoint.eventCategories.join(', ')}`
+                          : ''}
+                      </span>
+                    </span>
+                  </div>
                 </DashboardTableCell>
-                <DashboardTableCell title={endpoint.url}>{endpoint.url}</DashboardTableCell>
-                <DashboardTableCell title={endpoint.eventCategories.join(', ')}>
-                  {endpoint.eventCategories.join(', ') || '-'}
+                <DashboardTableCell>
+                  <DashboardTableStatus tone={dashboardStatusTone(endpoint.status)}>
+                    {dashboardStatusLabel(endpoint.status)}
+                  </DashboardTableStatus>
                 </DashboardTableCell>
-                <DashboardTableCell>{endpoint.status}</DashboardTableCell>
                 <DashboardTableCell truncate>
                   {formatTimestamp(endpoint.updatedAt)}
                 </DashboardTableCell>
@@ -555,12 +559,14 @@ export function WebhooksPage(): React.JSX.Element {
         pagination={deliveriesPagination.pagination}
       >
         <DashboardTableHeader>
-          <DashboardTableHeaderCell>Delivery ID</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Event ID</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Event type</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Attempts</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Response</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
+            Attempts
+          </DashboardTableHeaderCell>
+          <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
+            Response
+          </DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Last attempt</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Action</DashboardTableHeaderCell>
         </DashboardTableHeader>
@@ -574,24 +580,43 @@ export function WebhooksPage(): React.JSX.Element {
           <>
             {deliveriesPagination.rows.map((delivery) => (
               <DashboardTableRow key={delivery.id}>
-                <DashboardTableCell title={delivery.id}>
-                  <strong>{delivery.id}</strong>
-                  {delivery.id === requestedDeliveryId ? (
-                    <span className="dashboard-data-table__subline">Opened from audit</span>
+                <DashboardTableCell
+                  title={`${delivery.eventType} · ${delivery.id} · ${delivery.eventId}`}
+                  className="dashboard-data-table__cell--lead"
+                >
+                  <span className="dashboard-lead__copy">
+                    <span className="dashboard-lead__title">
+                      <span className="dashboard-data-table__summary">
+                        {delivery.eventType || DASHBOARD_EMPTY_VALUE}
+                      </span>
+                      {delivery.id === requestedDeliveryId ? (
+                        <DashboardTableBadge tone="warning">Opened from audit</DashboardTableBadge>
+                      ) : null}
+                    </span>
+                    <span className="dashboard-lead__sub">
+                      {delivery.id}
+                      {delivery.eventId ? ` · ${delivery.eventId}` : ''}
+                    </span>
+                  </span>
+                </DashboardTableCell>
+                <DashboardTableCell>
+                  <DashboardTableStatus tone={dashboardStatusTone(delivery.status)}>
+                    {dashboardStatusLabel(delivery.status)}
+                  </DashboardTableStatus>
+                </DashboardTableCell>
+                <DashboardTableCell align="end" className="dashboard-data-table__cell--nowrap">
+                  {delivery.attemptCount}
+                  {delivery.replayCount > 0 ? (
+                    <span className="dashboard-data-table__inline-note">
+                      {' '}
+                      · {delivery.replayCount} replay{delivery.replayCount === 1 ? '' : 's'}
+                    </span>
                   ) : null}
                 </DashboardTableCell>
-                <DashboardTableCell title={delivery.eventId}>
-                  {delivery.eventId || '-'}
-                </DashboardTableCell>
-                <DashboardTableCell title={delivery.eventType}>
-                  {delivery.eventType || '-'}
-                </DashboardTableCell>
-                <DashboardTableCell>{delivery.status}</DashboardTableCell>
-                <DashboardTableCell>
-                  {delivery.attemptCount} (replays: {delivery.replayCount})
-                </DashboardTableCell>
-                <DashboardTableCell title={delivery.errorMessage || ''}>
-                  {delivery.responseStatus != null ? String(delivery.responseStatus) : '-'}
+                <DashboardTableCell title={delivery.errorMessage || ''} align="end">
+                  {delivery.responseStatus != null
+                    ? String(delivery.responseStatus)
+                    : DASHBOARD_EMPTY_VALUE}
                 </DashboardTableCell>
                 <DashboardTableCell truncate>
                   {formatTimestamp(delivery.lastAttemptAt || delivery.deliveredAt)}

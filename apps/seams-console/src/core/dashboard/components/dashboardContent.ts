@@ -56,18 +56,13 @@ export const USER_WALLETS_LIST_KPIS = [
 ] as const satisfies readonly DashboardKpiMetric[];
 
 export const USER_WALLETS_TABLE_COLUMNS = [
-  'Wallet ID',
-  'Address',
-  'Chain',
-  'Owner/User',
+  'Wallet',
+  'Owner',
   'Policy',
   'Balance',
   'Status',
   'Updated',
 ] as const;
-
-export const USER_WALLETS_TABLE_NOTE =
-  'Row actions: view details, view activity, assign policy, and freeze/unfreeze where supported.';
 
 export const SEARCH_USER_WALLETS_PLACEHOLDER =
   'Search by wallet address, wallet ID, user ID, or external reference ID';
