@@ -75,6 +75,7 @@ import type {
   DeviceLinkingPersistedHolderSigningMaterialChildV1,
   DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1,
   DeviceLinkingLiveKeyMaterialPortV1,
+  LinkedDeviceEd25519OwnerRestoreV1,
   LinkedDeviceEcdsaOwnerRestoreV1,
   LinkedDeviceSigningSessionActivationV1,
 } from './deviceLinkingPorts';
@@ -119,6 +120,7 @@ type LinkedDeviceWarmSigningSessionBaseV1 = {
   readonly walletId: WalletId;
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly handles: readonly DeviceLinkingHolderSigningMaterialHandleV1[];
+  readonly ed25519OwnerRestore: LinkedDeviceEd25519OwnerRestoreV1;
   readonly ecdsaOwnerRestore: LinkedDeviceEcdsaOwnerRestoreV1;
 };
 
@@ -159,8 +161,8 @@ type LinkedDeviceWarmSigningActivationV1 =
     >
   | (Extract<
       LinkedDeviceSigningSessionActivationV1,
-    { readonly kind: 'existing_target_passkey' }
-  > & { readonly authenticator: AuthenticatorPort });
+      { readonly kind: 'existing_target_passkey' }
+    > & { readonly authenticator: AuthenticatorPort });
 
 type LinkedDeviceWarmSigningActivationV1WithEmail =
   | LinkedDeviceWarmSigningActivationV1
@@ -263,8 +265,8 @@ export type ActiveLinkedDeviceCurveSigningContextV1<TFamily extends 'ed25519' | 
       Awaited<ReturnType<typeof linkedDeviceWalletSessions.readTokenForWalletKeyV1>>,
       { readonly kind: 'found' }
     >;
-  readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
-  readonly holderHandle: Extract<
+    readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
+    readonly holderHandle: Extract<
       DeviceLinkingHolderSigningMaterialHandleV1,
       { readonly keyFamily: TFamily }
     >;
@@ -387,7 +389,9 @@ async function resolveLinkedNearTransactionReadiness(args: {
         walletSessionToken: args.walletSessionToken,
       });
       if (!funded.ok) {
-        throw new Error(funded.message || funded.code || 'Failed to fund linked-device NEAR account');
+        throw new Error(
+          funded.message || funded.code || 'Failed to fund linked-device NEAR account',
+        );
       }
       return await reserveLinkedNearContextAfterFunding({
         request: args.readiness.request,
@@ -508,6 +512,7 @@ async function discardLinkedDeviceHolderHandlesV1(input: {
 async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly activation: LinkedDeviceEmailOtpWarmSigningActivationV1;
+  readonly relayServerUrl: string;
 }): Promise<LinkedDeviceWarmSigningSessionV1> {
   const orderedChildren: DeviceLinkingPersistedHolderSigningMaterialChildV1[] = [];
   for (const child of input.bundle.orderedExecutions) {
@@ -522,8 +527,8 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
   }
   const first = orderedChildren[0];
   if (!first) throw new Error('linked-device execution bundle has no signing lane');
-  const opened = await input.activation.holderMaterial.openPersistedEmailOtpHolderSigningMaterialsV1(
-    {
+  const opened =
+    await input.activation.holderMaterial.openPersistedEmailOtpHolderSigningMaterialsV1({
       keyMaterial: input.activation.keyMaterial,
       walletId: input.bundle.walletId,
       linkSessionId: input.bundle.linkSessionId,
@@ -533,10 +538,11 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
         input.bundle.targetPreparation,
       ),
       resealedCustodyEnvelope: input.activation.resealedCustodyEnvelope,
+      relayServerUrl: input.relayServerUrl,
+      ed25519OwnerActivation: input.bundle.ed25519OwnerActivation,
       ecdsaOwnerActivation: input.bundle.ecdsaOwnerActivation,
       orderedChildren: [first, ...orderedChildren.slice(1)],
-    },
-  );
+    });
   const handles = opened.handles;
   try {
     return {
@@ -546,6 +552,7 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
       holderMaterialOwnership: 'shared_port',
       holderMaterial: input.activation.holderMaterial,
       handles,
+      ed25519OwnerRestore: opened.ed25519OwnerRestore,
       ecdsaOwnerRestore: opened.ecdsaOwnerRestore,
     };
   } catch (error: unknown) {
@@ -773,8 +780,7 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
   }
   if (
     bundle.targetPreparation.targetFactor.kind !== 'email_otp' ||
-    bundle.targetPreparation.ownerEnrollment.kind !==
-      'linked_device_email_otp_owner_enrollment_v1'
+    bundle.targetPreparation.ownerEnrollment.kind !== 'linked_device_email_otp_owner_enrollment_v1'
   ) {
     return null;
   }
@@ -793,7 +799,8 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
       workerPublicKey65B64u: keyMaterial.emailOtpReleasePublicKey65B64u,
     });
     const activeBundle = await requireUnchangedActiveLinkedDeviceBundleV1(bundle);
-    const orderedChildren: DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1['orderedChildren'][number][] = [];
+    const orderedChildren: DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1['orderedChildren'][number][] =
+      [];
     for (const child of activeBundle.orderedExecutions) {
       const holderRecord = await laneSealedHolderMaterialRepository.get(child.holderRecordLookup);
       if (!holderRecord) throw new Error('linked-device sealed holder material is unavailable');
@@ -806,16 +813,15 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
     }
     const first = orderedChildren[0];
     if (!first) throw new Error('linked-device execution bundle has no signing lane');
-    const handles = await holderMaterial.openPersistedEmailOtpHolderSigningMaterialsFromFactorReleaseV1(
-      {
+    const handles =
+      await holderMaterial.openPersistedEmailOtpHolderSigningMaterialsFromFactorReleaseV1({
         keyMaterial: keyMaterial.handle,
         walletId: activeBundle.walletId,
         enrollmentId: activeBundle.enrollmentId,
         expectedChallengeId: input.challengeId,
         factorRelease,
         orderedChildren: [first, ...orderedChildren.slice(1)],
-      },
-    );
+      });
     await requireUnchangedActiveLinkedDeviceBundleV1(activeBundle);
     return {
       kind: 'linked_device_warm_signing_session_v1',
@@ -824,6 +830,7 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
+      ed25519OwnerRestore: { kind: 'absent' },
       ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {
@@ -879,6 +886,7 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
         return await openInitialLinkedDeviceEmailOtpWarmSessionV1({
           bundle: resolved.bundle,
           activation: input.activation,
+          relayServerUrl: input.relayServerUrl,
         });
       }
       case 'target_passkey_creation':
@@ -972,6 +980,7 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
+      ed25519OwnerRestore: { kind: 'absent' },
       ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {
@@ -1054,6 +1063,7 @@ export async function restoreLinkedDeviceWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
+      ed25519OwnerRestore: { kind: 'absent' },
       ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {

@@ -19,6 +19,7 @@ import type {
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWalletSessionTokenV1,
+  LinkedDeviceEd25519OwnerActivationV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
@@ -458,6 +459,11 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly walletId: LinkedDeviceApprovalV1['walletId'];
     readonly walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'];
   }): Promise<string>;
+  resolveEd25519OwnerActivationV1(input: {
+    readonly walletId: LinkedDeviceApprovalV1['walletId'];
+    readonly walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'];
+    readonly walletSessionToken: string;
+  }): Promise<LinkedDeviceEd25519OwnerActivationV1>;
   readonly provisioning: DeviceLinkingProvisioningProviderV1;
   readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
   /** Owner-authenticated R102 source handoff and Device2 refetch source. */
@@ -1730,12 +1736,19 @@ async function respondWithLinkedDeviceWalletSessionDelivery(input: {
   for (const token of signed.orderedTokens) {
     if (token.keyFamily === 'ed25519') ed25519Token = token;
   }
-  const nearAccountId = ed25519Token
-    ? await input.service.resolveNearAccountIdForEd25519WalletKeyV1({
+  const ed25519OwnerActivation = ed25519Token
+    ? await input.service.resolveEd25519OwnerActivationV1({
         walletId: authorization.walletId,
         walletKeyId: ed25519Token.walletKeyId,
+        walletSessionToken: ed25519Token.walletSessionJwt,
       })
-    : null;
+    : { kind: 'absent' as const };
+  const nearAccountId =
+    ed25519OwnerActivation.kind === 'present' ? ed25519OwnerActivation.nearAccountId : null;
+  const ecdsaContinuity =
+    await input.ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
+      walletId: authorization.walletId,
+    });
   return json(
     buildLinkedDeviceWalletSessionDeliveryV1({
       kind: 'linked_device_wallet_session_delivery_v1',
@@ -1752,6 +1765,31 @@ async function respondWithLinkedDeviceWalletSessionDelivery(input: {
       remainingUses: input.authorization.quota.remainingUses,
       issuedAtMs: authorization.issuedAtMs,
       expiresAtMs: authorization.expiresAtMs,
+      ed25519OwnerActivation,
+      ecdsaOwnerActivation:
+        ecdsaContinuity.length === 0
+          ? { kind: 'absent' }
+          : {
+              kind: 'present',
+              signers: ecdsaContinuity.map((signer) => ({
+                chainTarget: signer.chainTarget,
+                walletKey: {
+                  walletId: signer.walletKey.walletId,
+                  keyHandle: signer.walletKey.keyHandle,
+                  ecdsaThresholdKeyId: signer.walletKey.ecdsaThresholdKeyId,
+                  signingRootId: signer.walletKey.signingRootId,
+                  signingRootVersion: signer.walletKey.signingRootVersion,
+                  relayerKeyId: signer.walletKey.relayerKeyId,
+                  contextBinding32B64u: signer.walletKey.contextBinding32B64u,
+                  derivationClientSharePublicKey33B64u:
+                    signer.walletKey.derivationClientSharePublicKey33B64u,
+                  participantIds: signer.walletKey.participantIds,
+                  publicCapability: signer.walletKey.publicCapability,
+                },
+                activationReceipt: signer.activationReceipt,
+                runtimePolicyScope: signer.runtimePolicyScope,
+              })),
+            },
       ...(nearAccountId ? { nearAccountId } : {}),
       orderedTokens: signed.orderedTokens,
     }),

@@ -1333,9 +1333,12 @@ export class LinkDeviceFlow {
     switch (targetFactor.kind) {
       case 'passkey_prf': {
         const factorSecret = this.claimTargetCredentialFactorSecret(runEpoch);
-        return factorSecret
-          ? { kind: 'target_passkey_creation', factorSecret }
-          : { kind: 'existing_target_passkey' };
+        if (!factorSecret) return { kind: 'existing_target_passkey' };
+        const resealedCustodyEnvelope = this.resealedCustodyEnvelope;
+        if (!resealedCustodyEnvelope) {
+          throw new Error('linked-device passkey custody envelope is unavailable');
+        }
+        return { kind: 'target_passkey_creation', factorSecret, resealedCustodyEnvelope };
       }
       case 'email_otp': {
         const activationState = this.emailOtpTargetActivationState;
@@ -1505,7 +1508,6 @@ export class LinkDeviceFlow {
         linkSessionId: state.linkSessionId,
         stage: 'owner_enrollment_committed',
       });
-      this.resealedCustodyEnvelope = null;
       this.assertCurrentRun(runEpoch);
       // The canonical owner finalize and target-credential registration are
       // committed. The provisioning state handler continues with R102 lane
@@ -2262,6 +2264,27 @@ export type DeviceLinkingDomainDeps =
       readonly ports: DeviceLinkingFlowPortsV1;
     };
 
+function isFinishedDeviceLinkFlow(flow: LinkDeviceFlow): boolean {
+  const state = flow.getState();
+  if (state.cancelled || state.error || !state.session) return true;
+  switch (state.session.state.state) {
+    case 'active':
+    case 'expired_unclaimed':
+    case 'expired_claimed':
+    case 'cancelled_unclaimed':
+    case 'cancelled_claimed_precommit':
+      return true;
+    case 'displaying_qr':
+    case 'claimed_by_owner':
+    case 'awaiting_target_factor':
+    case 'provisioning':
+    case 'committed_completion_required':
+      return false;
+    default:
+      return assertNeverLinkedDeviceSessionState(state.session.state);
+  }
+}
+
 export class DeviceLinkingDomain {
   private readonly deps: DeviceLinkingDomainDeps;
   private activeDeviceLinkFlow: LinkDeviceFlow | null = null;
@@ -2274,6 +2297,9 @@ export class DeviceLinkingDomain {
     args: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
+      if (this.activeDeviceLinkFlow && isFinishedDeviceLinkFlow(this.activeDeviceLinkFlow)) {
+        this.activeDeviceLinkFlow = null;
+      }
       if (this.activeDeviceLinkFlow) {
         throw new Error('Device-link QR flow is already running');
       }
