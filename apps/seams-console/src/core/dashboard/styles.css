@@ -416,8 +416,13 @@ textarea {
   align-items: center;
   gap: 8px;
   /* Extra bottom padding: the head's card-to-card gap is tight (10px), the
-     wordmark wants more air above the switcher stack. */
-  padding: 6px 8px 8px;
+     wordmark wants more air above the switcher stack. The 12px inline padding
+     is what centres the mark in the collapsed rail's 40px column (the mark
+     carries ~2px of its own leading bearing), and holding it constant across
+     both states means only the rail width animates — any padding change of
+     its own would push the mark right while the rail pulls it left, which
+     reads as a flick. */
+  padding: 6px 10px 8px;
   text-decoration: none;
   transition: padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
 }
@@ -6085,14 +6090,6 @@ select.dashboard-input {
 
 /* The wordmark collapses to its mark, which then has to sit on the same
    centre line as every tile below it. */
-.dashboard-shell--sidebar-collapsed .dashboard-sidebar__brand {
-  justify-content: center;
-  padding-inline: 0;
-  /* The wordmark text collapses to zero width but its flex gap does not, which
-     drags the mark off the centre line. */
-  gap: 0;
-}
-
 /* Icon-rail compaction (desktop rail mode only — below 1161px the collapsed
    sidebar stacks full-width with labels). These animate together with the
    width shrink as one motion. */
