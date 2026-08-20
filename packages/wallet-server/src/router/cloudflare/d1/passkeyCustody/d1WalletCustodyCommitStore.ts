@@ -31,6 +31,11 @@ import {
   prepareD1WebAuthnCredentialBindingInsertStatement,
   type WebAuthnCredentialBindingRecord,
 } from '../../../../core/WebAuthnCredentialBindingStore';
+import {
+  D1WalletAuthMethodStore,
+  walletAuthMethodId,
+  type WalletAuthMethodRecord,
+} from '../../../../core/d1WalletAuthMethodStore';
 
 const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
   INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
@@ -70,6 +75,7 @@ type WalletCustodyCommitRecord =
 export type CloudflareD1WalletCustodyCommitStoreOptions = {
   readonly database: D1DatabaseLike;
   readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
+  readonly walletAuthMethodStore?: D1WalletAuthMethodStore;
 };
 
 export type WalletCustodyRegistrationCommit = {
@@ -119,6 +125,7 @@ export type WalletRecoveryAuthenticatorCommit = {
   readonly userId: string;
   readonly authenticator: WebAuthnAuthenticatorRecord;
   readonly binding: WebAuthnCredentialBindingRecord;
+  readonly walletAuthMethod: WalletAuthMethodRecord;
   readonly challengeDeleteStatement: D1PreparedStatementLike;
 };
 
@@ -187,10 +194,20 @@ export class CloudflareD1WalletCustodyCommitStore {
   private readonly database: D1DatabaseLike;
   private readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
   private readonly records: CloudflareD1VersionedJsonRecordStore<WalletCustodyCommitRecord>;
+  private readonly walletAuthMethodStore: D1WalletAuthMethodStore;
 
   constructor(options: CloudflareD1WalletCustodyCommitStoreOptions) {
     this.database = options.database;
     this.scope = options.scope;
+    this.walletAuthMethodStore =
+      options.walletAuthMethodStore ??
+      new D1WalletAuthMethodStore({
+        database: options.database,
+        namespace: options.scope.namespace,
+        orgId: options.scope.orgId,
+        projectId: options.scope.projectId,
+        envId: options.scope.envId,
+      });
     this.records = new CloudflareD1VersionedJsonRecordStore<WalletCustodyCommitRecord>({
       database: options.database,
       scope: options.scope,
@@ -283,6 +300,35 @@ export class CloudflareD1WalletCustodyCommitStore {
     } catch {
       return null;
     }
+  }
+
+  async listWalletAuthMethods(walletId: WalletId): Promise<readonly WalletAuthMethodRecord[]> {
+    return await this.walletAuthMethodStore.listForWallet({ walletId: String(walletId) });
+  }
+
+  async hasActiveWalletSessionsForAuthMethod(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: string;
+  }): Promise<boolean> {
+    const row = await this.database
+      .prepare(
+        `SELECT 1
+           FROM reusable_wallet_sessions
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND wallet_auth_method_id = ?
+            AND lifecycle_kind = 'active'
+          LIMIT 1`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        String(input.walletId),
+        input.walletAuthMethodId,
+      )
+      .first<{ readonly one?: unknown }>();
+    return row !== null;
   }
 
   /**
@@ -393,11 +439,24 @@ export class CloudflareD1WalletCustodyCommitStore {
     readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
     readonly expectedRecoverySetVersion: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly sourceEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly expectedSourceEnvelopeVersion: string;
+    readonly sourceAuthMethod: {
+      readonly record: WalletAuthMethodRecord;
+      readonly expectedUpdatedAtMs: number;
+      readonly revokedAtMs: number;
+    };
     readonly reservationId: RecoveryCodeReservationId;
     readonly authenticatorCommit: WalletRecoveryAuthenticatorCommit;
   }): Promise<WalletCustodyRecoveryPromotionCommitResult> {
     if (String(input.recoverySet.walletId) !== String(input.replacementEnvelope.walletId)) {
       return { kind: 'inconsistent', reason: 'recovery set and envelope name different wallets' };
+    }
+    if (String(input.recoverySet.walletId) !== String(input.sourceEnvelope.walletId)) {
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery set and source envelope name different wallets',
+      };
     }
     if (
       input.replacementEnvelope.binding.kind !== 'wallet_custody_seed_v1' ||
@@ -408,6 +467,17 @@ export class CloudflareD1WalletCustodyCommitStore {
       return {
         kind: 'inconsistent',
         reason: 'recovery promotion requires a first-revision active wallet custody envelope',
+      };
+    }
+    if (
+      input.sourceEnvelope.factor.kind !== 'passkey' ||
+      input.sourceEnvelope.lifecycle.state !== 'retired' ||
+      input.sourceEnvelope.binding.kind !== 'wallet_custody_seed_v1' ||
+      String(input.sourceEnvelope.envelopeId) === String(input.replacementEnvelope.envelopeId)
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery promotion requires a retired source wallet custody envelope',
       };
     }
     const matchingConsumptions = input.recoverySet.manifestKekWraps.filter(
@@ -439,9 +509,43 @@ export class CloudflareD1WalletCustodyCommitStore {
         reason: 'replacement authenticator, binding, and envelope disagree',
       };
     }
+    if (
+      input.authenticatorCommit.walletAuthMethod.kind !== 'passkey' ||
+      input.authenticatorCommit.walletAuthMethod.status !== 'active' ||
+      String(input.authenticatorCommit.walletAuthMethod.walletId) !==
+        String(input.recoverySet.walletId) ||
+      input.authenticatorCommit.walletAuthMethod.rpId !== input.replacementEnvelope.factor.rpId ||
+      input.authenticatorCommit.walletAuthMethod.credentialIdB64u !==
+        input.replacementEnvelope.factor.credentialIdB64u ||
+      input.authenticatorCommit.walletAuthMethod.credentialPublicKeyB64u !==
+        input.authenticatorCommit.authenticator.credentialPublicKeyB64u ||
+      input.authenticatorCommit.walletAuthMethod.counter !==
+        input.authenticatorCommit.authenticator.counter
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'replacement authenticator and wallet auth method disagree',
+      };
+    }
+    if (
+      input.sourceAuthMethod.record.kind !== 'passkey' ||
+      input.sourceAuthMethod.record.status !== 'revoked' ||
+      String(input.sourceAuthMethod.record.walletId) !== String(input.recoverySet.walletId) ||
+      input.sourceAuthMethod.record.rpId !== input.sourceEnvelope.factor.rpId ||
+      input.sourceAuthMethod.record.credentialIdB64u !==
+        input.sourceEnvelope.factor.credentialIdB64u
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'source auth method and envelope disagree',
+      };
+    }
 
     const envelopeKey = passkeyCustodyEnvelopeRecordKey(
       passkeyCustodyEnvelopeLocatorOf(input.replacementEnvelope),
+    );
+    const sourceEnvelopeKey = passkeyCustodyEnvelopeRecordKey(
+      passkeyCustodyEnvelopeLocatorOf(input.sourceEnvelope),
     );
     const recoverySetKey = walletRecoveryEnvelopeSetRecordKey(input.recoverySet.walletId);
     const authenticatorStatement = prepareD1WebAuthnAuthenticatorInsertStatement({
@@ -465,6 +569,16 @@ export class CloudflareD1WalletCustodyCommitStore {
       },
       record: input.authenticatorCommit.binding,
     });
+    const walletAuthMethodStatements =
+      this.walletAuthMethodStore.preparePasskeyRegistrationStatements(
+        input.authenticatorCommit.walletAuthMethod,
+      );
+    const authMethodStatements =
+      this.walletAuthMethodStore.preparePasskeyRecoveryRevocationStatements({
+        record: input.sourceAuthMethod.record,
+        expectedUpdatedAtMs: input.sourceAuthMethod.expectedUpdatedAtMs,
+        revokedAtMs: input.sourceAuthMethod.revokedAtMs,
+      });
     let stored: CloudflareD1VersionedJsonRecordBatchPutResultV1;
     try {
       stored = await this.records.putManyWithAdditionalStatements(
@@ -475,10 +589,17 @@ export class CloudflareD1WalletCustodyCommitStore {
             expectedVersion: input.expectedRecoverySetVersion,
           },
           { key: envelopeKey, value: input.replacementEnvelope, expectedVersion: null },
+          {
+            key: sourceEnvelopeKey,
+            value: input.sourceEnvelope,
+            expectedVersion: input.expectedSourceEnvelopeVersion,
+          },
         ],
         [
           authenticatorStatement,
           bindingStatement,
+          ...walletAuthMethodStatements,
+          ...authMethodStatements,
           input.authenticatorCommit.challengeDeleteStatement,
           this.database.prepare(WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD),
         ],
@@ -490,9 +611,14 @@ export class CloudflareD1WalletCustodyCommitStore {
       return { kind: 'conflict' };
     }
     if (stored.kind === 'version_mismatch') {
-      const [recoveryRead, envelopeRead] = await Promise.all([
+      const [recoveryRead, envelopeRead, sourceEnvelopeRead, authMethodRead] = await Promise.all([
         this.readRecoveryEnvelopeSet(input.recoverySet.walletId),
         this.records.read(envelopeKey),
+        this.records.read(sourceEnvelopeKey),
+        this.walletAuthMethodStore.getPasskey({
+          rpId: input.sourceAuthMethod.record.rpId,
+          credentialIdB64u: input.sourceAuthMethod.record.credentialIdB64u,
+        }),
       ]);
       const alreadyConsumed = recoveryRead?.record.manifestKekWraps.some(
         (wrap) =>
@@ -504,7 +630,21 @@ export class CloudflareD1WalletCustodyCommitStore {
         envelopeRead.value.kind !== 'wallet_recovery_envelope_set_v1' &&
         alphabetizeStringify(envelopeRead.value) ===
           alphabetizeStringify(input.replacementEnvelope);
-      if (alreadyConsumed && sameEnvelope && envelopeRead.kind === 'present') {
+      const sourceRetired =
+        sourceEnvelopeRead.kind === 'present' &&
+        alphabetizeStringify(sourceEnvelopeRead.value) ===
+          alphabetizeStringify(input.sourceEnvelope);
+      const sourceAuthRevoked =
+        authMethodRead?.status === 'revoked' &&
+        alphabetizeStringify(authMethodRead) ===
+          alphabetizeStringify(input.sourceAuthMethod.record);
+      if (
+        alreadyConsumed &&
+        sameEnvelope &&
+        sourceRetired &&
+        sourceAuthRevoked &&
+        envelopeRead.kind === 'present'
+      ) {
         return { kind: 'already_committed', envelopeStoreVersion: envelopeRead.version };
       }
       return { kind: 'conflict' };

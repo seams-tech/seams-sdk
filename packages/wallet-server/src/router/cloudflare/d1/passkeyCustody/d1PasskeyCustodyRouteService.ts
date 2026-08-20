@@ -21,17 +21,22 @@ import {
 import {
   parsePasskeyEnvelopeId,
   parseWalletId,
+  parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   type WalletId,
+  type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import {
-  parseWalletAuthAuthorityRef,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthMethodId,
+  type WalletAuthMethodRecord,
+} from '../../../../core/d1WalletAuthMethodStore';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
@@ -60,13 +65,13 @@ import type {
   WalletRecoveryEcdsaPossessionChallengeV1,
   WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
-import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
   projectWalletUnlockKeyManifestV1,
   projectWalletRecoveryPreparationKeyManifestV1,
   resolveWalletRecoveryKeyManifestV1,
   verifyWalletRecoveryKeyActivationsV1,
+  buildWalletRecoveryEcdsaPossessionChallengesV1,
   type WalletUnlockKeyManifestV1,
   type WalletRecoveryPreparationKeyManifestV1,
 } from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
@@ -159,11 +164,11 @@ export interface RouterApiPasskeyCustodyService {
 
   /** Holds one code after Refactor 90 admits fresh Email OTP evidence. */
   prepareRecovery(request: {
-    readonly walletId: string;
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly origin: string;
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
-    readonly authorityRef: WalletAuthAuthorityRef;
-    readonly replacedCredentialIdB64u: string;
   }): Promise<WalletRecoveryRoutePreparationResult>;
 
   /**
@@ -175,23 +180,16 @@ export interface RouterApiPasskeyCustodyService {
    * receipts before this method can consume the reserved code.
    */
   finalizeRecovery(request: {
-    readonly walletId: string;
+    readonly walletId: WalletId;
     readonly reservationId: RecoveryCodeReservationId;
     readonly challengeId: string;
     readonly replacementId: string;
-    readonly replacedCredentialIdB64u: string;
     readonly webauthnRegistration: unknown;
     readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-    readonly authorityRef: WalletAuthAuthorityRef;
     readonly ecdsaMaterialPossessionProofs: readonly {
       readonly keySetId: string;
       readonly proof: WalletRecoveryEcdsaPossessionProofV1;
-    }[];
-    readonly ecdsaPossessionChallenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
-    readonly ecdsaActivationReceipts: readonly {
-      readonly keySetId: string;
-      readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
     }[];
   }): Promise<WalletRecoveryFinalizationResult>;
 
@@ -260,7 +258,6 @@ export type WalletRecoveryRoutePreparationResult =
   | (Extract<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }> & {
       readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
       readonly registration: WalletRecoveryRegistrationOptions;
-      readonly authorityRef: WalletAuthAuthorityRef;
     })
   | Exclude<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }>
   | { readonly kind: 'manifest_unavailable'; readonly reason: string }
@@ -271,7 +268,6 @@ export type WalletRecoveryRegistrationOptions = {
   readonly challengeId: string;
   readonly challengeB64u: string;
   readonly replacementId: string;
-  readonly replacedCredentialIdB64u: string;
   readonly rpId: string;
   readonly user: {
     readonly idB64u: string;
@@ -526,26 +522,45 @@ async function prepareRecoveryForRoute(
     readonly nowMs?: () => number;
   },
   request: {
-    readonly walletId: string;
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly origin: string;
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
-    readonly authorityRef: WalletAuthAuthorityRef;
-    readonly replacedCredentialIdB64u: string;
   },
 ): Promise<WalletRecoveryRoutePreparationResult> {
-  let walletId: WalletId;
-  try {
-    walletId = requireWalletId(request.walletId);
-  } catch {
+  const parsedRpId = parseWebAuthnRpId(request.rpId);
+  if (!parsedRpId.ok || !request.origin.trim()) {
     return { kind: 'refused', reason: 'that recovery code cannot be used' };
   }
-  const authorityRef = parseWalletAuthAuthorityRef(request.authorityRef);
-  if (!authorityRef || String(authorityRef.walletId) !== String(walletId)) {
+  const methods = await assembly.walletCustodyCommits.listWalletAuthMethods(request.walletId);
+  const activeMethods = methods.filter((method) => method.status === 'active');
+  const sourceMethod = activeMethods.length === 1 ? activeMethods[0] : undefined;
+  if (!sourceMethod || sourceMethod.kind !== 'passkey' || sourceMethod.rpId !== parsedRpId.value) {
     return { kind: 'refused', reason: 'that recovery code cannot be used' };
   }
+  const sourceBinding = await assembly.webAuthnStore.readBindingByCredential({
+    rpId: String(sourceMethod.rpId),
+    credentialIdB64u: sourceMethod.credentialIdB64u,
+  });
+  if (
+    !sourceBinding ||
+    sourceBinding.userId !== String(request.walletId) ||
+    sourceBinding.rpId !== sourceMethod.rpId ||
+    sourceBinding.credentialIdB64u !== sourceMethod.credentialIdB64u
+  ) {
+    return { kind: 'refused', reason: 'that recovery code cannot be used' };
+  }
+  const sourceAuthority = await walletAuthAuthorityRef({
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: request.walletId,
+      rpId: sourceMethod.rpId,
+      credentialIdB64u: sourceMethod.credentialIdB64u,
+    }),
+  });
   const prepared = await prepareWalletRecoveryWithCodeV1({
     store: assembly.walletCustodyCommits,
-    walletId,
+    walletId: request.walletId,
     recoveryCodeBytes: request.recoveryCodeBytes,
     reservationId: request.reservationId,
     nowMs: (assembly.nowMs ?? Date.now)(),
@@ -555,13 +570,16 @@ async function prepareRecoveryForRoute(
   try {
     const manifest = await resolveWalletRecoveryKeyManifestV1({
       registry: assembly.walletStore,
-      walletId,
+      walletId: request.walletId,
     });
     const registration = await createWalletRecoveryRegistrationOptions({
       webAuthnStore: assembly.webAuthnStore,
-      walletId,
+      walletId: request.walletId,
       reservationId: request.reservationId,
-      replacedCredentialIdB64u: request.replacedCredentialIdB64u,
+      origin: request.origin,
+      rpId: parsedRpId.value,
+      sourceMethod,
+      sourceAuthorityDigestB64u: sourceAuthority.authorityDigest,
       nowMs: (assembly.nowMs ?? Date.now)(),
     });
     if (registration.kind !== 'ready') {
@@ -569,17 +587,17 @@ async function prepareRecoveryForRoute(
     }
     const possessionChallenges = await buildEcdsaPossessionChallenges({
       manifest,
-      walletId,
+      walletId: request.walletId,
       reservationId: request.reservationId,
       replacementId: registration.options.replacementId,
-      authorityRef,
+      sourceAuthorityDigestB64u: sourceAuthority.authorityDigest,
+      challengeB64u: registration.options.challengeB64u,
       expiresAtMs: prepared.reservationExpiresAtMs,
     });
     return {
       ...prepared,
       keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest, possessionChallenges),
       registration: registration.options,
-      authorityRef,
     };
   } catch (error: unknown) {
     return {
@@ -594,25 +612,15 @@ async function createWalletRecoveryRegistrationOptions(input: {
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly walletId: WalletId;
   readonly reservationId: RecoveryCodeReservationId;
-  readonly replacedCredentialIdB64u: string;
+  readonly origin: string;
+  readonly rpId: WebAuthnRpId;
+  readonly sourceMethod: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>;
+  readonly sourceAuthorityDigestB64u: WalletAuthAuthorityRef['authorityDigest'];
   readonly nowMs: number;
 }): Promise<
   | { readonly kind: 'ready'; readonly options: WalletRecoveryRegistrationOptions }
   | { readonly kind: 'unavailable'; readonly reason: string }
 > {
-  const selectedBinding = await input.webAuthnStore.readBindingByCredentialId(
-    input.replacedCredentialIdB64u,
-  );
-  if (!selectedBinding || selectedBinding.userId !== String(input.walletId)) {
-    return {
-      kind: 'unavailable',
-      reason: 'wallet recovery replacement credential is unavailable',
-    };
-  }
-  const parsedRpId = parseWebAuthnRpId(selectedBinding.rpId);
-  if (!parsedRpId.ok) {
-    return { kind: 'unavailable', reason: 'wallet recovery relying party is invalid' };
-  }
   const challengeId = secureRandomBase64Url(16, 'wallet recovery registration challenge id');
   const challengeB64u = secureRandomBase64Url(32, 'wallet recovery registration challenge');
   const replacementId = `wallet-recovery-replacement:${secureRandomBase64Url(
@@ -620,15 +628,23 @@ async function createWalletRecoveryRegistrationOptions(input: {
     'wallet recovery replacement id',
   )}`;
   const expiresAtMs = input.nowMs + RECOVERY_RESERVATION_TTL_MS;
+  const sourceCredentialIdB64u = parseWebAuthnCredentialIdB64u(input.sourceMethod.credentialIdB64u);
+  if (!sourceCredentialIdB64u.ok) {
+    return { kind: 'unavailable', reason: 'the source passkey credential id is invalid' };
+  }
   const record: WebAuthnRecoveryRegistrationChallengeRecord = {
     version: 'webauthn_recovery_registration_challenge_v1',
     challengeId,
-    walletId: String(input.walletId),
-    reservationId: String(input.reservationId),
+    walletId: input.walletId,
+    reservationId: input.reservationId,
+    origin: input.origin,
+    rpId: input.rpId,
     replacementId,
-    replacedCredentialIdB64u: selectedBinding.credentialIdB64u,
-    rpId: parsedRpId.value,
     challengeB64u,
+    sourceWalletAuthMethodId: walletAuthMethodId(input.sourceMethod),
+    sourceCredentialIdB64u: sourceCredentialIdB64u.value,
+    sourceAuthorityDigestB64u: input.sourceAuthorityDigestB64u,
+    sourceAuthMethodUpdatedAtMs: input.sourceMethod.updatedAtMs,
     createdAtMs: input.nowMs,
     expiresAtMs,
   };
@@ -641,10 +657,10 @@ async function createWalletRecoveryRegistrationOptions(input: {
   });
   const bindings = await input.webAuthnStore.readBindingRows({
     userId: String(input.walletId),
-    rpId: parsedRpId.value,
+    rpId: input.rpId,
   });
   const excludeCredentials = bindings
-    .filter((binding) => String(binding.rpId) === String(parsedRpId.value))
+    .filter((binding) => String(binding.rpId) === String(input.rpId))
     .map((binding) => ({
       type: 'public-key' as const,
       id: String(binding.credentialIdB64u),
@@ -656,8 +672,7 @@ async function createWalletRecoveryRegistrationOptions(input: {
       challengeId,
       challengeB64u,
       replacementId,
-      replacedCredentialIdB64u: selectedBinding.credentialIdB64u,
-      rpId: parsedRpId.value,
+      rpId: input.rpId,
       user: {
         idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),
         name: String(input.walletId),
@@ -695,78 +710,19 @@ async function finalizeRecoveryForRoute(
     readonly nowMs?: () => number;
   },
   request: {
-    readonly walletId: string;
+    readonly walletId: WalletId;
     readonly reservationId: RecoveryCodeReservationId;
     readonly challengeId: string;
     readonly replacementId: string;
-    readonly replacedCredentialIdB64u: string;
     readonly webauthnRegistration: unknown;
     readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-    readonly authorityRef: WalletAuthAuthorityRef;
     readonly ecdsaMaterialPossessionProofs: readonly {
       readonly keySetId: string;
       readonly proof: WalletRecoveryEcdsaPossessionProofV1;
     }[];
-    readonly ecdsaPossessionChallenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
-    readonly ecdsaActivationReceipts: readonly {
-      readonly keySetId: string;
-      readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-    }[];
   },
 ): Promise<WalletRecoveryFinalizationResult> {
-  let walletId: WalletId;
-  try {
-    walletId = requireWalletId(request.walletId);
-  } catch {
-    return { kind: 'refused', reason: 'wallet recovery identity is invalid' };
-  }
-  const challenge = await assembly.webAuthnStore.readRecoveryRegistrationChallenge(
-    request.challengeId,
-  );
-  if (!challenge) {
-    const replay = await resolveCommittedRecoveryReplayV1({
-      envelopeStore: assembly.passkeyCustodyEnvelopes,
-      walletCustodyCommits: assembly.walletCustodyCommits,
-      walletId: request.walletId,
-      reservationId: request.reservationId,
-      replacementId: request.replacementId,
-      replacementEnvelope: request.replacementEnvelope,
-      webAuthnStore: assembly.webAuthnStore,
-      walletStore: assembly.walletStore,
-      ecdsaActivationReceipts: request.ecdsaActivationReceipts,
-    });
-    if (replay.kind === 'rejected') {
-      return { kind: 'registration_rejected', reason: replay.reason };
-    }
-    return replay;
-  }
-  const activationVerification = await verifyWalletRecoveryKeyActivationsV1({
-    registry: assembly.walletStore,
-    walletId,
-    recoveryCorrelationId: request.reservationId,
-    replacementId: request.replacementId,
-    authorityRef: request.authorityRef,
-    ecdsaPossessionChallenges: request.ecdsaPossessionChallenges,
-    ecdsaActivationReceipts: request.ecdsaActivationReceipts,
-    ecdsaMaterialPossessionProofs: request.ecdsaMaterialPossessionProofs,
-    nowMs: (assembly.nowMs ?? Date.now)(),
-  });
-  if (activationVerification.kind === 'refused') {
-    const replay = await resolveCommittedRecoveryReplayV1({
-      envelopeStore: assembly.passkeyCustodyEnvelopes,
-      walletCustodyCommits: assembly.walletCustodyCommits,
-      walletId: request.walletId,
-      reservationId: request.reservationId,
-      replacementId: request.replacementId,
-      replacementEnvelope: request.replacementEnvelope,
-      webAuthnStore: assembly.webAuthnStore,
-      walletStore: assembly.walletStore,
-      ecdsaActivationReceipts: request.ecdsaActivationReceipts,
-    });
-    if (replay.kind !== 'rejected') return replay;
-    return activationVerification;
-  }
   return await finalizeRecoveredWalletCredentialV1({
     envelopeStore: assembly.passkeyCustodyEnvelopes,
     walletCustodyCommits: assembly.walletCustodyCommits,
@@ -774,14 +730,12 @@ async function finalizeRecoveryForRoute(
     reservationId: request.reservationId,
     challengeId: request.challengeId,
     replacementId: request.replacementId,
-    replacedCredentialIdB64u: request.replacedCredentialIdB64u,
     webauthnRegistration: request.webauthnRegistration,
     expectedOrigin: request.expectedOrigin,
     webAuthnStore: assembly.webAuthnStore,
     walletStore: assembly.walletStore,
     replacementEnvelope: request.replacementEnvelope,
-    activationVerification,
-    ecdsaActivationReceipts: request.ecdsaActivationReceipts,
+    ecdsaMaterialPossessionProofs: request.ecdsaMaterialPossessionProofs,
     nowMs: (assembly.nowMs ?? Date.now)(),
   });
 }
@@ -791,39 +745,19 @@ async function buildEcdsaPossessionChallenges(input: {
   readonly walletId: WalletId;
   readonly reservationId: RecoveryCodeReservationId;
   readonly replacementId: string;
-  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly sourceAuthorityDigestB64u: WalletAuthAuthorityRef['authorityDigest'];
+  readonly challengeB64u: string;
   readonly expiresAtMs: number;
 }): Promise<ReadonlyMap<`evm_family_ecdsa:${string}`, WalletRecoveryEcdsaPossessionChallengeV1>> {
-  const challenges = new Map<
-    `evm_family_ecdsa:${string}`,
-    WalletRecoveryEcdsaPossessionChallengeV1
-  >();
-  for (const entry of input.manifest.entries) {
-    if (entry.kind !== 'evm_family_ecdsa') continue;
-    const publicCapabilityDigestB64u = parseDigestB64u(
-      base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(entry.publicCapability))),
-    );
-    const challenge: WalletRecoveryEcdsaPossessionChallengeV1 = {
-      kind: 'wallet_recovery_ecdsa_possession_challenge_v1',
-      walletId: String(input.walletId),
-      reservationId: String(input.reservationId),
-      replacementId: input.replacementId,
-      keySetId: entry.keySetId,
-      keyHandle: entry.keyHandle,
-      recordedKeyManifestDigestB64u: parseDigestB64u(entry.recordedKeyManifestDigestB64u),
-      publicCapabilityDigestB64u,
-      authorityRefDigestB64u: parseDigestB64u(input.authorityRef.authorityDigest),
-      derivationClientSharePublicKey33B64u:
-        entry.publicCapability.public_identity.derivation_client_share_public_key33_b64u,
-      expectedServerGeneration: entry.activationReceipt.server_generation,
-      expiresAtMs: input.expiresAtMs,
-      serverNonceB64u: parseDigestB64u(
-        secureRandomBase64Url(32, 'wallet recovery ECDSA possession server nonce'),
-      ),
-    };
-    challenges.set(entry.keySetId, challenge);
-  }
-  return challenges;
+  return await buildWalletRecoveryEcdsaPossessionChallengesV1({
+    manifest: input.manifest,
+    walletId: input.walletId,
+    reservationId: input.reservationId,
+    replacementId: input.replacementId,
+    sourceAuthorityDigestB64u: input.sourceAuthorityDigestB64u,
+    challengeB64u: input.challengeB64u,
+    expiresAtMs: input.expiresAtMs,
+  });
 }
 
 function requireWalletId(value: unknown): WalletId {

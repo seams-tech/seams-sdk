@@ -1413,7 +1413,11 @@ export class CloudflareD1WalletAuthMethodService {
         },
         revokedAtMs: input.revokedAtMs,
         additionalStatements: [
-          ...walletAuthMethodStore.preparePasskeyRevocationStatements(revokedRecord),
+          ...walletAuthMethodStore.preparePasskeyRevocationStatements({
+            record: revokedRecord,
+            expectedUpdatedAtMs: input.targetRecord.updatedAtMs,
+            revokedAtMs: input.revokedAtMs,
+          }),
           ...(bindingStatement ? [bindingStatement] : []),
         ],
       });
