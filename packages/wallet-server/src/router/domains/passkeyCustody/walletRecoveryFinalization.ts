@@ -48,6 +48,11 @@ export type WalletRecoveryFinalizationResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
+      readonly credential: {
+        readonly credentialIdB64u: string;
+        readonly credentialPublicKeyB64u: string;
+        readonly counter: number;
+      };
     }
   | { readonly kind: 'refused'; readonly reason: string }
   | { readonly kind: 'conflict'; readonly reason: string }
@@ -364,6 +369,11 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   return {
     kind: 'promoted',
     storeVersion: committed.envelopeStoreVersion,
+    credential: {
+      credentialIdB64u: walletAuthMethod.credentialIdB64u,
+      credentialPublicKeyB64u: walletAuthMethod.credentialPublicKeyB64u,
+      counter: walletAuthMethod.counter,
+    },
   };
 }
 
@@ -528,7 +538,9 @@ export async function resolveCommittedRecoveryReplayV1(
     !replacementMethod ||
     replacementMethod.kind !== 'passkey' ||
     replacementMethod.rpId !== rpId ||
-    replacementMethod.credentialIdB64u !== credentialIdB64u
+    replacementMethod.credentialIdB64u !== credentialIdB64u ||
+    replacementMethod.credentialPublicKeyB64u !== authenticator.credentialPublicKeyB64u ||
+    replacementMethod.counter !== authenticator.counter
   ) {
     return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
   }
@@ -563,6 +575,11 @@ export async function resolveCommittedRecoveryReplayV1(
   return {
     kind: 'promoted',
     storeVersion: storedEnvelope.storeVersion,
+    credential: {
+      credentialIdB64u: replacementMethod.credentialIdB64u,
+      credentialPublicKeyB64u: replacementMethod.credentialPublicKeyB64u,
+      counter: replacementMethod.counter,
+    },
   };
 }
 

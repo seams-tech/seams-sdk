@@ -11,6 +11,11 @@ import {
   type WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
+import {
+  parseWebAuthnCredentialIdB64u,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
+import { base64UrlDecode } from '@shared/utils/encoders';
 
 /**
  * Installing the replacement credential a recovery enrolled.
@@ -20,8 +25,8 @@ import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
  * It queries its signer registry and exact activation receipts before a
  * `promoted` reply can consume the code and retire old credentials.
  *
- * Promotion is atomic. A successful response contains only the resulting
- * store version; every source retirement is part of that same commit.
+ * Promotion is atomic. The successful response carries the committed
+ * credential projection; every source retirement is part of that same commit.
  */
 
 const WALLET_RECOVERY_FINALIZE_PATH = '/wallets/recovery/finalize';
@@ -35,6 +40,11 @@ export type WalletRecoveryFinalizeResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
+      readonly credential: {
+        readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+        readonly credentialPublicKeyB64u: string;
+        readonly counter: number;
+      };
     }
   | WalletRecoveryAttemptFailure;
 
@@ -123,10 +133,36 @@ export async function finalizeWalletRecovery(args: {
   const body = isRecord(bodyUnknown) ? bodyUnknown : {};
   if (response.status === 200 && body.ok === true) {
     try {
-      rejectUnknownFields(body, ['ok', 'storeVersion'], 'walletRecoveryFinalize');
+      rejectUnknownFields(body, ['ok', 'storeVersion', 'credential'], 'walletRecoveryFinalize');
       const storeVersion = String(body.storeVersion || '').trim();
       if (!storeVersion) throw new Error('missing store version');
-      return { kind: 'promoted', storeVersion };
+      if (!isRecord(body.credential)) throw new Error('missing replacement credential');
+      rejectUnknownFields(
+        body.credential,
+        ['credentialIdB64u', 'credentialPublicKeyB64u', 'counter'],
+        'walletRecoveryFinalize.credential',
+      );
+      const credentialId = parseWebAuthnCredentialIdB64u(body.credential.credentialIdB64u);
+      const credentialPublicKeyB64u = String(body.credential.credentialPublicKeyB64u || '').trim();
+      const counter = body.credential.counter;
+      if (!credentialId.ok || !credentialPublicKeyB64u) {
+        throw new Error('missing replacement credential material');
+      }
+      if (base64UrlDecode(credentialPublicKeyB64u).byteLength === 0) {
+        throw new Error('empty replacement credential public key');
+      }
+      if (!Number.isSafeInteger(counter) || Number(counter) < 0) {
+        throw new Error('invalid replacement credential counter');
+      }
+      return {
+        kind: 'promoted',
+        storeVersion,
+        credential: {
+          credentialIdB64u: credentialId.value,
+          credentialPublicKeyB64u,
+          counter: Number(counter),
+        },
+      };
     } catch {
       return { kind: 'transport_uncertain' };
     }

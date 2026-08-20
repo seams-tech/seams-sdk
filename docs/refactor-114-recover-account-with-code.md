@@ -83,8 +83,22 @@ type WalletRecoveryFinalizeRequest = {
 };
 ```
 
-The success response is `{ ok: true, storeVersion }`. Client failures have one
-of three internal classifications:
+The success response returns the committed credential material required to
+rebuild the local login projection:
+
+```ts
+type WalletRecoveryFinalizeSuccess = {
+  readonly ok: true;
+  readonly storeVersion: string;
+  readonly credential: {
+    readonly credentialIdB64u: string;
+    readonly credentialPublicKeyB64u: string;
+    readonly counter: number;
+  };
+};
+```
+
+Client failures have one of three internal classifications:
 
 ```ts
 type WalletRecoveryAttemptFailure =
