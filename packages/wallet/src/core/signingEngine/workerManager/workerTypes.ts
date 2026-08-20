@@ -164,6 +164,12 @@ export type EmailOtpEd25519YaoExportMaterialV1 =
       readonly materialActivation: MpcMaterialActivationRef;
       readonly walletCustodyEd25519Material: LoadedWalletCustodyEd25519MaterialV1;
       readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    }
+  | {
+      readonly kind: 'sealed_export_root';
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+      readonly exportRootEnvelope: PasskeyCustodyEnvelopeRecord;
     };
 
 export type EmailOtpEd25519YaoWorkerActivationResult = {
@@ -317,7 +323,7 @@ export type EmailOtpWalletUnlockMaterialResult =
   | {
       readonly kind: 'wallet_unlock_capabilities';
       readonly operation: 'wallet_unlock';
-      readonly custodyTransfer: {
+      readonly ed25519ExportRootCustody: {
         readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
         readonly factorSecret32: Uint8Array;
       };
@@ -1645,7 +1651,7 @@ export type EcdsaDerivationRoleLocalMaterialOperationRequest<
 > = EcdsaDerivationWorkerOperationRequest<T>;
 /**
  * Refactor 103 zero-prompt handoff — the public reference to an unlocked
- * wallet custody transfer capability.
+ * wallet Ed25519 export-root capability.
  *
  * The worker owns the opened custody-seed handle; this reference carries only
  * the opaque handle id and the binding facts the worker will re-verify before
@@ -1654,8 +1660,8 @@ export type EcdsaDerivationRoleLocalMaterialOperationRequest<
  * an envelope after the worker destroys the handle, so persisting it grants
  * nothing.
  */
-export type UnlockedWalletCustodyTransferCapabilityV1 = {
-  readonly kind: 'unlocked_wallet_custody_transfer_capability_v1';
+export type UnlockedWalletEd25519ExportRootCapabilityV1 = {
+  readonly kind: 'unlocked_wallet_ed25519_export_root_capability_v1';
   readonly capabilityHandleId: string;
   readonly walletId: string;
   readonly walletAuthMethodId: string;
@@ -1668,7 +1674,7 @@ export type UnlockedWalletCustodyTransferCapabilityV1 = {
  * retirement or replacement by Wallet Session, failed activation by capability
  * handle, and worker reset or page teardown destroys all.
  */
-export type UnlockedWalletCustodyCapabilityDestroyScopeV1 =
+export type UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1 =
   | { readonly kind: 'capability'; readonly capabilityHandleId: string }
   | { readonly kind: 'wallet'; readonly walletId: string }
   | { readonly kind: 'wallet_session'; readonly walletSessionId: string }
@@ -1703,8 +1709,8 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
           applicationBindingDigestB64u: string;
         }
       | {
-          kind: 'unlocked_custody_capability';
-          capability: UnlockedWalletCustodyTransferCapabilityV1;
+          kind: 'unlocked_ed25519_export_root_capability';
+          capability: UnlockedWalletEd25519ExportRootCapabilityV1;
           applicationBindingDigestB64u: string;
         };
     result: { sourceHandle: string };
@@ -1846,7 +1852,7 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
    * custody seed to. The private half stays inside this worker under the
    * returned handle; only the public key crosses back.
    */
-  createLinkedDeviceCustodyTransferRecipient: {
+  createLinkedDeviceEd25519ExportRootRecipient: {
     payload: Record<string, never>;
     result: { recipientHandleId: string; recipientPublicKeyB64u: string };
   };
@@ -1860,7 +1866,7 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
    * At most one capability exists per wallet and owner Wallet Session;
    * establishing a new one destroys the previous handle first.
    */
-  establishUnlockedWalletCustodyTransferCapability: {
+  establishUnlockedWalletEd25519ExportRootCapability: {
     payload: {
       existingEnvelope: PasskeyCustodyEnvelopeRecord;
       existingFactorSecret: ArrayBuffer;
@@ -1869,15 +1875,15 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
       walletSessionId: string;
       expiresAtMs: number;
     };
-    result: UnlockedWalletCustodyTransferCapabilityV1;
+    result: UnlockedWalletEd25519ExportRootCapabilityV1;
   };
   /**
-   * Destroys unlocked custody transfer capabilities. Wired into lock, logout,
+   * Destroys unlocked Ed25519 export-root capabilities. Wired into lock, logout,
    * wallet switch, Wallet Session retirement or replacement, expiry, failed
    * activation, and page teardown; `all` is the worker-reset scope.
    */
-  destroyUnlockedWalletCustodyTransferCapabilities: {
-    payload: { scope: UnlockedWalletCustodyCapabilityDestroyScopeV1 };
+  destroyUnlockedWalletEd25519ExportRootCapabilities: {
+    payload: { scope: UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1 };
     result: { destroyedCount: number };
   };
   /**
@@ -1887,16 +1893,16 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
    * Session, or expiry mismatch fails before any ciphertext exists. Each call
    * draws a fresh X25519 ephemeral key and nonce.
    */
-  sealWalletCustodySeedForLinkedDevice: {
+  sealEd25519ExportRootForLinkedDevice: {
     payload: {
-      capability: UnlockedWalletCustodyTransferCapabilityV1;
+      capability: UnlockedWalletEd25519ExportRootCapabilityV1;
       transferBindingJson: string;
     };
     result: {
       ephemeralPublicKeyB64u: string;
       nonceB64u: string;
-      sealedCustodySecretB64u: string;
-      aadHashB64u: string;
+      sealedExportRootB64u: string;
+      bindingDigestB64u: string;
       ciphertextDigestB64u: string;
     };
   };
@@ -1906,27 +1912,27 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
    * than two so the opened seed never sits in a handle JavaScript could hold
    * across a turn.
    */
-  acceptLinkedDeviceCustodyTransfer: {
+  acceptLinkedDeviceEd25519ExportRoot: {
     payload: {
       recipientHandleId: string;
       transferBindingJson: string;
       ephemeralPublicKeyB64u: string;
       nonceB64u: string;
-      sealedCustodySecretB64u: string;
-      aadHashB64u: string;
+      sealedExportRootB64u: string;
+      bindingDigestB64u: string;
       ciphertextDigestB64u: string;
       replacementEnvelopeBindingJson: string;
       replacementFactorSecret: ArrayBuffer;
     };
     result: {
       nonceB64u: string;
-      sealedCustodySecretB64u: string;
+      sealedExportRootB64u: string;
       aadHashB64u: string;
       ciphertextDigestB64u: string;
     };
   };
   /** Zeroizes a recipient handle on cancel, failure, or page teardown. */
-  discardLinkedDeviceCustodyTransferRecipient: {
+  discardLinkedDeviceEd25519ExportRootRecipient: {
     payload: { recipientHandleId: string };
     result: { recipientHandleId: string; discarded: boolean };
   };

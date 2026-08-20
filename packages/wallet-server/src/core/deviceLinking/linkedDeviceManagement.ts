@@ -10,7 +10,6 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import type { LaneProductEpochRecordV1 } from '@shared/signing-lanes';
 import type { LaneEnrollmentAdmissionRecord } from '../signingLanes/LaneLifecycleStore';
 import type { LaneAggregateRevocationRequestV1 } from '../signingLanes/LaneAggregateRevocationApplicationService';
-import type { LinkedDeviceOwnerAuthorizationContextV1 } from './linkedDeviceSession';
 import { parseLinkedDeviceId } from '@shared/signing-lanes/ids';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
@@ -23,6 +22,10 @@ import type {
 import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type { LaneEnrollmentRevocationResultV1 } from '@shared/signing-lanes';
 import type { RevokeLaneEnrollmentV1 } from '@shared/signing-lanes';
+import {
+  hasDelegatedWalletPermissionV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 
 export type LinkedDeviceManagementTargetV1 = {
   readonly summary: LinkedDeviceSummaryV1;
@@ -47,14 +50,15 @@ export const MAX_LINKED_DEVICE_LIST_LIMIT_V1 = 50;
  * the HTTP boundary. Management receives that exact context so it can bind
  * the mutation to the authenticated wallet without a second D1 lookup.
  */
-export type LinkedDeviceManagementOwnerV1 = Pick<
-  LinkedDeviceOwnerAuthorizationContextV1,
-  'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs'
->;
+export type LinkedDeviceManagementOwnerV1 = {
+  readonly walletId: WalletId;
+  readonly expiresAtMs: number;
+  readonly permission: DelegatedWalletAuthorityV1;
+};
 
 export type LinkedDeviceManagementListPrincipalV1 = Pick<
   LinkedDeviceManagementOwnerV1,
-  'walletId' | 'expiresAtMs'
+  'walletId' | 'expiresAtMs' | 'permission'
 >;
 
 export type LinkedDeviceManagementProjectionPortV1 = {
@@ -158,6 +162,12 @@ export class LinkedDeviceManagementServiceV1 {
       return { kind: 'unauthorized' };
     }
     if (
+      !hasDelegatedWalletPermissionV1(owner.permission, 'link_devices') &&
+      !hasDelegatedWalletPermissionV1(owner.permission, 'revoke_devices')
+    ) {
+      return { kind: 'unauthorized' };
+    }
+    if (
       !Number.isSafeInteger(request.limit) ||
       request.limit < 1 ||
       request.limit > MAX_LINKED_DEVICE_LIST_LIMIT_V1
@@ -176,6 +186,9 @@ export class LinkedDeviceManagementServiceV1 {
     owner: LinkedDeviceManagementOwnerV1,
   ): Promise<LinkedDeviceRevokeResultV1> {
     if (!ownerAuthorizesWalletV1(owner, request.walletId, request.requestedAtMs)) {
+      return { kind: 'unauthorized' };
+    }
+    if (!hasDelegatedWalletPermissionV1(owner.permission, 'revoke_devices')) {
       return { kind: 'unauthorized' };
     }
 

@@ -15,7 +15,7 @@ import {
   type LinkedDeviceLocalAccountProjectionV1,
 } from '@shared/device-linking';
 import { D1LinkedDeviceRequestProofNonceStoreV1 } from './d1LinkedDeviceRequestProofNonceStore';
-import { D1LinkedDeviceCustodyTransferStoreV1 } from './d1LinkedDeviceCustodyTransferStore';
+import { D1LinkedDeviceEd25519ExportRootStoreV1 } from './d1LinkedDeviceEd25519ExportRootStore';
 import { type D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
@@ -37,7 +37,6 @@ import type {
   DeviceLinkingAuthDeniedV1,
   DeviceLinkingDeviceAuthenticatedRequestV1,
   DeviceLinkingOwnerRequestInputV1,
-  DeviceLinkingOperatorRecoveryProviderV1,
   DeviceLinkingOwnerSourceHandoffProviderV1,
   DeviceLinkingRouteServiceV1,
 } from '../../../../router/transport/fetch/routes/deviceLinking';
@@ -84,7 +83,6 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
     input: DeviceLinkingOwnerRequestInputV1,
   ) => Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
   readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
-  readonly operatorRecovery?: DeviceLinkingOperatorRecoveryProviderV1;
   readonly provisioning: DeviceLinkingRouteServiceV1['provisioning'];
   readonly sourceHandoff: ConstructorParameters<typeof D1LinkedDeviceCommittedDeliveryRetryV1>[0];
   readonly nowV1?: () => number;
@@ -193,7 +191,6 @@ export function createD1LinkedDeviceRouteServiceV1(
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
     recordEmailOtpChallengeStateV1:
       sessionService.recordEmailOtpChallengeStateV1.bind(sessionService),
-    bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     // A string input is the pre-proof, read-only QR lookup. Authenticated reads
     // use the core service so expiry projection receives the request clock.
@@ -209,10 +206,9 @@ export function createD1LinkedDeviceRouteServiceV1(
     ...(options.emailOtpTargetFactor === undefined
       ? {}
       : { emailOtpTargetFactor: options.emailOtpTargetFactor }),
-    // Refactor 103 Phase 8: Device 1 seals the wallet custody seed to the
-    // recipient Device 2 publishes, through this store. Left unwired, the
-    // routes answer 501 and linking dies after the owner has already asserted.
-    custodyTransfer: new D1LinkedDeviceCustodyTransferStoreV1({
+    // Device 1 seals the Ed25519 Yao Client export root to the recipient
+    // Device 2 publishes. The relay never receives wallet custody seed data.
+    ed25519ExportRoot: new D1LinkedDeviceEd25519ExportRootStoreV1({
       database: options.database,
       scope: options.scope,
     }),
@@ -233,7 +229,6 @@ export function createD1LinkedDeviceRouteServiceV1(
         {
           addAuthMethodCeremonyId: input.addAuthMethodCeremonyId,
           webauthnRegistration: input.webauthnRegistration,
-          custodyEnvelope: input.custodyEnvelope,
           subject: {
             kind: 'wallet_auth_method_management',
             walletId: input.admission.walletId,
@@ -302,7 +297,6 @@ export function createD1LinkedDeviceRouteServiceV1(
       walletStore,
     ),
     retryCommittedDeliveryV1: completion.retry.retryCommittedDeliveryV1.bind(completion.retry),
-    operatorRecovery: options.operatorRecovery,
     provisioning: options.provisioning,
     provisioningVerifier,
     sourceHandoff: options.sourceHandoff,

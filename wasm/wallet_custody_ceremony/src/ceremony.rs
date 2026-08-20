@@ -46,7 +46,7 @@ use signer_core::ecdsa_role_local_client::command::{
     EcdsaRoleLocalPendingStateBlob, FinalizeEcdsaClientBootstrapCommand,
     PrepareEcdsaClientBootstrapCommand, RelayerPublicIdentityInput,
 };
-use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
+use signer_core::ed25519_yao_derivation::Ed25519YaoClientRootV1;
 use signer_core::passkey_custody::{
     open_wallet_custody_seed_envelope_v1, seal_wallet_custody_seed_envelope_v1, sha256_digest,
     PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
@@ -590,7 +590,7 @@ impl CeremonySeedHeldV1 {
                 let root =
                     derive_ed25519_yao_client_root_from_seed_v1(&self.seed[..], &binding_digest)
                         .map_err(|error| CeremonyError::new(format!("root derivation: {error}")))?;
-                let root = Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root);
+                let root = Ed25519YaoClientRootV1::from_secret_bytes(*root);
 
                 let prepared = match continuity {
                     Some(expected_registered_public_key) => {

@@ -19,10 +19,15 @@ import type {
 import {
   LinkedDeviceListCursorError,
   MAX_LINKED_DEVICE_LIST_LIMIT_V1,
+  type LinkedDeviceManagementOwnerV1,
   type LinkedDeviceManagementListPrincipalV1,
   type LinkedDeviceManagementServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import { parseLinkedDeviceWalletSession } from '../../../domains/signingOperations/linkedDeviceNormalSigning';
+import {
+  buildFullOwnerDelegatedWalletAuthorityV1,
+  sameDelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 
@@ -70,10 +75,11 @@ async function handleList(
   const request = parseBoundary(() => parseListQuery(ctx.url.searchParams));
   const canonicalPathname = canonicalListPath(ctx.pathname, request);
   const body = await readRequestBodyDigest(ctx.request);
-  const linked = await authenticateLinkedDeviceListPrincipal(ctx, request.walletId, nowMs);
+  const linked = await authenticateLinkedDeviceManagementOwner(ctx, nowMs);
   let principal: LinkedDeviceManagementListPrincipalV1;
   if (linked.kind === 'authorized') {
-    principal = linked.principal;
+    if (linked.owner.walletId !== request.walletId) return unauthorizedResponse();
+    principal = linked.owner;
   } else {
     if (linked.kind === 'denied') return unauthorizedResponse();
     const authentication = await authenticateOwner(
@@ -92,7 +98,11 @@ async function handleList(
       nowMs,
     );
     if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
-    principal = authentication.owner;
+    principal = {
+      walletId: authentication.owner.walletId,
+      expiresAtMs: authentication.owner.expiresAtMs,
+      permission: buildFullOwnerDelegatedWalletAuthorityV1(),
+    };
   }
   if (body.bytes.byteLength !== 0) {
     throw new DeviceManagementInputError('linked-device list request must have an empty body');
@@ -114,19 +124,18 @@ async function handleList(
   );
 }
 
-type LinkedDeviceListAuthenticationV1 =
+type LinkedDeviceManagementAuthenticationV1 =
   | { readonly kind: 'not_linked' }
   | { readonly kind: 'denied' }
   | {
       readonly kind: 'authorized';
-      readonly principal: LinkedDeviceManagementListPrincipalV1;
+      readonly owner: LinkedDeviceManagementOwnerV1;
     };
 
-async function authenticateLinkedDeviceListPrincipal(
+async function authenticateLinkedDeviceManagementOwner(
   ctx: FetchRouterApiContext,
-  walletId: LinkedDeviceListRequestV1['walletId'],
   nowMs: number,
-): Promise<LinkedDeviceListAuthenticationV1> {
+): Promise<LinkedDeviceManagementAuthenticationV1> {
   const linked = await parseLinkedDeviceWalletSession({
     session: ctx.opts.session,
     headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -145,12 +154,12 @@ async function authenticateLinkedDeviceListPrincipal(
   if (
     !persisted ||
     !authorization ||
-    authorization.walletId !== walletId ||
     authorization.walletId !== linked.claims.walletId ||
     authorization.enrollmentId !== linked.claims.enrollmentId ||
     authorization.deviceId !== linked.claims.deviceId ||
     authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
-    authorization.revocationEpoch !== linked.claims.revocationEpoch
+    authorization.revocationEpoch !== linked.claims.revocationEpoch ||
+    !sameDelegatedWalletAuthorityV1(authorization.permission, linked.claims.permission)
   ) {
     return { kind: 'denied' };
   }
@@ -162,7 +171,11 @@ async function authenticateLinkedDeviceListPrincipal(
   if (expiresAtMs <= nowMs) return { kind: 'denied' };
   return {
     kind: 'authorized',
-    principal: { walletId: authorization.walletId, expiresAtMs },
+    owner: {
+      walletId: authorization.walletId,
+      expiresAtMs,
+      permission: authorization.permission,
+    },
   };
 }
 
@@ -173,11 +186,34 @@ async function handleRevoke(
 ): Promise<Response | null> {
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const body = await readRequestBodyDigest(ctx.request);
-  const authentication = await authenticateOwner(service, ctx, ctx.pathname, body.digestB64u, nowMs);
-  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
-  validateOwnerBinding(authentication.binding, ctx.method, ctx.pathname, body.digestB64u, nowMs);
-  const request = parseBoundary(() => parseLinkedDeviceRevokeRequestV1(authentication.body));
-  if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
+  const linked = await authenticateLinkedDeviceManagementOwner(ctx, nowMs);
+  let request: LinkedDeviceRevokeRequestV1;
+  let owner: LinkedDeviceManagementOwnerV1;
+  if (linked.kind === 'authorized') {
+    request = parseBoundary(() =>
+      parseLinkedDeviceRevokeRequestV1(parseJsonBodyBytes(body.bytes)),
+    );
+    if (linked.owner.walletId !== request.walletId) return unauthorizedResponse();
+    owner = linked.owner;
+  } else {
+    if (linked.kind === 'denied') return unauthorizedResponse();
+    const authentication = await authenticateOwner(
+      service,
+      ctx,
+      ctx.pathname,
+      body.digestB64u,
+      nowMs,
+    );
+    if (authentication.kind === 'denied') return authDeniedResponse(authentication);
+    validateOwnerBinding(authentication.binding, ctx.method, ctx.pathname, body.digestB64u, nowMs);
+    request = parseBoundary(() => parseLinkedDeviceRevokeRequestV1(authentication.body));
+    if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
+    owner = {
+      walletId: authentication.owner.walletId,
+      expiresAtMs: authentication.owner.expiresAtMs,
+      permission: buildFullOwnerDelegatedWalletAuthorityV1(),
+    };
+  }
   const pathDeviceId = parseBoundary(() => parsePathDeviceId(ctx.pathname));
   if (request.deviceId !== pathDeviceId) {
     throw new DeviceManagementInputError('device id does not match the route');
@@ -185,7 +221,7 @@ async function handleRevoke(
   if (request.requestedAtMs > nowMs) {
     throw new DeviceManagementInputError('revoke request is from the future');
   }
-  const result = await service.management.revokeLinkedDeviceV1(request, authentication.owner);
+  const result = await service.management.revokeLinkedDeviceV1(request, owner);
   switch (result.kind) {
     case 'revoked':
     case 'replayed':
@@ -295,6 +331,14 @@ async function readRequestBodyDigest(request: Request): Promise<{
   const bytes = new Uint8Array(await request.clone().arrayBuffer());
   const digestB64u = parseDigestB64u(base64UrlEncode(await sha256Bytes(bytes)));
   return { bytes, digestB64u };
+}
+
+function parseJsonBodyBytes(bytes: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new DeviceManagementInputError('request body must be valid JSON');
+  }
 }
 
 function decodePathComponent(raw: string): string {

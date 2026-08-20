@@ -1,6 +1,6 @@
 /**
  * Refactor 103 zero-prompt handoff — the main thread's view of the unlocked
- * wallet custody transfer capability.
+ * Ed25519 Yao Client export-root capability.
  *
  * The wallet custody ceremony worker owns the opened custody-seed handle; this
  * module owns the one public reference to it and the discipline around it:
@@ -16,14 +16,14 @@
  * the linking flow.
  */
 import type {
-  UnlockedWalletCustodyCapabilityDestroyScopeV1,
-  UnlockedWalletCustodyTransferCapabilityV1,
+  UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1,
+  UnlockedWalletEd25519ExportRootCapabilityV1,
 } from '../workerManager/workerTypes';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { WorkerOperationContext } from '../workerManager/executeWorkerOperation';
 
-let currentCapability: UnlockedWalletCustodyTransferCapabilityV1 | null = null;
+let currentCapability: UnlockedWalletEd25519ExportRootCapabilityV1 | null = null;
 let currentCapabilityTransport: WalletCustodyCeremonyTransportPort | null = null;
 let currentCapabilityExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -60,7 +60,7 @@ function clearCurrentCapabilityReference(): void {
 }
 
 function scheduleCurrentCapabilityExpiry(
-  capability: UnlockedWalletCustodyTransferCapabilityV1,
+  capability: UnlockedWalletEd25519ExportRootCapabilityV1,
   transport: WalletCustodyCeremonyTransportPort,
 ): void {
   clearCurrentCapabilityExpiryTimer();
@@ -72,7 +72,7 @@ function scheduleCurrentCapabilityExpiry(
       scheduleCurrentCapabilityExpiry(capability, transport);
       return;
     }
-    void destroyUnlockedWalletCustodyTransferCapabilitiesV1(transport, {
+    void destroyUnlockedWalletEd25519ExportRootCapabilitiesV1(transport, {
       kind: 'capability',
       capabilityHandleId: capability.capabilityHandleId,
     });
@@ -95,11 +95,11 @@ export function custodyEnvelopePasskeyAuthMethodIdV1(factor: {
 
 function isCapabilityReference(
   value: unknown,
-): value is UnlockedWalletCustodyTransferCapabilityV1 {
+): value is UnlockedWalletEd25519ExportRootCapabilityV1 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   return (
-    record.kind === 'unlocked_wallet_custody_transfer_capability_v1' &&
+    record.kind === 'unlocked_wallet_ed25519_export_root_capability_v1' &&
     typeof record.capabilityHandleId === 'string' &&
     record.capabilityHandleId.length > 0 &&
     typeof record.walletId === 'string' &&
@@ -118,7 +118,7 @@ function isCapabilityReference(
  * Call only after the owner Wallet Session named here is active. Establishing
  * adds no authenticator or OTP interaction.
  */
-export async function establishUnlockedWalletCustodyTransferCapabilityV1(
+export async function establishUnlockedWalletEd25519ExportRootCapabilityV1(
   transport: WalletCustodyCeremonyTransportPort,
   input: {
     readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
@@ -128,7 +128,7 @@ export async function establishUnlockedWalletCustodyTransferCapabilityV1(
     readonly walletSessionId: string;
     readonly expiresAtMs: number;
   },
-): Promise<UnlockedWalletCustodyTransferCapabilityV1> {
+): Promise<UnlockedWalletEd25519ExportRootCapabilityV1> {
   // The worker transfers this buffer, so it gets a copy and we wipe it.
   const workerFactorSecret = input.existingFactorSecret.slice();
   let established: unknown;
@@ -136,7 +136,7 @@ export async function establishUnlockedWalletCustodyTransferCapabilityV1(
     established = await transport.requestOperation({
       kind: 'walletCustodyCeremony',
       request: {
-        type: 'establishUnlockedWalletCustodyTransferCapability',
+        type: 'establishUnlockedWalletEd25519ExportRootCapability',
         payload: {
           existingEnvelope: input.existingEnvelope,
           existingFactorSecret: workerFactorSecret.buffer,
@@ -152,7 +152,7 @@ export async function establishUnlockedWalletCustodyTransferCapabilityV1(
     if (workerFactorSecret.byteLength > 0) workerFactorSecret.fill(0);
   }
   if (!isCapabilityReference(established)) {
-    throw new Error('unlocked custody capability worker returned no reference');
+    throw new Error('unlocked Ed25519 export-root capability worker returned no reference');
   }
   clearCurrentCapabilityExpiryTimer();
   currentCapability = established;
@@ -165,16 +165,16 @@ export async function establishUnlockedWalletCustodyTransferCapabilityV1(
  * The current capability for this exact wallet, or undefined when the wallet
  * has none — never a prompt, and never a stale or expired reference.
  */
-export function readUnlockedWalletCustodyTransferCapabilityV1(
+export function readUnlockedWalletEd25519ExportRootCapabilityV1(
   walletId: string,
-): UnlockedWalletCustodyTransferCapabilityV1 | undefined {
+): UnlockedWalletEd25519ExportRootCapabilityV1 | undefined {
   const capability = currentCapability;
   if (!capability) return undefined;
   if (capability.walletId !== walletId) return undefined;
   if (capability.expiresAtMs <= Date.now()) {
     const transport = currentCapabilityTransport;
     if (transport) {
-      void destroyUnlockedWalletCustodyTransferCapabilitiesV1(transport, {
+      void destroyUnlockedWalletEd25519ExportRootCapabilitiesV1(transport, {
         kind: 'capability',
         capabilityHandleId: capability.capabilityHandleId,
       });
@@ -192,7 +192,7 @@ export function readUnlockedWalletCustodyTransferCapabilityV1(
  * and holding a reference to it would let the linking preflight pass against a
  * handle that no longer exists.
  */
-export function dropUnlockedWalletCustodyTransferCapabilityReferenceV1(): void {
+export function dropUnlockedWalletEd25519ExportRootCapabilityReferenceV1(): void {
   clearCurrentCapabilityReference();
 }
 
@@ -203,9 +203,9 @@ export function dropUnlockedWalletCustodyTransferCapabilityReferenceV1(): void {
  * has already lost its handle memory, which is the destruction this call
  * wants.
  */
-export async function destroyUnlockedWalletCustodyTransferCapabilitiesV1(
+export async function destroyUnlockedWalletEd25519ExportRootCapabilitiesV1(
   transport: WalletCustodyCeremonyTransportPort,
-  scope: UnlockedWalletCustodyCapabilityDestroyScopeV1,
+  scope: UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1,
 ): Promise<void> {
   const capability = currentCapability;
   const localMatches =
@@ -219,7 +219,7 @@ export async function destroyUnlockedWalletCustodyTransferCapabilitiesV1(
     await transport.requestOperation({
       kind: 'walletCustodyCeremony',
       request: {
-        type: 'destroyUnlockedWalletCustodyTransferCapabilities',
+        type: 'destroyUnlockedWalletEd25519ExportRootCapabilities',
         payload: { scope },
       },
     });

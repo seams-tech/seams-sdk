@@ -925,6 +925,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sha3",
+ "subtle",
  "ts-rs",
  "zeroize",
 ]

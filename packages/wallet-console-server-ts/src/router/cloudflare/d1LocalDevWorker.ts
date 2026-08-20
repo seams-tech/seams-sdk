@@ -137,7 +137,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
-  readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
   readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
@@ -210,8 +209,6 @@ const DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
 const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:9444/console';
 const DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
-const DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET =
-  'dev-linked-device-operator-recovery-secret';
 const DEFAULT_LOCAL_LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET =
   'dev-linked-device-target-descriptor-hmac-secret-v1-32-bytes';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
@@ -672,7 +669,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'linked_device_source_handoffs',
   'linked_device_owner_planning_snapshots',
   'linked_device_owner_auth_bindings',
-  'linked_device_custody_transfers',
+  'linked_device_ed25519_export_root_transfers',
   'linked_device_target_deployment_descriptors',
 ]);
 
@@ -1324,14 +1321,10 @@ async function localLinkedDeviceComposition(
   const execution = localLinkedDeviceExecution(env);
   if (!session) return { execution };
   const internalServiceAuth = localRouterAbInternalServiceAuthSecret(env);
-  const operatorRecoverySecret = localLinkedDeviceOperatorRecoverySecret(env, internalServiceAuth);
   const descriptorHmacSecret = localLinkedDeviceTargetDescriptorHmacSecret(env);
-  if (
-    descriptorHmacSecret === internalServiceAuth ||
-    descriptorHmacSecret === operatorRecoverySecret
-  ) {
+  if (descriptorHmacSecret === internalServiceAuth) {
     throw new Error(
-      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth and operator recovery',
+      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth',
     );
   }
   const runtime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
@@ -1358,9 +1351,6 @@ async function localLinkedDeviceComposition(
         signingWorker: env.SIGNING_WORKER,
         internalServiceAuth,
         ed25519YaoKeyset: localLinkedDeviceYaoKeyset(env),
-      },
-      operatorRecovery: {
-        operatorSecret: operatorRecoverySecret,
       },
       targetDeploymentDescriptorProvider: runtime.provider,
     } satisfies CloudflareD1LinkedDeviceSessionOptionsV1,
@@ -1431,18 +1421,6 @@ function localLinkedDeviceYaoKeyset(env: LocalD1DevEnv) {
       env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
     ),
   });
-}
-
-function localLinkedDeviceOperatorRecoverySecret(
-  env: LocalD1DevEnv,
-  internalServiceAuth: string,
-): string {
-  const configured = normalizeLocalString(env.LINKED_DEVICE_OPERATOR_RECOVERY_SECRET);
-  const secret = configured || DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET;
-  if (secret === internalServiceAuth) {
-    throw new Error('LINKED_DEVICE_OPERATOR_RECOVERY_SECRET must differ from Router internal auth');
-  }
-  return secret;
 }
 
 function localLinkedDeviceExecution(env: LocalD1DevEnv) {

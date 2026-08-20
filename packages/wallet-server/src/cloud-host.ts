@@ -48,7 +48,6 @@ export {
 } from './router/transport/fetch/routes/deviceLinkingLaneGateway';
 export type {
   DeviceLinkingAuthDeniedV1,
-  DeviceLinkingOperatorRecoveryProviderV1,
   DeviceLinkingRouteServiceV1,
 } from './router/transport/fetch/routes/deviceLinking';
 export * from './router/cloudflare/runtime/createCloudflareRouter';

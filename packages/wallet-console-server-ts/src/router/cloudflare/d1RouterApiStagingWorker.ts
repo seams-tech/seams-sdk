@@ -146,7 +146,6 @@ export interface CloudflareD1GatewayBaseEnv
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
-  readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
   readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
   readonly SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
@@ -267,7 +266,7 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'linked_device_source_handoffs',
   'linked_device_owner_planning_snapshots',
   'linked_device_owner_auth_bindings',
-  'linked_device_custody_transfers',
+  'linked_device_ed25519_export_root_transfers',
   'linked_device_target_deployment_descriptors',
 ]);
 
@@ -597,17 +596,10 @@ async function stagingLinkedDeviceComposition(
 ) {
   const internalServiceAuth = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   const scope = stagingTenantScope(env);
-  const operatorRecoverySecret = stagingLinkedDeviceOperatorRecoverySecret(
-    env,
-    internalServiceAuth,
-  );
   const descriptorHmacSecret = requireEnvString(env, 'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET');
-  if (
-    descriptorHmacSecret === internalServiceAuth ||
-    descriptorHmacSecret === operatorRecoverySecret
-  ) {
+  if (descriptorHmacSecret === internalServiceAuth) {
     throw new Error(
-      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth and operator recovery',
+      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth',
     );
   }
   const targetRuntime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
@@ -629,9 +621,6 @@ async function stagingLinkedDeviceComposition(
         signingWorker: env.SIGNING_WORKER,
         internalServiceAuth,
         ed25519YaoKeyset: stagingEd25519YaoActivationKeyset(env),
-      },
-      operatorRecovery: {
-        operatorSecret: operatorRecoverySecret,
       },
       targetDeploymentDescriptorProvider: targetRuntime.provider,
     },
@@ -676,17 +665,6 @@ async function stagingLinkedDeviceTargetSigningWorker(env: CloudflareD1GatewayBa
     hpkePublicKeyB64u: participant.hpkePublicKeyB64u,
     hpkePublicKeyDigestB64u: participant.hpkePublicKeyDigestB64u,
   };
-}
-
-function stagingLinkedDeviceOperatorRecoverySecret(
-  env: CloudflareD1GatewayBaseEnv,
-  internalServiceAuth: string,
-): string {
-  const secret = requireEnvString(env, 'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET');
-  if (secret === internalServiceAuth) {
-    throw new Error('LINKED_DEVICE_OPERATOR_RECOVERY_SECRET must differ from Router internal auth');
-  }
-  return secret;
 }
 
 export async function dispatchHostedGatewayRequest(

@@ -782,21 +782,20 @@ mod tests {
         let mut wrong_public_key = finalized.public_facts.group_public_key33;
         wrong_public_key[1] ^= 0x01;
 
-        let result =
-            reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
-                ready_state_blob: finalized.ready_state_blob,
-                public_facts: EcdsaRoleLocalExportPublicFacts {
-                    context: context(),
-                    context_binding32: finalized.public_facts.context_binding32,
-                    derivation_client_share_public_key33: finalized
-                        .public_facts
-                        .derivation_client_share_public_key33,
-                    relayer_public_key33: finalized.public_facts.relayer_public_key33,
-                    group_public_key33: wrong_public_key,
-                    ethereum_address20: finalized.public_facts.ethereum_address20,
-                },
-                server_export_share32: relayer_share.x_relayer32,
-            });
+        let result = reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
+            ready_state_blob: finalized.ready_state_blob,
+            public_facts: EcdsaRoleLocalExportPublicFacts {
+                context: context(),
+                context_binding32: finalized.public_facts.context_binding32,
+                derivation_client_share_public_key33: finalized
+                    .public_facts
+                    .derivation_client_share_public_key33,
+                relayer_public_key33: finalized.public_facts.relayer_public_key33,
+                group_public_key33: wrong_public_key,
+                ethereum_address20: finalized.public_facts.ethereum_address20,
+            },
+            server_export_share32: relayer_share.x_relayer32,
+        });
         let error = match result {
             Ok(_) => panic!("mismatch should reject"),
             Err(error) => error,

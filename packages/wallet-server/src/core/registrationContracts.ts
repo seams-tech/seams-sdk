@@ -298,6 +298,11 @@ export type WalletAddAuthMethodFinalizeRequest =
     }
   | {
       addAuthMethodCeremonyId: string;
+      webauthnRegistration: unknown;
+      custodyEnvelope?: never;
+    }
+  | {
+      addAuthMethodCeremonyId: string;
       webauthnRegistration?: never;
       custodyEnvelope?: never;
     };

@@ -17,7 +17,10 @@ import {
   type SigningLaneId,
 } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
-import { deriveRouterAbEd25519YaoStableContextBindingV1 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  deriveRouterAbEd25519YaoApplicationBindingDigestV1,
+  deriveRouterAbEd25519YaoStableContextBindingV1,
+} from '@shared/utils/routerAbEd25519Yao';
 import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { parseEcdsaRelayerKeyId } from '@shared/signing-lanes/ids';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
@@ -209,8 +212,16 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
           ),
         ),
       );
+      const applicationBindingDigestB64u = base64UrlEncode(
+        Uint8Array.from(
+          await deriveRouterAbEd25519YaoApplicationBindingDigestV1(
+            signer.activeYaoCapability.admissionRequest.application_binding,
+          ),
+        ),
+      );
       return {
         keyFamily: 'ed25519',
+        applicationBindingDigestB64u,
         stableContextBindingB64u,
       };
     }

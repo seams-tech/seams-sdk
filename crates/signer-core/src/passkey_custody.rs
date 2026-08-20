@@ -45,14 +45,37 @@ const MAX_BINDING_FIELD_LEN: usize = 512;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasskeyCustodySecretKind {
     WalletCustodySeed,
+    Ed25519YaoClientRoot,
     Ed25519LaneHolderShare,
     EcdsaLaneHolderShare,
+}
+
+/// Factor selected during linked-device activation. It is distinct from the
+/// envelope factor record because the latter also carries factor-local KEK
+/// metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum PasskeyCustodyTargetFactorV1 {
+    #[serde(rename = "passkey_prf")]
+    PasskeyPrf,
+    #[serde(rename = "email_otp")]
+    EmailOtp,
+}
+
+impl PasskeyCustodyTargetFactorV1 {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PasskeyPrf => "passkey_prf",
+            Self::EmailOtp => "email_otp",
+        }
+    }
 }
 
 impl PasskeyCustodySecretKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WalletCustodySeed => "wallet_custody_seed_v1",
+            Self::Ed25519YaoClientRoot => "ed25519_yao_client_root_v1",
             Self::Ed25519LaneHolderShare => "ed25519_lane_holder_share_v1",
             Self::EcdsaLaneHolderShare => "ecdsa_lane_holder_share_v1",
         }
@@ -64,6 +87,7 @@ impl PasskeyCustodySecretKind {
     pub fn parse(value: &str) -> CoreResult<Self> {
         match value {
             "wallet_custody_seed_v1" => Ok(Self::WalletCustodySeed),
+            "ed25519_yao_client_root_v1" => Ok(Self::Ed25519YaoClientRoot),
             "ed25519_lane_holder_share_v1" => Ok(Self::Ed25519LaneHolderShare),
             "ecdsa_lane_holder_share_v1" => Ok(Self::EcdsaLaneHolderShare),
             _ => Err(SignerCoreError::invalid_input(
@@ -96,6 +120,19 @@ pub enum PasskeyCustodySecretBindingV1 {
     /// force a reseal every time a key set arrived.
     #[serde(rename = "wallet_custody_seed_v1", rename_all = "camelCase")]
     WalletCustodySeed { derivation_scheme: String },
+    /// Ed25519 Yao Client export root. It is distinct from both the wallet
+    /// custody seed and ordinary lane-holder material.
+    #[serde(rename = "ed25519_yao_client_root_v1", rename_all = "camelCase")]
+    Ed25519YaoClientRoot {
+        link_session_id: String,
+        wallet_key_id: String,
+        target_factor: PasskeyCustodyTargetFactorV1,
+        application_binding_digest_b64u: String,
+        registered_public_key_b64u: String,
+        enrollment_id: String,
+        device_id: String,
+        revocation_epoch: u64,
+    },
     #[serde(rename = "ed25519_lane_holder_share_v1", rename_all = "camelCase")]
     Ed25519LaneHolderShare {
         #[serde(flatten)]
@@ -118,6 +155,7 @@ impl PasskeyCustodySecretBindingV1 {
     pub fn kind(&self) -> PasskeyCustodySecretKind {
         match self {
             Self::WalletCustodySeed { .. } => PasskeyCustodySecretKind::WalletCustodySeed,
+            Self::Ed25519YaoClientRoot { .. } => PasskeyCustodySecretKind::Ed25519YaoClientRoot,
             Self::Ed25519LaneHolderShare { .. } => PasskeyCustodySecretKind::Ed25519LaneHolderShare,
             Self::EcdsaLaneHolderShare { .. } => PasskeyCustodySecretKind::EcdsaLaneHolderShare,
         }
@@ -127,7 +165,7 @@ impl PasskeyCustodySecretBindingV1 {
     /// custody. The absence is meaningful and is encoded into the AAD.
     pub fn lane(&self) -> Option<&PasskeyCustodyLaneScopeV1> {
         match self {
-            Self::WalletCustodySeed { .. } => None,
+            Self::WalletCustodySeed { .. } | Self::Ed25519YaoClientRoot { .. } => None,
             Self::Ed25519LaneHolderShare { lane, .. } | Self::EcdsaLaneHolderShare { lane, .. } => {
                 Some(lane)
             }
@@ -136,8 +174,8 @@ impl PasskeyCustodySecretBindingV1 {
 }
 
 /// Which enrolled factor sealed this envelope. Factors are interchangeable
-/// unwrap paths to the same custody seed, so each derives its own KEK: the
-/// factor identity is part of the KEK context and the AAD.
+/// unwrap paths to the same custody-secret branch, so each derives its own KEK:
+/// the factor identity is part of the KEK context and the AAD.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum WalletCustodyEnvelopeFactorV1 {
@@ -183,6 +221,22 @@ impl WalletCustodyEnvelopeFactorV1 {
         }
         Ok(())
     }
+}
+
+fn target_factor_matches_envelope(
+    target_factor: &PasskeyCustodyTargetFactorV1,
+    envelope_factor: &WalletCustodyEnvelopeFactorV1,
+) -> bool {
+    matches!(
+        (target_factor, envelope_factor),
+        (
+            PasskeyCustodyTargetFactorV1::PasskeyPrf,
+            WalletCustodyEnvelopeFactorV1::Passkey { .. }
+        ) | (
+            PasskeyCustodyTargetFactorV1::EmailOtp,
+            WalletCustodyEnvelopeFactorV1::EmailOtp { .. }
+        )
+    )
 }
 
 /// Every public fact one envelope is bound to. This carries no authorization
@@ -379,6 +433,48 @@ pub fn encode_passkey_custody_aad_v1(
             }
             labeled_str(&mut out, b"derivationScheme", derivation_scheme);
         }
+        PasskeyCustodySecretBindingV1::Ed25519YaoClientRoot {
+            link_session_id,
+            wallet_key_id,
+            target_factor,
+            application_binding_digest_b64u,
+            registered_public_key_b64u,
+            enrollment_id,
+            device_id,
+            revocation_epoch,
+        } => {
+            require_field("linkSessionId", link_session_id)?;
+            require_field("walletKeyId", wallet_key_id)?;
+            require_field("enrollmentId", enrollment_id)?;
+            require_field("deviceId", device_id)?;
+            if !target_factor_matches_envelope(target_factor, &binding.factor) {
+                return Err(SignerCoreError::invalid_input(
+                    "Ed25519 Yao Client-root target factor does not match the envelope factor",
+                ));
+            }
+            let application_binding_digest = require_digest_b64u(
+                "applicationBindingDigestB64u",
+                application_binding_digest_b64u,
+            )?;
+            let registered_public_key =
+                require_public_key_b64u("registeredPublicKeyB64u", registered_public_key_b64u, 32)?;
+            labeled_str(&mut out, b"linkSessionId", link_session_id);
+            labeled_str(&mut out, b"walletKeyId", wallet_key_id);
+            labeled_str(&mut out, b"targetFactor", target_factor.as_str());
+            labeled_str(&mut out, b"enrollmentId", enrollment_id);
+            labeled_str(&mut out, b"deviceId", device_id);
+            labeled_field(
+                &mut out,
+                b"revocationEpoch",
+                &revocation_epoch.to_be_bytes(),
+            );
+            labeled_field(
+                &mut out,
+                b"applicationBindingDigest",
+                &application_binding_digest,
+            );
+            labeled_field(&mut out, b"registeredPublicKey", &registered_public_key);
+        }
         PasskeyCustodySecretBindingV1::Ed25519LaneHolderShare {
             near_ed25519_signing_key_id,
             registered_public_key_b64u,
@@ -470,9 +566,13 @@ pub fn seal_passkey_custody_secret_v1(
     nonce: &[u8],
     custody_secret: &[u8],
 ) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
-    if binding.binding.kind() == PasskeyCustodySecretKind::WalletCustodySeed {
+    if matches!(
+        binding.binding.kind(),
+        PasskeyCustodySecretKind::WalletCustodySeed
+            | PasskeyCustodySecretKind::Ed25519YaoClientRoot
+    ) {
         return Err(SignerCoreError::invalid_input(
-            "a wallet custody seed is sealed through seal_wallet_custody_seed_envelope_v1",
+            "wallet custody seeds and Ed25519 Yao Client roots use dedicated seal operations",
         ));
     }
     seal_custody_secret(prf_first, binding, nonce, custody_secret)

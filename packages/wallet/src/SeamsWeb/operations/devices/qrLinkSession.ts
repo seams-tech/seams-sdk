@@ -3,12 +3,10 @@
  * browser callers; all parsing and branch selection lives in shared-ts.
  */
 export {
-  buildQrLinkedDevicePermissionRequest,
   buildQrLinkedDeviceSessionPayloadV5,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 export type {
   LinkDevicePublicKeyB64u,
-  QrLinkedDevicePermissionRequest,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';

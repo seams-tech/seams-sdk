@@ -9,9 +9,9 @@ import {
 import type {
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceCustodyTransferPackageV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
+import type { LinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-linking/ed25519ExportRoot';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   createLinkDeviceFlowEvent,
@@ -22,11 +22,12 @@ import type {
   Device1LinkingFlowPortsV1,
   Device1TargetReadySourceInputV1,
   LinkedDeviceApprovalResultV1,
+  LinkedDeviceOwnerAuthorizationResultV1,
   LinkSessionOwnerTransportPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
 import { errorMessage } from '@shared/utils/errors';
-import type { UnlockedWalletCustodyTransferCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
@@ -227,8 +228,11 @@ export async function scanAndLinkDevice(
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
       sourcePreparation: ports.sourcePreparation,
-      custodyTransfer: ports.custodyTransfer,
-      custodyTransferCapability: owner.custodyTransferCapability,
+      ed25519ExportRoot: ports.ed25519ExportRoot,
+      exportRootRequirement: owner.exportRootRequirement,
+      ...(owner.exportRootRequirement === 'required'
+        ? { ed25519ExportRootCapability: owner.ed25519ExportRootCapability }
+        : {}),
     });
     const identity = {
       success: true,
@@ -324,15 +328,16 @@ async function awaitApprovalCompletionV1(input: {
   readonly enrollmentId: Device1TargetReadySourceInputV1['enrollmentId'];
   readonly deviceId: Device1TargetReadySourceInputV1['deviceId'];
   readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
-  readonly custodyTransfer: Device1LinkingFlowPortsV1['custodyTransfer'];
-  readonly custodyTransferCapability: UnlockedWalletCustodyTransferCapabilityV1;
+  readonly ed25519ExportRoot: Device1LinkingFlowPortsV1['ed25519ExportRoot'];
+  readonly exportRootRequirement: LinkedDeviceOwnerAuthorizationResultV1['exportRootRequirement'];
+  readonly ed25519ExportRootCapability?: UnlockedWalletEd25519ExportRootCapabilityV1;
 }): Promise<CompletedApprovalResult> {
   const immediate = completedApprovalFromResult(input.result);
-  if (immediate) return immediate;
+  if (immediate && input.exportRootRequirement === 'not_required') return immediate;
   let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
   let sourceHandoffComplete = false;
-  let custodyTransferSubmitted = false;
-  let sealedCustodyPackage: LinkedDeviceCustodyTransferPackageV1 | null = null;
+  let ed25519ExportRootSubmitted = false;
+  let sealedExportRootPackage: LinkedDeviceEd25519ExportRootPackageV1 | null = null;
   let pollAttempt = 0;
   const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
     latestResult = result;
@@ -356,25 +361,30 @@ async function awaitApprovalCompletionV1(input: {
       let completed: CompletedApprovalResult | null = null;
       if (subscribedResult) pollAttempt = 0;
       completed = completedApprovalFromResult(observed);
-      // Device 2 cannot finish its passkey activation until this package lands.
-      // Send it before preparing the independent signing-lane handoff.
-      if (!custodyTransferSubmitted) {
-        if (!sealedCustodyPackage) {
-          sealedCustodyPackage = await sealCustodyForPublishedRecipientV1(input);
+      // Device 2 cannot finish an export-enabled activation until this package
+      // lands. Send it before preparing the independent signing-lane handoff.
+      if (input.exportRootRequirement === 'required' && !ed25519ExportRootSubmitted) {
+        if (!sealedExportRootPackage) {
+          sealedExportRootPackage = await sealEd25519ExportRootForPublishedRecipientV1(input);
         }
-        if (sealedCustodyPackage) {
+        if (sealedExportRootPackage) {
           try {
-            await submitCustodyTransferPackageV1(input, sealedCustodyPackage);
-            custodyTransferSubmitted = true;
+            await submitEd25519ExportRootPackageV1(input, sealedExportRootPackage);
+            ed25519ExportRootSubmitted = true;
           } catch (error: unknown) {
-            if (!isRetryableCustodyTransferSubmissionFailureV1(error)) throw error;
+            if (!isRetryableEd25519ExportRootSubmissionFailureV1(error)) throw error;
           }
         }
       }
       if (!completed && !sourceHandoffComplete) {
         sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
       }
-      if (completed && custodyTransferSubmitted) return completed;
+      if (
+        completed &&
+        (input.exportRootRequirement === 'not_required' || ed25519ExportRootSubmitted)
+      ) {
+        return completed;
+      }
       await waitForApprovalPollV1(pollAttempt);
       pollAttempt += 1;
     }
@@ -385,9 +395,9 @@ async function awaitApprovalCompletionV1(input: {
 }
 
 /**
- * Seals the wallet custody seed to the device that published a recipient for
- * it, from the worker-held unlocked capability — no prompt, no envelope, no
- * factor secret at this layer.
+ * Seals the Ed25519 Yao Client export root to the device that published a
+ * recipient, from the worker-held unlocked capability. No prompt, envelope,
+ * or factor secret crosses this flow layer.
  *
  * The recipient is read back from the session rather than taken on trust: it
  * has to name the same wallet, enrollment, device, and session the owner
@@ -399,10 +409,14 @@ async function awaitApprovalCompletionV1(input: {
  * Returns null while no recipient has been published yet, which is the normal
  * state for as long as the target device is still preparing.
  */
-async function sealCustodyForPublishedRecipientV1(
+async function sealEd25519ExportRootForPublishedRecipientV1(
   input: Parameters<typeof awaitApprovalCompletionV1>[0],
-): Promise<LinkedDeviceCustodyTransferPackageV1 | null> {
-  const recipient = await input.transport.getCustodyTransferRecipientV1({
+): Promise<LinkedDeviceEd25519ExportRootPackageV1 | null> {
+  if (input.exportRootRequirement !== 'required') return null;
+  if (!input.ed25519ExportRootCapability) {
+    throw new Error('Ed25519 export-root capability is required for this authority');
+  }
+  const recipient = await input.transport.getEd25519ExportRootRecipientV1({
     linkSessionId: input.linkSessionId,
     authentication: input.authentication,
   });
@@ -413,30 +427,30 @@ async function sealCustodyForPublishedRecipientV1(
     String(recipient.enrollmentId) !== String(input.enrollmentId) ||
     String(recipient.deviceId) !== String(input.deviceId)
   ) {
-    throw new Error('custody transfer recipient differs from the approved linked-device session');
+    throw new Error('Ed25519 export-root recipient differs from the approved linked-device session');
   }
-  return await input.custodyTransfer.sealForLinkedDeviceV1({
+  return await input.ed25519ExportRoot.sealForLinkedDeviceV1({
     recipient,
-    capability: input.custodyTransferCapability,
+    capability: input.ed25519ExportRootCapability,
     sealedAtMs: Date.now(),
   });
 }
 
-async function submitCustodyTransferPackageV1(
+async function submitEd25519ExportRootPackageV1(
   input: Parameters<typeof awaitApprovalCompletionV1>[0],
-  sealedPackage: LinkedDeviceCustodyTransferPackageV1,
+  sealedPackage: LinkedDeviceEd25519ExportRootPackageV1,
 ): Promise<void> {
-  await input.transport.submitCustodyTransferPackageV1({
+  await input.transport.submitEd25519ExportRootPackageV1({
     submission: {
-      kind: 'linked_device_custody_transfer_submission_v1',
-      linkSessionId: String(input.linkSessionId),
+      kind: 'linked_device_ed25519_export_root_submission_v1',
+      linkSessionId: input.linkSessionId,
       package: sealedPackage,
     },
     authentication: input.authentication,
   });
 }
 
-function isRetryableCustodyTransferSubmissionFailureV1(error: unknown): boolean {
+function isRetryableEd25519ExportRootSubmissionFailureV1(error: unknown): boolean {
   const status = readErrorStatusV1(error);
   if (status === null) return true;
   return status === 408 || status === 429 || status >= 500;

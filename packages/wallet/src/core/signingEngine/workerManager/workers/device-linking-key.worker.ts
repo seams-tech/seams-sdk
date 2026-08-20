@@ -53,10 +53,10 @@ import {
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import initNearSigner, {
-  linked_device_custody_transfer_recipient_v1,
-  passkey_custody_open_wallet_seed_from_linked_device_v1,
-  passkey_custody_reseal_transferred_wallet_seed_v1,
-  type WasmLinkedDeviceCustodyTransferRecipientV1,
+  ed25519_yao_client_root_transfer_recipient_v1,
+  passkey_custody_open_ed25519_yao_client_root_from_linked_device_v1,
+  passkey_custody_seal_ed25519_yao_client_root_under_factor_v1,
+  type WasmEd25519YaoClientRootTransferRecipientV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import {
   buildLaneHolderCustodyIdentityV1,
@@ -123,14 +123,29 @@ type DeviceLinkingKeySlotV1 = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly emailOtpReleasePrivateKey: CryptoKey;
   readonly emailOtpReleasePublicKey65B64u: string;
-  emailOtpCustodyRecipient: WasmLinkedDeviceCustodyTransferRecipientV1 | null;
+  emailOtpExportRootRecipient: WasmEd25519YaoClientRootTransferRecipientV1 | null;
   emailOtpActivation: DeviceLinkingEmailOtpActivationStateV1 | null;
 };
+
+type DeviceLinkingEmailOtpExportRootPreparationV1 =
+  | {
+      readonly kind: 'required';
+      readonly transferBindingJson: string;
+      readonly ephemeralPublicKeyB64u: string;
+      readonly nonceB64u: string;
+      readonly sealedExportRootB64u: string;
+      readonly bindingDigestB64u: string;
+      readonly ciphertextDigestB64u: string;
+      readonly replacementEnvelopeBindingJson: string;
+    }
+  | {
+      readonly kind: 'not_required';
+    };
 
 type DeviceLinkingKeyWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
   | {
-      readonly kind: 'device_linking_email_otp_custody_recipient_create_v1';
+      readonly kind: 'device_linking_email_otp_export_root_recipient_create_v1';
       readonly handleId: string;
     }
   | {
@@ -145,13 +160,7 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly handleId: string;
       readonly preparation: LinkedDeviceTargetPreparationV1;
       readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
-      readonly transferBindingJson: string;
-      readonly ephemeralPublicKeyB64u: string;
-      readonly nonceB64u: string;
-      readonly sealedCustodySecretB64u: string;
-      readonly aadHashB64u: string;
-      readonly ciphertextDigestB64u: string;
-      readonly replacementEnvelopeBindingJson: string;
+      readonly exportRoot: DeviceLinkingEmailOtpExportRootPreparationV1;
     }
   | {
       readonly kind: 'device_linking_target_holder_open_seal_v1';
@@ -266,12 +275,19 @@ type DeviceLinkingKeyWorkerResponseV1 =
         LinkedDeviceTargetHolderRegistrationV1,
         ...LinkedDeviceTargetHolderRegistrationV1[],
       ];
-      readonly resealedCustodyEnvelope: {
-        readonly nonceB64u: string;
-        readonly sealedCustodySecretB64u: string;
-        readonly aadHashB64u: string;
-        readonly ciphertextDigestB64u: string;
-      };
+      readonly exportRootRequirement:
+        | {
+            readonly kind: 'required';
+            readonly resealedExportRootEnvelope: {
+              readonly nonceB64u: string;
+              readonly sealedExportRootB64u: string;
+              readonly aadHashB64u: string;
+              readonly ciphertextDigestB64u: string;
+            };
+          }
+        | {
+            readonly kind: 'not_required';
+          };
     }
   | {
       readonly sealedHolderMaterialB64u: string;
@@ -663,6 +679,62 @@ function parseEmailOtpHolderSigningMaterialBatchChildren(
   return nonEmptyTupleV1(first, children.slice(1));
 }
 
+function parseEmailOtpExportRootPreparation(
+  value: unknown,
+): DeviceLinkingEmailOtpExportRootPreparationV1 {
+  const record = requireRecord(value, 'device-linking Email OTP export-root preparation');
+  if (record.kind === 'not_required') {
+    exactRecord(
+      record,
+      ['kind'],
+      'device-linking Email OTP export-root preparation without a root',
+    );
+    return { kind: 'not_required' };
+  }
+  const parsed = exactRecord(
+    record,
+    [
+      'kind',
+      'transferBindingJson',
+      'ephemeralPublicKeyB64u',
+      'nonceB64u',
+      'sealedExportRootB64u',
+      'bindingDigestB64u',
+      'ciphertextDigestB64u',
+      'replacementEnvelopeBindingJson',
+    ],
+    'device-linking Email OTP export-root preparation',
+  );
+  if (parsed.kind !== 'required') {
+    throw new Error('device-linking Email OTP export-root preparation kind is invalid');
+  }
+  return {
+    kind: 'required',
+    transferBindingJson: requireNonEmptyString(
+      parsed.transferBindingJson,
+      'transferBindingJson',
+    ),
+    ephemeralPublicKeyB64u: requireNonEmptyString(
+      parsed.ephemeralPublicKeyB64u,
+      'ephemeralPublicKeyB64u',
+    ),
+    nonceB64u: requireNonEmptyString(parsed.nonceB64u, 'nonceB64u'),
+    sealedExportRootB64u: requireNonEmptyString(
+      parsed.sealedExportRootB64u,
+      'sealedExportRootB64u',
+    ),
+    bindingDigestB64u: requireNonEmptyString(parsed.bindingDigestB64u, 'bindingDigestB64u'),
+    ciphertextDigestB64u: requireNonEmptyString(
+      parsed.ciphertextDigestB64u,
+      'ciphertextDigestB64u',
+    ),
+    replacementEnvelopeBindingJson: requireNonEmptyString(
+      parsed.replacementEnvelopeBindingJson,
+      'replacementEnvelopeBindingJson',
+    ),
+  };
+}
+
 function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
   const record = requireRecord(value, 'device-linking worker request');
   if (record.kind === 'device_linking_key_material_create_v1') {
@@ -676,14 +748,14 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
       handleId: parseHandleId(parsed.handleId),
     };
   }
-  if (record.kind === 'device_linking_email_otp_custody_recipient_create_v1') {
+  if (record.kind === 'device_linking_email_otp_export_root_recipient_create_v1') {
     const parsed = exactRecord(
       record,
       ['kind', 'handleId'],
-      'device-linking Email OTP custody recipient create request',
+      'device-linking Email OTP export-root recipient create request',
     );
     return {
-      kind: 'device_linking_email_otp_custody_recipient_create_v1',
+      kind: 'device_linking_email_otp_export_root_recipient_create_v1',
       handleId: parseHandleId(parsed.handleId),
     };
   }
@@ -719,13 +791,7 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
         'handleId',
         'preparation',
         'verification',
-        'transferBindingJson',
-        'ephemeralPublicKeyB64u',
-        'nonceB64u',
-        'sealedCustodySecretB64u',
-        'aadHashB64u',
-        'ciphertextDigestB64u',
-        'replacementEnvelopeBindingJson',
+        'exportRoot',
       ],
       'device-linking Email OTP target prepare request',
     );
@@ -734,25 +800,7 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
       handleId: parseHandleId(parsed.handleId),
       preparation: parseLinkedDeviceTargetPreparationV1(parsed.preparation),
       verification: parseLinkedDeviceEmailOtpVerificationResultV1(parsed.verification),
-      transferBindingJson: requireNonEmptyString(parsed.transferBindingJson, 'transferBindingJson'),
-      ephemeralPublicKeyB64u: requireNonEmptyString(
-        parsed.ephemeralPublicKeyB64u,
-        'ephemeralPublicKeyB64u',
-      ),
-      nonceB64u: requireNonEmptyString(parsed.nonceB64u, 'nonceB64u'),
-      sealedCustodySecretB64u: requireNonEmptyString(
-        parsed.sealedCustodySecretB64u,
-        'sealedCustodySecretB64u',
-      ),
-      aadHashB64u: requireNonEmptyString(parsed.aadHashB64u, 'aadHashB64u'),
-      ciphertextDigestB64u: requireNonEmptyString(
-        parsed.ciphertextDigestB64u,
-        'ciphertextDigestB64u',
-      ),
-      replacementEnvelopeBindingJson: requireNonEmptyString(
-        parsed.replacementEnvelopeBindingJson,
-        'replacementEnvelopeBindingJson',
-      ),
+      exportRoot: parseEmailOtpExportRootPreparation(parsed.exportRoot),
     };
   }
   if (record.kind === 'device_linking_target_holder_open_seal_v1') {
@@ -961,7 +1009,7 @@ async function generateKeySlot(): Promise<{
       linkPublicKeyB64u,
       emailOtpReleasePrivateKey: emailOtpReleasePair.privateKey,
       emailOtpReleasePublicKey65B64u,
-      emailOtpCustodyRecipient: null,
+      emailOtpExportRootRecipient: null,
       emailOtpActivation: null,
     };
     return {
@@ -1318,8 +1366,8 @@ function discardKeyMaterialSlot(handleId: string): void {
   const slot = keySlots.get(handleId);
   if (slot) {
     destroyEmailOtpActivation(slot);
-    slot.emailOtpCustodyRecipient?.free();
-    slot.emailOtpCustodyRecipient = null;
+    slot.emailOtpExportRootRecipient?.free();
+    slot.emailOtpExportRootRecipient = null;
   }
   keySlots.delete(handleId);
 }
@@ -1925,17 +1973,17 @@ async function prepareTargetHolders(
   }
 }
 
-async function createEmailOtpCustodyRecipient(
+async function createEmailOtpEd25519ExportRootRecipient(
   handleId: string,
 ): Promise<{ readonly recipientPublicKeyB64u: string }> {
   const slot = keySlots.get(handleId);
   if (!slot) throw new Error('device-linking key handle is unknown or discarded');
-  if (slot.emailOtpCustodyRecipient) {
-    throw new Error('device-linking Email OTP custody recipient is already active');
+  if (slot.emailOtpExportRootRecipient) {
+    throw new Error('device-linking Email OTP export-root recipient is already active');
   }
   await initializeNearSignerWasm();
-  const recipient = linked_device_custody_transfer_recipient_v1();
-  slot.emailOtpCustodyRecipient = recipient;
+  const recipient = ed25519_yao_client_root_transfer_recipient_v1();
+  slot.emailOtpExportRootRecipient = recipient;
   return { recipientPublicKeyB64u: recipient.public_key_b64u() };
 }
 
@@ -2141,12 +2189,17 @@ async function prepareEmailOtpTarget(
   if (!isEmailOtpTargetPreparation(request.preparation)) {
     throw new Error('Email OTP preparation requires an Email OTP target preparation');
   }
-  const recipient = slot.emailOtpCustodyRecipient;
-  if (!recipient) throw new Error('device-linking Email OTP custody recipient is unavailable');
-  slot.emailOtpCustodyRecipient = null;
+  const recipient =
+    request.exportRoot.kind === 'required' ? slot.emailOtpExportRootRecipient : null;
+  if (request.exportRoot.kind === 'required') {
+    if (!recipient) {
+      throw new Error('device-linking Email OTP export-root recipient is unavailable');
+    }
+    slot.emailOtpExportRootRecipient = null;
+  }
   let factorSecret: Uint8Array | null = null;
-  let transferredSeed: ReturnType<
-    typeof passkey_custody_open_wallet_seed_from_linked_device_v1
+  let transferredRoot: ReturnType<
+    typeof passkey_custody_open_ed25519_yao_client_root_from_linked_device_v1
   > | null = null;
   try {
     const targetPreparationDigestB64u = await assertEmailOtpVerificationMatchesPreparation({
@@ -2171,36 +2224,59 @@ async function prepareEmailOtpTarget(
       factor,
       factorSecret,
     });
-    await initializeNearSignerWasm();
-    transferredSeed = passkey_custody_open_wallet_seed_from_linked_device_v1(
-      recipient,
-      request.transferBindingJson,
-      request.ephemeralPublicKeyB64u,
-      base64UrlDecode(request.nonceB64u),
-      request.sealedCustodySecretB64u,
-      request.aadHashB64u,
-      request.ciphertextDigestB64u,
-    );
-    const resealed = passkey_custody_reseal_transferred_wallet_seed_v1(
-      transferredSeed,
-      factorSecret,
-      request.replacementEnvelopeBindingJson,
-    ) as Record<string, unknown>;
+    let exportRootRequirement:
+      | {
+          readonly kind: 'required';
+          readonly resealedExportRootEnvelope: {
+            readonly nonceB64u: string;
+            readonly sealedExportRootB64u: string;
+            readonly aadHashB64u: string;
+            readonly ciphertextDigestB64u: string;
+          };
+        }
+      | { readonly kind: 'not_required' };
+    if (request.exportRoot.kind === 'required') {
+      if (!recipient) throw new Error('device-linking Email OTP export-root recipient is missing');
+      await initializeNearSignerWasm();
+      transferredRoot = passkey_custody_open_ed25519_yao_client_root_from_linked_device_v1(
+        recipient,
+        request.exportRoot.transferBindingJson,
+        request.exportRoot.ephemeralPublicKeyB64u,
+        base64UrlDecode(request.exportRoot.nonceB64u),
+        request.exportRoot.sealedExportRootB64u,
+        request.exportRoot.bindingDigestB64u,
+        request.exportRoot.ciphertextDigestB64u,
+      );
+      const resealed = passkey_custody_seal_ed25519_yao_client_root_under_factor_v1(
+        transferredRoot,
+        factorSecret,
+        request.exportRoot.replacementEnvelopeBindingJson,
+      ) as Record<string, unknown>;
+      exportRootRequirement = {
+        kind: 'required',
+        resealedExportRootEnvelope: {
+          nonceB64u: requireNonEmptyString(resealed.nonceB64u, 'resealed nonceB64u'),
+          sealedExportRootB64u: requireNonEmptyString(
+            resealed.sealedExportRootB64u,
+            'resealed sealedExportRootB64u',
+          ),
+          aadHashB64u: requireNonEmptyString(
+            resealed.aadHashB64u,
+            'resealed aadHashB64u',
+          ),
+          ciphertextDigestB64u: requireNonEmptyString(
+            resealed.ciphertextDigestB64u,
+            'resealed ciphertextDigestB64u',
+          ),
+        },
+      };
+    } else {
+      exportRootRequirement = { kind: 'not_required' };
+    }
     const response = {
       emailOtpPrepared: true as const,
       orderedHolderRegistrations,
-      resealedCustodyEnvelope: {
-        nonceB64u: requireNonEmptyString(resealed.nonceB64u, 'resealed nonceB64u'),
-        sealedCustodySecretB64u: requireNonEmptyString(
-          resealed.sealedCustodySecretB64u,
-          'resealed sealedCustodySecretB64u',
-        ),
-        aadHashB64u: requireNonEmptyString(resealed.aadHashB64u, 'resealed aadHashB64u'),
-        ciphertextDigestB64u: requireNonEmptyString(
-          resealed.ciphertextDigestB64u,
-          'resealed ciphertextDigestB64u',
-        ),
-      },
+      exportRootRequirement,
     };
     const activation = buildEmailOtpActivationState({
       handleId: request.handleId,
@@ -2214,8 +2290,8 @@ async function prepareEmailOtpTarget(
     destroyPreparedTargetHolderGroup(request.handleId);
     throw error;
   } finally {
-    transferredSeed?.free();
-    recipient.free();
+    transferredRoot?.free();
+    recipient?.free();
     if (factorSecret && !preparedTargetHolderGroups.has(request.handleId)) {
       factorSecret.fill(0);
     }
@@ -2359,8 +2435,8 @@ async function handleRequest(
       keySlots.set(generated.result.handleId, generated.slot);
       return generated.result;
     }
-    case 'device_linking_email_otp_custody_recipient_create_v1':
-      return await createEmailOtpCustodyRecipient(request.handleId);
+    case 'device_linking_email_otp_export_root_recipient_create_v1':
+      return await createEmailOtpEd25519ExportRootRecipient(request.handleId);
     case 'device_linking_target_holders_prepare_v1':
       return await prepareTargetHolders(request);
     case 'device_linking_email_otp_target_prepare_v1':
@@ -2442,8 +2518,8 @@ export function installDeviceLinkingKeyWorkerV1(
           }
           for (const slot of keySlots.values()) {
             destroyEmailOtpActivation(slot);
-            slot.emailOtpCustodyRecipient?.free();
-            slot.emailOtpCustodyRecipient = null;
+            slot.emailOtpExportRootRecipient?.free();
+            slot.emailOtpExportRootRecipient = null;
           }
           keySlots.clear();
           for (const handleId of holderSigningMaterialSlots.keys()) {

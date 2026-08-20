@@ -37,8 +37,31 @@ import {
 } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/base64';
+import type { PasskeyCustodyEnvelopeRecord, PasskeyCustodySecretBinding } from '@shared/passkey-custody';
 
 type EmailOtpEd25519LaneAuth = Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
+
+type Ed25519YaoClientRootEnvelopeRecordV1 = PasskeyCustodyEnvelopeRecord & {
+  readonly binding: Extract<
+    PasskeyCustodySecretBinding,
+    { readonly kind: 'ed25519_yao_client_root_v1' }
+  >;
+};
+
+function isEd25519YaoClientRootEnvelopeV1(
+  envelope: PasskeyCustodyEnvelopeRecord,
+): envelope is Ed25519YaoClientRootEnvelopeRecordV1 {
+  return envelope.binding.kind === 'ed25519_yao_client_root_v1';
+}
+
+function requireEd25519YaoClientRootEnvelopeV1(
+  envelope: PasskeyCustodyEnvelopeRecord,
+): Ed25519YaoClientRootEnvelopeRecordV1 {
+  if (!isEd25519YaoClientRootEnvelopeV1(envelope)) {
+    throw new Error('[SigningEngine][ed25519-export] export envelope has the wrong secret kind');
+  }
+  return envelope;
+}
 
 export type ResolvedWalletCustodyEd25519ExportV1 = {
   readonly kind: 'wallet_custody_ed25519_export_context_v1';
@@ -50,7 +73,7 @@ export type ResolvedWalletCustodyEd25519ExportV1 = {
         readonly materialActivation: MpcMaterialActivationRef;
         readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
       }
-    | {
+      | {
         readonly kind: 'sealed_custody';
         readonly materialActivation: MpcMaterialActivationRef;
         readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
@@ -59,6 +82,12 @@ export type ResolvedWalletCustodyEd25519ExportV1 = {
         readonly activateRecoveredCapability: (
           result: EmailOtpEd25519YaoWorkerActivationResult,
         ) => Promise<void>;
+      }
+    | {
+        readonly kind: 'sealed_export_root';
+        readonly materialActivation: MpcMaterialActivationRef;
+        readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+        readonly exportRootEnvelope: Ed25519YaoClientRootEnvelopeRecordV1;
       };
 };
 
@@ -370,6 +399,10 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     nearAccountId: AccountId,
     materialActivation: MpcMaterialActivationRef,
   ) => NearEd25519YaoOperationMaterial | null;
+  resolveEd25519YaoClientRootEnvelope?: (args: {
+    readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+    readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1 | null;
+  }) => Promise<PasskeyCustodyEnvelopeRecord | null>;
   loadWalletCustodyMaterial: () => Promise<
     | { readonly kind: 'found'; readonly material: LoadedWalletCustodyEd25519MaterialV1 }
     | { readonly kind: 'absent' }
@@ -394,7 +427,43 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     input.subject.signer.account.nearAccountId,
     input.expectedMaterialActivation,
   );
+  const activeCapability = material
+    ? capabilityFromActiveMaterial({
+        subject: input.subject,
+        expectedMaterialActivation: input.expectedMaterialActivation,
+        material,
+      })
+    : null;
+  const rootEnvelope = input.resolveEd25519YaoClientRootEnvelope
+    ? await input.resolveEd25519YaoClientRootEnvelope({
+        subject: input.subject,
+        capability: activeCapability,
+      })
+    : null;
+  if (rootEnvelope) {
+    if (!activeCapability) {
+      throw new Error(
+        '[SigningEngine][ed25519-export] Ed25519 export-root capability is unavailable',
+      );
+    }
+    return {
+      kind: 'wallet_custody_ed25519_export_context_v1',
+      lane: input.subject,
+      authorization,
+      material: {
+        kind: 'sealed_export_root',
+        materialActivation: input.expectedMaterialActivation,
+        capability: activeCapability,
+        exportRootEnvelope: requireEd25519YaoClientRootEnvelopeV1(rootEnvelope),
+      },
+    };
+  }
   if (material) {
+    if (!activeCapability) {
+      throw new Error(
+        '[SigningEngine][ed25519-export] active Email OTP capability is unavailable',
+      );
+    }
     return {
       kind: 'wallet_custody_ed25519_export_context_v1',
       lane: input.subject,
@@ -402,11 +471,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
       material: {
         kind: 'active_capability',
         materialActivation: input.expectedMaterialActivation,
-        capability: capabilityFromActiveMaterial({
-          subject: input.subject,
-          expectedMaterialActivation: input.expectedMaterialActivation,
-          material,
-        }),
+        capability: activeCapability,
       },
     };
   }

@@ -1,5 +1,12 @@
 import { parseWalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import {
+  delegatedWalletPermissionNamesV1,
+  parseDelegatedWalletAuthorityV1 as parseDelegatedWalletAuthorityResult,
+  sameDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+  type DelegatedWalletPermissionV1,
+} from '../authorization/delegatedAuthority';
+import {
   parseAuthorizationEvidenceSetId,
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
@@ -77,7 +84,12 @@ import { decodeJwtPayloadRecord } from '../utils/sessionTokens';
 const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
   'router_ab_ecdsa_derivation_wallet_session_v1';
 const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND = 'router_ab_ed25519_wallet_session_v1';
-import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
+import {
+  parseEd25519PublicKeyB64u,
+  parseUnixMs,
+  requireRecord,
+  rejectUnknownFields,
+} from '../passkey-custody/primitives';
 import { parseNearAccountId } from '../utils/near';
 import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import {
@@ -116,6 +128,7 @@ import {
   type LinkedDeviceSessionTransportEventV1,
   type LinkedDeviceSessionTransportRequestV1,
   type LinkedDeviceTargetCredentialRegistrationV1,
+  type LinkedDeviceEd25519ExportRootPreparationV1,
   type LinkedDeviceEmailOtpVerificationGrantV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   type LinkedDeviceEmailOtpChallengeStartRequestV1,
@@ -130,7 +143,6 @@ import {
   type LinkedDeviceTargetReadyR102InputV1,
   type LinkedDeviceWebAuthnRegistrationV1,
   type LinkDevicePublicKeyB64u,
-  type QrLinkedDevicePermissionRequest,
   type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceTargetFactorV1,
   type LinkedDeviceLocalAccountProjectionV1,
@@ -150,7 +162,7 @@ const QR_FIELDS = [
   'issuedAtMs',
   'expiresAtMs',
 ] as const;
-const COMPACT_QR_FIELDS = ['v', 's', 'l', 'd', 'f', 'i', 'e'] as const;
+const COMPACT_QR_FIELDS = ['v', 's', 'l', 'd', 'a', 'f', 'i', 'e'] as const;
 const OWNER_AUTHORIZATION_REQUEST_FIELDS = [
   'payload',
   'requestedAtMs',
@@ -213,7 +225,6 @@ const LINKED_WALLET_SESSION_JWT_FIELDS = [
   'exp',
 ] as const;
 const LINKED_WALLET_SESSION_JWT_OPTIONAL_FIELDS = ['iss', 'aud'] as const;
-const PERMISSION_FIELDS = ['kind', 'administrationScope', 'localUserPresence'] as const;
 const CLAIM_REQUEST_FIELDS = ['kind', 'payload'] as const;
 const CLAIM_FIELDS = [
   'kind',
@@ -364,6 +375,7 @@ const TARGET_PREPARATION_FIELDS = [
   'walletId',
   'enrollmentId',
   'deviceId',
+  'ed25519ExportRoot',
   'targetFactor',
   'ownerEnrollment',
   'orderedChildren',
@@ -741,22 +753,33 @@ function nonEmptyTuple<T>(values: readonly T[], label: string): [T, ...T[]] {
   return [first, ...rest];
 }
 
-function parsePermission(
-  raw: unknown,
-  label = 'requestedPermission',
-): QrLinkedDevicePermissionRequest {
-  const record = exactRecord(raw, PERMISSION_FIELDS, label);
-  if (record.kind !== 'owner_equivalent_signing') throw new Error(`${label}.kind is unsupported`);
-  if (record.administrationScope !== 'signing_only') {
-    throw new Error(`${label}.administrationScope is unsupported`);
-  }
-  if (record.localUserPresence !== 'required') {
-    throw new Error(`${label}.localUserPresence is unsupported`);
-  }
+function parseDelegatedWalletAuthority(raw: unknown, label: string): DelegatedWalletAuthorityV1 {
+  const result = parseDelegatedWalletAuthorityResult(raw);
+  if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
+  return result.value;
+}
+
+function delegatedWalletAuthorityWireValue(value: DelegatedWalletAuthorityV1): {
+  readonly kind: DelegatedWalletAuthorityV1['kind'];
+  readonly permissions: readonly DelegatedWalletPermissionV1[];
+} {
   return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
+    kind: value.kind,
+    permissions: [...delegatedWalletPermissionNamesV1(value)],
+  };
+}
+
+function qrPayloadWireValue(payload: QrLinkedDeviceSessionPayloadV5): UnknownRecord {
+  return {
+    version: payload.version,
+    purpose: payload.purpose,
+    linkSessionId: payload.linkSessionId,
+    linkPublicKeyB64u: payload.linkPublicKeyB64u,
+    devicePublicKeyB64u: payload.devicePublicKeyB64u,
+    requestedPermission: delegatedWalletAuthorityWireValue(payload.requestedPermission),
+    targetFactor: payload.targetFactor,
+    issuedAtMs: payload.issuedAtMs,
+    expiresAtMs: payload.expiresAtMs,
   };
 }
 
@@ -884,7 +907,10 @@ function parseLinkedDeviceSummaryRecord(record: UnknownRecord): LinkedDeviceSumm
       record.credential,
       'LinkedDeviceSummaryV1.credential',
     ),
-    permission: parsePermission(record.permission, 'LinkedDeviceSummaryV1.permission'),
+    permission: parseDelegatedWalletAuthority(
+      record.permission,
+      'LinkedDeviceSummaryV1.permission',
+    ),
     keyManifestDigestB64u: parseDigest(
       record.keyManifestDigestB64u,
       'LinkedDeviceSummaryV1.keyManifestDigestB64u',
@@ -1131,7 +1157,7 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
       record.keyManifestDigestB64u,
       'LinkedDeviceWalletSessionDeliveryV1.keyManifestDigestB64u',
     ),
-    permission: parsePermission(
+    permission: parseDelegatedWalletAuthority(
       record.permission,
       'LinkedDeviceWalletSessionDeliveryV1.permission',
     ),
@@ -1262,12 +1288,11 @@ function parseLinkedDeviceWalletSessionTokenV1(
   ) {
     throw new Error(`${label}.walletSessionJwt identity does not match its delivery`);
   }
-  const permission = parsePermission(claims.permission, `${label}.walletSessionJwt.permission`);
-  if (
-    permission.kind !== expected.permission.kind ||
-    permission.administrationScope !== expected.permission.administrationScope ||
-    permission.localUserPresence !== expected.permission.localUserPresence
-  ) {
+  const permission = parseDelegatedWalletAuthority(
+    claims.permission,
+    `${label}.walletSessionJwt.permission`,
+  );
+  if (!sameDelegatedWalletAuthorityV1(permission, expected.permission)) {
     throw new Error(`${label}.walletSessionJwt permission does not match its delivery`);
   }
   return {
@@ -1335,7 +1360,10 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
       record.devicePublicKeyB64u,
       'QrLinkedDeviceSessionPayloadV5.devicePublicKeyB64u',
     ),
-    requestedPermission: parsePermission(record.requestedPermission),
+    requestedPermission: parseDelegatedWalletAuthority(
+      record.requestedPermission,
+      'QrLinkedDeviceSessionPayloadV5.requestedPermission',
+    ),
     targetFactor: parseTargetFactor(
       record.targetFactor,
       'QrLinkedDeviceSessionPayloadV5.targetFactor',
@@ -1352,12 +1380,13 @@ export function parseQrLinkedDeviceSessionPayloadV5(raw: unknown): QrLinkedDevic
 export function serializeQrLinkedDeviceSessionPayloadV5(
   payload: QrLinkedDeviceSessionPayloadV5,
 ): string {
-  const parsed = parseQrLinkedDeviceSessionPayloadV5(payload);
+  const parsed = parseQrPayloadRecord(qrPayloadWireValue(payload));
   return JSON.stringify({
     v: 5,
     s: parsed.linkSessionId,
     l: parsed.linkPublicKeyB64u,
     d: parsed.devicePublicKeyB64u,
+    a: delegatedWalletAuthorityWireValue(parsed.requestedPermission),
     f: parsed.targetFactor.kind === 'passkey_prf' ? 'p' : 'e',
     i: parsed.issuedAtMs,
     e: parsed.expiresAtMs,
@@ -1382,7 +1411,7 @@ export function parseQrLinkedDeviceSessionTextV5(raw: string): QrLinkedDeviceSes
     linkSessionId: compact.s,
     linkPublicKeyB64u: compact.l,
     devicePublicKeyB64u: compact.d,
-    requestedPermission: buildQrLinkedDevicePermissionRequest(),
+    requestedPermission: compact.a,
     targetFactor: { kind: compact.f === 'p' ? 'passkey_prf' : 'email_otp' },
     issuedAtMs: compact.i,
     expiresAtMs: compact.e,
@@ -2028,7 +2057,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
     deviceId: parseDeviceId(record.deviceId, `${label}.deviceId`),
     linkPublicKeyB64u: parsePublicKey(record.linkPublicKeyB64u, `${label}.linkPublicKeyB64u`),
     devicePublicKeyB64u: parsePublicKey(record.devicePublicKeyB64u, `${label}.devicePublicKeyB64u`),
-    permission: parsePermission(record.permission, `${label}.permission`),
+    permission: parseDelegatedWalletAuthority(record.permission, `${label}.permission`),
     targetFactor: parseTargetFactor(record.targetFactor, `${label}.targetFactor`),
     ownerAuthorization: parseLinkedDeviceOwnerAuthorizationSourceV1(
       record.ownerAuthorization,
@@ -2744,6 +2773,9 @@ export function parseLinkedDeviceTargetPreparationV1(
     throw new Error('LinkedDeviceTargetPreparationV1.expiresAtMs must follow issuedAtMs');
   }
   const ownerEnrollment = parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
+  const ed25519ExportRoot = parseLinkedDeviceEd25519ExportRootPreparationV1(
+    record.ed25519ExportRoot,
+  );
   const targetFactor = parseTargetFactor(
     record.targetFactor,
     'LinkedDeviceTargetPreparationV1.targetFactor',
@@ -2768,6 +2800,7 @@ export function parseLinkedDeviceTargetPreparationV1(
       'LinkedDeviceTargetPreparationV1.enrollmentId',
     ),
     deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceTargetPreparationV1.deviceId'),
+    ed25519ExportRoot,
     orderedChildren,
     issuedAtMs,
     expiresAtMs,
@@ -2785,6 +2818,41 @@ export function parseLinkedDeviceTargetPreparationV1(
     return { ...base, targetFactor, ownerEnrollment };
   }
   throw new Error('LinkedDeviceTargetPreparationV1 target factor differs from owner enrollment');
+}
+
+function parseLinkedDeviceEd25519ExportRootPreparationV1(
+  raw: unknown,
+): LinkedDeviceEd25519ExportRootPreparationV1 | null {
+  if (raw === null) return null;
+  const record = exactRecord(
+    raw,
+    ['kind', 'walletKeyId', 'applicationBindingDigestB64u', 'registeredPublicKeyB64u', 'revocationEpoch'],
+    'LinkedDeviceTargetPreparationV1.ed25519ExportRoot',
+  );
+  if (record.kind !== 'linked_device_ed25519_export_root_preparation_v1') {
+    throw new Error(
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.kind is invalid',
+    );
+  }
+  return {
+    kind: 'linked_device_ed25519_export_root_preparation_v1',
+    walletKeyId: parseWalletKey(
+      record.walletKeyId,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.walletKeyId',
+    ),
+    applicationBindingDigestB64u: parseDigest(
+      record.applicationBindingDigestB64u,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.applicationBindingDigestB64u',
+    ),
+    registeredPublicKeyB64u: parseEd25519PublicKeyB64u(
+      record.registeredPublicKeyB64u,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.registeredPublicKeyB64u',
+    ),
+    revocationEpoch: parseNonNegativeSafeInteger(
+      record.revocationEpoch,
+      'LinkedDeviceTargetPreparationV1.ed25519ExportRoot.revocationEpoch',
+    ),
+  };
 }
 
 function assertUniqueTargetPreparationChildren(
@@ -3412,18 +3480,11 @@ export function parseLinkedDeviceSessionTransportEventV1(
   };
 }
 
-export function buildQrLinkedDevicePermissionRequest(): QrLinkedDevicePermissionRequest {
-  return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
-  };
-}
-
 export function buildQrLinkedDeviceSessionPayloadV5(args: {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+  readonly requestedPermission: DelegatedWalletAuthorityV1;
   readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -3437,7 +3498,10 @@ export function buildQrLinkedDeviceSessionPayloadV5(args: {
     linkSessionId: args.linkSessionId,
     linkPublicKeyB64u: args.linkPublicKeyB64u,
     devicePublicKeyB64u: args.devicePublicKeyB64u,
-    requestedPermission: buildQrLinkedDevicePermissionRequest(),
+    requestedPermission: parseDelegatedWalletAuthority(
+      delegatedWalletAuthorityWireValue(args.requestedPermission),
+      'QrLinkedDeviceSessionPayloadV5.requestedPermission',
+    ),
     targetFactor: parseTargetFactor(
       args.targetFactor,
       'QrLinkedDeviceSessionPayloadV5.targetFactor',
@@ -3867,7 +3931,6 @@ const OWNER_FINALIZE_REQUEST_FIELDS = [
   'kind',
   'addAuthMethodCeremonyId',
   'webauthnRegistration',
-  'custodyEnvelope',
 ] as const;
 
 export function parseLinkedDeviceOwnerFinalizeRequestV1(
@@ -3893,7 +3956,6 @@ export function parseLinkedDeviceOwnerFinalizeRequestV1(
     kind: 'linked_device_owner_finalize_request_v1',
     addAuthMethodCeremonyId,
     webauthnRegistration: parseLinkedDeviceWebAuthnRegistrationV1(record.webauthnRegistration),
-    custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
   };
 }
 

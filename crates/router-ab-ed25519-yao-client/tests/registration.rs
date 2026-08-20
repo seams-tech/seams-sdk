@@ -28,7 +28,7 @@ use router_ab_ed25519_yao_client::{
     ActivatedClientV1, ClientActivationEntropyV1, ClientActivationError, ClientActivationStateV1,
     LocalMaterialError, LocalMaterialSealDomainV1,
 };
-use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
+use signer_core::ed25519_yao_derivation::Ed25519YaoClientRootV1;
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 #[test]
@@ -93,7 +93,7 @@ fn prepare_client_activation(
         admission,
         application,
         participant_ids,
-        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        Ed25519YaoClientRootV1::from_secret_bytes(*root),
         entropy,
     )
     .expect("prepare seed-root registration")

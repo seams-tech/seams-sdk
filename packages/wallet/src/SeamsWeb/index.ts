@@ -140,7 +140,6 @@ export type {
   LinkedDeviceRevokeRequestV1,
   LinkedDeviceRevokeResultV1,
   LinkedDeviceSummaryV1,
-  QrLinkedDevicePermissionRequest,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 export {
