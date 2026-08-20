@@ -7,6 +7,7 @@ import {
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKinds';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EcdsaSourceCapabilityBindingV1 } from '@shared/signing-lanes/rotation';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
@@ -32,6 +33,7 @@ type DeploymentChildBaseV1 = {
 export type D1LinkedDeviceOwnerPlanningDeploymentChildV1 =
   | (DeploymentChildBaseV1 & {
       readonly keyFamily: 'ed25519';
+      readonly applicationBindingDigestB64u: string;
       readonly stableContextBindingB64u: string;
     })
   | (DeploymentChildBaseV1 & {
@@ -215,6 +217,9 @@ function buildSnapshotInput(input: {
         ...common,
         keyFamily: 'ed25519' as const,
         registeredPublicKeyB64u: projection.walletKey.registeredPublicKeyB64u,
+        applicationBindingDigestB64u: parseDigestB64u(
+          deploymentChild.applicationBindingDigestB64u,
+        ),
         nearEd25519SigningKeyId: projection.walletKey.nearEd25519SigningKeyId,
         keyCreationSignerSlot: projection.walletKey.keyCreationSignerSlot,
         stableContextBindingB64u: deploymentChild.stableContextBindingB64u,

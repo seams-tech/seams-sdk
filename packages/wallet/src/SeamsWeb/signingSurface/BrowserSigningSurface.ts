@@ -431,7 +431,10 @@ import type {
   RouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoActivationKeysetV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
+import {
+  readPasskeyCustodySessionEnvelope,
+  readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1,
+} from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
 import {
@@ -443,13 +446,13 @@ import type {
   WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
-import type { UnlockedWalletCustodyCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   custodyEnvelopePasskeyAuthMethodIdV1,
-  destroyUnlockedWalletCustodyTransferCapabilitiesV1 as destroyUnlockedCustodyCapabilitiesWithWorkerV1,
-  establishUnlockedWalletCustodyTransferCapabilityV1 as establishUnlockedCustodyCapabilityWithWorkerV1,
-  readUnlockedWalletCustodyTransferCapabilityV1,
-} from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
+  destroyUnlockedWalletEd25519ExportRootCapabilitiesV1 as destroyUnlockedExportRootCapabilitiesWithWorkerV1,
+  establishUnlockedWalletEd25519ExportRootCapabilityV1 as establishUnlockedExportRootCapabilityWithWorkerV1,
+  readUnlockedWalletEd25519ExportRootCapabilityV1,
+} from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
 import { base58Encode } from '@shared/utils/base58';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import {
@@ -2839,7 +2842,7 @@ export class BrowserSigningSurface {
 
   /**
    * Retires an owner Wallet Session projection and destroys the unlocked
-   * custody transfer capability it authorized (R103): a retired, replaced, or
+   * Ed25519 export-root capability it authorized (R103): a retired, replaced, or
    * expired session must not leave a sealing capability behind.
    */
   private async retireWalletSessionAuthorizationV1(input: {
@@ -2848,7 +2851,7 @@ export class BrowserSigningSurface {
     readonly retiredAtMs: number;
   }): Promise<void> {
     await walletSessionAuthorizations.write(retireWalletSessionAuthorizationProjection(input));
-    void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({
+    void this.destroyUnlockedWalletEd25519ExportRootCapabilitiesV1({
       kind: 'wallet_session',
       walletSessionId: String(input.active.walletSessionId),
     });
@@ -2881,10 +2884,10 @@ export class BrowserSigningSurface {
   ): void {
     // R103 zero-prompt handoff: switching wallets ends the previous wallet's
     // authority here without passing through clearWalletAuthentication, so its
-    // unlocked custody capability is destroyed at the switch itself.
+    // The unlocked export-root capability is destroyed at the switch itself.
     const previous = this.walletAuthenticationState;
     if (previous.kind === 'authenticated' && String(previous.walletId) !== String(state.walletId)) {
-      void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({
+      void this.destroyUnlockedWalletEd25519ExportRootCapabilitiesV1({
         kind: 'wallet',
         walletId: String(previous.walletId),
       });
@@ -3026,8 +3029,8 @@ export class BrowserSigningSurface {
     this.walletAuthenticationRestoreGeneration += 1;
     this.walletAuthenticationState = { kind: 'signed_out' };
     // R103 zero-prompt handoff: logout and wallet switch both land here, and
-    // both end the authority the unlocked custody capability was scoped to.
-    void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({ kind: 'all' });
+    // both end the authority the unlocked export-root capability was scoped to.
+    void this.destroyUnlockedWalletEd25519ExportRootCapabilitiesV1({ kind: 'all' });
   }
 
   /**
@@ -3054,7 +3057,7 @@ export class BrowserSigningSurface {
    * collected. Failure is absorbed: the wallet stays usable, and device
    * linking fails closed with `wallet_unlock_required` until the next unlock.
    */
-  async establishUnlockedWalletCustodyTransferCapabilityV1(input: {
+  async establishUnlockedWalletEd25519ExportRootCapabilityV1(input: {
     readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly passkeyPrfFirstB64u: string;
     readonly walletId: string;
@@ -3064,11 +3067,11 @@ export class BrowserSigningSurface {
     try {
       const factor = input.existingEnvelope.factor;
       if (factor.kind !== 'passkey') {
-        throw new Error('unlocked custody capability requires a passkey envelope factor');
+        throw new Error('unlocked export-root capability requires a passkey envelope factor');
       }
       const existingFactorSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
       try {
-        await establishUnlockedCustodyCapabilityWithWorkerV1(
+        await establishUnlockedExportRootCapabilityWithWorkerV1(
           this.walletCustodyCeremonyTransportV1(),
           {
             existingEnvelope: input.existingEnvelope,
@@ -3084,16 +3087,16 @@ export class BrowserSigningSurface {
       }
     } catch (error: unknown) {
       console.warn(
-        '[BrowserSigningSurface] unlocked custody transfer capability was not established:',
+        '[BrowserSigningSurface] unlocked Ed25519 export-root capability was not established:',
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }
   }
 
-  async destroyUnlockedWalletCustodyTransferCapabilitiesV1(
-    scope: UnlockedWalletCustodyCapabilityDestroyScopeV1,
+  async destroyUnlockedWalletEd25519ExportRootCapabilitiesV1(
+    scope: UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1,
   ): Promise<void> {
-    await destroyUnlockedCustodyCapabilitiesWithWorkerV1(
+    await destroyUnlockedExportRootCapabilitiesWithWorkerV1(
       this.walletCustodyCeremonyTransportV1(),
       scope,
     );
@@ -3290,7 +3293,7 @@ export class BrowserSigningSurface {
         break;
       }
       case WALLET_AUTH_METHODS.emailOtp: {
-        const capability = readUnlockedWalletCustodyTransferCapabilityV1(String(args.job.walletId));
+        const capability = readUnlockedWalletEd25519ExportRootCapabilityV1(String(args.job.walletId));
         if (!capability) {
           throw new Error('Wallet-host Email OTP custody capability is unavailable');
         }
@@ -3353,8 +3356,8 @@ export class BrowserSigningSurface {
       walletSessions: walletSessionAuthorizations,
       readWalletAuthenticationState: () => this.walletAuthenticationState,
       readOwnerSourceLaneHintsV1: this.readWalletHostOwnerSourceLaneHintsV1.bind(this),
-      readUnlockedCustodyCapabilityV1: (walletId) =>
-        readUnlockedWalletCustodyTransferCapabilityV1(String(walletId)),
+      readUnlockedEd25519ExportRootCapabilityV1: (walletId) =>
+        readUnlockedWalletEd25519ExportRootCapabilityV1(String(walletId)),
       startOwnerEnrollmentCeremonyV1: this.startLinkedDeviceOwnerEnrollmentCeremonyV1.bind(this),
     });
     const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
@@ -4771,6 +4774,15 @@ export class BrowserSigningSurface {
           nearAccountId: toAccountId(nearAccountId),
           materialActivation,
         }),
+      resolveEd25519YaoClientRootEnvelope: async ({ capability }) => {
+        if (!capability) return null;
+        return await readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1({
+          walletId: String(args.laneIdentity.signer.account.wallet.walletId),
+          registeredPublicKeyB64u: base64UrlEncode(
+            Uint8Array.from(capability.registeredPublicKey),
+          ),
+        });
+      },
       loadWalletCustodyMaterial: () =>
         this.loadEmailOtpWalletCustodyEd25519Material({
           nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),

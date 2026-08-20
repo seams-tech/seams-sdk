@@ -26,7 +26,6 @@ import {
   type LinkedDeviceSessionListPageV1,
   type LinkedDeviceSessionStoreV1,
   type LinkedDeviceMutationResultWithReceiptV1,
-  type LinkedDeviceRecoveryContinuationV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { hasControlCharacter, type WalletId } from '@shared/utils/domainIds';
@@ -290,30 +289,6 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       replay: (current) =>
         current.state.state === 'committed_completion_required' &&
         current.state.transcriptSetDigestB64u === input.transcriptSetDigestB64u,
-    });
-  }
-
-  async bindRecoveryContinuationV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly expectedRevision: number;
-    readonly continuation: LinkedDeviceRecoveryContinuationV1;
-    readonly nextRecord: LinkedDeviceSessionRecordV1;
-    readonly nowMs: number;
-  }): Promise<LinkedDeviceSessionMutationResultV1> {
-    return this.applyStateCas({
-      linkSessionId: input.linkSessionId,
-      expectedRevision: input.expectedRevision,
-      nextRecord: input.nextRecord,
-      nowMs: input.nowMs,
-      expectedStates: ['committed_completion_required'],
-      replay: (current) => {
-        const recovery = current.recovery;
-        return (
-          current.state.state === 'committed_completion_required' &&
-          recovery?.kind === 'bound' &&
-          alphabetizeStringify(recovery.continuation) === alphabetizeStringify(input.continuation)
-        );
-      },
     });
   }
 

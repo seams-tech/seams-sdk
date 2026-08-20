@@ -20,7 +20,7 @@ use signer_core::ed25519_yao_derivation::{
     derive_ed25519_yao_client_contributions_v1, Ed25519YaoApplicationBindingFactsV1,
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
-    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientDerivationRootV1,
+    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientRootV1,
     Ed25519YaoStableKeyDerivationContextV1,
 };
 use std::collections::BTreeMap;
@@ -121,7 +121,7 @@ fn request_fixture(
         Ed25519YaoApplicationBindingKeyCreationSignerSlotV1::new(1)?,
     );
     let context = Ed25519YaoStableKeyDerivationContextV1::new(application.digest(), 1, 2)?;
-    let client_root = Ed25519YaoClientDerivationRootV1::from_secret_bytes(client_root_bytes);
+    let client_root = Ed25519YaoClientRootV1::from_secret_bytes(client_root_bytes);
     let (client_a, client_b) =
         derive_ed25519_yao_client_contributions_v1(&client_root, &context)?.into_parts();
     let application_binding = RouterAbEd25519YaoApplicationBindingFactsV1::new(

@@ -165,25 +165,22 @@ const invalidClaimedIdentity: Extract<
   claimExpiresAtMs: 20,
 };
 
-// Dormant permission branches are deliberately absent from v4.
+// Persisted permissions are delegated authorities with an opaque canonical set.
 const invalidPermissionPayload: QrLinkedDeviceSessionPayloadV5 = {
   ...payload,
   requestedPermission: {
-    // @ts-expect-error dormant scoped signing permission is not supported
-    kind: 'scoped_signing',
-    // @ts-expect-error dormant administration scope is not supported
-    administrationScope: 'no_account_admin',
-    mandatePolicyDigest: digest,
+    // @ts-expect-error retired owner-equivalent permission branches are not supported
+    kind: 'owner_equivalent_signing',
+    permissions: payload.requestedPermission.permissions,
   },
 };
 
 const invalidPermissionPresence: QrLinkedDeviceSessionPayloadV5 = {
   ...payload,
   requestedPermission: {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    // @ts-expect-error local presence is required
-    localUserPresence: 'optional',
+    kind: 'delegated_wallet_authority_v1',
+    // @ts-expect-error raw permission arrays must be parsed into the opaque canonical set
+    permissions: ['sign'],
   },
 };
 
@@ -356,6 +353,7 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletId,
   enrollmentId,
   deviceId,
+  ed25519ExportRoot: null,
   targetFactor: { kind: 'passkey_prf' },
   ownerEnrollment,
   orderedChildren: [

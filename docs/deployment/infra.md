@@ -141,7 +141,6 @@ cross-run artifact inputs.
 | `RELAY_SESSION_HMAC_SECRET`                     | Gateway deploy           | Environment-specific browser session signing secret.                                             |
 | `ACCOUNT_ID_DERIVATION_SECRET`                  | Gateway deploy           | Environment-specific account identifier derivation secret.                                       |
 | `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`        | Router A/B and Gateway   | Shared only by Workers inside one environment. Never share it across staging and production.     |
-| `LINKED_DEVICE_OPERATOR_RECOVERY_SECRET`        | Gateway deploy           | Dedicated private operator-recovery secret; keep it distinct from Router internal auth.          |
 | `LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET`   | Gateway deploy           | Dedicated private HMAC secret for authenticated linked-device target descriptors; minimum 32 UTF-8 bytes. |
 | `ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK`            | Gateway deploy           | Private ceremony JWT signing key for this environment.                                           |
 | `RELAYER_PRIVATE_KEY`                           | Gateway deploy           | Optional funded NEAR relayer key; its public key is derived during startup.                      |

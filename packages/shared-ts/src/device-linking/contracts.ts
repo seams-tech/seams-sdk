@@ -1,4 +1,5 @@
 import type { PasskeyCustodyEnvelopeRecord } from '../passkey-custody';
+import type { DelegatedWalletAuthorityV1 } from '../authorization/delegatedAuthority';
 import type {
   AuthorizationEvidenceSetId,
   AuthorizedOperationId,
@@ -35,6 +36,7 @@ import type {
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type { Ed25519PublicKeyB64u } from '../passkey-custody/primitives';
 import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import type {
   LaneHolderDeliveryReceiptV1,
@@ -56,13 +58,6 @@ export type LinkDevicePublicKeyB64u = string & {
   readonly __linkDevicePublicKeyB64uBrand: 'LinkDevicePublicKeyB64u';
 };
 
-/** The only permission branch available to the first linked-device release. */
-export type QrLinkedDevicePermissionRequest = {
-  readonly kind: 'owner_equivalent_signing';
-  readonly administrationScope: 'signing_only';
-  readonly localUserPresence: 'required';
-};
-
 export type LinkedDeviceTargetFactorV1 =
   | { readonly kind: 'passkey_prf' }
   | { readonly kind: 'email_otp' };
@@ -73,7 +68,7 @@ export type QrLinkedDeviceSessionPayloadV5 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly requestedPermission: QrLinkedDevicePermissionRequest;
+  readonly requestedPermission: DelegatedWalletAuthorityV1;
   readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -354,7 +349,7 @@ type LinkedDeviceApprovalBaseV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
   /**
    * Refactor 103 Phase 8: the canonical owner add-auth-method ceremony this
@@ -481,7 +476,7 @@ export type LinkedDeviceEnrollmentTranscriptV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
   readonly policyDigestB64u: DigestB64u;
@@ -541,6 +536,15 @@ export type LinkedDeviceTargetPreparationChildV1 = {
   readonly targetHolderParticipantId: LaneHolderParticipantId;
 };
 
+/** Public source facts needed to bind an Ed25519 export-root handoff. */
+export type LinkedDeviceEd25519ExportRootPreparationV1 = {
+  readonly kind: 'linked_device_ed25519_export_root_preparation_v1';
+  readonly walletKeyId: WalletKeyId;
+  readonly applicationBindingDigestB64u: DigestB64u;
+  readonly registeredPublicKeyB64u: Ed25519PublicKeyB64u;
+  readonly revocationEpoch: number;
+};
+
 /**
  * Refactor 103 Phase 8: the canonical owner add-auth-method ceremony this
  * enrollment will finalize.
@@ -597,6 +601,8 @@ type LinkedDeviceTargetPreparationBaseV1 = {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  /** `null` is the explicit ECDSA-only/no-export-root branch. */
+  readonly ed25519ExportRoot: LinkedDeviceEd25519ExportRootPreparationV1 | null;
   readonly orderedChildren: readonly [
     LinkedDeviceTargetPreparationChildV1,
     ...LinkedDeviceTargetPreparationChildV1[],
@@ -857,7 +863,7 @@ export type LinkedDeviceSummaryV1 = {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly walletId: WalletId;
   readonly credential: LinkedOwnerCredentialMetadataV1;
-  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly keyManifestDigestB64u: DigestB64u;
   readonly coveredWalletKeys: readonly WalletKeyId[];
   readonly state: 'provisioning' | 'active' | 'suspended' | 'expired' | 'revoked';
@@ -946,7 +952,7 @@ type LinkedDeviceWalletSessionDeliveryBaseV1 = {
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly keyManifestDigestB64u: DigestB64u;
-  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly permission: DelegatedWalletAuthorityV1;
   readonly revocationEpoch: number;
   readonly remainingUses: number;
   readonly issuedAtMs: number;
@@ -981,7 +987,6 @@ export type LinkedDeviceOwnerFinalizeRequestV1 = {
   readonly kind: 'linked_device_owner_finalize_request_v1';
   readonly addAuthMethodCeremonyId: string;
   readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
-  readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
 };
 
 /**

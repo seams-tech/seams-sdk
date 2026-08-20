@@ -1,3 +1,4 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use presign_rand_core::OsRng;
 use router_ab_core::{
@@ -22,26 +23,24 @@ use crate::lane_holder::{
     verify_holder_package, LaneCustodySealV1, LaneHolderRecipientV1, LaneHolderSigningMaterialV1,
 };
 use crate::{
-    complete_client_export_v1, create_client_signing_share_v1,
-    prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
-    ClientSigningRequestV1,
+    complete_client_export_v1, create_client_signing_share_v1, prepare_client_export_with_root_v1,
+    ClientActivationEntropyV1, ClientExportStateV1, ClientSigningRequestV1,
 };
 use crate::{
     complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
-    ClientLaneExecutionEntropyV1, Ed25519YaoClientDerivationRootV1, PreparedClientLaneV1,
+    ClientLaneExecutionEntropyV1, Ed25519YaoClientRootV1, PreparedClientLaneV1,
 };
 use crate::{
     ed25519_local_material_binding_v1, import_activated_client_material_v1,
     open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
     LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1,
 };
+use signer_core::ed25519_yao_client_root_transfer::open_ed25519_yao_client_root_under_factor_v1;
 use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
 };
 use signer_core::near_threshold_ed25519::CommitmentsWire;
-use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
-use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 const LANE_HOLDER_FROST_PARTICIPANT_ID_V1: u16 = 1;
 const LANE_SIGNING_WORKER_FROST_PARTICIPANT_ID_V1: u16 = 2;
@@ -406,20 +405,20 @@ fn js_ecdsa_presign_error(error: PresignSessionError) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
-/// One-use explicit export session opened from the wallet custody envelope.
+/// One-use explicit export session opened from a factor-sealed Ed25519 Yao
+/// Client root.
 ///
-/// The factor authorizes and opens the envelope. The custody seed and the
-/// derived Ed25519 root remain inside this Rust boundary for the full export
-/// protocol preparation.
+/// The factor authorizes and opens the root envelope. No wallet custody seed
+/// is accepted or reconstructed on this ordinary export path.
 #[wasm_bindgen]
-pub struct WasmCustodyEnvelopeExportSessionV1 {
+pub struct WasmEd25519YaoClientRootExportSessionV1 {
     execute_request_json: String,
     state: Option<ClientExportStateV1>,
 }
 
 #[wasm_bindgen]
-impl WasmCustodyEnvelopeExportSessionV1 {
-    /// Opens the custody envelope and prepares a one-use export request.
+impl WasmEd25519YaoClientRootExportSessionV1 {
+    /// Opens the factor-sealed Client root and prepares a one-use export request.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -436,7 +435,7 @@ impl WasmCustodyEnvelopeExportSessionV1 {
         recipient_key_material: &[u8],
         deriver_a_seal_seed: &[u8],
         deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmCustodyEnvelopeExportSessionV1, JsValue> {
+    ) -> Result<WasmEd25519YaoClientRootExportSessionV1, JsValue> {
         let admission =
             serde_json::from_str::<RouterAbEd25519YaoExportAdmissionReceiptV1>(admission_json)
                 .map_err(js_error)?;
@@ -447,7 +446,13 @@ impl WasmCustodyEnvelopeExportSessionV1 {
             serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
                 .map_err(js_error)?;
         let factor_secret = Zeroizing::new(parse_32(factor_secret, "custody factor secret")?);
-        let (seed, _) = open_wallet_custody_seed_envelope_v1(
+        let root_facts = root_envelope_facts(&envelope_binding)?;
+        if root_facts.wallet_id != application.wallet_id() {
+            return Err(JsValue::from_str(
+                "factor-sealed Ed25519 Yao Client root is bound to another wallet",
+            ));
+        }
+        let root = open_ed25519_yao_client_root_under_factor_v1(
             &*factor_secret,
             &envelope_binding,
             envelope_nonce,
@@ -456,11 +461,21 @@ impl WasmCustodyEnvelopeExportSessionV1 {
             envelope_ciphertext_digest,
         )
         .map_err(js_error)?;
-        let custody_seed = Zeroizing::new(
-            seed.as_slice()
-                .try_into()
-                .map_err(|_| JsValue::from_str("wallet custody seed must contain 32 bytes"))?,
-        );
+        let expected_application_binding_digest = crate::client_application_binding_digest_v1(
+            &application,
+            [client_participant_id, signing_worker_participant_id],
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        if root_facts.application_binding_digest != expected_application_binding_digest {
+            return Err(JsValue::from_str(
+                "factor-sealed Ed25519 Yao Client root is bound to another application",
+            ));
+        }
+        if root_facts.registered_public_key != admission.binding().registered_public_key() {
+            return Err(JsValue::from_str(
+                "factor-sealed Ed25519 Yao Client root is bound to another public key",
+            ));
+        }
         let recipient_key_material =
             Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
         let deriver_a_seal_seed =
@@ -473,11 +488,11 @@ impl WasmCustodyEnvelopeExportSessionV1 {
             *deriver_b_seal_seed,
         )
         .map_err(js_error)?;
-        let prepared = prepare_client_export_from_custody_seed_v1(
+        let prepared = prepare_client_export_with_root_v1(
             &admission,
             &application,
             [client_participant_id, signing_worker_participant_id],
-            &*custody_seed,
+            root,
             entropy,
         )
         .map_err(js_error)?;
@@ -834,6 +849,54 @@ fn parse_32(value: &[u8], label: &str) -> Result<[u8; 32], JsValue> {
         .map_err(|_| JsValue::from_str(&format!("{label} must contain exactly 32 bytes")))
 }
 
+struct RootEnvelopeFactsV1 {
+    wallet_id: String,
+    link_session_id: String,
+    wallet_key_id: String,
+    enrollment_id: String,
+    device_id: String,
+    revocation_epoch: u64,
+    application_binding_digest: [u8; 32],
+    registered_public_key: [u8; 32],
+}
+
+fn root_envelope_facts(
+    binding: &PasskeyCustodyEnvelopeBindingV1,
+) -> Result<RootEnvelopeFactsV1, JsValue> {
+    let signer_core::passkey_custody::PasskeyCustodySecretBindingV1::Ed25519YaoClientRoot {
+        link_session_id,
+        wallet_key_id,
+        application_binding_digest_b64u,
+        registered_public_key_b64u,
+        enrollment_id,
+        device_id,
+        revocation_epoch,
+        ..
+    } = &binding.binding
+    else {
+        return Err(JsValue::from_str(
+            "Ed25519 Yao Client-root export requires an Ed25519 Yao Client-root envelope",
+        ));
+    };
+    let application_binding_digest = Base64UrlUnpadded::decode_vec(application_binding_digest_b64u)
+        .map_err(|_| JsValue::from_str("applicationBindingDigestB64u must be base64url"))?;
+    let registered_public_key = Base64UrlUnpadded::decode_vec(registered_public_key_b64u)
+        .map_err(|_| JsValue::from_str("registeredPublicKeyB64u must be base64url"))?;
+    Ok(RootEnvelopeFactsV1 {
+        wallet_id: binding.wallet_id.clone(),
+        link_session_id: link_session_id.clone(),
+        wallet_key_id: wallet_key_id.clone(),
+        enrollment_id: enrollment_id.clone(),
+        device_id: device_id.clone(),
+        revocation_epoch: *revocation_epoch,
+        application_binding_digest: parse_32(
+            &application_binding_digest,
+            "application binding digest",
+        )?,
+        registered_public_key: parse_32(&registered_public_key, "registered Ed25519 public key")?,
+    })
+}
+
 fn js_error(error: impl core::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
@@ -852,7 +915,15 @@ fn parse_js_domain_value<T: DeserializeOwned>(value: JsValue) -> Result<T, JsVal
 /// worker. Neither the custody seed nor stable Client root crosses into JS.
 #[wasm_bindgen]
 pub struct WasmEd25519YaoLaneSourceV1 {
-    root: Ed25519YaoClientDerivationRootV1,
+    root: Ed25519YaoClientRootV1,
+    wallet_id: String,
+    link_session_id: String,
+    wallet_key_id: String,
+    enrollment_id: String,
+    device_id: String,
+    revocation_epoch: u64,
+    application_binding_digest: [u8; 32],
+    registered_public_key: [u8; 32],
 }
 
 #[wasm_bindgen]
@@ -867,13 +938,13 @@ impl WasmEd25519YaoLaneSourceV1 {
         envelope_ciphertext: &[u8],
         envelope_aad_hash: &[u8],
         envelope_ciphertext_digest: &[u8],
-        application_binding_digest: &[u8],
     ) -> Result<Self, JsValue> {
         let envelope_binding =
             serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
                 .map_err(js_error)?;
         let factor_secret = Zeroizing::new(factor_secret.to_vec());
-        let (seed, _) = open_wallet_custody_seed_envelope_v1(
+        let root_facts = root_envelope_facts(&envelope_binding)?;
+        let root = open_ed25519_yao_client_root_under_factor_v1(
             &factor_secret,
             &envelope_binding,
             envelope_nonce,
@@ -882,14 +953,16 @@ impl WasmEd25519YaoLaneSourceV1 {
             envelope_ciphertext_digest,
         )
         .map_err(js_error)?;
-        let application_binding_digest = parse_32(
-            application_binding_digest,
-            "Ed25519 Yao application binding digest",
-        )?;
-        let root = derive_ed25519_yao_client_root_from_seed_v1(&seed, &application_binding_digest)
-            .map_err(js_error)?;
         Ok(Self {
-            root: Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+            root,
+            wallet_id: root_facts.wallet_id,
+            link_session_id: root_facts.link_session_id,
+            wallet_key_id: root_facts.wallet_key_id,
+            enrollment_id: root_facts.enrollment_id,
+            device_id: root_facts.device_id,
+            revocation_epoch: root_facts.revocation_epoch,
+            application_binding_digest: root_facts.application_binding_digest,
+            registered_public_key: root_facts.registered_public_key,
         })
     }
 }
@@ -949,6 +1022,46 @@ impl WasmEd25519YaoLaneClientV1 {
         let application = parse_js_domain_value::<RouterAbEd25519YaoApplicationBindingFactsV1>(
             application_input,
         )?;
+        let expected_application_binding_digest = crate::client_application_binding_digest_v1(
+            &application,
+            [client_participant_id, signing_worker_participant_id],
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        if source.application_binding_digest != expected_application_binding_digest {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another application",
+            ));
+        }
+        if source.wallet_id != application.wallet_id() || source.wallet_id != job.wallet_id {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another wallet",
+            ));
+        }
+        if source.wallet_key_id != job.wallet_key_id {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another wallet key",
+            ));
+        }
+        if source.enrollment_id != job.enrollment_id {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another enrollment",
+            ));
+        }
+        if source.revocation_epoch != job.source.revocation_epoch() {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is stale for this revocation epoch",
+            ));
+        }
+        let expected_registered_public_key =
+            Base64UrlUnpadded::decode_vec(&job.registered_public_key_b64u)
+                .map_err(|_| JsValue::from_str("job registered public key is not base64url"))?;
+        if source.registered_public_key
+            != parse_32(&expected_registered_public_key, "job registered public key")?
+        {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another public key",
+            ));
+        }
         let deriver_a_input_public_key =
             parse_32(deriver_a_input_public_key, "Deriver A input public key")?;
         let deriver_b_input_public_key =

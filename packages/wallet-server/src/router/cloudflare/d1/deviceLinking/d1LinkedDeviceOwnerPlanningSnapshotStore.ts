@@ -11,6 +11,7 @@ import {
   parseLinkedDeviceProtocolVersionV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
+import { parseDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import type { DeviceLinkingOwnerWalletSessionContextV1 } from '../../../../router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import {
   parseWalletSessionAuthorizationId,
@@ -458,6 +459,8 @@ function parseOwnerContext(raw: unknown): DeviceLinkingOwnerWalletSessionContext
     'owner.authorizationId',
   );
   const expiresAtMs = requiredPositiveInteger(record.expiresAtMs, 'owner.expiresAtMs');
+  const permission = parseDelegatedWalletAuthorityV1(record.permission);
+  if (!permission.ok) throw new Error(`owner.permission is invalid: ${permission.error.message}`);
   const keyManifestDigestB64u = parseDigestB64u(record.keyManifestDigestB64u);
   if (record.curve === 'ed25519') {
     const authority = parseWalletAuthAuthority(record.authority);
@@ -474,6 +477,7 @@ function parseOwnerContext(raw: unknown): DeviceLinkingOwnerWalletSessionContext
       walletSessionId,
       authorizationId,
       expiresAtMs,
+      permission: permission.value,
       keyManifestDigestB64u,
       curve: 'ed25519',
       authority,
@@ -495,6 +499,7 @@ function parseOwnerContext(raw: unknown): DeviceLinkingOwnerWalletSessionContext
       walletSessionId,
       authorizationId,
       expiresAtMs,
+      permission: permission.value,
       keyManifestDigestB64u,
       curve: 'ecdsa',
       walletAuthAuthorityRef,

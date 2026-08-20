@@ -263,6 +263,13 @@ function emailOtpEd25519WorkerExportMaterial(
         walletCustodyEd25519Material: context.material.walletCustodyEd25519Material,
         bootstrap: context.material.bootstrap,
       };
+    case 'sealed_export_root':
+      return {
+        kind: 'sealed_export_root',
+        materialActivation: context.material.materialActivation,
+        capability: context.material.capability,
+        exportRootEnvelope: context.material.exportRootEnvelope,
+      };
     default:
       context.material satisfies never;
       throw new Error('Email OTP Ed25519 export material is invalid');

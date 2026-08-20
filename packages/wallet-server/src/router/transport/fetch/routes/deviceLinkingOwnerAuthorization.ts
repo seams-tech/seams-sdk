@@ -24,6 +24,10 @@ import type {
   WalletAuthAuthority,
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  buildFullOwnerDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 import type { WalletExecutionLaneAuthSource } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import type { LaneOperationId, LaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -71,6 +75,7 @@ export type DeviceLinkingOwnerWalletSessionContextV1 =
       readonly walletSessionId: WalletSessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly expiresAtMs: number;
+      readonly permission: DelegatedWalletAuthorityV1;
       /** The manifest this owner session's key set was registered against. */
       readonly keyManifestDigestB64u: DigestB64u;
       readonly curve: 'ed25519';
@@ -84,6 +89,7 @@ export type DeviceLinkingOwnerWalletSessionContextV1 =
       readonly walletSessionId: WalletSessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly expiresAtMs: number;
+      readonly permission: DelegatedWalletAuthorityV1;
       /** The manifest this owner session's key set was registered against. */
       readonly keyManifestDigestB64u: DigestB64u;
       readonly curve: 'ecdsa';
@@ -291,6 +297,7 @@ async function validateOwnerWalletSessionV1(input: {
         walletSessionId,
         authorizationId,
         expiresAtMs: ed25519.walletSessionAuth.expiresAtMs,
+        permission: buildFullOwnerDelegatedWalletAuthorityV1(),
         keyManifestDigestB64u: ed25519.binding.keyManifestDigestB64u,
         curve: 'ed25519',
         authority: ed25519.binding.authority,
@@ -321,6 +328,7 @@ async function validateOwnerWalletSessionV1(input: {
         walletSessionId,
         authorizationId,
         expiresAtMs: ecdsa.walletSessionAuth.expiresAtMs,
+        permission: buildFullOwnerDelegatedWalletAuthorityV1(),
         keyManifestDigestB64u: ecdsa.binding.keyManifestDigestB64u,
         curve: 'ecdsa',
         walletAuthAuthorityRef: ecdsa.binding.walletAuthAuthorityRef,

@@ -62,6 +62,7 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
         'source',
         'authorization',
         'keyFamily',
+        'applicationBindingDigestB64u',
         'registeredPublicKeyB64u',
         'nearEd25519SigningKeyId',
         'keyCreationSignerSlot',
@@ -72,6 +73,10 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
     return {
       ...common,
       keyFamily,
+      applicationBindingDigestB64u: parseDigest(
+        value.applicationBindingDigestB64u,
+        `${label}.applicationBindingDigestB64u`,
+      ),
       registeredPublicKeyB64u: parseEd25519PublicKeyB64u(value.registeredPublicKeyB64u),
       nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(value.nearEd25519SigningKeyId),
       keyCreationSignerSlot: parseKeyCreationSignerSlot(value.keyCreationSignerSlot),

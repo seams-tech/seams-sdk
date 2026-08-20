@@ -1,7 +1,7 @@
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
-import { dropUnlockedWalletCustodyTransferCapabilityReferenceV1 } from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
+import { dropUnlockedWalletEd25519ExportRootCapabilityReferenceV1 } from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
 import {
   type NearWorkerProgressEvent,
   type WorkerErrorResponse,
@@ -1156,7 +1156,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     // custody-seed handles with it. Drop the main-thread reference so the
     // linking preflight cannot pass against a handle that no longer exists.
     if (kind === 'walletCustodyCeremony') {
-      dropUnlockedWalletCustodyTransferCapabilityReferenceV1();
+      dropUnlockedWalletEd25519ExportRootCapabilityReferenceV1();
     }
   }
 

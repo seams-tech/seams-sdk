@@ -89,6 +89,7 @@ import {
   walletSessionFailureMessage,
   type WalletSessionFailureCode,
 } from './walletSessionFailure';
+import { parseDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = {
@@ -791,24 +792,8 @@ type NormalizedLinkedDeviceWalletSessionSigningBase = {
 function parseLinkedDeviceWalletSessionPermission(
   input: unknown,
 ): LinkedDeviceWalletSessionPermissionClaimsV1 | null {
-  if (!isPlainObject(input)) return null;
-  const keys = Object.keys(input).sort();
-  if (
-    keys.length !== 3 ||
-    keys[0] !== 'administrationScope' ||
-    keys[1] !== 'kind' ||
-    keys[2] !== 'localUserPresence' ||
-    input.kind !== 'owner_equivalent_signing' ||
-    input.administrationScope !== 'signing_only' ||
-    input.localUserPresence !== 'required'
-  ) {
-    return null;
-  }
-  return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
-  };
+  const parsed = parseDelegatedWalletAuthorityV1(input);
+  return parsed.ok ? parsed.value : null;
 }
 
 function normalizeLinkedDeviceWalletSessionSigningBase(

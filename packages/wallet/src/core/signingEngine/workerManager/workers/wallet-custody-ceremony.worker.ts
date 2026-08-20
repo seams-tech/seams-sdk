@@ -8,13 +8,13 @@ import init, {
   type WasmCeremonySeedHeldV1,
 } from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
 import initNearSigner, {
-  linked_device_custody_transfer_recipient_v1,
-  passkey_custody_open_wallet_seed_from_linked_device_v1,
+  ed25519_yao_client_root_transfer_recipient_v1,
   passkey_custody_open_wallet_seed_v1,
-  passkey_custody_reseal_transferred_wallet_seed_v1,
   passkey_custody_reseal_wallet_seed_v1,
-  passkey_custody_seal_wallet_seed_for_linked_device_v1,
-  type WasmLinkedDeviceCustodyTransferRecipientV1,
+  passkey_custody_open_ed25519_yao_client_root_from_linked_device_v1,
+  passkey_custody_seal_ed25519_yao_client_root_for_linked_device_v1,
+  passkey_custody_seal_ed25519_yao_client_root_under_factor_v1,
+  type WasmEd25519YaoClientRootTransferRecipientV1,
   type WasmPasskeyCustodyHandleV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import initEd25519YaoClient, {
@@ -32,7 +32,7 @@ import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { assertEd25519YaoLaneCeremonyBindingParityV1 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
 import type {
-  UnlockedWalletCustodyTransferCapabilityV1,
+  UnlockedWalletEd25519ExportRootCapabilityV1,
   WalletCustodyCeremonyWorkerOperationMap,
 } from '../workerTypes';
 
@@ -101,17 +101,19 @@ const ed25519YaoLaneSessions = new Map<
 >();
 
 /**
- * Device 2's custody-transfer recipient keys, held here for the same reason
+ * Device 2's export-root recipient keys, held here for the same reason
  * ceremony handles are: the private half must never exist as a JavaScript
  * value. A linking attempt uses exactly one, and an abandoned attempt is a bug
  * worth surfacing rather than absorbing, so the map is bounded.
  */
 const MAX_ACTIVE_TRANSFER_RECIPIENTS = 2;
-const custodyTransferRecipients = new Map<string, WasmLinkedDeviceCustodyTransferRecipientV1>();
+const ed25519ExportRootRecipients = new Map<
+  string,
+  WasmEd25519YaoClientRootTransferRecipientV1
+>();
 
 /**
- * Refactor 103 zero-prompt handoff — Device 1's unlocked custody transfer
- * capabilities.
+ * Device 1's unlocked export-root capabilities.
  *
  * Each entry owns a custody-seed handle opened during registration or ordinary
  * unlock, when the owner factor was already being presented. The handle stays
@@ -126,8 +128,8 @@ const custodyTransferRecipients = new Map<string, WasmLinkedDeviceCustodyTransfe
  * is bounded like the recipient map because an abandoned handle is a bug worth
  * surfacing.
  */
-const MAX_ACTIVE_UNLOCKED_CUSTODY_CAPABILITIES = 4;
-type UnlockedCustodyCapabilityRecordV1 = {
+const MAX_ACTIVE_UNLOCKED_EXPORT_ROOT_CAPABILITIES = 4;
+type UnlockedExportRootCapabilityRecordV1 = {
   readonly handle: WasmPasskeyCustodyHandleV1;
   readonly envelope: PasskeyCustodyEnvelopeRecord;
   readonly factorSecret: Uint8Array;
@@ -136,11 +138,11 @@ type UnlockedCustodyCapabilityRecordV1 = {
   readonly walletSessionId: string;
   readonly expiresAtMs: number;
 };
-const unlockedCustodyCapabilities = new Map<string, UnlockedCustodyCapabilityRecordV1>();
+const unlockedExportRootCapabilities = new Map<string, UnlockedExportRootCapabilityRecordV1>();
 
-function destroyUnlockedCustodyCapabilityEntry(capabilityHandleId: string): boolean {
-  const record = unlockedCustodyCapabilities.get(capabilityHandleId);
-  unlockedCustodyCapabilities.delete(capabilityHandleId);
+function destroyUnlockedExportRootCapabilityEntry(capabilityHandleId: string): boolean {
+  const record = unlockedExportRootCapabilities.get(capabilityHandleId);
+  unlockedExportRootCapabilities.delete(capabilityHandleId);
   if (!record) return false;
   record.factorSecret.fill(0);
   record.handle.destroy();
@@ -160,15 +162,15 @@ type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
 type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
 type CreateTransferRecipientRequest =
-  WorkerRequest<'createLinkedDeviceCustodyTransferRecipient'>;
+  WorkerRequest<'createLinkedDeviceEd25519ExportRootRecipient'>;
 type EstablishUnlockedCustodyCapabilityRequest =
-  WorkerRequest<'establishUnlockedWalletCustodyTransferCapability'>;
+  WorkerRequest<'establishUnlockedWalletEd25519ExportRootCapability'>;
 type DestroyUnlockedCustodyCapabilitiesRequest =
-  WorkerRequest<'destroyUnlockedWalletCustodyTransferCapabilities'>;
-type SealForLinkedDeviceRequest = WorkerRequest<'sealWalletCustodySeedForLinkedDevice'>;
-type AcceptTransferRequest = WorkerRequest<'acceptLinkedDeviceCustodyTransfer'>;
+  WorkerRequest<'destroyUnlockedWalletEd25519ExportRootCapabilities'>;
+type SealForLinkedDeviceRequest = WorkerRequest<'sealEd25519ExportRootForLinkedDevice'>;
+type AcceptTransferRequest = WorkerRequest<'acceptLinkedDeviceEd25519ExportRoot'>;
 type DiscardTransferRecipientRequest =
-  WorkerRequest<'discardLinkedDeviceCustodyTransferRecipient'>;
+  WorkerRequest<'discardLinkedDeviceEd25519ExportRootRecipient'>;
 type RotateRecoverySetRequest = WorkerRequest<'rotateWalletRecoverySet'>;
 type OpenEd25519YaoLaneSourceRequest = WorkerRequest<'openEd25519YaoLaneSource'>;
 type PrepareEd25519YaoLaneRequest = WorkerRequest<'prepareEd25519YaoLane'>;
@@ -299,16 +301,16 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function requireUnlockedCustodyCapabilityRecord(
-  capability: UnlockedWalletCustodyTransferCapabilityV1,
-): UnlockedCustodyCapabilityRecordV1 {
+function requireUnlockedExportRootCapabilityRecord(
+  capability: UnlockedWalletEd25519ExportRootCapabilityV1,
+): UnlockedExportRootCapabilityRecordV1 {
   const capabilityHandleId = requireCapabilityFact(
     capability.capabilityHandleId,
     'capabilityHandleId',
   );
-  const record = unlockedCustodyCapabilities.get(capabilityHandleId);
+  const record = unlockedExportRootCapabilities.get(capabilityHandleId);
   if (!record) {
-    throw new Error('unlocked custody capability is unknown or destroyed');
+    throw new Error('unlocked Ed25519 export-root capability is unknown or destroyed');
   }
   if (
     String(capability.walletId) !== record.walletId ||
@@ -316,19 +318,19 @@ function requireUnlockedCustodyCapabilityRecord(
     String(capability.walletSessionId) !== record.walletSessionId ||
     capability.expiresAtMs !== record.expiresAtMs
   ) {
-    throw new Error('unlocked custody capability reference does not match the held handle');
+    throw new Error('unlocked Ed25519 export-root capability reference does not match the held handle');
   }
   if (record.expiresAtMs <= Date.now()) {
-    destroyUnlockedCustodyCapabilityEntry(capabilityHandleId);
-    throw new Error('unlocked custody capability has expired');
+    destroyUnlockedExportRootCapabilityEntry(capabilityHandleId);
+    throw new Error('unlocked Ed25519 export-root capability has expired');
   }
   return record;
 }
 
 function openedCustodyCapabilityLaneSourceInput(
-  capability: UnlockedWalletCustodyTransferCapabilityV1,
+  capability: UnlockedWalletEd25519ExportRootCapabilityV1,
 ): { readonly envelope: PasskeyCustodyEnvelopeRecord; readonly factorSecret: Uint8Array } {
-  const record = requireUnlockedCustodyCapabilityRecord(capability);
+  const record = requireUnlockedExportRootCapabilityRecord(capability);
   return {
     envelope: record.envelope,
     factorSecret: record.factorSecret.slice(),
@@ -369,7 +371,6 @@ async function openEd25519YaoLaneSource(
       base64UrlDecode(opened.envelope.sealedCustodySecretB64u),
       base64UrlDecode(opened.envelope.aadHashB64u),
       base64UrlDecode(opened.envelope.ciphertextDigestB64u),
-      base64UrlDecode(payload.applicationBindingDigestB64u),
     );
     const sourceHandle = secureOpaqueHandle('ed25519-yao-lane-source-v1');
     ed25519YaoLaneSources.set(sourceHandle, source);
@@ -739,16 +740,16 @@ async function linkWalletCustodyPasskey(request: LinkPasskeyRequest): Promise<un
  * before it could be resealed. Keeping the recipient key in the module that
  * performs the reseal means the seed only ever exists inside wasm.
  */
-async function createLinkedDeviceCustodyTransferRecipient(
+async function createLinkedDeviceEd25519ExportRootRecipient(
   _request: CreateTransferRecipientRequest,
 ): Promise<unknown> {
   await initializeNearSignerWasm();
-  if (custodyTransferRecipients.size >= MAX_ACTIVE_TRANSFER_RECIPIENTS) {
-    throw new Error('too many linked-device custody transfer recipients are active');
+  if (ed25519ExportRootRecipients.size >= MAX_ACTIVE_TRANSFER_RECIPIENTS) {
+    throw new Error('too many linked-device Ed25519 export-root recipients are active');
   }
-  const recipient = linked_device_custody_transfer_recipient_v1();
-  const recipientHandleId = createTransferRecipientHandleId();
-  custodyTransferRecipients.set(recipientHandleId, recipient);
+  const recipient = ed25519_yao_client_root_transfer_recipient_v1();
+  const recipientHandleId = createExportRootRecipientHandleId();
+  ed25519ExportRootRecipients.set(recipientHandleId, recipient);
   return {
     recipientHandleId,
     recipientPublicKeyB64u: recipient.public_key_b64u(),
@@ -761,7 +762,7 @@ async function createLinkedDeviceCustodyTransferRecipient(
  * unlock, and parks the opened handle for the owner Wallet Session that
  * authorized it. Only the public reference crosses back.
  */
-async function establishUnlockedWalletCustodyTransferCapability(
+async function establishUnlockedWalletEd25519ExportRootCapability(
   request: EstablishUnlockedCustodyCapabilityRequest,
 ): Promise<unknown> {
   await initializeNearSignerWasm();
@@ -780,18 +781,18 @@ async function establishUnlockedWalletCustodyTransferCapability(
     );
     const expiresAtMs = request.payload.expiresAtMs;
     if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
-      throw new Error('unlocked custody capability expiry must be in the future');
+      throw new Error('unlocked Ed25519 export-root capability expiry must be in the future');
     }
     if (String(envelope.walletId) !== walletId) {
-      throw new Error('unlocked custody capability envelope names another wallet');
+      throw new Error('unlocked Ed25519 export-root capability envelope names another wallet');
     }
     // One capability per wallet: a replacement (new unlock, new session)
     // destroys the previous handle before the new one is admitted.
-    for (const [existingId, record] of [...unlockedCustodyCapabilities]) {
-      if (record.walletId === walletId) destroyUnlockedCustodyCapabilityEntry(existingId);
+    for (const [existingId, record] of [...unlockedExportRootCapabilities]) {
+      if (record.walletId === walletId) destroyUnlockedExportRootCapabilityEntry(existingId);
     }
-    if (unlockedCustodyCapabilities.size >= MAX_ACTIVE_UNLOCKED_CUSTODY_CAPABILITIES) {
-      throw new Error('too many unlocked custody capabilities are active');
+    if (unlockedExportRootCapabilities.size >= MAX_ACTIVE_UNLOCKED_EXPORT_ROOT_CAPABILITIES) {
+      throw new Error('too many unlocked Ed25519 export-root capabilities are active');
     }
     const handle = passkey_custody_open_wallet_seed_v1(
       existingFactorSecret,
@@ -801,8 +802,8 @@ async function establishUnlockedWalletCustodyTransferCapability(
       envelope.aadHashB64u,
       envelope.ciphertextDigestB64u,
     );
-    const capabilityHandleId = createUnlockedCustodyCapabilityHandleId();
-    unlockedCustodyCapabilities.set(capabilityHandleId, {
+    const capabilityHandleId = createUnlockedExportRootCapabilityHandleId();
+    unlockedExportRootCapabilities.set(capabilityHandleId, {
       handle,
       envelope,
       factorSecret: existingFactorSecret,
@@ -813,7 +814,7 @@ async function establishUnlockedWalletCustodyTransferCapability(
     });
     factorSecretStored = true;
     return {
-      kind: 'unlocked_wallet_custody_transfer_capability_v1',
+      kind: 'unlocked_wallet_ed25519_export_root_capability_v1',
       capabilityHandleId,
       walletId,
       walletAuthMethodId,
@@ -826,18 +827,18 @@ async function establishUnlockedWalletCustodyTransferCapability(
 }
 
 /** Lock, logout, session retirement, expiry, failed activation, teardown. */
-function destroyUnlockedWalletCustodyTransferCapabilities(
+function destroyUnlockedWalletEd25519ExportRootCapabilities(
   request: DestroyUnlockedCustodyCapabilitiesRequest,
 ): unknown {
   const scope = request.payload.scope;
   let destroyedCount = 0;
-  for (const [capabilityHandleId, record] of [...unlockedCustodyCapabilities]) {
+  for (const [capabilityHandleId, record] of [...unlockedExportRootCapabilities]) {
     const matches =
       scope.kind === 'all' ||
       (scope.kind === 'capability' && scope.capabilityHandleId === capabilityHandleId) ||
       (scope.kind === 'wallet' && scope.walletId === record.walletId) ||
       (scope.kind === 'wallet_session' && scope.walletSessionId === record.walletSessionId);
-    if (matches && destroyUnlockedCustodyCapabilityEntry(capabilityHandleId)) {
+    if (matches && destroyUnlockedExportRootCapabilityEntry(capabilityHandleId)) {
       destroyedCount += 1;
     }
   }
@@ -855,36 +856,36 @@ function destroyUnlockedWalletCustodyTransferCapabilities(
  * again while the owner Wallet Session remains active, each with fresh
  * ephemeral key material drawn inside wasm.
  */
-async function sealWalletCustodySeedForLinkedDevice(
+async function sealEd25519ExportRootForLinkedDevice(
   request: SealForLinkedDeviceRequest,
 ): Promise<unknown> {
   await initializeNearSignerWasm();
   const capability = request.payload.capability;
-  const record = requireUnlockedCustodyCapabilityRecord(capability);
-  const sealed = passkey_custody_seal_wallet_seed_for_linked_device_v1(
+  const record = requireUnlockedExportRootCapabilityRecord(capability);
+  const sealed = passkey_custody_seal_ed25519_yao_client_root_for_linked_device_v1(
     record.handle,
     request.payload.transferBindingJson,
   ) as Record<string, unknown>;
   return {
     ephemeralPublicKeyB64u: String(sealed.ephemeralPublicKeyB64u || ''),
     nonceB64u: String(sealed.nonceB64u || ''),
-    sealedCustodySecretB64u: String(sealed.sealedCustodySecretB64u || ''),
-    aadHashB64u: String(sealed.aadHashB64u || ''),
+    sealedExportRootB64u: String(sealed.sealedExportRootB64u || ''),
+    bindingDigestB64u: String(sealed.bindingDigestB64u || ''),
     ciphertextDigestB64u: String(sealed.ciphertextDigestB64u || ''),
   };
 }
 
 function requireCapabilityFact(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value || value.trim() !== value) {
-    throw new Error(`unlocked custody capability ${label} is invalid`);
+    throw new Error(`unlocked Ed25519 export-root capability ${label} is invalid`);
   }
   return value;
 }
 
-function createUnlockedCustodyCapabilityHandleId(): string {
+function createUnlockedExportRootCapabilityHandleId(): string {
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
-  return `unlocked-custody-capability-${base64UrlEncode(bytes)}`;
+  return `unlocked-ed25519-export-root-${base64UrlEncode(bytes)}`;
 }
 
 /**
@@ -896,37 +897,36 @@ function createUnlockedCustodyCapabilityHandleId(): string {
  * recipient key is consumed either way — a transfer is single-use, and keeping
  * it after an attempt would let a second package be opened against it.
  */
-async function acceptLinkedDeviceCustodyTransfer(
+async function acceptLinkedDeviceEd25519ExportRoot(
   request: AcceptTransferRequest,
 ): Promise<unknown> {
   await initializeNearSignerWasm();
-  const recipient = custodyTransferRecipients.get(request.payload.recipientHandleId);
+  const recipient = ed25519ExportRootRecipients.get(request.payload.recipientHandleId);
   if (!recipient) {
     new Uint8Array(request.payload.replacementFactorSecret).fill(0);
-    throw new Error('linked-device custody transfer recipient is unknown or discarded');
+    throw new Error('linked-device Ed25519 export-root recipient is unknown or discarded');
   }
-  custodyTransferRecipients.delete(request.payload.recipientHandleId);
+  ed25519ExportRootRecipients.delete(request.payload.recipientHandleId);
   const replacementFactorSecret = toBytes(request.payload.replacementFactorSecret);
-  let handle: ReturnType<typeof passkey_custody_open_wallet_seed_from_linked_device_v1> | null =
-    null;
+  let handle: WasmPasskeyCustodyHandleV1 | null = null;
   try {
-    handle = passkey_custody_open_wallet_seed_from_linked_device_v1(
+    handle = passkey_custody_open_ed25519_yao_client_root_from_linked_device_v1(
       recipient,
       request.payload.transferBindingJson,
       request.payload.ephemeralPublicKeyB64u,
       base64UrlDecode(request.payload.nonceB64u),
-      request.payload.sealedCustodySecretB64u,
-      request.payload.aadHashB64u,
+      request.payload.sealedExportRootB64u,
+      request.payload.bindingDigestB64u,
       request.payload.ciphertextDigestB64u,
     );
-    const resealed = passkey_custody_reseal_transferred_wallet_seed_v1(
+    const resealed = passkey_custody_seal_ed25519_yao_client_root_under_factor_v1(
       handle,
       replacementFactorSecret,
       request.payload.replacementEnvelopeBindingJson,
     ) as Record<string, unknown>;
     return {
       nonceB64u: String(resealed.nonceB64u || ''),
-      sealedCustodySecretB64u: String(resealed.sealedCustodySecretB64u || ''),
+      sealedExportRootB64u: String(resealed.sealedExportRootB64u || ''),
       aadHashB64u: String(resealed.aadHashB64u || ''),
       ciphertextDigestB64u: String(resealed.ciphertextDigestB64u || ''),
     };
@@ -938,11 +938,11 @@ async function acceptLinkedDeviceCustodyTransfer(
 }
 
 /** Cancel, failure, and page teardown all land here. */
-function discardLinkedDeviceCustodyTransferRecipient(
+function discardLinkedDeviceEd25519ExportRootRecipient(
   request: DiscardTransferRecipientRequest,
 ): unknown {
-  const recipient = custodyTransferRecipients.get(request.payload.recipientHandleId);
-  custodyTransferRecipients.delete(request.payload.recipientHandleId);
+  const recipient = ed25519ExportRootRecipients.get(request.payload.recipientHandleId);
+  ed25519ExportRootRecipients.delete(request.payload.recipientHandleId);
   recipient?.free();
   return {
     recipientHandleId: request.payload.recipientHandleId,
@@ -950,10 +950,10 @@ function discardLinkedDeviceCustodyTransferRecipient(
   };
 }
 
-function createTransferRecipientHandleId(): string {
+function createExportRootRecipientHandleId(): string {
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
-  return `linked-device-custody-transfer-${base64UrlEncode(bytes)}`;
+  return `linked-device-ed25519-export-root-${base64UrlEncode(bytes)}`;
 }
 
 async function rotateWalletRecoverySet(request: RotateRecoverySetRequest): Promise<unknown> {
@@ -1000,23 +1000,29 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
     case 'linkWalletCustodyPasskey':
       postSucceeded(request.id, await linkWalletCustodyPasskey(request));
       return;
-    case 'createLinkedDeviceCustodyTransferRecipient':
-      postSucceeded(request.id, await createLinkedDeviceCustodyTransferRecipient(request));
+    case 'createLinkedDeviceEd25519ExportRootRecipient':
+      postSucceeded(request.id, await createLinkedDeviceEd25519ExportRootRecipient(request));
       return;
-    case 'establishUnlockedWalletCustodyTransferCapability':
-      postSucceeded(request.id, await establishUnlockedWalletCustodyTransferCapability(request));
+    case 'establishUnlockedWalletEd25519ExportRootCapability':
+      postSucceeded(
+        request.id,
+        await establishUnlockedWalletEd25519ExportRootCapability(request),
+      );
       return;
-    case 'destroyUnlockedWalletCustodyTransferCapabilities':
-      postSucceeded(request.id, destroyUnlockedWalletCustodyTransferCapabilities(request));
+    case 'destroyUnlockedWalletEd25519ExportRootCapabilities':
+      postSucceeded(
+        request.id,
+        destroyUnlockedWalletEd25519ExportRootCapabilities(request),
+      );
       return;
-    case 'sealWalletCustodySeedForLinkedDevice':
-      postSucceeded(request.id, await sealWalletCustodySeedForLinkedDevice(request));
+    case 'sealEd25519ExportRootForLinkedDevice':
+      postSucceeded(request.id, await sealEd25519ExportRootForLinkedDevice(request));
       return;
-    case 'acceptLinkedDeviceCustodyTransfer':
-      postSucceeded(request.id, await acceptLinkedDeviceCustodyTransfer(request));
+    case 'acceptLinkedDeviceEd25519ExportRoot':
+      postSucceeded(request.id, await acceptLinkedDeviceEd25519ExportRoot(request));
       return;
-    case 'discardLinkedDeviceCustodyTransferRecipient':
-      postSucceeded(request.id, discardLinkedDeviceCustodyTransferRecipient(request));
+    case 'discardLinkedDeviceEd25519ExportRootRecipient':
+      postSucceeded(request.id, discardLinkedDeviceEd25519ExportRootRecipient(request));
       return;
     case 'rotateWalletRecoverySet':
       postSucceeded(request.id, await rotateWalletRecoverySet(request));

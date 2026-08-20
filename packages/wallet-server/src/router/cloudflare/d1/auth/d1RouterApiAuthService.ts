@@ -173,7 +173,6 @@ import {
   linkedDeviceEmailOtpBaseFactorReaderV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpTargetFactor';
 import { D1LinkedDeviceLocalStateInvalidationV1 } from '../deviceLinking/d1LinkedDeviceLocalStateInvalidation';
-import { D1LinkedDeviceOperatorRecoveryProviderV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
 import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import { CloudflareD1LaneEnrollmentGateway } from '../signingLanes/d1LaneEnrollmentGateway';
 import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../signingLanes/d1LaneAggregateRevocationApplicationService';
@@ -547,9 +546,6 @@ function createD1LinkedDeviceComposition(input: {
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
       linkedDeviceLocalPresence,
       targetCredential,
-      operatorRecovery: new D1LinkedDeviceOperatorRecoveryProviderV1(
-        config.session.operatorRecovery,
-      ),
       provisioning,
       sourceHandoff,
       nowV1: config.execution.nowV1,

@@ -35,6 +35,7 @@ import type { LinkedDeviceOwnerAuthBindingV1 } from '@shared/device-linking/owne
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
 import { parseEnrollmentRow, parseProductEpochRow } from '../signingLanes/d1LaneRecords';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 
 const ENROLLMENT_TABLE = 'lane_enrollments';
 const WALLET_AUTH_METHOD_TABLE = 'wallet_auth_methods';
@@ -798,11 +799,8 @@ function projectBindingState(
 }
 
 /** The narrow linked execution grant every Phase 8 linked owner holds. */
-const LINKED_OWNER_EXECUTION_PERMISSION_V1: LinkedDeviceSummaryV1['permission'] = {
-  kind: 'owner_equivalent_signing',
-  administrationScope: 'signing_only',
-  localUserPresence: 'required',
-};
+const LINKED_OWNER_EXECUTION_PERMISSION_V1: LinkedDeviceSummaryV1['permission'] =
+  buildFullOwnerDelegatedWalletAuthorityV1();
 
 function productActivityAtMs(product: LaneProductEpochRecordV1): number {
   switch (product.state) {

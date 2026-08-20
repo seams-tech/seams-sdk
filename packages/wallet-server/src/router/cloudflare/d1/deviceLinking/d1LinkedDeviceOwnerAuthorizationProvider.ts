@@ -10,6 +10,7 @@ import {
   parseLinkedDeviceProtocolVersionV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -448,7 +449,7 @@ function ownerAuthorizationSourceMatchesContext(
 function validateOwnerContext(
   owner: Pick<
     LinkedDeviceOwnerAuthorizationContextV1,
-    'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs'
+    'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs' | 'permission'
   >,
   requestedAtMs: number,
   nowV1: () => number,
@@ -465,7 +466,8 @@ function validateOwnerContext(
     !Number.isSafeInteger(requestedAtMs) ||
     requestedAtMs < 0 ||
     requestedAtMs >= owner.expiresAtMs ||
-    nowV1() >= owner.expiresAtMs
+    nowV1() >= owner.expiresAtMs ||
+    !hasDelegatedWalletPermissionV1(owner.permission, 'link_devices')
   ) {
     return denied('invalid', 'owner Wallet Session context is invalid or expired');
   }

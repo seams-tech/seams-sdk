@@ -48,10 +48,11 @@ import type {
   DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
+  DeviceLinkingEmailOtpExportRootPreparationInputV1,
+  DeviceLinkingEmailOtpTargetPreparationResultV1,
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingKeyMaterialBundleV1,
-  EmailOtpCustodyEnvelopeRecordV1,
 } from './deviceLinkingPorts';
 import { EcdsaClientWorkerControlKind } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import { getWorkerTransport } from '@/core/signingEngine/workerManager/workerTransport';
@@ -73,7 +74,7 @@ export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV
 type DeviceLinkingWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
   | {
-      readonly kind: 'device_linking_email_otp_custody_recipient_create_v1';
+      readonly kind: 'device_linking_email_otp_export_root_recipient_create_v1';
       readonly handleId: string;
     }
   | {
@@ -93,13 +94,7 @@ type DeviceLinkingWorkerRequestV1 =
       readonly handleId: string;
       readonly preparation: LinkedDeviceTargetPreparationV1;
       readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
-      readonly transferBindingJson: string;
-      readonly ephemeralPublicKeyB64u: string;
-      readonly nonceB64u: string;
-      readonly sealedCustodySecretB64u: string;
-      readonly aadHashB64u: string;
-      readonly ciphertextDigestB64u: string;
-      readonly replacementEnvelopeBindingJson: string;
+      readonly exportRoot: DeviceLinkingEmailOtpExportRootPreparationInputV1;
     }
   | {
       readonly kind: 'device_linking_holder_signing_material_open_v1';
@@ -461,13 +456,13 @@ function parseTargetHolderResult(
   return { orderedHolderRegistrations: registration.orderedHolderRegistrations };
 }
 
-function parseEmailOtpCustodyRecipientResult(value: unknown): {
+function parseEmailOtpExportRootRecipientResult(value: unknown): {
   readonly recipientPublicKeyB64u: string;
 } {
   const record = exactRecord(
     value,
     ['recipientPublicKeyB64u'],
-    'device-linking Email OTP custody recipient response',
+    'device-linking Email OTP export-root recipient response',
   );
   return {
     recipientPublicKeyB64u: parseFixedB64u(
@@ -485,21 +480,10 @@ function parseEmailOtpTargetResult(
     { readonly targetFactor: { readonly kind: 'email_otp' } }
   >,
   verification: LinkedDeviceEmailOtpVerificationResultV1,
-): {
-  readonly orderedHolderRegistrations: readonly [
-    LinkedDeviceTargetHolderRegistrationV1,
-    ...LinkedDeviceTargetHolderRegistrationV1[],
-  ];
-  readonly resealedCustodyEnvelope: {
-    readonly nonceB64u: string;
-    readonly sealedCustodySecretB64u: string;
-    readonly aadHashB64u: string;
-    readonly ciphertextDigestB64u: string;
-  };
-} {
+): DeviceLinkingEmailOtpTargetPreparationResultV1 {
   const record = exactRecord(
     value,
-    ['emailOtpPrepared', 'orderedHolderRegistrations', 'resealedCustodyEnvelope'],
+    ['emailOtpPrepared', 'orderedHolderRegistrations', 'exportRootRequirement'],
     'device-linking Email OTP target response',
   );
   if (record.emailOtpPrepared !== true) {
@@ -520,25 +504,47 @@ function parseEmailOtpTargetResult(
   if (registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length) {
     throw new Error('device-linking worker returned the wrong holder child count');
   }
+  const exportRootRequirement = exactRecord(
+    record.exportRootRequirement,
+    ['kind'],
+    'device-linking Email OTP export-root preparation requirement',
+  );
+  if (exportRootRequirement.kind === 'not_required') {
+    return {
+      orderedHolderRegistrations: registration.orderedHolderRegistrations,
+      exportRootRequirement: { kind: 'not_required' },
+    };
+  }
+  if (exportRootRequirement.kind !== 'required') {
+    throw new Error('device-linking Email OTP export-root preparation requirement is invalid');
+  }
+  const required = exactRecord(
+    exportRootRequirement,
+    ['kind', 'resealedExportRootEnvelope'],
+    'device-linking Email OTP export-root preparation requirement',
+  );
   const resealed = exactRecord(
-    record.resealedCustodyEnvelope,
-    ['nonceB64u', 'sealedCustodySecretB64u', 'aadHashB64u', 'ciphertextDigestB64u'],
-    'device-linking Email OTP resealed custody envelope',
+    required.resealedExportRootEnvelope,
+    ['nonceB64u', 'sealedExportRootB64u', 'aadHashB64u', 'ciphertextDigestB64u'],
+    'device-linking Email OTP resealed export-root envelope',
   );
   return {
     orderedHolderRegistrations: registration.orderedHolderRegistrations,
-    resealedCustodyEnvelope: {
-      nonceB64u: parseFixedB64u(resealed.nonceB64u, 12, 'resealed nonceB64u'),
-      sealedCustodySecretB64u: nonEmpty(
-        resealed.sealedCustodySecretB64u,
-        'resealed sealedCustodySecretB64u',
-      ),
-      aadHashB64u: parseFixedB64u(resealed.aadHashB64u, 32, 'resealed aadHashB64u'),
-      ciphertextDigestB64u: parseFixedB64u(
-        resealed.ciphertextDigestB64u,
-        32,
-        'resealed ciphertextDigestB64u',
-      ),
+    exportRootRequirement: {
+      kind: 'required',
+      resealedExportRootEnvelope: {
+        nonceB64u: parseFixedB64u(resealed.nonceB64u, 12, 'resealed nonceB64u'),
+        sealedExportRootB64u: nonEmpty(
+          resealed.sealedExportRootB64u,
+          'resealed sealedExportRootB64u',
+        ),
+        aadHashB64u: parseFixedB64u(resealed.aadHashB64u, 32, 'resealed aadHashB64u'),
+        ciphertextDigestB64u: parseFixedB64u(
+          resealed.ciphertextDigestB64u,
+          32,
+          'resealed ciphertextDigestB64u',
+        ),
+      },
     },
   };
 }
@@ -773,11 +779,11 @@ export function createDeviceLinkingKeyMaterialPortV1(
     async createBootstrapKeyMaterialV1() {
       return parseCreateResult(await request({ kind: 'device_linking_key_material_create_v1' }));
     },
-    async createEmailOtpCustodyRecipientV1(input) {
+    async createEmailOtpEd25519ExportRootRecipientV1(input) {
       const handle = parseHandle(input.handle);
-      return parseEmailOtpCustodyRecipientResult(
+      return parseEmailOtpExportRootRecipientResult(
         await request({
-          kind: 'device_linking_email_otp_custody_recipient_create_v1',
+          kind: 'device_linking_email_otp_export_root_recipient_create_v1',
           handleId: handle.handleId,
         }),
       );
@@ -819,13 +825,15 @@ export function createDeviceLinkingKeyMaterialPortV1(
           handleId: handle.handleId,
           preparation,
           verification: input.verification,
-          transferBindingJson: input.transferBindingJson,
-          ephemeralPublicKeyB64u: String(input.transferPackage.ephemeralPublicKeyB64u),
-          nonceB64u: String(input.transferPackage.nonceB64u),
-          sealedCustodySecretB64u: String(input.transferPackage.sealedCustodySecretB64u),
-          aadHashB64u: String(input.transferPackage.aadHashB64u),
-          ciphertextDigestB64u: String(input.transferPackage.ciphertextDigestB64u),
-          replacementEnvelopeBindingJson: input.replacementEnvelopeBindingJson,
+          exportRoot:
+            input.exportRoot.kind === 'required'
+              ? {
+                  kind: 'required',
+                  transferBindingJson: input.exportRoot.transferBindingJson,
+                  package: input.exportRoot.package,
+                  replacementEnvelopeBindingJson: input.exportRoot.replacementEnvelopeBindingJson,
+                }
+              : { kind: 'not_required' },
         }),
         preparation,
         input.verification,

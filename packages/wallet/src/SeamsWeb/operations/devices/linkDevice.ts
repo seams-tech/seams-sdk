@@ -51,7 +51,8 @@ import type {
   DeviceLinkingFlowPortsV1,
   DeviceLinkingKeyMaterialHandleV1,
   LinkedDeviceSigningSessionActivationV1,
-  EmailOtpCustodyEnvelopeRecordV1,
+  LinkedDeviceExportRootActivationRequirementV1,
+  EmailOtpExportRootEnvelopeRecordV1,
   DeviceLinkingTargetCredentialPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
@@ -61,16 +62,32 @@ import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents'
 import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 import {
-  acceptLinkedDeviceCustodyTransferV1,
-  acceptLinkedDeviceEmailOtpCustodyTransferV1,
-  discardLinkedDeviceCustodyRecipientV1,
-  publishLinkedDeviceCustodyRecipientV1,
-  publishLinkedDeviceEmailOtpCustodyRecipientV1,
-} from './deviceLinkingTargetCustodyTransfer';
-import type { DeviceLinkingCustodyTransferRecipientHandleV1 } from './deviceLinkingCustodyTransfer';
+  acceptLinkedDeviceEd25519ExportRootV1,
+  acceptLinkedDeviceEmailOtpEd25519ExportRootV1,
+  discardLinkedDeviceEd25519ExportRootRecipientV1,
+  publishLinkedDeviceEmailOtpEd25519ExportRootRecipientV1,
+  publishLinkedDeviceEd25519ExportRootRecipientV1,
+} from './deviceLinkingTargetEd25519ExportRoot';
+import type { DeviceLinkingEd25519ExportRootRecipientHandleV1 } from './deviceLinkingEd25519ExportRoot';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import type { LinkedDeviceCustodyTransferRecipientV1 } from '@shared/device-linking/custodyTransfer';
+import {
+  buildFullOwnerDelegatedWalletAuthorityV1,
+  sameDelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
+import type { LinkedDeviceEd25519ExportRootRecipientV1 } from '@shared/device-linking/ed25519ExportRoot';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  buildActiveEnvelopeLifecycle,
+  buildEd25519YaoClientRootBinding,
+  buildEmailOtpEnvelopeFactor,
+  buildPasskeyCustodyEnvelopeRecord,
+  buildPasskeyEnvelopeFactor,
+  parseEnvelopeCiphertextB64u,
+  parseDigestField,
+  parseEnvelopeNonceB64u,
+  parseEnvelopeRevision,
+} from '@shared/passkey-custody';
+import { parsePasskeyEnvelopeId, type PasskeyEnvelopeId } from '@shared/utils/domainIds';
 import {
   persistFinalizedLinkedOwnerPasskeyV1,
   type FinalizedPasskeyAuthMethodV1,
@@ -263,7 +280,15 @@ type EmailOtpTargetActivationBaseContextV1 = {
   readonly runEpoch: number;
   readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
   readonly preparation: EmailOtpTargetPreparationV1;
-  readonly recipient: LinkedDeviceCustodyTransferRecipientV1;
+  readonly exportRoot:
+    | {
+        readonly kind: 'required';
+        readonly recipient: LinkedDeviceEd25519ExportRootRecipientV1;
+      }
+    | {
+        readonly kind: 'not_required';
+        readonly recipient?: never;
+      };
 };
 
 type EmailOtpTargetActivationContextV1 = EmailOtpTargetActivationBaseContextV1 & {
@@ -279,7 +304,7 @@ function emailOtpTargetActivationBaseContextV1(
     runEpoch: context.runEpoch,
     deviceId: context.deviceId,
     preparation: context.preparation,
-    recipient: context.recipient,
+    exportRoot: context.exportRoot,
   };
 }
 
@@ -306,16 +331,19 @@ type EmailOtpTargetActivationStateV1 =
   | {
       readonly kind: 'completed';
       readonly runEpoch: number;
-      readonly resealedCustodyEnvelope: EmailOtpCustodyEnvelopeRecordV1;
+      readonly exportRootRequirement: Extract<
+        LinkedDeviceSigningSessionActivationV1,
+        { readonly kind: 'target_email_otp_activation' }
+      >['exportRootRequirement'];
       readonly verificationGrant: LinkedDeviceEmailOtpVerificationResultV1['verificationGrant'];
       readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
     };
 
-function requireEmailOtpCustodyEnvelopeV1(
+function requireEmailOtpExportRootEnvelopeV1(
   envelope: PasskeyCustodyEnvelopeRecord,
-): EmailOtpCustodyEnvelopeRecordV1 {
+): EmailOtpExportRootEnvelopeRecordV1 {
   if (envelope.factor.kind !== 'email_otp') {
-    throw new Error('linked-device Email OTP custody transfer returned a Passkey envelope');
+    throw new Error('linked-device Email OTP export-root transfer returned a Passkey envelope');
   }
   return {
     ...envelope,
@@ -401,6 +429,86 @@ function requireTargetRpIdV1(preparation: PasskeyTargetPreparationV1): WebAuthnR
   return rpId.value;
 }
 
+function requireEd25519ExportRootPreparationV1(
+  preparation: LinkedDeviceTargetPreparationV1,
+): NonNullable<LinkedDeviceTargetPreparationV1['ed25519ExportRoot']> {
+  const root = preparation.ed25519ExportRoot;
+  if (!root) {
+    throw new Error('linked-device target has no Ed25519 export root requirement');
+  }
+  return root;
+}
+
+function createExportRootEnvelopeIdV1(): PasskeyEnvelopeId {
+  const parsed = parsePasskeyEnvelopeId(
+    secureRandomId('linked-device-ed25519-export-root-envelope', 24, 'export-root envelope ids'),
+  );
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function exportRootBindingJsonV1(input: {
+  readonly walletId: PasskeyCustodyEnvelopeRecord['walletId'];
+  readonly envelopeId: ReturnType<typeof createExportRootEnvelopeIdV1>;
+  readonly factor: PasskeyCustodyEnvelopeRecord['factor'];
+  readonly binding: PasskeyCustodyEnvelopeRecord['binding'];
+}): string {
+  return JSON.stringify({
+    walletId: input.walletId,
+    envelopeId: input.envelopeId,
+    factor: input.factor,
+    envelopeRevision: 1,
+    binding: input.binding,
+  });
+}
+
+function buildResealedExportRootEnvelopeV1(input: {
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly factor: PasskeyCustodyEnvelopeRecord['factor'];
+  readonly envelopeId: ReturnType<typeof createExportRootEnvelopeIdV1>;
+  readonly resealed: {
+    readonly nonceB64u: string;
+    readonly sealedExportRootB64u: string;
+    readonly aadHashB64u: string;
+    readonly ciphertextDigestB64u: string;
+  };
+  readonly nowMs: number;
+}): PasskeyCustodyEnvelopeRecord {
+  const root = requireEd25519ExportRootPreparationV1(input.preparation);
+  return buildPasskeyCustodyEnvelopeRecord({
+    envelopeId: input.envelopeId,
+    walletId: input.preparation.walletId,
+    binding: buildEd25519YaoClientRootBinding({
+      linkSessionId: input.preparation.linkSessionId,
+      walletKeyId: root.walletKeyId,
+      targetFactor: input.preparation.targetFactor,
+      applicationBindingDigestB64u: root.applicationBindingDigestB64u,
+      registeredPublicKeyB64u: root.registeredPublicKeyB64u,
+      enrollmentId: input.preparation.enrollmentId,
+      deviceId: input.preparation.deviceId,
+      revocationEpoch: root.revocationEpoch,
+    }),
+    factor: input.factor,
+    envelopeRevision: parseEnvelopeRevision(1),
+    nonceB64u: parseEnvelopeNonceB64u(
+      input.resealed.nonceB64u,
+      'resealed Ed25519 export-root nonce',
+    ),
+    sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(
+      input.resealed.sealedExportRootB64u,
+      'resealed Ed25519 export-root ciphertext',
+    ),
+    ciphertextDigestB64u: parseDigestField(
+      input.resealed.ciphertextDigestB64u,
+      'resealed Ed25519 export-root ciphertext digest',
+    ),
+    aadHashB64u: parseDigestField(input.resealed.aadHashB64u, 'resealed Ed25519 export-root AAD hash'),
+    lifecycle: buildActiveEnvelopeLifecycle({ activatedAtMs: input.nowMs }),
+    createdAtMs: input.nowMs,
+    updatedAtMs: input.nowMs,
+  });
+}
+
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
   private readonly ports: Device2LinkingFlowPortsV1;
@@ -408,12 +516,8 @@ export class LinkDeviceFlow {
   private session: DeviceLinkingSession | null = null;
   private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
   private emailOtpReleasePublicKey65B64u: string | null = null;
-  /**
-   * Refactor 103 Phase 8. The wallet custody seed resealed under this device's
-   * new passkey, waiting for the canonical finalize that registers it as an
-   * owner auth method.
-   */
-  private resealedCustodyEnvelope: PasskeyCustodyEnvelopeRecord | null = null;
+  /** Factor-sealed Ed25519 Yao Client root awaiting owner finalization. */
+  private resealedExportRootEnvelope: PasskeyCustodyEnvelopeRecord | null = null;
   private authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | null = null;
   private subscription: LinkSessionSubscriptionV1 | null = null;
   private error?: Error;
@@ -423,6 +527,9 @@ export class LinkDeviceFlow {
   private discardInProgress: Promise<void> | null = null;
   private walletSessionDeliveryInProgress: Promise<void> | null = null;
   private walletSessionDeliveryPersisted = false;
+  private localSigningSessionActivationInProgress: Promise<void> | null = null;
+  private localSigningSessionActivated = false;
+  private claimedSigningSessionActivation: LinkedDeviceSigningSessionActivationV1 | null = null;
   private targetCredentialActivationState: TargetCredentialActivationState = { kind: 'idle' };
   private emailOtpTargetActivationState: EmailOtpTargetActivationStateV1 = { kind: 'idle' };
   private provisioningApproval: LinkedDeviceApprovalV1 | null = null;
@@ -474,6 +581,7 @@ export class LinkDeviceFlow {
         linkSessionId,
         linkPublicKeyB64u: keyMaterial.linkPublicKeyB64u,
         devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
+        requestedPermission: buildFullOwnerDelegatedWalletAuthorityV1(),
         targetFactor: this.options.targetFactor,
         issuedAtMs,
         expiresAtMs: issuedAtMs + 15 * 60 * 1000,
@@ -757,18 +865,12 @@ export class LinkDeviceFlow {
         if (!this.session) throw new Error('device-link session is unavailable');
         this.session = { ...this.session, state: event.state };
         await this.ensureWalletSessionDeliveryPersistedV1({ state: event.state, runEpoch });
-        const activation = this.claimSigningSessionActivationV1(runEpoch);
-        try {
-          await this.ports.sessionActivation.activateLinkedDeviceSigningSessionV1({
-            walletId: event.state.walletId,
-            enrollmentId: event.state.enrollmentId,
-            activation,
-          });
-        } finally {
-          this.clearTargetCredentialActivationState();
-          this.emailOtpTargetActivationState = { kind: 'idle' };
-          this.resealedCustodyEnvelope = null;
+        if (!this.localSigningSessionActivated) {
+          throw new Error('linked-device server became active before local signing activation');
         }
+        this.clearTargetCredentialActivationState();
+        this.emailOtpTargetActivationState = { kind: 'idle' };
+        this.resealedExportRootEnvelope = null;
         this.emit({
           phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
           status: 'succeeded',
@@ -880,18 +982,30 @@ export class LinkDeviceFlow {
       );
     }
     const authenticatedTransport = this.requireAuthenticatedTransport();
-    const recipient = await publishLinkedDeviceEmailOtpCustodyRecipientV1({
-      keyMaterial: this.ports.keyMaterial,
-      keyHandle: this.keyMaterialHandle,
-      transport: authenticatedTransport,
-      identity: {
-        linkSessionId: String(input.state.linkSessionId),
-        walletId: input.state.walletId,
-        enrollmentId: input.state.enrollmentId,
-        deviceId: input.deviceId,
-      },
-      registeredAtMs: Date.now(),
-    });
+    const exportRoot = input.preparation.ed25519ExportRoot;
+    const exportRootContext: EmailOtpTargetActivationBaseContextV1['exportRoot'] =
+      exportRoot === null
+        ? { kind: 'not_required' }
+        : {
+            kind: 'required',
+            recipient: await publishLinkedDeviceEmailOtpEd25519ExportRootRecipientV1({
+              keyMaterial: this.ports.keyMaterial,
+              keyHandle: this.keyMaterialHandle,
+              transport: authenticatedTransport,
+              identity: {
+                linkSessionId: input.state.linkSessionId,
+                walletId: input.state.walletId,
+                walletKeyId: exportRoot.walletKeyId,
+                enrollmentId: input.state.enrollmentId,
+                deviceId: input.deviceId,
+                applicationBindingDigestB64u: exportRoot.applicationBindingDigestB64u,
+                registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
+                targetFactor: input.preparation.targetFactor,
+                revocationEpoch: exportRoot.revocationEpoch,
+              },
+              registeredAtMs: Date.now(),
+            }),
+          };
     this.assertCurrentRun(input.runEpoch);
     const baseContext: EmailOtpTargetActivationBaseContextV1 = {
       event: input.event,
@@ -899,7 +1013,7 @@ export class LinkDeviceFlow {
       runEpoch: input.runEpoch,
       deviceId: input.deviceId,
       preparation: input.preparation,
-      recipient,
+      exportRoot: exportRootContext,
     };
     if (input.state.emailOtpChallenge.state === 'available') {
       this.emailOtpTargetActivationState = { kind: 'available', context: baseContext };
@@ -993,7 +1107,7 @@ export class LinkDeviceFlow {
         runEpoch: context.runEpoch,
         deviceId: context.deviceId,
         preparation: context.preparation,
-        recipient: context.recipient,
+        exportRoot: context.exportRoot,
         challenge,
       };
       this.emailOtpTargetActivationState = { kind: 'awaiting_code', context: nextContext };
@@ -1058,7 +1172,7 @@ export class LinkDeviceFlow {
         runEpoch: context.runEpoch,
         deviceId: context.deviceId,
         preparation: context.preparation,
-        recipient: context.recipient,
+        exportRoot: context.exportRoot,
         challenge,
       };
       this.emailOtpTargetActivationState = { kind: 'awaiting_code', context: nextContext };
@@ -1139,20 +1253,80 @@ export class LinkDeviceFlow {
     }
     this.assertCurrentRun(context.runEpoch);
     try {
-      const accepted = await acceptLinkedDeviceEmailOtpCustodyTransferV1({
-        keyMaterial: this.ports.keyMaterial,
-        keyHandle: this.requireKeyMaterialHandleV1(),
-        transport: this.requireAuthenticatedTransport(),
-        recipient: context.recipient,
-        preparation: context.preparation,
-        verification,
-        expiresAtMs: Math.min(
-          context.preparation.ownerEnrollment.expiresAtMs,
-          this.requireSessionV1().qrData.expiresAtMs,
-        ),
-        assertCurrentRun: this.assertCurrentRun.bind(this, context.runEpoch),
-        waitForPollV1: waitForSessionStateRetry,
-      });
+      let orderedHolderRegistrations: LinkedDeviceTargetCredentialRegistrationV1['orderedHolderRegistrations'];
+      let exportRootRequirement: Extract<
+        EmailOtpTargetActivationStateV1,
+        { readonly kind: 'completed' }
+      >['exportRootRequirement'];
+      if (context.preparation.ed25519ExportRoot === null) {
+        if (context.exportRoot.kind !== 'not_required') {
+          throw new Error('linked-device Email OTP export-root recipient exists without a root');
+        }
+        const prepared = await this.ports.keyMaterial.prepareEmailOtpTargetV1({
+          handle: this.requireKeyMaterialHandleV1(),
+          preparation: context.preparation,
+          verification,
+          exportRoot: { kind: 'not_required' },
+        });
+        if (prepared.exportRootRequirement.kind !== 'not_required') {
+          throw new Error('linked-device Email OTP worker returned an unexpected export root');
+        }
+        orderedHolderRegistrations = prepared.orderedHolderRegistrations;
+        exportRootRequirement = prepared.exportRootRequirement;
+      } else {
+        if (context.exportRoot.kind !== 'required') {
+          throw new Error('linked-device Email OTP export-root recipient is unavailable');
+        }
+        const envelopeId = createExportRootEnvelopeIdV1();
+        const factor = buildEmailOtpEnvelopeFactor({
+          enrollmentId: verification.factorRelease.enrollmentId,
+          enrollmentSealKeyVersion: verification.factorRelease.enrollmentSealKeyVersion,
+        });
+        const root = requireEd25519ExportRootPreparationV1(context.preparation);
+        const binding = buildEd25519YaoClientRootBinding({
+          linkSessionId: context.preparation.linkSessionId,
+          walletKeyId: root.walletKeyId,
+          targetFactor: context.preparation.targetFactor,
+          applicationBindingDigestB64u: root.applicationBindingDigestB64u,
+          registeredPublicKeyB64u: root.registeredPublicKeyB64u,
+          enrollmentId: context.preparation.enrollmentId,
+          deviceId: context.preparation.deviceId,
+          revocationEpoch: root.revocationEpoch,
+        });
+        const accepted = await acceptLinkedDeviceEmailOtpEd25519ExportRootV1({
+          keyMaterial: this.ports.keyMaterial,
+          keyHandle: this.requireKeyMaterialHandleV1(),
+          transport: this.requireAuthenticatedTransport(),
+          recipient: context.exportRoot.recipient,
+          preparation: context.preparation,
+          verification,
+          replacementEnvelopeBindingJson: exportRootBindingJsonV1({
+            walletId: context.preparation.walletId,
+            envelopeId,
+            factor,
+            binding,
+          }),
+          expiresAtMs: Math.min(
+            context.preparation.ownerEnrollment.expiresAtMs,
+            this.requireSessionV1().qrData.expiresAtMs,
+          ),
+          assertCurrentRun: this.assertCurrentRun.bind(this, context.runEpoch),
+          waitForPollV1: waitForSessionStateRetry,
+        });
+        orderedHolderRegistrations = accepted.orderedHolderRegistrations;
+        exportRootRequirement = {
+          kind: 'required',
+          resealedExportRootEnvelope: requireEmailOtpExportRootEnvelopeV1(
+            buildResealedExportRootEnvelopeV1({
+              preparation: context.preparation,
+              factor,
+              envelopeId,
+              resealed: accepted.resealedExportRootEnvelope,
+              nowMs: Date.now(),
+            }),
+          ),
+        };
+      }
       this.assertCurrentRun(context.runEpoch);
       const targetPreparationDigestB64u =
         await computeLinkedDeviceTargetPreparationDigestV1(context.preparation);
@@ -1164,7 +1338,7 @@ export class LinkDeviceFlow {
         targetFactor: { kind: 'email_otp' },
         targetPreparationDigestB64u,
         emailOtpVerificationGrant: verification.verificationGrant,
-        orderedHolderRegistrations: accepted.orderedHolderRegistrations,
+        orderedHolderRegistrations,
         registeredAtMs: Date.now(),
       });
       this.targetPreparationForProvisioning = context.preparation;
@@ -1174,7 +1348,7 @@ export class LinkDeviceFlow {
       this.emailOtpTargetActivationState = {
         kind: 'completed',
         runEpoch: context.runEpoch,
-        resealedCustodyEnvelope: requireEmailOtpCustodyEnvelopeV1(accepted.custodyEnvelope),
+        exportRootRequirement,
         verificationGrant: verification.verificationGrant,
         factorRelease: verification.factorRelease,
       };
@@ -1326,6 +1500,43 @@ export class LinkDeviceFlow {
     }
   }
 
+  private async ensureLocalSigningSessionActivatedV1(input: {
+    readonly state: Extract<
+      LinkedDeviceSessionState,
+      {
+        readonly state:
+          | 'provisioning'
+          | 'committed_completion_required'
+          | 'active';
+      }
+    >;
+    readonly runEpoch: number;
+  }): Promise<void> {
+    if (this.localSigningSessionActivated) return;
+    if (this.localSigningSessionActivationInProgress) {
+      await this.localSigningSessionActivationInProgress;
+      return;
+    }
+    const activation =
+      this.claimedSigningSessionActivation ?? this.claimSigningSessionActivationV1(input.runEpoch);
+    this.claimedSigningSessionActivation = activation;
+    const activationPromise = this.ports.sessionActivation.activateLinkedDeviceSigningSessionV1({
+      walletId: input.state.walletId,
+      enrollmentId: input.state.enrollmentId,
+      activation,
+    });
+    this.localSigningSessionActivationInProgress = activationPromise;
+    try {
+      await activationPromise;
+      this.assertCurrentRun(input.runEpoch);
+      this.localSigningSessionActivated = true;
+    } finally {
+      if (this.localSigningSessionActivationInProgress === activationPromise) {
+        this.localSigningSessionActivationInProgress = null;
+      }
+    }
+  }
+
   private claimSigningSessionActivationV1(
     runEpoch: number,
   ): LinkedDeviceSigningSessionActivationV1 {
@@ -1334,11 +1545,24 @@ export class LinkDeviceFlow {
       case 'passkey_prf': {
         const factorSecret = this.claimTargetCredentialFactorSecret(runEpoch);
         if (!factorSecret) return { kind: 'existing_target_passkey' };
-        const resealedCustodyEnvelope = this.resealedCustodyEnvelope;
-        if (!resealedCustodyEnvelope) {
-          throw new Error('linked-device passkey custody envelope is unavailable');
+        const targetPreparation = this.targetPreparationForProvisioning;
+        if (!targetPreparation) {
+          throw new Error('linked-device target preparation is unavailable');
         }
-        return { kind: 'target_passkey_creation', factorSecret, resealedCustodyEnvelope };
+        const resealedExportRootEnvelope = this.resealedExportRootEnvelope;
+        if (targetPreparation.ed25519ExportRoot !== null && !resealedExportRootEnvelope) {
+          throw new Error('linked-device passkey export-root envelope is unavailable');
+        }
+        if (targetPreparation.ed25519ExportRoot === null && resealedExportRootEnvelope) {
+          throw new Error(
+            'linked-device export-root envelope exists for an authority without export_keys',
+          );
+        }
+        const exportRootRequirement: LinkedDeviceExportRootActivationRequirementV1 =
+          resealedExportRootEnvelope
+            ? { kind: 'required', resealedExportRootEnvelope }
+            : { kind: 'not_required' };
+        return { kind: 'target_passkey_creation', factorSecret, exportRootRequirement };
       }
       case 'email_otp': {
         const activationState = this.emailOtpTargetActivationState;
@@ -1363,7 +1587,7 @@ export class LinkDeviceFlow {
           kind: 'target_email_otp_activation',
           keyMaterial: this.requireKeyMaterialHandleV1(),
           holderMaterial: this.ports.keyMaterial,
-          resealedCustodyEnvelope: activationState.resealedCustodyEnvelope,
+          exportRootRequirement: activationState.exportRootRequirement,
           verificationGrant: activationState.verificationGrant,
           factorRelease: activationState.factorRelease,
         };
@@ -1380,6 +1604,7 @@ export class LinkDeviceFlow {
       zeroizeLiveBytes(state.factorSecret);
     }
     this.targetCredentialActivationState = { kind: 'idle' };
+    this.claimedSigningSessionActivation = null;
   }
 
   private async createTargetCredential(input: {
@@ -1397,29 +1622,38 @@ export class LinkDeviceFlow {
       linkSessionId: state.linkSessionId,
       stage: 'target_passkey_prompt_started',
     });
-    // Started, not awaited. Device 1 cannot seal the wallet custody seed until
+    const exportRoot = preparation.ed25519ExportRoot;
+    // Started, not awaited. Device 1 can seal the export root as soon as
     // a recipient exists, and the owner is already waiting there, so publishing
     // one now lets that seal happen while this device's user is still at the
     // passkey prompt. Awaiting it here would spend the click's transient user
     // activation on a worker call and a POST before WebAuthn ever sees it.
-    const recipientPublish = publishLinkedDeviceCustodyRecipientV1({
-      custodyTransfer: this.ports.custodyTransfer,
-      transport: authenticatedTransport,
-      identity: {
-        linkSessionId: String(state.linkSessionId),
-        walletId: state.walletId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
-      },
-      registeredAtMs: Date.now(),
-    });
+    const recipientPublish =
+      exportRoot === null
+        ? Promise.resolve<DeviceLinkingEd25519ExportRootRecipientHandleV1 | null>(null)
+        : publishLinkedDeviceEd25519ExportRootRecipientV1({
+            ed25519ExportRoot: this.ports.ed25519ExportRoot,
+            transport: authenticatedTransport,
+            identity: {
+              linkSessionId: state.linkSessionId,
+              walletId: state.walletId,
+              walletKeyId: exportRoot.walletKeyId,
+              enrollmentId: state.enrollmentId,
+              deviceId,
+              applicationBindingDigestB64u: exportRoot.applicationBindingDigestB64u,
+              registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
+              targetFactor: preparation.targetFactor,
+              revocationEpoch: exportRoot.revocationEpoch,
+            },
+            registeredAtMs: Date.now(),
+          });
     // Nothing awaits it until after the prompt; this keeps an early rejection
     // from being reported as unhandled. It is re-raised at the await below.
     recipientPublish.catch(() => undefined);
     let credential: Awaited<
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
     > | null = null;
-    let recipient: DeviceLinkingCustodyTransferRecipientHandleV1 | null = null;
+    let recipient: DeviceLinkingEd25519ExportRootRecipientHandleV1 | null = null;
     try {
       // This is the first operation after the UI click so WebAuthn receives transient user activation.
       credential = await this.ports.targetCredential.createTargetCredentialV1({
@@ -1439,39 +1673,66 @@ export class LinkDeviceFlow {
         interaction: { kind: 'qr_display', overlay: 'show' },
       });
       recipient = await recipientPublish;
-      logDevice2LinkingStageV1({
-        flowId: this.flowId,
-        linkSessionId: state.linkSessionId,
-        stage: 'custody_recipient_published',
-      });
+      if (recipient) {
+        logDevice2LinkingStageV1({
+          flowId: this.flowId,
+          linkSessionId: state.linkSessionId,
+          stage: 'export_root_recipient_published',
+        });
+      }
       this.assertCurrentRun(runEpoch);
-      // The wallet custody seed is resealed under the passkey just created.
-      // The canonical finalize registers that credential as a peer owner before
-      // the additive lane path consumes its factor for the local session.
-      this.resealedCustodyEnvelope = await acceptLinkedDeviceCustodyTransferV1({
-        custodyTransfer: this.ports.custodyTransfer,
-        transport: authenticatedTransport,
-        recipient,
-        rpId: requireTargetRpIdV1(preparation),
-        credentialIdB64u: credential.webauthnRegistration.credentialIdB64u,
-        replacementFactorSecret: credential.factorSecret,
-        // Whichever deadline comes first: past the ceremony the credential this
-        // seed is for can never be minted, and past the session there is no
-        // authenticated channel left to finalize it through.
-        expiresAtMs: Math.min(
-          preparation.ownerEnrollment.expiresAtMs,
-          this.session.qrData.expiresAtMs,
-        ),
-        assertCurrentRun: () => this.assertCurrentRun(runEpoch),
-        waitForPollV1: waitForSessionStateRetry,
-      });
-      logDevice2LinkingStageV1({
-        flowId: this.flowId,
-        linkSessionId: state.linkSessionId,
-        stage: 'custody_transfer_accepted',
-      });
-      // The worker consumes and frees the recipient during every accept attempt.
-      recipient = null;
+      if (exportRoot !== null) {
+        if (!recipient) {
+          throw new Error('linked-device Ed25519 export-root recipient is unavailable');
+        }
+        const envelopeId = createExportRootEnvelopeIdV1();
+        const factor = buildPasskeyEnvelopeFactor({
+          rpId: requireTargetRpIdV1(preparation),
+          credentialIdB64u: credential.webauthnRegistration.credentialIdB64u,
+        });
+        const binding = buildEd25519YaoClientRootBinding({
+          linkSessionId: preparation.linkSessionId,
+          walletKeyId: exportRoot.walletKeyId,
+          targetFactor: preparation.targetFactor,
+          applicationBindingDigestB64u: exportRoot.applicationBindingDigestB64u,
+          registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
+          enrollmentId: preparation.enrollmentId,
+          deviceId: preparation.deviceId,
+          revocationEpoch: exportRoot.revocationEpoch,
+        });
+        const resealed = await acceptLinkedDeviceEd25519ExportRootV1({
+          ed25519ExportRoot: this.ports.ed25519ExportRoot,
+          transport: authenticatedTransport,
+          recipient,
+          replacementEnvelopeBindingJson: exportRootBindingJsonV1({
+            walletId: preparation.walletId,
+            envelopeId,
+            factor,
+            binding,
+          }),
+          replacementFactorSecret: credential.factorSecret,
+          expiresAtMs: Math.min(
+            preparation.ownerEnrollment.expiresAtMs,
+            this.session.qrData.expiresAtMs,
+          ),
+          assertCurrentRun: () => this.assertCurrentRun(runEpoch),
+          waitForPollV1: waitForSessionStateRetry,
+        });
+        logDevice2LinkingStageV1({
+          flowId: this.flowId,
+          linkSessionId: state.linkSessionId,
+          stage: 'export_root_accepted',
+        });
+        this.resealedExportRootEnvelope = buildResealedExportRootEnvelopeV1({
+          preparation,
+          factor,
+          envelopeId,
+          resealed,
+          nowMs: Date.now(),
+        });
+        // The worker consumes and frees the recipient during every accept attempt.
+        recipient = null;
+      }
       this.assertCurrentRun(runEpoch);
       const targetPreparationDigestB64u =
         await computeLinkedDeviceTargetPreparationDigestV1(preparation);
@@ -1488,18 +1749,15 @@ export class LinkDeviceFlow {
       });
       this.targetPreparationForProvisioning = preparation;
       this.targetCredentialRegistrationForProvisioning = registration;
-      const resealedCustodyEnvelope = this.resealedCustodyEnvelope;
-      if (!resealedCustodyEnvelope) {
-        throw new Error('linked-device custody transfer did not produce a resealed envelope');
-      }
-      // Commits the credential and lands both local writes as one recoverable
-      // unit, so neither can be left behind by a failure in the other.
+      // The linked finalize registers only the new owner credential. Any
+      // Ed25519 export root was already persisted in the local root repository
+      // during signing-session activation and never enters generic custody
+      // finalization.
       await this.commitLinkedOwnerEnrollmentV1({
         authenticatedTransport,
         state,
         preparation,
         credential,
-        custodyEnvelope: resealedCustodyEnvelope,
         registration,
         runEpoch,
       });
@@ -1527,7 +1785,10 @@ export class LinkDeviceFlow {
       }
       // A recipient nobody will seal to is a live private key in the worker.
       if (recipient) {
-        await discardLinkedDeviceCustodyRecipientV1(this.ports.custodyTransfer, recipient);
+        await discardLinkedDeviceEd25519ExportRootRecipientV1(
+          this.ports.ed25519ExportRoot,
+          recipient,
+        );
       }
       throw error;
     }
@@ -1537,8 +1798,7 @@ export class LinkDeviceFlow {
    * Commits the owner credential, then lands the local writes that depend on it.
    *
    * The server half of this is irreversible: one successful finalize registers
-   * the passkey, the custody envelope, and the owner binding in a single
-   * transaction. Everything after it is local, and a local failure must never
+   * the passkey and owner binding in a single transaction. Everything after it is local, and a local failure must never
    * be recovered by minting a second credential — the wallet would carry two
    * owner factors for one device, only one of which anything knows about.
    *
@@ -1559,7 +1819,6 @@ export class LinkDeviceFlow {
     readonly credential: Awaited<
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
     >;
-    readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly runEpoch: number;
   }): Promise<void> {
@@ -1567,7 +1826,6 @@ export class LinkDeviceFlow {
       kind: 'linked_device_owner_finalize_request_v1',
       addAuthMethodCeremonyId: input.preparation.ownerEnrollment.addAuthMethodCeremonyId,
       webauthnRegistration: input.credential.webauthnRegistration,
-      custodyEnvelope: input.custodyEnvelope,
     };
     // One server call, retained for the whole commit. Replaying it would return
     // this same response — the point of retaining it is that the retry below
@@ -1717,6 +1975,8 @@ export class LinkDeviceFlow {
       runEpoch,
     });
     if (!this.session) return;
+    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
+    await this.ensureLocalSigningSessionActivatedV1({ state, runEpoch });
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -1727,7 +1987,6 @@ export class LinkDeviceFlow {
       }),
     });
     this.assertCurrentRun(runEpoch);
-    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
     logDevice2LinkingStageV1({
       flowId: this.flowId,
       linkSessionId: state.linkSessionId,
@@ -1808,6 +2067,8 @@ export class LinkDeviceFlow {
       receipt,
       runEpoch,
     });
+    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
+    await this.ensureLocalSigningSessionActivatedV1({ state, runEpoch });
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -1818,7 +2079,6 @@ export class LinkDeviceFlow {
       }),
     });
     this.assertCurrentRun(runEpoch);
-    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
   }
 
   private async waitForPreparedDeliveryCommitV1(input: {
@@ -2016,9 +2276,7 @@ export class LinkDeviceFlow {
       approval.walletId !== state.walletId ||
       approval.enrollmentId !== state.enrollmentId ||
       approval.deviceId !== deviceId ||
-      delivery.permission.kind !== approval.permission.kind ||
-      delivery.permission.administrationScope !== approval.permission.administrationScope ||
-      delivery.permission.localUserPresence !== approval.permission.localUserPresence ||
+      !sameDelegatedWalletAuthorityV1(delivery.permission, approval.permission) ||
       delivery.orderedTokens.length !== approval.orderedKeyBindings.length ||
       approval.orderedKeyBindings.some(
         (binding, index) =>
@@ -2084,13 +2342,16 @@ export class LinkDeviceFlow {
   private startRun(): number {
     this.clearTargetCredentialActivationState();
     this.emailOtpTargetActivationState = { kind: 'idle' };
-    this.resealedCustodyEnvelope = null;
+    this.resealedExportRootEnvelope = null;
     this.runEpoch += 1;
     this.generationInProgress = true;
     this.cancelled = false;
     this.error = undefined;
     this.walletSessionDeliveryInProgress = null;
     this.walletSessionDeliveryPersisted = false;
+    this.localSigningSessionActivationInProgress = null;
+    this.localSigningSessionActivated = false;
+    this.claimedSigningSessionActivation = null;
     this.provisioningApproval = null;
     this.aggregateReceipt = null;
     this.targetPreparationForProvisioning = null;
@@ -2185,7 +2446,9 @@ export class LinkDeviceFlow {
   private async cleanupLocalResources(): Promise<void> {
     this.clearTargetCredentialActivationState();
     this.emailOtpTargetActivationState = { kind: 'idle' };
-    this.resealedCustodyEnvelope = null;
+    this.resealedExportRootEnvelope = null;
+    this.localSigningSessionActivated = false;
+    this.claimedSigningSessionActivation = null;
     let failure: unknown;
     const subscription = this.subscription;
     if (subscription) {

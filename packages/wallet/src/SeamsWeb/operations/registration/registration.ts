@@ -187,9 +187,9 @@ import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import {
-  establishUnlockedWalletCustodyTransferCapabilityV1,
+  establishUnlockedWalletEd25519ExportRootCapabilityV1,
   walletCustodyCeremonyTransportFromWorkerContextV1,
-} from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
+} from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import {
   createRouterAbTraceContextV1,
@@ -377,10 +377,10 @@ function custodyEnvelopeFromRegistrationCommit(args: {
 
 /* Exported for tests: ECDSA-only and deferred mixed registration share this
    post-persistence capability handoff. */
-export async function establishPasskeyRegistrationCustodyTransferCapability(args: {
+export async function establishPasskeyRegistrationEd25519ExportRootCapability(args: {
   readonly signingEngine: Pick<
     RegistrationWebContext['signingEngine'],
-    'establishUnlockedWalletCustodyTransferCapabilityV1'
+    'establishUnlockedWalletEd25519ExportRootCapabilityV1'
   >;
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly passkeyPrfFirstB64u: string;
@@ -388,7 +388,7 @@ export async function establishPasskeyRegistrationCustodyTransferCapability(args
   readonly walletSessionId: string;
   readonly expiresAtMs: number;
 }): Promise<void> {
-  await args.signingEngine.establishUnlockedWalletCustodyTransferCapabilityV1({
+  await args.signingEngine.establishUnlockedWalletEd25519ExportRootCapabilityV1({
     existingEnvelope: custodyEnvelopeFromRegistrationCommit({
       commit: args.commit,
       walletId: args.walletId,
@@ -401,7 +401,7 @@ export async function establishPasskeyRegistrationCustodyTransferCapability(args
   });
 }
 
-async function establishEmailOtpRegistrationCustodyTransferCapability(args: {
+async function establishEmailOtpRegistrationEd25519ExportRootCapability(args: {
   readonly context: RegistrationWebContext;
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly factorSecret32: Uint8Array;
@@ -411,7 +411,7 @@ async function establishEmailOtpRegistrationCustodyTransferCapability(args: {
   readonly expiresAtMs: number;
 }): Promise<void> {
   try {
-    await establishUnlockedWalletCustodyTransferCapabilityV1(
+    await establishUnlockedWalletEd25519ExportRootCapabilityV1(
       walletCustodyCeremonyTransportFromWorkerContextV1(
         args.context.signingEngine.getSignerWorkerContext(),
       ),
@@ -430,7 +430,7 @@ async function establishEmailOtpRegistrationCustodyTransferCapability(args: {
     );
   } catch (error: unknown) {
     console.warn(
-      '[registration][email-otp] unlocked custody transfer capability was not established:',
+      '[registration][email-otp] unlocked Ed25519 export-root capability was not established:',
       error instanceof Error ? error.message : String(error || 'unknown error'),
     );
   }
@@ -2948,7 +2948,7 @@ async function registerEcdsaOrMixedWallet(
         throw new Error('Passkey registration authority was not collected');
       }
       const registrationSession = persistencePlan.ecdsa.session.registrationEstablishedSession;
-      await establishPasskeyRegistrationCustodyTransferCapability({
+      await establishPasskeyRegistrationEd25519ExportRootCapability({
         signingEngine: context.signingEngine,
         commit: ceremony.walletCustody.commitPayload,
         passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
@@ -2961,7 +2961,7 @@ async function registerEcdsaOrMixedWallet(
         throw new Error('Email OTP registration has no custody capability material');
       }
       const registrationSession = persistencePlan.ecdsa.session.registrationEstablishedSession;
-      await establishEmailOtpRegistrationCustodyTransferCapability({
+      await establishEmailOtpRegistrationEd25519ExportRootCapability({
         context,
         commit: ceremony.walletCustody.commitPayload,
         factorSecret32: emailOtpCustodyCapabilityFactorSecret32,
@@ -3420,7 +3420,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     if (!emailOtpCustodyCapabilityFactorSecret32) {
       throw new Error('Email OTP registration has no custody capability material');
     }
-    await establishEmailOtpRegistrationCustodyTransferCapability({
+    await establishEmailOtpRegistrationEd25519ExportRootCapability({
       context,
       commit: walletCustodyCommit,
       factorSecret32: emailOtpCustodyCapabilityFactorSecret32,
@@ -3784,7 +3784,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
        registration and the owner Wallet Session persisted above is active, so
        the linking capability is established here from the envelope this
        ceremony just sealed — never later, and never from the linking flow. */
-    await establishPasskeyRegistrationCustodyTransferCapability({
+    await establishPasskeyRegistrationEd25519ExportRootCapability({
       signingEngine: context.signingEngine,
       commit: established.commitPayload,
       passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,

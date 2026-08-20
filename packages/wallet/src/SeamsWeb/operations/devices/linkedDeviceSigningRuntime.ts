@@ -112,12 +112,23 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
+import {
+  readEd25519YaoClientRootEnvelopeV1,
+  readEd25519YaoClientRootEnvelopeForEmailScopeV1,
+  isEd25519YaoClientRootEnvelopeRecordV1,
+  rememberEd25519YaoClientRootEnvelopeV1,
+  type Ed25519YaoClientRootEnvelopeEmailScopeV1,
+  type Ed25519YaoClientRootEnvelopeIdentityV1,
+  type Ed25519YaoClientRootEnvelopeRecordV1,
+} from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 type LinkedDeviceWarmSigningSessionBaseV1 = {
   readonly kind: 'linked_device_warm_signing_session_v1';
   readonly walletId: WalletId;
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly handles: readonly DeviceLinkingHolderSigningMaterialHandleV1[];
+  readonly ed25519YaoClientRootEnvelope: Ed25519YaoClientRootEnvelopeRecordV1 | null;
 };
 
 export type LinkedDeviceWarmSigningSessionV1 = LinkedDeviceWarmSigningSessionBaseV1 &
@@ -163,6 +174,211 @@ type LinkedDeviceWarmSigningActivationV1 =
 type LinkedDeviceWarmSigningActivationV1WithEmail =
   | LinkedDeviceWarmSigningActivationV1
   | LinkedDeviceEmailOtpWarmSigningActivationV1;
+
+function linkedDeviceEd25519YaoClientRootIdentityV1(
+  bundle: ActiveLinkedDeviceExecutionBundleV1,
+  input: {
+    readonly suppliedEnvelope?: Ed25519YaoClientRootEnvelopeRecordV1;
+    readonly emailOtpEnrollmentSealKeyVersion?: string;
+  } = {},
+): Ed25519YaoClientRootEnvelopeIdentityV1 | Ed25519YaoClientRootEnvelopeEmailScopeV1 | null {
+  const root = bundle.targetPreparation.ed25519ExportRoot;
+  if (!root) return null;
+  const execution = bundle.orderedExecutions.find(
+    (candidate): candidate is Extract<
+      ActiveLinkedDeviceExecutionChildV1,
+      { readonly keyFamily: 'ed25519' }
+    > => candidate.keyFamily === 'ed25519',
+  );
+  if (!execution) return null;
+  switch (bundle.targetCredentialRegistration.targetFactor.kind) {
+    case 'passkey_prf': {
+      const registration = bundle.targetCredentialRegistration.webauthnRegistration;
+      if (!registration) {
+        throw new Error('linked-device Passkey root identity is missing WebAuthn registration');
+      }
+      const ownerRegistration = bundle.targetPreparation.ownerEnrollment.registration;
+      if (!ownerRegistration) {
+        throw new Error('linked-device Passkey owner registration is missing');
+      }
+      return {
+        walletId: String(bundle.walletId),
+        linkSessionId: String(bundle.linkSessionId),
+        walletKeyId: String(execution.walletKeyId),
+        enrollmentId: String(bundle.enrollmentId),
+        deviceId: String(bundle.deviceId),
+        applicationBindingDigestB64u: String(root.applicationBindingDigestB64u),
+        registeredPublicKeyB64u: String(root.registeredPublicKeyB64u),
+        revocationEpoch: root.revocationEpoch,
+        targetFactor: {
+          kind: 'passkey_prf',
+          rpId: String(ownerRegistration.rpId),
+          credentialIdB64u: registration.credentialIdB64u,
+        },
+      };
+    }
+    case 'email_otp': {
+      const factor =
+        input.suppliedEnvelope?.factor.kind === 'email_otp'
+          ? input.suppliedEnvelope.factor
+          : null;
+      const enrollmentSealKeyVersion =
+        factor?.enrollmentSealKeyVersion ?? input.emailOtpEnrollmentSealKeyVersion;
+      if (!enrollmentSealKeyVersion) {
+        return {
+          walletId: String(bundle.walletId),
+          linkSessionId: String(bundle.linkSessionId),
+          walletKeyId: String(execution.walletKeyId),
+          enrollmentId: String(bundle.enrollmentId),
+          deviceId: String(bundle.deviceId),
+          applicationBindingDigestB64u: String(root.applicationBindingDigestB64u),
+          registeredPublicKeyB64u: String(root.registeredPublicKeyB64u),
+          revocationEpoch: root.revocationEpoch,
+          targetFactor: { kind: 'email_otp' },
+        };
+      }
+      return {
+        walletId: String(bundle.walletId),
+        linkSessionId: String(bundle.linkSessionId),
+        walletKeyId: String(execution.walletKeyId),
+        enrollmentId: String(bundle.enrollmentId),
+        deviceId: String(bundle.deviceId),
+        applicationBindingDigestB64u: String(root.applicationBindingDigestB64u),
+        registeredPublicKeyB64u: String(root.registeredPublicKeyB64u),
+        revocationEpoch: root.revocationEpoch,
+        targetFactor: { kind: 'email_otp', enrollmentSealKeyVersion },
+      };
+    }
+    default:
+      bundle.targetCredentialRegistration.targetFactor satisfies never;
+      throw new Error('linked-device target factor is unsupported');
+  }
+}
+
+function isEmailRootScopeV1(
+  identity:
+    | Ed25519YaoClientRootEnvelopeIdentityV1
+    | Ed25519YaoClientRootEnvelopeEmailScopeV1,
+): identity is Ed25519YaoClientRootEnvelopeEmailScopeV1 {
+  return (
+    identity.targetFactor.kind === 'email_otp' &&
+    !('enrollmentSealKeyVersion' in identity.targetFactor)
+  );
+}
+
+function requireFullRootIdentityV1(
+  identity:
+    | Ed25519YaoClientRootEnvelopeIdentityV1
+    | Ed25519YaoClientRootEnvelopeEmailScopeV1,
+): Ed25519YaoClientRootEnvelopeIdentityV1 {
+  if (isEmailRootScopeV1(identity)) {
+    throw new Error('linked-device export-root factor identity is incomplete');
+  }
+  return identity;
+}
+
+function linkedDeviceActivationRootEnvelopeV1(
+  activation: LinkedDeviceWarmSigningActivationV1WithEmail,
+): Ed25519YaoClientRootEnvelopeRecordV1 | null {
+  let envelope: PasskeyCustodyEnvelopeRecord | null = null;
+  switch (activation.kind) {
+    case 'target_passkey_creation':
+      envelope =
+        activation.exportRootRequirement.kind === 'required'
+          ? activation.exportRootRequirement.resealedExportRootEnvelope
+          : null;
+      break;
+    case 'target_email_otp_activation':
+      envelope =
+        activation.exportRootRequirement.kind === 'required'
+          ? activation.exportRootRequirement.resealedExportRootEnvelope
+          : null;
+      break;
+    case 'verified_owner_unlock':
+    case 'existing_target_passkey':
+      return null;
+    default:
+      activation satisfies never;
+      throw new Error('linked-device activation is unsupported');
+  }
+  if (!envelope) return null;
+  if (!isEd25519YaoClientRootEnvelopeRecordV1(envelope)) {
+    throw new Error('linked-device activation supplied a non-root custody envelope');
+  }
+  return envelope;
+}
+
+async function cacheLinkedDeviceEd25519YaoClientRootV1(input: {
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly suppliedEnvelope: Ed25519YaoClientRootEnvelopeRecordV1 | null;
+  readonly emailOtpEnrollmentSealKeyVersion?: string;
+}): Promise<Ed25519YaoClientRootEnvelopeRecordV1 | null> {
+  const identity = linkedDeviceEd25519YaoClientRootIdentityV1(input.bundle, {
+    suppliedEnvelope: input.suppliedEnvelope ?? undefined,
+    emailOtpEnrollmentSealKeyVersion: input.emailOtpEnrollmentSealKeyVersion,
+  });
+  if (!identity) {
+    if (input.suppliedEnvelope) {
+      throw new Error('linked-device Ed25519 export root exists without an Ed25519 lane');
+    }
+    return null;
+  }
+  if (input.suppliedEnvelope) {
+    if (!isEd25519YaoClientRootEnvelopeRecordV1(input.suppliedEnvelope)) {
+      throw new Error('linked-device activation supplied a non-root custody envelope');
+    }
+    if (
+      (identity.targetFactor.kind === 'email_otp' &&
+        input.suppliedEnvelope.factor.kind !== 'email_otp') ||
+      (identity.targetFactor.kind === 'passkey_prf' &&
+        input.suppliedEnvelope.factor.kind !== 'passkey')
+    ) {
+      throw new Error('linked-device activation factor does not match the export root');
+    }
+    let exactIdentity: Ed25519YaoClientRootEnvelopeIdentityV1;
+    if (isEmailRootScopeV1(identity)) {
+      if (input.suppliedEnvelope.factor.kind !== 'email_otp') {
+        throw new Error('linked-device Email OTP export root factor changed during activation');
+      }
+      exactIdentity = {
+        walletId: identity.walletId,
+        linkSessionId: identity.linkSessionId,
+        walletKeyId: identity.walletKeyId,
+        enrollmentId: identity.enrollmentId,
+        deviceId: identity.deviceId,
+        applicationBindingDigestB64u: identity.applicationBindingDigestB64u,
+        registeredPublicKeyB64u: identity.registeredPublicKeyB64u,
+        revocationEpoch: identity.revocationEpoch,
+        targetFactor: {
+          kind: 'email_otp',
+          enrollmentSealKeyVersion: input.suppliedEnvelope.factor.enrollmentSealKeyVersion,
+        },
+      };
+    } else if (identity.targetFactor.kind === 'passkey_prf') {
+      exactIdentity = identity;
+    } else {
+      throw new Error('linked-device export-root factor identity is incomplete');
+    }
+    await rememberEd25519YaoClientRootEnvelopeV1({
+      identity: exactIdentity,
+      envelope: input.suppliedEnvelope,
+    });
+    return input.suppliedEnvelope;
+  }
+  let cached: Ed25519YaoClientRootEnvelopeRecordV1 | null;
+  if (isEmailRootScopeV1(identity)) {
+    cached = await readEd25519YaoClientRootEnvelopeForEmailScopeV1(identity);
+  } else {
+    cached = await readEd25519YaoClientRootEnvelopeV1(
+      requireFullRootIdentityV1(identity),
+    );
+  }
+  if (!cached) return null;
+  if (!isEd25519YaoClientRootEnvelopeRecordV1(cached)) {
+    throw new Error('Ed25519 export-root repository returned a non-root envelope');
+  }
+  return cached;
+}
 
 function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
@@ -241,16 +457,36 @@ function assertLinkedDeviceEmailOtpActivationV1(input: {
   ) {
     throw new Error('linked-device Email OTP activation authority changed');
   }
-  if (
-    input.activation.resealedCustodyEnvelope.walletId !== input.bundle.walletId ||
-    input.activation.factorRelease.challengeId !== grant.challengeId ||
-    input.activation.resealedCustodyEnvelope.factor.enrollmentId !==
-      input.activation.factorRelease.enrollmentId ||
-    input.activation.resealedCustodyEnvelope.factor.enrollmentSealKeyVersion !==
-      input.activation.factorRelease.enrollmentSealKeyVersion
-  ) {
-    throw new Error('linked-device Email OTP custody envelope has an invalid factor binding');
+  if (input.activation.exportRootRequirement.kind === 'required') {
+    if (
+      input.activation.exportRootRequirement.resealedExportRootEnvelope.walletId !==
+        input.bundle.walletId ||
+      input.activation.exportRootRequirement.resealedExportRootEnvelope.factor.enrollmentId !==
+        input.activation.factorRelease.enrollmentId ||
+      input.activation.exportRootRequirement.resealedExportRootEnvelope.factor
+        .enrollmentSealKeyVersion !== input.activation.factorRelease.enrollmentSealKeyVersion
+    ) {
+      throw new Error('linked-device Email OTP export-root envelope has an invalid factor binding');
+    }
   }
+}
+
+async function persistLinkedDeviceExportRootBeforeActivationV1(input: {
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly activation: LinkedDeviceWarmSigningActivationV1WithEmail;
+}): Promise<Ed25519YaoClientRootEnvelopeRecordV1 | null> {
+  const suppliedEnvelope = linkedDeviceActivationRootEnvelopeV1(input.activation);
+  const cached = await cacheLinkedDeviceEd25519YaoClientRootV1({
+    bundle: input.bundle,
+    suppliedEnvelope,
+  });
+  if (input.bundle.targetPreparation.ed25519ExportRoot !== null && !cached) {
+    throw new Error('linked-device Ed25519 export root was not persisted');
+  }
+  if (input.bundle.targetPreparation.ed25519ExportRoot === null && cached) {
+    throw new Error('linked-device export root exists without an Ed25519 target');
+  }
+  return cached;
 }
 
 export type ActiveLinkedDeviceCurveSigningContextV1<TFamily extends 'ed25519' | 'ecdsa_secp256k1'> =
@@ -510,6 +746,10 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
   readonly activation: LinkedDeviceEmailOtpWarmSigningActivationV1;
   readonly relayServerUrl: string;
 }): Promise<LinkedDeviceWarmSigningSessionV1> {
+  const rootEnvelope = await persistLinkedDeviceExportRootBeforeActivationV1({
+    bundle: input.bundle,
+    activation: input.activation,
+  });
   const orderedChildren: DeviceLinkingPersistedHolderSigningMaterialChildV1[] = [];
   for (const child of input.bundle.orderedExecutions) {
     const holderRecord = await laneSealedHolderMaterialRepository.get(child.holderRecordLookup);
@@ -544,6 +784,7 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
       holderMaterialOwnership: 'shared_port',
       holderMaterial: input.activation.holderMaterial,
       handles,
+      ed25519YaoClientRootEnvelope: rootEnvelope,
     };
   } catch (error: unknown) {
     await discardLinkedDeviceHolderHandlesV1({
@@ -813,6 +1054,14 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
         orderedChildren: [first, ...orderedChildren.slice(1)],
       });
     await requireUnchangedActiveLinkedDeviceBundleV1(activeBundle);
+    const rootEnvelope = await cacheLinkedDeviceEd25519YaoClientRootV1({
+      bundle: activeBundle,
+      suppliedEnvelope: null,
+      emailOtpEnrollmentSealKeyVersion: factorRelease.enrollmentSealKeyVersion,
+    });
+    if (activeBundle.targetPreparation.ed25519ExportRoot !== null && !rootEnvelope) {
+      throw new Error('linked-device Email OTP export root is unavailable');
+    }
     return {
       kind: 'linked_device_warm_signing_session_v1',
       walletId: activeBundle.walletId,
@@ -820,6 +1069,7 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
+      ed25519YaoClientRootEnvelope: rootEnvelope,
     };
   } catch (error) {
     holderMaterial.close();
@@ -948,6 +1198,10 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
     if (renewed.kind !== 'found' || renewed.bundle.enrollmentId !== resolved.bundle.enrollmentId) {
       throw new Error('linked-device execution bundle is unavailable after unlock');
     }
+    const rootEnvelope = await persistLinkedDeviceExportRootBeforeActivationV1({
+      bundle: renewed.bundle,
+      activation: input.activation,
+    });
     holderMaterial = createDeviceLinkingKeyMaterialPortV1();
     await sealLinkedDeviceWarmMaterialV1({
       bundle: renewed.bundle,
@@ -968,6 +1222,7 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
+      ed25519YaoClientRootEnvelope: rootEnvelope,
     };
   } catch (error) {
     holderMaterial?.close();
@@ -1011,6 +1266,13 @@ export async function restoreLinkedDeviceWarmSigningSessionV1(input: {
     delivery: stored.delivery,
     relayServerUrl: input.relayServerUrl,
   });
+  const rootEnvelope = await cacheLinkedDeviceEd25519YaoClientRootV1({
+    bundle: resolved.bundle,
+    suppliedEnvelope: null,
+  });
+  if (resolved.bundle.targetPreparation.ed25519ExportRoot !== null && !rootEnvelope) {
+    throw new Error('linked-device sealed refresh export root is unavailable');
+  }
   const rehydrated = await input.warmMaterial.rehydrateWarmSessionMaterial({
     thresholdSessionId: String(resolved.bundle.walletSessionId),
     sealedSecretB64u: stored.sealedRefresh.sealedSecretB64u,
@@ -1049,6 +1311,7 @@ export async function restoreLinkedDeviceWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
+      ed25519YaoClientRootEnvelope: rootEnvelope,
     };
   } catch (error) {
     holderMaterial.close();

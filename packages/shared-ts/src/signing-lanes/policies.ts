@@ -56,27 +56,6 @@ export type DelegatedMandatePolicy = {
   outOfPolicyAction: 'deny' | 'require_owner_approval';
 };
 
-export type LinkedDeviceAdministrationScope =
-  | 'signing_only'
-  | 'device_management'
-  | 'delegation_management'
-  | 'full_owner_admin';
-
-export type LinkedDevicePermissionPolicy =
-  | {
-      kind: 'owner_equivalent_device_permission_v1';
-      requiresLocalUserPresence: true;
-      signingScope: 'full_wallet_signing';
-      administrationScope: LinkedDeviceAdministrationScope;
-      mandatePolicy?: never;
-    }
-  | {
-      kind: 'scoped_device_permission_v1';
-      requiresLocalUserPresence: boolean;
-      administrationScope: 'no_account_admin';
-      mandatePolicy: DelegatedMandatePolicy;
-    };
-
 export type AgentCustodyRuntime = 'managed_service' | 'tee' | 'hsm' | 'customer_runtime';
 
 export type AgentCustodyBindingRecord = {
@@ -105,26 +84,3 @@ export type LinkedDeviceBindingRecord = {
   createdAtMs: number;
   updatedAtMs: number;
 };
-
-export function buildOwnerEquivalentLinkedDevicePermissionPolicy(args: {
-  administrationScope: LinkedDeviceAdministrationScope;
-}): LinkedDevicePermissionPolicy {
-  return {
-    kind: 'owner_equivalent_device_permission_v1',
-    requiresLocalUserPresence: true,
-    signingScope: 'full_wallet_signing',
-    administrationScope: args.administrationScope,
-  };
-}
-
-export function buildScopedLinkedDevicePermissionPolicy(args: {
-  requiresLocalUserPresence: boolean;
-  mandatePolicy: DelegatedMandatePolicy;
-}): LinkedDevicePermissionPolicy {
-  return {
-    kind: 'scoped_device_permission_v1',
-    requiresLocalUserPresence: args.requiresLocalUserPresence,
-    administrationScope: 'no_account_admin',
-    mandatePolicy: args.mandatePolicy,
-  };
-}
