@@ -9,8 +9,6 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceEmailOtpVerificationResultV1,
   parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
-  parseLinkedDeviceEd25519OwnerActivation,
-  parseLinkedDeviceEcdsaOwnerActivation,
   type LinkedDeviceProvisioningChildV1,
   type LinkedDeviceRequestProofV1,
   type LinkedDeviceTargetHolderRegistrationV1,
@@ -18,8 +16,6 @@ import {
   type LinkedDeviceTargetPreparationV1,
   type LinkedDeviceEmailOtpVerificationResultV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
-  type LinkedDeviceEd25519OwnerActivationV1,
-  type LinkedDeviceEcdsaOwnerActivationV1,
   type LinkDevicePublicKeyB64u,
 } from '@shared/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -55,8 +51,6 @@ import {
   type WalletCustodyEnvelopeFactor,
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
-  type WalletCustodyEvmFamilyActivationCompletion,
-  type WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import initNearSigner, {
   linked_device_custody_transfer_recipient_v1,
@@ -93,30 +87,7 @@ import initEd25519YaoClient, {
   WasmLaneHolderRecipientV1,
   WasmLaneHolderSigningMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
-import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
-import initWalletCustodyCeremony, {
-  wallet_custody_ceremony_join_v1,
-  type WasmCeremonyEvmActivationPendingV1,
-  type WasmCeremonyManifestEstablishedV1,
-  type WasmCeremonyProtocolCompletedV1,
-  type WasmCeremonyProtocolPreparedV1,
-  type WasmCeremonySeedHeldV1,
-} from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
-import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
-import { computeWalletCustodyEvmFamilyKeyManifestDigestB64u } from '@/core/signingEngine/walletCustody/registrationCeremony';
-import { deriveEvmFamilySigningKeySlotId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { walletRecoveryEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
-import {
-  activateWalletRecoveryEd25519V1,
-  admitWalletRecoveryEd25519V1,
-  buildWalletSessionEd25519RecoveryAdmissionRequestV1,
-  executeWalletRecoveryEd25519RoundV1,
-} from '@/core/signingEngine/walletCustody/walletRecoveryEd25519';
-import { RouterAbEd25519YaoHttpActivationTransportV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import {
-  WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
-  type LoadedWalletCustodyEd25519MaterialV1,
-} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import {
   OpaqueEcdsaPresignAuthorityV1,
   type OpaqueEcdsaPresignSessionV1,
@@ -215,10 +186,6 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly deviceId: LinkedDeviceId;
       readonly targetPreparationDigestB64u: DigestB64u;
-      readonly resealedCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
-      readonly relayServerUrl: string;
-      readonly ed25519OwnerActivation: LinkedDeviceEd25519OwnerActivationV1;
-      readonly ecdsaOwnerActivation: LinkedDeviceEcdsaOwnerActivationV1;
       readonly orderedChildren: readonly [
         DeviceLinkingEmailOtpHolderSigningMaterialChildV1,
         ...DeviceLinkingEmailOtpHolderSigningMaterialChildV1[],
@@ -265,20 +232,6 @@ type DeviceLinkingHolderSigningMaterialBatchResultV1 = {
     DeviceLinkingHolderSigningMaterialHandleResultV1,
     ...DeviceLinkingHolderSigningMaterialHandleResultV1[],
   ];
-  readonly ed25519OwnerRestore:
-    | { readonly kind: 'absent' }
-    | {
-        readonly kind: 'ready';
-        readonly material: LoadedWalletCustodyEd25519MaterialV1;
-        readonly materialActivation: MpcMaterialActivationRef;
-      };
-  readonly ecdsaOwnerRestore:
-    | { readonly kind: 'absent' }
-    | {
-        readonly kind: 'ready';
-        readonly readyStateBlobB64u: string;
-        readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
-      };
 };
 
 type DeviceLinkingKeyWorkerResponseV1 =
@@ -429,11 +382,6 @@ const laneRecipientWasmUrl = resolveWasmUrl(
 let laneRecipientInitPromise: Promise<void> | null = null;
 const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer');
 let nearSignerInitPromise: Promise<void> | null = null;
-const walletCustodyCeremonyWasmUrl = resolveWasmUrl(
-  'wallet_custody_ceremony_bg.wasm',
-  'Device Linking Wallet Custody',
-);
-let walletCustodyCeremonyInitPromise: Promise<void> | null = null;
 
 async function initializeLaneRecipientWasm(): Promise<void> {
   if (!laneRecipientInitPromise) {
@@ -461,20 +409,6 @@ async function initializeNearSignerWasm(): Promise<void> {
     );
   }
   return await nearSignerInitPromise;
-}
-
-async function initializeWalletCustodyCeremonyWasm(): Promise<void> {
-  if (!walletCustodyCeremonyInitPromise) {
-    walletCustodyCeremonyInitPromise = initializeWasm({
-      workerName: 'Device Linking Wallet Custody',
-      wasmUrl: walletCustodyCeremonyWasmUrl,
-      initFunction: initWalletCustodyCeremony as unknown as (wasmModule?: unknown) => Promise<void>,
-    }).catch((error: unknown) => {
-      walletCustodyCeremonyInitPromise = null;
-      throw error;
-    });
-  }
-  return await walletCustodyCeremonyInitPromise;
 }
 
 const productionHolderSigningMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1 = {
@@ -921,10 +855,6 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
         'enrollmentId',
         'deviceId',
         'targetPreparationDigestB64u',
-        'resealedCustodyEnvelope',
-        'relayServerUrl',
-        'ed25519OwnerActivation',
-        'ecdsaOwnerActivation',
         'orderedChildren',
       ],
       'device-linking Email OTP holder signing material batch open request',
@@ -947,16 +877,6 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
       targetPreparationDigestB64u: parseDigest(
         parsed.targetPreparationDigestB64u,
         'targetPreparationDigestB64u',
-      ),
-      resealedCustodyEnvelope: parsePasskeyCustodyEnvelopeRecord(parsed.resealedCustodyEnvelope),
-      relayServerUrl: requireNonEmptyString(parsed.relayServerUrl, 'relayServerUrl'),
-      ed25519OwnerActivation: parseLinkedDeviceEd25519OwnerActivation(
-        parsed.ed25519OwnerActivation,
-        walletId.value,
-      ),
-      ecdsaOwnerActivation: parseLinkedDeviceEcdsaOwnerActivation(
-        parsed.ecdsaOwnerActivation,
-        walletId.value,
       ),
       orderedChildren: parseEmailOtpHolderSigningMaterialBatchChildren(parsed.orderedChildren),
     };
@@ -1262,289 +1182,6 @@ function assertEmailOtpActivationBatchMatches(input: {
   }
 }
 
-function linkedDeviceEcdsaEthereumAddress(value: string): string {
-  const bytes = base64UrlDecode(value);
-  if (bytes.length !== 20) {
-    throw new Error('linked-device ECDSA activation returned an invalid Ethereum address');
-  }
-  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-}
-
-function parseLinkedDeviceEcdsaPublicFacts(value: unknown): WalletCustodyEvmFamilyPublicFacts {
-  const record = requireRecord(value, 'linked-device ECDSA public facts');
-  const clientShareRetryCounter = Number(record.clientShareRetryCounter);
-  const relayerShareRetryCounter = Number(record.relayerShareRetryCounter);
-  if (
-    !Number.isSafeInteger(clientShareRetryCounter) ||
-    clientShareRetryCounter < 0 ||
-    !Number.isSafeInteger(relayerShareRetryCounter) ||
-    relayerShareRetryCounter < 0
-  ) {
-    throw new Error('linked-device ECDSA public fact retry counters are invalid');
-  }
-  return {
-    contextBinding32B64u: requireNonEmptyString(
-      record.contextBinding32B64u,
-      'contextBinding32B64u',
-    ),
-    derivationClientSharePublicKey33B64u: requireNonEmptyString(
-      record.derivationClientSharePublicKey33B64u,
-      'derivationClientSharePublicKey33B64u',
-    ),
-    clientVerifyingShare33B64u: requireNonEmptyString(
-      record.clientVerifyingShare33B64u,
-      'clientVerifyingShare33B64u',
-    ),
-    relayerPublicKey33B64u: requireNonEmptyString(
-      record.relayerPublicKey33B64u,
-      'relayerPublicKey33B64u',
-    ),
-    groupPublicKey33B64u: requireNonEmptyString(
-      record.groupPublicKey33B64u,
-      'groupPublicKey33B64u',
-    ),
-    ethereumAddress: requireNonEmptyString(record.ethereumAddress, 'ethereumAddress'),
-    clientShareRetryCounter,
-    relayerShareRetryCounter,
-  };
-}
-
-function parseLinkedDeviceEd25519CommitPayload(value: unknown): {
-  readonly walletId: string;
-  readonly localMaterialB64u: string;
-  readonly localMaterialNonceB64u: string;
-  readonly applicationBindingDigestB64u: string;
-} {
-  const record = requireRecord(value, 'linked-device Ed25519 custody commit');
-  if (record.keySet !== 'near_ed25519_v1') {
-    throw new Error('linked-device Ed25519 custody commit has another key set');
-  }
-  return {
-    walletId: requireNonEmptyString(record.walletId, 'walletId'),
-    localMaterialB64u: requireNonEmptyString(
-      record.ed25519LocalMaterialB64u,
-      'ed25519LocalMaterialB64u',
-    ),
-    localMaterialNonceB64u: requireNonEmptyString(
-      record.ed25519LocalMaterialNonceB64u,
-      'ed25519LocalMaterialNonceB64u',
-    ),
-    applicationBindingDigestB64u: requireNonEmptyString(
-      record.ed25519ApplicationBindingDigestB64u,
-      'ed25519ApplicationBindingDigestB64u',
-    ),
-  };
-}
-
-async function activateLinkedDeviceEmailOtpEd25519OwnerV1(input: {
-  readonly walletId: WalletId;
-  readonly relayServerUrl: string;
-  readonly factorSecret: Uint8Array;
-  readonly envelope: PasskeyCustodyEnvelopeRecord;
-  readonly activation: LinkedDeviceEd25519OwnerActivationV1;
-}): Promise<DeviceLinkingHolderSigningMaterialBatchResultV1['ed25519OwnerRestore']> {
-  if (input.activation.kind === 'absent') return { kind: 'absent' };
-  if (input.envelope.walletId !== input.walletId || input.envelope.factor.kind !== 'email_otp') {
-    throw new Error('linked-device Email OTP Ed25519 activation changed wallet identity');
-  }
-  const custody = joinCustodyWireFromEnvelopeRecord(input.envelope);
-  if (!custody.ok) throw new Error(custody.reason);
-  const recoveryRequest = await buildWalletSessionEd25519RecoveryAdmissionRequestV1({
-    basis: input.activation.recoveryBasis,
-  });
-  const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
-    routerOrigin: new URL(input.relayServerUrl).origin,
-    authorization: `Bearer ${input.activation.walletSessionToken}`,
-    fetch: globalThis.fetch,
-  });
-  const admitted = await admitWalletRecoveryEd25519V1({ request: recoveryRequest, transport });
-  await initializeWalletCustodyCeremonyWasm();
-  const factorSecret = input.factorSecret.slice();
-  let seedHeld: WasmCeremonySeedHeldV1 | null = null;
-  let prepared: WasmCeremonyProtocolPreparedV1 | null = null;
-  let completed: WasmCeremonyProtocolCompletedV1 | null = null;
-  let established: WasmCeremonyManifestEstablishedV1 | null = null;
-  try {
-    seedHeld = wallet_custody_ceremony_join_v1(factorSecret, custody.custodyJson);
-    prepared = seedHeld.prepare_near_ed25519(
-      JSON.stringify({
-        yaoAdmission: admitted.receipt,
-        yaoApplication: admitted.request.application_binding,
-        clientParticipantId: input.activation.recoveryBasis.participantIds[0],
-        signingWorkerParticipantId: input.activation.recoveryBasis.participantIds[1],
-        continuityRegisteredPublicKeyB64u: base64UrlEncode(
-          Uint8Array.from(input.activation.recoveryBasis.registeredPublicKey),
-        ),
-      }),
-    );
-    seedHeld = null;
-    const executeRequestJson = prepared.yao_execute_request_json();
-    if (!executeRequestJson) {
-      throw new Error('linked-device Ed25519 custody rejoin produced no Router request');
-    }
-    const activationResultJson = await executeWalletRecoveryEd25519RoundV1({
-      executeRequestJson,
-      transport,
-    });
-    completed = prepared.complete_near_ed25519(activationResultJson);
-    prepared = null;
-    const activationReceipt = await activateWalletRecoveryEd25519V1({
-      request: recoveryRequest,
-      protocolResultJson: activationResultJson,
-      transport,
-    });
-    established = completed.establish_manifest(
-      'near_ed25519_v1',
-      input.activation.nearEd25519SigningKeyId,
-    );
-    completed = null;
-    const payload = parseLinkedDeviceEd25519CommitPayload(established.finish_joining_custody());
-    established = null;
-    if (payload.walletId !== input.walletId) {
-      throw new Error('linked-device Ed25519 custody rejoin returned another wallet');
-    }
-    const metadata = walletRecoveryEd25519ActiveClientMetadataV1({
-      admissionRequest: recoveryRequest,
-      activationResultJson,
-      activationReceipt,
-    });
-    const registeredPublicKeyB64u = base64UrlEncode(metadata.registeredPublicKey);
-    if (
-      registeredPublicKeyB64u !==
-      base64UrlEncode(Uint8Array.from(input.activation.recoveryBasis.registeredPublicKey))
-    ) {
-      throw new Error('linked-device Ed25519 custody rejoin changed its registered key');
-    }
-    return {
-      kind: 'ready',
-      materialActivation: metadata.materialActivation,
-      material: {
-        binding: {
-          kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
-          applicationBindingDigestB64u: payload.applicationBindingDigestB64u,
-          registeredPublicKeyB64u,
-          participantIds: metadata.participantIds,
-          stateEpoch: String(metadata.stateEpoch),
-          walletId: String(input.walletId),
-          nearAccountId: input.activation.nearAccountId,
-          nearEd25519SigningKeyId: input.activation.nearEd25519SigningKeyId,
-          signerSlot: input.activation.signerSlot,
-          signingWorkerId: input.activation.signingWorkerId,
-          signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
-        },
-        sealed: {
-          ciphertextB64u: payload.localMaterialB64u,
-          nonceB64u: payload.localMaterialNonceB64u,
-        },
-      },
-    };
-  } finally {
-    factorSecret.fill(0);
-    prepared?.free();
-    seedHeld?.free();
-    completed?.free();
-    established?.free();
-  }
-}
-
-async function activateLinkedDeviceEmailOtpEcdsaOwnerV1(input: {
-  readonly walletId: WalletId;
-  readonly factorSecret: Uint8Array;
-  readonly envelope: PasskeyCustodyEnvelopeRecord;
-  readonly activation: LinkedDeviceEcdsaOwnerActivationV1;
-}): Promise<DeviceLinkingHolderSigningMaterialBatchResultV1['ecdsaOwnerRestore']> {
-  if (input.activation.kind === 'absent') return { kind: 'absent' };
-  const first = input.activation.signers[0];
-  for (const signer of input.activation.signers) {
-    if (
-      signer.walletKey.walletId !== first.walletKey.walletId ||
-      signer.walletKey.keyHandle !== first.walletKey.keyHandle ||
-      signer.walletKey.ecdsaThresholdKeyId !== first.walletKey.ecdsaThresholdKeyId ||
-      signer.walletKey.signingRootId !== first.walletKey.signingRootId ||
-      signer.walletKey.signingRootVersion !== first.walletKey.signingRootVersion ||
-      signer.walletKey.relayerKeyId !== first.walletKey.relayerKeyId ||
-      JSON.stringify(signer.walletKey.publicCapability) !==
-        JSON.stringify(first.walletKey.publicCapability) ||
-      JSON.stringify(signer.activationReceipt) !== JSON.stringify(first.activationReceipt) ||
-      JSON.stringify(signer.runtimePolicyScope) !== JSON.stringify(first.runtimePolicyScope)
-    ) {
-      throw new Error('linked-device ECDSA owner continuity conflicts across targets');
-    }
-  }
-  if (first.walletKey.walletId !== input.walletId || input.envelope.walletId !== input.walletId) {
-    throw new Error('linked-device ECDSA owner activation changed wallet identity');
-  }
-  if (input.envelope.factor.kind !== 'email_otp') {
-    throw new Error('linked-device Email OTP ECDSA activation requires an Email OTP envelope');
-  }
-  const custody = joinCustodyWireFromEnvelopeRecord(input.envelope);
-  if (!custody.ok) throw new Error(custody.reason);
-  const slotId = deriveEvmFamilySigningKeySlotId({
-    walletId: String(input.walletId),
-    signingRootId: first.walletKey.signingRootId,
-    signingRootVersion: first.walletKey.signingRootVersion,
-  });
-  const manifestDigestB64u = await computeWalletCustodyEvmFamilyKeyManifestDigestB64u({
-    walletId: String(input.walletId),
-    evmFamilySigningKeySlotId: slotId,
-    clientRootPublicKey33B64u: first.walletKey.derivationClientSharePublicKey33B64u,
-  });
-  await initializeWalletCustodyCeremonyWasm();
-  const factorSecret = input.factorSecret.slice();
-  let seedHeld: WasmCeremonySeedHeldV1 | null = null;
-  let prepared: WasmCeremonyProtocolPreparedV1 | null = null;
-  let pending: WasmCeremonyEvmActivationPendingV1 | null = null;
-  try {
-    seedHeld = wallet_custody_ceremony_join_v1(factorSecret, custody.custodyJson);
-    prepared = seedHeld.prepare_evm_family(
-      JSON.stringify({
-        applicationBindingDigestB64u:
-          first.walletKey.publicCapability.context.application_binding_digest_b64u,
-      }),
-    );
-    seedHeld = null;
-    if (
-      prepared.ecdsa_client_share_public_key33_b64u() !==
-      first.walletKey.derivationClientSharePublicKey33B64u
-    ) {
-      throw new Error('linked-device Email OTP ECDSA material changed its registered client root');
-    }
-    pending = prepared.prepare_evm_activation_joining_custody(slotId, manifestDigestB64u);
-    prepared = null;
-    const identity = first.activationReceipt.ecdsa_activation.public_identity;
-    const completed = pending.complete(
-      JSON.stringify({
-        relayerKeyId: first.walletKey.relayerKeyId,
-        relayerPublicKey33B64u: identity.server_public_key33_b64u,
-        groupPublicKey33B64u: identity.threshold_public_key33_b64u,
-        ethereumAddress: linkedDeviceEcdsaEthereumAddress(identity.ethereum_address20_b64u),
-        relayerShareRetryCounter: identity.server_share_retry_counter,
-      }),
-    ) as WalletCustodyEvmFamilyActivationCompletion;
-    pending = null;
-    if (
-      completed.walletId !== input.walletId ||
-      completed.keyManifestDigestB64u !== manifestDigestB64u ||
-      completed.clientRootPublicKey33B64u !== first.walletKey.derivationClientSharePublicKey33B64u
-    ) {
-      throw new Error('linked-device Email OTP ECDSA activation changed its registered identity');
-    }
-    return {
-      kind: 'ready',
-      readyStateBlobB64u: requireNonEmptyString(
-        completed.ecdsaReadyStateBlobB64u,
-        'ecdsaReadyStateBlobB64u',
-      ),
-      publicFacts: parseLinkedDeviceEcdsaPublicFacts(completed.ecdsaPublicFacts),
-    };
-  } finally {
-    factorSecret.fill(0);
-    pending?.free();
-    prepared?.free();
-    seedHeld?.free();
-  }
-}
-
 async function openPersistedEmailOtpHolderSigningMaterials(
   request: Extract<
     DeviceLinkingKeyWorkerRequestV1,
@@ -1563,19 +1200,6 @@ async function openPersistedEmailOtpHolderSigningMaterials(
   const opened: DeviceLinkingHolderSigningMaterialHandleResultV1[] = [];
   try {
     assertEmailOtpActivationBatchMatches({ request, activation });
-    const ed25519OwnerRestore = await activateLinkedDeviceEmailOtpEd25519OwnerV1({
-      walletId: request.walletId,
-      relayServerUrl: request.relayServerUrl,
-      factorSecret,
-      envelope: request.resealedCustodyEnvelope,
-      activation: request.ed25519OwnerActivation,
-    });
-    const ecdsaOwnerRestore = await activateLinkedDeviceEmailOtpEcdsaOwnerV1({
-      walletId: request.walletId,
-      factorSecret,
-      envelope: request.resealedCustodyEnvelope,
-      activation: request.ecdsaOwnerActivation,
-    });
     for (const child of request.orderedChildren) {
       const childFactorSecret = factorSecret.slice();
       try {
@@ -1598,8 +1222,6 @@ async function openPersistedEmailOtpHolderSigningMaterials(
     destroyPreparedTargetHolderGroup(request.handleId);
     return {
       holderSigningMaterialHandles: nonEmptyTupleV1(first, opened.slice(1)),
-      ed25519OwnerRestore,
-      ecdsaOwnerRestore,
     };
   } catch (error) {
     for (const holderHandle of opened) discardHolderSigningMaterial(holderHandle.handleId);
@@ -1673,8 +1295,6 @@ async function openPersistedEmailOtpHolderSigningMaterialsFromFactorRelease(
     if (!first) throw new Error('device-linking Email OTP factor release batch is empty');
     return {
       holderSigningMaterialHandles: nonEmptyTupleV1(first, opened.slice(1)),
-      ed25519OwnerRestore: { kind: 'absent' },
-      ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {
     for (const holderHandle of opened) discardHolderSigningMaterial(holderHandle.handleId);

@@ -6,8 +6,9 @@ Last reconciled: August 20, 2026 (delegated authority and activation scope)
 
 Exact device-scope resolution, durable device inventory, and the focused
 coverage are implemented. Refactor 103D now owns the remaining activation gap:
-Device 2 must install one ordinary signer capability, with linked provenance,
-for every present signer family before the link becomes active.
+Device 2 must install the exact permission-derived capabilities and secret
+packages for the complete Device 1 signer manifest before the link becomes
+active.
 After R103D lands, the remaining R103C gate is the automated real two-device
 Passkey and Email OTP flow against the composed runtime.
 
@@ -74,9 +75,10 @@ Implementation boundary:
 - Reject duplicate deliveries, conflicting records, absent-family packages,
   and packages outside the approved authority before acknowledging the
   aggregate receipt.
-- A `signing_only` activation installs fresh Device 2 signing material. A
-  `full_owner` activation installs the same signing material and the additional
-  factor-bound Ed25519 Yao Client export-root package when Ed25519 is present.
+- A grant containing `sign` installs fresh Device 2 signing material. A grant
+  containing `export_keys` additionally installs the factor-bound Ed25519 Yao
+  Client export-root package when Ed25519 is present. Management permissions
+  add no signing or export secret by themselves.
 - Persist activation evidence and Wallet Session delivery idempotently before
   reporting completion.
 - A committed flow without every package required by its exact authority
@@ -97,8 +99,8 @@ Implementation boundary:
   capabilities never enter export selection.
 - Refactor 103D supersedes export-time account hydration. Device linking must
   install the exact ordinary capability before reporting signing ready. A
-  `full_owner` link must also install its factor-bound export root before
-  reporting export ready. Recovery, rotation, rejoin, and fallback cannot
+  grant containing `export_keys` must also install its factor-bound export root
+  before reporting export ready. Recovery, rotation, rejoin, and fallback cannot
   manufacture missing material. Missing material after that boundary is an
   integrity failure.
 - Ed25519 owner linking transports the Ed25519 Yao Client export root encrypted
@@ -133,11 +135,11 @@ contains no downstream repair behavior.
 2. A committed delivery with a mixture of installed and missing activation
    children installs only the missing children and produces one exact aggregate
    receipt.
-3. Device 2 resolves export for each present signer family from its exact active
-   `full_owner` authority. Ed25519 export consumes the installed export root and
-   receives one target-factor interaction per export.
-4. A `signing_only` device cannot export, and it cannot carry an export-root
-   package at the type or persistence boundary.
+3. Device 2 resolves export for each present signer family only when its exact
+   active authority contains `export_keys`. Ed25519 export consumes the
+   installed export root and receives one target-factor interaction per export.
+4. An authority without `export_keys` cannot export or carry an export-root
+   package at the activation-plan, parser, or persistence boundary.
 5. Conflicting sealed records or activation packages terminate with an exact
    integrity error instead of falling back to another lane.
 
@@ -191,17 +193,17 @@ Device 2 has related records with different jobs:
 - its verified wallet auth method authenticates the human operation;
 - its linked-device Wallet Session provides revocable per-device authority;
 - its ordinary signer capabilities provide independent signing material;
-- a `full_owner` Ed25519 activation additionally carries the factor-bound Yao
-  Client export root used by the ordinary export flow.
+- an authority containing `export_keys` additionally carries the factor-bound
+  Yao Client export root used by the ordinary Ed25519 export flow.
 
 The device-link enrollment, delivery, renewal, and revocation machinery
 provisions and manages the device's ordinary signer capabilities. Export is a
 fresh authorized operation over the exact active capability and uses the
 ordinary export flow and types.
 
-Refactor 103D installs each present family through the ordinary capability
-builder before `active`. `full_owner` additionally installs every export-root
-package required by the administered manifest. The target factor already
+Refactor 103D binds every present family and derives the required material from
+the canonical permission set before `active`. `export_keys` installs every
+export package required by the administered manifest. The target factor already
 verified during linking supplies that activation, avoiding a second prompt.
 Link enrollment remains provenance and management metadata.
 
@@ -359,8 +361,10 @@ Changes:
 - Preserve the rule that target-factor identity and per-device signer material
   are separate.
 - Replace the single signing-only grant with
-  `DelegatedWalletAuthorityV1`: the explicit `signing_only` and `full_owner`
-  authority union shared with future agent-delegated wallets.
+  `DelegatedWalletAuthorityV1`: a canonical set of `sign`, `export_keys`,
+  `link_devices`, and `revoke_devices` permissions shared with future
+  agent-delegated wallets. `signing_only` and `full_owner` remain preset
+  builders only.
 - Keep target-factor endpoints for authentication and step-up, device-linking
   endpoints for delivery, renewal, and revocation, and ordinary signing/export
   endpoints for ordinary capability operations.
@@ -379,13 +383,14 @@ The inventory found no valid reason to change these areas:
   universal runtime owner lookup.
 - `packages/shared-ts/src/device-linking/contracts.ts`, its parsers, server
   authorization validation, execution admission, and D1 permission checks must
-  carry the exact `signing_only` or `full_owner` authority. Invalid mixtures are
+  carry the exact canonical delegated permission set. Unknown, duplicate,
+  empty, escalated, and contradictory permission/material combinations are
   rejected at the boundary.
 - Refactor 103D strengthens the terminal contract: Device 2 acknowledges the
   existing aggregate receipt only after installing its target credential,
-  one ordinary capability with fresh shares for every present family, every
-  export-root package required by `full_owner`, warm session, and Wallet
-  Session. The durable flow then reports `active`.
+  every permission-derived capability for the complete source signer manifest,
+  every package required by `export_keys`, warm session, and Wallet Session.
+  The durable flow then reports `active`.
   Interrupted post-commit work remains `committed_awaiting_activation` and
   resumes the same plan.
 - `selectWalletHostEd25519SourceLaneV1` and exact rehydration paths intentionally
@@ -398,14 +403,14 @@ The inventory found no valid reason to change these areas:
 - The existing one-use QR recipient encryption and factor-sealing primitives
   carry the export root. The Yao export protocol, wallet seed derivation, and
   ordinary signing protocols remain unchanged. The authority and activation
-  manifests gain the explicit branch and package digest; no new persistence
-  table is required.
+  manifests gain the canonical permission set, derived material requirements,
+  and package digests; no new persistence table is required.
 
 ## Existing enrollments
 
 Current devices are valid only when their exact target-factor binding and every
-ordinary signer capability declared by the administered manifest satisfy the
-Refactor 103D active postcondition. An `active` label alone is insufficient
+permission-derived material requirement for the administered manifest satisfy
+the Refactor 103D active postcondition. An `active` label alone is insufficient
 evidence.
 
 An older or incomplete enrollment that fails the postcondition cannot act as a
@@ -465,8 +470,8 @@ boundary. Add no compatibility selector, export hydration, or migration marker.
       selection.
 - [ ] Reconcile the contradictory Refactor 103, Refactor 103B, and owner-binding
       comments with the retained device-link model.
-- [ ] Complete Refactor 103D and prove `active` implies every present ordinary
-      signer capability is locally installed with fresh shares.
+- [ ] Complete Refactor 103D and prove `active` implies every
+      permission-derived package is locally installed and durably committed.
 
 ## Automated verification gate
 
@@ -474,29 +479,33 @@ Use two independent clean browser profiles and a fresh wallet. Run the same
 operating path once with a Passkey target factor and once with Email OTP.
 
 1. Device 1 creates the wallet.
-2. Device 2 links as `full_owner` with one Passkey-creation prompt and receives
-   every canonical signer family active on Device 1.
+2. Device 2 links with the `full_owner` permission preset, one Passkey-creation
+   prompt, and the complete canonical signer manifest active on Device 1.
 3. Both devices refresh, lock, and unlock with one Touch ID prompt each.
 4. Both devices sign and perform step-up authentication for each present
    signer family.
-5. Both full-owner devices export each present signer family through ordinary
-   export flows.
-6. Device 2 links a third human owner device.
+5. Both devices holding `export_keys` export each present signer family through
+   ordinary export flows.
+6. Device 2 links a third human owner device with a permission subset of its
+   own authority.
 7. Device 1 revokes Device 2.
 8. Repeat with Device 2 revoking Device 1 while another owner remains.
 9. Repeat unlock, signing, export, linking, and device listing with sibling
    owner lanes and retired historical rows present.
 10. Verify an enrollment without an exact target-factor binding receives the
     re-link result.
-11. Verify a `signing_only` delegated authority can sign and is rejected by
-    export and owner-administration admission.
+11. Verify the `signing_only` preset can sign and is rejected by export, linking,
+    and revocation admission.
+12. Verify representative custom permission combinations and require every
+    child grant to be a subset of the authorizer's permissions.
 
 ## Completion rule
 
 R103C is complete when every authenticated human operation starts from the
-active target-factor authority, lane selection occurs inside that exact device scope,
-device inventory comes from durable owner bindings, Refactor 103D supplies the
-strict activation postcondition, and the automated plus real-device gates pass.
+active target-factor authority, lane selection occurs inside that exact device
+scope, device inventory comes from durable owner bindings, Refactor 103D
+supplies the strict activation postcondition, and the automated plus real-device
+gates pass.
 
 If implementation requires a new protocol version, generalized selector,
 compatibility mode, registry, manifest, digest, or persistence table, stop and

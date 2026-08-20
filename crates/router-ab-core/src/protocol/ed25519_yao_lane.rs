@@ -1,8 +1,9 @@
 //! Typed Ed25519 Streaming-Yao lane provisioning and refresh records.
 //!
-//! The lane family is deliberately separate from activation and export.  A
-//! lane job carries public bindings only; private role contributions and the
-//! random lane offset are owned by the Yao adapter.
+//! Lane provisioning is separate from activation and explicit export. A lane
+//! job carries public bindings only; private role contributions and the random
+//! lane offset are owned by the Yao adapter. Once activated, the exact lane may
+//! participate in separately authorized signing and export protocols.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Deserializer, Serialize};

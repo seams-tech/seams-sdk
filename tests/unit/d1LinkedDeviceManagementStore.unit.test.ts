@@ -461,7 +461,7 @@ test('lists and retrieves a binding-only device from its verified durable lane r
       walletId: seeded.binding.walletId,
       deviceId: seeded.binding.deviceId,
     }),
-  ).rejects.toThrow('manifest digest disagrees');
+  ).rejects.toThrow('lane enrollment manifest digest is invalid');
 });
 
 async function seedDurableLinkedDeviceProjection(database: D1DatabaseLike) {
@@ -497,7 +497,6 @@ async function seedDurableLinkedDeviceProjection(database: D1DatabaseLike) {
     deviceId: String(execution.deviceLink.approval.deviceId),
     rpId: 'wallet.example.test',
     credentialIdB64u: 'credential-r103-durable-management',
-    keyManifestDigestB64u: String(manifestDigestB64u),
     activatedAtMs: 5_000,
   });
   if (binding.factor.kind !== 'passkey') throw new Error('expected passkey binding');

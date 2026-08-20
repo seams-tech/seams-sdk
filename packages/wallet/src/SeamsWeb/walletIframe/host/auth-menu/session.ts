@@ -1369,17 +1369,27 @@ export class AuthMenuSession {
     if (state.kind !== 'link_device' || state.viewModel.linkDevice.kind !== 'email_otp_required') {
       return;
     }
+    const normalizedCode = code.replace(/\D/g, '').slice(0, 6);
+    const previousCode = state.viewModel.linkDevice.otpCode;
+    const activationState = state.viewModel.linkDevice.state;
     this.stateValue = {
       ...state,
       viewModel: {
         ...state.viewModel,
         linkDevice: {
           ...state.viewModel.linkDevice,
-          otpCode: code.replace(/\D/g, '').slice(0, 6),
+          otpCode: normalizedCode,
         },
       },
     };
     this.updateElement();
+    if (
+      normalizedCode.length === 6 &&
+      normalizedCode !== previousCode &&
+      (activationState.kind === 'code_input' || activationState.kind === 'incorrect')
+    ) {
+      this.submitLinkedDeviceEmailOtpCode(normalizedCode);
+    }
   }
 
   private resendLinkedDeviceEmailOtp(): void {
@@ -1390,18 +1400,20 @@ export class AuthMenuSession {
 
   private submitLinkedDeviceEmailOtp(): void {
     const state = this.stateValue;
-    const activation = this.targetEmailOtpActivation;
     if (
-      !activation ||
       state.kind !== 'link_device' ||
       state.viewModel.linkDevice.kind !== 'email_otp_required' ||
       state.viewModel.linkDevice.otpCode.length !== 6
     ) {
       return;
     }
-    void activation
-      .submitCode(state.viewModel.linkDevice.otpCode)
-      .catch(this.failLinkedDeviceEmailOtp.bind(this));
+    this.submitLinkedDeviceEmailOtpCode(state.viewModel.linkDevice.otpCode);
+  }
+
+  private submitLinkedDeviceEmailOtpCode(code: string): void {
+    const activation = this.targetEmailOtpActivation;
+    if (!activation) return;
+    void activation.submitCode(code).catch(this.failLinkedDeviceEmailOtp.bind(this));
   }
 
   private failLinkedDeviceEmailOtp(error: unknown): void {

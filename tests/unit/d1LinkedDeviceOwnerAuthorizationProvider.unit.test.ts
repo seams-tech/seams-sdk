@@ -61,15 +61,6 @@ test('binds claims deterministically and returns only authoritative owner metada
       }),
     },
     metadata: {
-      readOwnerAuthorizationMetadataV1: async () => ({
-        walletId: fixture.approval.walletId,
-        policyDigestB64u: fixture.approval.policyDigestB64u,
-        operationId: fixture.approval.operationId,
-        idempotencyKey: fixture.approval.idempotencyKey,
-        orderedKeyBindings: fixture.approval.orderedKeyBindings,
-        protocolVersions: fixture.approval.protocolVersions,
-        expiresAtMs: 8_000,
-      }),
       readApprovedOwnerContextV1: async () => owner,
       readOwnerSourceChildV1: async () => null,
     },
@@ -82,7 +73,20 @@ test('binds claims deterministically and returns only authoritative owner metada
       },
     },
     planningWriter: {
-      writeV1: async () => undefined,
+      writeV1: async () => ({
+        outcome: 'applied',
+        snapshot: {
+          metadata: {
+            walletId: fixture.approval.walletId,
+            policyDigestB64u: fixture.approval.policyDigestB64u,
+            operationId: fixture.approval.operationId,
+            idempotencyKey: fixture.approval.idempotencyKey,
+            orderedKeyBindings: fixture.approval.orderedKeyBindings,
+            protocolVersions: fixture.approval.protocolVersions,
+            expiresAtMs: 8_000,
+          },
+        },
+      }),
     },
     nowV1: () => 2_000,
   });
@@ -135,7 +139,6 @@ test('fails closed when authoritative source projection is unavailable', async (
       }),
     },
     metadata: {
-      readOwnerAuthorizationMetadataV1: async () => null,
       readApprovedOwnerContextV1: async () => owner,
       readOwnerSourceChildV1: async () => null,
     },
@@ -148,7 +151,7 @@ test('fails closed when authoritative source projection is unavailable', async (
       },
     },
     planningWriter: {
-      writeV1: async () => undefined,
+      writeV1: async () => ({ outcome: 'conflict' }),
     },
     nowV1: () => 2_000,
   });

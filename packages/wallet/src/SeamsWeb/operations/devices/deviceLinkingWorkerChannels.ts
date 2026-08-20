@@ -3,7 +3,6 @@ import {
   parseLinkedDeviceProvisioningChildV1,
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
-  parseLinkedDeviceEd25519OwnerActivation,
   parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkDevicePublicKeyB64u,
   type LinkedDeviceTargetHolderRegistrationV1,
@@ -12,10 +11,7 @@ import {
   type LinkedDeviceEmailOtpVerificationResultV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   type LinkedDeviceRequestProofV1,
-  type LinkedDeviceEcdsaOwnerActivationV1,
-  type LinkedDeviceEd25519OwnerActivationV1,
 } from '@shared/device-linking';
-import type { WalletCustodyEvmFamilyPublicFacts } from '@shared/passkey-custody';
 import type {
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
@@ -56,8 +52,6 @@ import type {
   DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingKeyMaterialBundleV1,
   EmailOtpCustodyEnvelopeRecordV1,
-  LinkedDeviceEcdsaOwnerRestoreV1,
-  LinkedDeviceEd25519OwnerRestoreV1,
 } from './deviceLinkingPorts';
 import { EcdsaClientWorkerControlKind } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import { getWorkerTransport } from '@/core/signingEngine/workerManager/workerTransport';
@@ -123,10 +117,6 @@ type DeviceLinkingWorkerRequestV1 =
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly deviceId: LinkedDeviceId;
       readonly targetPreparationDigestB64u: DigestB64u;
-      readonly resealedCustodyEnvelope: EmailOtpCustodyEnvelopeRecordV1;
-      readonly relayServerUrl: string;
-      readonly ed25519OwnerActivation: LinkedDeviceEd25519OwnerActivationV1;
-      readonly ecdsaOwnerActivation: LinkedDeviceEcdsaOwnerActivationV1;
       readonly orderedChildren: readonly [
         DeviceLinkingEmailOtpHolderSigningMaterialBatchChildV1,
         ...DeviceLinkingEmailOtpHolderSigningMaterialBatchChildV1[],
@@ -198,8 +188,6 @@ type DeviceLinkingHolderSigningMaterialBatchResultV1 = {
     DeviceLinkingHolderSigningMaterialHandleV1,
     ...DeviceLinkingHolderSigningMaterialHandleV1[],
   ];
-  readonly ed25519OwnerRestore: LinkedDeviceEd25519OwnerRestoreV1;
-  readonly ecdsaOwnerRestore: LinkedDeviceEcdsaOwnerRestoreV1;
 };
 
 function isEmailOtpTargetPreparation(
@@ -339,7 +327,7 @@ function parseHolderSigningMaterialBatchResult(
 ): DeviceLinkingHolderSigningMaterialBatchResultV1 {
   const record = exactRecord(
     value,
-    ['holderSigningMaterialHandles', 'ed25519OwnerRestore', 'ecdsaOwnerRestore'],
+    ['holderSigningMaterialHandles'],
     'device-linking Email OTP holder signing material batch response',
   );
   if (!Array.isArray(record.holderSigningMaterialHandles)) {
@@ -364,161 +352,6 @@ function parseHolderSigningMaterialBatchResult(
   if (!first) throw new Error('device-linking Email OTP holder signing material batch is empty');
   return {
     holderSigningMaterialHandles: nonEmptyTupleV1(first, handles.slice(1)),
-    ed25519OwnerRestore: parseLinkedDeviceEd25519OwnerRestoreV1(record.ed25519OwnerRestore),
-    ecdsaOwnerRestore: parseLinkedDeviceEcdsaOwnerRestoreV1(record.ecdsaOwnerRestore),
-  };
-}
-
-function parseLinkedDeviceEd25519OwnerRestoreV1(value: unknown): LinkedDeviceEd25519OwnerRestoreV1 {
-  const record = requireRecord(value, 'device-linking Ed25519 owner restore');
-  if (record.kind === 'absent') {
-    exactRecord(value, ['kind'], 'device-linking Ed25519 owner restore');
-    return { kind: 'absent' };
-  }
-  const ready = exactRecord(
-    value,
-    ['kind', 'material', 'materialActivation'],
-    'device-linking Ed25519 owner restore',
-  );
-  if (ready.kind !== 'ready') {
-    throw new Error('device-linking Ed25519 owner restore kind is invalid');
-  }
-  const material = exactRecord(
-    ready.material,
-    ['binding', 'sealed'],
-    'device-linking Ed25519 owner restore material',
-  );
-  const binding = exactRecord(
-    material.binding,
-    [
-      'kind',
-      'applicationBindingDigestB64u',
-      'registeredPublicKeyB64u',
-      'participantIds',
-      'stateEpoch',
-      'walletId',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'signerSlot',
-      'signingWorkerId',
-      'signingWorkerVerifyingShareB64u',
-    ],
-    'device-linking Ed25519 owner restore binding',
-  );
-  const sealed = exactRecord(
-    material.sealed,
-    ['ciphertextB64u', 'nonceB64u'],
-    'device-linking Ed25519 owner restore sealed material',
-  );
-  if (binding.kind !== 'wallet_custody_ed25519_active_client_v1') {
-    throw new Error('device-linking Ed25519 owner restore binding kind is invalid');
-  }
-  if (
-    !Array.isArray(binding.participantIds) ||
-    binding.participantIds.length !== 2 ||
-    !binding.participantIds.every((participantId) => Number.isSafeInteger(participantId))
-  ) {
-    throw new Error('device-linking Ed25519 owner restore participants are invalid');
-  }
-  const signerSlot = Number(binding.signerSlot);
-  if (!Number.isSafeInteger(signerSlot) || signerSlot < 0) {
-    throw new Error('device-linking Ed25519 owner restore signer slot is invalid');
-  }
-  return {
-    kind: 'ready',
-    material: {
-      binding: {
-        kind: 'wallet_custody_ed25519_active_client_v1',
-        applicationBindingDigestB64u: nonEmpty(
-          binding.applicationBindingDigestB64u,
-          'applicationBindingDigestB64u',
-        ),
-        registeredPublicKeyB64u: nonEmpty(
-          binding.registeredPublicKeyB64u,
-          'registeredPublicKeyB64u',
-        ),
-        participantIds: [Number(binding.participantIds[0]), Number(binding.participantIds[1])],
-        stateEpoch: nonEmpty(binding.stateEpoch, 'stateEpoch'),
-        walletId: nonEmpty(binding.walletId, 'walletId'),
-        nearAccountId: nonEmpty(binding.nearAccountId, 'nearAccountId'),
-        nearEd25519SigningKeyId: nonEmpty(
-          binding.nearEd25519SigningKeyId,
-          'nearEd25519SigningKeyId',
-        ),
-        signerSlot,
-        signingWorkerId: nonEmpty(binding.signingWorkerId, 'signingWorkerId'),
-        signingWorkerVerifyingShareB64u: nonEmpty(
-          binding.signingWorkerVerifyingShareB64u,
-          'signingWorkerVerifyingShareB64u',
-        ),
-      },
-      sealed: {
-        ciphertextB64u: nonEmpty(sealed.ciphertextB64u, 'ciphertextB64u'),
-        nonceB64u: nonEmpty(sealed.nonceB64u, 'nonceB64u'),
-      },
-    },
-    materialActivation: parseMaterialActivation(ready.materialActivation),
-  };
-}
-
-function parseLinkedDeviceEcdsaOwnerRestoreV1(value: unknown): LinkedDeviceEcdsaOwnerRestoreV1 {
-  const record = requireRecord(value, 'device-linking ECDSA owner restore');
-  if (record.kind === 'absent') {
-    exactRecord(value, ['kind'], 'device-linking ECDSA owner restore');
-    return { kind: 'absent' };
-  }
-  const ready = exactRecord(
-    value,
-    ['kind', 'readyStateBlobB64u', 'publicFacts'],
-    'device-linking ECDSA owner restore',
-  );
-  if (ready.kind !== 'ready') {
-    throw new Error('device-linking ECDSA owner restore kind is invalid');
-  }
-  const facts = exactRecord(
-    ready.publicFacts,
-    [
-      'contextBinding32B64u',
-      'derivationClientSharePublicKey33B64u',
-      'clientVerifyingShare33B64u',
-      'relayerPublicKey33B64u',
-      'groupPublicKey33B64u',
-      'ethereumAddress',
-      'clientShareRetryCounter',
-      'relayerShareRetryCounter',
-    ],
-    'device-linking ECDSA owner restore public facts',
-  );
-  const clientShareRetryCounter = Number(facts.clientShareRetryCounter);
-  const relayerShareRetryCounter = Number(facts.relayerShareRetryCounter);
-  if (
-    !Number.isSafeInteger(clientShareRetryCounter) ||
-    clientShareRetryCounter < 0 ||
-    !Number.isSafeInteger(relayerShareRetryCounter) ||
-    relayerShareRetryCounter < 0
-  ) {
-    throw new Error('device-linking ECDSA owner restore retry counters are invalid');
-  }
-  const publicFacts: WalletCustodyEvmFamilyPublicFacts = {
-    contextBinding32B64u: nonEmpty(facts.contextBinding32B64u, 'contextBinding32B64u'),
-    derivationClientSharePublicKey33B64u: nonEmpty(
-      facts.derivationClientSharePublicKey33B64u,
-      'derivationClientSharePublicKey33B64u',
-    ),
-    clientVerifyingShare33B64u: nonEmpty(
-      facts.clientVerifyingShare33B64u,
-      'clientVerifyingShare33B64u',
-    ),
-    relayerPublicKey33B64u: nonEmpty(facts.relayerPublicKey33B64u, 'relayerPublicKey33B64u'),
-    groupPublicKey33B64u: nonEmpty(facts.groupPublicKey33B64u, 'groupPublicKey33B64u'),
-    ethereumAddress: nonEmpty(facts.ethereumAddress, 'ethereumAddress'),
-    clientShareRetryCounter,
-    relayerShareRetryCounter,
-  };
-  return {
-    kind: 'ready',
-    readyStateBlobB64u: nonEmpty(ready.readyStateBlobB64u, 'readyStateBlobB64u'),
-    publicFacts,
   };
 }
 
@@ -1089,18 +922,12 @@ export function createDeviceLinkingKeyMaterialPortV1(
           enrollmentId: enrollmentId.value,
           deviceId: deviceId.value,
           targetPreparationDigestB64u,
-          resealedCustodyEnvelope: input.resealedCustodyEnvelope,
-          relayServerUrl: input.relayServerUrl,
-          ed25519OwnerActivation: input.ed25519OwnerActivation,
-          ecdsaOwnerActivation: input.ecdsaOwnerActivation,
           orderedChildren: parsedChildren,
         }),
         parsedChildren,
       );
       return {
         handles: result.holderSigningMaterialHandles,
-        ed25519OwnerRestore: result.ed25519OwnerRestore,
-        ecdsaOwnerRestore: result.ecdsaOwnerRestore,
       };
     },
     async openPersistedEmailOtpHolderSigningMaterialsFromFactorReleaseV1(input) {

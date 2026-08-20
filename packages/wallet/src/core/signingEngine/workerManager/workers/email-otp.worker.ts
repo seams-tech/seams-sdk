@@ -4596,10 +4596,14 @@ function parseEmailOtpEd25519YaoActiveCapabilityWithMaterialParser(
   if (continuityKind === 'recovery') {
     rejectUnknownEmailOtpYaoFields(
       registrationContinuity,
-      ['kind'],
+      ['kind', 'activationTranscript'],
       'capability.registrationContinuity',
     );
-    parsedRegistrationContinuity = { kind: 'recovery' };
+    const activationTranscript = parseEmailOtpEd25519YaoJsonBytes32(
+      registrationContinuity.activationTranscript,
+      'capability.registrationContinuity.activationTranscript',
+    );
+    parsedRegistrationContinuity = { kind: 'recovery', activationTranscript };
   } else if (continuityKind === 'registration') {
     rejectUnknownEmailOtpYaoFields(
       registrationContinuity,

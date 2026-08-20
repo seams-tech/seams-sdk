@@ -147,7 +147,10 @@ export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
         readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
         readonly activationTranscript: readonly number[];
       }
-    | { readonly kind: 'recovery' };
+    | {
+        readonly kind: 'recovery';
+        readonly activationTranscript: readonly number[];
+      };
 };
 
 export type EmailOtpEd25519YaoExportMaterialV1 =
