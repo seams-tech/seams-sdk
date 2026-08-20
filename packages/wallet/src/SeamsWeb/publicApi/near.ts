@@ -42,6 +42,7 @@ import {
   type NearEd25519MpcOperationKind,
 } from '@shared/authorization/capabilityKinds';
 import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+import type { CurrentWalletResolver } from '@/SeamsWeb/publicApi/currentWallet';
 
 function relayerUrlFromConfigs(configs: SeamsConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer?.url || '').trim();
@@ -100,6 +101,7 @@ export function createNearSignerCapability(deps: {
   configs: SeamsConfigsReadonly;
   getTheme: () => ThemeMode;
   getWalletIframe: () => WalletIframeCoordinator;
+  currentWallet: CurrentWalletResolver;
 }): NearSignerCapability {
   const getContext = (): NearSigningWebContext => ({
     signingEngine: deps.signingEngine,
@@ -164,7 +166,15 @@ export function createNearSignerCapability(deps: {
         nearPublicKey: args.nearPublicKey,
       });
     },
-    executeAction: async (args) => {
+    executeAction: async (rawArgs) => {
+      // `walletSession`/`nearAccount` are optional on the public surface: omitted,
+      // they resolve to the authenticated wallet. `options` normalizes to `{}` so
+      // every hook site below can stay unconditional.
+      const args = {
+        ...rawArgs,
+        ...(await deps.currentWallet.nearSubject(rawArgs)),
+        options: rawArgs.options ?? {},
+      };
       requireNearSigningCapability(deps.configs, NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction);
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
@@ -200,7 +210,15 @@ export function createNearSignerCapability(deps: {
         throw e;
       }
     },
-    signAndSendTransaction: async (args) => {
+    signAndSendTransaction: async (rawArgs) => {
+      // `walletSession`/`nearAccount` are optional on the public surface: omitted,
+      // they resolve to the authenticated wallet. `options` normalizes to `{}` so
+      // every hook site below can stay unconditional.
+      const args = {
+        ...rawArgs,
+        ...(await deps.currentWallet.nearSubject(rawArgs)),
+        options: rawArgs.options ?? {},
+      };
       requireNearSigningCapability(deps.configs, NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction);
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
@@ -244,7 +262,15 @@ export function createNearSignerCapability(deps: {
         throw e;
       }
     },
-    signTransactionWithActions: async (args) => {
+    signTransactionWithActions: async (rawArgs) => {
+      // `walletSession`/`nearAccount` are optional on the public surface: omitted,
+      // they resolve to the authenticated wallet. `options` normalizes to `{}` so
+      // every hook site below can stay unconditional.
+      const args = {
+        ...rawArgs,
+        ...(await deps.currentWallet.nearSubject(rawArgs)),
+        options: rawArgs.options ?? {},
+      };
       requireNearSigningCapability(deps.configs, NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction);
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
@@ -293,7 +319,8 @@ export function createNearSignerCapability(deps: {
         throw e;
       }
     },
-    sendTransaction: async (args) => {
+    sendTransaction: async (rawArgs) => {
+      const args = { ...rawArgs, ...(await deps.currentWallet.nearSubject(rawArgs)) };
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
       const commandSubject = resolveNearCommandSubject({
@@ -331,7 +358,15 @@ export function createNearSignerCapability(deps: {
         throw e;
       }
     },
-    signDelegateAction: async (args) => {
+    signDelegateAction: async (rawArgs) => {
+      // `walletSession`/`nearAccount` are optional on the public surface: omitted,
+      // they resolve to the authenticated wallet. `options` normalizes to `{}` so
+      // every hook site below can stay unconditional.
+      const args = {
+        ...rawArgs,
+        ...(await deps.currentWallet.nearSubject(rawArgs)),
+        options: rawArgs.options ?? {},
+      };
       requireNearSigningCapability(
         deps.configs,
         NEAR_ED25519_MPC_OPERATION_KINDS.signDelegateAction,
@@ -390,7 +425,15 @@ export function createNearSignerCapability(deps: {
         options: args.options,
       });
     },
-    signAndSendDelegateAction: async (args) => {
+    signAndSendDelegateAction: async (rawArgs) => {
+      // `walletSession`/`nearAccount` are optional on the public surface: omitted,
+      // they resolve to the authenticated wallet. `options` normalizes to `{}` so
+      // every hook site below can stay unconditional.
+      const args = {
+        ...rawArgs,
+        ...(await deps.currentWallet.nearSubject(rawArgs)),
+        options: rawArgs.options ?? {},
+      };
       const signOptions = {
         signerSlot: args.options.signerSlot,
         onEvent: args.options.onEvent,
@@ -447,7 +490,15 @@ export function createNearSignerCapability(deps: {
       }
       return combined;
     },
-    signNEP413Message: async (args) => {
+    signNEP413Message: async (rawArgs) => {
+      // `walletSession`/`nearAccount` are optional on the public surface: omitted,
+      // they resolve to the authenticated wallet. `options` normalizes to `{}` so
+      // every hook site below can stay unconditional.
+      const args = {
+        ...rawArgs,
+        ...(await deps.currentWallet.nearSubject(rawArgs)),
+        options: rawArgs.options ?? {},
+      };
       requireNearSigningCapability(
         deps.configs,
         NEAR_ED25519_MPC_OPERATION_KINDS.signNep413Message,

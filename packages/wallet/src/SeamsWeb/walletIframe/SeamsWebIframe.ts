@@ -108,6 +108,7 @@ import type {
 } from '@/SeamsWeb';
 import {
   executeEvmFamilyTransactionLifecycle,
+  withResolvedChainId,
   type EvmFamilyTransactionSignArgs,
 } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import {
@@ -132,6 +133,18 @@ import {
   type NearEd25519MpcOperationKind,
 } from '@shared/authorization/capabilityKinds';
 import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+import {
+  resolveConfiguredChainTarget,
+  resolveEvmChainTarget,
+  resolveTempoChainTarget,
+} from '@/SeamsWeb/publicApi/chainTargets';
+import {
+  createCurrentWalletResolver,
+  type CurrentWalletResolver,
+} from '@/SeamsWeb/publicApi/currentWallet';
+import { createKeyExportCapability } from '@/SeamsWeb/publicApi/keyExport';
+import { awaitNearReady } from '@/SeamsWeb/publicApi/awaitNearReady';
+import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/public';
 import { requireTempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine/chains/tempo/feeToken';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { TempoChainTarget } from '@/core/platform/types';
@@ -207,6 +220,13 @@ function deliverNearProvisioningStateChanged(
 
 export class SeamsWebIframe {
   readonly configs: SeamsConfigsReadonly;
+  /**
+   * Fills in the wallet for calls that do not name one. Reads the authenticated
+   * session through the router, never the parent-page current-wallet mirror.
+   */
+  private readonly currentWallet: CurrentWalletResolver = createCurrentWalletResolver({
+    getWalletSession: async (walletId) => await this.getWalletSessionDomain(walletId),
+  });
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private router: WalletIframeRouter;
@@ -342,6 +362,18 @@ export class SeamsWebIframe {
       getNearProvisioningState: async (args) => await this.getNearProvisioningStateDomain(args),
       onNearProvisioningStateChanged: (listener) =>
         this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
+      awaitNearReady: async (args) =>
+        await awaitNearReady(
+          {
+            getNearProvisioningState: async (input) =>
+              await this.getNearProvisioningStateDomain(input),
+            onNearProvisioningStateChanged: (listener) =>
+              this.router.onSdkLifecycleEvent(
+                deliverNearProvisioningStateChanged.bind(null, listener),
+              ),
+          },
+          { ...args, walletId: String(args.walletId) },
+        ),
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
       addPasskey: async (args) => await this.addPasskeyDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
@@ -418,23 +450,54 @@ export class SeamsWebIframe {
           nearAccountId: args.nearAccount.accountId,
           nearPublicKey: args.nearPublicKey,
         }),
-      executeAction: async (args) => await this.executeActionDomain(args),
+      // `walletSession`/`nearAccount`/`options` are optional on the public
+      // surface; the *Domain methods keep their required shape, so resolve and
+      // normalize once here at the boundary.
+      executeAction: async (args) =>
+        await this.executeActionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
       signAndSendTransaction: async (args) => {
         return await this.signAndSendTransactionDomain({
-          walletSession: args.walletSession,
-          nearAccount: args.nearAccount,
+          ...(await this.currentWallet.nearSubject(args)),
           receiverId: args.receiverId,
           actions: args.actions,
-          options: args.options,
+          options: args.options ?? {},
         });
       },
-      signTransactionWithActions: async (args) => await this.signTransactionWithActionsDomain(args),
-      sendTransaction: async (args) => await this.sendTransactionDomain(args),
-      signDelegateAction: async (args) => await this.signDelegateActionDomain(args),
+      signTransactionWithActions: async (args) =>
+        await this.signTransactionWithActionsDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+      sendTransaction: async (args) =>
+        await this.sendTransactionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+        }),
+      signDelegateAction: async (args) =>
+        await this.signDelegateActionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
       sendDelegateActionViaRelayer: async (args) =>
         await this.sendDelegateActionViaRelayerDomain(args),
-      signAndSendDelegateAction: async (args) => await this.signAndSendDelegateActionDomain(args),
-      signNEP413Message: async (args) => await this.signNEP413MessageDomain(args),
+      signAndSendDelegateAction: async (args) =>
+        await this.signAndSendDelegateActionDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
+      signNEP413Message: async (args) =>
+        await this.signNEP413MessageDomain({
+          ...args,
+          ...(await this.currentWallet.nearSubject(args)),
+          options: args.options ?? {},
+        }),
     };
     this.tempo = {
       signTempo: async (args) => await this.signTempoDomain(args),
@@ -460,6 +523,43 @@ export class SeamsWebIframe {
       bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.evm = {
+      // `seams.evm` is the generic EVM-family namespace: the chain comes from
+      // `chainTarget`, not from the namespace name.
+      execute: async (args) => await this.executeEvmFamilyTransactionDomain(args),
+      sign: async (args) => {
+        const chainTarget = resolveConfiguredChainTarget(
+          this.configs.network.chains,
+          args.chainTarget,
+        );
+        if (args.request.chain !== chainTarget.kind) {
+          throw new Error(
+            `[SeamsWebIframe][evm] a ${args.request.chain} request cannot be signed against a ${chainTarget.kind} chain target`,
+          );
+        }
+        requireIframeEvmSigningCapability(this.configs, chainTarget);
+        const walletSession = await this.currentWallet.walletSession(args.walletSession);
+        await this.requireRouterReady();
+        return await this.router.signTempo({
+          walletSession,
+          request: args.request,
+          chainTarget,
+          options: {
+            confirmationConfig: args.options?.confirmationConfig,
+            onEvent: args.options?.onEvent,
+          },
+        });
+      },
+      advanced: {
+        reportBroadcastAccepted: async (args) =>
+          await this.reportTempoBroadcastAcceptedDomain(args),
+        reportBroadcastRejected: async (args) =>
+          await this.reportTempoBroadcastRejectedDomain(args),
+        reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
+        reportDroppedOrReplaced: async (args) =>
+          await this.reportTempoDroppedOrReplacedDomain(args),
+        reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
+        bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
+      },
       signTransaction: async (args) => await this.signEvmTransactionDomain(args),
       registerEvmWallet: async (args) => {
         if (!args.chainTargets.length) {
@@ -580,10 +680,15 @@ export class SeamsWebIframe {
         return await this.router.revokeLinkedDevice(args);
       },
     };
-    this.keys = {
-      resolveExactKeyExportLane: async (input) => await this.resolveExactKeyExportLaneDomain(input),
-      exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
-    };
+    this.keys = createKeyExportCapability({
+      configs: this.configs,
+      currentWallet: this.currentWallet,
+      domain: {
+        resolveExactKeyExportLane: async (input) =>
+          await this.resolveExactKeyExportLaneDomain(input),
+        exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
+      },
+    });
   }
 
   private resolveRegistrationRpId(operation: string): WebAuthnRpId {
@@ -1053,12 +1158,16 @@ export class SeamsWebIframe {
   }
 
   private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult> {
-    requireIframeEvmSigningCapability(this.configs, args.chainTarget);
+    // Resolve any selector before the request crosses the iframe boundary, so
+    // the wire payload always carries an exact configured target.
+    const chainTarget = resolveTempoChainTarget(this.configs.network.chains, args.chainTarget);
+    const walletSession = await this.currentWallet.walletSession(args.walletSession);
+    requireIframeEvmSigningCapability(this.configs, chainTarget);
     await this.requireRouterReady();
     const result = await this.router.signTempo({
-      walletSession: args.walletSession,
+      walletSession,
       request: args.request,
-      chainTarget: args.chainTarget,
+      chainTarget,
       options: {
         confirmationConfig: args.options?.confirmationConfig,
         onEvent: args.options?.onEvent,
@@ -1071,12 +1180,14 @@ export class SeamsWebIframe {
   }
 
   private async signEvmTransactionDomain(args: SignEvmTransactionArgs): Promise<EvmSignedResult> {
-    requireIframeEvmSigningCapability(this.configs, args.chainTarget);
+    const chainTarget = resolveEvmChainTarget(this.configs.network.chains, args.chainTarget);
+    const walletSession = await this.currentWallet.walletSession(args.walletSession);
+    requireIframeEvmSigningCapability(this.configs, chainTarget);
     await this.requireRouterReady();
     const result = await this.router.signTempo({
-      walletSession: args.walletSession,
+      walletSession,
       request: args.request,
-      chainTarget: args.chainTarget,
+      chainTarget,
       options: {
         confirmationConfig: args.options?.confirmationConfig,
         onEvent: args.options?.onEvent,
@@ -1162,7 +1273,18 @@ export class SeamsWebIframe {
           await this.reconcileTempoNonceLaneDomain(innerArgs),
       },
       chains: this.configs.network.chains,
-      input: args,
+      input: await (async () => {
+        const chainTarget = resolveConfiguredChainTarget(
+          this.configs.network.chains,
+          args.chainTarget,
+        );
+        return {
+          ...args,
+          chainTarget,
+          walletSession: await this.currentWallet.walletSession(args.walletSession),
+          request: withResolvedChainId(args.request, chainTarget),
+        };
+      })(),
     });
   }
 
@@ -1377,7 +1499,7 @@ export class SeamsWebIframe {
   }
 
   private async exportKeypairWithUIDomain(
-    input: Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
+    input: SigningEngineExportKeypairWithUIInput,
   ): Promise<void> {
     requireIframeKeyExportCapability(this.configs, input);
     await this.requireRouterReady();

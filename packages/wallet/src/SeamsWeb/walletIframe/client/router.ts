@@ -152,7 +152,9 @@ import type {
   WalletRecoveryBootstrapChallengeResult,
   WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
-import type { ExportKeypairWithUIInput } from '@/SeamsWeb/signingSurface/types';
+// The router sits below the public boundary: `options` is already normalized
+// by the time a request reaches it.
+import type { SigningEngineExportKeypairWithUIInput as ExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/public';
 import type {
   FundImplicitNearAccountForTestingResult,
   ResolveExactKeyExportLaneInput,

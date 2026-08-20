@@ -43,6 +43,15 @@ import {
   NEAR_ED25519_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+import {
+  createCurrentWalletResolver,
+  type CurrentWalletResolver,
+} from '@/SeamsWeb/publicApi/currentWallet';
+import { awaitNearReady } from '@/SeamsWeb/publicApi/awaitNearReady';
+import {
+  createKeyExportCapability,
+  type KeyExportDomainMethods,
+} from '@/SeamsWeb/publicApi/keyExport';
 
 type WalletIframeRoutingSurface = Pick<
   WalletIframeCoordinator,
@@ -72,35 +81,7 @@ export type RegistrationCapabilityDomainMethods = {
   enrollEmailOtp: RegistrationCapability['enrollEmailOtp'];
 };
 
-export type KeyExportCapabilityDomainMethods = {
-  resolveExactKeyExportLane: KeyExportCapability['resolveExactKeyExportLane'];
-  exportKeypairWithUI: KeyExportCapability['exportKeypairWithUI'];
-};
-
-type KeyExportCapabilitySelectionInput =
-  | Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0]
-  | Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
-
-function requireKeyExportCapability(
-  configs: SeamsConfigsReadonly,
-  input: KeyExportCapabilitySelectionInput,
-): void {
-  switch (input.kind) {
-    case 'ed25519':
-      requireBrowserCapabilityOperation(configs, {
-        capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
-        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.exportKey,
-      });
-      return;
-    case 'ecdsa':
-      requireBrowserCapabilityOperation(configs, {
-        capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
-        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.exportKey,
-        chainTarget: input.chainTarget,
-      });
-      return;
-  }
-}
+export type KeyExportCapabilityDomainMethods = KeyExportDomainMethods;
 
 function createWalletIframeRoutingSurface(
   getWalletIframe: () => WalletIframeCoordinator,
@@ -160,6 +141,25 @@ export function createPublicApi(deps: {
     theme: deps.getTheme(),
   });
   const walletIframeRoutingSurface = createWalletIframeRoutingSurface(deps.getWalletIframe);
+  const auth = createAuthCapability({
+    getWalletAuthDeps: deps.getWalletAuthDeps,
+    domain: deps.auth,
+  });
+  // Defaults for calls that do not name a wallet come from the authenticated
+  // session, never from the `preferences` current-wallet mirror.
+  const currentWallet: CurrentWalletResolver = createCurrentWalletResolver({
+    getWalletSession: auth.getWalletSession,
+  });
+  // One EVM-family implementation, reached from `seams.evm` (generic) and still
+  // exposed as `seams.tempo` for the deprecated names.
+  const evmFamily = createTempoSignerCapability({
+    signingEngine: deps.signingEngine,
+    nearClient: deps.nearClient,
+    configs: deps.configs,
+    getTheme: deps.getTheme,
+    getWalletIframe: deps.getWalletIframe,
+    currentWallet,
+  });
   return {
     walletIframeControls: {
       initWalletIframe: async (walletId?: string): Promise<WalletIframeExactSessionState> =>
@@ -175,13 +175,18 @@ export function createPublicApi(deps: {
       userPreferences: deps.userPreferences,
       getWalletIframe: deps.getWalletIframe,
     }),
-    auth: createAuthCapability({
-      getWalletAuthDeps: deps.getWalletAuthDeps,
-      domain: deps.auth,
-    }),
+    auth,
     registration: {
       getNearProvisioningState: deps.registration.getNearProvisioningState,
       onNearProvisioningStateChanged: deps.registration.onNearProvisioningStateChanged,
+      awaitNearReady: async (args) =>
+        await awaitNearReady(
+          {
+            getNearProvisioningState: deps.registration.getNearProvisioningState,
+            onNearProvisioningStateChanged: deps.registration.onNearProvisioningStateChanged,
+          },
+          { ...args, walletId: String(args.walletId) },
+        ),
       addWalletSigner: deps.registration.addWalletSigner,
       addPasskey: deps.registration.addPasskey,
       registerWallet: deps.registration.registerWallet,
@@ -200,36 +205,28 @@ export function createPublicApi(deps: {
       walletIframe: walletIframeRoutingSurface,
       domain: deps.devices,
     }),
-    keys: {
-      resolveExactKeyExportLane: async (input) => {
-        requireKeyExportCapability(deps.configs, input);
-        return await deps.keys.resolveExactKeyExportLane(input);
-      },
-      exportKeypairWithUI: async (input) => {
-        requireKeyExportCapability(deps.configs, input);
-        await deps.keys.exportKeypairWithUI(input);
-      },
-    },
+    keys: createKeyExportCapability({
+      configs: deps.configs,
+      currentWallet,
+      domain: deps.keys,
+    }),
     near: createNearSignerCapability({
       signingEngine: deps.signingEngine,
       nearClient: deps.nearClient,
       configs: deps.configs,
       getTheme: deps.getTheme,
       getWalletIframe: deps.getWalletIframe,
+      currentWallet,
     }),
-    tempo: createTempoSignerCapability({
-      signingEngine: deps.signingEngine,
-      nearClient: deps.nearClient,
-      configs: deps.configs,
-      getTheme: deps.getTheme,
-      getWalletIframe: deps.getWalletIframe,
-    }),
+    tempo: evmFamily,
     evm: createEvmSignerCapability({
       signingEngine: deps.signingEngine,
       nearClient: deps.nearClient,
       configs: deps.configs,
       getTheme: deps.getTheme,
       getWalletIframe: deps.getWalletIframe,
+      currentWallet,
+      evmFamily,
     }),
   };
 }

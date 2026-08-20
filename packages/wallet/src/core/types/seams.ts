@@ -190,12 +190,15 @@ export interface SeamsConfigsInput {
   chains?: SeamsChainConfigInput[];
   appearance?: AppearanceConfigInput;
   /**
-   * NEAR account ID under which the Router API server creates new subaccounts.
+   * NEAR parent account under which the Router API creates named subaccounts
+   * (`alice` -> `alice.<relayerAccount>`), and the postfix the account-name
+   * input displays. Not a delegated-signing credential — delegate actions name
+   * their relayer by URL.
    *
-   * This must match the server config `RELAYER_ACCOUNT_ID` when
-   * using the wallet-registration ceremony.
-   *
-   * Defaults to the SDK relayer account default.
+   * Leave it unset: the SDK discovers it from the configured relayer's
+   * `/healthz` response, so it always matches the server's own
+   * `RELAYER_ACCOUNT_ID`. Set it only to pin a value or to skip discovery, in
+   * which case it must match the server.
    */
   relayerAccount?: string;
   /**
@@ -1021,8 +1024,17 @@ export interface SeamsIframeWalletConfigInput {
  */
 export type SeamsRegistrationConfigInput = {
   mode?: 'managed';
-  projectEnvironmentId: string;
+  /**
+   * Identifies the managed environment. The key's own record carries the
+   * environment it belongs to, and the Router API builds the runtime policy
+   * scope from the authenticated key.
+   */
   publishableKey: string;
+  /**
+   * Optional cross-check. When supplied, a publishable key belonging to a
+   * different environment is rejected instead of silently working.
+   */
+  projectEnvironmentId?: string;
   paymentMode?: SeamsRegistrationPaymentMode;
   nearAccountProvisioning?: SeamsRegistrationNearAccountProvisioning;
 };
