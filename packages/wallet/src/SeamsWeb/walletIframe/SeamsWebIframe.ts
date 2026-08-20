@@ -499,7 +499,25 @@ export class SeamsWebIframe {
           options: args.options ?? {},
         }),
     };
+    const evmFamilyAdvanced = {
+      reportBroadcastAccepted: async (args: ReportTempoBroadcastAcceptedArgs) =>
+        await this.reportTempoBroadcastAcceptedDomain(args),
+      reportBroadcastRejected: async (args: ReportTempoBroadcastRejectedArgs) =>
+        await this.reportTempoBroadcastRejectedDomain(args),
+      reportFinalized: async (args: ReportTempoFinalizedArgs) =>
+        await this.reportTempoFinalizedDomain(args),
+      reportDroppedOrReplaced: async (args: ReportTempoDroppedOrReplacedArgs) =>
+        await this.reportTempoDroppedOrReplacedDomain(args),
+      reconcileNonceLane: async (args: ReconcileTempoNonceLaneArgs) =>
+        await this.reconcileTempoNonceLaneDomain(args),
+      bootstrapEcdsaSession: async (args: BootstrapThresholdEcdsaSessionArgs) =>
+        await this.bootstrapEcdsaSessionDomain(args),
+    };
     this.tempo = {
+      // Mirrors `seams.evm`; the deprecated names stay wired to the same code.
+      signTransaction: async (args) => await this.signTempoDomain(args),
+      executeTransaction: async (args) => await this.executeEvmFamilyTransactionDomain(args),
+      advanced: evmFamilyAdvanced,
       signTempo: async (args) => await this.signTempoDomain(args),
       getFeeTokenPreference: async (args) =>
         await getTempoFeeTokenPreference(this.configs.network.chains, args),
@@ -523,43 +541,9 @@ export class SeamsWebIframe {
       bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.evm = {
-      // `seams.evm` is the generic EVM-family namespace: the chain comes from
-      // `chainTarget`, not from the namespace name.
-      execute: async (args) => await this.executeEvmFamilyTransactionDomain(args),
-      sign: async (args) => {
-        const chainTarget = resolveConfiguredChainTarget(
-          this.configs.network.chains,
-          args.chainTarget,
-        );
-        if (args.request.chain !== chainTarget.kind) {
-          throw new Error(
-            `[SeamsWebIframe][evm] a ${args.request.chain} request cannot be signed against a ${chainTarget.kind} chain target`,
-          );
-        }
-        requireIframeEvmSigningCapability(this.configs, chainTarget);
-        const walletSession = await this.currentWallet.walletSession(args.walletSession);
-        await this.requireRouterReady();
-        return await this.router.signTempo({
-          walletSession,
-          request: args.request,
-          chainTarget,
-          options: {
-            confirmationConfig: args.options?.confirmationConfig,
-            onEvent: args.options?.onEvent,
-          },
-        });
-      },
-      advanced: {
-        reportBroadcastAccepted: async (args) =>
-          await this.reportTempoBroadcastAcceptedDomain(args),
-        reportBroadcastRejected: async (args) =>
-          await this.reportTempoBroadcastRejectedDomain(args),
-        reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
-        reportDroppedOrReplaced: async (args) =>
-          await this.reportTempoDroppedOrReplacedDomain(args),
-        reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
-        bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
-      },
+      // Mirrors `seams.tempo` method for method, on EIP-1559 transactions.
+      executeTransaction: async (args) => await this.executeEvmFamilyTransactionDomain(args),
+      advanced: evmFamilyAdvanced,
       signTransaction: async (args) => await this.signEvmTransactionDomain(args),
       registerEvmWallet: async (args) => {
         if (!args.chainTargets.length) {

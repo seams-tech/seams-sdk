@@ -11,11 +11,11 @@ import type {
   ExportKeypairInput,
   KeyExportOutcome,
   NearSignerCapability,
+  EvmSignerCapability,
   TempoSignerCapability,
 } from '../../SeamsWeb/publicApi/types';
 
-// Distributive, so unions (EVM vs Tempo requests, Ed25519 vs ECDSA export)
-// keep their arms paired instead of collapsing into one loose object.
+// Distributive, so unions keep their arms paired instead of collapsing.
 type WithoutNearSubject<T> = T extends unknown ? Omit<T, 'walletSession' | 'nearAccount'> : never;
 type WithoutWalletSession<T> = T extends unknown ? Omit<T, 'walletSession'> : never;
 
@@ -33,38 +33,70 @@ export interface BoundNearSigner {
   ): ReturnType<NearSignerCapability['signNEP413Message']>;
 }
 
-/** EVM-family signing bound to one wallet. */
+/** EIP-1559 signing bound to one wallet. */
 export interface BoundEvmSigner {
-  execute(
-    args: WithoutWalletSession<Parameters<TempoSignerCapability['executeEvmFamilyTransaction']>[0]>,
-  ): ReturnType<TempoSignerCapability['executeEvmFamilyTransaction']>;
   signTransaction(
-    args: WithoutWalletSession<Parameters<TempoSignerCapability['signTempo']>[0]>,
-  ): ReturnType<TempoSignerCapability['signTempo']>;
+    args: WithoutWalletSession<Parameters<EvmSignerCapability['signTransaction']>[0]>,
+  ): ReturnType<EvmSignerCapability['signTransaction']>;
+  executeTransaction(
+    args: WithoutWalletSession<Parameters<EvmSignerCapability['executeTransaction']>[0]>,
+  ): ReturnType<EvmSignerCapability['executeTransaction']>;
+}
+
+/** EIP-2718 Tempo signing bound to one wallet. */
+export interface BoundTempoSigner {
+  signTransaction(
+    args: WithoutWalletSession<Parameters<TempoSignerCapability['signTransaction']>[0]>,
+  ): ReturnType<TempoSignerCapability['signTransaction']>;
+  executeTransaction(
+    args: WithoutWalletSession<Parameters<TempoSignerCapability['executeTransaction']>[0]>,
+  ): ReturnType<TempoSignerCapability['executeTransaction']>;
 }
 
 export interface BoundWallet {
   readonly walletId: string;
   /** The exact reference every bound call authorizes. */
   readonly walletSession: WalletSessionRef;
-  /**
-   * NEAR signing, or `null` when this wallet has no NEAR account — it is
-   * EVM-only, or provisioning has not finished. Wait for one with
-   * `seams.registration.awaitNearReady({ walletId })`.
-   */
+  /** `null` when this wallet has no NEAR account — EVM-only, or still provisioning. */
   readonly near: BoundNearSigner | null;
   readonly evm: BoundEvmSigner;
+  readonly tempo: BoundTempoSigner;
   exportKey(input: WithoutNearSubject<ExportKeypairInput>): Promise<KeyExportOutcome>;
 }
 
+/**
+ * `near`, `evm` and `tempo` are lifted to the top level so the common path is a
+ * single check. `near` is null both when nobody is signed in and when the
+ * signed-in wallet has no NEAR account — one guard covers both, and `status`
+ * tells the two apart when the UI needs to say something different.
+ */
 export type UseWalletResult =
-  | { status: 'signed_out'; wallet: null; walletId: null; nearAccountId: null }
+  | {
+      status: 'signed_out';
+      wallet: null;
+      near: null;
+      evm: null;
+      tempo: null;
+      walletId: null;
+      nearAccountId: null;
+    }
+  | {
+      status: 'no_near_account';
+      wallet: BoundWallet;
+      near: null;
+      evm: BoundEvmSigner;
+      tempo: BoundTempoSigner;
+      walletId: string;
+      nearAccountId: null;
+    }
   | {
       status: 'ready';
       wallet: BoundWallet;
+      near: BoundNearSigner;
+      evm: BoundEvmSigner;
+      tempo: BoundTempoSigner;
       walletId: string;
-      /** `null` when the wallet has no NEAR account. */
-      nearAccountId: string | null;
+      nearAccountId: string;
     };
 
 function createBoundWallet(
@@ -77,8 +109,8 @@ function createBoundWallet(
     ? nearAccountRefFromAccountId(nearAccountId)
     : null;
 
-  // Bind the wallet the UI rendered, rather than re-resolving per call: a
-  // button signs with the wallet the person was looking at when they clicked.
+  // Bind the wallet the UI rendered, rather than re-resolving per call: a button
+  // signs with the wallet the person was looking at when they clicked.
   const near: BoundNearSigner | null =
     nearAccount && nearAccountId
       ? {
@@ -97,8 +129,12 @@ function createBoundWallet(
     walletSession,
     near,
     evm: {
-      execute: (args) => seams.tempo.executeEvmFamilyTransaction({ ...args, walletSession }),
-      signTransaction: (args) => seams.tempo.signTempo({ ...args, walletSession }),
+      signTransaction: (args) => seams.evm.signTransaction({ ...args, walletSession }),
+      executeTransaction: (args) => seams.evm.executeTransaction({ ...args, walletSession }),
+    },
+    tempo: {
+      signTransaction: (args) => seams.tempo.signTransaction({ ...args, walletSession }),
+      executeTransaction: (args) => seams.tempo.executeTransaction({ ...args, walletSession }),
     },
     exportKey: async (input) => {
       if (input.kind === 'ed25519') {
@@ -118,18 +154,12 @@ function createBoundWallet(
  *
  * `useSeams()` gives you the whole client; `useWallet()` gives you the one
  * wallet the person is signed into, so a signing call names only the
- * transaction. Reach for `useSeams().seams` when you need to target a different
- * wallet explicitly.
- *
- * Two things can be absent, and both are worth a real check rather than an
- * optional chain: `wallet` is null when nobody is signed in, and `near` is null
- * when the signed-in wallet has no NEAR account. One guard narrows both.
+ * transaction. Reach for `useSeams().seams` to target a different wallet.
  *
  * @example
- * const { wallet } = useWallet();
- * if (!wallet) return <SignInButton />;
- * if (!wallet.near) return <NearAccountPending />;
- * await wallet.near.signAndSendTransaction({ receiverId, actions });
+ * const { near } = useWallet();
+ * if (!near) return <SignInButton />;
+ * await near.signAndSendTransaction({ receiverId, actions });
  */
 export function useWallet(): UseWalletResult {
   const { seams, loginState } = useSeams();
@@ -138,11 +168,34 @@ export function useWallet(): UseWalletResult {
 
   return useMemo<UseWalletResult>(() => {
     if (!walletId) {
-      return { status: 'signed_out', wallet: null, walletId: null, nearAccountId: null };
+      return {
+        status: 'signed_out',
+        wallet: null,
+        near: null,
+        evm: null,
+        tempo: null,
+        walletId: null,
+        nearAccountId: null,
+      };
+    }
+    const wallet = createBoundWallet(seams, walletId, nearAccountId);
+    if (!wallet.near || !nearAccountId) {
+      return {
+        status: 'no_near_account',
+        wallet,
+        near: null,
+        evm: wallet.evm,
+        tempo: wallet.tempo,
+        walletId,
+        nearAccountId: null,
+      };
     }
     return {
       status: 'ready',
-      wallet: createBoundWallet(seams, walletId, nearAccountId),
+      wallet,
+      near: wallet.near,
+      evm: wallet.evm,
+      tempo: wallet.tempo,
       walletId,
       nearAccountId,
     };

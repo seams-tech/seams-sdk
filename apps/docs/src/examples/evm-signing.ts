@@ -1,12 +1,14 @@
 import { logWalletEvents, type SeamsWeb } from '@seams/wallet';
 
+// EIP-1559 on any configured EVM chain. `seams.tempo` mirrors this API for
+// Tempo's EIP-2718 typed transactions; the two stay separate because the
+// envelopes and the signed results differ.
 export async function executeEvmTransaction(seams: SeamsWeb): Promise<string> {
-  // `seams.evm` sends on any configured EVM-family chain — Tempo, Arc,
-  // Ethereum. The chain comes from `chainTarget`, and the RPC endpoint from the
-  // chain you configured. Omitting `walletSession` targets the authenticated
-  // wallet, and `tx.chainId` is filled in from the target.
-  const execution = await seams.evm.execute({
-    chainTarget: 'tempo-testnet',
+  const execution = await seams.evm.executeTransaction({
+    // A configured network slug. The RPC endpoint comes from that chain, and
+    // `tx.chainId` is filled in from it. Omitting `walletSession` targets the
+    // authenticated wallet.
+    chainTarget: 'ethereum-sepolia',
     request: {
       chain: 'evm',
       kind: 'eip1559',

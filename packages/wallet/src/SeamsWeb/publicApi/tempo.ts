@@ -277,7 +277,30 @@ export function createTempoSignerCapability(deps: {
       },
     });
   };
+  const bootstrapEcdsaSession: TempoSignerCapability['bootstrapEcdsaSession'] = async (args) => {
+    const walletIframe = deps.getWalletIframe();
+    const bootstrapArgs = buildTempoBootstrapArgs(deps.configs, args);
+    if (!walletIframe.shouldUseWalletIframe()) {
+      return await deps.signingEngine.bootstrapEcdsaSession(
+        toLocalTempoBootstrapRequest(bootstrapArgs),
+      );
+    }
+    const router = await walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
+    return await router.bootstrapEcdsaSession(bootstrapArgs);
+  };
+  const advanced = {
+    reportBroadcastAccepted,
+    reportBroadcastRejected,
+    reportFinalized,
+    reportDroppedOrReplaced,
+    reconcileNonceLane,
+    bootstrapEcdsaSession,
+  };
   return {
+    // Mirrors `seams.evm`; the deprecated names below stay wired to the same code.
+    signTransaction: signTempo,
+    executeTransaction: executeEvmFamilyTransaction,
+    advanced,
     signTempo,
     getFeeTokenPreference: async (args) =>
       await getTempoFeeTokenPreference(deps.configs.network.chains, args),
@@ -294,16 +317,6 @@ export function createTempoSignerCapability(deps: {
     reportFinalized,
     reportDroppedOrReplaced,
     reconcileNonceLane,
-    bootstrapEcdsaSession: async (args) => {
-      const walletIframe = deps.getWalletIframe();
-      const bootstrapArgs = buildTempoBootstrapArgs(deps.configs, args);
-      if (!walletIframe.shouldUseWalletIframe()) {
-        return await deps.signingEngine.bootstrapEcdsaSession(
-          toLocalTempoBootstrapRequest(bootstrapArgs),
-        );
-      }
-      const router = await walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
-      return await router.bootstrapEcdsaSession(bootstrapArgs);
-    },
+    bootstrapEcdsaSession,
   };
 }

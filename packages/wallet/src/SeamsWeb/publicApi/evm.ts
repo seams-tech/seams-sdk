@@ -1,8 +1,5 @@
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  resolveConfiguredChainTarget,
-  resolveEvmChainTarget,
-} from '@/SeamsWeb/publicApi/chainTargets';
+import { resolveEvmChainTarget } from '@/SeamsWeb/publicApi/chainTargets';
 import type { CurrentWalletResolver } from '@/SeamsWeb/publicApi/currentWallet';
 import { toError } from '@shared/utils/errors';
 import type {
@@ -61,59 +58,13 @@ export function createEvmSignerCapability(deps: {
   getWalletIframe: () => WalletIframeCoordinator;
   currentWallet: CurrentWalletResolver;
   /**
-   * The EVM-family lifecycle. It is implemented once and reached from here,
-   * because `seams.evm` is where a caller looks for it: the chain comes from
-   * `chainTarget`, not from the namespace name.
+   * The shared EVM-family broadcast lifecycle. Tempo and EVM present it under
+   * their own namespaces; the implementation is written once.
    */
   evmFamily: TempoSignerCapability;
 }): EvmSignerCapability {
   return {
-    execute: async (args) => await deps.evmFamily.executeEvmFamilyTransaction(args),
-    sign: async (args) => {
-      // One resolution for both families; the request's own `chain` decides the
-      // expected result shape, and a mismatch fails loudly rather than signing
-      // against the wrong chain.
-      const chainTarget = resolveConfiguredChainTarget(
-        deps.configs.network.chains,
-        args.chainTarget,
-      );
-      if (args.request.chain !== chainTarget.kind) {
-        throw new Error(
-          `[evm] a ${args.request.chain} request cannot be signed against a ${chainTarget.kind} chain target`,
-        );
-      }
-      requireBrowserCapabilityOperation(deps.configs, {
-        capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
-        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
-        chainTarget,
-      });
-      const walletSession = await deps.currentWallet.walletSession(args.walletSession);
-      const walletIframe = deps.getWalletIframe();
-      if (!walletIframe.shouldUseWalletIframe()) {
-        return await deps.signingEngine.signEvmFamily({
-          walletSession,
-          request: args.request,
-          chainTarget,
-          confirmationConfigOverride: args.options?.confirmationConfig,
-          shouldAbort: args.options?.shouldAbort,
-          onEvent: args.options?.onEvent,
-        });
-      }
-      try {
-        const router = await walletIframe.requireRouter(toWalletId(walletSession.walletId));
-        return await router.signTempo({
-          walletSession,
-          request: args.request,
-          chainTarget,
-          options: {
-            confirmationConfig: args.options?.confirmationConfig,
-            onEvent: args.options?.onEvent,
-          },
-        });
-      } catch (error: unknown) {
-        throw toError(error);
-      }
-    },
+    executeTransaction: async (args) => await deps.evmFamily.executeEvmFamilyTransaction(args),
     advanced: {
       reportBroadcastAccepted: async (args) => await deps.evmFamily.reportBroadcastAccepted(args),
       reportBroadcastRejected: async (args) => await deps.evmFamily.reportBroadcastRejected(args),

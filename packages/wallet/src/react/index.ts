@@ -141,6 +141,7 @@ export { useWallet } from './hooks/useWallet';
 export type {
   BoundEvmSigner,
   BoundNearSigner,
+  BoundTempoSigner,
   BoundWallet,
   UseWalletResult,
 } from './hooks/useWallet';
