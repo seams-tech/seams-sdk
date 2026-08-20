@@ -32,7 +32,7 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { parseLinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
 import type { LinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
-import { parseLinkedDeviceCustodyTransferPackageV1 } from '@shared/device-linking/custodyTransfer';
+import { parseLinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-linking/ed25519ExportRoot';
 import type { HttpTransport } from '@/core/platform/http';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
@@ -230,28 +230,28 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       });
       return parseLinkedDeviceOwnerFinalizeResponseV1(response.body);
     },
-    registerCustodyTransferRecipientV1: async ({ recipient }) => {
+    registerEd25519ExportRootRecipientV1: async ({ recipient }) => {
       const linkSessionId = requireLinkSessionId(recipient.linkSessionId);
       await requestDeviceV1({
         options,
         baseUrl,
         method: 'POST',
-        canonicalPath: sessionActionPath(linkSessionId, 'custody-transfer-recipient'),
+        canonicalPath: sessionActionPath(linkSessionId, 'ed25519-export-root-recipient'),
         linkSessionId,
         body: recipient,
       });
     },
-    getCustodyTransferPackageV1: async ({ linkSessionId }) => {
+    getEd25519ExportRootPackageV1: async ({ linkSessionId }) => {
       const response = await requestDeviceV1({
         options,
         baseUrl,
         method: 'GET',
-        canonicalPath: sessionActionPath(linkSessionId, 'custody-transfer'),
+        canonicalPath: sessionActionPath(linkSessionId, 'ed25519-export-root'),
         linkSessionId,
       });
       // Device 1 has not sealed yet. Normal while the owner is approving.
       if (response.status === 204) return null;
-      return parseLinkedDeviceCustodyTransferPackageV1(response.body);
+      return parseLinkedDeviceEd25519ExportRootPackageV1(response.body);
     },
     acknowledgeReceiptV1: async ({ acknowledgement }) => {
       await requestMutationV1({
@@ -611,8 +611,8 @@ function sessionActionPath(
     | 'provision'
     | 'holder-receipts'
     | 'credential'
-    | 'custody-transfer'
-    | 'custody-transfer-recipient'
+    | 'ed25519-export-root'
+    | 'ed25519-export-root-recipient'
     | 'receipt'
     | 'retry'
     | 'cancel',

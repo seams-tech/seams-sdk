@@ -5,21 +5,20 @@ description: Sign a NEAR transaction, a NEP-413 message, or an EVM-family transa
 
 # Signing
 
-Unlock the wallet first, then pass an exact wallet session and chain reference
-to the signing method. The snippets below keep progress events visible so your
-UI can show what the signer is doing.
+Signing calls resolve the authenticated wallet on their own; name an exact
+wallet or chain when your application handles more than one. The snippets below
+keep progress events visible so your UI can show what the signer is doing.
 
 ## Prerequisites
 
-You need a configured `SeamsWebProvider`, a wallet session, and the account or
-chain identity that matches the operation. See [wallet setup and
-authentication](/examples/wallet-setup-and-authentication) if the wallet is
-still locked.
+You need a configured `SeamsWebProvider` and a signed-in wallet. See [wallet
+setup and authentication](/examples/wallet-setup-and-authentication) if the
+wallet is still locked.
 
-## Unlock before signing
-
-Use the unlock result to obtain the wallet session and the identity for the
-selected chain.
+There is no unlock step before signing: every request opens the wallet
+confirmation and the user approves that transaction. `unlock` provisions a
+signing session when your product needs a burst of signatures without a prompt
+for each one.
 
 <<< ./unlock.ts
 
@@ -30,9 +29,9 @@ waits for `EXECUTED_OPTIMISTIC`.
 
 <<< ./near-signing.tsx
 
-`signGreeting` resolves after the configured execution status. The button
-example checks that the wallet is logged in and that a NEAR account is ready
-before it starts.
+The button resolves after the configured execution status. `useWallet` returns
+`near` as `null` until the wallet has a NEAR account, so the single check before
+the button renders is a type guard rather than a convention.
 
 ## Sign a NEP-413 message
 
@@ -51,9 +50,13 @@ you support.
 
 <<< ./evm-signing.ts
 
-The sample targets Tempo testnet and returns the transaction hash. Replace the
-recipient, fees, and chain target with values from your app's transaction
-builder before sending a real transaction.
+The sample targets Ethereum Sepolia and returns the transaction hash. Replace
+the recipient, fees, and chain target with values from your app's transaction
+builder before sending a real transaction. `tx.chainId` and the RPC endpoint
+both come from the chain target, so neither is repeated on the call.
+
+For Tempo's EIP-2718 typed transactions use `seams.tempo`, which mirrors this
+API method for method.
 
 ## Expected result
 

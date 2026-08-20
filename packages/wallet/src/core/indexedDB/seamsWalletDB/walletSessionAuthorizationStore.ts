@@ -1,11 +1,11 @@
 import {
   parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
+  parseReusableWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type ReusableWalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
   parseThresholdEcdsaSessionId,
@@ -15,10 +15,7 @@ import {
 } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
-import {
-  requireOpaqueWalletSessionToken,
-  type OpaqueWalletSessionToken,
-} from '@shared/utils/sessionTokens';
+import { requireOpaqueWalletSessionToken, type OpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -324,7 +321,7 @@ function parseEd25519WalletSessionAuthorizationToken(
   ) {
     return null;
   }
-  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+  const authorizationId = parseReusableWalletSessionAuthorizationId(value.authorizationId);
   const thresholdSessionId = parseThresholdEd25519SessionId(value.thresholdSessionId);
   if (!authorizationId.ok || !thresholdSessionId.ok) return null;
   try {
@@ -350,7 +347,7 @@ function parseEcdsaWalletSessionAuthorizationToken(
   ) {
     return null;
   }
-  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+  const authorizationId = parseReusableWalletSessionAuthorizationId(value.authorizationId);
   const thresholdSessionId = parseThresholdEcdsaSessionId(value.thresholdSessionId);
   if (!authorizationId.ok || !thresholdSessionId.ok) return null;
   try {

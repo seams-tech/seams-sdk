@@ -112,7 +112,7 @@ export type PasskeyCustodyEnvelopeRecord = {
 export function buildPasskeyEnvelopeFactor(args: {
   rpId: WebAuthnRpId;
   credentialIdB64u: WebAuthnCredentialIdB64u;
-}): WalletCustodyEnvelopeFactor {
+}): Extract<WalletCustodyEnvelopeFactor, { readonly kind: 'passkey' }> {
   return {
     kind: 'passkey',
     rpId: args.rpId,
@@ -124,7 +124,7 @@ export function buildPasskeyEnvelopeFactor(args: {
 export function buildEmailOtpEnvelopeFactor(args: {
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
-}): WalletCustodyEnvelopeFactor {
+}): Extract<WalletCustodyEnvelopeFactor, { readonly kind: 'email_otp' }> {
   return {
     kind: 'email_otp',
     enrollmentId: args.enrollmentId,

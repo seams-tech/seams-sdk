@@ -1,5 +1,8 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  isWalletCustodySeedBinding,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
   RouterAbEd25519YaoClientV1,
@@ -73,6 +76,9 @@ export type WalletCustodyCacheEnvelopeV1 = {
 export function walletCustodyCacheEnvelopeFromRecordV1(
   envelope: PasskeyCustodyEnvelopeRecord,
 ): WalletCustodyCacheEnvelopeV1 {
+  if (!isWalletCustodySeedBinding(envelope.binding)) {
+    throw new Error('wallet custody cache accepts wallet custody seed envelopes only');
+  }
   return {
     bindingJson: JSON.stringify({
       walletId: envelope.walletId,

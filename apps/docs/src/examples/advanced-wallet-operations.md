@@ -22,9 +22,10 @@ that code and approves the request with fresh authentication.
 
 <<< ./device-linking.tsx
 
-`NewDeviceLinkCode` cancels the linking session when it unmounts. Keep that
-cleanup, expire abandoned QR sessions, and show the device name after success
-so it can be recognized and revoked later.
+`ShowQRCode` owns the Device 2 cycle end to end — starting the session,
+displaying the code, and cancelling an abandoned one on close. Expire abandoned
+QR sessions and show the device name after success so it can be recognized and
+revoked later.
 
 ## Recover a wallet account
 
@@ -37,13 +38,19 @@ the returned values to refresh app state before rendering signing controls.
 
 ## Export an Ed25519 or ECDSA key
 
-Resolve the exact export lane first, then open the wallet-origin export viewer.
+`exportKeypair` resolves the exact export lane and opens the wallet-origin
+export viewer in one call.
 
 <<< ./export-wallet.ts
 
-`exportNearKey` resolves an Ed25519 lane with a NEAR account and material
-activation. `exportEvmKey` resolves an ECDSA lane for the configured chain
-target. Both flows receive progress events through `KeyExportFlowEvent`.
+`exportNearKey` exports the Ed25519 lane for the wallet's NEAR account;
+`exportEvmKey` exports the ECDSA lane for a configured chain. Both default to
+the authenticated wallet and receive progress through `KeyExportFlowEvent`.
+
+Check the outcome: `relink_required` means this device has no canonical owner
+binding, so route the person through device linking rather than showing a
+generic error. `resolveExactKeyExportLane` and `exportKeypairWithUI` remain
+available when you want to check export availability before opening the viewer.
 
 ## Expected result
 
@@ -57,8 +64,8 @@ target. Both flows receive progress events through `KeyExportFlowEvent`.
   old QR payload.
 - Recovery can return a failure result. Keep the existing account state until
   synchronization succeeds.
-- Lane resolution can return a different key kind than the requested one. The
-  export helpers stop instead of opening the wrong viewer.
+- Export can return `relink_required` instead of opening the viewer. That is a
+  handled outcome, not an error: send the person through device linking.
 - Export authorization and viewer errors should end the current disclosure
   attempt. Ask for fresh authentication before another export.
 

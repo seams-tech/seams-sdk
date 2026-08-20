@@ -299,7 +299,7 @@ Its remaining authentication work is ownership and deployment separation:
 [Refactor 130A](./refactor-130A-email-recovery-cleanup.md) is implemented and
 defines the starting tree: legacy inbound-email recovery no longer exists.
 [Refactor 113](./refactor-113-recovery-code-reveal-step-up.md) and
-[Refactor 114](./refactor-114.md) are proposed Wallet lifecycle work, while
+[Refactor 114](./refactor-114-recover-account-with-code.md) are proposed Wallet lifecycle work, while
 [Refactor 130B](./refactor-130B-email-recovery-v2.md) is deferred. They remain
 Wallet-owned and do not change the Console boundary in this plan.
 

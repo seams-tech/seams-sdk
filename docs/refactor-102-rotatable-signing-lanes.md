@@ -195,7 +195,9 @@ x_server_lane = x_server_base + 2 * lambda mod l
 never supplied, decoded, persisted, or retried based on its value. Deriver A and
 Deriver B privately share and encrypt the target holder scalar to the holder
 recipient and the target server scalar to the SigningWorker recipient. Neither
-recipient receives a base scalar, root, seed, or export-capable package.
+recipient receives a base scalar, root, seed, or plaintext private key. After
+activation, an explicit export protocol may consume these exact lane shares
+under fresh authorization.
 
 ### Ed25519 Inputs
 
@@ -218,7 +220,7 @@ recipient receives a base scalar, root, seed, or export-capable package.
 - target holder and SigningWorker public commitments;
 - proof or checked relation to the registered `A_pub`;
 - complete transcript and terminal receipt;
-- no seed-output branch and no export-capable package.
+- no seed-output branch and no plaintext private-key output during provisioning.
 
 ### Ed25519 Invariants
 
@@ -235,6 +237,9 @@ recipient receives a base scalar, root, seed, or export-capable package.
 8. Ordinary signing uses the activated Client and SigningWorker and performs
    zero Deriver calls.
 9. Export fields are unrepresentable in lane-provisioning requests and outputs.
+10. The activated lane is not classified as signing-only. A separately
+    authorized explicit-export operation may use the exact holder and server
+    shares without recovery, refresh, rotation, or replacement.
 
 ### Ed25519 Commitment Boundary
 
@@ -298,6 +303,8 @@ activation.
 - both sides verify the threshold public key and EVM address;
 - target threshold sessions bind the same EVM-family wallet key;
 - non-export lane creation cannot produce a relayer export-share envelope.
+- the activated target lane remains eligible for a separately authorized
+  explicit-export operation; lane creation itself emits no export result.
 
 ### ECDSA Transcript Binding
 
@@ -1457,7 +1464,7 @@ Static checks:
 - committed lifecycle cannot transition to pre-commit abort;
 - active enrollment requires a nonempty exact child manifest;
 - persisted records cannot contain ECDSA delta, plaintext holder material, Yao
-  private outputs, or export shares;
+  private outputs, or reconstructed export output;
 - ECDSA lane revocation fails closed without an exact server retirement receipt
   bound to the manifest, activation, lane, epoch, generation, and digest;
 
@@ -1473,7 +1480,8 @@ Focused cryptographic tests:
   threshold-session, and chain-membership substitution fail;
 - both protocols produce ordinary valid signatures from the target lane;
 - ordinary Ed25519 target-lane signing performs zero Deriver calls;
-- non-export provisioning never creates export-capable output.
+- lane provisioning never emits a plaintext private key; explicit export is a
+  separate authorized protocol over the activated exact lane.
 
 Aggregate tests:
 

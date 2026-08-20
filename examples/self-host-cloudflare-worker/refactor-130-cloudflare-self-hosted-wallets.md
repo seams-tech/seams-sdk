@@ -844,7 +844,7 @@ The first demo is complete when:
 
 - supported production self-hosting;
 - migrating a managed Seams tenant;
-- Refactor 115 import staging or activation;
+- Refactor 121 import staging or activation;
 - production backup, destruction, or disaster recovery;
 - a repository-wide `seams` CLI;
 - a general administrator console or self-host membership system;
@@ -867,7 +867,7 @@ address:
 - artifact rollback after wallets are active;
 - customer monitoring and alert delivery;
 - production chain funding and sponsorship;
-- tenant portability and Refactor 115 activation;
+- tenant portability and Refactor 121 activation;
 - provider support and operational ownership.
 
 The demo supplies evidence for that decision. It does not pre-commit the core

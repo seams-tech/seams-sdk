@@ -35,6 +35,7 @@ import type { LinkedDeviceOwnerAuthBindingV1 } from '@shared/device-linking/owne
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
 import { parseEnrollmentRow, parseProductEpochRow } from '../signingLanes/d1LaneRecords';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 
 const ENROLLMENT_TABLE = 'lane_enrollments';
 const WALLET_AUTH_METHOD_TABLE = 'wallet_auth_methods';
@@ -470,11 +471,8 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     const manifestDigestB64u = parseDigestB64u(
       await computeLaneEnrollmentManifestDigestV1(parsed.manifest),
     );
-    if (
-      parsed.manifestDigestB64u !== manifestDigestB64u ||
-      String(binding.keyManifestDigestB64u) !== manifestDigestB64u
-    ) {
-      throw new Error('linked-device owner binding manifest digest disagrees with its enrollment');
+    if (parsed.manifestDigestB64u !== manifestDigestB64u) {
+      throw new Error('linked-device lane enrollment manifest digest is invalid');
     }
     const productRows = await queryD1All(
       this.database,
@@ -801,11 +799,8 @@ function projectBindingState(
 }
 
 /** The narrow linked execution grant every Phase 8 linked owner holds. */
-const LINKED_OWNER_EXECUTION_PERMISSION_V1: LinkedDeviceSummaryV1['permission'] = {
-  kind: 'owner_equivalent_signing',
-  administrationScope: 'signing_only',
-  localUserPresence: 'required',
-};
+const LINKED_OWNER_EXECUTION_PERMISSION_V1: LinkedDeviceSummaryV1['permission'] =
+  buildFullOwnerDelegatedWalletAuthorityV1();
 
 function productActivityAtMs(product: LaneProductEpochRecordV1): number {
   switch (product.state) {

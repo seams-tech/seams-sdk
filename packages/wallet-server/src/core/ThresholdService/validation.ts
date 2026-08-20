@@ -78,6 +78,10 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../keyMaterialBrands';
+import {
+  parseDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -1233,11 +1237,7 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   };
 }
 
-export type LinkedDeviceWalletSessionPermissionClaimsV1 = {
-  readonly kind: 'owner_equivalent_signing';
-  readonly administrationScope: 'signing_only';
-  readonly localUserPresence: 'required';
-};
+export type LinkedDeviceWalletSessionPermissionClaimsV1 = DelegatedWalletAuthorityV1;
 
 type LinkedDeviceWalletSessionClaimBase = {
   sub: string;
@@ -1288,28 +1288,8 @@ function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
 function parseLinkedDeviceWalletSessionPermissionClaims(
   raw: unknown,
 ): LinkedDeviceWalletSessionPermissionClaimsV1 | null {
-  if (!isObject(raw)) return null;
-  const keys = Object.keys(raw).sort();
-  if (
-    keys.length !== 3 ||
-    keys[0] !== 'administrationScope' ||
-    keys[1] !== 'kind' ||
-    keys[2] !== 'localUserPresence'
-  ) {
-    return null;
-  }
-  if (
-    raw.kind !== 'owner_equivalent_signing' ||
-    raw.administrationScope !== 'signing_only' ||
-    raw.localUserPresence !== 'required'
-  ) {
-    return null;
-  }
-  return {
-    kind: 'owner_equivalent_signing',
-    administrationScope: 'signing_only',
-    localUserPresence: 'required',
-  };
+  const parsed = parseDelegatedWalletAuthorityV1(raw);
+  return parsed.ok ? parsed.value : null;
 }
 
 export function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(

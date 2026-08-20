@@ -16,7 +16,6 @@ import type { NormalizedLogger } from '../../../../core/logger';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
-import type { D1LinkedDeviceOperatorRecoveryProviderOptionsV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
 import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from '../deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorProvider';
 import type { RouterAbEd25519YaoActivationKeysetV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { CloudflareLaneServiceBindingV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
@@ -71,8 +70,6 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   /** Session verifier used for the owner Wallet Session request boundary. */
   readonly session: SessionAdapter;
   readonly laneRuntime: CloudflareD1LinkedDeviceLaneRuntimeOptionsV1;
-  /** Required whenever the linked-device session surface is enabled. */
-  readonly operatorRecovery: D1LinkedDeviceOperatorRecoveryProviderOptionsV1;
   /** Gateway-owned authenticated target deployment authority for both curves. */
   readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
 };

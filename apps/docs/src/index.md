@@ -56,6 +56,10 @@ Build actions with `functionCall`, `transfer`, and friends rather than the raw
 `{ type: ActionType.FunctionCall, … }` shape, and pass `logWalletEvents()` to
 `onEvent` when you just want progress in the console.
 
+`seams.evm` and `seams.tempo` mirror each other — `signTransaction`,
+`executeTransaction`, `advanced` — and stay separate because an EVM
+transaction is EIP-1559 and a Tempo one is EIP-2718.
+
 There is no unlock step here. When your product needs repeated signatures
 without a prompt for each one, provision a signing session: read [wallet
 sessions and signing lanes](/guides/wallet-sessions-and-signing-lanes).

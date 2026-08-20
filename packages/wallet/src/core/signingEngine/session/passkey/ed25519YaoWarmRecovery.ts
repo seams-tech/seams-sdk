@@ -49,7 +49,7 @@ import {
   type ThresholdEd25519SessionId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import { readPasskeyCustodySessionEnvelope } from './passkeyCustodySessionCache';
+import { readEd25519YaoExportEnvelopeForPasskeyV1 } from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
@@ -543,7 +543,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     authorization,
     response: bootstrap.response,
   });
-  const walletCustodyEnvelope = await readPasskeyCustodySessionEnvelope({
+  const walletCustodyEnvelope = await readEd25519YaoExportEnvelopeForPasskeyV1({
     walletId: String(descriptor.walletId),
     credentialIdB64u: descriptor.credentialIdB64u,
   });

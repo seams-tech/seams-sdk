@@ -1,6 +1,6 @@
 import {
   WasmActivatedClientV1,
-  WasmCustodyEnvelopeExportSessionV1,
+  WasmEd25519YaoClientRootExportSessionV1,
   openWalletCustodyEd25519MaterialV1,
   default as initializeYaoClientWasm,
   type InitInput,
@@ -381,7 +381,7 @@ function isPasskeyExportSeedInput(
   return input.authorization.kind === 'passkey';
 }
 
-type WasmExportSessionV1 = WasmCustodyEnvelopeExportSessionV1;
+type WasmExportSessionV1 = WasmEd25519YaoClientRootExportSessionV1;
 
 function createExportSession(args: {
   admission: unknown;
@@ -412,7 +412,7 @@ function createExportSession(args: {
     args.entropy.deriverASealSeed,
     args.entropy.deriverBSealSeed,
   ] as const;
-  return new WasmCustodyEnvelopeExportSessionV1(...common);
+  return new WasmEd25519YaoClientRootExportSessionV1(...common);
 }
 
 function parseExportEmailOtpFactorRelease(

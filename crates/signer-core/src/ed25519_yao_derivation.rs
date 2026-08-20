@@ -245,7 +245,7 @@ macro_rules! define_root {
                 Self(bytes)
             }
 
-            fn as_bytes(&self) -> &[u8; 32] {
+            pub(crate) fn as_bytes(&self) -> &[u8; 32] {
                 &self.0
             }
         }
@@ -258,9 +258,15 @@ macro_rules! define_root {
     };
 }
 
-define_root!(Ed25519YaoClientDerivationRootV1);
+define_root!(Ed25519YaoClientRootV1);
 define_root!(Ed25519YaoDeriverADerivationRootV1);
 define_root!(Ed25519YaoDeriverBDerivationRootV1);
+
+impl Ed25519YaoClientRootV1 {
+    pub fn into_bytes(mut self) -> [u8; 32] {
+        core::mem::take(&mut self.0)
+    }
+}
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Ed25519YaoYContributionV1([u8; 32]);
@@ -463,7 +469,7 @@ impl Ed25519YaoClientContributionsV1 {
 }
 
 pub fn derive_ed25519_yao_client_contributions_v1(
-    root: &Ed25519YaoClientDerivationRootV1,
+    root: &Ed25519YaoClientRootV1,
     context: &Ed25519YaoStableKeyDerivationContextV1,
 ) -> CoreResult<Ed25519YaoClientContributionsV1> {
     let deriver_a = derive_contribution(root.as_bytes(), context, ROLE_A_TAG, CLIENT_SOURCE_TAG)?;

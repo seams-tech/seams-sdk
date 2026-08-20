@@ -72,9 +72,9 @@ import {
 } from './walletUnlock';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
 import {
-  establishUnlockedWalletCustodyTransferCapabilityV1,
+  establishUnlockedWalletEd25519ExportRootCapabilityV1,
   walletCustodyCeremonyTransportFromWorkerContextV1,
-} from '../../walletCustody/unlockedCustodyTransferCapability';
+} from '../../walletCustody/unlockedEd25519ExportRootCapability';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   clampThresholdSessionPolicy,
@@ -243,7 +243,7 @@ function nowMs(): number {
     : Date.now();
 }
 
-async function establishEmailOtpUnlockedCustodyTransferCapability(args: {
+async function establishEmailOtpUnlockedEd25519ExportRootCapability(args: {
   readonly workerContext: WorkerOperationContext;
   readonly unlock: Extract<
     Awaited<ReturnType<typeof unlockEmailOtpWalletCapabilities>>,
@@ -253,11 +253,11 @@ async function establishEmailOtpUnlockedCustodyTransferCapability(args: {
   readonly walletAuthMethodId: string;
 }): Promise<void> {
   try {
-    await establishUnlockedWalletCustodyTransferCapabilityV1(
+    await establishUnlockedWalletEd25519ExportRootCapabilityV1(
       walletCustodyCeremonyTransportFromWorkerContextV1(args.workerContext),
       {
-        existingEnvelope: args.unlock.custodyTransfer.existingEnvelope,
-        existingFactorSecret: args.unlock.custodyTransfer.factorSecret32,
+        existingEnvelope: args.unlock.ed25519ExportRootCustody.existingEnvelope,
+        existingFactorSecret: args.unlock.ed25519ExportRootCustody.factorSecret32,
         walletId: String(args.authorization.walletId),
         walletAuthMethodId: args.walletAuthMethodId,
         walletSessionId: String(args.authorization.walletSessionId),
@@ -266,7 +266,7 @@ async function establishEmailOtpUnlockedCustodyTransferCapability(args: {
     );
   } catch (error: unknown) {
     console.warn(
-      '[SigningEngine][email-otp] unlocked custody transfer capability was not established:',
+      '[SigningEngine][email-otp] unlocked Ed25519 export-root capability was not established:',
       error instanceof Error ? error.message : String(error || 'unknown error'),
     );
   }
@@ -1572,7 +1572,7 @@ async function runEmailOtpEcdsaCapability(
       publicationPorts,
     );
     if (unlockResult.kind === 'wallet_unlock_capabilities') {
-      await establishEmailOtpUnlockedCustodyTransferCapability({
+      await establishEmailOtpUnlockedEd25519ExportRootCapability({
         workerContext: workerCtx,
         unlock: unlockResult,
         authorization,
@@ -1607,7 +1607,7 @@ async function runEmailOtpEcdsaCapability(
     throw error;
   } finally {
     if (unlockResult.kind === 'wallet_unlock_capabilities') {
-      unlockResult.custodyTransfer.factorSecret32.fill(0);
+      unlockResult.ed25519ExportRootCustody.factorSecret32.fill(0);
     }
   }
 }

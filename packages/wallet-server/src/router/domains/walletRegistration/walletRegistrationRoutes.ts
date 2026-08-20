@@ -81,6 +81,10 @@ import type { RouteDefinition } from '../../framework/routeDefinitions';
 import type { RouteErrorBody } from '../../framework/routeResponses';
 import { routeError, routeJson } from '../../framework/routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  sameDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
@@ -828,22 +832,10 @@ type NearFundingWalletSessionAdmission =
     };
 
 function linkedDevicePermissionsMatch(
-  left: {
-    readonly kind: string;
-    readonly administrationScope: string;
-    readonly localUserPresence: string;
-  },
-  right: {
-    readonly kind: string;
-    readonly administrationScope: string;
-    readonly localUserPresence: string;
-  },
+  left: DelegatedWalletAuthorityV1,
+  right: DelegatedWalletAuthorityV1,
 ): boolean {
-  return (
-    left.kind === right.kind &&
-    left.administrationScope === right.administrationScope &&
-    left.localUserPresence === right.localUserPresence
-  );
+  return sameDelegatedWalletAuthorityV1(left, right);
 }
 
 async function resolveRouteNearFundingWalletSession(

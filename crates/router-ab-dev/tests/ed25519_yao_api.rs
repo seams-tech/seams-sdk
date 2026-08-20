@@ -14,7 +14,7 @@ use signer_core::ed25519_yao_derivation::{
     derive_ed25519_yao_client_contributions_v1, Ed25519YaoApplicationBindingFactsV1,
     Ed25519YaoApplicationBindingKeyCreationSignerSlotV1,
     Ed25519YaoApplicationBindingSigningKeyIdV1, Ed25519YaoApplicationBindingSigningRootIdV1,
-    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientDerivationRootV1,
+    Ed25519YaoApplicationBindingWalletIdV1, Ed25519YaoClientRootV1,
     Ed25519YaoStableKeyDerivationContextV1,
 };
 
@@ -114,7 +114,7 @@ fn transport_contribution(
 #[test]
 fn role_request_builders_keep_server_roots_separate_and_bind_the_canonical_context() {
     let context = context();
-    let client_root = Ed25519YaoClientDerivationRootV1::from_secret_bytes([0x11; 32]);
+    let client_root = Ed25519YaoClientRootV1::from_secret_bytes([0x11; 32]);
     let (client_a, client_b) = derive_ed25519_yao_client_contributions_v1(&client_root, &context)
         .expect("client KDF")
         .into_parts();

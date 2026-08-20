@@ -22,6 +22,14 @@ const AUTH_MENU_CSS_MARKER = 'data-w3a-auth-menu-css';
 const AUTH_MENU_TITLE_ID = 'w3a-auth-menu-title';
 const AUTH_MENU_ACCOUNT_LIST_ID = 'w3a-auth-menu-account-list';
 
+function otpCodeDigits(code: string): readonly string[] {
+  return code.padEnd(6, ' ').slice(0, 6).split('');
+}
+
+function renderOtpCodeDigit(digit: string): TemplateResult {
+  return html`<span class="w3a-otp-slot ${digit.trim() ? 'is-filled' : ''}">${digit}</span>`;
+}
+
 function authViewKey(viewModel: AuthMenuViewModel): string {
   const stage = viewModel.kind === 'recovery' ? `:${viewModel.stage}` : '';
   return `${viewModel.kind}:${viewModel.mode}:${viewModel.status.kind}${stage}`;
@@ -181,16 +189,19 @@ function linkDeviceIcon(): TemplateResult {
 
 const LINK_DEVICE_DOT_COUNT = 12;
 
-function linkDeviceDotRing(waiting: boolean): TemplateResult {
+/* Three phases of one badge: `waiting` sweeps the dots like a clock spinner,
+   `idle` rests them to a faint ring around whatever glyph the view supplies,
+   and `approved` settles them while the check strokes itself in over the top. */
+type LinkDeviceRingPhase = 'waiting' | 'idle' | 'approved';
+
+function linkDeviceDotRing(phase: LinkDeviceRingPhase, glyph?: TemplateResult): TemplateResult {
   return html`
-    <div
-      class="w3a-link-device-dot-ring ${waiting ? 'is-waiting' : 'is-approved'}"
-      aria-hidden="true"
-    >
+    <div class="w3a-link-device-dot-ring is-${phase}" aria-hidden="true">
       ${Array.from(
         { length: LINK_DEVICE_DOT_COUNT },
         (_, index) => html`<span style="--dot-index: ${index}"></span>`,
       )}
+      ${glyph ? html`<div class="w3a-link-device-dot-ring-glyph">${glyph}</div>` : null}
       <svg
         class="w3a-link-device-dot-ring-check"
         viewBox="0 0 52 52"
@@ -204,6 +215,112 @@ function linkDeviceDotRing(waiting: boolean): TemplateResult {
       </svg>
     </div>
   `;
+}
+
+function mailIcon(): TemplateResult {
+  return html`
+    <svg
+      width="21"
+      height="21"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2.75" y="5" width="18.5" height="14" rx="2.75" />
+      <path d="m3.75 7.75 6.94 4.86a2.25 2.25 0 0 0 2.62 0l6.94-4.86" />
+    </svg>
+  `;
+}
+
+type AuthMenuLinkDeviceEmailOtpState = Extract<
+  AuthMenuLinkDeviceState,
+  { kind: 'email_otp_required' }
+>;
+
+/* One row per activation state, so the badge, heading, and status line can
+   never disagree about which phase the view is in. `pending` marks the phases
+   the flow drives itself out of — those get the animated ellipsis. */
+type LinkDeviceEmailOtpPresentation = {
+  readonly ring: LinkDeviceRingPhase;
+  readonly heading: string;
+  readonly status: string;
+  readonly pending: boolean;
+  readonly tone: 'neutral' | 'error';
+};
+
+function linkDeviceEmailOtpPresentation(
+  activation: AuthMenuLinkDeviceEmailOtpState['state'],
+): LinkDeviceEmailOtpPresentation {
+  switch (activation.kind) {
+    case 'sending':
+      return {
+        ring: 'waiting',
+        heading: 'Sending your code',
+        status: 'Emailing a 6-digit code',
+        pending: true,
+        tone: 'neutral',
+      };
+    case 'resending':
+      return {
+        ring: 'waiting',
+        heading: 'Sending a new code',
+        status: 'Emailing a fresh 6-digit code',
+        pending: true,
+        tone: 'neutral',
+      };
+    case 'submitting':
+      return {
+        ring: 'waiting',
+        heading: 'Checking your code',
+        status: 'Verifying the code you entered',
+        pending: true,
+        tone: 'neutral',
+      };
+    case 'code_input':
+      return {
+        ring: 'idle',
+        heading: 'Verify your email',
+        status: 'Enter the 6-digit code we just sent.',
+        pending: false,
+        tone: 'neutral',
+      };
+    case 'incorrect':
+      return {
+        ring: 'idle',
+        heading: 'Verify your email',
+        status: activation.message,
+        pending: false,
+        tone: 'error',
+      };
+    case 'expired':
+      return {
+        ring: 'idle',
+        heading: 'That code expired',
+        status: activation.message,
+        pending: false,
+        tone: 'error',
+      };
+    case 'unavailable':
+      return {
+        ring: 'idle',
+        heading: 'Email code unavailable',
+        status: activation.message,
+        pending: false,
+        tone: 'error',
+      };
+    case 'completed':
+      return {
+        ring: 'approved',
+        heading: 'Email verified',
+        status: 'Finishing linking this device',
+        pending: true,
+        tone: 'neutral',
+      };
+  }
 }
 
 function linkFailedIcon(): TemplateResult {
@@ -1102,9 +1219,13 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   ): TemplateResult {
     return html`
       <div class="w3a-link-device-confirmation">
-        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Choose how to secure this device</h2>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Match your other device</h2>
+        <p class="w3a-link-device-confirmation-copy">
+          Use the same unlock method as Device 1: Passkey for a passkey wallet, or Email code for an
+          Email OTP wallet.
+        </p>
         <fieldset class="w3a-link-device-factor-options">
-          <legend class="sr-only">Device security method</legend>
+          <legend class="sr-only">Wallet unlock method</legend>
           <label>
             <input
               type="radio"
@@ -1138,10 +1259,9 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     `;
   }
 
-  private renderLinkDeviceEmailOtp(
-    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'email_otp_required' }>,
-  ): TemplateResult {
+  private renderLinkDeviceEmailOtp(linkDevice: AuthMenuLinkDeviceEmailOtpState): TemplateResult {
     const activation = linkDevice.state;
+    const view = linkDeviceEmailOtpPresentation(activation);
     const busy =
       activation.kind === 'sending' ||
       activation.kind === 'submitting' ||
@@ -1149,58 +1269,118 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     const canSubmit =
       linkDevice.otpCode.length === 6 &&
       (activation.kind === 'code_input' || activation.kind === 'incorrect');
+    // The slots stay mounted through the busy phases so nothing under them
+    // moves while a code is in flight; only the end states retire the field.
+    const showCodeField =
+      activation.kind !== 'completed' &&
+      activation.kind !== 'expired' &&
+      activation.kind !== 'unavailable';
     const hint = 'maskedEmailHint' in activation ? activation.maskedEmailHint : '';
-    const message =
-      activation.kind === 'incorrect' ||
-      activation.kind === 'expired' ||
-      activation.kind === 'unavailable'
-        ? activation.message
-        : busy
-          ? 'Sending or verifying your code…'
-          : activation.kind === 'completed'
-            ? 'Email verified'
-            : `Enter the code sent to ${hint}`;
+    const digits = otpCodeDigits(linkDevice.otpCode);
     return html`
-      <div class="w3a-link-device-confirmation">
-        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Verify your email</h2>
-        <p id="w3a-linked-device-otp-status" role="status" aria-live="polite">${message}</p>
-        ${activation.kind === 'completed' || activation.kind === 'unavailable'
-          ? null
-          : html`
-              <input
-                class="w3a-input"
-                type="text"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                maxlength="6"
-                aria-label="Email verification code"
-                aria-describedby="w3a-linked-device-otp-status"
-                aria-invalid=${activation.kind === 'incorrect' || activation.kind === 'expired'
-                  ? 'true'
-                  : 'false'}
-                .value=${linkDevice.otpCode}
-                ?disabled=${busy || activation.kind === 'expired'}
-                @input=${this.onLinkDeviceEmailOtpCodeInput}
-                @keydown=${this.onLinkDeviceEmailOtpKeydown}
-              />
-              <button
-                class="w3a-link-device-btn w3a-link-device-btn-primary"
-                type="button"
-                ?disabled=${!canSubmit}
-                @click=${this.onLinkDeviceEmailOtpSubmit}
-              >
-                Verify code
-              </button>
-              <button
-                class="w3a-link-device-btn"
-                type="button"
-                ?disabled=${busy}
-                @click=${this.onLinkDeviceEmailOtpResend}
-              >
-                Send another code
-              </button>
-            `}
+      <div
+        class="w3a-link-device-confirmation w3a-link-device-email-otp"
+        data-tone=${view.tone}
+        data-otp-phase=${activation.kind}
+      >
+        ${linkDeviceDotRing(view.ring, mailIcon())}
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>${view.heading}</h2>
+        ${hint
+          ? html`
+              <div class="w3a-link-device-email-chip" title=${hint}>
+                <span>${hint}</span>
+              </div>
+            `
+          : null}
+        <p
+          class="w3a-link-device-email-status"
+          id="w3a-linked-device-otp-status"
+          role="status"
+          aria-live="polite"
+        >
+          ${view.status}${view.pending
+            ? html`<span class="animated-ellipsis" aria-hidden="true"></span>`
+            : null}
+        </p>
+        ${showCodeField
+          ? html`
+              <label class="sr-only" for="w3a-linked-device-email-otp">Email code</label>
+              <div class="w3a-otp-code-field" data-disabled=${busy ? 'true' : 'false'}>
+                <input
+                  class="w3a-otp-input"
+                  id="w3a-linked-device-email-otp"
+                  data-auth-menu-input
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  pattern="[0-9]*"
+                  maxlength="6"
+                  aria-label="Email verification code"
+                  aria-describedby="w3a-linked-device-otp-status"
+                  aria-invalid=${activation.kind === 'incorrect' ? 'true' : 'false'}
+                  .value=${linkDevice.otpCode}
+                  ?disabled=${busy}
+                  @input=${this.onLinkDeviceEmailOtpCodeInput}
+                  @keydown=${this.onLinkDeviceEmailOtpKeydown}
+                />
+                <div class="w3a-otp-slots" aria-hidden="true">
+                  ${digits.map(renderOtpCodeDigit)}
+                </div>
+              </div>
+            `
+          : null}
+        ${this.renderLinkDeviceEmailOtpActions(activation, { busy, canSubmit })}
       </div>
+    `;
+  }
+
+  private renderLinkDeviceEmailOtpActions(
+    activation: AuthMenuLinkDeviceEmailOtpState['state'],
+    input: { readonly busy: boolean; readonly canSubmit: boolean },
+  ): TemplateResult | null {
+    // Verification hands straight over to activation, so the completed frame
+    // owns no control — anything offered here would race the flow.
+    if (activation.kind === 'completed') return null;
+    if (activation.kind === 'unavailable') {
+      return html`
+        <button
+          class="w3a-link-device-btn"
+          type="button"
+          data-link-device-error-dismiss
+          @click=${this.onBackClick}
+        >
+          Return to sign in
+        </button>
+      `;
+    }
+    if (activation.kind === 'expired') {
+      return html`
+        <button
+          class="w3a-link-device-btn w3a-link-device-btn-primary"
+          type="button"
+          @click=${this.onLinkDeviceEmailOtpResend}
+        >
+          Send a new code
+        </button>
+      `;
+    }
+    return html`
+      <button
+        class="w3a-link-device-btn w3a-link-device-btn-primary"
+        type="button"
+        ?disabled=${!input.canSubmit}
+        @click=${this.onLinkDeviceEmailOtpSubmit}
+      >
+        ${activation.kind === 'submitting' ? 'Verifying' : 'Verify code'}
+      </button>
+      <button
+        class="w3a-otp-resend"
+        type="button"
+        ?disabled=${input.busy}
+        @click=${this.onLinkDeviceEmailOtpResend}
+      >
+        Send another code
+      </button>
     `;
   }
 
@@ -1252,7 +1432,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     const creating = linkDevice.kind === 'creating_passkey';
     return html`
       <div class="w3a-link-device-confirmation">
-        ${linkDeviceDotRing(creating)}
+        ${linkDeviceDotRing(creating ? 'waiting' : 'approved')}
         <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID} aria-live="polite">${linkDevice.message}</h2>
         <button
           class="w3a-link-device-btn w3a-link-device-btn-primary"
@@ -1273,7 +1453,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
       viewModel.delivery.status === 'reused'
         ? `Use the code already sent to ${viewModel.emailHint}.`
         : `A 6-digit code was sent to ${viewModel.emailHint}.`;
-    const digits = viewModel.otpCode.padEnd(6, ' ').slice(0, 6).split('');
+    const digits = otpCodeDigits(viewModel.otpCode);
     return html`
       <div class="w3a-otp-prompt" aria-live="polite">
         <div class="w3a-otp-prompt-copy">
@@ -1300,12 +1480,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             @input=${this.onGoogleOtpCodeInput}
             @keydown=${this.onGoogleOtpKeydown}
           />
-          <div class="w3a-otp-slots" aria-hidden="true">
-            ${digits.map(
-              (digit) =>
-                html`<span class="w3a-otp-slot ${digit.trim() ? 'is-filled' : ''}">${digit}</span>`,
-            )}
-          </div>
+          <div class="w3a-otp-slots" aria-hidden="true">${digits.map(renderOtpCodeDigit)}</div>
         </div>
         <p class="w3a-otp-helper">${viewModel.prompt.helperText ?? ''}</p>
         <button

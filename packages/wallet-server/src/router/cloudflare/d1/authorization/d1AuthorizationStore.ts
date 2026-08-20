@@ -78,6 +78,7 @@ import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import { parseLaneEnrollmentId } from '@shared/signing-lanes';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 
 export type D1AuthorizationStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -1700,10 +1701,16 @@ export class CloudflareD1AuthorizationStore
       ) {
         return { kind: 'material_mismatch' };
       }
-      if (
+      const permission = await this.readLinkedDeviceOperationPermission(operation);
+      if (!permission) {
+        return { kind: 'authorization_grant_rejected' };
+      }
+      const requiredPermission =
         operation.operation.operation.operationKind === 'near.export_key' ||
         operation.operation.operation.operationKind === 'evm.export_key'
-      ) {
+          ? 'export_keys'
+          : 'sign';
+      if (!hasDelegatedWalletPermissionV1(permission, requiredPermission)) {
         return { kind: 'authorization_grant_rejected' };
       }
       if (!(await this.isActiveLinkedDeviceMaterial(input.material))) {
@@ -1924,6 +1931,24 @@ export class CloudflareD1AuthorizationStore
     } catch {
       return false;
     }
+  }
+
+  private async readLinkedDeviceOperationPermission(
+    operation: AuthorizedOperation,
+  ): Promise<LinkedDeviceWalletSessionAuthorization['permission'] | null> {
+    if (
+      operation.authorization.kind !== 'authorization_grant' ||
+      operation.authorization.authorizationGrantRef.kind !==
+        'linked_device_wallet_session_authorization_v1'
+    ) {
+      return null;
+    }
+    const rows = await this.readLinkedDeviceAuthorizationRows({
+      tenantId: operation.tenantId,
+      authorizationId: operation.authorization.authorizationGrantRef.authorizationId,
+    });
+    if (!rows || rows.authorization.principalId !== operation.operation.principalId) return null;
+    return rows.authorization.permission;
   }
 
   private async readLinkedDeviceAuthorizationRows(input: {

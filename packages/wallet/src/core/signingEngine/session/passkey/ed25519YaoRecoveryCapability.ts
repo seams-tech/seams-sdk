@@ -16,12 +16,11 @@ import { isPlainObject } from '@shared/utils/validation';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type ReusableWalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 
 export type ParsedYaoRecoverySessionV1 = {
   readonly walletSessionToken: string;
@@ -185,7 +184,9 @@ function parseRegistrationContinuity(
   };
 }
 
-export function parseEd25519YaoRecoveryCapabilityV1(raw: unknown): ParsedYaoRecoveryCapabilityV1 {
+export function parseEd25519YaoRecoveryCapabilityV1(
+  raw: unknown,
+): ParsedYaoRecoveryCapabilityV1 {
   const record = requireRecord(raw, 'capability');
   if (record.kind !== 'router_ab_ed25519_yao_active_capability_v1') {
     throw new Error('Yao recovery capability kind is invalid');

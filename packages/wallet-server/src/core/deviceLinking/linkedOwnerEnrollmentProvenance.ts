@@ -11,12 +11,11 @@
  * the server's own records and compared field for field against what was
  * submitted. Provenance first, immutability second.
  *
- * The Email OTP branch has no add-auth-method ceremony. Its server-owned facts
- * are the wallet's one active verified base Email OTP factor and the masked
- * destination hint derived from it, so provenance for that branch means: the
- * factor the approval names is the factor the server resolves for that wallet,
- * and the hint is the server's own masking — never one Device 1 or Device 2
- * chose.
+ * The Email OTP branch has no add-auth-method ceremony. Its server-owned fact
+ * is the wallet's one active verified base Email OTP factor. The destination
+ * hint is display data: existing clients may only retain a redacted account
+ * label while the server retains the verified address, so it cannot establish
+ * factor identity.
  */
 import type { LinkedDeviceApprovalV1 } from '@shared/device-linking/contracts';
 import type { WalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
@@ -34,8 +33,7 @@ export type LinkedOwnerEnrollmentProvenanceDeniedV1 =
   | 'ceremony_expiry_does_not_match'
   | 'ceremony_expired'
   | 'email_otp_base_factor_unavailable'
-  | 'email_otp_base_factor_does_not_match'
-  | 'email_otp_masked_hint_does_not_match';
+  | 'email_otp_base_factor_does_not_match';
 
 export type LinkedOwnerEnrollmentProvenanceResultV1 =
   | { readonly ok: true }
@@ -55,15 +53,14 @@ export type LinkedOwnerEnrollmentCeremonyReaderV1 = {
 };
 
 /**
- * Resolves the one active verified base Email OTP factor for a wallet, along
- * with the server-derived masked destination hint. Returning `null` means no
- * eligible factor exists — which refuses the approval outright rather than
- * letting an enrollment proceed against a factor the wallet does not hold.
+ * Resolves the one active verified base Email OTP factor for a wallet.
+ * Returning `null` means no eligible factor exists — which refuses the
+ * approval outright rather than letting an enrollment proceed against a
+ * factor the wallet does not hold.
  */
 export type LinkedOwnerEmailOtpBaseFactorReaderV1 = {
   readActiveEmailOtpBaseFactorV1(input: { readonly walletId: WalletId }): Promise<{
     readonly baseWalletAuthMethodId: WalletAuthMethodId;
-    readonly maskedEmailHint: string;
   } | null>;
 };
 
@@ -119,9 +116,6 @@ export async function admitLinkedOwnerEnrollmentProvenanceV1(input: {
       if (!resolved) return { ok: false, reason: 'email_otp_base_factor_unavailable' };
       if (resolved.baseWalletAuthMethodId !== claimed.baseWalletAuthMethodId) {
         return { ok: false, reason: 'email_otp_base_factor_does_not_match' };
-      }
-      if (resolved.maskedEmailHint !== claimed.maskedEmailHint) {
-        return { ok: false, reason: 'email_otp_masked_hint_does_not_match' };
       }
       // The email branch has no independent ceremony clock: its deadline is
       // the approval expiry, restated so downstream records can clamp to one

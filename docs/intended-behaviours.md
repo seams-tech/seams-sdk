@@ -429,6 +429,37 @@ Expected behaviour:
 - A transaction-signing session restored after refresh must not become export
   authority.
 
+## Account Recovery
+
+Until Refactor 109A defines multi-auth recovery, code recovery accepts only a
+wallet with exactly one active Passkey owner method for the requested RP.
+
+Expected behaviour:
+
+- The hosted wallet-iframe menu accepts an editable Wallet ID and one unused
+  recovery code. It does not request Email OTP, Google authentication, an
+  existing Passkey assertion, or an old credential ID.
+- Preparation reserves the code and returns replacement Passkey registration
+  options. A separate **Create new passkey** activation starts WebAuthn.
+- Finalization preserves every public wallet identity and atomically installs
+  the replacement authenticator, auth method, binding, and custody envelope;
+  consumes one code; revokes the source method and its Wallet Sessions; and
+  retires the source envelope.
+- Recovery restores local continuity against the replacement Passkey authority.
+- The menu reports `authenticated/passkey` only after normal login with the
+  replacement Passkey creates a fresh Wallet Session.
+- The remaining recovery codes stay active. Reusing the consumed code receives
+  the same generic refusal as every other invalid recovery attempt.
+
+Failure behaviour:
+
+- Cancellation before finalization leaves the code usable after its reservation
+  expires and clears client-held recovery material.
+- A failed atomic finalization leaves the source method active and the code
+  unconsumed. Transport uncertainty may replay the same finalization.
+- Unknown wallets, unusable codes, RP mismatch, and unsupported auth-method
+  shapes expose no distinguishing recovery detail.
+
 ## Test Matrix
 
 Every release touching registration, auth methods, signing sessions, budget,
@@ -460,6 +491,8 @@ restore, lane selection, or budget handling.
 | Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                  |
 | Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                  |
 | Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note           |
+| Code recovery replaces one Passkey and preserves all public identities  | Intended-behaviour recovery contract                       |
+| Code recovery revokes source sessions and consumes exactly one code     | Intended-behaviour recovery contract                       |
 | Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                |
 | ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                |
 

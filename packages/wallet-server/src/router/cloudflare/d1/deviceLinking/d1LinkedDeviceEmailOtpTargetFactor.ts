@@ -320,11 +320,11 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
         deviceId: input.approval.deviceId,
         targetPreparationDigestB64u: context.targetPreparationDigestB64u,
         baseWalletAuthMethodId: context.resolved.baseWalletAuthMethodId,
-        linkedOwnerAuthMethodId: context.linkedOwnerAuthMethodId,
-        authorityDigestB64u: context.authorityDigestB64u,
         emailHashHex: context.resolved.emailHashHex,
         registrationAuthorityId: context.resolved.registrationAuthorityId,
         providerUserId: context.resolved.enrollment.providerUserId,
+        linkedOwnerAuthMethodId: context.linkedOwnerAuthMethodId,
+        authorityDigestB64u: context.authorityDigestB64u,
         issuedAtMs,
         expiresAtMs,
       },
@@ -447,7 +447,13 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
       // its `maskedEmailHint` name because it is a shared wire field; only this
       // branch fills it with the verified address. Every other Email OTP
       // surface still masks, through `maskEmail` in the delivery runtime.
-      maskedEmailHint: enrollment.verifiedEmail,
+      //
+      // Normalized, not raw: device 1 claims this same value from its local
+      // account identity, and the provenance check compares the two as
+      // strings. The mask helpers both trimmed and lower-cased internally, so
+      // removing them without restating that here would make the comparison
+      // sensitive to stored casing for the first time.
+      maskedEmailHint: enrollment.verifiedEmail.trim().toLowerCase(),
     };
   }
 }

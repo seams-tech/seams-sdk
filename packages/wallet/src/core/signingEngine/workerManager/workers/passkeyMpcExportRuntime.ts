@@ -144,7 +144,28 @@ function parseWorkerBytes32(value: unknown): readonly number[] | null {
 function custodyEnvelopeInputForExport(
   record: RouterAbEd25519YaoExportWorkerPayloadV1['walletCustodyEnvelope'],
 ) {
-  const envelope = walletCustodyCacheEnvelopeFromRecordV1(record);
+  if (record.binding.kind !== 'wallet_custody_seed_v1' && record.binding.kind !== 'ed25519_yao_client_root_v1') {
+    throw new Error('Ed25519 export requires a wallet seed or Client-root envelope');
+  }
+  if (record.lifecycle.state !== 'active') {
+    throw new Error('Ed25519 export requires an active factor-sealed envelope');
+  }
+  const envelope =
+    record.binding.kind === 'wallet_custody_seed_v1'
+      ? walletCustodyCacheEnvelopeFromRecordV1(record)
+      : {
+          bindingJson: JSON.stringify({
+            walletId: record.walletId,
+            envelopeId: record.envelopeId,
+            factor: record.factor,
+            envelopeRevision: record.envelopeRevision,
+            binding: record.binding,
+          }),
+          nonceB64u: record.nonceB64u,
+          ciphertextB64u: record.sealedCustodySecretB64u,
+          aadHashB64u: record.aadHashB64u,
+          ciphertextDigestB64u: record.ciphertextDigestB64u,
+        };
   return {
     bindingJson: envelope.bindingJson,
     nonce: base64UrlDecode(envelope.nonceB64u),
@@ -219,7 +240,13 @@ function parseEd25519YaoExportWorkerPayload(
     String(walletCustodyEnvelope.walletId) !== String(parsedWalletId.value) ||
     walletCustodyEnvelope.lifecycle.state !== 'active' ||
     walletCustodyEnvelope.factor.kind !== 'passkey' ||
-    String(walletCustodyEnvelope.factor.credentialIdB64u) !== credentialIdB64u
+    String(walletCustodyEnvelope.factor.credentialIdB64u) !== credentialIdB64u ||
+    (walletCustodyEnvelope.binding.kind === 'ed25519_yao_client_root_v1' &&
+      (walletCustodyEnvelope.binding.targetFactor.kind !== 'passkey_prf' ||
+        walletCustodyEnvelope.binding.registeredPublicKeyB64u !==
+          base64UrlEncode(Uint8Array.from(registeredPublicKey)))) ||
+    (walletCustodyEnvelope.binding.kind !== 'wallet_custody_seed_v1' &&
+      walletCustodyEnvelope.binding.kind !== 'ed25519_yao_client_root_v1')
   ) {
     return null;
   }

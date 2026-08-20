@@ -17,7 +17,11 @@ import type {
   WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../../../storage/tenantRoute';
 import {
   CloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordMutationV1,
@@ -182,6 +186,10 @@ export type PasskeyCustodyEnvelopeRevocationResult =
 export type PasskeyCustodyEnvelopeLinkResult =
   | { readonly kind: 'stored'; readonly storeVersion: string }
   | { readonly kind: 'version_mismatch' }
+  | { readonly kind: 'conflict' };
+
+export type PasskeyFactorWithoutCustodyLinkResult =
+  | { readonly kind: 'stored' }
   | { readonly kind: 'conflict' };
 
 export type WalletCredentialActivityProjection = {
@@ -711,6 +719,32 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       const version = stored.versions.find((entry) => entry.key === key)?.version;
       if (!version) throw new Error('passkey custody link did not report envelope version');
       return { kind: 'stored', storeVersion: version };
+    } catch (error: unknown) {
+      if (isD1ConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  /**
+   * Commits a linked-device owner credential without inserting a generic
+   * wallet-custody envelope. The linked Device 2 root is a local export
+   * repository record and never belongs in this seed store.
+   */
+  async commitPasskeyFactorWithoutCustodyAtomically(input: {
+    readonly additionalStatements: readonly D1PreparedStatementLike[];
+  }): Promise<PasskeyFactorWithoutCustodyLinkResult> {
+    if (input.additionalStatements.length === 0) {
+      throw new Error('Passkey linking requires credential and auth-method mutations');
+    }
+    try {
+      const results = await this.database.batch<D1ResultLike>(input.additionalStatements);
+      if (
+        results.length !== input.additionalStatements.length ||
+        results.some((result) => !result.success)
+      ) {
+        throw new Error('linked passkey commit returned an incomplete D1 batch');
+      }
+      return { kind: 'stored' };
     } catch (error: unknown) {
       if (isD1ConstraintError(error)) return { kind: 'conflict' };
       throw error;

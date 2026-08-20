@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
-import { walletSessionJwtAuth } from '@shared/utils/sessionTokens';
+import { opaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown): string =>
@@ -14,7 +14,7 @@ test.describe('Wallet Session authorization status client', () => {
     let requestInit: RequestInit | undefined;
     const statusPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: walletSessionJwtAuth(walletSessionJwt),
+      auth: opaqueWalletSessionAuth(walletSessionJwt),
       fetchImpl: async (_input, init) => {
         requestInit = init;
         return new Response(
@@ -42,18 +42,6 @@ test.describe('Wallet Session authorization status client', () => {
     expect(new Headers(requestInit?.headers).get('cookie')).toBeNull();
   });
 
-  test('rejects app-session JWTs at the status boundary', () => {
-    expect(() =>
-      createRelayerReusableWalletSessionStatusPort({
-        relayerUrl: 'https://relayer.example.test',
-        auth: {
-          kind: 'wallet_session',
-          jwt: 'eyJhbGciOiJub25lIn0.eyJraW5kIjoiYXBwX3Nlc3Npb25fdjEifQ.sig',
-        },
-      }),
-    ).toThrow('walletSessionJwt must be a Wallet Session JWT');
-  });
-
   test('shares only concurrent reads for the exact authorization and status identity', async () => {
     const walletSessionJwt = jwtWithPayload({ kind: 'router_ab_ed25519_wallet_session_v1' });
     let requestCount = 0;
@@ -78,12 +66,12 @@ test.describe('Wallet Session authorization status client', () => {
     };
     const firstPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: walletSessionJwtAuth(walletSessionJwt),
+      auth: opaqueWalletSessionAuth(walletSessionJwt),
       fetchImpl,
     });
     const secondPort = createRelayerReusableWalletSessionStatusPort({
       relayerUrl: 'https://relayer.example.test',
-      auth: walletSessionJwtAuth(walletSessionJwt),
+      auth: opaqueWalletSessionAuth(walletSessionJwt),
       fetchImpl,
     });
     const identity = {

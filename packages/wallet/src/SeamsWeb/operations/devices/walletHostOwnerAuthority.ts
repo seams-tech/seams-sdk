@@ -1,6 +1,6 @@
 import type { HttpTransport } from '@/core/platform/http';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
-import type { UnlockedWalletCustodyTransferCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
@@ -16,6 +16,7 @@ import type {
   LinkedDeviceOwnerAuthorizationRequestV1,
   LinkedDeviceOwnerSourceLaneV1,
 } from '@shared/device-linking';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
 import type { LinkSessionOwnerAuthenticatedRequestPortV1 } from './deviceLinkingOwnerTransport';
 import {
@@ -58,13 +59,13 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   /**
-   * R103 zero-prompt handoff: reads the worker-held unlocked custody transfer
+   * R103 zero-prompt handoff: reads the worker-held unlocked Ed25519 export-root
    * capability for a wallet, or undefined when none exists. Reading never
    * prompts.
    */
-  readonly readUnlockedCustodyCapabilityV1: (
+  readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
-  ) => UnlockedWalletCustodyTransferCapabilityV1 | undefined;
+  ) => UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
   /**
    * Starts the owner add-auth-method ceremony a linked device will finalize.
    *
@@ -132,9 +133,9 @@ type WalletHostOwnerAuthorityContextV1 = {
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
-  readonly readUnlockedCustodyCapabilityV1: (
+  readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
-  ) => UnlockedWalletCustodyTransferCapabilityV1 | undefined;
+  ) => UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
 };
 
 function normalizeContext(input: {
@@ -146,9 +147,9 @@ function normalizeContext(input: {
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
-  readonly readUnlockedCustodyCapabilityV1: (
+  readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
-  ) => UnlockedWalletCustodyTransferCapabilityV1 | undefined;
+  ) => UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
 }): WalletHostOwnerAuthorityContextV1 {
   const baseUrl = String(input.relayerUrl || '')
     .trim()
@@ -162,7 +163,7 @@ function normalizeContext(input: {
  *
  * Runs before the owner-authorization request, the QR claim, and everything
  * after them: a Device 1 that is locked, whose owner Wallet Session is gone,
- * or whose worker no longer holds the unlocked custody capability gets this
+ * or whose worker no longer holds the unlocked export-root capability gets this
  * one result, and the flow creates no claim, approval, credential, recipient
  * package, or authenticator prompt. Unlocking is the user's explicit act on
  * the wallet surface — never a side effect of scanning a QR.
@@ -184,18 +185,24 @@ async function authorizeOwnerForLinkingV1(
     throw walletUnlockRequiredV1();
   }
   const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
-  const custodyTransferCapability = context.readUnlockedCustodyCapabilityV1(state.walletId);
-  if (
-    !custodyTransferCapability ||
-    custodyTransferCapability.walletId !== String(state.walletId) ||
-    custodyTransferCapability.walletSessionId !== String(projection.walletSessionId) ||
-    custodyTransferCapability.expiresAtMs <= Date.now()
-  ) {
-    throw walletUnlockRequiredV1();
-  }
   const orderedOwnerSourceLaneHints = await context.readOwnerSourceLaneHintsV1({
     projection,
   });
+  const exportRootRequired =
+    hasDelegatedWalletPermissionV1(input.payload.requestedPermission, 'export_keys') &&
+    orderedOwnerSourceLaneHints.some((hint) => hint.keyFamily === 'ed25519');
+  const ed25519ExportRootCapability = exportRootRequired
+    ? context.readUnlockedEd25519ExportRootCapabilityV1(state.walletId)
+    : undefined;
+  if (
+    exportRootRequired &&
+    (!ed25519ExportRootCapability ||
+      ed25519ExportRootCapability.walletId !== String(state.walletId) ||
+      ed25519ExportRootCapability.walletSessionId !== String(projection.walletSessionId) ||
+      ed25519ExportRootCapability.expiresAtMs <= Date.now())
+  ) {
+    throw walletUnlockRequiredV1();
+  }
   const body: LinkedDeviceOwnerAuthorizationRequestV1 =
     parseLinkedDeviceOwnerAuthorizationRequestV1({
       payload: input.payload,
@@ -210,10 +217,16 @@ async function authorizeOwnerForLinkingV1(
   if (response.status < 200 || response.status >= 300) {
     throw new Error(ownerRequestFailureMessage(response));
   }
-  return {
-    ...parseOwnerAuthorizationResponseV1(response.body, projection),
-    custodyTransferCapability,
-  };
+  const parsed = parseOwnerAuthorizationResponseV1(response.body, projection);
+  if (exportRootRequired) {
+    if (!ed25519ExportRootCapability) throw walletUnlockRequiredV1();
+    return {
+      ...parsed,
+      exportRootRequirement: 'required',
+      ed25519ExportRootCapability,
+    };
+  }
+  return { ...parsed, exportRootRequirement: 'not_required' };
 }
 
 async function requestAsAuthorizedOwnerV1(
@@ -319,7 +332,7 @@ function parseOwnerAuthorizationResponseV1(
   projection: ActiveWalletSessionAuthorizationProjection,
 ): Omit<
   Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>>,
-  'custodyTransferCapability'
+  'ed25519ExportRootCapability' | 'exportRootRequirement'
 > {
   const record = exactRecord(raw, [
     'authentication',
