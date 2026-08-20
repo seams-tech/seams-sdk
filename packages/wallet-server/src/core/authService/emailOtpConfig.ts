@@ -267,20 +267,3 @@ function parseEmailOtpCodeLength(raw: string): typeof EMAIL_OTP_CODE_LENGTH {
   }
   return EMAIL_OTP_CODE_LENGTH;
 }
-
-export function maskEmailAddress(email: string): string {
-  const trimmed = String(email || '').trim().toLowerCase();
-  const atIndex = trimmed.indexOf('@');
-  if (atIndex <= 0 || atIndex === trimmed.length - 1) return 'hidden';
-  const local = trimmed.slice(0, atIndex);
-  const domain = trimmed.slice(atIndex + 1);
-  const maskedLocal =
-    local.length <= 2 ? `${local[0] || '*'}*` : `${local[0]}***${local.slice(-1)}`;
-  const domainParts = domain.split('.');
-  const domainName = domainParts[0] || '';
-  const maskedDomainName =
-    domainName.length <= 2
-      ? `${domainName[0] || '*'}*`
-      : `${domainName[0]}***${domainName.slice(-1)}`;
-  return `${maskedLocal}@${[maskedDomainName, ...domainParts.slice(1)].join('.')}`;
-}
