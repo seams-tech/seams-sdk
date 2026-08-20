@@ -250,16 +250,40 @@ export class CloudflareD1WebAuthnAuthService {
       if (expectedUserId) {
         credentialIds = [];
         const seenCredentialIds = new Set<string>();
+        const activeCredentialIds = new Set(
+          (
+            await this.walletAuthMethodStore.listForWallet({
+              walletId: expectedUserId,
+              rpId,
+            })
+          )
+            .filter(
+              (method) =>
+                method.kind === 'passkey' && method.status === 'active' && method.rpId === rpId,
+            )
+            .map((method) => method.credentialIdB64u),
+        );
         const bindings = await this.webAuthnStore.readBindingRows({ userId: expectedUserId, rpId });
         for (const binding of bindings) {
           const credentialId = toOptionalTrimmedString(binding.credentialIdB64u);
-          if (credentialId && !seenCredentialIds.has(credentialId)) {
+          if (
+            credentialId &&
+            activeCredentialIds.has(credentialId) &&
+            !seenCredentialIds.has(credentialId)
+          ) {
             seenCredentialIds.add(credentialId);
             credentialIds.push(credentialId);
           }
-          if (!walletBinding) {
+          if (credentialId && activeCredentialIds.has(credentialId) && !walletBinding) {
             walletBinding = webAuthnSyncWalletBindingFromCredentialBinding(binding) || undefined;
           }
+        }
+        if (credentialIds.length === 0) {
+          return {
+            ok: false,
+            code: 'unknown_credential',
+            message: 'Wallet has no registered active passkey credential',
+          };
         }
       }
 
@@ -661,6 +685,25 @@ export class CloudflareD1WebAuthnAuthService {
           verified: false,
           code: 'unknown_credential',
           message: `Credential is not registered for account ${challenge.expectedUserId}`,
+        };
+      }
+      const activeMethod = await this.walletAuthMethodStore.getPasskey({
+        rpId: challenge.rpId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      if (
+        !activeMethod ||
+        activeMethod.kind !== 'passkey' ||
+        activeMethod.status !== 'active' ||
+        String(activeMethod.walletId) !== String(binding.userId) ||
+        String(activeMethod.rpId) !== String(challenge.rpId) ||
+        String(activeMethod.credentialIdB64u) !== String(credentialId.credentialIdB64u)
+      ) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not active for this wallet',
         };
       }
       const expectedOrigin = toOptionalTrimmedString(input.expected_origin);

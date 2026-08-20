@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import {
+  AuthorizationService,
+  parseOpaqueOwnerWalletSessionBinding,
+  type OpaqueOwnerWalletSessionBinding,
+} from '../../packages/wallet-server/src/authorization/service';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import {
@@ -20,8 +24,75 @@ import {
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
 import { buildPasskeyWalletSessionIssuanceFixture } from './helpers/authorizationCore.fixtures';
+import { insertWalletAuthMethod } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { makeRouterAbEcdsaDerivationNormalSigningStateFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
+
+type WalletSessionBindingIdentity = {
+  readonly authorizationId: string;
+  readonly walletSessionId: string;
+  readonly quotaId: string;
+  readonly expiresAtMs: number;
+};
+
+function ownerWalletSessionBinding(input: {
+  readonly fixture: Awaited<ReturnType<typeof buildPasskeyWalletSessionIssuanceFixture>>;
+  readonly identity: WalletSessionBindingIdentity;
+  readonly curve: 'ed25519' | 'ecdsa';
+}): OpaqueOwnerWalletSessionBinding {
+  const { fixture, identity } = input;
+  const base = {
+    kind: 'opaque_owner_wallet_session_binding_v1' as const,
+    walletId: String(fixture.authority.walletId),
+    thresholdSessionId: 'threshold-session-owner-proof',
+    authorizationId: identity.authorizationId,
+    walletSessionId: identity.walletSessionId,
+    quotaId: identity.quotaId,
+    relayerKeyId: 'relayer-owner-proof',
+    participantIds: [1, 2],
+    thresholdExpiresAtMs: identity.expiresAtMs,
+    subjectId: String(fixture.authority.walletId),
+    keyManifestDigestB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
+  } as const;
+  const raw =
+    input.curve === 'ed25519'
+      ? {
+          ...base,
+          curve: 'ed25519' as const,
+          nearAccountId: 'near-owner-proof',
+          nearEd25519SigningKeyId: 'near-key-owner-proof',
+          authority: fixture.authority,
+          runtimePolicyScope: {
+            orgId: 'test-org',
+            projectId: 'test-project',
+            envId: 'test-env',
+            signingRootVersion: 'test-root',
+          },
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1' as const,
+            signingWorkerId: 'relayer-owner-proof',
+          },
+        }
+      : {
+          ...base,
+          curve: 'ecdsa' as const,
+          authorizationSessionId: 'ecdsa-authorization-session-owner-proof',
+          keyHandle: 'ecdsa-key-handle-owner-proof',
+          walletAuthAuthorityRef: fixture.authorityRef,
+          authSource: {
+            kind: 'passkey' as const,
+            credentialIdB64u: String(fixture.authority.factor.credentialIdB64u),
+          },
+          routerAbEcdsaDerivationNormalSigning:
+            makeRouterAbEcdsaDerivationNormalSigningStateFixture({
+              walletId: String(fixture.authority.walletId),
+            }),
+        };
+  const parsed = parseOpaqueOwnerWalletSessionBinding(raw);
+  if (!parsed) throw new Error(`invalid ${input.curve} owner Wallet Session binding fixture`);
+  return parsed;
+}
 
 test('one owner proof mints both curve tokens for one Wallet Session and rejects another scope', async () => {
   const temporary = createTemporaryD1Database();
@@ -54,6 +125,25 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
       rpId: 'example.test',
       origin: 'https://app.example.test',
       expiresAtMs: 1_900_000_100_000,
+    });
+    await insertWalletAuthMethod({
+      database: temporary.database,
+      namespace,
+      orgId: 'test-org',
+      projectId: 'test-project',
+      envId: 'test-env',
+      record: {
+        version: 'wallet_auth_method_v1',
+        kind: 'passkey',
+        status: 'active',
+        walletId: String(fixture.authority.walletId),
+        rpId: String(fixture.authority.verifier.rpId),
+        credentialIdB64u: String(fixture.authority.factor.credentialIdB64u),
+        credentialPublicKeyB64u: 'credential-public-key-owner-proof',
+        counter: 0,
+        createdAtMs: fixture.session.createdAtMs,
+        updatedAtMs: fixture.session.createdAtMs,
+      },
     });
     const walletId = required(parseWalletId(fixture.authority.walletId));
     const proof = await service.buildVerifiedOwnerProof({
@@ -91,13 +181,40 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
       quotaId: session.quota.quotaId,
       expiresAtMs: session.session.expiresAtMs,
       consumedAtMs: fixture.session.createdAtMs + 2,
-      binding: { walletId: String(walletId) },
     } as const;
+    const ed25519Binding = ownerWalletSessionBinding({
+      fixture,
+      identity: {
+        authorizationId: String(session.session.authorizationId),
+        walletSessionId: String(session.quota.walletSessionId),
+        quotaId: String(session.quota.quotaId),
+        expiresAtMs: session.session.expiresAtMs,
+      },
+      curve: 'ed25519',
+    });
+    const ecdsaBinding = ownerWalletSessionBinding({
+      fixture,
+      identity: {
+        authorizationId: String(session.session.authorizationId),
+        walletSessionId: String(session.quota.walletSessionId),
+        quotaId: String(session.quota.quotaId),
+        expiresAtMs: session.session.expiresAtMs,
+      },
+      curve: 'ecdsa',
+    });
     await expect(
-      service.issueOpaqueWalletSessionToken({ ...common, curve: 'ed25519' }),
+      service.issueOpaqueWalletSessionToken({
+        ...common,
+        curve: 'ed25519',
+        binding: ed25519Binding,
+      }),
     ).resolves.toMatchObject({ kind: 'opaque_wallet_session_token', curve: 'ed25519' });
     await expect(
-      service.issueOpaqueWalletSessionToken({ ...common, curve: 'ecdsa' }),
+      service.issueOpaqueWalletSessionToken({
+        ...common,
+        curve: 'ecdsa',
+        binding: ecdsaBinding,
+      }),
     ).resolves.toMatchObject({ kind: 'opaque_wallet_session_token', curve: 'ecdsa' });
     await expect(
       temporary.database
@@ -130,6 +247,16 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
       issuedAtMs: fixture.session.createdAtMs + 3,
       expiresAtMs: fixture.session.expiresAtMs,
     });
+    const otherEd25519Binding = ownerWalletSessionBinding({
+      fixture,
+      identity: {
+        authorizationId: String(otherSession.session.authorizationId),
+        walletSessionId: String(otherSession.quota.walletSessionId),
+        quotaId: String(otherSession.quota.quotaId),
+        expiresAtMs: otherSession.session.expiresAtMs,
+      },
+      curve: 'ed25519',
+    });
     await expect(
       service.issueOpaqueWalletSessionToken({
         ...common,
@@ -137,6 +264,7 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
         authorizationId: otherSession.session.authorizationId,
         quotaId: otherSession.quota.quotaId,
         curve: 'ed25519',
+        binding: otherEd25519Binding,
       }),
     ).rejects.toThrow('owner proof has already been consumed');
   } finally {
