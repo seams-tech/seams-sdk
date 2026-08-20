@@ -28,13 +28,17 @@ with `walletSession` and `nearAccount` built from
 
 ## EVM-family transaction
 
-`seams.evm` sends on every configured EVM-family chain — Tempo, Arc, Ethereum.
-The chain comes from `chainTarget`, not from the namespace. Build the
-transaction with your EVM utilities, then name the chain: a configured network
-slug like `'tempo-testnet'` resolves to exactly one configured chain, and a
-selector matching two throws and names both rather than picking one.
+`seams.evm` signs EIP-1559 transactions; `seams.tempo` signs Tempo's EIP-2718
+typed transactions. The two mirror each other — `signTransaction`,
+`executeTransaction`, and an `advanced` group — and stay separate because the
+envelopes and the signed results differ: `seams.evm` yields `txHashHex`,
+`seams.tempo` yields `senderHashHex`.
+
+Build the transaction with your EVM utilities, then name the chain: a configured
+network slug like `'ethereum-sepolia'` resolves to exactly one configured chain,
+and a selector matching two throws and names both rather than picking one.
 `seams.chainTarget(selector)` resolves the same value up front, and an exact
-`ThresholdEcdsaChainTarget` is still accepted.
+chain target is still accepted.
 
 <<< ../examples/evm-signing.ts
 
@@ -44,8 +48,9 @@ Replace the chain, recipient, fees, and data before sending a real transaction.
 the chain you configured — neither is repeated on the call. A successful call
 returns the transaction hash.
 
-Use `seams.evm.sign` when your application broadcasts the payload itself; the
-post-broadcast reporting lives on `seams.evm.advanced`.
+Use `signTransaction` when your application broadcasts the payload itself; the
+post-broadcast reporting lives on `seams.evm.advanced` and
+`seams.tempo.advanced`.
 
 ## Sign with less friction
 
