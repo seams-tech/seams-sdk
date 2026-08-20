@@ -2,16 +2,26 @@
 
 Date created: August 5, 2026
 
-Status: active design plan. Refactors 100 through 104 establish portable client
-custody, stable wallet-key identity, replaceable execution lanes, lane
-resharing, device continuity, and delegated agent spending. A tenant-scoped
-backup format, production self-host bootstrapper, Router A/B import ceremony,
-tenant cutover fence, and source-independent restore path remain unimplemented.
+Last reconciled: August 20, 2026
+
+Status: active design plan. Refactors 100 through 104 establish the client
+custody, stable wallet-key identity, replaceable execution-lane, device, and
+delegated-agent foundations. Refactor 102's current cross-language vector
+reconciliation blocker must clear before portability implementation. The
+tenant-scoped backup format, managed recovery importer, production self-host
+bootstrapper, Router A/B handoff ceremony, tenant cutover fence, and
+source-independent restore path remain unimplemented. Refactor 130 is a bounded
+same-account deployment demo and is not the production self-hosting product or
+a migration destination.
 
 ## Decision Summary
 
-1. The first supported self-host target is a customer-owned Cloudflare account
-   running the same strict Router A/B role topology as the managed service.
+1. The first supported self-host target is customer-owned Cloudflare
+   infrastructure running the same five runtime artifacts and four strict
+   Router A/B protocol roles as the managed service. The production account and
+   transport profile must preserve Refactor 120's Deriver A/B administrative
+   separation. Refactor 130's same-account topology is demo evidence and does
+   not carry the managed production isolation claim.
 2. Operators configure one small single-tenant deployment specification. A
    bootstrapper generates and installs every role-local secret, public key,
    binding, database, and signed deployment manifest.
@@ -36,13 +46,22 @@ tenant cutover fence, and source-independent restore path remain unimplemented.
    Active delegated-spend authorizations, budget reservations, replay claims,
    sessions, and presignatures do not. The owner reauthorizes Agent Wallets on
    the destination after activation.
-9. The preferred cutover provisions and validates destination lanes before the
+9. Delivery is backup-first: customer-held encrypted portability backups and a
+   tested restore into a fresh Seams-operated recovery destination precede the
+   production self-host bootstrapper and managed-to-self-hosted cutover.
+10. The preferred cutover provisions and validates destination lanes before the
    source is disabled. A previously downloaded current package provides the
    source-unavailable escape path.
-10. The existing `SigningRootMigrationBundleV1` and the shared-secret migration
-    guidance in `docs/saas/self-hosted-migration.md` are superseded for wallet
-    portability. They are deleted when Refactor 115 lands. No compatibility
+11. The historical `SigningRootMigrationBundleV1` no longer exists in the
+    repository. The shared-secret migration guidance in
+    `docs/saas/self-hosted-migration.md` is superseded for wallet portability
+    and must be replaced when this plan is implemented. No compatibility
     importer enters the new migration path.
+12. A self-hosted customer may later buy Seams-managed backup custody and a
+    separately provisioned standby signing lane. That managed-continuity
+    product is a follow-up protocol. It must preserve mandatory wallet-owner
+    participation, explicit failover authorization, and one authoritative
+    signing backend at a time.
 
 ## Dependencies And Authority
 
@@ -62,6 +81,8 @@ This plan consumes:
 - [Refactor 104](./refactor-104-agent-id-spending.md) for agent identities,
   delegated authorizations, server-canonical budgets, replay state, and Agent
   Wallet projections;
+- [Refactor 120](./refactor-120-rotate-korg-secrets.md) for the authoritative
+  managed deployment-root boundary and production Deriver isolation policy;
 - [Refactor 90](./refactor-90-modular-auth-capabilities-plan.md) for exact
   authorization resources, operation identity, atomic claims, fencing, audit,
   and prepared execution;
@@ -70,6 +91,10 @@ This plan consumes:
   configuration;
 - the Ed25519 Yao and ECDSA Router A/B protocol documents for recovery, export,
   recipient provisioning, activation, signing, and identity verification.
+- [Refactor 130](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md)
+  for the bounded Cloudflare deployment demo whose proven public-package,
+  onboarding, and doctor surfaces may later be promoted into this production
+  product after an independent isolation review.
 
 This plan owns:
 
@@ -156,6 +181,32 @@ or Kubernetes profile must reuse the same transport-neutral protocol and
 package boundary. It requires separately reviewed transport, storage, secret
 manager, availability, and role-isolation adapters.
 
+### Product delivery modes
+
+Portability ships through three explicit product boundaries:
+
+1. **Managed portability backup** — Seams creates a tenant-scoped encrypted
+   package for a customer-controlled recipient and proves restoration into a
+   fresh Seams-operated recovery destination.
+2. **Customer-owned deployment** — the customer imports the same package into
+   a supported self-hosted deployment, verifies wallet identity continuity,
+   and completes the fenced cutover.
+3. **Managed continuity for self-hosted deployments** — an optional future
+   service in which Seams stores customer-encrypted recovery packages and runs
+   a separately provisioned standby signing lane.
+
+The managed-continuity service does not receive the customer's primary server
+participant or any owner holder material. Its standby lane preserves the same
+wallet public identity through Refactor 102 and requires the wallet owner's
+complementary holder material. Backup custody and standby signing use separate
+keys, stores, authorization, operators, and audit trails.
+
+Failover is an explicit fenced operation. A health check cannot activate the
+standby lane, and active-active admission is outside the first continuity
+product. A separate plan must define emergency approval, policy projection,
+replay and nonce reconciliation, expiry, restoration, and standby-lane refresh
+or revocation.
+
 ### Agent portability
 
 Agent portability is part of wallet deployment migration. It is not a separate
@@ -179,9 +230,11 @@ operation from silently acquiring authority in a new deployment.
 
 ### Router A/B complexity
 
-The production topology intentionally has four roles:
+The production topology has five deployed runtime artifacts. Four are the
+strict Router A/B protocol roles:
 
 ```text
+Gateway
 Router
 Deriver A
 Deriver B
@@ -191,7 +244,9 @@ SigningWorker
 Deriver A, Deriver B, and SigningWorker each have private storage and private
 cryptographic material. Public encryption and verifying keys are distributed
 to their peers. The Router carries public policy and routing material and must
-remain unable to read private role state.
+remain unable to read private role state. Gateway owns product ceremonies,
+wallet and credential metadata, authorization state, and its dedicated durable
+store. Gateway is not a fifth cryptographic role.
 
 The current Cloudflare deployment exposes this internal graph as a large set
 of Worker bindings, database identifiers, key epochs, public keys, private
@@ -200,7 +255,7 @@ credentials. Those values are appropriate as generated role inputs. They are
 an unsuitable operator-facing configuration surface.
 
 The local development initializer already proves that a single command can
-generate four role-specific configurations and reject wrong-role inputs. It is
+generate the role-specific configurations and reject wrong-role inputs. It is
 development-only, writes local env files, and derives fixture material from one
 seed. The production bootstrapper should reuse its branch-specific config
 builders and validation shape while generating independent production secrets
@@ -222,18 +277,13 @@ The export ceremony must resolve one exact tenant and construct portable
 per-wallet material through role-local code. Every source repository read is
 tenant-scoped. Cross-tenant records cause the export to fail.
 
-### Existing migration bundle
+### Retired migration bundle
 
-`SigningRootMigrationBundleV1` exports a project/environment signing-root
-record containing sealed 2-of-3 root shares and optional wallet inventory. It
-predates the current Refactor 100 through 104 wallet-key and execution-lane
-model. Its sealed shares retain storage and KEK locator concepts from the
-source deployment and do not define a complete mixed-wallet, agent, cutover,
-or single-tenant import contract.
-
-Refactor 115 replaces that format. Development fixtures using the old bundle
-are deleted with its parser and type fixtures. Existing development data is
-recreated under `TenantPortabilityPackageV1`.
+`SigningRootMigrationBundleV1` was the earlier project/environment migration
+design. It is absent from the current repository and is not an input to this
+plan. `TenantPortabilityPackageV1` is the only target package. Documentation
+that still describes copying shared signing-root material is replaced when the
+new package and importer exist.
 
 ### Customer-owned domain
 
@@ -282,8 +332,10 @@ ID. The wallet address still remains stable.
 12. An explicit per-wallet owner export remains a separate Refactor 100/101
     operation. Only that branch may reconstruct complete key material inside a
     reviewed owner-controlled boundary.
-13. The Ed25519 and ECDSA keys within one mixed wallet activate atomically. A
-    tenant package may contain many independently staged wallets.
+13. The Ed25519 and ECDSA keys within one mixed wallet become externally active
+    through one aggregate commit after every role-owned prepared receipt is
+    durable. Independent stores do not claim database atomicity. A tenant
+    package may contain many independently staged wallets.
 14. Destination signing remains disabled until each imported wallet proves
     public identity continuity and its server-participant handoff is activated.
 15. Source mutation is fenced per tenant during the final cutover. Other
@@ -352,15 +404,16 @@ type TenantPortabilityPackageV1 = {
   sourceDeploymentId: DeploymentId;
   sourceTenantId: TenantId;
   packageSequence: PortabilityPackageSequence;
-  snapshot: PortabilitySnapshot;
-  recipient: PortabilityPackageRecipient;
+  publicSnapshot: PortabilityPublicSnapshotV1;
+  recipient: TenantPortabilityRecipient;
+  sourceContentDigestB64u: string;
+  sourceContentAttestation: PortabilitySourceContentAttestationV1;
   encryptedPayloadB64u: string;
   ciphertextDigestB64u: string;
-  sourceAttestation: PortabilitySourceAttestation;
   createdAtMs: number;
 };
 
-type PortabilityPackageRecipient =
+type TenantPortabilityRecipient =
   | {
       kind: 'customer_kms_hpke_v1';
       recipientKeyId: CustomerRecoveryKeyId;
@@ -377,10 +430,26 @@ type PortabilityPackageRecipient =
     };
 ```
 
+`PortabilityPublicSnapshotV1` contains only the source epoch, package
+predecessor digest, creation time, and opaque high-water marks required to
+reject replay and report freshness before decryption. Wallet counts,
+addresses, credential facts, policy data, audit contents, and human-readable
+tenant data remain encrypted. The source tenant and deployment IDs are opaque
+routing identities and are treated as sensitive metadata even though they are
+visible in the envelope.
+
 The customer-KMS branch is preferred for organizations and automated backups.
 The passphrase branch is an explicit high-entropy recovery flow for customers
 without a KMS. UI strength checks are advisory; the fixed minimum Argon2id
 parameters are enforced by the package builder and parser.
+
+The `customer_kms_hpke_v1` algorithm identifier is provisional. Phase 0 must
+prove that each supported KMS or HSM can generate or import the required key,
+keep the private operation inside its boundary, enforce the intended IAM and
+approval policy, and decrypt through the restore coordinator. If direct
+X25519 HPKE is unavailable, the plan selects one reviewed provider profile and
+changes this branch before freezing V1. It does not add provider-specific
+fallbacks to the frozen parser.
 
 The source encrypts KMS packages directly to the customer's public key. For a
 passphrase package, the trusted browser or local CLI generates an ephemeral
@@ -389,9 +458,29 @@ to the ephemeral public key. The browser or CLI assembles the payload and wraps
 the data key under the Argon2id-derived key. The passphrase, ephemeral private
 key, and plaintext package data key never reach the managed backend.
 
-Only the outer version, package identity, encryption parameters, ciphertext
-digest, and source attestation remain visible. Tenant names, users, wallet
-addresses, credential metadata, and policies live inside the ciphertext.
+The source attests the canonical source-content digest, package identity,
+sequence, public snapshot, recipient branch and public parameters, and every
+role-fragment digest before final wrapping. It does not attest the final outer
+ciphertext. This distinction allows the browser or CLI to finish the
+passphrase branch without asking the source to sign bytes it never receives.
+After decryption, the importer recomputes the canonical source-content digest
+and verifies it against the dedicated portability attestation trust root.
+The digest is a canonical tree over the public manifest and role-declared
+plaintext fragment digests. Each role authenticates its own fragment digest;
+the export coordinator does not open role-private fragments to compute it.
+
+The final ciphertext uses the complete visible header as AEAD associated data.
+Only the outer version, opaque package identities, public freshness fields,
+recipient parameters, ciphertext digest, and source-content attestation remain
+visible. Tenant names, users, wallet addresses, credential metadata, and
+policies live inside the ciphertext.
+
+The portability attestation key is separate from session, deployment, and
+service-signing keys. The package carries its attestation key ID and certificate
+chain. The CLI pins a Seams portability trust root so source-unavailable restore
+does not depend on fetching a verification key from the unavailable source.
+Rotation retains the minimum public verification history required for every
+unexpired supported backup.
 
 ### Encrypted payload
 
@@ -409,7 +498,7 @@ type TenantPortabilityPayloadV1 = {
   agentManifest: readonly PortableAgentIdentityV1[];
   proposedAgentWallets: readonly ProposedAgentWalletV1[];
   auditCheckpoint: PortabilityAuditCheckpointV1;
-  sourceRevocationManifest: SourceRevocationManifestV1;
+  sourceRevocationInventory: SourceRevocationInventoryV1;
   payloadDigestB64u: string;
 };
 
@@ -418,6 +507,10 @@ type PortableWalletAuthorityScopeV1 = {
   rpId: WebAuthnRpId;
 };
 ```
+
+`SourceRevocationInventoryV1` lists the exact source participants that a later
+cooperative cutover must revoke. A periodic backup carries no claim that
+revocation occurred. Only Phase G can produce a source revocation receipt.
 
 Each `PortableWalletV1` requires a nonempty wallet-key manifest. Each wallet key
 contains exactly one curve-specific `WalletKeyPortabilityCapsule`:
@@ -511,19 +604,24 @@ router_ab_customer_cloudflare_single_tenant_v1
 
 It deploys:
 
-- Gateway and customer wallet origin routes;
+- Gateway, its dedicated wallet/auth/session store, and customer wallet origin
+  routes;
 - MPCRouter;
 - Deriver A Worker and private D1;
 - Deriver B Worker and private D1;
 - SigningWorker, private D1, and required nonce/presignature state;
-- fixed Service Bindings;
+- authenticated private role transports selected by the reviewed production
+  isolation profile;
 - customer-owned logs, backups, and alert destinations.
 
-This reuses the reviewed same-account P0 topology. The customer Cloudflare
-account administrator is inside the P0 trust assumption, matching the current
-managed same-account profile. Deriver A, Deriver B, and SigningWorker still use
-distinct Worker identities, secrets, databases, KEKs, logs, and deployment
-labels.
+Refactor 130 demonstrates these five artifacts inside one Cloudflare account.
+That topology places the account administrator inside every role boundary and
+is eligible only as demo evidence or an explicitly reduced-isolation profile.
+The first production profile must preserve Refactor 120's independently
+administered Deriver A/B boundary. Its cross-account transport, authentication,
+deployment authority, and failure behavior require a production review before
+the profile name and parser are frozen. Distinct Worker names, secrets, and D1
+stores inside one account do not establish that boundary.
 
 ### Operator-facing specification
 
@@ -539,16 +637,28 @@ type SelfHostedDeploymentSpecV1 = {
   walletOrigin: WalletOrigin;
   rpId: WebAuthnRpId;
   allowedAppOrigins: readonly [AppOrigin, ...AppOrigin[]];
-  cloudflareAccountId: CloudflareAccountId;
+  cloudflareDeployment: SelfHostedCloudflareDeploymentProfile;
   networkConfiguration: SelfHostedNetworkConfiguration;
   relayerConfiguration: SelfHostedRelayerConfiguration;
-  backupRecipient: PortabilityPackageRecipient;
+  deploymentRecoveryRecipient: SelfHostedDeploymentRecoveryRecipient;
 };
 ```
 
 Cloudflare authentication is supplied to the bootstrap process through an
 interactive or short-lived deployment credential. It is never serialized into
 the specification, deployment manifest, or backup package.
+
+`SelfHostedCloudflareDeploymentProfile` is frozen only after the production
+account-isolation and cross-account transport review. It must require distinct
+Deriver A and Deriver B administrative authorities. It cannot accept the
+Refactor 130 same-account demo profile through a compatibility branch.
+
+`SelfHostedDeploymentRecoveryRecipient` is distinct from
+`TenantPortabilityRecipient`. It protects deployment roots, role KEKs,
+authentication keys, and storage recovery material, so the initial branch
+requires a validated customer-controlled KMS or HSM recipient. A passphrase
+branch requires a separate offline break-glass design and is not accepted by
+the production bootstrap parser.
 
 ### Generated deployment state
 
@@ -577,7 +687,8 @@ variable names remain an implementation detail of the Cloudflare adapter.
 seams self-host init
   -> validate customer domain, RP ID, app origins, account authority
   -> generate independent role secrets in memory
-  -> create three private databases and required state namespaces
+  -> create Gateway durable state plus the three role-private databases and
+     required state namespaces
   -> deploy reviewed content-addressed role artifacts
   -> install only each role's allowed secrets
   -> derive and publish the signed public deployment manifest
@@ -592,7 +703,7 @@ seams self-host init
 - distinct A/B deploy identities, stores, KEKs, envelope keys, and peer keys;
 - SigningWorker separation from both Derivers;
 - public/private key agreement and key epochs;
-- service binding reachability and public route exposure;
+- authenticated private-role reachability and public route exposure;
 - private store schemas and encrypted round trips;
 - customer origin, RP ID, related-origin, CORS, and iframe policy;
 - backup recipient and restore drill status;
@@ -606,9 +717,10 @@ secrets, resource identities, and restore metadata for disaster recovery of
 that single-tenant deployment.
 
 This package is never exported by managed multi-tenant Seams. It exists only
-after the customer owns a dedicated deployment. It uses the same customer
-recovery recipient and keeps role entries separately sealed. Storage snapshots
-remain separate encrypted objects referenced by digest.
+after the customer owns a dedicated deployment. It uses the dedicated
+`SelfHostedDeploymentRecoveryRecipient` and keeps role entries separately
+sealed. Storage snapshots remain separate encrypted objects referenced by
+digest.
 
 The distinction is deliberate:
 
@@ -771,6 +883,50 @@ There is no rollback branch after `destination_active`. Failures after
 destination activation enter an operational reconciliation procedure and
 cannot reactivate source signing automatically.
 
+Source-unavailable restore uses a separate state union because it cannot
+produce a source fence or revocation receipt:
+
+```ts
+type SourceUnavailableRestoreState =
+  | {
+      state: 'requested';
+      restoreId: SourceUnavailableRestoreId;
+      packageId: PortabilityPackageId;
+      packageDigestB64u: string;
+    }
+  | {
+      state: 'destination_prepared';
+      restoreId: SourceUnavailableRestoreId;
+      destinationDeploymentId: DeploymentId;
+      destinationManifestDigestB64u: string;
+    }
+  | {
+      state: 'package_verified';
+      restoreId: SourceUnavailableRestoreId;
+      sourceContentDigestB64u: string;
+      stagedWalletManifestDigestB64u: string;
+      continuityReceiptDigestB64u: string;
+    }
+  | {
+      state: 'destination_active';
+      restoreId: SourceUnavailableRestoreId;
+      activationReceiptDigestB64u: string;
+      sourceRevocation: 'unacknowledged_source_unavailable';
+      activatedAtMs: number;
+    }
+  | {
+      state: 'aborted_before_activation';
+      restoreId: SourceUnavailableRestoreId;
+      reason: SourceUnavailableRestoreAbortReason;
+      abortedAtMs: number;
+    };
+```
+
+Cooperative migration functions require `DeploymentMigrationState`.
+Source-independent restore functions require `SourceUnavailableRestoreState`.
+Core functions do not accept a union of both lifecycles or optional source
+fence and revocation fields.
+
 ### Phase A: eligibility and tenant approval
 
 1. Resolve the exact managed tenant, wallet inventory, key families, origins,
@@ -802,7 +958,9 @@ cannot reactivate source signing automatically.
 5. Encrypt the payload to the customer KMS recipient, or return encrypted role
    fragments for final passphrase wrapping inside the trusted browser or local
    CLI.
-6. Sign the outer package digest with the source portability attestation key.
+6. Sign the canonical source-content digest, public package header, recipient
+   parameters, and role-fragment digests with the dedicated portability
+   attestation key before final wrapping.
 7. Deliver the package to the customer and require a successful decrypt-and-
    inventory verification before cutover can proceed.
 
@@ -812,8 +970,8 @@ role-private fragments or receive raw role roots.
 ### Phase D: destination staging
 
 1. Decrypt inside the local restore coordinator or customer KMS boundary.
-2. Parse the package once and verify source attestation, package sequence,
-   predecessor, snapshot, manifest, and payload digests.
+2. Parse the package once and verify the source-content attestation, package
+   sequence, predecessor, public snapshot, manifest, and payload digests.
 3. Map source tenant scope into the fixed destination scope.
 4. Import each incomplete server participant into a fresh destination
    participant identity and epoch while retaining the owner holder binding.
@@ -844,16 +1002,23 @@ package. The destination discards the earlier staging records.
 1. Obtain final tenant migration authority approval over the destination
    manifest, continuity receipt, source freeze receipt, and exact wallet-key
    manifest.
-2. Activate each destination wallet's complete mixed-key server manifest
-   atomically. The tenant cutover may activate many wallets in one fenced
-   checkpoint without joining their custody.
-3. Mint destination-native sessions only after that wallet's aggregate
-   activation commits.
-4. Change customer-controlled DNS or edge routing while keeping the wallet
+2. Prepare each destination wallet's complete mixed-key server manifest through
+   the existing role-owned activation journals. Every role records its prepared
+   receipt while public signing remains disabled.
+3. Commit one externally visible activation manifest per mixed wallet after all
+   required role receipts read back successfully. Independent D1 stores do not
+   claim database atomicity. Fail-closed lookup and idempotent reconciliation
+   make the wallet appear inactive until the aggregate commit is durable.
+4. Commit the tenant routing checkpoint only after every selected wallet has a
+   durable activation receipt. A failure leaves the tenant fenced and identifies
+   the exact wallets requiring reconciliation.
+5. Mint destination-native sessions only after that wallet's aggregate
+   activation commits and the tenant routing checkpoint selects the destination.
+6. Change customer-controlled DNS or edge routing while keeping the wallet
    hostname stable.
-5. Run an administrative imported-state canary immediately. Run each wallet's
+7. Run an administrative imported-state canary immediately. Run each wallet's
    transaction-free signing canary on its owner's first authenticated use.
-6. Publish the destination activation receipt.
+8. Publish the destination activation receipt.
 
 ### Phase G: source revocation and cleanup
 
@@ -919,9 +1084,11 @@ Required controls:
 - restore drills before the package is considered the customer's recovery
   source.
 
-The source attestation proves package origin and contents digest. It does not
-replace customer-controlled package encryption, wallet-owner holder custody,
-or destination cryptographic verification.
+The source-content attestation proves the origin and canonical digest of the
+source material before final wrapping. The final package AEAD authenticates the
+visible header and ciphertext assembled by the selected recipient branch.
+Neither replaces customer-controlled package encryption, wallet-owner holder
+custody, or destination cryptographic verification.
 
 ## Public Product And CLI Surface
 
@@ -932,6 +1099,7 @@ Create encrypted portability backup
 Download backup
 Configure customer KMS backup recipient
 Verify backup fingerprint and wallet inventory
+Restore backup into a fresh Seams recovery destination
 Prepare self-host migration
 Freeze and activate migration
 Download source revocation receipt
@@ -960,6 +1128,8 @@ SDK management APIs:
 createTenantPortabilityPackage()
 getTenantPortabilityPackageStatus()
 verifyTenantPortabilityPackage()
+createManagedRecoveryRestore()
+getManagedRecoveryRestore()
 createDeploymentMigration()
 getDeploymentMigration()
 freezeDeploymentMigrationSource()
@@ -995,6 +1165,10 @@ uses the same operation and package digests.
 
 - [ ] Freeze `TenantPortabilityPackageV1`, recipient branches, canonical CBOR
       encoding, signature domain, digest, and maximum package size.
+- [ ] Freeze the source-content attestation, dedicated trust root, rotation
+      history, and source-unavailable verification rules.
+- [ ] Prove the selected customer KMS or HSM recipient profile end to end before
+      freezing its algorithm identifier.
 - [ ] Freeze exact tenant identity and wallet-key manifests.
 - [ ] Specify Ed25519 server-participant handoff and owner-holder commitment
       capsules.
@@ -1004,12 +1178,42 @@ uses the same operation and package digests.
       server-participant backups satisfy source-unavailable restore and which
       require new material.
 - [ ] Freeze source-unavailable threat claims and erase assumptions.
-- [ ] Delete `SigningRootMigrationBundleV1` from the target architecture and
-      list its code, tests, fixtures, and docs for cutover removal.
+- [ ] Replace remaining shared-signing-root portability guidance with this
+      tenant-scoped handoff boundary. No retired bundle parser is reintroduced.
 
-### Phase 1: single-tenant deployment compiler
+### Phase 1: managed portability backup
+
+- [ ] Add a server-canonical tenant export inventory.
+- [ ] Add tenant-scoped role fragment builders and cross-tenant denial tests.
+- [ ] Add customer-KMS and passphrase encryption branches with their distinct
+      assembly paths.
+- [ ] Add package sequence, predecessor, freshness, source-content attestation,
+      and audit checkpoints.
+- [ ] Add dashboard creation, download, fingerprint, replacement, and restore-
+      drill status.
+- [ ] Prove package and logs contain no deployment-local or cross-tenant secret.
+- [ ] Keep the product unavailable until Phase 2 completes one destructive
+      restore drill from the emitted artifact.
+
+### Phase 2: managed recovery importer
+
+- [ ] Add the strict package boundary parser and managed restore coordinator.
+- [ ] Restore into a fresh Seams-operated recovery destination through the same
+      destination-native record builders required by self-host import.
+- [ ] Import each curve-specific capsule into fresh destination participants and
+      stores without copying source rows or deployment secrets.
+- [ ] Verify aggregate public-key and address continuity plus first-owner-use
+      signing canaries.
+- [ ] Exercise cooperative recovery and the bounded source-unavailable branch.
+- [ ] Publish customer-visible backup freshness and restore-drill receipts.
+
+### Phase 3: production single-tenant deployment compiler
 
 - [ ] Add `SelfHostedDeploymentSpecV1` boundary parser.
+- [ ] Promote only the public-package, deployment, and doctor evidence proven by
+      Refactor 130; do not import its demo lifecycle into product core.
+- [ ] Freeze and review the production Cloudflare account-isolation and
+      cross-account transport profile required by Refactor 120.
 - [ ] Generate independent role secrets and public keys in an offline bootstrap
       process.
 - [ ] Compile one spec into exact Router, A, B, SigningWorker, and Gateway
@@ -1021,17 +1225,7 @@ uses the same operation and package digests.
       bootstrapper.
 - [ ] Add `self-host doctor` and one complete empty-deployment smoke test.
 
-### Phase 2: tenant export and backup
-
-- [ ] Add a server-canonical tenant export inventory.
-- [ ] Add tenant-scoped role fragment builders and cross-tenant denial tests.
-- [ ] Add customer-KMS and passphrase encryption branches.
-- [ ] Add package sequence, predecessor, freshness, and audit checkpoints.
-- [ ] Add dashboard creation, download, fingerprint, replacement, and restore-
-      drill status.
-- [ ] Prove package and logs contain no deployment-local or cross-tenant secret.
-
-### Phase 3: destination import
+### Phase 4: self-host import and managed cutover
 
 - [ ] Add the local restore coordinator and strict package boundary parser.
 - [ ] Add source-to-destination tenant identity mapping.
@@ -1041,17 +1235,16 @@ uses the same operation and package digests.
 - [ ] Add staged handoff-proof verification and first-owner-use signing
       canaries.
 - [ ] Re-encrypt every imported record under destination role KEKs and AAD.
-
-### Phase 4: managed cutover
-
 - [ ] Add tenant-scoped source fencing without pausing other tenants.
 - [ ] Add final package refresh after mutation detection.
-- [ ] Add aggregate destination activation and source revocation receipts.
+- [ ] Add role-owned prepare receipts, per-wallet aggregate activation journals,
+      the tenant routing checkpoint, and source revocation receipts.
 - [ ] Integrate stable-domain DNS cutover checks.
 - [ ] Add failure injection at every lifecycle transition.
-- [ ] Add source-unavailable restore and stale-backup warnings.
+- [ ] Add the separate source-unavailable restore lifecycle and stale-backup
+      warnings.
 
-### Phase 5: agents, audit, and operations
+### Phase 5: agents, audit, and migration operations
 
 - [ ] Reconcile agent budgets and unknown operations before freeze.
 - [ ] Export inert agent identity and proposed Agent Wallet projections.
@@ -1063,12 +1256,25 @@ uses the same operation and package digests.
 ### Phase 6: destination disaster recovery
 
 - [ ] Add `SelfHostedDeploymentRecoveryPackageV1`.
+- [ ] Add the dedicated KMS/HSM-only deployment recovery recipient boundary.
 - [ ] Back up role-local secrets and storage snapshots under customer custody.
 - [ ] Restore a destroyed single-tenant deployment with identical wallet
       identities and fresh runtime epochs.
 - [ ] Automate quarterly restore drills and backup-freshness reporting.
 
-### Phase 7: provider-neutral deployment
+### Phase 7: managed continuity follow-up
+
+- [ ] Write a separate plan for Seams-held encrypted backups and a standby
+      Refactor 102 execution lane for self-hosted customers.
+- [ ] Preserve mandatory owner-holder participation; Seams never receives a
+      server-server quorum or the customer's primary server participant.
+- [ ] Define explicit emergency approval, one-active-backend fencing, policy and
+      nonce reconciliation, expiry, return to primary, and standby refresh or
+      revocation.
+- [ ] Keep health-triggered automatic failover and active-active admission out
+      of the first continuity product.
+
+### Phase 8: provider-neutral deployment
 
 - [ ] Define one production OCI transport and storage profile after the
       customer-owned Cloudflare profile passes migration drills.
@@ -1089,7 +1295,10 @@ Static fixtures prove:
   tenant portability capsule;
 - active authorization, session, presignature, replay, lease, or deployment
   secret fields cannot enter package records;
-- an old signing-root migration bundle cannot enter the new importer;
+- a retired signing-root migration shape cannot enter the new importer;
+- tenant portability and deployment recovery recipients cannot be interchanged;
+- cooperative migration and source-unavailable restore states cannot enter each
+  other's core functions;
 - imported records require destination role, deployment, tenant, key, lane,
   participant, and epoch bindings.
 
@@ -1099,6 +1308,10 @@ Cryptographic tests prove:
   wrong tenant, wrong wallet, wrong curve, wrong epoch, and wrong predecessor
   fail;
 - customer-KMS and passphrase packages decrypt only through their exact branch;
+- each decrypted payload matches its source-content attestation even when the
+  passphrase branch completes final wrapping outside the source;
+- attestation verification succeeds from the pinned trust history with the
+  source unavailable;
 - wrong or weak Argon2id parameters fail parsing;
 - cooperative and source-unavailable imports preserve keys without opening
   complete private keys in any deployment or tenant-admin component;
@@ -1123,10 +1336,14 @@ Tenant-isolation tests prove:
 Lifecycle tests prove:
 
 - partial mixed-wallet staging never activates;
+- partial role prepare or a missing aggregate activation receipt leaves the
+  mixed wallet externally inactive;
 - mutation after snapshot invalidates staging;
 - unknown execution outcomes block cutover;
 - destination activation cannot precede source freeze and tenant migration
   authority approval;
+- source-unavailable activation cannot construct or claim a source fence or
+  revocation receipt;
 - source unfreeze is available only before destination activation;
 - source sessions and lanes fail after revocation;
 - destination sessions fail before that wallet's aggregate activation and
@@ -1140,7 +1357,8 @@ Operational tests prove:
 - a new customer-owned Cloudflare deployment requires no manual role env or
   secret editing;
 - one spec creates distinct Workers, stores, keys, bindings, and audit labels;
-- `self-host doctor` detects shared A/B credentials, stores, or keys;
+- `self-host doctor` detects shared A/B administrative authority, credentials,
+  stores, or keys in the production profile;
 - generated artifacts contain no secrets;
 - backup and restore succeed after complete destination resource deletion;
 - normal Ed25519 and ECDSA signing makes zero Deriver calls;
@@ -1161,6 +1379,9 @@ Operational tests prove:
 - preserving source sessions, presignatures, replay caches, or in-flight
   reservations;
 - silently activating migrated Agent Wallet authorizations;
+- active-active signing between customer and Seams backends;
+- health-triggered activation of a Seams standby signing lane;
+- implementing managed continuity inside the portability importer;
 - supporting every cloud, orchestrator, database, KMS, and HSM in the first
   release;
 - changing wallet public identities merely to simplify deployment;
@@ -1172,6 +1393,10 @@ Operational tests prove:
   Ed25519 wallet keys.
 - Freeze the server-participant handoff and owner-holder commitment capsule for
   ECDSA wallet keys.
+- Freeze the source-content attestation key hierarchy, offline trust history,
+  and passphrase assembly transcript.
+- Validate the first customer KMS or HSM recipient end to end and freeze its
+  supported algorithm profile.
 - Decide whether the passphrase package is available to organizations by
   default or requires an explicit policy override in favor of customer KMS.
 - Define maximum acceptable backup age and which wallet changes require an
@@ -1180,11 +1405,17 @@ Operational tests prove:
   activation.
 - Select the first customer-owned Cloudflare bootstrap credential flow and its
   minimum API scopes.
+- Freeze the production Cloudflare account-isolation and cross-account
+  transport profile. The Refactor 130 same-account demo is not the default.
+- Select the fresh Seams-operated recovery destination used by the backup-first
+  release and define its tenant-isolation boundary.
 - Decide whether Gateway shares the deployment bootstrap command while
   retaining a separate release artifact and secret set.
 - Freeze destination relayer ownership, funding, and cutover behavior for each
   supported network.
 - Define source tombstone retention and deletion evidence for regulated
   customers.
+- Approve a separate managed-continuity plan before Seams stores self-hosted
+  deployment backups or provisions standby signing lanes.
 - Define the first OCI production target before making a provider-neutral
   self-hosting claim beyond customer-owned Cloudflare.

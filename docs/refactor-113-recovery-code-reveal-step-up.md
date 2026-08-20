@@ -1,422 +1,214 @@
-# Refactor 113 — Step-Up-Protected Recovery-Code Reveal
+# Refactor 113 — Verify Before Recovery-Code Reveal
 
 Status: proposed implementation plan.
 
-## Goal
+## Decision
 
-Require a fresh wallet factor before plaintext recovery codes can be decrypted
-and rendered after registration or recovery-code rotation.
+Require the server to verify a fresh wallet factor before the browser decrypts
+pending recovery codes.
 
-The step-up protects an unattended authenticated browser session from silently
-revealing the wallet's offline recovery factor. Recovery status and active-code
-counts remain readable without a prompt. Plaintext recovery codes remain local
-to the wallet-owned browser context and are deleted after the owner confirms a
-successful backup.
+Keep the existing `acknowledgeWalletRecoveryCodeBackup({ walletId })` public
+operation and recovery-code modal. Reorder the operation behind that API and
+reuse the existing wallet-custody factor proofs and authorized-operation store.
+Add one narrow authorization response that permits local reveal for the exact
+wallet and recovery-code issuance.
 
-## Threat Model And Security Value
+This is a local hardening change. It does not introduce a new recovery-code
+coordinator, public API lifecycle, persistence table, cryptographic format, or
+UI state machine.
 
-This refactor protects against:
+## Current Problem
 
-- another person using an unlocked browser session;
-- stale UI state that still considers the wallet logged in;
-- accidental reveal through a low-friction account-menu action;
-- a parent application requesting plaintext without a fresh wallet factor;
-- replay of a reveal authorization against another wallet or recovery-code
-  issuance.
-
-The current pending-backup record stores an AES-GCM key, IV, and ciphertext in
-the same IndexedDB row. The key is non-extractable, which prevents export of
-the raw key while still allowing same-origin code to invoke decryption. An
-application-level step-up therefore does not provide cryptographic isolation
-from arbitrary same-origin script execution. Once codes are rendered, code
-running in that origin can also observe the DOM or process memory.
-
-Defending against a fully compromised wallet origin requires a separate
-factor-wrapped storage design: the decryption key would be wrapped by passkey
-PRF material or an Email OTP factor-release secret and would be unavailable
-until that factor is opened. That larger custody change is outside this
-refactor. Refactor 113 must describe its protection as fresh-user-presence
-gating, never as an XSS boundary.
-
-## Current State
-
-The current backup flow has the security-sensitive operations in this order:
+The current direct flow performs its sensitive actions in this order:
 
 1. `pendingWalletRecoveryCodeBackupRepository.read(walletId)` decrypts the
-   local record.
-2. `showWalletRecoveryCodeBackupUi(...)` renders the plaintext codes.
-3. `buildWalletCustodyPasskeyFactorProof(...)` requests a passkey assertion for
-   `recovery_acknowledge`.
-4. The server records the acknowledgement.
-5. The local pending record is deleted.
+   local recovery codes.
+2. The wallet surface renders the plaintext codes.
+3. The SDK collects a fresh factor proof for `recovery_acknowledge`.
+4. The server records backup acknowledgement.
+5. The SDK deletes the pending local record.
 
-The factor currently protects acknowledgement. It does not protect reveal.
-The public method name, `acknowledgeWalletRecoveryCodeBackup`, also hides the
-fact that the method decrypts and displays codes before it acknowledges them.
+The factor protects acknowledgement after the plaintext has already appeared.
+The same ordering is reachable through the wallet iframe.
 
-The server already has operation-bound factor proof machinery for passkeys and
-Email OTP. `computeWalletCustodyAdminChallengeDigest` binds the wallet,
-operation, payload, and browser origin. Refactor 113 reuses that machinery and
-adds one exact reveal lifecycle.
+## Target Flow
 
-The existing `/wallets/recovery/read` route returns the opaque recovery
-envelope set. No production SDK flow calls it. It must not be reused as a
-reveal authorization endpoint because that would return unrelated recovery
-material. Phase 1 removes that inactive public path and replaces its ambiguous
-`recovery_read` operation with the exact backup-reveal operation.
+The existing public operation performs one linear flow:
 
-## Product Decisions
+1. Read only `walletId` and `issuedAtMs` from the pending local record.
+2. Collect a Passkey or Email OTP proof for `recovery_backup_reveal`, using the
+   wallet's active authentication authority.
+3. Send the proof, `walletId`, and `issuedAtMs` to the server.
+4. The server verifies the proof and confirms that `issuedAtMs` is the current
+   recovery-set issuance.
+5. The server admits a short-lived authorized operation and returns its exact
+   public binding.
+6. The repository decrypts only after receiving that parsed authorization.
+7. The existing wallet-owned backup surface displays the codes.
+8. After the owner confirms backup, the acknowledgement route consumes the
+   authorized operation and records acknowledgement for the same issuance.
+9. The SDK deletes the pending local record after successful acknowledgement.
 
-1. Opening the recovery-code modal and reading status does not require
-   step-up.
-2. Pressing **View recovery codes** starts a fresh factor challenge.
-3. Passkey wallets complete one WebAuthn assertion. Email OTP wallets complete
-   one Email OTP challenge.
-4. Plaintext is decrypted only after the server verifies the operation-bound
-   factor proof.
-5. The authorization is bound to the exact wallet ID, recovery-set issuance
-   time, browser origin, and operation.
-6. One successful step-up covers the reveal followed by backup
-   acknowledgement. The owner must not receive a second Touch ID or OTP prompt
-   in the same uninterrupted flow.
-7. Closing or cancelling the reveal leaves the encrypted local record intact
-   and leaves backup status outstanding.
-8. The acknowledgement endpoint consumes the short-lived reveal grant. It
-   records backup only for the same recovery-code issuance.
-9. A subsequent reveal after cancellation or grant expiry requires another
-   fresh factor.
-10. Recovery codes never cross `postMessage`, HTTP, logs, analytics, error
-    messages, React state outside the wallet-owned dialog, or server storage.
+Cancellation before reveal leaves the encrypted record untouched. Closing the
+codes without confirming backup clears the visible plaintext and leaves the
+record for a future attempt. The unused authorization expires through the
+existing authorized-operation lifecycle.
 
-## Non-Goals
+## Exact Authorization Type
 
-- Wrap the local AES key with passkey PRF or Email OTP factor-release material.
-- Make plaintext safe from arbitrary script already executing in the wallet
-  origin.
-- Change recovery-code generation, wrapping, consumption, or rotation.
-- Add a general-purpose step-up framework.
-- Add a grace period that permits code reveal without a fresh factor.
-- Preserve the inactive `/wallets/recovery/read` public route or the
-  `recovery_read` operation name.
-- Allow parent applications to receive plaintext recovery codes.
-
-## Domain Model
-
-Model the flow as a closed lifecycle. Do not represent it with optional proof,
-grant, codes, or acknowledgement fields.
-
-```ts
-type RecoveryCodeBackupFlow =
-  | {
-      readonly kind: 'status_ready';
-      readonly walletId: WalletId;
-      readonly issuedAtMs: number;
-    }
-  | {
-      readonly kind: 'authorizing_reveal';
-      readonly walletId: WalletId;
-      readonly issuedAtMs: number;
-      readonly method: 'passkey' | 'email_otp';
-    }
-  | {
-      readonly kind: 'reveal_authorized';
-      readonly authorization: RecoveryCodeRevealAuthorization;
-    }
-  | {
-      readonly kind: 'codes_visible';
-      readonly authorization: RecoveryCodeRevealAuthorization;
-      readonly recoveryCodes: WalletRecoveryCodeSet;
-    }
-  | {
-      readonly kind: 'acknowledging_backup';
-      readonly authorization: RecoveryCodeRevealAuthorization;
-    }
-  | {
-      readonly kind: 'completed';
-      readonly walletId: WalletId;
-      readonly issuedAtMs: number;
-    }
-  | {
-      readonly kind: 'failed';
-      readonly stage: 'authorization' | 'local_read' | 'acknowledgement';
-      readonly message: string;
-    };
-```
-
-`RecoveryCodeRevealAuthorization` is created only by the exact response parser
-for the reveal-authorization route:
+The response parser is the only builder for the value accepted by local reveal:
 
 ```ts
 type RecoveryCodeRevealAuthorization = {
   readonly kind: 'recovery_code_reveal_authorization_v1';
-  readonly authorizationId: AuthorizedOperationId;
+  readonly authorizedOperationId: AuthorizedOperationId;
   readonly walletId: WalletId;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
 ```
 
-Passkey and Email OTP proof collection remain separate branch-specific
-builders. Core flow functions receive a completed `WalletCustodyFactorProof`;
-they do not accept a bag of optional credential, OTP, provider, or challenge
-fields.
+The repository exposes:
 
-## Authorization Contract
+```ts
+readMetadata(walletId: WalletId): Promise<{
+  readonly walletId: WalletId;
+  readonly issuedAtMs: number;
+} | null>;
 
-### Reveal authorization request
+reveal(
+  authorization: RecoveryCodeRevealAuthorization,
+): Promise<PendingWalletRecoveryCodeBackup | null>;
+```
+
+`reveal` requires exact wallet and issuance equality with the stored row before
+decrypting. Remove the unrestricted `read(walletId)` method.
+
+## Server Changes
 
 Add:
 
 `POST /wallets/recovery/authorize-backup-reveal`
 
-The request contains:
+The exact request contains:
 
 - `walletId`;
-- `issuedAtMs` from the pending local record metadata;
-- one exact `WalletCustodyFactorProof`.
+- `issuedAtMs`;
+- one `WalletCustodyFactorProof` for `recovery_backup_reveal`.
 
-The proof operation is `recovery_backup_reveal`. Its canonical payload is:
+The route verifies the factor proof through the existing wallet-custody
+authorizer, checks the authoritative recovery-set issuance, and admits one
+short-lived authorized operation bound to:
 
-```ts
-{
-  walletId,
-  issuedAtMs,
-}
-```
+- tenant and wallet;
+- browser origin;
+- `recovery_backup_reveal`;
+- `issuedAtMs`;
+- expiry and replay state.
 
-The server:
+Change `/wallets/recovery/acknowledge-backup` to accept the authorized-operation
+ID. It resolves the operation, requires the same wallet and issuance, records
+the acknowledgement, and completes the operation with the existing idempotent
+replay behavior.
 
-1. validates the route body once;
-2. verifies the passkey or Email OTP proof through the existing wallet-custody
-   operation authorizer;
-3. reads authoritative recovery status;
-4. requires the current recovery set to exist;
-5. requires its issuance time to equal `issuedAtMs`;
-6. returns a short-lived, opaque reveal authorization;
-7. leaves that authorization pending until acknowledgement or expiry.
+Delete the inactive `/wallets/recovery/read` route and its `recovery_read`
+operation while changing this boundary. Delete `recovery_acknowledge` after the
+acknowledgement route consumes the reveal authorization. No deprecated aliases
+or compatibility request shapes remain.
 
-The response contains wallet identity and timing metadata only. It never
-contains the opaque server recovery set, wrapped recovery entries, ciphertext,
-or plaintext codes.
+## Client Changes
 
-### Backup acknowledgement request
+Keep `acknowledgeWalletRecoveryCodeBackup({ walletId })` as the public entry
+point. Update its direct and iframe implementations to execute the target flow
+above.
 
-Change the acknowledgement endpoint to require the reveal authorization ID.
-The server atomically:
+Reuse:
 
-1. resolves the pending authorization;
-2. requires the same wallet and issuance time;
-3. requires the authorization to be unexpired and unused;
-4. records backup acknowledgement for that issuance;
-5. consumes the authorization;
-6. returns the acknowledged issuance time.
+- the existing Passkey and Email OTP wallet-custody proof builders;
+- the existing wallet-owned recovery-code display surface;
+- the current modal's loading and error handling;
+- the current pending-backup IndexedDB row and encryption format.
 
-Retrying the same acknowledgement returns the stored successful result.
-Another wallet, issuance, origin, or operation cannot consume the grant.
+The React account menu continues to call the same public method. It needs no new
+recovery lifecycle union or additional view states.
 
-Use the existing authorized-operation store and replay semantics. Do not add a
-second grant table or a client-generated bearer token.
+## Security Invariants
 
-## Client Flow
+- Supported SDK and UI paths cannot decrypt pending recovery codes until the
+  server verifies a fresh factor for the exact wallet and issuance.
+- Reveal authorization is wallet-, issuance-, origin-, operation-, expiry-, and
+  replay-bound.
+- The acknowledgement consumes the reveal authorization for the same issuance.
+- The pending encrypted row is deleted only after successful acknowledgement.
+- Recovery codes remain inside the wallet-owned surface and never enter HTTP,
+  `postMessage`, logs, analytics, or parent application state.
+- Closing, cancellation, expiry, and transport failure preserve the encrypted
+  pending record and clear visible plaintext.
 
-### 1. Inspect without decrypting
+This change provides fresh-user-presence gating. It does not protect plaintext
+from arbitrary script already executing in the wallet origin. A factor-wrapped
+local encryption key would be required for that stronger boundary and remains
+outside this refactor.
 
-Split pending backup persistence into two reads:
+## Implementation Plan
 
-- `readMetadata(walletId)` returns `walletId` and `issuedAtMs` after validating
-  the row;
-- `reveal(authorization)` decrypts only when the authorization wallet and
-  issuance exactly match the row.
+### 1. Server authorization boundary
 
-Remove the unrestricted `read(walletId)` method. The status path uses
-`readMetadata` or `has` and never receives plaintext.
+- Add `recovery_backup_reveal` to the exact wallet-custody operation union and
+  exhaustive parsers.
+- Add the reveal-authorization route using the existing factor authorizer and
+  authorized-operation store.
+- Change backup acknowledgement to consume the authorized operation.
+- Delete `recovery_read`, `recovery_acknowledge`, and the inactive recovery-read
+  route and client.
 
-### 2. Collect the active factor
+Exit criterion: the server issues a reveal authorization only for a fresh valid
+factor and the current recovery-set issuance.
 
-Resolve the wallet's current authentication method into an exhaustive union:
+### 2. Local reveal ordering
 
-- passkey branch: build one `recovery_backup_reveal` WebAuthn proof;
-- Email OTP branch: request one operation-bound challenge, collect the OTP,
-  and build one Email OTP proof.
+- Split pending-backup persistence into `readMetadata` and typed `reveal`.
+- Reorder the existing direct operation to authorize, reveal, display,
+  acknowledge, and delete.
+- Apply the same operation through the existing wallet-iframe handler.
+- Clear plaintext state on every exit from the display surface.
 
-No branch may fall back to another factor after the user cancels. Cancellation
-returns the modal to its status state with no codes in memory.
+Exit criterion: no supported client path decrypts the row before authorization,
+and successful backup still deletes the row once.
 
-### 3. Authorize, decrypt, and render
+### 3. Focused verification
 
-Send the factor proof to the reveal-authorization route. Parse the exact
-authorization response. Then call the repository reveal operation and render
-the codes inside the wallet-owned backup UI.
+- Add one repository test rejecting a wrong-wallet or wrong-issuance reveal
+  authorization.
+- Add route coverage for valid authorization, issuance mismatch, expiry, and
+  acknowledgement replay.
+- Add one intended-behaviour flow for each supported factor family proving the
+  prompt completes before plaintext appears.
+- Verify cancellation before authorization never decrypts and cancellation
+  after reveal leaves the encrypted row pending.
+- Delete tests and fixtures owned solely by the inactive recovery-read route.
+- Run the focused tests, `pnpm test:intended`, `pnpm test:source-guards`,
+  `pnpm check`, and `git diff --check`.
 
-Keep the authorization in memory. Do not persist it in IndexedDB, local
-storage, URL state, React query caches, or parent-window messages.
+## Non-Goals
 
-### 4. Acknowledge and delete
+- Changing recovery-code generation, rotation, wrapping, consumption, or
+  account-recovery behavior.
+- Adding a general-purpose step-up framework.
+- Adding a new database table, grant format, coordinator, modal, or public API.
+- Wrapping the IndexedDB encryption key with Passkey PRF or Email OTP factor
+  material.
+- Protecting plaintext from a compromised wallet origin.
 
-When the user confirms that the codes were saved, send the authorization ID to
-the acknowledgement route. Delete the encrypted pending row only after the
-server returns acknowledgement for the same issuance.
+## Completion Criteria
 
-If acknowledgement fails, retain the encrypted row. Remove plaintext from UI
-state when the dialog closes and zero temporary byte buffers where the current
-storage and codec APIs expose them.
-
-## Public API And UI
-
-Replace the ambiguous public method:
-
-- remove `acknowledgeWalletRecoveryCodeBackup({ walletId })`;
-- add `completeWalletRecoveryCodeBackup({ walletId })`.
-
-The replacement owns the entire wallet-local interaction: authorization,
-reveal, acknowledgement, and local deletion. Its result is a discriminated
-union for `completed`, `cancelled`, `no_pending_backup`, `unauthorized`, and
-`transport_failed`.
-
-The account-menu modal keeps status and counts visible. Its button states are:
-
-- **View recovery codes** — idle;
-- **Verify to view** — factor collection is active;
-- **Loading recovery codes** — authorization succeeded and local decrypt is in
-  progress;
-- **Saved recovery codes** — acknowledgement is in progress.
-
-The modal must preserve focus trapping, restoration, keyboard dismissal, and
-screen-reader announcements. Sensitive codes appear only in the existing
-wallet-owned backup dialog after the state reaches `codes_visible`.
-
-## Failure And Concurrency Rules
-
-- Missing or corrupt local row: return `no_pending_backup` or a local storage
-  failure before requesting a factor.
-- Stale issuance after rotation: reject authorization, delete no local data,
-  and refresh status.
-- Wrong wallet or origin: reject before local decrypt.
-- Cancelled WebAuthn or OTP: show no error toast unless the existing UI treats
-  cancellation as an error; reveal no codes.
-- Expired authorization: close plaintext UI state and require a fresh factor.
-- Two tabs: the first successful acknowledgement consumes the authorization
-  and deletes its local row. The second tab refreshes status and clears any
-  stale pending record only after it observes the matching acknowledged
-  issuance.
-- Transport failure after reveal: retain the encrypted row, clear plaintext
-  when the dialog closes, and require a new step-up on the next reveal.
-- Rotation during reveal: acknowledgement fails on issuance mismatch. The old
-  codes are never marked as the current set's backup.
-
-## Implementation Phases
-
-### Phase 0 — Contract and deletion map
-
-- [ ] Add the intended behavior to `docs/intended-behaviours.md`.
-- [ ] Record every caller of `recovery_read`, `/wallets/recovery/read`, and
-      `readWalletRecoverySet`.
-- [ ] Confirm the current production caller count remains zero.
-- [ ] Delete obsolete tests and fixtures that protect the inactive read route.
-- [ ] Define the reveal lifecycle and result unions before changing runtime
-      behavior.
-
-### Phase 1 — Exact server authorization
-
-- [ ] Replace `recovery_read` with `recovery_backup_reveal` in
-      `WalletCustodyAdminOperation` and every exhaustive boundary parser.
-- [ ] Delete `/wallets/recovery/read`, its response parser, and its public route
-      definition.
-- [ ] Add `/wallets/recovery/authorize-backup-reveal` with an exact request and
-      response parser.
-- [ ] Verify authoritative issuance time before returning authorization.
-- [ ] Change backup acknowledgement to consume the reveal authorization.
-- [ ] Reuse the authorized-operation store for expiry, replay, and atomic
-      completion.
-- [ ] Confirm server responses and logs contain no recovery code material.
-
-### Phase 2 — Local reveal boundary
-
-- [ ] Replace repository `read(walletId)` with `readMetadata(walletId)` and
-      `reveal(authorization)`.
-- [ ] Require exact wallet and issuance equality before AES-GCM decryption.
-- [ ] Add a single linear coordinator for authorize, reveal, acknowledge, and
-      delete.
-- [ ] Keep the authorization memory-only.
-- [ ] Remove helpers that permit plaintext reads without authorization.
-
-### Phase 3 — Passkey and Email OTP integration
-
-- [ ] Add a branch-specific passkey reveal proof builder using the existing
-      wallet-custody challenge digest.
-- [ ] Add a branch-specific Email OTP reveal proof builder using the existing
-      custody Email OTP challenge route.
-- [ ] Route both branches into the same post-proof coordinator.
-- [ ] Ensure one complete reveal-and-acknowledge flow produces one factor
-      prompt.
-- [ ] Replace the public API and wallet-iframe message with
-      `completeWalletRecoveryCodeBackup`.
-- [ ] Remove the old acknowledgement-only public and message paths.
-
-### Phase 4 — UI and lifecycle verification
-
-- [ ] Update the modal state machine and accessible progress copy.
-- [ ] Verify plaintext never appears before factor success.
-- [ ] Verify cancellation, stale issuance, expiry, and acknowledgement failure.
-- [ ] Run the focused intended-behavior contracts once after implementation is
-      complete.
-- [ ] Run the full intended-behavior suite once after focused contracts pass.
-- [ ] Remove stale lower-authority tests or fixtures that encode reveal before
-      authorization.
-- [ ] Run type checks, relevant source boundaries, and `git diff --check`.
-
-## Intended-Behavior Contracts
-
-Add recovery-code coverage to the authoritative lifecycle suite:
-
-### Passkey wallet
-
-1. Register a wallet and leave backup outstanding.
-2. Open recovery status without a Touch ID prompt.
-3. Press **View recovery codes**.
-4. Assert exactly one WebAuthn prompt occurs before plaintext appears.
-5. Confirm backup.
-6. Assert the server records the matching issuance and the local pending row is
-   deleted.
-7. Reopen status and assert no codes can be revealed.
-
-### Email OTP wallet
-
-1. Register a wallet and leave backup outstanding.
-2. Open recovery status without an OTP challenge.
-3. Press **View recovery codes**.
-4. Assert one Email OTP challenge and verification occur before plaintext
-   appears.
-5. Confirm backup and assert matching issuance and local deletion.
-
-### Negative cases
-
-- cancel passkey or OTP and assert plaintext never appears;
-- present a grant for another wallet and assert local decrypt is refused;
-- rotate between authorization and acknowledgement and assert issuance
-  mismatch;
-- expire the grant and assert a fresh factor is required;
-- fail acknowledgement transport and assert the encrypted row remains;
-- inspect network and console records and assert no plaintext recovery code is
-  present.
-
-Focused unit tests may cover repository matching and lifecycle reduction.
-Delete any inline fixture or source guard that exists solely for the retired
-`recovery_read` response.
-
-## Acceptance Criteria
-
-- Plaintext recovery codes cannot be obtained through any supported SDK or UI
-  path before a fresh passkey or Email OTP step-up succeeds.
-- Status and counts remain available without step-up.
-- One reveal-and-acknowledge journey requests one factor.
-- Reveal authorization is wallet-, issuance-, origin-, operation-, expiry-,
-  and replay-bound.
-- Acknowledgement consumes the exact reveal authorization.
-- Closing or failing the flow preserves the encrypted pending backup.
+- Fresh Passkey or Email OTP verification completes before local recovery-code
+  decryption.
+- Authorization and acknowledgement are bound to one wallet and recovery-set
+  issuance through the existing authorized-operation store.
+- The public recovery API and account-menu interaction remain unchanged.
+- Cancellation and failure preserve the pending encrypted backup.
 - Successful acknowledgement deletes the matching local row.
-- No public API, wallet-iframe message, route, log, or analytic payload carries
-  plaintext recovery codes.
-- The inactive recovery-set read route and its obsolete tests are deleted.
-- Passkey and Email OTP intended-behavior contracts pass.
-- The complete intended-behavior suite passes once after implementation.
+- `recovery_read`, `recovery_acknowledge`, and their obsolete route/client/test
+  paths are absent.
+- Focused coverage and the intended-behaviour suite pass.

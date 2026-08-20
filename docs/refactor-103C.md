@@ -1,20 +1,25 @@
 # Refactor 103C — Exact Owner Lane Resolution
 
-Last reconciled: August 19, 2026 (closeout scope)
+Last reconciled: August 20, 2026 (delegated authority and activation scope)
 
 ## Status
 
-Implementation closeout. The three incident gap closures and focused coverage
-are implemented. One high-impact task remains: automate the real two-device
-Passkey and Email OTP flows against the composed runtime.
+Exact device-scope resolution, durable device inventory, and the focused
+coverage are implemented. Refactor 103D now owns the remaining activation gap:
+Device 2 must install one ordinary signer capability, with linked provenance,
+for every present signer family before the link becomes active.
+After R103D lands, the remaining R103C gate is the automated real two-device
+Passkey and Email OTP flow against the composed runtime.
 
-This is the only active R103C completion task. Older unchecked phase entries
-below are implementation history rather than an active backlog.
+R103C closeout now has two ordered tasks: complete R103D, then run the automated
+real-device gate. Older unchecked phase entries below are implementation
+history rather than an active backlog.
 
-R103C fixes owner-lane selection after a wallet has more than one human owner
+R103C fixes device-lane selection after a wallet has more than one human owner
 credential. It also corrects the linked-device inventory source. Refactor 103B
 continues to own device display metadata. R103C supersedes the Refactor 103B
-statements that describe human linked execution as a temporary path to delete.
+statements that describe device-link capabilities as a temporary path to
+delete.
 
 ## Problem
 
@@ -57,20 +62,25 @@ Implementation boundary:
 - `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
 - `packages/wallet/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts`
 
-### B. Reconcile committed holder delivery child by child
+### B. Reconcile committed signer activation child by child
 
-- Treat the committed approval plus its ordered deliveries as the exact
-  recovery plan.
-- Index durable holder records by operation, enrollment, lane, epoch, and
-  material activation.
-- Reuse every matching record and seal only missing children while the live
-  worker-owned recipient handle is available.
-- Reject duplicate deliveries, conflicting records, and unapproved holder
-  records before acknowledging the aggregate receipt.
-- Persist execution evidence and Wallet Session delivery idempotently before
+- Treat the committed approval, requested `DelegatedWalletAuthorityV1`,
+  administered signer-family manifest, and ordered activation packages as the
+  exact activation plan.
+- Index durable activation records by enrollment, device, signer family,
+  capability identity, material activation, and revocation epoch.
+- Reuse every matching record and install only missing packages while their
+  factor-bound recipient state remains available.
+- Reject duplicate deliveries, conflicting records, absent-family packages,
+  and packages outside the approved authority before acknowledging the
+  aggregate receipt.
+- A `signing_only` activation installs fresh Device 2 signing material. A
+  `full_owner` activation installs the same signing material and the additional
+  factor-bound Ed25519 Yao Client export-root package when Ed25519 is present.
+- Persist activation evidence and Wallet Session delivery idempotently before
   reporting completion.
-- A committed flow without its worker-owned recipient handle returns a clear
-  terminal recovery error. It must never spin or claim successful recovery.
+- A committed flow without every package required by its exact authority
+  returns a terminal activation error. It cannot spin or claim activation.
 
 Implementation boundary:
 
@@ -78,14 +88,30 @@ Implementation boundary:
 - `packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts.ts`
 - `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
 
-### C. Resolve Device 2 export inside the active owner scope
+### C. Resolve Device 2 export inside the active device scope
 
-- Resolve the active Wallet Session authorization to one `OwnerLaneScope`.
+- Resolve the active Wallet Session authorization to one exact device scope.
 - Require that scope on the first Ed25519 or ECDSA export-lane read.
-- Select the canonical lane only after owner filtering. Sibling owner lanes and
-  linked execution lanes never enter export selection.
-- If the exact owner lane is missing, perform one account hydration and resolve
-  the same owner scope once more.
+- Select the active ordinary signer capability only after device, enrollment,
+  factor, activation, signer-family, and revocation filtering. Sibling-device
+  capabilities never enter export selection.
+- Refactor 103D supersedes export-time account hydration. Device linking must
+  install the exact ordinary capability before reporting signing ready. A
+  `full_owner` link must also install its factor-bound export root before
+  reporting export ready. Recovery, rotation, rejoin, and fallback cannot
+  manufacture missing material. Missing material after that boundary is an
+  integrity failure.
+- Ed25519 owner linking transports the Ed25519 Yao Client export root encrypted
+  to Device 2's one-use QR recipient and reseals it under Device 2's verified
+  Passkey or Email OTP factor. The wallet custody seed never crosses the link.
+  Device 2 later uses the existing ordinary Yao export flow with Deriver A and
+  Deriver B.
+- Device 2 signing material comes from additive ordinary registration. Fresh
+  Device 2 client and server shares reproduce the existing public key while
+  Device 1's shares remain unchanged. R102 holder material does not participate.
+- The approved family set defaults to and currently requires every canonical
+  active signer family on Device 1. Selective family delegation is outside
+  R103C/R103D.
 - Pass the resolved exact lane identity into execution. Execution does not
   repeat lane selection or WebAuthn credential discovery.
 
@@ -96,15 +122,23 @@ Implementation boundary:
 - `packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
 - `packages/wallet/src/react/components/AccountMenuButton/index.tsx`
 
+Activation readiness and committed completion are specified by
+`docs/refactor-103D.md`. R103C owns exact selection after that boundary and
+contains no downstream repair behavior.
+
 ### Gap-closure acceptance criteria
 
 1. Multiple legacy Ed25519 rows for one exact material identity become one
    canonical durable row without comparing ciphertext bytes.
-2. A committed delivery with a mixture of present and missing holder children
-   seals only the missing children and produces one exact aggregate receipt.
-3. Device 2 resolves NEAR and EVM-family export from its active canonical owner
-   lane and receives one Touch ID prompt per export.
-4. Conflicting sealed records or holder records terminate with an exact
+2. A committed delivery with a mixture of installed and missing activation
+   children installs only the missing children and produces one exact aggregate
+   receipt.
+3. Device 2 resolves export for each present signer family from its exact active
+   `full_owner` authority. Ed25519 export consumes the installed export root and
+   receives one target-factor interaction per export.
+4. A `signing_only` device cannot export, and it cannot carry an export-root
+   package at the type or persistence boundary.
+5. Conflicting sealed records or activation packages terminate with an exact
    integrity error instead of falling back to another lane.
 
 ## Correct model
@@ -150,23 +184,31 @@ Retired and superseded activations remain persistence history. Sibling owner
 lanes remain valid for their own credentials. Neither collection participates
 in the current owner's operational selection.
 
-### Human ownership and linked execution remain distinct
+### Human ownership and device linking remain distinct
 
-Device 2 has two related records with different jobs:
+Device 2 has related records with different jobs:
 
-- its canonical wallet auth method makes it a human owner;
-- its linked-device Wallet Session and lane-holder material provide revocable,
-  per-device execution.
+- its verified wallet auth method authenticates the human operation;
+- its linked-device Wallet Session provides revocable per-device authority;
+- its ordinary signer capabilities provide independent signing material;
+- a `full_owner` Ed25519 activation additionally carries the factor-bound Yao
+  Client export root used by the ordinary export flow.
 
-The existing `owner_equivalent_signing` / `signing_only` permission describes
-the narrow linked execution grant. It does not classify the human as a
-signing-only user. Keep that grant, the linked execution bundle, delivery,
-renewal, and revocation machinery.
+The device-link enrollment, delivery, renewal, and revocation machinery
+provisions and manages the device's ordinary signer capabilities. Export is a
+fresh authorized operation over the exact active capability and uses the
+ordinary export flow and types.
 
-The `verified_owner_unlock` activation correctly reuses the owner's verified
-PRF and avoids a second WebAuthn prompt. Keep it. The
-`existing_target_passkey` branch remains the explicit renewal path when the
-stored linked session has actually expired.
+Refactor 103D installs each present family through the ordinary capability
+builder before `active`. `full_owner` additionally installs every export-root
+package required by the administered manifest. The target factor already
+verified during linking supplies that activation, avoiding a second prompt.
+Link enrollment remains provenance and management metadata.
+
+The `verified_owner_unlock` activation remains valid for an ordinary later
+unlock. The `existing_target_passkey` branch remains the explicit renewal path
+when the stored linked session has actually expired. Neither path repairs an
+incomplete export operation.
 
 ## Verified change inventory
 
@@ -295,8 +337,9 @@ Classification:
 - Runtime-postcondition tests that scan candidates to repair a stale aggregate
   encode the tactical workaround. Delete or rewrite them around the scoped
   operational result.
-- Exact activation, lifecycle, expiry, exhaustion, and explicit material
-  rehydration tests remain valid.
+- Exact activation, lifecycle, expiry, exhaustion, and explicit internal
+  material-identity rehydration tests remain valid. Export-time account
+  hydration expectations are obsolete under Refactor 103D.
 - Device-management composition should prove durable bindings remain visible
   after workflow sessions expire.
 
@@ -313,13 +356,14 @@ Primary locations:
 
 Changes:
 
-- Preserve the Phase 8 rule that canonical owner identity and per-device
-  signing material are separate.
-- Remove statements that call the linked execution lane temporary or require
-  deleting human use of its narrow grant.
-- Keep the established endpoint split: canonical owner endpoints handle
-  authentication, custody, administration, and step-up; linked-lane endpoints
-  handle per-device delivery, renewal, execution, and revocation.
+- Preserve the rule that target-factor identity and per-device signer material
+  are separate.
+- Replace the single signing-only grant with
+  `DelegatedWalletAuthorityV1`: the explicit `signing_only` and `full_owner`
+  authority union shared with future agent-delegated wallets.
+- Keep target-factor endpoints for authentication and step-up, device-linking
+  endpoints for delivery, renewal, and revocation, and ordinary signing/export
+  endpoints for ordinary capability operations.
 
 Verdict: required documentation cleanup. The current text contains both the
 correct separation and a contradictory deletion instruction.
@@ -334,30 +378,39 @@ The inventory found no valid reason to change these areas:
   metadata. Founding Device 1 has no such binding, so it cannot become the
   universal runtime owner lookup.
 - `packages/shared-ts/src/device-linking/contracts.ts`, its parsers, server
-  authorization validation, execution admission, and D1 permission checks keep
-  the linked execution grant unchanged.
-- The durable link flow reports success only after its terminal `active` event.
-  Retained finalize and `resumeCommittedDeliveryV1` reconcile interrupted
-  completion while the worker-owned recipient handle remains live. A process
-  loss that discards that handle is a terminal recovery boundary.
+  authorization validation, execution admission, and D1 permission checks must
+  carry the exact `signing_only` or `full_owner` authority. Invalid mixtures are
+  rejected at the boundary.
+- Refactor 103D strengthens the terminal contract: Device 2 acknowledges the
+  existing aggregate receipt only after installing its target credential,
+  one ordinary capability with fresh shares for every present family, every
+  export-root package required by `full_owner`, warm session, and Wallet
+  Session. The durable flow then reports `active`.
+  Interrupted post-commit work remains `committed_awaiting_activation` and
+  resumes the same plan.
 - `selectWalletHostEd25519SourceLaneV1` and exact rehydration paths intentionally
   select a supplied material activation. They may inspect internal candidates.
-- The linked-device execution grant, holder lanes, active delivery, session
-  renewal, local-presence proof, and revocation stay in place.
+- The device-link authorization grant, capability delivery, active delivery,
+  session renewal, local-presence proof, and revocation stay in place.
 - `WalletSessionRef` stays wallet-scoped. Owner identity comes from the active
   authorization projection inside the signing engine; UI callers do not send
   credential or signer-slot hints.
-- No custody cryptography, MPC/Yao protocol, key derivation, QR payload,
-  manifest, digest, or new persistence table changes are required.
+- The existing one-use QR recipient encryption and factor-sealing primitives
+  carry the export root. The Yao export protocol, wallet seed derivation, and
+  ordinary signing protocols remain unchanged. The authority and activation
+  manifests gain the explicit branch and package digest; no new persistence
+  table is required.
 
 ## Existing enrollments
 
-Current Phase 8 devices with an active canonical owner auth binding remain
-valid. They do not need to be linked again.
+Current devices are valid only when their exact target-factor binding and every
+ordinary signer capability declared by the administered manifest satisfy the
+Refactor 103D active postcondition. An `active` label alone is insufficient
+evidence.
 
-An older enrollment without an active canonical owner auth binding cannot act
-as a human owner. Return a clear re-link requirement at the request or
-persistence boundary. Add no compatibility selector and no migration marker.
+An older or incomplete enrollment that fails the postcondition cannot act as a
+human owner. Return a clear re-link requirement at the request or persistence
+boundary. Add no compatibility selector, export hydration, or migration marker.
 
 ## Historical Implementation Checklist
 
@@ -411,7 +464,9 @@ persistence boundary. Add no compatibility selector and no migration marker.
 - [ ] Delete stale tests and helpers that exist only for wallet-wide human owner
       selection.
 - [ ] Reconcile the contradictory Refactor 103, Refactor 103B, and owner-binding
-      comments with the retained linked execution model.
+      comments with the retained device-link model.
+- [ ] Complete Refactor 103D and prove `active` implies every present ordinary
+      signer capability is locally installed with fresh shares.
 
 ## Automated verification gate
 
@@ -419,25 +474,29 @@ Use two independent clean browser profiles and a fresh wallet. Run the same
 operating path once with a Passkey target factor and once with Email OTP.
 
 1. Device 1 creates the wallet.
-2. Device 2 links with one Passkey-creation prompt.
+2. Device 2 links as `full_owner` with one Passkey-creation prompt and receives
+   every canonical signer family active on Device 1.
 3. Both devices refresh, lock, and unlock with one Touch ID prompt each.
-4. Both devices sign and perform step-up authentication for NEAR and EVM-family
-   transactions.
-5. Both devices export their NEAR and EVM-family keys.
+4. Both devices sign and perform step-up authentication for each present
+   signer family.
+5. Both full-owner devices export each present signer family through ordinary
+   export flows.
 6. Device 2 links a third human owner device.
 7. Device 1 revokes Device 2.
 8. Repeat with Device 2 revoking Device 1 while another owner remains.
 9. Repeat unlock, signing, export, linking, and device listing with sibling
    owner lanes and retired historical rows present.
-10. Verify an enrollment without a canonical owner binding receives the re-link
-    result.
+10. Verify an enrollment without an exact target-factor binding receives the
+    re-link result.
+11. Verify a `signing_only` delegated authority can sign and is rejected by
+    export and owner-administration admission.
 
 ## Completion rule
 
 R103C is complete when every authenticated human operation starts from the
-active owner authority, lane selection occurs inside that exact owner scope,
-device inventory comes from durable owner bindings, and the automated plus
-real-device gates pass.
+active target-factor authority, lane selection occurs inside that exact device scope,
+device inventory comes from durable owner bindings, Refactor 103D supplies the
+strict activation postcondition, and the automated plus real-device gates pass.
 
 If implementation requires a new protocol version, generalized selector,
 compatibility mode, registry, manifest, digest, or persistence table, stop and
