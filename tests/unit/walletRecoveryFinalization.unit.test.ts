@@ -99,7 +99,11 @@ function replayStores(input: { readonly sourceState: 'active' | 'retired' }) {
       hasActiveWalletSessionsForAuthMethod: async () => false,
     },
     webAuthnStore: {
-      readAuthenticator: async () => ({ credentialIdB64u: 'replacement-credential' }),
+      readAuthenticator: async () => ({
+        credentialIdB64u: 'replacement-credential',
+        credentialPublicKeyB64u: 'replacement-public-key',
+        counter: 0,
+      }),
       readBindingByCredential: async () => ({
         userId: WALLET_ID,
         rpId: 'example.localhost',
@@ -135,5 +139,13 @@ test('strict replay returns the committed promotion without retire failure state
     replacementEnvelope: stores.replacement,
   } as never);
 
-  expect(result).toEqual({ kind: 'promoted', storeVersion: 'v2' });
+  expect(result).toEqual({
+    kind: 'promoted',
+    storeVersion: 'v2',
+    credential: {
+      credentialIdB64u: 'replacement-credential',
+      credentialPublicKeyB64u: 'replacement-public-key',
+      counter: 0,
+    },
+  });
 });

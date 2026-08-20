@@ -1081,7 +1081,11 @@ export async function handleWalletRecoveryFinalize(
     case 'promoted':
       return toFetchRouteResponse({
         status: 200,
-        body: { ok: true, storeVersion: result.storeVersion },
+        body: {
+          ok: true,
+          storeVersion: result.storeVersion,
+          credential: result.credential,
+        },
       });
     case 'conflict':
       return toFetchRouteResponse({

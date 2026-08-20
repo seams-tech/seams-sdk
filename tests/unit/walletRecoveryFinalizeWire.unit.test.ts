@@ -77,7 +77,17 @@ test('the route is registered where the client posts', () => {
 
 test('finalize posts only the atomic R114 promotion request', async () => {
   const captured: CapturedRequest = { url: '', body: null };
-  const result = await finalizeWith(captureRequest(captured, { ok: true, storeVersion: '2' }));
+  const result = await finalizeWith(
+    captureRequest(captured, {
+      ok: true,
+      storeVersion: '2',
+      credential: {
+        credentialIdB64u: 'replacement-credential',
+        credentialPublicKeyB64u: 'AQID',
+        counter: 0,
+      },
+    }),
+  );
 
   expect(captured.url).toBe('https://relay.localhost/wallets/recovery/finalize');
   expect(Object.keys(captured.body ?? {}).sort()).toEqual([
@@ -97,7 +107,15 @@ test('finalize posts only the atomic R114 promotion request', async () => {
     ecdsaMaterialPossessionProofs: [],
     webauthnRegistration: { clientExtensionResults: null },
   });
-  expect(result).toEqual({ kind: 'promoted', storeVersion: '2' });
+  expect(result).toEqual({
+    kind: 'promoted',
+    storeVersion: '2',
+    credential: {
+      credentialIdB64u: 'replacement-credential',
+      credentialPublicKeyB64u: 'AQID',
+      counter: 0,
+    },
+  });
 });
 
 test('finalize accepts only the exact success response', async () => {
