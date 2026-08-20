@@ -35,6 +35,10 @@ function recoveryAnnouncement(viewModel: AuthMenuRecoveryViewModel): string {
   return '';
 }
 
+function recoveryNavigationLocked(viewModel: AuthMenuViewModel): boolean {
+  return viewModel.kind === 'recovery' && viewModel.stage === 'finalizing';
+}
+
 function modeSwitchCopy(mode: AuthMenuViewModel['mode']): {
   prompt: string;
   action: string;
@@ -429,6 +433,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private onKeydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
       event.preventDefault();
+      if (this.viewModel && recoveryNavigationLocked(this.viewModel)) return;
       if (this.accountMenuOpen) {
         this.accountMenuOpen = false;
         return;
@@ -480,6 +485,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     }
     event.preventDefault();
     event.stopPropagation();
+    if (recoveryNavigationLocked(viewModel)) return;
     this.emitIntent({ kind: 'back' });
   };
 
@@ -668,6 +674,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             type="button"
             aria-label=${recovery ? 'Back to sign in' : 'Back'}
             data-auth-menu-close
+            ?disabled=${recoveryNavigationLocked(viewModel)}
             @click=${this.onBackClick}
           >
             ${backIcon()}

@@ -68,6 +68,29 @@ class RefusingRecoveryPort implements HostedRecoveryPort {
   async cancel(): Promise<void> {}
 }
 
+class DeferredFinalizationRecoveryPort extends SuccessfulRecoveryPort {
+  private resolveFinalization:
+    | ((value: { kind: 'ready_for_sign_in'; walletId: SuccessfulRecoveryPort['walletId'] }) => void)
+    | null = null;
+
+  override async finalize(operation: HostedRecoveryCredentialCreated) {
+    this.calls.push(`finalize:${operation.recoveryOperationId}`);
+    return await new Promise<{
+      kind: 'ready_for_sign_in';
+      walletId: SuccessfulRecoveryPort['walletId'];
+    }>((resolve) => {
+      this.resolveFinalization = resolve;
+    });
+  }
+
+  completeFinalization(): void {
+    const resolve = this.resolveFinalization;
+    if (!resolve) throw new Error('recovery finalization has not started');
+    this.resolveFinalization = null;
+    resolve({ kind: 'ready_for_sign_in', walletId: this.walletId });
+  }
+}
+
 function sessionWithRecovery(args: {
   recoveryPort: HostedRecoveryPort;
   prepareRecoveredLogin: AuthMenuSessionArgs['prepareRecoveredLogin'];
@@ -172,6 +195,39 @@ test.describe('hosted auth-menu recovery continuation', () => {
 
     await expect.poll(() => recoveryPort.calls.at(-1)).toBe('cancel:recovery-operation-1');
     expect(session.state.kind).not.toBe('recovery');
+    session.cleanup();
+  });
+
+  test('keeps irreversible finalization alive when Back or Close is requested', async () => {
+    const recoveryPort = new DeferredFinalizationRecoveryPort();
+    const session = sessionWithRecovery({
+      recoveryPort,
+      prepareRecoveredLogin: rejectRecoveredLogin,
+    });
+    invoke(session, 'openRecovery');
+    invoke(session, 'changeRecoveryWalletId', 'recovered-wallet.test');
+    invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
+    invoke(session, 'prepareRecovery');
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('passkey_ready');
+
+    invoke(session, 'createRecoveryPasskey');
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('finalizing');
+    await expect.poll(() => recoveryPort.calls.at(-1)).toBe('finalize:recovery-operation-1');
+
+    invoke(session, 'back');
+    session.cancel('close_button');
+
+    expect(session.state.kind === 'recovery' && session.state.stage).toBe('finalizing');
+    expect(recoveryPort.calls).not.toContain('cancel:recovery-operation-1');
+
+    recoveryPort.completeFinalization();
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('sign_in_ready');
     session.cleanup();
   });
 
