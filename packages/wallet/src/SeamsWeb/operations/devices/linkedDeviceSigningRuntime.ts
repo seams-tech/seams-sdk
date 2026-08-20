@@ -75,8 +75,6 @@ import type {
   DeviceLinkingPersistedHolderSigningMaterialChildV1,
   DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1,
   DeviceLinkingLiveKeyMaterialPortV1,
-  LinkedDeviceEd25519OwnerRestoreV1,
-  LinkedDeviceEcdsaOwnerRestoreV1,
   LinkedDeviceSigningSessionActivationV1,
 } from './deviceLinkingPorts';
 import {
@@ -120,8 +118,6 @@ type LinkedDeviceWarmSigningSessionBaseV1 = {
   readonly walletId: WalletId;
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly handles: readonly DeviceLinkingHolderSigningMaterialHandleV1[];
-  readonly ed25519OwnerRestore: LinkedDeviceEd25519OwnerRestoreV1;
-  readonly ecdsaOwnerRestore: LinkedDeviceEcdsaOwnerRestoreV1;
 };
 
 export type LinkedDeviceWarmSigningSessionV1 = LinkedDeviceWarmSigningSessionBaseV1 &
@@ -537,10 +533,6 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
       targetPreparationDigestB64u: await computeLinkedDeviceTargetPreparationDigestV1(
         input.bundle.targetPreparation,
       ),
-      resealedCustodyEnvelope: input.activation.resealedCustodyEnvelope,
-      relayServerUrl: input.relayServerUrl,
-      ed25519OwnerActivation: input.bundle.ed25519OwnerActivation,
-      ecdsaOwnerActivation: input.bundle.ecdsaOwnerActivation,
       orderedChildren: [first, ...orderedChildren.slice(1)],
     });
   const handles = opened.handles;
@@ -552,8 +544,6 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
       holderMaterialOwnership: 'shared_port',
       holderMaterial: input.activation.holderMaterial,
       handles,
-      ed25519OwnerRestore: opened.ed25519OwnerRestore,
-      ecdsaOwnerRestore: opened.ecdsaOwnerRestore,
     };
   } catch (error: unknown) {
     await discardLinkedDeviceHolderHandlesV1({
@@ -830,8 +820,6 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
-      ed25519OwnerRestore: { kind: 'absent' },
-      ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {
     holderMaterial.close();
@@ -980,8 +968,6 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
-      ed25519OwnerRestore: { kind: 'absent' },
-      ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {
     holderMaterial?.close();
@@ -1063,8 +1049,6 @@ export async function restoreLinkedDeviceWarmSigningSessionV1(input: {
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
-      ed25519OwnerRestore: { kind: 'absent' },
-      ecdsaOwnerRestore: { kind: 'absent' },
     };
   } catch (error) {
     holderMaterial.close();

@@ -470,11 +470,8 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     const manifestDigestB64u = parseDigestB64u(
       await computeLaneEnrollmentManifestDigestV1(parsed.manifest),
     );
-    if (
-      parsed.manifestDigestB64u !== manifestDigestB64u ||
-      String(binding.keyManifestDigestB64u) !== manifestDigestB64u
-    ) {
-      throw new Error('linked-device owner binding manifest digest disagrees with its enrollment');
+    if (parsed.manifestDigestB64u !== manifestDigestB64u) {
+      throw new Error('linked-device lane enrollment manifest digest is invalid');
     }
     const productRows = await queryD1All(
       this.database,

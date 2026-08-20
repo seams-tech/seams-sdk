@@ -76,10 +76,6 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataV1 = {
  * lane participants, protocol keys, or owner authorization metadata.
  */
 export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
-  readOwnerAuthorizationMetadataV1(input: {
-    readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV5;
-  }): Promise<D1LinkedDeviceOwnerAuthorizationMetadataV1 | null>;
   readApprovedOwnerContextV1(input: {
     readonly walletId: WalletId;
     readonly linkSessionId: string;
@@ -88,6 +84,16 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
     readonly request: LinkedDeviceOwnerSourceChildResolutionRequestV1;
   }): Promise<LinkedDeviceOwnerSourceChildResolutionV1 | null>;
+};
+
+type D1LinkedDeviceOwnerAuthorizationPlanningWriterV1 = {
+  writeV1(input: Parameters<D1LinkedDeviceOwnerPlanningSnapshotWriterV1['writeV1']>[0]): Promise<
+    | {
+        readonly outcome: 'applied' | 'replayed';
+        readonly snapshot: { readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataV1 };
+      }
+    | { readonly outcome: 'conflict' }
+  >;
 };
 
 export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
@@ -100,11 +106,7 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
     D1LinkedDeviceTargetPlannerOptionsV1,
     'preparationTtlMs' | 'targetDeploymentDescriptorProvider'
   >;
-  readonly planningWriter: {
-    writeV1(
-      input: Parameters<D1LinkedDeviceOwnerPlanningSnapshotWriterV1['writeV1']>[0],
-    ): Promise<unknown>;
-  };
+  readonly planningWriter: D1LinkedDeviceOwnerAuthorizationPlanningWriterV1;
   readonly nowV1?: () => number;
 };
 
@@ -133,7 +135,6 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
   return {
     ownerAuthorization,
     ownerAuthorizationRoute: createOwnerAuthorizationRouteV1({
-      metadata: options.metadata,
       planningWriter: options.planningWriter,
       nowV1,
     }),
@@ -217,12 +218,7 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
 }
 
 function createOwnerAuthorizationRouteV1(input: {
-  readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
-  readonly planningWriter: {
-    writeV1(
-      input: Parameters<D1LinkedDeviceOwnerPlanningSnapshotWriterV1['writeV1']>[0],
-    ): Promise<unknown>;
-  };
+  readonly planningWriter: D1LinkedDeviceOwnerAuthorizationPlanningWriterV1;
   readonly nowV1: () => number;
 }): DeviceLinkingOwnerAuthorizationRouteServiceV1 {
   return {
@@ -230,17 +226,19 @@ function createOwnerAuthorizationRouteV1(input: {
       const ownerError = validateOwnerContext(request.owner, request.requestedAtMs, input.nowV1);
       if (ownerError) throw new Error(ownerError.message);
       const payload = parseQrLinkedDeviceSessionPayloadV5(request.payload);
-      await input.planningWriter.writeV1({
+      const planning = await input.planningWriter.writeV1({
         owner: request.owner,
         payload,
         orderedOwnerSourceLaneHints: request.orderedOwnerSourceLaneHints,
       });
-      const metadata = await input.metadata.readOwnerAuthorizationMetadataV1({
-        owner: request.owner,
+      if (planning.outcome === 'conflict') {
+        throw new Error('owner authorization planning snapshot conflicts with this link request');
+      }
+      const normalized = normalizeOwnerAuthorizationMetadataV1(
+        planning.snapshot.metadata,
+        request.owner,
         payload,
-      });
-      if (!metadata) throw new Error('owner authorization metadata is unavailable');
-      const normalized = normalizeOwnerAuthorizationMetadataV1(metadata, request.owner, payload);
+      );
       return {
         authentication: {
           kind: 'link_session_authenticated_request_v1',

@@ -47,6 +47,7 @@ import {
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type {
   MpcWalletSigningQuotaId,
+  ReusableWalletSessionAuthorizationId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -622,7 +623,7 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   nearEd25519SigningKeyId: string;
   authorityScope: Ed25519AuthorityScope;
   thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
+  authorizationId: ReusableWalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;

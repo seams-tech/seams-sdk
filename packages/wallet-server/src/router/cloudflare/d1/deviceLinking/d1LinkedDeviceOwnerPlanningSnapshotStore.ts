@@ -237,21 +237,6 @@ export class D1LinkedDeviceOwnerPlanningSnapshotStoreV1 implements D1LinkedDevic
     return await this.getV1(requiredText(row.link_session_id, 'link_session_id'));
   }
 
-  async readOwnerAuthorizationMetadataV1(input: {
-    readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV5;
-  }): Promise<D1LinkedDeviceOwnerAuthorizationMetadataV1 | null> {
-    const snapshot = await this.getV1(String(input.payload.linkSessionId));
-    if (!snapshot || snapshot.walletId !== input.owner.walletId) return null;
-    if (
-      alphabetizeStringify(snapshot.owner) !== alphabetizeStringify(input.owner) ||
-      alphabetizeStringify(snapshot.payload) !== alphabetizeStringify(input.payload)
-    ) {
-      return null;
-    }
-    return snapshot.metadata;
-  }
-
   async readApprovedOwnerContextV1(input: {
     readonly walletId: WalletId;
     readonly linkSessionId: string;

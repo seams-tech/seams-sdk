@@ -45,7 +45,7 @@ test('React projection retains NEAR identity for a mixed wallet session', () => 
   });
 });
 
-test('React projection treats a linked device as an owner device', () => {
+test('React projection limits sessions without a canonical auth method to signing', () => {
   const projected = buildReactLoggedInLoginStateFromSession(
     activeWalletSessionFixture({
       walletId: String(WALLET_ID),
@@ -67,12 +67,12 @@ test('React projection treats a linked device as an owner device', () => {
   });
   if (!projected) throw new Error('linked-device session did not project to a login state');
   expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({
-    kind: 'owner',
+    kind: 'signing_only',
   });
   expect(accountMenuCapabilitiesForLoginState(projected)).toEqual({
-    kind: 'owner',
-    canExportKeys: true,
-    canManageLinkedDevices: true,
+    kind: 'signing_only',
+    canExportKeys: false,
+    canManageLinkedDevices: false,
   });
 });
 

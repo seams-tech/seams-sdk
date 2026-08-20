@@ -19,8 +19,10 @@ import type {
 import {
   LinkedDeviceListCursorError,
   MAX_LINKED_DEVICE_LIST_LIMIT_V1,
+  type LinkedDeviceManagementListPrincipalV1,
   type LinkedDeviceManagementServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
+import { parseLinkedDeviceWalletSession } from '../../../domains/signingOperations/linkedDeviceNormalSigning';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 
@@ -68,22 +70,36 @@ async function handleList(
   const request = parseBoundary(() => parseListQuery(ctx.url.searchParams));
   const canonicalPathname = canonicalListPath(ctx.pathname, request);
   const body = await readRequestBodyDigest(ctx.request);
-  const authentication = await authenticateOwner(
-    service,
-    ctx,
-    canonicalPathname,
-    body.digestB64u,
-    nowMs,
-  );
-  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
-  validateOwnerBinding(authentication.binding, ctx.method, canonicalPathname, body.digestB64u, nowMs);
-  if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
+  const linked = await authenticateLinkedDeviceListPrincipal(ctx, request.walletId, nowMs);
+  let principal: LinkedDeviceManagementListPrincipalV1;
+  if (linked.kind === 'authorized') {
+    principal = linked.principal;
+  } else {
+    if (linked.kind === 'denied') return unauthorizedResponse();
+    const authentication = await authenticateOwner(
+      service,
+      ctx,
+      canonicalPathname,
+      body.digestB64u,
+      nowMs,
+    );
+    if (authentication.kind === 'denied') return authDeniedResponse(authentication);
+    validateOwnerBinding(
+      authentication.binding,
+      ctx.method,
+      canonicalPathname,
+      body.digestB64u,
+      nowMs,
+    );
+    if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
+    principal = authentication.owner;
+  }
   if (body.bytes.byteLength !== 0) {
     throw new DeviceManagementInputError('linked-device list request must have an empty body');
   }
   const result = await service.management.listLinkedDevicesV1(
     request,
-    authentication.owner,
+    principal,
     nowMs,
   );
   if ('kind' in result) return unauthorizedResponse();
@@ -96,6 +112,58 @@ async function handleList(
     },
     { status: 200 },
   );
+}
+
+type LinkedDeviceListAuthenticationV1 =
+  | { readonly kind: 'not_linked' }
+  | { readonly kind: 'denied' }
+  | {
+      readonly kind: 'authorized';
+      readonly principal: LinkedDeviceManagementListPrincipalV1;
+    };
+
+async function authenticateLinkedDeviceListPrincipal(
+  ctx: FetchRouterApiContext,
+  walletId: LinkedDeviceListRequestV1['walletId'],
+  nowMs: number,
+): Promise<LinkedDeviceListAuthenticationV1> {
+  const linked = await parseLinkedDeviceWalletSession({
+    session: ctx.opts.session,
+    headers: Object.fromEntries(ctx.request.headers.entries()),
+    nowMs: () => nowMs,
+  });
+  if (linked.kind !== 'linked_device') return { kind: 'not_linked' };
+  const persisted = await ctx.service.authorizationSessions.readLinkedDeviceWalletSessionAuthorization({
+    tenantId: linked.claims.tenantId,
+    deviceId: linked.claims.deviceId,
+    authorizationId: linked.claims.authorizationId,
+    walletSessionId: linked.claims.walletSessionId,
+    quotaId: linked.claims.quotaId,
+    nowMs,
+  });
+  const authorization = persisted?.authorization;
+  if (
+    !persisted ||
+    !authorization ||
+    authorization.walletId !== walletId ||
+    authorization.walletId !== linked.claims.walletId ||
+    authorization.enrollmentId !== linked.claims.enrollmentId ||
+    authorization.deviceId !== linked.claims.deviceId ||
+    authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
+    authorization.revocationEpoch !== linked.claims.revocationEpoch
+  ) {
+    return { kind: 'denied' };
+  }
+  const expiresAtMs = Math.min(
+    linked.claims.expiresAtMs,
+    authorization.expiresAtMs,
+    persisted.quota.expiresAtMs,
+  );
+  if (expiresAtMs <= nowMs) return { kind: 'denied' };
+  return {
+    kind: 'authorized',
+    principal: { walletId: authorization.walletId, expiresAtMs },
+  };
 }
 
 async function handleRevoke(

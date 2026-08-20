@@ -52,6 +52,11 @@ export type LinkedDeviceManagementOwnerV1 = Pick<
   'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs'
 >;
 
+export type LinkedDeviceManagementListPrincipalV1 = Pick<
+  LinkedDeviceManagementOwnerV1,
+  'walletId' | 'expiresAtMs'
+>;
+
 export type LinkedDeviceManagementProjectionPortV1 = {
   listLinkedDevicesV1(input: {
     readonly walletId: WalletId;
@@ -146,7 +151,7 @@ export class LinkedDeviceManagementServiceV1 {
 
   async listLinkedDevicesV1(
     request: LinkedDeviceListRequestV1,
-    owner: LinkedDeviceManagementOwnerV1,
+    owner: LinkedDeviceManagementListPrincipalV1,
     requestedAtMs: number,
   ): Promise<LinkedDeviceManagementListResultV1> {
     if (!ownerAuthorizesWalletV1(owner, request.walletId, requestedAtMs)) {
@@ -307,7 +312,7 @@ function isLinkedDeviceListCursorRecordV1(
 }
 
 function ownerAuthorizesWalletV1(
-  owner: LinkedDeviceManagementOwnerV1,
+  owner: LinkedDeviceManagementListPrincipalV1,
   walletId: WalletId,
   requestedAtMs: number,
 ): boolean {

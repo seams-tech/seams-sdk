@@ -37,8 +37,6 @@ import type {
   LinkedDeviceEmailOtpVerificationResultV1,
   LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
-  LinkedDeviceEd25519OwnerActivationV1,
-  LinkedDeviceEcdsaOwnerActivationV1,
 } from '@shared/device-linking';
 import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
@@ -61,7 +59,6 @@ import type {
 } from '@shared/signing-lanes/ids';
 import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
 import type { LaneSealedHolderRecordV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type { LoadedWalletCustodyEd25519MaterialV1 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import type {
   DeviceLinkingHolderSigningMaterialHandleV1,
@@ -69,7 +66,6 @@ import type {
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 import type {
   PasskeyCustodyEnvelopeRecord,
-  WalletCustodyEvmFamilyPublicFacts,
   WalletCustodyEnvelopeFactor,
 } from '@shared/passkey-custody';
 export type {
@@ -260,39 +256,17 @@ export type DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1 = {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly resealedCustodyEnvelope: EmailOtpCustodyEnvelopeRecordV1;
-  readonly relayServerUrl: string;
-  readonly ed25519OwnerActivation: LinkedDeviceEd25519OwnerActivationV1;
-  readonly ecdsaOwnerActivation: LinkedDeviceEcdsaOwnerActivationV1;
   readonly orderedChildren: readonly [
     DeviceLinkingPersistedHolderSigningMaterialChildV1,
     ...DeviceLinkingPersistedHolderSigningMaterialChildV1[],
   ];
 };
 
-export type LinkedDeviceEcdsaOwnerRestoreV1 =
-  | { readonly kind: 'absent' }
-  | {
-      readonly kind: 'ready';
-      readonly readyStateBlobB64u: string;
-      readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
-    };
-
-export type LinkedDeviceEd25519OwnerRestoreV1 =
-  | { readonly kind: 'absent' }
-  | {
-      readonly kind: 'ready';
-      readonly material: LoadedWalletCustodyEd25519MaterialV1;
-      readonly materialActivation: MpcMaterialActivationRef;
-    };
-
 export type DeviceLinkingEmailOtpHolderSigningMaterialBatchResultV1 = {
   readonly handles: readonly [
     DeviceLinkingHolderSigningMaterialHandleV1,
     ...DeviceLinkingHolderSigningMaterialHandleV1[],
   ];
-  readonly ed25519OwnerRestore: LinkedDeviceEd25519OwnerRestoreV1;
-  readonly ecdsaOwnerRestore: LinkedDeviceEcdsaOwnerRestoreV1;
 };
 
 export type DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1 = {

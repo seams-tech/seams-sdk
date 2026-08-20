@@ -1,9 +1,9 @@
 import {
   parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
+  parseReusableWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type WalletSessionAuthorizationId,
+  type ReusableWalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
@@ -30,13 +30,13 @@ export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
 export type WalletSessionAuthorizationToken = OpaqueWalletSessionToken;
 
 type Ed25519WalletSessionAuthorizationToken = {
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionToken: WalletSessionAuthorizationToken;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 type EcdsaWalletSessionAuthorizationToken = {
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionToken: WalletSessionAuthorizationToken;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
 };
@@ -96,7 +96,7 @@ export type WalletSessionAuthorizationProjection =
 export type WalletSessionAuthorizationCurve = 'ed25519' | 'ecdsa';
 
 function walletSessionAuthorizationCurveIdsAreDistinct(args: {
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
 }): boolean {
@@ -106,7 +106,7 @@ function walletSessionAuthorizationCurveIdsAreDistinct(args: {
 export function walletSessionAuthorizationIdForCurve(
   projection: ActiveWalletSessionAuthorizationProjection,
   curve: WalletSessionAuthorizationCurve,
-): WalletSessionAuthorizationId | null {
+): ReusableWalletSessionAuthorizationId | null {
   switch (projection.walletSessionTokens.kind) {
     case 'near_ed25519':
       return curve === 'ed25519' ? projection.walletSessionTokens.ed25519.authorizationId : null;
@@ -321,7 +321,7 @@ function parseEd25519WalletSessionAuthorizationToken(
   ) {
     return null;
   }
-  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+  const authorizationId = parseReusableWalletSessionAuthorizationId(value.authorizationId);
   const thresholdSessionId = parseThresholdEd25519SessionId(value.thresholdSessionId);
   if (!authorizationId.ok || !thresholdSessionId.ok) return null;
   try {
@@ -347,7 +347,7 @@ function parseEcdsaWalletSessionAuthorizationToken(
   ) {
     return null;
   }
-  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+  const authorizationId = parseReusableWalletSessionAuthorizationId(value.authorizationId);
   const thresholdSessionId = parseThresholdEcdsaSessionId(value.thresholdSessionId);
   if (!authorizationId.ok || !thresholdSessionId.ok) return null;
   try {

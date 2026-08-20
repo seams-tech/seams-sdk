@@ -13,7 +13,7 @@ import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
   MpcWalletSigningQuotaId,
-  WalletSessionAuthorizationId,
+  ReusableWalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
@@ -29,7 +29,7 @@ export type WalletSessionAuthorizationProjectionWriter = Pick<
 
 type WalletSessionAuthorizationCurvePersistenceInputBase = {
   readonly walletId: WalletId;
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;

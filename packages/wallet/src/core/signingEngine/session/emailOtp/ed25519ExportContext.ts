@@ -352,7 +352,10 @@ function capabilityFromActiveMaterial(args: {
       signingWorkerId: metadata.scope.signing_worker_id,
     },
     stateEpoch: Number(metadata.stateEpoch),
-    registrationContinuity: { kind: 'recovery' },
+    registrationContinuity: {
+      kind: 'recovery',
+      activationTranscript: [...metadata.transcript],
+    },
   };
 }
 
