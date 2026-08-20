@@ -17,9 +17,12 @@ pnpm add @seams/wallet
 
 ## 2. Mount the provider
 
-Configure the isolated wallet origin once near the root of your app. The
-example reads deployment values from `import.meta.env`; use the same names in
-your own environment or replace them with your config loader.
+Configure the isolated wallet origin once near the root of your app.
+`seamsTestnetConfig` takes the four values a wallet cannot start without and
+fills in the rest from the SDK defaults. The example reads them from
+`import.meta.env`; use the same names in your own environment or replace them
+with your config loader. Pass `chains` to configure different networks, or use
+`defineSeamsConfig` when you are not on testnet.
 
 <<< ./examples/setup.tsx
 
@@ -38,12 +41,20 @@ and retry guidance.
 
 ## 4. Sign a transaction
 
-Registration leaves the wallet ready to sign. Pass the wallet and account
-references to a signing method; each request opens the wallet confirmation,
-and the user approves that transaction with the wallet's auth method.
+Registration leaves the wallet ready to sign. `useWallet()` gives you the
+signed-in wallet with signing bound to it, so a call names only the
+transaction. Each request opens the wallet confirmation, and the user approves
+that transaction with the wallet's auth method.
+
+To target a wallet other than the signed-in one, use `useSeams().seams` and
+pass an exact `walletSession` on the call.
 
 - [Sign a NEAR transaction](/getting-started/sign-with-policy#near-transaction)
 - [Execute an EVM-family transaction](/getting-started/sign-with-policy#evm-family-transaction)
+
+Build actions with `functionCall`, `transfer`, and friends rather than the raw
+`{ type: ActionType.FunctionCall, … }` shape, and pass `logWalletEvents()` to
+`onEvent` when you just want progress in the console.
 
 There is no unlock step here. When your product needs repeated signatures
 without a prompt for each one, provision a signing session: read [wallet
