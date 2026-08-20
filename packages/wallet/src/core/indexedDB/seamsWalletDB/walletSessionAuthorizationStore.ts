@@ -3,9 +3,9 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
   parseThresholdEcdsaSessionId,
@@ -15,7 +15,10 @@ import {
 } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
-import { requireOpaqueWalletSessionToken, type OpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
+import {
+  requireOpaqueWalletSessionToken,
+  type OpaqueWalletSessionToken,
+} from '@shared/utils/sessionTokens';
 import {
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -30,13 +33,13 @@ export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
 export type WalletSessionAuthorizationToken = OpaqueWalletSessionToken;
 
 type Ed25519WalletSessionAuthorizationToken = {
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionToken: WalletSessionAuthorizationToken;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 type EcdsaWalletSessionAuthorizationToken = {
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionToken: WalletSessionAuthorizationToken;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
 };
@@ -96,7 +99,7 @@ export type WalletSessionAuthorizationProjection =
 export type WalletSessionAuthorizationCurve = 'ed25519' | 'ecdsa';
 
 function walletSessionAuthorizationCurveIdsAreDistinct(args: {
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
 }): boolean {
@@ -106,7 +109,7 @@ function walletSessionAuthorizationCurveIdsAreDistinct(args: {
 export function walletSessionAuthorizationIdForCurve(
   projection: ActiveWalletSessionAuthorizationProjection,
   curve: WalletSessionAuthorizationCurve,
-): WalletSessionAuthorizationId | null {
+): ReusableWalletSessionAuthorizationId | null {
   switch (projection.walletSessionTokens.kind) {
     case 'near_ed25519':
       return curve === 'ed25519' ? projection.walletSessionTokens.ed25519.authorizationId : null;

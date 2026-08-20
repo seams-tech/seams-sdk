@@ -1,7 +1,6 @@
-import {
-  thresholdEcdsaChainTargetFromRequest,
-  toWalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { resolveEvmChainTarget } from '@/SeamsWeb/publicApi/chainTargets';
+import type { CurrentWalletResolver } from '@/SeamsWeb/publicApi/currentWallet';
 import { toError } from '@shared/utils/errors';
 import type {
   EcdsaSessionBootstrapSurface,
@@ -9,6 +8,7 @@ import type {
   EvmSignerCapability,
   RegistrationSigningSurface,
   RegistrationWebContext,
+  TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
@@ -56,10 +56,26 @@ export function createEvmSignerCapability(deps: {
   configs: SeamsConfigsReadonly;
   getTheme: () => ThemeMode;
   getWalletIframe: () => WalletIframeCoordinator;
+  currentWallet: CurrentWalletResolver;
+  /**
+   * The shared EVM-family broadcast lifecycle. Tempo and EVM present it under
+   * their own namespaces; the implementation is written once.
+   */
+  evmFamily: TempoSignerCapability;
 }): EvmSignerCapability {
   return {
+    executeTransaction: async (args) => await deps.evmFamily.executeEvmFamilyTransaction(args),
+    advanced: {
+      reportBroadcastAccepted: async (args) => await deps.evmFamily.reportBroadcastAccepted(args),
+      reportBroadcastRejected: async (args) => await deps.evmFamily.reportBroadcastRejected(args),
+      reportFinalized: async (args) => await deps.evmFamily.reportFinalized(args),
+      reportDroppedOrReplaced: async (args) => await deps.evmFamily.reportDroppedOrReplaced(args),
+      reconcileNonceLane: async (args) => await deps.evmFamily.reconcileNonceLane(args),
+      bootstrapEcdsaSession: async (args) => await deps.evmFamily.bootstrapEcdsaSession(args),
+    },
     signTransaction: async (args) => {
-      const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+      const chainTarget = resolveEvmChainTarget(deps.configs.network.chains, args.chainTarget);
+      const walletSession = await deps.currentWallet.walletSession(args.walletSession);
       requireBrowserCapabilityOperation(deps.configs, {
         capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
         operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
@@ -68,7 +84,7 @@ export function createEvmSignerCapability(deps: {
       const walletIframe = deps.getWalletIframe();
       if (!walletIframe.shouldUseWalletIframe()) {
         const result = await deps.signingEngine.signEvmFamily({
-          walletSession: args.walletSession,
+          walletSession,
           request: args.request,
           chainTarget,
           confirmationConfigOverride: args.options?.confirmationConfig,
@@ -78,9 +94,9 @@ export function createEvmSignerCapability(deps: {
         return requireEvmSignedResult(result);
       }
       try {
-        const router = await walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
+        const router = await walletIframe.requireRouter(toWalletId(walletSession.walletId));
         const result = await router.signTempo({
-          walletSession: args.walletSession,
+          walletSession,
           request: args.request,
           chainTarget,
           options: {

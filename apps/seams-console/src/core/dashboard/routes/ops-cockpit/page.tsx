@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSiteRouter } from '@core/router/useSiteRouter';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
-import { CreditCardIcon, KeyRoundIcon, ScaleIcon } from '../../icons/SidebarIcons';
+import { FuelIcon, KeyRoundIcon, ScaleIcon } from '../../icons/SidebarIcons';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
   getDashboardOpsCockpitSummary,
@@ -25,7 +25,7 @@ const OPS_COCKPIT_APPROVE_REASON = 'Approved from Ops Cockpit';
 const OPS_COCKPIT_REJECT_REASON = 'Rejected from Ops Cockpit';
 
 function formatTimestamp(value: string | null | undefined): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function formatApprovalLabel(value: string | null | undefined): string {
@@ -64,13 +64,6 @@ function toSectionWarning(label: string, status: DashboardOpsCockpitSectionStatu
 
 const OVERVIEW_HERO_ACTIONS = [
   {
-    title: 'Create a policy',
-    description: 'Set signing rules and spend caps for your wallets.',
-    path: '/dashboard/policy-engine',
-    icon: ScaleIcon,
-    tone: 'green',
-  },
-  {
     title: 'Create an API key',
     description: 'Issue secret or publishable credentials for this environment.',
     path: '/dashboard/api-keys',
@@ -78,10 +71,17 @@ const OVERVIEW_HERO_ACTIONS = [
     tone: 'amber',
   },
   {
-    title: 'Top up credits',
-    description: 'Add prepaid balance for sponsored usage.',
-    path: '/dashboard/billing/account',
-    icon: CreditCardIcon,
+    title: 'Create a policy',
+    description: 'Set signing rules and spend caps for your wallets.',
+    path: '/dashboard/policy-engine',
+    icon: ScaleIcon,
+    tone: 'green',
+  },
+  {
+    title: 'Sponsor gas for your users',
+    description: 'Cover transaction fees with policies and spend caps.',
+    path: '/dashboard/gas-sponsorship',
+    icon: FuelIcon,
     tone: 'blue',
   },
 ] as const;
@@ -315,17 +315,17 @@ export function OpsCockpitPage(): React.JSX.Element {
           </div>
           <a
             className="dashboard-hero__promo"
-            href={linkProps('/dashboard/gas-sponsorship').href}
-            onClick={linkProps('/dashboard/gas-sponsorship').onClick}
+            href={linkProps('/dashboard/billing/account').href}
+            onClick={linkProps('/dashboard/billing/account').onClick}
           >
             <span className="dashboard-hero__promo-copy">
-              <span className="dashboard-hero__promo-title">Sponsor gas for your users</span>
+              <span className="dashboard-hero__promo-title">Top up credits</span>
               <span className="dashboard-hero__promo-description">
-                Cover transaction fees with policies and spend caps — no user top-ups required.
+                Add prepaid balance for sponsored usage — sponsorship stops the moment it runs out.
               </span>
             </span>
             <span className="dashboard-pagination-button dashboard-pagination-button--primary">
-              Set up sponsorship
+              Add credits
             </span>
           </a>
           <div className="dashboard-hero__status-grid">

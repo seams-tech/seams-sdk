@@ -72,7 +72,7 @@ const AUDIT_EVENTS_TABLE_COLUMNS = dashboardTableColumns(1.05, 2.1, 0.95, 1.1, 0
 const AUDIT_EVENTS_LIMIT = 100;
 
 function formatTimestamp(value: string): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function toIsoTimestamp(value: string): string | undefined {

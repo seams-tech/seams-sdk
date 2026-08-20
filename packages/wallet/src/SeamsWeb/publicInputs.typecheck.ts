@@ -196,13 +196,26 @@ void invalidNearRegistrationWithoutAuth;
 
 declare const signedNearTransaction: SignedTransaction;
 
-// @ts-expect-error Public NEAR broadcast requires wallet session and account subject.
-const invalidNearSendTransactionMissingSubject: Parameters<
-  NearSignerCapability['sendTransaction']
->[0] = {
+// Omitting the subject is valid: it resolves to the authenticated wallet.
+const nearSendTransactionWithoutSubject: Parameters<NearSignerCapability['sendTransaction']>[0] = {
   signedTransaction: signedNearTransaction,
 };
-void invalidNearSendTransactionMissingSubject;
+void nearSendTransactionWithoutSubject;
+
+// A bare wallet id is accepted: the audit subject defaults to it.
+const nearSendTransactionWithWalletId: Parameters<NearSignerCapability['sendTransaction']>[0] = {
+  signedTransaction: signedNearTransaction,
+  walletSession: 'wallet.testnet',
+};
+void nearSendTransactionWithWalletId;
+
+// A malformed subject is still rejected.
+const invalidNearSendTransactionSubject: Parameters<NearSignerCapability['sendTransaction']>[0] = {
+  signedTransaction: signedNearTransaction,
+  // @ts-expect-error walletSession must be a ref or a wallet id, not an arbitrary object.
+  walletSession: { walletSessionUserId: 'wallet.testnet' },
+};
+void invalidNearSendTransactionSubject;
 
 const validNearSendTransactionInput: Parameters<NearSignerCapability['sendTransaction']>[0] = {
   walletSession,
@@ -448,11 +461,25 @@ const invalidEcdsaExportSubjectInput: PublicKeyExportInput = {
 };
 void invalidEcdsaExportSubjectInput;
 
-// @ts-expect-error NEAR public signing requires a NearAccountRef.
+// NEAR signing accepts a bare account id, or no subject at all.
+const nearExecuteActionWithAccountId: Parameters<NearSignerCapability['executeAction']>[0] = {
+  nearAccount: 'wallet.testnet',
+  receiverId: 'contract.testnet',
+  actionArgs: [],
+};
+void nearExecuteActionWithAccountId;
+
+const nearExecuteActionWithoutSubject: Parameters<NearSignerCapability['executeAction']>[0] = {
+  receiverId: 'contract.testnet',
+  actionArgs: [],
+};
+void nearExecuteActionWithoutSubject;
+
 const invalidNearExecuteAction: Parameters<NearSignerCapability['executeAction']>[0] = {
   receiverId: 'contract.testnet',
   actionArgs: [],
-  options: {} as Parameters<NearSignerCapability['executeAction']>[0]['options'],
+  // @ts-expect-error nearAccount must be a NearAccountRef or an account id string.
+  nearAccount: { accountId: 'wallet.testnet' },
 };
 void invalidNearExecuteAction;
 

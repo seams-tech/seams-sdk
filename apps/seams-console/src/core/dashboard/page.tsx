@@ -1,6 +1,7 @@
 import React from 'react';
 import DashboardSidebar, { type SidebarProjectGroup } from './layout/DashboardSidebar';
 import DashboardTopbar from './layout/DashboardTopbar';
+import { DASHBOARD_PAGE_ACTIONS_SLOT_ID } from './components/DashboardPageActions';
 import {
   DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
@@ -1122,9 +1123,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       />
 
       <section className="dashboard-main" aria-labelledby="dashboard-main-title">
-        <h1 id="dashboard-main-title" className="dashboard-main__title">
-          {activeView.label}
-        </h1>
+        <div className="dashboard-main__header">
+          <h1 id="dashboard-main-title" className="dashboard-main__title">
+            {activeView.label}
+          </h1>
+          <div className="dashboard-main__actions" id={DASHBOARD_PAGE_ACTIONS_SLOT_ID} />
+        </div>
         {showNavigationLockBanner ? (
           <p className="dashboard-lock-banner" role="status">
             Finish organization + project setup to unlock navigation.

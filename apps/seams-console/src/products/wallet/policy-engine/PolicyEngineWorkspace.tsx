@@ -18,7 +18,13 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '@core/dashboard/components/DashboardTable';
+import { ScaleIcon } from '@core/dashboard/icons/SidebarIcons';
+import {
+  clearDashboardCreateIntent,
+  readDashboardCreateIntent,
+} from '@core/dashboard/utils/routeCreateIntent';
 import { DashboardInlineModal } from '@core/dashboard/components/DashboardInlineModal';
+import { DashboardPageActions } from '@core/dashboard/components/DashboardPageActions';
 import {
   approveDashboardApproval,
   createDashboardApproval,
@@ -59,7 +65,7 @@ type PolicyCreateMode = 'STANDARD' | 'WALLET_OVERRIDE';
 type PolicyModalKind = 'create' | 'details' | 'edit' | 'delete' | 'simulate' | 'publish';
 type PolicyStatusFilter = 'ALL' | 'DRAFT' | 'PUBLISHED';
 type PolicyImpactFilter = 'ALL' | 'USED' | 'UNUSED';
-const POLICY_TABLE_COLUMNS = dashboardTableColumns(1.2, 0.8, 1.2, 0.75, 0.85, 1.3);
+const POLICY_TABLE_COLUMNS = dashboardTableColumns(2.1, 1.15, 0.7, 0.85, 1.15);
 
 interface PolicyModalState {
   kind: PolicyModalKind;
@@ -130,7 +136,7 @@ const EMPTY_ASSIGNMENTS: Record<PolicyScopeType, DashboardConsolePolicyAssignmen
 };
 
 function formatTimestamp(value: string | null | undefined): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 /* Human labels for the raw policy action identifiers; the API values are
@@ -1018,6 +1024,18 @@ export function PolicyEnginePage(): React.JSX.Element {
     setActiveModal({ kind: 'create' });
   }, [environmentScopeId, orgScopeId, projectScopeId]);
 
+  /* Opened from the rail's "+": wait for scope and permissions to resolve, then
+     open once and drop the param so a reload does not reopen the dialog. */
+  const createIntentHandledRef = React.useRef(false);
+  React.useEffect(() => {
+    if (createIntentHandledRef.current) return;
+    if (!readDashboardCreateIntent()) return;
+    if (!canMutatePolicies) return;
+    createIntentHandledRef.current = true;
+    clearDashboardCreateIntent();
+    openCreatePolicyModal();
+  }, [canMutatePolicies, openCreatePolicyModal]);
+
   const openCreateWalletOverrideModal = React.useCallback(() => {
     setCreatingNewPolicy(true);
     setPolicyCreateMode('WALLET_OVERRIDE');
@@ -1439,16 +1457,27 @@ export function PolicyEnginePage(): React.JSX.Element {
     [assignmentsByScope],
   );
 
-  const policyContextUsage = React.useCallback(
+  const policyScopeSummary = React.useCallback(
     (policy: DashboardConsolePolicy): string => {
       const labels = policyScopeUsageLabels(policy);
+      if (labels.length === 0) return 'Draft only';
+      const summary = labels.join(', ');
+      return `${summary.charAt(0).toUpperCase()}${summary.slice(1)}`;
+    },
+    [policyScopeUsageLabels],
+  );
+
+  /* Search-only: folds the scope labels and wallet coverage into one haystack
+     so a query like "3 wallets" still matches. Not rendered. */
+  const policyContextUsage = React.useCallback(
+    (policy: DashboardConsolePolicy): string => {
       const coverageEntry = coverageByPolicyId.get(policy.id);
       const walletCoverage = coverageEntry
         ? `${coverageEntry.walletCount} wallet${coverageEntry.walletCount === 1 ? '' : 's'}`
         : '0 wallets';
-      return `${labels.length > 0 ? labels.join(', ') : 'draft or not attached'} | ${walletCoverage}`;
+      return `${policyScopeSummary(policy)} ${walletCoverage}`;
     },
-    [coverageByPolicyId, policyScopeUsageLabels],
+    [coverageByPolicyId, policyScopeSummary],
   );
   const filteredPolicies = React.useMemo(() => {
     const query = String(policyQuery || '')
@@ -1744,33 +1773,24 @@ export function PolicyEnginePage(): React.JSX.Element {
   return (
     <div className="dashboard-view" aria-label="Policy engine page">
       <section className="dashboard-policy-section--plain" aria-label="Policies table">
-        <div className="dashboard-section-toolbar">
-          <div className="dashboard-section-toolbar__copy">
-            <h2>Current Policies</h2>
-            <p className="dashboard-pagination-note">
-              A wallet-specific override wins over inherited defaults, including environment
-              policies.
-            </p>
-          </div>
-          <div className="dashboard-form-actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={openCreateWalletOverrideModal}
-              disabled={!canMutatePolicies}
-            >
-              Create wallet override
-            </button>
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--primary"
-              onClick={openCreatePolicyModal}
-              disabled={!canMutatePolicies}
-            >
-              Create policy
-            </button>
-          </div>
-        </div>
+        <DashboardPageActions>
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+            onClick={openCreateWalletOverrideModal}
+            disabled={!canMutatePolicies}
+          >
+            Create wallet override
+          </button>
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--primary"
+            onClick={openCreatePolicyModal}
+            disabled={!canMutatePolicies}
+          >
+            Create policy
+          </button>
+        </DashboardPageActions>
         {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
         {!policyEditorModalOpen && mutationErrorMessage ? (
           <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
@@ -1829,7 +1849,6 @@ export function PolicyEnginePage(): React.JSX.Element {
         >
           <DashboardTableHeader className="dashboard-policy-table__header">
             <DashboardTableHeaderCell>Policy</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Current scope</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Used by</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
@@ -1851,24 +1870,34 @@ export function PolicyEnginePage(): React.JSX.Element {
                 return (
                   <React.Fragment key={policy.id}>
                     <DashboardTableRow className="dashboard-policy-table__row">
-                      <DashboardTableCell title={policy.id}>
-                        <div className="dashboard-policy-table__policy">
-                          <strong className="dashboard-data-table__summary">
-                            {policy.name || policy.id}
-                          </strong>
-                          <code className="dashboard-policy-table__policy-id">{policy.id}</code>
+                      <DashboardTableCell
+                        title={`${policy.name || policy.id} · ${policy.id} · v${policy.version}`}
+                        className="dashboard-data-table__cell--lead"
+                      >
+                        <div className="dashboard-lead">
+                          <span className="dashboard-lead__icon" aria-hidden="true">
+                            <ScaleIcon size={16} />
+                          </span>
+                          <span className="dashboard-lead__copy">
+                            <span className="dashboard-lead__title">
+                              <span className="dashboard-data-table__summary">
+                                {policy.name || policy.id}
+                              </span>
+                              <DashboardTableBadge tone={policyStatusBadgeTone(policy.status)}>
+                                {formatPolicyStatusLabel(policy.status)}
+                              </DashboardTableBadge>
+                            </span>
+                            <span className="dashboard-lead__sub">
+                              {policy.id} · v{policy.version}
+                            </span>
+                          </span>
                         </div>
                       </DashboardTableCell>
-                      <DashboardTableCell>
-                        <DashboardTableBadge tone={policyStatusBadgeTone(policy.status)}>
-                          {formatPolicyStatusLabel(policy.status)}
-                        </DashboardTableBadge>
-                        <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
-                          v{policy.version}
-                        </span>
-                      </DashboardTableCell>
-                      <DashboardTableCell title={policyContextUsage(policy)}>
-                        {policyContextUsage(policy)}
+                      <DashboardTableCell
+                        title={policyScopeSummary(policy)}
+                        className="dashboard-data-table__cell--nowrap"
+                      >
+                        {policyScopeSummary(policy)}
                       </DashboardTableCell>
                       <DashboardTableCell>
                         {coverageEntry

@@ -114,6 +114,12 @@ export type ActiveLinkedDeviceExecutionBundleV1 = {
   readonly activatedAtMs: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
+  readonly ecdsaOwnerActivation: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['ecdsaOwnerActivation'];
+  readonly ed25519OwnerActivation: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['ed25519OwnerActivation'];
   readonly orderedExecutions: readonly [
     ActiveLinkedDeviceExecutionChildV1,
     ...ActiveLinkedDeviceExecutionChildV1[],
@@ -410,6 +416,8 @@ export async function buildActiveLinkedDeviceExecutionBundleFromEvidenceV1(input
     activatedAtMs: receipt.activatedAtMs,
     issuedAtMs: walletSession.issuedAtMs,
     expiresAtMs: walletSession.expiresAtMs,
+    ecdsaOwnerActivation: walletSession.ecdsaOwnerActivation,
+    ed25519OwnerActivation: walletSession.ed25519OwnerActivation,
     orderedExecutions: [first, ...executions.slice(1)],
   };
 }

@@ -50,6 +50,7 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
@@ -622,7 +623,7 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   nearEd25519SigningKeyId: string;
   authorityScope: Ed25519AuthorityScope;
   thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
+  authorizationId: ReusableWalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;

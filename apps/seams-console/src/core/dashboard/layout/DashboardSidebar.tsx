@@ -1,4 +1,6 @@
 import React from 'react';
+import { dashboardCreateIntentHref } from '../utils/routeCreateIntent';
+import { PlusIcon } from '../icons/SidebarIcons';
 import SeamsWordmark from '@core/components/SeamsWordmark';
 import type {
   DashboardProduct,
@@ -76,33 +78,8 @@ function useDismissablePopup(
   }, [open, rootRef, setOpen]);
 }
 
-function useTextOverflow(value: string): {
-  viewportRef: React.RefObject<HTMLSpanElement | null>;
-  textRef: React.RefObject<HTMLSpanElement | null>;
-  overflowing: boolean;
-} {
-  const viewportRef = React.useRef<HTMLSpanElement | null>(null);
-  const textRef = React.useRef<HTMLSpanElement | null>(null);
-  const [overflowing, setOverflowing] = React.useState(false);
-
-  React.useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    const text = textRef.current;
-    if (!viewport || !text) return;
-    const update = () => {
-      setOverflowing(text.getBoundingClientRect().width > viewport.clientWidth + 1);
-    };
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(update);
-    observer.observe(viewport);
-    observer.observe(text);
-    return () => observer.disconnect();
-  }, [value]);
-
-  return { viewportRef, textRef, overflowing };
-}
-
+/* The rail shows the project at rest and slides to the environment on hover,
+   so the scope is one glance away without a second permanent line. */
 function WorkspaceSwitcherLabel({
   projectLabel,
   environmentLabel,
@@ -110,21 +87,20 @@ function WorkspaceSwitcherLabel({
   projectLabel: string;
   environmentLabel: string;
 }): React.JSX.Element {
-  const { viewportRef, textRef, overflowing } = useTextOverflow(projectLabel);
   return (
     <>
       <span className="dashboard-workspace-switcher__label" aria-hidden="true">
         <span className="dashboard-workspace-switcher__ticker">
           <span
-            ref={viewportRef}
-            className={`dashboard-workspace-switcher__ticker-row dashboard-workspace-switcher__ticker-row--project${overflowing ? ' is-overflowing' : ''}`}
+            className="dashboard-workspace-switcher__ticker-row dashboard-workspace-switcher__ticker-row--project"
+            title={projectLabel}
           >
-            <span className="dashboard-workspace-switcher__marquee-track">
-              <span ref={textRef}>{projectLabel}</span>
-              {overflowing ? <span>{projectLabel}</span> : null}
-            </span>
+            {projectLabel}
           </span>
-          <span className="dashboard-workspace-switcher__ticker-row dashboard-workspace-switcher__ticker-row--environment">
+          <span
+            className="dashboard-workspace-switcher__ticker-row dashboard-workspace-switcher__ticker-row--environment"
+            title={environmentLabel}
+          >
             {environmentLabel}
           </span>
         </span>
@@ -532,6 +508,22 @@ export function DashboardSidebar({
                     </span>
                     <span className="dashboard-nav-label">{item.label}</span>
                   </a>
+                  {item.createLabel && !isDisabled ? (
+                    <button
+                      type="button"
+                      className="dashboard-nav-create"
+                      aria-label={item.createLabel}
+                      title={item.createLabel}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        linkProps(dashboardCreateIntentHref(item.path)).onClick(
+                          event as unknown as React.MouseEvent<HTMLAnchorElement>,
+                        );
+                      }}
+                    >
+                      <PlusIcon size={14} />
+                    </button>
+                  ) : null}
                 </li>
               );
             })}

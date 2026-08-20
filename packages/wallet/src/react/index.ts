@@ -29,7 +29,39 @@ export { SeamsWebProvider } from './context/SeamsWebProvider';
 
 // === RE-EXPORT CORE TYPES ===
 export { SeamsWeb } from '../SeamsWeb';
+
+// === Boundary references (exact subject + target for every wallet operation) ===
+export {
+  configuredThresholdEcdsaChainTargets,
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetFromConfig,
+  thresholdEcdsaChainTargetFromConfiguredRequest,
+  thresholdEcdsaChainTargetFromRequest,
+  thresholdEcdsaChainTargetKey,
+  thresholdEcdsaChainTargetsEqual,
+  toWalletId,
+  walletIdFromWalletProfile,
+  walletSessionRefFromSession,
+} from '../boundary/walletRefs';
+export type {
+  EcdsaCommandSubject,
+  EvmEip155ChainTarget,
+  NearAccountRef,
+  NearCommandSubject,
+  TempoChainTarget,
+  ThresholdEcdsaChainTarget,
+  WalletId,
+  WalletSessionRef,
+} from '../boundary/walletRefs';
+
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
+export {
+  defineSeamsConfig,
+  seamsTestnetConfig,
+  type DefineSeamsConfigInput,
+  type SeamsRequiredConfigInput,
+} from '../core/config/defineConfig';
 export type {
   EmailOtpAuthPolicy,
   SeamsConfigsReadonly,
@@ -54,6 +86,18 @@ export type { StoreUserDataInput } from '../core/accountData/near/nearAccountDat
 // === RE-EXPORT ACTION TYPES ===
 // Value export for enum
 export { ActionType } from '../core/types/actions';
+// Action builders + a ready-made progress logger
+export {
+  addKey,
+  createAccount,
+  deleteAccount,
+  deleteKey,
+  deployContract,
+  functionCall,
+  stake,
+  transfer,
+} from '../core/types/actionBuilders';
+export { logWalletEvents } from '../core/types/eventLogging';
 // Type exports for action shapes
 export type {
   ActionArgs,
@@ -93,6 +137,18 @@ export type {
 // === REACT HOOKS ===
 ////////////////////////////
 
+export { useWallet } from './hooks/useWallet';
+export type {
+  BoundEvmSigner,
+  BoundNearSigner,
+  BoundTempoSigner,
+  BoundWallet,
+  UseWalletResult,
+} from './hooks/useWallet';
+export { useWalletAuth } from './hooks/useWalletAuth';
+export type { UseWalletAuthResult } from './hooks/useWalletAuth';
+export { useWalletDevices } from './hooks/useWalletDevices';
+export type { UseWalletDevicesResult } from './hooks/useWalletDevices';
 export { useNearClient } from './hooks/useNearClient';
 export type { NearClient, AccessKeyList } from '../core/rpcClients/near/NearClient';
 export { useAccountInput } from './hooks/useAccountInput';

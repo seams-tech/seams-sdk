@@ -16,7 +16,7 @@ export type BillingMetric = {
 };
 
 export function formatTimestamp(value: string | null): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 export function parsePositiveInteger(value: string): number | null {

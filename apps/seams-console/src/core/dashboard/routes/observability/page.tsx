@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
+import { ActivityIcon } from '../../icons/SidebarIcons';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -11,9 +12,16 @@ import {
   DashboardTableHeaderCell,
   DashboardTableRow,
   DashboardTableState,
+  DashboardTableStatus,
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import {
+  DASHBOARD_EMPTY_VALUE,
+  dashboardStatusLabel,
+  dashboardStatusTone,
+} from '../../utils/statusTone';
+import { DashboardPageActions } from '../../components/DashboardPageActions';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -40,18 +48,11 @@ const OBSERVABILITY_WINDOW_OPTIONS: ReadonlyArray<{
   { value: '24h', label: 'Last 24 hours', durationMs: DEFAULT_OBSERVABILITY_WINDOW_MS },
   { value: '7d', label: 'Last 7 days', durationMs: 1000 * 60 * 60 * 24 * 7 },
 ];
-const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(1.1, 0.8, 0.8, 1, 1.1);
-const OBSERVABILITY_EVENTS_TABLE_COLUMNS = dashboardTableColumns(
-  0.95,
-  0.9,
-  0.6,
-  0.95,
-  1.7,
-  0.55,
-);
+const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(1.9, 0.75, 0.7, 1);
+const OBSERVABILITY_EVENTS_TABLE_COLUMNS = dashboardTableColumns(2.4, 0.75, 0.7, 0.95, 0.5);
 
 function formatTimestamp(value: string | undefined | null): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function formatPercent(value: number): string {
@@ -317,8 +318,8 @@ export function ObservabilityPage(): React.JSX.Element {
         className="dashboard-view__section dashboard-observability-section--plain"
         aria-label="Observability overview"
       >
-        <div className="dashboard-section-toolbar">
-          <h2>Overview</h2>
+        <h2 className="dashboard-visually-hidden">Overview</h2>
+        <DashboardPageActions>
           <label className="dashboard-form-field dashboard-form-field--observability-select">
             <select
               className="dashboard-input dashboard-select--observability"
@@ -333,14 +334,14 @@ export function ObservabilityPage(): React.JSX.Element {
               ))}
             </select>
           </label>
-        </div>
+        </DashboardPageActions>
         {summary ? (
           <section
             className="dashboard-observability-summary"
             aria-label="Observability summary metrics"
           >
             <article className="dashboard-observability-summary__item">
-              <p className="dashboard-observability-summary__label">error rate</p>
+              <p className="dashboard-observability-summary__label">Error rate</p>
               <p className="dashboard-observability-summary__value">
                 {formatPercent(summary.errorRate)}
               </p>
@@ -352,11 +353,11 @@ export function ObservabilityPage(): React.JSX.Element {
               </p>
             </article>
             <article className="dashboard-observability-summary__item">
-              <p className="dashboard-observability-summary__label">failing services</p>
+              <p className="dashboard-observability-summary__label">Failing services</p>
               <p className="dashboard-observability-summary__value">{summary.failingServices}</p>
             </article>
             <article className="dashboard-observability-summary__item">
-              <p className="dashboard-observability-summary__label">dead letters</p>
+              <p className="dashboard-observability-summary__label">Dead letters</p>
               <p className="dashboard-observability-summary__value">{summary.deadLetterCount}</p>
             </article>
           </section>
@@ -376,9 +377,10 @@ export function ObservabilityPage(): React.JSX.Element {
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Recent failures</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
+              Recent failures
+            </DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Latest incident</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Notes</DashboardTableHeaderCell>
           </DashboardTableHeader>
           {services.length === 0 ? (
             <DashboardTableState>
@@ -387,14 +389,31 @@ export function ObservabilityPage(): React.JSX.Element {
           ) : (
             servicesPagination.rows.map((entry) => (
               <DashboardTableRow key={entry.service}>
-                <DashboardTableCell>{entry.service}</DashboardTableCell>
-                <DashboardTableCell>{entry.status}</DashboardTableCell>
-                <DashboardTableCell>{entry.recentFailureCount}</DashboardTableCell>
-                <DashboardTableCell truncate>
-                  {formatTimestamp(entry.latestIncidentAt)}
+                <DashboardTableCell className="dashboard-data-table__cell--lead">
+                  <div className="dashboard-lead">
+                    <span className="dashboard-lead__icon" aria-hidden="true">
+                      <ActivityIcon size={16} />
+                    </span>
+                    <span className="dashboard-lead__copy">
+                      <span className="dashboard-lead__title">
+                        <span className="dashboard-data-table__summary">{entry.service}</span>
+                      </span>
+                      <span className="dashboard-lead__sub">
+                        {entry.recentFailureCount > 0
+                          ? 'Investigate recent failures'
+                          : 'No recent failures'}
+                      </span>
+                    </span>
+                  </div>
                 </DashboardTableCell>
                 <DashboardTableCell>
-                  {entry.recentFailureCount > 0 ? 'Investigate recent failures' : '-'}
+                  <DashboardTableStatus tone={dashboardStatusTone(entry.status)}>
+                    {dashboardStatusLabel(entry.status)}
+                  </DashboardTableStatus>
+                </DashboardTableCell>
+                <DashboardTableCell align="end">{entry.recentFailureCount}</DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(entry.latestIncidentAt)}
                 </DashboardTableCell>
               </DashboardTableRow>
             ))
@@ -452,11 +471,10 @@ export function ObservabilityPage(): React.JSX.Element {
           pagination={eventsPagination.pagination}
         >
           <DashboardTableHeader>
-            <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Level</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Event type</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Message</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Details</DashboardTableHeaderCell>
           </DashboardTableHeader>
           {events.length === 0 ? (
@@ -473,14 +491,31 @@ export function ObservabilityPage(): React.JSX.Element {
               return (
                 <React.Fragment key={entry.id}>
                   <DashboardTableRow>
+                    <DashboardTableCell
+                      title={`${entry.eventType} · ${entry.message}`}
+                      className="dashboard-data-table__cell--lead"
+                    >
+                      <span className="dashboard-lead__copy">
+                        <span className="dashboard-lead__title">
+                          <span className="dashboard-data-table__summary">
+                            {entry.eventType || DASHBOARD_EMPTY_VALUE}
+                          </span>
+                        </span>
+                        <span className="dashboard-lead__sub">
+                          {entry.message || DASHBOARD_EMPTY_VALUE}
+                        </span>
+                      </span>
+                    </DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableStatus tone={dashboardStatusTone(entry.level)}>
+                        {dashboardStatusLabel(entry.level)}
+                      </DashboardTableStatus>
+                    </DashboardTableCell>
+                    <DashboardTableCell className="dashboard-data-table__cell--nowrap">
+                      {entry.service || DASHBOARD_EMPTY_VALUE}
+                    </DashboardTableCell>
                     <DashboardTableCell truncate>
                       {formatTimestamp(entry.timestamp)}
-                    </DashboardTableCell>
-                    <DashboardTableCell>{entry.service || '-'}</DashboardTableCell>
-                    <DashboardTableCell>{entry.level}</DashboardTableCell>
-                    <DashboardTableCell>{entry.eventType || '-'}</DashboardTableCell>
-                    <DashboardTableCell title={entry.message}>
-                      {entry.message || '-'}
                     </DashboardTableCell>
                     <DashboardTableCell align="center">
                       <DashboardTableActionButton
@@ -497,13 +532,13 @@ export function ObservabilityPage(): React.JSX.Element {
                     <DashboardTableDetailsPanel>
                       <DashboardTableDetailsGrid>
                         <DashboardTableDetailsItem label="Component">
-                          <span>{entry.component || '-'}</span>
+                          <span>{entry.component || DASHBOARD_EMPTY_VALUE}</span>
                         </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Request ID">
-                          {entry.requestId ? <code>{entry.requestId}</code> : <span>-</span>}
+                          {entry.requestId ? <code>{entry.requestId}</code> : <span>{DASHBOARD_EMPTY_VALUE}</span>}
                         </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Trace ID">
-                          {entry.traceId ? <code>{entry.traceId}</code> : <span>-</span>}
+                          {entry.traceId ? <code>{entry.traceId}</code> : <span>{DASHBOARD_EMPTY_VALUE}</span>}
                         </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Metadata">
                           <span>{metadataSummary(entry.metadata)}</span>

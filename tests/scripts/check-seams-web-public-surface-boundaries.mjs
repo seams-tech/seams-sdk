@@ -48,6 +48,18 @@ const preferencesMethodFragments = [
   'getConfirmationConfig',
 ];
 
+// Boundary references name the exact subject and target of every wallet
+// operation, so the getting-started path needs them. They stay exported from
+// `/advanced` for existing importers, but the root must expose them too —
+// otherwise a first signing call cannot be written against `@seams/wallet`.
+const rootAlsoExportedSymbols = new Set([
+  'nearAccountRefFromAccountId',
+  'thresholdEcdsaChainTargetFromConfig',
+  'walletSessionRefFromSession',
+  'toWalletId',
+  'walletIdFromWalletProfile',
+]);
+
 const advancedSymbols = [
   'MinimalNearClient',
   'createEvmClient',
@@ -359,11 +371,16 @@ function collectAdvancedExportViolations() {
   const packageJson = readRepoJson('packages/wallet/package.json');
 
   for (const symbol of advancedSymbols) {
-    if (rootSource.includes(symbol)) {
+    if (!rootAlsoExportedSymbols.has(symbol) && rootSource.includes(symbol)) {
       violations.push(`root SDK export exposes advanced symbol ${symbol}`);
     }
     if (!advancedSource.includes(symbol)) {
       violations.push(`advanced SDK subpath missing symbol ${symbol}`);
+    }
+  }
+  for (const symbol of rootAlsoExportedSymbols) {
+    if (!rootSource.includes(symbol)) {
+      violations.push(`root SDK export missing boundary reference symbol ${symbol}`);
     }
   }
   if (!Object.prototype.hasOwnProperty.call(packageJson.exports, './advanced')) {
@@ -677,10 +694,7 @@ function collectNativeFacadeViolations() {
   if (packageJson.keywords.includes('embedded'))
     violations.push('package keyword embedded returned');
 
-  for (const relativePath of [
-    'packages/wallet/src/embedded',
-    'packages/wallet/src/embedded.ts',
-  ]) {
+  for (const relativePath of ['packages/wallet/src/embedded', 'packages/wallet/src/embedded.ts']) {
     if (fs.existsSync(absolutePath(relativePath))) {
       violations.push(`${relativePath}: TypeScript native facade returned`);
     }

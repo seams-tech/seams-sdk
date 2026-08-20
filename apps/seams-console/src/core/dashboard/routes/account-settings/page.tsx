@@ -40,7 +40,7 @@ import {
 } from './consoleAccountApi';
 
 function formatTimestamp(value: string): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function toErrorMessage(error: unknown): string {

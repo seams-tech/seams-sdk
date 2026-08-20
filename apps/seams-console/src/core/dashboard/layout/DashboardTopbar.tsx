@@ -18,6 +18,7 @@ function MoonIcon({ size, ...rest }: { size?: number } & React.SVGProps<SVGSVGEl
 }
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import SeamsLogo from '@core/components/SeamsLogo';
 import DashboardSidebarToggleIcon from '../icons/DashboardSidebarToggleIcon';
 import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';
@@ -94,7 +95,8 @@ function TopbarCommandPalette({
     [onClose, onNavigate],
   );
 
-  return (
+  if (typeof document === 'undefined') return <></>;
+  return createPortal(
     <div
       className="dashboard-command-palette-backdrop"
       role="presentation"
@@ -147,7 +149,8 @@ function TopbarCommandPalette({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -334,7 +337,7 @@ export function DashboardTopbar({
           aria-expanded={isSidebarExpanded}
           onClick={onToggleSidebar}
         >
-          <DashboardSidebarToggleIcon />
+          <DashboardSidebarToggleIcon expanded={isSidebarExpanded} />
         </button>
         <span className="dashboard-topbar__page-title">{pageTitle}</span>
       </div>

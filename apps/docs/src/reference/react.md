@@ -19,8 +19,8 @@ import { SeamsWebProvider, SeamsAuthMenu, useSeams } from '@seams/wallet/react';
 | `SeamsWebProvider`                                | Creates and owns the SDK client for a React subtree.     |
 | `SeamsContextProvider`                            | Supplies an existing context value.                      |
 | `useSeams`                                        | Reads the current SDK capabilities and lifecycle state.  |
+| `useWallet`                                       | The signed-in wallet, with signing bound to it.          |
 | `useDeviceLinking`                                | Runs the approving-device side of a link flow.           |
-| `useGoogleEmailOtpWalletAuth`                     | Coordinates the public Google and email OTP wallet flow. |
 | `useNearClient`, `useAccountInput`, `useQRCamera` | Focused integration helpers.                             |
 
 ## Components
