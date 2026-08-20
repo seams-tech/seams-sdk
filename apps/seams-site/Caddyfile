@@ -22,11 +22,16 @@ localhost {
 	redir /dashboard /dashboard/ 308
 	@console_platform path /platform/*
 	handle @console_platform {
-		rewrite * /dashboard/
+		rewrite * /dashboard-static/
 		reverse_proxy localhost:3601
 	}
-	@console_app path /dashboard/* /dashboard-static/*
-	handle @console_app {
+	@console_routes path /dashboard/*
+	handle @console_routes {
+		rewrite * /dashboard-static/
+		reverse_proxy localhost:3601
+	}
+	@console_assets path /dashboard-static/*
+	handle @console_assets {
 		reverse_proxy localhost:3601
 	}
 	handle {
