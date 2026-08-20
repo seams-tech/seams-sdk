@@ -569,15 +569,17 @@ linking rather than changing the custody root.
 
 ## Credential-Replacement Recovery Flow
 
-1. Authorize the wallet recovery request with Email OTP through the canonical
-   Refactor 90 admission boundary, then supply one unused recovery code as the
-   custody-envelope unwrap factor. The recovery code is a custody factor, not
-   an `AuthorizationGrantRef`, Wallet Session, quota, or operation identity.
-2. Reserve the recovery code and resolve its exact key manifest.
-3. Open every recovery-wrapped custody entry inside the recovery worker.
-4. Create the replacement passkey and its KEK.
-5. Run Ed25519 Yao same-root recovery for each Ed25519 root entry.
-6. Rebind and explicitly reactivate each ECDSA client-root entry while
+Refactor 114 owns the code-only hosted recovery boundary. Before Refactor 109A,
+the flow accepts only a wallet with exactly one active owner auth method, which
+must be a Passkey for the requested RP.
+
+1. Reserve one unused recovery code and resolve the server-selected source
+   Passkey plus the exact key manifest. No Email OTP, Wallet Session, existing
+   Passkey assertion, or client-selected source credential authorizes recovery.
+2. Open every recovery-wrapped custody entry inside the recovery worker.
+3. Create the replacement Passkey and its KEK.
+4. Run Ed25519 Yao same-root recovery for each Ed25519 root entry.
+5. Rebind and explicitly reactivate each ECDSA client-root entry while
    preserving the threshold public key, address, material owner, key slot,
    participants, and registered lifecycle identity. Explicit reactivation
    creates a fresh `MpcMaterialActivationId` and `MpcMaterialActivationRef`
@@ -586,16 +588,15 @@ linking rather than changing the custody root.
    threshold-session ID, `AuthorizationGrantRef`, `WalletSessionId`,
    `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, bearer credential, or
    nonce state.
-7. Seal every custody entry under the replacement passkey KEK.
-8. Verify identity continuity for the complete manifest.
-9. Apply the idempotent Gateway/worker server effects and query their exact
-   receipts. Gateway D1 consumes the reserved recovery code only after every
-   required activation receipt verifies. The browser then atomically finalizes
-   the replacement envelope set, prior-credential tombstone, and local
-   lifecycle facts in IndexedDB. Router remains a stateless forwarding
-   boundary; the server and browser commits converge by exact correlation and
-   do not pretend to be one transaction.
-10. Zeroize all opened recovery material.
+6. Seal every custody entry under the replacement Passkey KEK and verify
+   identity continuity for the complete manifest.
+7. After every required activation receipt verifies, atomically install the
+   replacement authenticator, auth method, binding, and envelope; consume the
+   code; revoke the source auth method and its Wallet Sessions; retire the
+   source envelope; and delete the recovery challenge.
+8. Restore local continuity against the replacement Passkey authority, then use
+   normal Passkey login to create a fresh Wallet Session.
+9. Zeroize all opened recovery material.
 
 Recovery never creates a new wallet key, key-creation signer slot, registered
 Ed25519 public key, EVM address, or EVM-family key slot.
