@@ -169,6 +169,19 @@ type AuthMenuRecoveryState =
       readonly operation?: never;
     };
 
+function isIrreversibleRecoveryState(state: AuthMenuSessionState): state is Extract<
+  AuthMenuRecoveryState,
+  { readonly stage: 'finalizing' }
+> & {
+  readonly operation: HostedRecoveryCredentialCreated;
+} {
+  return (
+    state.kind === 'recovery' &&
+    state.stage === 'finalizing' &&
+    state.operation.kind === 'hosted_recovery_credential_created'
+  );
+}
+
 export type AuthMenuSessionState =
   | AuthMenuReturnState
   | AuthMenuRecoveryState
@@ -716,6 +729,15 @@ export class AuthMenuSession {
   }
 
   cancel(reason: 'close_button' | 'component_unmounted' | 'connection_closed'): void {
+    if (isIrreversibleRecoveryState(this.stateValue)) {
+      if (reason === 'close_button') return;
+      this.complete({
+        kind: 'cancelled',
+        authMenuSessionId: this.identity.authMenuSessionId,
+        reason,
+      });
+      return;
+    }
     if (this.stateValue.kind === 'link_device') {
       console.error('[Device2Linking] auth menu cancelled', { reason });
     }
@@ -849,6 +871,7 @@ export class AuthMenuSession {
     if (preparedLogin) cancelHostedPasskeyMenuPreparation(preparedLogin);
     const state = this.stateValue;
     if (state.kind !== 'recovery' || !state.operation) return;
+    if (isIrreversibleRecoveryState(state)) return;
     void this.recoveryPort.cancel(state.operation).catch(() => {});
   }
 
@@ -1342,6 +1365,7 @@ export class AuthMenuSession {
 
   private back(): void {
     if (this.stateValue.kind === 'recovery') {
+      if (this.stateValue.stage === 'finalizing') return;
       this.closeRecovery();
       return;
     }

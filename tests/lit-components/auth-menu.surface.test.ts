@@ -86,6 +86,18 @@ function recoveryEntryViewModel(
   };
 }
 
+function recoveryFinalizingViewModel(): Extract<
+  AuthMenuRecoveryViewModel,
+  { readonly stage: 'finalizing' }
+> {
+  return {
+    ...recoveryEntryViewModel({ walletId: 'wallet-1.test' }),
+    stage: 'finalizing',
+    recoveryCode: '',
+    status: { kind: 'busy', headline: 'Finishing recovery…' },
+  };
+}
+
 async function mountAuthMenu(page: Page, viewModel: unknown) {
   await mountComponent(page, {
     tagName: AUTH_MENU_TAG,
@@ -268,6 +280,28 @@ test.describe('wallet-host Lit auth menu surface', () => {
       }));
     expect(reflow.clientWidth).toBeGreaterThanOrEqual(318);
     expect(reflow.scrollWidth).toBeLessThanOrEqual(reflow.clientWidth);
+  });
+
+  test('locks Back and Escape while recovery finalization is irreversible', async ({ page }) => {
+    await mountAuthMenu(page, recoveryFinalizingViewModel());
+    await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement & { intents?: unknown[] };
+      element.intents = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        element.intents?.push((event as CustomEvent<unknown>).detail);
+      });
+    }, AUTH_MENU_TAG);
+
+    await expect(page.locator(`${AUTH_MENU_TAG} [data-auth-menu-close]`)).toBeDisabled();
+    await page.keyboard.press('Escape');
+
+    expect(
+      await page.evaluate(
+        (tagName) =>
+          (document.querySelector(tagName) as HTMLElement & { intents?: unknown[] }).intents,
+        AUTH_MENU_TAG,
+      ),
+    ).toEqual([]);
   });
 
   test('renders the device-link QR menu and returns through the Back control', async ({ page }) => {
