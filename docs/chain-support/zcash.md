@@ -1,0 +1,353 @@
+# Zcash shielded threshold signer support (deferred)
+
+**Status:** Future design only. Zcash support is unimplemented and deferred. This
+document records the intended boundaries for a private, shielded threshold
+wallet; it does not make Zcash a supported chain or authorize partial
+production integration.
+
+## Decision summary
+
+Zcash will be a protocol-specific signing family. It must not be represented as
+an EVM-family target, a NEAR Ed25519 lane, or a Router A/B ECDSA lane. The first
+cryptographic slice is Orchard, with the data model and transaction boundary
+ready for the Ironwood pool introduced by NU6.3.
+
+The spend-authorizing key will use ZIP-312 re-randomized FROST with the Pallas
+ciphersuite and RedPallas-compatible signatures. Note proving, viewing, note
+selection, and chain scanning stay local to the wallet worker. The remote
+threshold participant receives only the authenticated signing context required
+by the protocol. The PCZT is an internal handoff between local wallet roles,
+not a relayer API payload.
+
+An Orchard-only mainnet release is not sufficient after NU6.3. A production
+profile must understand Orchard-to-Ironwood migration and must not create
+ordinary Orchard sends after the network rule disables them. Orchard-first
+means that Orchard key and proving support is built first; it does not waive
+Ironwood readiness for mainnet.
+
+## Current repository boundary
+
+The current SDK has no Zcash chain network, chain family, public API, Orchard
+prover, lightwalletd client, PCZT codec, Pallas implementation, or Zcash route.
+The configured networks and families are currently NEAR, Tempo, and EVM in
+`packages/wallet/src/core/config/chains.ts` and
+`packages/wallet/src/core/types/seams.ts`. The shared chain-target type in
+`packages/shared-ts/src/signing-lanes/ids.ts` is deliberately limited to EVM
+and Tempo targets.
+
+Existing architecture supplies useful patterns, not an implementation:
+
+- `docs/signing-session-architecture/README.md` selects one exact lane before
+  restore, authorization, budget, and signing. A future Zcash lane must follow
+  that rule and include pool/protocol, account, key manifest, threshold
+  session, wallet session, quota, and material activation.
+- `docs/signing-session-architecture/sealed-refresh.md` makes worker memory
+  hot-only and treats wallet-origin IndexedDB as the durable restore source.
+  Zcash viewing keys, FROST shares, and proving state need a protocol-specific
+  sealed record; they must not be added to ECDSA records or stored in plaintext.
+- `docs/router-ab/protocol.md` defines the current split-custody and Router
+  boundaries. Its ECDSA and Ed25519 protocols cannot sign RedPallas. A future
+  Zcash participant may reuse admission, authenticated transport, and
+  observability discipline while introducing a separate protocol route and
+  worker.
+- `crates/signer-core/src/near_threshold_frost.rs` and
+  `wasm/evm_crypto/src/lib.rs` demonstrate existing cryptographic boundary
+  styles, but contain no Pallas or Zcash code.
+- `crates/signer-core/src/wallet_recovery_custody.rs` protects the wallet
+  custody seed and intentionally excludes lane-holder shares. Zcash FROST
+  shares are distinct protocol material and require their own manifest entry.
+  Remote lane-holder shares stay outside recovery sets; recovery of the client
+  participant share needs the explicit ceremony described below.
+
+Until the phases below are completed, callers must receive a typed unsupported
+chain/protocol result. No compatibility flag, placeholder chain target, or
+fallback to ECDSA is allowed.
+
+## Protocol shape
+
+### Orchard first, Ironwood ready
+
+The first implementation profile is Orchard key derivation, Orchard note
+scanning, Orchard proving, and Orchard PCZT actions. The protocol union must be
+versioned from its first wire format so that it can represent both:
+
+```text
+OrchardBundle  { Orchard actions, Orchard anchor, Orchard note version }
+IronwoodBundle { Ironwood actions, Ironwood anchor, V3 note version }
+```
+
+PCZT v2 already defines an Ironwood bundle slot and a distinct Ironwood note
+commitment tree. The parser must reject an unknown PCZT version and must never
+reinterpret an Ironwood bundle as Orchard data. `use_qsk` is an account-wide
+key-generation choice; it cannot vary between keys in one ZIP-32 account.
+
+The mainnet send policy is explicit:
+
+1. Before any pool-crossing spend, show the user that the amount crossing from
+   Orchard to Ironwood is publicly observable and obtain consent.
+2. Use the privacy-preserving migration procedure from ZIP 318, including
+   canonical denominations, scheduling, and a residual Orchard value where
+   required by that procedure.
+3. After NU6.3, do not send to external Orchard receivers. New payments and
+   migration destinations use Ironwood receivers according to the active
+   network rules.
+
+### ZIP-312 threshold authorization
+
+The threshold key is the Orchard spend authorization key `ask`. It is split or
+generated by a reviewed FROST DKG, with an aggregate validating key `ak` in the
+public key manifest. Each signing run is:
+
+1. A local coordinator creates a PCZT, fixes inputs/outputs and the anchor, and
+   computes the transaction digest.
+2. Local participants create FROST commitments and keep their nonces in the
+   worker only.
+3. The coordinator derives a fresh randomizer from new secret entropy, the
+   signing message, and the commitment list sorted by participant identifier,
+   as required by ZIP 312. It sends the randomizer with the authenticated
+   signing context over a confidential channel.
+4. Each participant signs with its share plus the randomizer. The aggregate
+   signature is verified as a RedPallas Orchard spend authorization signature
+   against the randomized group key.
+5. The local prover uses the same randomizer as the private auxiliary input
+   for the zero-knowledge proof. The PCZT combiner and transaction extractor
+   reject a signature or proof whose digest, anchor, bundle, or randomizer
+   does not match.
+
+The remote participant must verify the supplied transaction context or compute
+the digest itself before producing a share. A bare digest is insufficient for
+human or policy authorization, as noted by ZIP 312. The precise context
+encoding is a separate protocol specification and must be canonical,
+versioned, authenticated, and bounded before implementation.
+
+### PCZT boundary
+
+PCZT is the local structured transaction boundary between Creator, Constructor,
+IO Finalizer, Updater, Prover, Signer, Combiner, and Extractor. A PCZT can hold
+note randomness, value-commitment openings, full viewing keys, derivation
+paths, witnesses, and other sensitive fields. It must therefore remain inside
+the local wallet worker or an explicitly authorized local/native process.
+
+The remote signing request carries a minimal, typed projection: protocol and
+PCZT version, wallet/key manifest binding, transaction digest, bundle and
+anchor commitments, FROST participant identifiers, commitments, the ZIP-312
+randomizer, and an authenticated policy scope. It must not carry full viewing keys,
+note plaintexts, note randomness, Merkle witnesses, proving keys, or raw PCZT
+blobs. Logs and diagnostics receive digests and state labels only.
+
+## Local viewing, sync, and proving
+
+The browser or native wallet owns the privacy-sensitive data path:
+
+- A lightwalletd-compatible or user-operated node connection supplies compact
+  blocks, transactions, tree state, and witnesses. The endpoint is untrusted
+  for consensus data; headers, anchors, and transaction commitments are
+  checked locally against trusted checkpoints.
+- The local worker derives Orchard receivers and incoming/full viewing keys,
+  trial-decrypts note ciphertexts, maintains note metadata and witnesses, and
+  selects notes. Viewing keys and decrypted notes never cross the relayer
+  boundary.
+- The local prover generates Orchard proofs and binding data. Proof generation
+  may run in a dedicated Rust/WASM worker or native helper, but it must not be
+  moved to a hosted service as a prerequisite for signing.
+- Durable state is encrypted and keyed by the exact wallet, account, protocol,
+  key manifest, network, and material activation. A page reload restores
+  capability through the existing sealed-material pattern; it never restores
+  plaintext FROST nonces or a reusable authorization token.
+
+Network privacy is separate from cryptographic threshold privacy. A public
+lightwalletd endpoint can observe wallet queries, timing, and IP metadata. The
+initial design supports a user-controlled endpoint and a separately evaluated
+privacy transport (for example, a Tor-capable deployment); it does not claim
+that ZIP-312 alone hides network metadata.
+
+## Privacy threat model
+
+The initial security claim is correctness-with-abort and threshold spend
+authorization. It is not a claim that every participant is blind to the
+transaction. ZIP 312 explicitly trusts the coordinator and share holders with
+transaction privacy and unlinkability, so the application must state those
+limits:
+
+| Observer or compromise | Permitted view | Required protection |
+| --- | --- | --- |
+| Browser/native wallet compromise | Local viewing state, PCZT contents, proofs, and the client FROST share | Keep the remote share separate; zeroize nonces; encrypt durable state; treat the device as the user's privacy boundary. |
+| Remote FROST share holder | The authenticated transaction authorization context needed to verify the SIGHASH, commitments, and policy | It cannot sign alone; transport is confidential and authenticated; transaction-linkability is an explicit residual risk. |
+| Coordinator or Router | Request metadata, typed digests, commitments, ciphertexts, and timing | No raw viewing keys, note plaintexts, witnesses, proving keys, or unredacted PCZTs in routes, logs, or diagnostics. |
+| Lightwalletd or public node | Queries, timing, IP metadata, and public chain data | Support a user-operated endpoint and separately audited privacy transport; do not attribute network privacy to FROST. |
+| Fewer-than-threshold participants | Their own shares and protocol transcript | Verifiable share checks, participant binding, epoch checks, and no share reconstruction. |
+| Threshold collusion or device plus enough remote shares | Ability to authorize spends | This is outside the threshold claim and requires operational custody controls, revocation, and recovery rotation. |
+| Chain observer | Shielded ciphertexts, nullifiers, commitments, fees, memos, and pool-crossing amounts | Use canonical transaction shapes and ZIP 318 migration policy; disclose unavoidable public information before consented migration. |
+
+The remote signing boundary must choose one reviewed authorization design before
+implementation: provide the share holder with the minimum transaction view from
+which it can recompute the SIGHASH, or provide a verifiable client attestation
+that binds a policy-approved intent to the digest. A bare digest is insufficient
+for policy review. If the minimum view contains sensitive transaction details,
+the design must treat those details as visible to the remote share holder and
+must not make a stronger privacy claim.
+
+## Custody, DKG, and recovery
+
+ZIP 312 leaves key generation out of scope and permits an `ask` generated by
+DKG rather than derived from a spending seed. The design therefore does not
+pretend that the existing wallet custody seed can deterministically recreate a
+Zcash FROST key. The custody seed authenticates the wallet ceremony and key
+manifest; it is not itself an Orchard spend key and it is never used as a
+Pallas scalar without an explicit, reviewed derivation specification.
+
+This DKG key set is protocol material, not a value named `root`. The client
+participant share is recoverable only through its encrypted, seed-bound
+recovery record. Remote lane-holder shares remain independently provisioned and
+never enter a recovery set. Recovery must combine the restored client share
+with authenticated remote resharing while preserving the aggregate `ak`.
+
+The future Zcash manifest must bind at least:
+
+```text
+wallet + account + network + protocol/pool + PCZT profile
+FROST ciphersuite + threshold + participant identifiers + DKG transcript
+Orchard validating key ak + viewing-key derivation profile + use_qsk
+material activation + recovery/resharing epoch
+```
+
+DKG must provide verifiable secret sharing, identifiable aborts, transcript
+binding, participant authentication, nonce/session uniqueness, and public-key
+agreement. The Router and persistence layers may hold public commitments and
+opaque ciphertexts; no single role may obtain enough shares to reconstruct
+`ask`.
+
+Recovery is a ceremony, not a normal unlock. It must either:
+
+- re-establish the same `ak` through an encrypted client-share recovery record
+  plus a fresh threshold resharing ceremony; or
+- explicitly rotate to a new `ak`, with user consent, a new manifest, and an
+  application-level migration plan for funds.
+
+Silent key replacement is forbidden. A recovery code may authorize opening the
+wallet recovery envelope, but it must not disclose server shares or convert
+`WalletCustodySeedFromSealedEnvelopeV1` into
+`VerifiedWalletKeyManifestDigestV1`. Those proofs have different meanings in
+the current custody model.
+
+## Explicit exclusions for the initial slice
+
+The first supported Zcash slice excludes:
+
+- transparent inputs, transparent outputs, t-address accounts, transparent
+  multisig, and PSBT; the PCZT transparent bundle remains absent;
+- Sapling spend authorization, Sapling proving, and automatic Sapling
+  migration. ZIP-312 has a Jubjub/Sapling ciphersuite, but adding it would
+  expand the key, proving, and audit surface before Orchard is complete;
+- Sprout, shielded coinbase handling, Zcash Shielded Assets, and arbitrary
+  Zcash forks;
+- server-side viewing, hosted proving, raw-PCZT uploads, seed-phrase recovery
+  of a DKG-generated `ask`, and any privacy claim against a cooperating remote
+  share holder or public lightwalletd endpoint;
+- reuse of EVM-family ECDSA routes, NEAR Ed25519 signing, or generic chain
+  selectors that erase the pool and PCZT protocol distinction.
+
+These exclusions are product boundaries, not compatibility obligations. A later
+Sapling phase must add its own lane and ciphersuite deliberately.
+
+## Integration points
+
+Implementation work should add a narrow, protocol-specific path at these
+boundaries:
+
+| Boundary | Future integration | Rule |
+| --- | --- | --- |
+| Public config | `zcash-mainnet`/testnet profile and exact network identity | Add only with a working protocol adapter; no placeholder network entry. |
+| Signing lane | `ZcashShieldedLane` with pool, account, `ak`, FROST epoch, session, quota, and material activation | Select exactly once before restore/auth/budget/signing. |
+| Browser/native worker | Orchard key, viewing/sync, PCZT, proving, and ZIP-312 FROST client | Keep secrets and nonces out of TypeScript and server logs. |
+| Persistence | Encrypted note/viewing state and sealed FROST material keyed by exact activation | No plaintext notes, viewing keys, nonces, or reusable auth tokens. |
+| Router/relayer | Separate authenticated Zcash coordinator/signing routes | Reuse admission and transport discipline; do not route through ECDSA. |
+| Recovery | Zcash manifest entry plus DKG resharing/recovery ceremony | Verify the same `ak` or require an explicit rotation. |
+| Public API | Explicit shielded send/receive/sync/export surfaces | Never expose a generic `sign(bytes)` escape hatch for PCZT or RedPallas. |
+
+## Delivery phases
+
+1. **Protocol freeze and research.** Pin the accepted ZIP 312 revision,
+   PCZT versions, NU6.3/Ironwood profile, Rust dependencies, and reference
+   implementations. Produce a threat model and an end-to-end test vector plan.
+   No user-facing support.
+2. **Local Orchard vertical.** Implement key/viewing derivation, encrypted
+   local sync, note selection, PCZT v1/v2 parsing, Orchard proving, and local
+   extraction against a test network. Transparent and Sapling remain rejected.
+3. **Threshold authorization.** Implement DKG, FROST commitments and
+   re-randomization, RedPallas verification, authenticated context checks, and
+   role-separated signing workers. Keep the coordinator and remote share-holder
+   privacy limitations explicit.
+4. **Wallet lifecycle.** Add the exact lane, auth and budget admission, sealed
+   refresh, encrypted persistence, device/recovery ceremonies, and browser
+   reload evidence. Add no fallback to ECDSA or existing Ed25519 paths.
+5. **Ironwood readiness and release gate.** Implement PCZT v2 Ironwood bundles,
+   `use_qsk` account policy, ZIP 318 migration scheduling and consent, NU6.3
+   send routing, and migration recovery. Mainnet support remains deferred until
+   this phase and the audit gate pass.
+
+## Risks and audit gate
+
+The high-risk areas are the draft status and revision drift of ZIP 312, exact
+RedPallas byte compatibility, randomizer reuse or nonce loss, DKG/resharing
+failure, proof/signature/PCZT binding, browser memory and persistence leakage,
+lightwalletd metadata, and Orchard-to-Ironwood correlation during migration.
+The Zcash Foundation [`reddsa`](https://github.com/ZcashFoundation/reddsa)
+crate labels its ZIP-312 feature experimental, and the
+[published FROST audit scope](https://github.com/ZcashFoundation/frost#ncc-audit)
+excluded re-randomized FROST. Dependency availability therefore does not
+satisfy this design's audit gate.
+
+No mainnet launch is permitted until independent review has covered:
+
+- the Pallas ciphersuite, ZIP-312 randomizer, share verification, aggregate
+  verification, and constant-time implementation;
+- DKG, participant authentication, transcript binding, epoch rotation,
+  identifiable abort, and recovery/resharing without `ask` reconstruction;
+- Orchard and Ironwood key derivation, note decryption, anchors, proofs,
+  PCZT parsing/extraction, and v6 transaction encoding;
+- local/server data-flow, browser persistence, logs, observability, and network
+  privacy claims;
+- ZIP 318 migration amount/timing policy, user consent, retry/idempotency, and
+  recovery after interrupted schedules.
+
+## Acceptance evidence
+
+The feature remains deferred until the repository can produce all of the
+following evidence, with generated vectors checked into the owning Rust/TS
+test suites rather than hand-edited fixtures:
+
+1. Differential vectors show that local RedPallas signatures verify against a
+   Zcash reference implementation for Orchard and that randomized public keys,
+   signature shares, and aggregates reject malformed, stale, reordered, and
+   replayed inputs.
+2. A 2-of-3 (or selected production threshold) DKG test proves public-key
+   agreement, no single participant can sign, nonce reuse fails closed, and a
+   resharing recovery restores the exact `ak` without exposing `ask`.
+3. A browser/native test runs sync → decrypt → note selection → PCZT → local
+   proof → remote threshold signing → combine → extract → testnet acceptance.
+   The extracted transaction and proof must bind to the same anchor, pool,
+   digest, and randomizer.
+4. Type and route tests reject Zcash data at EVM/NEAR boundaries, reject full
+   PCZT uploads and transparent/Sapling inputs, and prove exact-lane restore
+   cannot cross accounts, networks, pools, key manifests, or material epochs.
+5. Storage and log inspection proves that viewing keys, note plaintexts,
+   witnesses, proving keys, FROST nonces, raw PCZTs, and reusable authorization
+   tokens do not leave the local secret boundary.
+6. Reload, device-link, expiry, budget exhaustion, interrupted DKG, interrupted
+   migration, and recovery tests show typed failure and safe retry behavior.
+7. NU6.3/Ironwood evidence proves PCZT v2 handling, `use_qsk` consistency,
+   migration consent and scheduling, no post-activation ordinary Orchard send,
+   and final transaction acceptance on the target network.
+
+Until these artifacts exist, documentation and architecture review are the
+only supported Zcash operating path.
+
+## References
+
+- [ZIP 312: FROST for Spend Authorization Multisignatures](https://zips.z.cash/zip-0312)
+- [ZIP 318: Orchard to Ironwood Migration](https://zips.z.cash/zip-0318)
+- [ZIP 326: NU6.3 Consequences for Wallets](https://zips.z.cash/zip-0326)
+- [ZIP 374: Partially Created Zcash Transaction Format](https://zips.z.cash/zip-0374)
+- [ZIP 2005: Ironwood Quantum Recoverability](https://zips.z.cash/zip-2005)
+- [ZIP 229: Version 6 Transaction Format](https://zips.z.cash/zip-0229)
