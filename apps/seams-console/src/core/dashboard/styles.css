@@ -1668,20 +1668,20 @@ textarea {
   margin: 0;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--dashboard-active-border) 55%, #ebe8e4 45%);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--dashboard-active) 84%, #f5f3f1 16%);
+  border-radius: var(--dashboard-radius-lg);
+  background: var(--dashboard-alpha-50);
   color: var(--dashboard-ink);
-  font-size: 0.92rem;
+  font-size: 0.875rem;
 }
 
 .dashboard-info-banner {
   margin: 0;
   border: 1px solid var(--dashboard-border);
-  border-radius: 12px;
+  border-radius: var(--dashboard-radius-xl);
   padding: 14px 16px;
-  background: color-mix(in srgb, var(--dashboard-surface) 92%, #f5f3f1 8%);
+  background: var(--dashboard-alpha-50);
   color: var(--dashboard-ink);
-  font-size: 0.98rem;
+  font-size: 0.875rem;
   line-height: 1.45;
 }
 
@@ -1694,8 +1694,8 @@ textarea {
 
 .dashboard-warning-banner {
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--dashboard-warning) 55%, var(--dashboard-border) 45%);
-  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-warning) 26%, transparent);
+  border-radius: var(--dashboard-radius-xl);
   padding: 12px 14px;
   background: color-mix(in srgb, var(--dashboard-warning-soft) 86%, var(--dashboard-surface) 14%);
   color: color-mix(in srgb, var(--dashboard-warning) 88%, var(--dashboard-ink) 12%);
@@ -1707,9 +1707,9 @@ textarea {
 
 .dashboard-warning-banner p {
   margin: 0;
-  font-size: 0.98rem;
-  font-weight: 650;
-  line-height: 1.4;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .dashboard-warning-banner__dismiss {
