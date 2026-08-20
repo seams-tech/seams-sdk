@@ -87,6 +87,7 @@ import {
   deleteWalletCustodyEd25519MaterialV1,
   loadWalletCustodyEd25519MaterialV1,
   persistWalletCustodyEd25519MaterialV1,
+  WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
   type LoadedWalletCustodyEd25519MaterialV1,
   type WalletCustodyEd25519MaterialBindingV1,
   type WalletCustodySealedEd25519MaterialV1,
@@ -229,6 +230,7 @@ import { walletAuthMethodRecordId } from '@shared/utils/registrationIntent';
 import {
   mpcMaterialActivationRefsEqual,
   parseProviderSubject,
+  parseThresholdEd25519SessionId,
   parseWalletId,
   type MpcMaterialActivationRef,
   type ProviderSubject,
@@ -432,7 +434,10 @@ import type {
 import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
-import { deriveEvmFamilySigningKeySlotId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  deriveEvmFamilySigningKeySlotId,
+  toRpId,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type {
   PasskeyCustodyEnvelopeRecord,
   WalletCustodyEvmFamilyPublicFacts,
@@ -2888,6 +2893,119 @@ export class BrowserSigningSurface {
     this.applyAuthenticatedWalletState(state);
   }
 
+  private async persistLinkedDeviceEd25519OwnerRestoreV1(input: {
+    readonly session: LinkedDeviceWarmSigningSessionV1;
+    readonly material: LoadedWalletCustodyEd25519MaterialV1;
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly auth: SigningLaneAuthBinding;
+  }): Promise<void> {
+    const projection = input.session.bundle.ed25519OwnerActivation;
+    if (projection.kind === 'absent') {
+      throw new Error('linked-device Ed25519 owner restore has no admitted signer');
+    }
+    const binding = input.material.binding;
+    if (
+      binding.kind !== WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND ||
+      binding.walletId !== String(input.session.walletId) ||
+      binding.nearAccountId !== String(projection.nearAccountId) ||
+      binding.nearEd25519SigningKeyId !== String(projection.nearEd25519SigningKeyId) ||
+      binding.signerSlot !== projection.signerSlot ||
+      binding.signingWorkerId !== projection.signingWorkerId
+    ) {
+      throw new Error('linked-device Ed25519 owner restore changed its canonical identity');
+    }
+    const thresholdSessionId = parseThresholdEd25519SessionId(projection.thresholdSessionId);
+    if (!thresholdSessionId.ok) {
+      throw new Error('linked-device Ed25519 owner restore has an invalid threshold session');
+    }
+    await this.persistWalletCustodyEd25519Material(input.material);
+    const laneBase = {
+      walletId: toWalletId(String(input.session.walletId)),
+      nearAccountId: toAccountId(String(projection.nearAccountId)),
+      thresholdSessionId: thresholdSessionId.value,
+      runtimePolicyScope: projection.runtimePolicyScope,
+      materialActivation: input.materialActivation,
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+        projection.nearEd25519SigningKeyId,
+      ),
+      signerSlot: projection.signerSlot,
+    };
+    const reference: Ed25519YaoPublicCapabilityLaneReferenceV1 =
+      input.auth.kind === WALLET_AUTH_METHODS.emailOtp
+        ? {
+            ...laneBase,
+            auth: input.auth,
+            remainingUses: input.session.bundle.remainingUses,
+            expiresAtMs: input.session.bundle.expiresAtMs,
+          }
+        : { ...laneBase, auth: input.auth };
+    await this.upsertEd25519YaoPublicCapabilityLaneReference(reference);
+  }
+
+  private async activateLinkedDevicePasskeyEd25519OwnerV1(input: {
+    readonly session: LinkedDeviceWarmSigningSessionV1;
+    readonly activation: Extract<
+      LinkedDeviceSigningSessionActivationV1,
+      { readonly kind: 'target_passkey_creation' }
+    >;
+  }): Promise<void> {
+    const projection = input.session.bundle.ed25519OwnerActivation;
+    if (projection.kind === 'absent') return;
+    if (input.activation.resealedCustodyEnvelope.factor.kind !== 'passkey') {
+      throw new Error('linked-device passkey Ed25519 activation requires a passkey envelope');
+    }
+    const custodyWire = joinCustodyWireFromEnvelopeRecord(input.activation.resealedCustodyEnvelope);
+    if (!custodyWire.ok) throw new Error(custodyWire.reason);
+    const factorSecret = input.activation.factorSecret.slice();
+    try {
+      const rejoined = await this.rejoinWalletCustodyNearEd25519KeySet({
+        walletId: String(input.session.walletId),
+        custodyJson: custodyWire.custodyJson,
+        factorSecret: factorSecret.buffer,
+        nearEd25519SigningKeyId: projection.nearEd25519SigningKeyId,
+        recoveryBasis: projection.recoveryBasis,
+        routerOrigin: new URL(String(this.seamsWebConfigs.network.relayer?.url || '')).origin,
+        walletSessionToken: projection.walletSessionToken,
+      });
+      const registration = input.session.bundle.targetCredentialRegistration;
+      if (registration.targetFactor.kind !== 'passkey_prf' || !registration.webauthnRegistration) {
+        throw new Error('linked-device passkey activation has no registered credential');
+      }
+      await this.persistLinkedDeviceEd25519OwnerRestoreV1({
+        session: input.session,
+        material: {
+          binding: {
+            kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+            applicationBindingDigestB64u: rejoined.localMaterial.applicationBindingDigestB64u,
+            registeredPublicKeyB64u: base64UrlEncode(rejoined.metadata.registeredPublicKey),
+            participantIds: rejoined.metadata.participantIds,
+            stateEpoch: String(rejoined.metadata.stateEpoch),
+            walletId: String(input.session.walletId),
+            nearAccountId: projection.nearAccountId,
+            nearEd25519SigningKeyId: projection.nearEd25519SigningKeyId,
+            signerSlot: projection.signerSlot,
+            signingWorkerId: projection.signingWorkerId,
+            signingWorkerVerifyingShareB64u: base64UrlEncode(
+              rejoined.metadata.signingWorkerVerifyingShare,
+            ),
+          },
+          sealed: {
+            ciphertextB64u: rejoined.localMaterial.b64u,
+            nonceB64u: rejoined.localMaterial.nonceB64u,
+          },
+        },
+        materialActivation: rejoined.metadata.materialActivation,
+        auth: {
+          kind: WALLET_AUTH_METHODS.passkey,
+          rpId: toRpId(input.activation.resealedCustodyEnvelope.factor.rpId),
+          credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
+        },
+      });
+    } finally {
+      factorSecret.fill(0);
+    }
+  }
+
   private async activateLinkedDevicePasskeyEcdsaOwnerV1(input: {
     readonly session: LinkedDeviceWarmSigningSessionV1;
     readonly activation: Extract<
@@ -2898,9 +3016,7 @@ export class BrowserSigningSurface {
     const projection = input.session.bundle.ecdsaOwnerActivation;
     if (projection.kind === 'absent') return;
     const first = projection.signers[0];
-    const custodyWire = joinCustodyWireFromEnvelopeRecord(
-      input.activation.resealedCustodyEnvelope,
-    );
+    const custodyWire = joinCustodyWireFromEnvelopeRecord(input.activation.resealedCustodyEnvelope);
     if (!custodyWire.ok) throw new Error(custodyWire.reason);
     const factorSecret = input.activation.factorSecret.slice();
     try {
@@ -2916,8 +3032,7 @@ export class BrowserSigningSurface {
         }),
         applicationBindingDigestB64u:
           first.walletKey.publicCapability.context.application_binding_digest_b64u,
-        registeredClientRootPublicKey33B64u:
-          first.walletKey.derivationClientSharePublicKey33B64u,
+        registeredClientRootPublicKey33B64u: first.walletKey.derivationClientSharePublicKey33B64u,
         relayerPublicIdentityJson: JSON.stringify({
           relayerKeyId: first.walletKey.relayerKeyId,
           relayerPublicKey33B64u: identity.server_public_key33_b64u,
@@ -3024,12 +3139,41 @@ export class BrowserSigningSurface {
       activation,
     });
     if (activation.kind === 'target_passkey_creation') {
+      await this.activateLinkedDevicePasskeyEd25519OwnerV1({
+        session: nextSession,
+        activation,
+      });
       await this.activateLinkedDevicePasskeyEcdsaOwnerV1({
         session: nextSession,
         activation,
       });
     }
     if (activation.kind === 'target_email_otp_activation') {
+      if (
+        nextSession.bundle.ed25519OwnerActivation.kind === 'present' &&
+        nextSession.ed25519OwnerRestore.kind !== 'ready'
+      ) {
+        throw new Error('linked-device Email OTP activation produced no Ed25519 owner material');
+      }
+      if (nextSession.ed25519OwnerRestore.kind === 'ready') {
+        const registration = nextSession.bundle.targetCredentialRegistration;
+        if (registration.targetFactor.kind !== 'email_otp') {
+          throw new Error('linked-device Email OTP activation has another credential factor');
+        }
+        const verificationGrant = registration.emailOtpVerificationGrant;
+        if (!verificationGrant) {
+          throw new Error('linked-device Email OTP activation has no verification grant');
+        }
+        await this.persistLinkedDeviceEd25519OwnerRestoreV1({
+          session: nextSession,
+          material: nextSession.ed25519OwnerRestore.material,
+          materialActivation: nextSession.ed25519OwnerRestore.materialActivation,
+          auth: {
+            kind: WALLET_AUTH_METHODS.emailOtp,
+            providerSubjectId: verificationGrant.providerUserId,
+          },
+        });
+      }
       if (
         nextSession.bundle.ecdsaOwnerActivation.kind === 'present' &&
         nextSession.ecdsaOwnerRestore.kind !== 'ready'

@@ -345,13 +345,17 @@ async function awaitApprovalCompletionV1(input: {
       onResult: onApprovalResult,
     });
     while (Date.now() < input.expiresAtMs) {
-      const observed = latestResult;
+      const subscribedResult = latestResult;
+      const observed =
+        subscribedResult ??
+        (await input.transport.getApprovalV1({
+          linkSessionId: input.linkSessionId,
+          authentication: input.authentication,
+        }));
       latestResult = null;
       let completed: CompletedApprovalResult | null = null;
-      if (observed) {
-        pollAttempt = 0;
-        completed = completedApprovalFromResult(observed);
-      }
+      if (subscribedResult) pollAttempt = 0;
+      completed = completedApprovalFromResult(observed);
       // Device 2 cannot finish its passkey activation until this package lands.
       // Send it before preparing the independent signing-lane handoff.
       if (!custodyTransferSubmitted) {
@@ -367,7 +371,7 @@ async function awaitApprovalCompletionV1(input: {
           }
         }
       }
-      if (observed && !completed && !sourceHandoffComplete) {
+      if (!completed && !sourceHandoffComplete) {
         sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
       }
       if (completed && custodyTransferSubmitted) return completed;

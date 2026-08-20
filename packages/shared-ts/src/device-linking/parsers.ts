@@ -79,6 +79,12 @@ const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
 const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND = 'router_ab_ed25519_wallet_session_v1';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
 import { parseNearAccountId } from '../utils/near';
+import { normalizeRuntimePolicyScope } from '../threshold/signingRootScope';
+import { requireRouterAbEd25519NormalSigningState } from '../utils/signingSessionSeal';
+import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+} from '../utils/routerAbEcdsaDerivation';
 import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import {
   assertNeverLinkedDeviceSessionState,
@@ -102,6 +108,8 @@ import {
   type LinkedDeviceSummaryV1,
   type LinkedOwnerCredentialMetadataV1,
   type LinkedDeviceWalletSessionDeliveryV1,
+  type LinkedDeviceEd25519OwnerActivationV1,
+  type LinkedDeviceEcdsaOwnerActivationV1,
   type LinkedDeviceWalletSessionTokenV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
   type LinkedDeviceOwnerAuthorizationRequestV1,
@@ -179,6 +187,8 @@ const LINKED_WALLET_SESSION_DELIVERY_FIELDS = [
   'remainingUses',
   'issuedAtMs',
   'expiresAtMs',
+  'ed25519OwnerActivation',
+  'ecdsaOwnerActivation',
   'orderedTokens',
 ] as const;
 const LINKED_WALLET_SESSION_DELIVERY_WITH_NEAR_FIELDS = [
@@ -395,6 +405,9 @@ const EMAIL_OTP_VERIFICATION_GRANT_FIELDS = [
   'deviceId',
   'targetPreparationDigestB64u',
   'baseWalletAuthMethodId',
+  'emailHashHex',
+  'registrationAuthorityId',
+  'providerUserId',
   'linkedOwnerAuthMethodId',
   'authorityDigestB64u',
   'issuedAtMs',
@@ -599,6 +612,13 @@ function parseNonEmptyToken(raw: unknown, label: string): string {
     if (/\s/.test(character) || code <= 31 || code === 127) {
       throw new Error(`${label} must not contain whitespace or control characters`);
     }
+  }
+  return raw;
+}
+
+function parseEmailHashHex(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || !/^[0-9a-f]{64}$/.test(raw)) {
+    throw new Error(`${label} must be 32 canonical lowercase hex bytes`);
   }
   return raw;
 }
@@ -1045,6 +1065,290 @@ export function buildLinkedDeviceRevokeResultV1(
   return parseLinkedDeviceRevokeResultV1(value);
 }
 
+function parseLinkedDeviceEcdsaChainTarget(raw: unknown, label: string) {
+  const record = requireRecord(raw, label);
+  if (record.kind === 'evm') {
+    const exact = exactRecord(record, ['kind', 'namespace', 'chainId', 'networkSlug'], label);
+    if (exact.namespace !== 'eip155') throw new Error(`${label}.namespace is invalid`);
+    return {
+      kind: 'evm' as const,
+      namespace: 'eip155' as const,
+      chainId: parsePositiveSafeInteger(exact.chainId, `${label}.chainId`),
+      networkSlug: parseNonEmptyToken(exact.networkSlug, `${label}.networkSlug`),
+    };
+  }
+  const exact = exactRecord(record, ['kind', 'chainId', 'networkSlug'], label);
+  if (exact.kind !== 'tempo') throw new Error(`${label}.kind is invalid`);
+  return {
+    kind: 'tempo' as const,
+    chainId: parsePositiveSafeInteger(exact.chainId, `${label}.chainId`),
+    networkSlug: parseNonEmptyToken(exact.networkSlug, `${label}.networkSlug`),
+  };
+}
+
+function parseEd25519Bytes32(raw: unknown, label: string): readonly number[] {
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== 32 ||
+    raw.some((value) => !Number.isSafeInteger(value) || value < 0 || value > 255)
+  ) {
+    throw new Error(`${label} must be 32 bytes`);
+  }
+  return raw.map(Number);
+}
+
+export function parseLinkedDeviceEd25519OwnerActivation(
+  raw: unknown,
+  walletId: WalletId,
+): LinkedDeviceEd25519OwnerActivationV1 {
+  const label = 'LinkedDeviceWalletSessionDeliveryV1.ed25519OwnerActivation';
+  const record = requireRecord(raw, label);
+  if (record.kind === 'absent') {
+    exactRecord(record, ['kind'], label);
+    return { kind: 'absent' };
+  }
+  const exact = exactRecord(
+    record,
+    [
+      'kind',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'signerSlot',
+      'signingWorkerId',
+      'thresholdSessionId',
+      'signingRootId',
+      'signingRootVersion',
+      'walletSessionToken',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
+      'recoveryBasis',
+    ],
+    label,
+  );
+  if (exact.kind !== 'present') throw new Error(`${label}.kind is invalid`);
+  const recoveryBasis = exactRecord(
+    exact.recoveryBasis,
+    [
+      'materialActivation',
+      'activeCapabilityBinding',
+      'registeredPublicKey',
+      'applicationBinding',
+      'participantIds',
+      'lifecycle',
+    ],
+    `${label}.recoveryBasis`,
+  );
+  const applicationBinding = exactRecord(
+    recoveryBasis.applicationBinding,
+    ['wallet_id', 'near_ed25519_signing_key_id', 'signing_root_id', 'key_creation_signer_slot'],
+    `${label}.recoveryBasis.applicationBinding`,
+  );
+  if (
+    parseWallet(
+      applicationBinding.wallet_id,
+      `${label}.recoveryBasis.applicationBinding.wallet_id`,
+    ) !== walletId
+  ) {
+    throw new Error(`${label} changed wallet identity`);
+  }
+  const participantIds = recoveryBasis.participantIds;
+  if (!Array.isArray(participantIds) || participantIds.length !== 2) {
+    throw new Error(`${label}.recoveryBasis.participantIds is invalid`);
+  }
+  const lifecycle = exactRecord(
+    recoveryBasis.lifecycle,
+    [
+      'lifecycleId',
+      'rootShareEpoch',
+      'accountId',
+      'thresholdSessionId',
+      'signerSetId',
+      'signingWorkerId',
+    ],
+    `${label}.recoveryBasis.lifecycle`,
+  );
+  const materialActivation = parseMpcMaterialActivationRef(recoveryBasis.materialActivation);
+  if (!materialActivation.ok)
+    throw new Error(`${label}.recoveryBasis.materialActivation is invalid`);
+  const nearAccountId = parseNearAccountId(exact.nearAccountId);
+  if (!nearAccountId.ok) throw new Error(`${label}.nearAccountId is invalid`);
+  const nearEd25519SigningKeyId = parseNonEmptyToken(
+    exact.nearEd25519SigningKeyId,
+    `${label}.nearEd25519SigningKeyId`,
+  );
+  const signingWorkerId = parseNonEmptyToken(exact.signingWorkerId, `${label}.signingWorkerId`);
+  const thresholdSessionId = parseNonEmptyToken(
+    exact.thresholdSessionId,
+    `${label}.thresholdSessionId`,
+  );
+  if (
+    applicationBinding.near_ed25519_signing_key_id !== nearEd25519SigningKeyId ||
+    lifecycle.thresholdSessionId !== thresholdSessionId ||
+    lifecycle.signingWorkerId !== signingWorkerId
+  ) {
+    throw new Error(`${label} contains conflicting signer identity`);
+  }
+  return {
+    kind: 'present',
+    nearAccountId: nearAccountId.value,
+    nearEd25519SigningKeyId,
+    signerSlot: parsePositiveSafeInteger(exact.signerSlot, `${label}.signerSlot`),
+    signingWorkerId,
+    thresholdSessionId,
+    signingRootId: parseNonEmptyToken(exact.signingRootId, `${label}.signingRootId`),
+    signingRootVersion: parseNonEmptyToken(exact.signingRootVersion, `${label}.signingRootVersion`),
+    walletSessionToken: parseNonEmptyToken(exact.walletSessionToken, `${label}.walletSessionToken`),
+    runtimePolicyScope: normalizeRuntimePolicyScope(exact.runtimePolicyScope),
+    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(exact.routerAbNormalSigning),
+    recoveryBasis: {
+      materialActivation: materialActivation.value,
+      activeCapabilityBinding: parseEd25519Bytes32(
+        recoveryBasis.activeCapabilityBinding,
+        `${label}.recoveryBasis.activeCapabilityBinding`,
+      ),
+      registeredPublicKey: parseEd25519Bytes32(
+        recoveryBasis.registeredPublicKey,
+        `${label}.recoveryBasis.registeredPublicKey`,
+      ),
+      applicationBinding: {
+        wallet_id: walletId,
+        near_ed25519_signing_key_id: nearEd25519SigningKeyId,
+        signing_root_id: parseNonEmptyToken(
+          applicationBinding.signing_root_id,
+          `${label}.recoveryBasis.applicationBinding.signing_root_id`,
+        ),
+        key_creation_signer_slot: parsePositiveSafeInteger(
+          applicationBinding.key_creation_signer_slot,
+          `${label}.recoveryBasis.applicationBinding.key_creation_signer_slot`,
+        ),
+      },
+      participantIds: [
+        parsePositiveSafeInteger(participantIds[0], `${label}.recoveryBasis.participantIds[0]`),
+        parsePositiveSafeInteger(participantIds[1], `${label}.recoveryBasis.participantIds[1]`),
+      ],
+      lifecycle: {
+        lifecycleId: parseNonEmptyToken(
+          lifecycle.lifecycleId,
+          `${label}.recoveryBasis.lifecycle.lifecycleId`,
+        ),
+        rootShareEpoch: parseNonEmptyToken(
+          lifecycle.rootShareEpoch,
+          `${label}.recoveryBasis.lifecycle.rootShareEpoch`,
+        ),
+        accountId: parseNonEmptyToken(
+          lifecycle.accountId,
+          `${label}.recoveryBasis.lifecycle.accountId`,
+        ),
+        thresholdSessionId,
+        signerSetId: parseNonEmptyToken(
+          lifecycle.signerSetId,
+          `${label}.recoveryBasis.lifecycle.signerSetId`,
+        ),
+        signingWorkerId,
+      },
+    },
+  };
+}
+
+export function parseLinkedDeviceEcdsaOwnerActivation(
+  raw: unknown,
+  walletId: WalletId,
+): LinkedDeviceEcdsaOwnerActivationV1 {
+  const label = 'LinkedDeviceWalletSessionDeliveryV1.ecdsaOwnerActivation';
+  const record = requireRecord(raw, label);
+  if (record.kind === 'absent') {
+    exactRecord(record, ['kind'], label);
+    return { kind: 'absent' };
+  }
+  const exact = exactRecord(record, ['kind', 'signers'], label);
+  if (exact.kind !== 'present' || !Array.isArray(exact.signers)) {
+    throw new Error(`${label} is invalid`);
+  }
+  const signers = exact.signers.map((rawSigner, index) => {
+    const signerLabel = `${label}.signers[${index}]`;
+    const signer = exactRecord(
+      rawSigner,
+      ['chainTarget', 'walletKey', 'activationReceipt', 'runtimePolicyScope'],
+      signerLabel,
+    );
+    const walletKey = exactRecord(
+      signer.walletKey,
+      [
+        'walletId',
+        'keyHandle',
+        'ecdsaThresholdKeyId',
+        'signingRootId',
+        'signingRootVersion',
+        'relayerKeyId',
+        'contextBinding32B64u',
+        'derivationClientSharePublicKey33B64u',
+        'participantIds',
+        'publicCapability',
+      ],
+      `${signerLabel}.walletKey`,
+    );
+    const parsedWalletId = parseWallet(walletKey.walletId, `${signerLabel}.walletKey.walletId`);
+    if (parsedWalletId !== walletId) throw new Error(`${signerLabel} changed wallet identity`);
+    if (!Array.isArray(walletKey.participantIds) || walletKey.participantIds.length !== 2) {
+      throw new Error(`${signerLabel}.walletKey.participantIds is invalid`);
+    }
+    return {
+      chainTarget: parseLinkedDeviceEcdsaChainTarget(
+        signer.chainTarget,
+        `${signerLabel}.chainTarget`,
+      ),
+      walletKey: {
+        walletId: parsedWalletId,
+        keyHandle: parseNonEmptyToken(walletKey.keyHandle, `${signerLabel}.walletKey.keyHandle`),
+        ecdsaThresholdKeyId: parseNonEmptyToken(
+          walletKey.ecdsaThresholdKeyId,
+          `${signerLabel}.walletKey.ecdsaThresholdKeyId`,
+        ),
+        signingRootId: parseNonEmptyToken(
+          walletKey.signingRootId,
+          `${signerLabel}.walletKey.signingRootId`,
+        ),
+        signingRootVersion: parseNonEmptyToken(
+          walletKey.signingRootVersion,
+          `${signerLabel}.walletKey.signingRootVersion`,
+        ),
+        relayerKeyId: parseNonEmptyToken(
+          walletKey.relayerKeyId,
+          `${signerLabel}.walletKey.relayerKeyId`,
+        ),
+        contextBinding32B64u: parseCanonicalFixedBase64UrlBytes(
+          walletKey.contextBinding32B64u,
+          32,
+          `${signerLabel}.walletKey.contextBinding32B64u`,
+        ),
+        derivationClientSharePublicKey33B64u: parseCanonicalFixedBase64UrlBytes(
+          walletKey.derivationClientSharePublicKey33B64u,
+          33,
+          `${signerLabel}.walletKey.derivationClientSharePublicKey33B64u`,
+        ),
+        participantIds: [
+          parsePositiveSafeInteger(
+            walletKey.participantIds[0],
+            `${signerLabel}.walletKey.participantIds[0]`,
+          ),
+          parsePositiveSafeInteger(
+            walletKey.participantIds[1],
+            `${signerLabel}.walletKey.participantIds[1]`,
+          ),
+        ] as const,
+        publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+          walletKey.publicCapability,
+        ),
+      },
+      activationReceipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+        signer.activationReceipt,
+      ),
+      runtimePolicyScope: normalizeRuntimePolicyScope(signer.runtimePolicyScope),
+    };
+  });
+  return { kind: 'present', signers: nonEmptyTuple(signers, `${label}.signers`) };
+}
+
 export function parseLinkedDeviceWalletSessionDeliveryV1(
   raw: unknown,
 ): LinkedDeviceWalletSessionDeliveryV1 {
@@ -1114,6 +1418,14 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
     ),
     issuedAtMs,
     expiresAtMs,
+    ed25519OwnerActivation: parseLinkedDeviceEd25519OwnerActivation(
+      record.ed25519OwnerActivation,
+      parseWallet(record.walletId, 'LinkedDeviceWalletSessionDeliveryV1.walletId'),
+    ),
+    ecdsaOwnerActivation: parseLinkedDeviceEcdsaOwnerActivation(
+      record.ecdsaOwnerActivation,
+      parseWallet(record.walletId, 'LinkedDeviceWalletSessionDeliveryV1.walletId'),
+    ),
   };
   if (!Array.isArray(record.orderedTokens)) {
     throw new Error('LinkedDeviceWalletSessionDeliveryV1.orderedTokens must be an array');
@@ -1305,7 +1617,10 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
       'QrLinkedDeviceSessionPayloadV5.devicePublicKeyB64u',
     ),
     requestedPermission: parsePermission(record.requestedPermission),
-    targetFactor: parseTargetFactor(record.targetFactor, 'QrLinkedDeviceSessionPayloadV5.targetFactor'),
+    targetFactor: parseTargetFactor(
+      record.targetFactor,
+      'QrLinkedDeviceSessionPayloadV5.targetFactor',
+    ),
     issuedAtMs,
     expiresAtMs,
   };
@@ -1460,7 +1775,10 @@ export function parseLinkedDeviceOwnerSourceLaneV1(
 
 function parseEmailOtpChallengeState(raw: unknown): Extract<
   LinkedDeviceSessionState,
-  { readonly state: 'awaiting_target_factor'; readonly targetFactor: { readonly kind: 'email_otp' } }
+  {
+    readonly state: 'awaiting_target_factor';
+    readonly targetFactor: { readonly kind: 'email_otp' };
+  }
 >['emailOtpChallenge'] {
   const initial = requireRecord(raw, 'awaiting_target_factor.emailOtpChallenge');
   if (initial.state === 'available') {
@@ -1471,7 +1789,10 @@ function parseEmailOtpChallengeState(raw: unknown): Extract<
     );
     return {
       state: 'available',
-      maskedEmailHint: parseNonEmptyToken(record.maskedEmailHint, 'emailOtpChallenge.maskedEmailHint'),
+      maskedEmailHint: parseNonEmptyToken(
+        record.maskedEmailHint,
+        'emailOtpChallenge.maskedEmailHint',
+      ),
     };
   }
   if (initial.state === 'sent') {
@@ -1495,7 +1816,10 @@ function parseEmailOtpChallengeState(raw: unknown): Extract<
         65,
         'emailOtpChallenge.workerEphemeralPublicKey65B64u',
       ),
-      maskedEmailHint: parseNonEmptyToken(record.maskedEmailHint, 'emailOtpChallenge.maskedEmailHint'),
+      maskedEmailHint: parseNonEmptyToken(
+        record.maskedEmailHint,
+        'emailOtpChallenge.maskedEmailHint',
+      ),
       expiresAtMs: parseUnixTime(record.expiresAtMs, 'emailOtpChallenge.expiresAtMs'),
       resendAvailableAtMs: parseUnixTime(
         record.resendAvailableAtMs,
@@ -1510,7 +1834,10 @@ function parseAwaitingTargetFactorState(
   record: UnknownRecord,
   linkSessionId: LinkDeviceSessionId,
 ): Extract<LinkedDeviceSessionState, { readonly state: 'awaiting_target_factor' }> {
-  const targetFactor = parseTargetFactor(record.targetFactor, 'awaiting_target_factor.targetFactor');
+  const targetFactor = parseTargetFactor(
+    record.targetFactor,
+    'awaiting_target_factor.targetFactor',
+  );
   const identity = {
     state: 'awaiting_target_factor' as const,
     linkSessionId,
@@ -1808,10 +2135,7 @@ export function parseLinkedDeviceSessionClaimV1(raw: unknown): LinkedDeviceSessi
       record.devicePublicKeyB64u,
       'LinkedDeviceSessionClaimV1.devicePublicKeyB64u',
     ),
-    targetFactor: parseTargetFactor(
-      record.targetFactor,
-      'LinkedDeviceSessionClaimV1.targetFactor',
-    ),
+    targetFactor: parseTargetFactor(record.targetFactor, 'LinkedDeviceSessionClaimV1.targetFactor'),
     claimedAtMs,
     claimExpiresAtMs,
   };
@@ -2979,6 +3303,18 @@ export function parseLinkedDeviceEmailOtpVerificationGrantV1(
       record.baseWalletAuthMethodId,
       'LinkedDeviceEmailOtpVerificationGrantV1.baseWalletAuthMethodId',
     ),
+    emailHashHex: parseEmailHashHex(
+      record.emailHashHex,
+      'LinkedDeviceEmailOtpVerificationGrantV1.emailHashHex',
+    ),
+    registrationAuthorityId: parseNonEmptyToken(
+      record.registrationAuthorityId,
+      'LinkedDeviceEmailOtpVerificationGrantV1.registrationAuthorityId',
+    ),
+    providerUserId: parseNonEmptyToken(
+      record.providerUserId,
+      'LinkedDeviceEmailOtpVerificationGrantV1.providerUserId',
+    ),
     linkedOwnerAuthMethodId: parseId(
       parseWalletAuthMethodId,
       record.linkedOwnerAuthMethodId,
@@ -3118,13 +3454,7 @@ export function parseLinkedDeviceEmailOtpChallengeResultV1(
 ): LinkedDeviceEmailOtpChallengeResultV1 {
   const record = exactRecord(
     raw,
-    [
-      'kind',
-      'challengeId',
-      'maskedEmailHint',
-      'expiresAtMs',
-      'resendAvailableAtMs',
-    ],
+    ['kind', 'challengeId', 'maskedEmailHint', 'expiresAtMs', 'resendAvailableAtMs'],
     'LinkedDeviceEmailOtpChallengeResultV1',
   );
   if (record.kind !== 'linked_device_email_otp_challenge_result_v1') {
@@ -3164,9 +3494,7 @@ export function parseLinkedDeviceEmailOtpVerificationResultV1(
   if (record.kind !== 'linked_device_email_otp_verification_result_v1') {
     throw new Error('LinkedDeviceEmailOtpVerificationResultV1.kind is invalid');
   }
-  const verificationGrant = parseLinkedDeviceEmailOtpVerificationGrantV1(
-    record.verificationGrant,
-  );
+  const verificationGrant = parseLinkedDeviceEmailOtpVerificationGrantV1(record.verificationGrant);
   const factorRelease = parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1(record.factorRelease);
   if (factorRelease.challengeId !== verificationGrant.challengeId) {
     throw new Error('LinkedDeviceEmailOtpVerificationResultV1 challenge binding changed');
@@ -3391,7 +3719,10 @@ export function buildQrLinkedDeviceSessionPayloadV5(args: {
     linkPublicKeyB64u: args.linkPublicKeyB64u,
     devicePublicKeyB64u: args.devicePublicKeyB64u,
     requestedPermission: buildQrLinkedDevicePermissionRequest(),
-    targetFactor: parseTargetFactor(args.targetFactor, 'QrLinkedDeviceSessionPayloadV5.targetFactor'),
+    targetFactor: parseTargetFactor(
+      args.targetFactor,
+      'QrLinkedDeviceSessionPayloadV5.targetFactor',
+    ),
     issuedAtMs,
     expiresAtMs,
   };
@@ -3842,9 +4173,7 @@ export function parseLinkedDeviceOwnerFinalizeRequestV1(
   return {
     kind: 'linked_device_owner_finalize_request_v1',
     addAuthMethodCeremonyId,
-    webauthnRegistration: parseLinkedDeviceWebAuthnRegistrationV1(
-      record.webauthnRegistration,
-    ),
+    webauthnRegistration: parseLinkedDeviceWebAuthnRegistrationV1(record.webauthnRegistration),
     custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
   };
 }

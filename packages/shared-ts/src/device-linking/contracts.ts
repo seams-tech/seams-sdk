@@ -50,6 +50,17 @@ import type {
   EcdsaCapabilityManifestRevision,
 } from '../utils/ecdsaCapabilityActivation';
 import type { NearAccountId } from '../utils/near';
+import type { ThresholdEcdsaChainTarget } from '../signing-lanes/ids';
+import type { RuntimePolicyScope } from '../threshold/signingRootScope';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '../utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoBytes32V1,
+} from '../utils/routerAbEd25519Yao';
+import type { RouterAbEd25519NormalSigningState } from '../utils/signingSessionSeal';
 
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
@@ -677,6 +688,9 @@ export type LinkedDeviceEmailOtpVerificationGrantV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly targetPreparationDigestB64u: DigestB64u;
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly emailHashHex: string;
+  readonly registrationAuthorityId: string;
+  readonly providerUserId: string;
   readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly issuedAtMs: number;
@@ -948,7 +962,68 @@ type LinkedDeviceWalletSessionDeliveryBaseV1 = {
   readonly remainingUses: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
+  readonly ed25519OwnerActivation: LinkedDeviceEd25519OwnerActivationV1;
+  readonly ecdsaOwnerActivation: LinkedDeviceEcdsaOwnerActivationV1;
 };
+
+export type LinkedDeviceEd25519OwnerActivationV1 =
+  | { readonly kind: 'absent' }
+  | {
+      readonly kind: 'present';
+      readonly nearAccountId: NearAccountId;
+      readonly nearEd25519SigningKeyId: string;
+      readonly signerSlot: number;
+      readonly signingWorkerId: string;
+      readonly thresholdSessionId: string;
+      readonly signingRootId: string;
+      readonly signingRootVersion: string;
+      readonly walletSessionToken: string;
+      readonly runtimePolicyScope: RuntimePolicyScope;
+      readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+      readonly recoveryBasis: {
+        readonly materialActivation: MpcMaterialActivationRef;
+        readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+        readonly registeredPublicKey: RouterAbEd25519YaoBytes32V1;
+        readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+        readonly participantIds: readonly [number, number];
+        readonly lifecycle: {
+          readonly lifecycleId: string;
+          readonly rootShareEpoch: string;
+          readonly accountId: string;
+          readonly thresholdSessionId: string;
+          readonly signerSetId: string;
+          readonly signingWorkerId: string;
+        };
+      };
+    };
+
+export type LinkedDeviceEcdsaOwnerActivationSignerV1 = {
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly walletKey: {
+    readonly walletId: WalletId;
+    readonly keyHandle: string;
+    readonly ecdsaThresholdKeyId: string;
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+    readonly relayerKeyId: string;
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly participantIds: readonly [number, number];
+    readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  };
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+};
+
+export type LinkedDeviceEcdsaOwnerActivationV1 =
+  | { readonly kind: 'absent' }
+  | {
+      readonly kind: 'present';
+      readonly signers: readonly [
+        LinkedDeviceEcdsaOwnerActivationSignerV1,
+        ...LinkedDeviceEcdsaOwnerActivationSignerV1[],
+      ];
+    };
 
 export type LinkedDeviceWalletSessionDeliveryV1 =
   | (LinkedDeviceWalletSessionDeliveryBaseV1 & {
