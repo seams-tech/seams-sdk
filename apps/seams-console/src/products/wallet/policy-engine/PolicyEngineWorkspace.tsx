@@ -19,10 +19,7 @@ import {
   useDashboardTablePagination,
 } from '@core/dashboard/components/DashboardTable';
 import { ScaleIcon } from '@core/dashboard/icons/SidebarIcons';
-import {
-  clearDashboardCreateIntent,
-  readDashboardCreateIntent,
-} from '@core/dashboard/utils/routeCreateIntent';
+import { useDashboardCreateIntent } from '@core/dashboard/utils/routeCreateIntent';
 import { DashboardInlineModal } from '@core/dashboard/components/DashboardInlineModal';
 import { DashboardPageActions } from '@core/dashboard/components/DashboardPageActions';
 import {
@@ -617,7 +614,6 @@ export function PolicyEnginePage(): React.JSX.Element {
 
   const [mutationBusy, setMutationBusy] = React.useState<string>('');
   const [mutationErrorMessage, setMutationErrorMessage] = React.useState<string>('');
-  const [mutationNotice, setMutationNotice] = React.useState<string>('');
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -978,12 +974,15 @@ export function PolicyEnginePage(): React.JSX.Element {
       if (selectedApprovalId !== fallbackApprovalId) setSelectedApprovalId(fallbackApprovalId);
       return;
     }
-    const requestedApproval = relevantApprovals.find((entry) => entry.id === requestedApprovalId) || null;
+    const requestedApproval =
+      relevantApprovals.find((entry) => entry.id === requestedApprovalId) || null;
     if (requestedApproval?.status === 'APPROVED') {
       if (selectedApprovalId !== requestedApproval.id) setSelectedApprovalId(requestedApproval.id);
       return;
     }
-    const stillSelectedApproved = approvedApprovals.some((entry) => entry.id === selectedApprovalId);
+    const stillSelectedApproved = approvedApprovals.some(
+      (entry) => entry.id === selectedApprovalId,
+    );
     if (stillSelectedApproved) return;
     setSelectedApprovalId(approvedApprovals[0]?.id || '');
   }, [
@@ -1020,21 +1019,12 @@ export function PolicyEnginePage(): React.JSX.Element {
     setSimulationResult(null);
     setSimulationErrorMessage('');
     setMutationErrorMessage('');
-    setMutationNotice('');
     setActiveModal({ kind: 'create' });
   }, [environmentScopeId, orgScopeId, projectScopeId]);
 
-  /* Opened from the rail's "+": wait for scope and permissions to resolve, then
-     open once and drop the param so a reload does not reopen the dialog. */
-  const createIntentHandledRef = React.useRef(false);
-  React.useEffect(() => {
-    if (createIntentHandledRef.current) return;
-    if (!readDashboardCreateIntent()) return;
-    if (!canMutatePolicies) return;
-    createIntentHandledRef.current = true;
-    clearDashboardCreateIntent();
-    openCreatePolicyModal();
-  }, [canMutatePolicies, openCreatePolicyModal]);
+  /* Opened from the rail's "+", including while this route is already on
+     screen. */
+  useDashboardCreateIntent('/dashboard/policy-engine', canMutatePolicies, openCreatePolicyModal);
 
   const openCreateWalletOverrideModal = React.useCallback(() => {
     setCreatingNewPolicy(true);
@@ -1049,7 +1039,6 @@ export function PolicyEnginePage(): React.JSX.Element {
     setSimulationResult(null);
     setSimulationErrorMessage('');
     setMutationErrorMessage('');
-    setMutationNotice('');
     setActiveModal({ kind: 'create' });
   }, [environmentScopeId, orgScopeId, projectScopeId]);
 
@@ -1076,7 +1065,6 @@ export function PolicyEnginePage(): React.JSX.Element {
       setSimulationResult(null);
       setSimulationErrorMessage('');
       setMutationErrorMessage('');
-      setMutationNotice('');
       setActiveModal({ kind, policyId });
     },
     [environmentScopeId, orgScopeId, policyById, projectScopeId],
@@ -1135,7 +1123,6 @@ export function PolicyEnginePage(): React.JSX.Element {
 
       setMutationBusy('save');
       setMutationErrorMessage('');
-      setMutationNotice('');
       try {
         const nextRules: Record<string, unknown> = {};
         if (
@@ -1193,7 +1180,7 @@ export function PolicyEnginePage(): React.JSX.Element {
         setSelectedPolicyId(policy.id);
         clearPolicyEditorDraft();
         setActiveModal(null);
-        setMutationNotice(`Saved policy ${policy.id} (${policy.status}, v${policy.version}).`);
+        toast.success(`Saved policy ${policy.id} (${policy.status}, v${policy.version}).`);
         await Promise.all([loadPolicies(), loadAssignments(), loadCoverage()]);
       } catch (error: unknown) {
         setMutationErrorMessage(error instanceof Error ? error.message : String(error));
@@ -1233,11 +1220,10 @@ export function PolicyEnginePage(): React.JSX.Element {
     }
     setMutationBusy('delete');
     setMutationErrorMessage('');
-    setMutationNotice('');
     try {
       const deleted = await deleteDashboardPolicy({ policyId: selectedPolicyId });
       if (deleted.removed) {
-        setMutationNotice(`Deleted policy ${selectedPolicyId}.`);
+        toast.success(`Deleted policy ${selectedPolicyId}.`);
       }
       setSelectedPolicyId('');
       setActiveModal(null);
@@ -1273,14 +1259,13 @@ export function PolicyEnginePage(): React.JSX.Element {
 
     setMutationBusy('publish');
     setMutationErrorMessage('');
-    setMutationNotice('');
     try {
       const published = await publishDashboardPolicy({
         policyId: selectedPolicyId,
         ...(selectedApprovalId ? { approvalId: selectedApprovalId } : {}),
       });
       setActiveModal(null);
-      setMutationNotice(`Published ${published.id} (v${published.version}).`);
+      toast.success(`Published ${published.id} (v${published.version}).`);
       await Promise.all([loadPolicies(), loadApprovals()]);
     } catch (error: unknown) {
       setMutationErrorMessage(error instanceof Error ? error.message : String(error));
@@ -1318,7 +1303,6 @@ export function PolicyEnginePage(): React.JSX.Element {
 
     setMutationBusy('approval-create');
     setMutationErrorMessage('');
-    setMutationNotice('');
     try {
       const approval = await createDashboardApproval({
         operationType: 'POLICY_PUBLISH',
@@ -1334,7 +1318,7 @@ export function PolicyEnginePage(): React.JSX.Element {
       });
       setApprovalCreateReason('Policy reviewed for publish.');
       setSelectedApprovalId(approval.status === 'APPROVED' ? approval.id : selectedApprovalId);
-      setMutationNotice(`Created approval request ${approval.id} for ${selectedPolicyId}.`);
+      toast.success(`Created approval request ${approval.id} for ${selectedPolicyId}.`);
       await loadApprovals();
     } catch (error: unknown) {
       setMutationErrorMessage(error instanceof Error ? error.message : String(error));
@@ -1362,7 +1346,6 @@ export function PolicyEnginePage(): React.JSX.Element {
       }
       setMutationBusy(`approve:${approval.id}`);
       setMutationErrorMessage('');
-      setMutationNotice('');
       try {
         const updated = await approveDashboardApproval({
           approvalId: approval.id,
@@ -1370,7 +1353,7 @@ export function PolicyEnginePage(): React.JSX.Element {
           mfaVerified: false,
         });
         if (updated.status === 'APPROVED') setSelectedApprovalId(updated.id);
-        setMutationNotice(`Approval request ${updated.id} is now ${updated.status}.`);
+        toast.success(`Approval request ${updated.id} is now ${updated.status}.`);
         await loadApprovals();
       } catch (error: unknown) {
         setMutationErrorMessage(error instanceof Error ? error.message : String(error));
@@ -1389,14 +1372,13 @@ export function PolicyEnginePage(): React.JSX.Element {
       }
       setMutationBusy(`reject:${approval.id}`);
       setMutationErrorMessage('');
-      setMutationNotice('');
       try {
         const updated = await rejectDashboardApproval({
           approvalId: approval.id,
           reason: String(approvalDecisionReason || '').trim() || 'Rejected in policy engine.',
         });
         if (selectedApprovalId === updated.id) setSelectedApprovalId('');
-        setMutationNotice(`Approval request ${updated.id} is now ${updated.status}.`);
+        toast.success(`Approval request ${updated.id} is now ${updated.status}.`);
         await loadApprovals();
       } catch (error: unknown) {
         setMutationErrorMessage(error instanceof Error ? error.message : String(error));
@@ -1791,7 +1773,6 @@ export function PolicyEnginePage(): React.JSX.Element {
             Create policy
           </button>
         </DashboardPageActions>
-        {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
         {!policyEditorModalOpen && mutationErrorMessage ? (
           <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
         ) : null}

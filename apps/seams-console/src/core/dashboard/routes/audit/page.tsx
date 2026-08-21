@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   DashboardTable,
@@ -25,10 +26,7 @@ import {
   useDashboardSelectedContext,
   useDashboardSelectedContextDisplay,
 } from '../../selectedContext';
-import {
-  listDashboardEnvironments,
-  listDashboardProjects,
-} from '../../consoleContextApi';
+import { listDashboardEnvironments, listDashboardProjects } from '../../consoleContextApi';
 import { useSiteRouter } from '@core/router/useSiteRouter';
 import {
   listDashboardAuditEvents,
@@ -36,7 +34,10 @@ import {
   type DashboardConsoleAuditEvent,
   type DashboardConsoleAuditOutcome,
 } from './consoleAuditApi';
-import { listDashboardApprovals, type DashboardConsoleApprovalRequest } from '@wallet-product/approvals/consoleApprovalsApi';
+import {
+  listDashboardApprovals,
+  type DashboardConsoleApprovalRequest,
+} from '@wallet-product/approvals/consoleApprovalsApi';
 import { listDashboardOrganizationMemberships } from '../team-members/consoleTeamRbacApi';
 import {
   resolveDashboardIdentityPrimaryLabel,
@@ -101,7 +102,8 @@ function humanizeMachineLabel(value: string): string {
     });
   if (tokens.length === 0) return '';
   const [first, ...rest] = tokens;
-  const firstWord = first === first.toUpperCase() ? first : `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
+  const firstWord =
+    first === first.toUpperCase() ? first : `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
   return [firstWord, ...rest].join(' ');
 }
 
@@ -206,7 +208,9 @@ function formatPolicyAuditEventTitle(row: DashboardConsoleAuditEvent): {
   if (!action.startsWith('policy.')) return null;
 
   const policyName = readText(row.policyName) || readText(row.metadata?.policyName);
-  const policyKind = formatPolicyKindLabel(readText(row.policyKind) || readText(row.metadata?.policyKind));
+  const policyKind = formatPolicyKindLabel(
+    readText(row.policyKind) || readText(row.metadata?.policyKind),
+  );
   const versionLabel = formatVersionLabel(row.metadata?.version);
   const details: string[] = [];
 
@@ -310,7 +314,8 @@ function formatBillingAuditEventTitle(
     );
     appendDetail(details, humanizeMachineLabel(readText(row.metadata?.invoiceDocumentType)));
     return {
-      title: readText(row.metadata?.generated) === 'true' ? 'Generated invoice' : 'Refreshed invoice',
+      title:
+        readText(row.metadata?.generated) === 'true' ? 'Generated invoice' : 'Refreshed invoice',
       detailParts: details,
     };
   }
@@ -643,16 +648,19 @@ export function AuditLogsPage(): React.JSX.Element {
   const [fromInput, setFromInput] = React.useState<string>('');
   const [toInput, setToInput] = React.useState<string>('');
   const [expandedEventId, setExpandedEventId] = React.useState<string>('');
-  const [memberDirectory, setMemberDirectory] = React.useState<Record<string, DashboardIdentitySource>>(
+  const [memberDirectory, setMemberDirectory] = React.useState<
+    Record<string, DashboardIdentitySource>
+  >({});
+  const [organizationDirectory, setOrganizationDirectory] = React.useState<Record<string, string>>(
     {},
   );
-  const [organizationDirectory, setOrganizationDirectory] = React.useState<Record<string, string>>({});
   const [projectDirectory, setProjectDirectory] = React.useState<Record<string, string>>({});
-  const [environmentDirectory, setEnvironmentDirectory] = React.useState<Record<string, string>>({});
+  const [environmentDirectory, setEnvironmentDirectory] = React.useState<Record<string, string>>(
+    {},
+  );
   const [approvalDirectory, setApprovalDirectory] = React.useState<
     Record<string, DashboardConsoleApprovalRequest>
   >({});
-  const [copyNotice, setCopyNotice] = React.useState<string>('');
   const resolvedOrganizationDirectory = React.useMemo(() => {
     const nextDirectory = { ...organizationDirectory };
     for (const row of events) {
@@ -695,16 +703,6 @@ export function AuditLogsPage(): React.JSX.Element {
   }, [searchInput]);
 
   React.useEffect(() => {
-    if (!copyNotice) return;
-    const timeoutId = window.setTimeout(() => {
-      setCopyNotice('');
-    }, 1800);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [copyNotice]);
-
-  React.useEffect(() => {
     if (session.loading) return;
     if (!session.claims) {
       setOrganizationDirectory({});
@@ -719,9 +717,13 @@ export function AuditLogsPage(): React.JSX.Element {
       .then((results) => {
         if (cancelled) return;
         const organizations =
-          results[0]?.status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+          results[0]?.status === 'fulfilled' && Array.isArray(results[0].value)
+            ? results[0].value
+            : [];
         const members =
-          results[1]?.status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+          results[1]?.status === 'fulfilled' && Array.isArray(results[1].value)
+            ? results[1].value
+            : [];
         const nextOrganizationDirectory: Record<string, string> = {};
         for (const organization of organizations) {
           const organizationId = readText(organization.id);
@@ -796,9 +798,13 @@ export function AuditLogsPage(): React.JSX.Element {
       .then((results) => {
         if (cancelled) return;
         const projects =
-          results[0]?.status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+          results[0]?.status === 'fulfilled' && Array.isArray(results[0].value)
+            ? results[0].value
+            : [];
         const environments =
-          results[1]?.status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+          results[1]?.status === 'fulfilled' && Array.isArray(results[1].value)
+            ? results[1].value
+            : [];
         const nextProjects: Record<string, string> = {};
         for (const project of projects) {
           const projectId = readText(project.id);
@@ -822,19 +828,22 @@ export function AuditLogsPage(): React.JSX.Element {
     };
   }, [selectedProjectId, session.claims?.orgId, session.loading]);
 
-  const copyAuditScopeValue = React.useCallback(async (value: string, label: 'Project' | 'Environment') => {
-    const normalized = readText(value);
-    if (!normalized) return;
-    try {
-      if (!window.navigator?.clipboard?.writeText) {
-        throw new Error('clipboard_unavailable');
+  const copyAuditScopeValue = React.useCallback(
+    async (value: string, label: 'Project' | 'Environment') => {
+      const normalized = readText(value);
+      if (!normalized) return;
+      try {
+        if (!window.navigator?.clipboard?.writeText) {
+          throw new Error('clipboard_unavailable');
+        }
+        await window.navigator.clipboard.writeText(normalized);
+        toast.success(`${label} ID copied.`);
+      } catch {
+        toast.error(`Clipboard copy failed. Copy ${label.toLowerCase()} ID manually.`);
       }
-      await window.navigator.clipboard.writeText(normalized);
-      setCopyNotice(`${label} ID copied.`);
-    } catch {
-      setCopyNotice(`Clipboard copy failed. Copy ${label.toLowerCase()} ID manually.`);
-    }
-  }, []);
+    },
+    [],
+  );
 
   const loadAuditEvents = React.useCallback(() => {
     if (!session.claims) {
@@ -1041,7 +1050,9 @@ export function AuditLogsPage(): React.JSX.Element {
                 readFirstText(row.policyName, row.metadata?.policyName, approval?.policyName) ||
                 linkedPolicyId;
               const policyLink = linkedPolicyId
-                ? linkProps(buildDashboardPath('/dashboard/policy-engine', { policyId: linkedPolicyId }))
+                ? linkProps(
+                    buildDashboardPath('/dashboard/policy-engine', { policyId: linkedPolicyId }),
+                  )
                 : null;
               const approvalLink =
                 approvalId && linkedPolicyId
@@ -1154,7 +1165,9 @@ export function AuditLogsPage(): React.JSX.Element {
                       </span>
                     </DashboardTableCell>
                     <DashboardTableCell>
-                      <strong className="dashboard-data-table__summary">{actorDisplay.primary}</strong>
+                      <strong className="dashboard-data-table__summary">
+                        {actorDisplay.primary}
+                      </strong>
                       {actorDisplay.secondary ? (
                         <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
                           {actorDisplay.secondary}
@@ -1330,7 +1343,9 @@ export function AuditLogsPage(): React.JSX.Element {
                                 type="button"
                                 className="dashboard-audit-events__copy-value"
                                 title={row.projectId}
-                                onClick={() => void copyAuditScopeValue(row.projectId || '', 'Project')}
+                                onClick={() =>
+                                  void copyAuditScopeValue(row.projectId || '', 'Project')
+                                }
                               >
                                 {projectLabel}
                               </button>
@@ -1370,11 +1385,6 @@ export function AuditLogsPage(): React.JSX.Element {
                           )}
                         </DashboardTableDetailsItem>
                       </DashboardTableDetailsGrid>
-                      {copyNotice ? (
-                        <p className="dashboard-pagination-note" aria-live="polite">
-                          {copyNotice}
-                        </p>
-                      ) : null}
                       {row.metadata && Object.keys(row.metadata).length > 0 ? (
                         <details className="dashboard-audit-events__raw-metadata">
                           <summary>Raw JSON</summary>

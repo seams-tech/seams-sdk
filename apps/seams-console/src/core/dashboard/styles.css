@@ -7199,3 +7199,85 @@ select.dashboard-input {
     justify-self: start;
   }
 }
+
+/* Toasts. The reference app floats a dark, faintly translucent slab over the
+   white page rather than a light card — a confirmation reads as chrome that
+   arrived, not as another panel in the layout. Colours and the inset/outer
+   shadow pair are its own toast tokens. */
+.dashboard-toaster {
+  font-family: var(--console-font-sans);
+}
+
+/* The surface is set here rather than through sonner's --normal-* variables:
+   it writes those inline on the list element, and an inline value beats any
+   rule we could add. */
+.dashboard-toaster [data-sonner-toast] {
+  gap: 10px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--dashboard-radius-xl);
+  background: rgba(33, 33, 33, 0.85);
+  color: #fafafa;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.35),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.075),
+    0 0 0 0.5px rgba(0, 0, 0, 0.44),
+    0 2px 6px -2px rgba(0, 0, 0, 0.13),
+    0 18px 40px -10px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-toaster [data-sonner-toast] [data-title] {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.dashboard-toaster [data-sonner-toast] [data-description] {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.71);
+}
+
+/* The status dot is the only colour on the slab, so it carries the whole
+   success/failure read; muted hues keep it legible against the dark ground. */
+.dashboard-toaster [data-sonner-toast] [data-icon] {
+  width: 8px;
+  height: 8px;
+  margin: 0 2px 0 0;
+  align-self: center;
+  border-radius: 999px;
+  background: #a1a5ab;
+  box-shadow: 0 0 0 4px rgba(161, 165, 171, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast] [data-icon] > * {
+  display: none;
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='success'] [data-icon] {
+  background: #8ab895;
+  box-shadow: 0 0 0 4px rgba(138, 184, 149, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='error'] [data-icon] {
+  background: #c5857f;
+  box-shadow: 0 0 0 4px rgba(197, 133, 127, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='warning'] [data-icon] {
+  background: #cfaa77;
+  box-shadow: 0 0 0 4px rgba(207, 170, 119, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='info'] [data-icon] {
+  background: #83a8cf;
+  box-shadow: 0 0 0 4px rgba(131, 168, 207, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast] [data-close-button] {
+  border: 0;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fafafa;
+}
