@@ -191,6 +191,13 @@
   background: var(--seams-accent-gradient);
 }
 
+/* Inline code carries symbol names inside sentences, so it takes weight to
+   stand out now that it no longer takes color. Code blocks keep their own
+   weights from the syntax theme. */
+.vp-doc :not(pre) > code {
+  font-weight: 600;
+}
+
 /* Markdown keeps its H1 so VitePress local search indexes the page title.
    The layout header renders the visible semantic title. */
 .vp-doc > div > h1:first-child {
