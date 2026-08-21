@@ -1514,17 +1514,18 @@ seams-auth-menu-surface {
   gap: 0.75rem;
 }
 
+/* A flat disc, sized to the dot-ring badge the other link views use, so the
+   failure frame sits where the confirmation frame sat. No halo or drop shadow:
+   the tint and the glyph carry the tone on their own. */
 .w3a-link-device-failure-icon {
-  width: 60px;
-  height: 60px;
+  width: 52px;
+  height: 52px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   color: var(--w3a-colors-error, #ef4444);
-  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 88%);
-  box-shadow:
-    0 0 0 5px color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 90%),
-    0 12px 24px -18px color-mix(in srgb, var(--w3a-colors-error, #ef4444), #000000 35%);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 90%);
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 80%);
 }
 
 /* The detail is a raw error string, so it is sized and coloured as evidence
