@@ -9,6 +9,7 @@ import {
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,
   buildR103OwnerEnrollmentCeremonyReaderV1,
+  buildR103ProvisioningFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import { buildR102ActiveProductEpoch } from './helpers/r102LaneGateway.fixtures';
 import {
@@ -25,6 +26,11 @@ import {
   D1LinkedDeviceOwnerAuthBindingStoreV1,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import { parseTenantId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  buildSigningOnlyDelegatedWalletAuthorityV1,
+  parseDelegatedWalletAuthorityV1,
+  type DelegatedWalletAuthorityV1,
+} from '../../packages/shared-ts/src/authorization/delegatedAuthority';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
@@ -46,6 +52,7 @@ import {
   insertWebAuthn,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import { buildLaneProductEpochActiveV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -464,7 +471,164 @@ test('lists and retrieves a binding-only device from its verified durable lane r
   ).rejects.toThrow('lane enrollment manifest digest is invalid');
 });
 
-async function seedDurableLinkedDeviceProjection(database: D1DatabaseLike) {
+test('projects the exact persisted signing-only and custom authorities', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const signingOnly = buildSigningOnlyDelegatedWalletAuthorityV1();
+  const seeded = await seedDurableLinkedDeviceProjection(temporary.database, {
+    permission: signingOnly,
+  });
+  const projection = new D1LinkedDeviceManagementStoreV1({
+    database: temporary.database,
+    scope,
+    metadata: new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
+      database: temporary.database,
+      scope,
+      tenantId: seeded.binding.tenantId,
+    }),
+  });
+
+  const listedSigningOnly = await projection.getLinkedDeviceV1({
+    walletId: seeded.binding.walletId,
+    deviceId: seeded.binding.deviceId,
+  });
+  expect(listedSigningOnly?.summary.permission).toEqual(signingOnly);
+
+  const customResult = parseDelegatedWalletAuthorityV1({
+    kind: 'delegated_wallet_authority_v1',
+    permissions: ['sign', 'export_keys'],
+  });
+  if (!customResult.ok) throw new Error(customResult.error.message);
+  const custom = customResult.value;
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_wallet_session_authorizations
+          SET permission_json = ?1
+        WHERE namespace = ?2 AND org_id = ?3 AND project_id = ?4 AND env_id = ?5
+          AND tenant_id = ?6 AND authorization_id = ?7`,
+    )
+    .bind(
+      JSON.stringify(custom),
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(seeded.binding.tenantId),
+      seeded.authorizationId,
+    )
+    .run();
+
+  const listedCustom = await projection.getLinkedDeviceV1({
+    walletId: seeded.binding.walletId,
+    deviceId: seeded.binding.deviceId,
+  });
+  expect(listedCustom?.summary.permission).toEqual(custom);
+});
+
+test('omits an incomplete preparing binding without hiding valid devices', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const seeded = await seedDurableLinkedDeviceProjection(temporary.database);
+  const staleFixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:r103-stale',
+    enrollmentId: 'enrollment:r103-stale',
+    deviceId: 'device:r103-stale',
+  });
+  const staleManifest = buildR103ProvisioningFixture(staleFixture).deliveries.manifest;
+  const staleManifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(staleManifest);
+  const staleBinding = buildLinkedOwnerPasskeyBindingFixtureV1({
+    walletId: String(seeded.binding.walletId),
+    enrollmentId: String(staleFixture.approval.enrollmentId),
+    deviceId: String(staleFixture.approval.deviceId),
+    rpId: 'wallet.example.test',
+    credentialIdB64u: 'credential-r103-stale-management',
+    activatedAtMs: 4_000,
+  });
+  if (staleBinding.factor.kind !== 'passkey') throw new Error('expected passkey binding');
+  await insertWalletAuthMethod({
+    database: temporary.database,
+    ...scope,
+    record: {
+      version: 'wallet_auth_method_v1',
+      kind: 'passkey',
+      status: 'active',
+      walletId: String(staleBinding.walletId),
+      rpId: String(staleBinding.factor.rpId),
+      credentialIdB64u: String(staleBinding.factor.credentialIdB64u),
+      credentialPublicKeyB64u: 'stale-credential-public-key',
+      counter: 0,
+      createdAtMs: staleBinding.createdAtMs,
+      updatedAtMs: staleBinding.updatedAtMs,
+    },
+  });
+  await insertWebAuthn({
+    database: temporary.database,
+    ...scope,
+    userId: String(staleBinding.walletId),
+    rpId: String(staleBinding.factor.rpId),
+    credentialIdB64u: String(staleBinding.factor.credentialIdB64u),
+    credentialPublicKeyB64u: 'stale-credential-public-key',
+  });
+  const bindingStore = new D1LinkedDeviceOwnerAuthBindingStoreV1({
+    database: temporary.database,
+    scope,
+  });
+  assertOwnerAuthBindingBatchApplied(
+    await temporary.database.batch<D1ResultLike>([
+      bindingStore.buildInsertV1(staleBinding).statement,
+    ]),
+    1,
+  );
+  await temporary.database
+    .prepare(
+      `INSERT INTO lane_enrollments (
+         namespace, org_id, project_id, env_id, enrollment_id, wallet_id,
+         manifest_digest_b64u, manifest_json, lifecycle_json, version,
+         command_digest_b64u, created_at_ms, updated_at_ms
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?11, ?12)`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(staleManifest.enrollmentId),
+      String(staleManifest.walletId),
+      String(staleManifestDigestB64u),
+      JSON.stringify(staleManifest),
+      JSON.stringify({
+        state: 'preparing',
+        manifestDigestB64u: String(staleManifestDigestB64u),
+        startedAtMs: staleManifest.createdAtMs,
+      }),
+      String(staleManifestDigestB64u),
+      staleManifest.createdAtMs,
+      staleManifest.createdAtMs,
+    )
+    .run();
+
+  const projection = new D1LinkedDeviceManagementStoreV1({
+    database: temporary.database,
+    scope,
+    metadata: new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
+      database: temporary.database,
+      scope,
+      tenantId: seeded.binding.tenantId,
+    }),
+  });
+  const listed = await projection.listLinkedDevicesV1({
+    walletId: seeded.binding.walletId,
+    limit: 10,
+    cursor: null,
+  });
+  expect(listed.devices).toHaveLength(1);
+  expect(listed.devices[0]?.deviceId).toBe(seeded.binding.deviceId);
+});
+
+async function seedDurableLinkedDeviceProjection(
+  database: D1DatabaseLike,
+  input: { readonly permission?: DelegatedWalletAuthorityV1 } = {},
+) {
   const execution = await buildR103ActiveExecutionFixture();
   const manifest = execution.provisioning.deliveries.manifest;
   const manifestDigestB64u = execution.deviceLink.receipt.manifestDigestB64u;
@@ -529,6 +693,36 @@ async function seedDurableLinkedDeviceProjection(database: D1DatabaseLike) {
     await database.batch<D1ResultLike>([bindingStore.buildInsertV1(binding).statement]),
     1,
   );
+  const authorizationId = `authorization:management:${String(binding.deviceId)}`;
+  await database
+    .prepare(
+      `INSERT INTO linked_device_wallet_session_authorizations (
+         namespace, org_id, project_id, env_id, tenant_id, authorization_id,
+         principal_id, wallet_id, enrollment_id, device_id, wallet_session_id,
+         quota_id, key_manifest_digest_b64u, permission_json, revocation_epoch,
+         lifecycle_kind, issued_at_ms, expires_at_ms, revoked_at_ms
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'active', ?16, ?17, NULL)`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(binding.tenantId),
+      authorizationId,
+      `linked-device:${String(binding.deviceId)}`,
+      String(binding.walletId),
+      String(binding.enrollmentId),
+      String(binding.deviceId),
+      'wallet-session:management-store',
+      'wallet-quota:management-store',
+      String(binding.keyManifestDigestB64u),
+      JSON.stringify(input.permission ?? buildSigningOnlyDelegatedWalletAuthorityV1()),
+      binding.revocationEpoch,
+      5_000,
+      86_400_000,
+    )
+    .run();
   await database
     .prepare(
       `INSERT INTO lane_enrollments (
@@ -598,5 +792,5 @@ async function seedDurableLinkedDeviceProjection(database: D1DatabaseLike) {
       product.activatedAtMs,
     )
     .run();
-  return { binding };
+  return { binding, authorizationId };
 }

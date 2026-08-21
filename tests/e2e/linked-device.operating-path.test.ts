@@ -13,6 +13,13 @@ import {
   type Route,
 } from '@playwright/test';
 import { Buffer } from 'node:buffer';
+import {
+  parseLinkedDeviceApprovalResultV1,
+  parseLinkedDeviceEmailOtpVerificationResultV1,
+  parseLinkedDeviceSessionProjectionV1,
+  parseLinkedDeviceTargetPreparationV1,
+} from '@shared/device-linking';
+import { parseTransaction, type Hex } from 'viem';
 
 const enabled = process.env.SEAMS_LINKED_DEVICE_E2E === '1';
 const appOrigin = String(
@@ -29,8 +36,8 @@ const arcGreetingContract = '0xeB7aB5A6F761072C96147A54B8a15F012e836691';
 const localRouterOrigin = 'https://localhost:9444';
 const arcState = {
   greeting: 'Hello from local Arc',
-  pendingGreeting: 'Hello from linked Arc',
-  transactionInput: '0x',
+  transactionInput: '0x' as Hex,
+  transactionTo: arcGreetingContract,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -66,6 +73,10 @@ type ExportedPublicIdentity = {
     readonly scheme: string;
   }[];
 };
+
+type ExportWaitOutcome =
+  | { readonly kind: 'response'; readonly response: Response }
+  | { readonly kind: 'terminal-failure'; readonly diagnostic: string };
 
 function emailLinkedDeviceStage(stage: string): void {
   console.info(`[email-linked-device] ${stage}`);
@@ -106,6 +117,10 @@ function installGoogleIdentityStub(idToken: string): void {
       },
     },
   });
+}
+
+function enableSigningSessionDiagnostics(): void {
+  localStorage.setItem('seams:debug:signing-session', '1');
 }
 
 function parseEcdsaWalletKeyIdentity(rawWalletKey: unknown, label: string): string {
@@ -149,12 +164,30 @@ function parseRegisteredOwnerSnapshot(
   rawNear: unknown,
   routerOrigin: string,
 ): AuthenticatedOwnerSnapshot {
+  const publicIdentity = parseRegisteredWalletPublicIdentity(rawActivate, rawNear);
   const activate = requireRecord(rawActivate, 'registration activate response');
-  const near = requireRecord(rawNear, 'registration NEAR provisioning response');
   const authMethod = requireRecord(
     activate.authMethod,
     'registration activate response.authMethod',
   );
+  return {
+    credentialIdB64u: requireStringField(
+      authMethod,
+      'credentialIdB64u',
+      'registration activate response.authMethod',
+    ),
+    routerOrigin,
+    rpId: requireStringField(activate, 'rpId', 'registration activate response'),
+    publicIdentity,
+  };
+}
+
+function parseRegisteredWalletPublicIdentity(
+  rawActivate: unknown,
+  rawNear: unknown,
+): WalletPublicIdentity {
+  const activate = requireRecord(rawActivate, 'registration activate response');
+  const near = requireRecord(rawNear, 'registration NEAR provisioning response');
   const ecdsa = requireRecord(activate.ecdsa, 'registration activate response.ecdsa');
   if (!Array.isArray(ecdsa.walletKeys) || ecdsa.walletKeys.length === 0) {
     throw new Error('registration activate response.ecdsa.walletKeys must contain a wallet key');
@@ -178,102 +211,18 @@ function parseRegisteredOwnerSnapshot(
   ];
   ecdsaKeys.sort();
   return {
-    credentialIdB64u: requireStringField(
-      authMethod,
-      'credentialIdB64u',
-      'registration activate response.authMethod',
+    walletId,
+    nearAccountId: requireStringField(
+      ed25519,
+      'nearAccountId',
+      'registration NEAR provisioning response.ed25519',
     ),
-    routerOrigin,
-    rpId: requireStringField(activate, 'rpId', 'registration activate response'),
-    publicIdentity: {
-      walletId,
-      nearAccountId: requireStringField(
-        ed25519,
-        'nearAccountId',
-        'registration NEAR provisioning response.ed25519',
-      ),
-      nearPublicKey: requireStringField(
-        ed25519,
-        'publicKey',
-        'registration NEAR provisioning response.ed25519',
-      ),
-      ecdsaKeys,
-    },
-  };
-}
-
-function parseAuthenticatedOwnerSnapshot(
-  raw: unknown,
-  routerOrigin: string,
-): AuthenticatedOwnerSnapshot {
-  const response = requireRecord(raw, 'sync-account response');
-  const ecdsaCustody = requireRecord(response.ecdsaCustody, 'sync-account response.ecdsaCustody');
-  if (!Array.isArray(ecdsaCustody.signers) || ecdsaCustody.signers.length === 0) {
-    throw new Error('sync-account response.ecdsaCustody.signers must contain a signer');
-  }
-  const ecdsaKeys = [...new Set(ecdsaCustody.signers.map(parseEcdsaPublicIdentity))];
-  ecdsaKeys.sort();
-  if (response.unlocked === true) {
-    const walletCustody = requireRecord(
-      response.walletCustody,
-      'wallet unlock response.walletCustody',
-    );
-    const ed25519 = requireRecord(
-      walletCustody.ed25519,
-      'wallet unlock response.walletCustody.ed25519',
-    );
-    if (ed25519.kind !== 'active') {
-      throw new Error('wallet unlock response.walletCustody.ed25519 must be active');
-    }
-    const envelope = requireRecord(
-      walletCustody.envelope,
-      'wallet unlock response.walletCustody.envelope',
-    );
-    const factor = requireRecord(
-      envelope.factor,
-      'wallet unlock response.walletCustody.envelope.factor',
-    );
-    if (factor.kind !== 'passkey') {
-      throw new Error('wallet unlock response.walletCustody.envelope.factor must be a passkey');
-    }
-    return {
-      credentialIdB64u: requireStringField(
-        factor,
-        'credentialIdB64u',
-        'wallet unlock response.walletCustody.envelope.factor',
-      ),
-      routerOrigin,
-      rpId: requireStringField(
-        factor,
-        'rpId',
-        'wallet unlock response.walletCustody.envelope.factor',
-      ),
-      publicIdentity: {
-        walletId: requireStringField(response, 'userId', 'wallet unlock response'),
-        nearAccountId: requireStringField(
-          ed25519,
-          'nearAccountId',
-          'wallet unlock response.walletCustody.ed25519',
-        ),
-        nearPublicKey: requireStringField(
-          ed25519,
-          'publicKey',
-          'wallet unlock response.walletCustody.ed25519',
-        ),
-        ecdsaKeys,
-      },
-    };
-  }
-  return {
-    credentialIdB64u: requireStringField(response, 'credentialIdB64u', 'sync-account response'),
-    routerOrigin,
-    rpId: requireStringField(response, 'rpId', 'sync-account response'),
-    publicIdentity: {
-      walletId: requireStringField(response, 'walletId', 'sync-account response'),
-      nearAccountId: requireStringField(response, 'nearAccountId', 'sync-account response'),
-      nearPublicKey: requireStringField(response, 'publicKey', 'sync-account response'),
-      ecdsaKeys,
-    },
+    nearPublicKey: requireStringField(
+      ed25519,
+      'publicKey',
+      'registration NEAR provisioning response.ed25519',
+    ),
+    ecdsaKeys,
   };
 }
 
@@ -358,11 +307,36 @@ function encodeArcGreetingResult(value: string): `0x${string}` {
     .padStart(64, '0')}${paddedValueHex}`;
 }
 
-function encodeArcSetGreetingInput(value: string): `0x${string}` {
-  return `0xa4136862${encodeArcGreetingResult(value).slice(2)}`;
+function decodeArcSetGreetingInput(input: Hex): string {
+  if (!input.startsWith('0xa4136862')) {
+    throw new Error('Arc signed transaction does not call setGreeting(string)');
+  }
+  const encoded = input.slice(10);
+  if (encoded.length < 128) {
+    throw new Error('Arc setGreeting calldata is truncated');
+  }
+  const byteLength = Number(BigInt(`0x${encoded.slice(64, 128)}`));
+  const valueHex = encoded.slice(128, 128 + byteLength * 2);
+  if (valueHex.length !== byteLength * 2) {
+    throw new Error('Arc setGreeting string payload is truncated');
+  }
+  return Buffer.from(valueHex, 'hex').toString('utf8');
 }
 
-function arcRpcResult(method: string): unknown {
+function captureArcSignedTransaction(params: unknown): void {
+  if (!Array.isArray(params) || typeof params[0] !== 'string') {
+    throw new Error('Arc eth_sendRawTransaction requires a serialized transaction');
+  }
+  const transaction = parseTransaction(params[0] as Hex);
+  if (!transaction.data || !transaction.to) {
+    throw new Error('Arc signed transaction is missing its destination or calldata');
+  }
+  arcState.transactionInput = transaction.data;
+  arcState.transactionTo = transaction.to;
+  arcState.greeting = decodeArcSetGreetingInput(transaction.data);
+}
+
+function arcRpcResult(method: string, params: unknown): unknown {
   switch (method) {
     case 'eth_call':
       return encodeArcGreetingResult(arcState.greeting);
@@ -384,7 +358,7 @@ function arcRpcResult(method: string): unknown {
     case 'eth_gasPrice':
       return '0x3b9aca00';
     case 'eth_sendRawTransaction':
-      arcState.greeting = arcState.pendingGreeting;
+      captureArcSignedTransaction(params);
       return arcStubTransactionHash;
     case 'eth_getTransactionReceipt':
       return {
@@ -393,7 +367,7 @@ function arcRpcResult(method: string): unknown {
         blockHash: arcStubBlockHash,
         blockNumber: '0x10',
         from: '0x1111111111111111111111111111111111111111',
-        to: arcGreetingContract,
+        to: arcState.transactionTo,
         cumulativeGasUsed: '0x30d40',
         gasUsed: '0x30d40',
         effectiveGasPrice: '0x3b9aca00',
@@ -411,7 +385,7 @@ function arcRpcResult(method: string): unknown {
         blockNumber: '0x10',
         transactionIndex: '0x0',
         from: '0x1111111111111111111111111111111111111111',
-        to: arcGreetingContract,
+        to: arcState.transactionTo,
         value: '0x0',
         gas: '0x30d40',
         maxFeePerGas: '0x9502f9000',
@@ -429,7 +403,7 @@ async function fulfillArcRpc(route: Route): Promise<void> {
   const parsed: unknown = JSON.parse(raw);
   const request = isRecord(parsed) ? parsed : {};
   const method = String(request.method || '');
-  const result = arcRpcResult(method);
+  const result = arcRpcResult(method, request.params);
   await route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -676,9 +650,9 @@ async function assertOwnerProfileRows(page: Page): Promise<Locator> {
   const menu = await openProfileMenu(page);
   for (const label of LINKED_DEVICE_PROFILE_ROWS) {
     const row = menu.getByRole('button', { name: new RegExp(`^${label}\\b`) });
-    await expect(row).toHaveCount(1);
-    await expect(row).toBeVisible();
-    await expect(row).toBeEnabled();
+    await expect(row).toHaveCount(1, { timeout: 30_000 });
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await expect(row).toBeEnabled({ timeout: 30_000 });
   }
   return menu;
 }
@@ -746,15 +720,15 @@ async function completeVisibleEmailOtpPrompt(input: {
   readonly context: BrowserContext;
   readonly walletId: string;
 }): Promise<boolean> {
-  for (const frame of input.page.frames()) {
-    const otpInput = frame
-      .locator(
-        '#email-otp-confirm-code, #drawer-email-otp-confirm-code, #w3a-auth-menu-google-otp, input[aria-label="Email verification code"]',
-      )
-      .first();
-    if (!(await otpInput.isVisible().catch(() => false))) continue;
-    if (!(await otpInput.isEnabled().catch(() => false))) continue;
-    const promptWalletIdentity = frame.locator('.w3a-otp-account-value');
+  const wallet = await walletFrame(input.page);
+  const otpInput = wallet
+    .locator(
+      '#email-otp-confirm-code, #drawer-email-otp-confirm-code, #w3a-auth-menu-google-otp, input[aria-label="Email verification code"]',
+    )
+    .first();
+  if (await otpInput.isVisible().catch(() => false)) {
+    if (!(await otpInput.isEnabled().catch(() => false))) return false;
+    const promptWalletIdentity = wallet.locator('.w3a-otp-account-value');
     const promptWalletId = String(
       (await promptWalletIdentity.isVisible().catch(() => false))
         ? await promptWalletIdentity.textContent().catch(() => null)
@@ -762,12 +736,14 @@ async function completeVisibleEmailOtpPrompt(input: {
     ).trim();
     const walletId = promptWalletId || input.walletId;
     if (!walletId) throw new Error('Email OTP prompt does not expose its wallet identity');
+    const challengeId = await otpInput.evaluate(readEmailOtpPromptChallengeId);
     const otpCode = await readEmailOtpOutboxCode({
       context: input.context,
       walletId,
+      ...(challengeId ? { challengeId } : {}),
     });
     await otpInput.fill(otpCode);
-    const submit = frame
+    const submit = wallet
       .locator(
         '[data-auth-menu-primary], #w3a-confirm-portal button.btn-confirm, #w3a-confirm-portal button.confirm',
       )
@@ -775,22 +751,31 @@ async function completeVisibleEmailOtpPrompt(input: {
     if (await submit.isEnabled().catch(() => false)) await submit.click();
     return true;
   }
-  for (const frame of input.page.frames()) {
-    const emailView = frame.locator('.w3a-otp-prompt');
-    const emailPrimary = (await emailView.isVisible().catch(() => false))
-      ? ', [data-auth-menu-primary]'
-      : '';
-    const start = frame
-      .locator(
-        `[data-seams-registration-activation-start="true"], #w3a-confirm-portal button.btn-confirm, #w3a-confirm-portal button.confirm${emailPrimary}`,
-      )
-      .first();
-    if (!(await start.isVisible().catch(() => false))) continue;
-    if (!(await start.isEnabled().catch(() => false))) continue;
-    await start.click();
-    return true;
+  const emailView = wallet.locator('.w3a-otp-prompt');
+  const startSelector = (await emailView.isVisible().catch(() => false))
+    ? '[data-auth-menu-primary]'
+    : '[data-seams-registration-activation-start="true"], #w3a-confirm-portal button.btn-confirm, #w3a-confirm-portal button.confirm';
+  const start = wallet.locator(startSelector).first();
+  if (!(await start.isVisible().catch(() => false))) return false;
+  if (!(await start.isEnabled().catch(() => false))) return false;
+  await start.click();
+  return true;
+}
+
+function readEmailOtpPromptChallengeId(anchor: Element): string | null {
+  const roots: Array<Document | ShadowRoot> = [anchor.ownerDocument];
+  for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
+    const root = roots[rootIndex];
+    for (const element of Array.from(root.querySelectorAll('*'))) {
+      const prompt = element as HTMLElement & {
+        emailOtpPrompt?: { readonly challengeId?: unknown };
+      };
+      const challengeId = String(prompt.emailOtpPrompt?.challengeId || '').trim();
+      if (challengeId) return challengeId;
+      if (element.shadowRoot) roots.push(element.shadowRoot);
+    }
   }
-  return false;
+  return null;
 }
 
 async function readVisibleHostedAuthFailure(page: Page): Promise<string | null> {
@@ -818,21 +803,19 @@ async function completeEmailOtpPromptsUntil<T>(input: {
     (value) => ({ kind: 'resolved' as const, value }),
     (error: unknown) => ({ kind: 'rejected' as const, error }),
   );
-  let taskDone = false;
-  void settled.then(() => {
-    taskDone = true;
-  });
   const deadline = Date.now() + 180_000;
-  while (!taskDone && Date.now() < deadline) {
-    await completeVisibleEmailOtpPrompt(input);
+  while (Date.now() < deadline) {
+    const step = await Promise.race([
+      settled,
+      completeVisibleEmailOtpPrompt(input).then(() => ({ kind: 'prompt_handled' as const })),
+    ]);
+    if (step.kind === 'resolved') return step.value;
+    if (step.kind === 'rejected') throw step.error;
     const failure = await readVisibleHostedAuthFailure(input.page);
     if (failure) throw new Error(`Hosted Email OTP authentication failed: ${failure}`);
     await input.page.waitForTimeout(200);
   }
-  if (!taskDone) throw new Error('Email OTP authenticated operation did not complete');
-  const outcome = await settled;
-  if (outcome.kind === 'rejected') throw outcome.error;
-  return outcome.value;
+  throw new Error('Email OTP authenticated operation did not complete');
 }
 
 async function authenticateEmailOtpInHostedMenu(input: {
@@ -848,7 +831,7 @@ async function authenticateEmailOtpInHostedMenu(input: {
   if (await switchMode.isVisible()) await switchMode.click();
   await google.waitFor({ state: 'visible', timeout: 30_000 });
   const authenticated = input.page
-    .locator('.w3a-profile-button-morphable')
+    .getByRole('tab', { name: 'Tempo', exact: true })
     .waitFor({ state: 'visible', timeout: 180_000 });
   await google.click();
   await completeEmailOtpPromptsUntil({
@@ -876,60 +859,39 @@ async function registerEmailOwner(
 ): Promise<WalletPublicIdentity> {
   emailLinkedDeviceStage('registering owner');
   await openWallet(page);
-  await authenticateEmailOtpInHostedMenu({ page, context, mode: 'login', walletId: '' });
-  const walletId = await readActiveWalletId(page);
-  const emailOtp = { context, walletId } as const;
-  emailLinkedDeviceStage('exporting owner NEAR key');
-  const near = await exportOwnerKey(page, 'near', [], emailOtp);
-  emailLinkedDeviceStage('exporting owner EVM keys');
-  const evm = await exportOwnerKey(page, 'evm', [], emailOtp);
-  const nearPublicKeys = near.entries.map((entry) => entry.publicKey);
-  if (nearPublicKeys.length !== 1) {
-    throw new Error(`Email owner NEAR export returned ${nearPublicKeys.length} keys`);
+  const activated = page.waitForResponse(isRegistrationActivateResponse, { timeout: 120_000 });
+  const nearProvisioned = page.waitForResponse(isRegistrationNearProvisioningResponse, {
+    timeout: 120_000,
+  });
+  await authenticateEmailOtpInHostedMenu({ page, context, mode: 'register', walletId: '' });
+  const [activateResponse, nearResponse] = await Promise.all([activated, nearProvisioned]);
+  if (!activateResponse.ok() || !nearResponse.ok()) {
+    throw new Error(
+      `Email owner registration identity responses failed (${activateResponse.status()}, ${nearResponse.status()})`,
+    );
   }
-  const identity: WalletPublicIdentity = {
-    walletId,
-    nearAccountId: near.accountId,
-    nearPublicKey: nearPublicKeys[0],
-    ecdsaKeys: evm.entries
-      .map((entry) => `${entry.publicKey.toLowerCase()}:${entry.address.toLowerCase()}`)
-      .sort(),
-  };
+  const identity = parseRegisteredWalletPublicIdentity(
+    await activateResponse.json(),
+    await nearResponse.json(),
+  );
+  if ((await readActiveWalletId(page)) !== identity.walletId) {
+    throw new Error('Email owner registration activated a different wallet');
+  }
   emailLinkedDeviceStage('owner registered');
   return identity;
 }
 
-function isWalletAuthenticationVerifyResponse(response: Response): boolean {
-  return (
-    response.request().method() === 'POST' &&
-    ['/sync-account/verify', '/wallet/unlock/verify'].includes(new URL(response.url()).pathname)
-  );
-}
-
-async function unlockPasskeyWallet(
+async function unlockLinkedPasskeyWallet(
   page: Page,
   diagnostics: readonly string[],
-): Promise<AuthenticatedOwnerSnapshot> {
+): Promise<void> {
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   const switchToLogin = wallet.locator('button[data-auth-menu-mode="login"]');
   await unlock.or(switchToLogin).first().waitFor({ state: 'visible', timeout: 30_000 });
   if (await switchToLogin.isVisible()) await switchToLogin.click();
   await unlock.waitFor({ state: 'visible', timeout: 30_000 });
-  const verified = page.waitForResponse(isWalletAuthenticationVerifyResponse, {
-    timeout: 90_000,
-  });
   await unlock.click();
-  const response = await verified;
-  if (!response.ok()) {
-    throw new Error(
-      `Linked owner unlock failed (${response.status()}): ${await response.text()}\n${diagnostics.join('\n')}`,
-    );
-  }
-  const snapshot = parseAuthenticatedOwnerSnapshot(
-    await response.json(),
-    new URL(response.url()).origin,
-  );
   try {
     await page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
       state: 'visible',
@@ -940,7 +902,39 @@ async function unlockPasskeyWallet(
       cause: error,
     });
   }
-  return snapshot;
+}
+
+function credentialIdB64uFromAddedEvent(raw: unknown): string {
+  const event = requireRecord(raw, 'WebAuthn credential-added event');
+  const credential = requireRecord(event.credential, 'WebAuthn credential-added event.credential');
+  return Buffer.from(
+    requireStringField(
+      credential,
+      'credentialId',
+      'WebAuthn credential-added event.credential',
+    ),
+    'base64',
+  ).toString('base64url');
+}
+
+async function waitForLinkedDeviceActive(
+  page: Page,
+  diagnostics: readonly string[],
+  ownerDiagnostics: readonly string[],
+): Promise<void> {
+  try {
+    await page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
+      state: 'visible',
+      timeout: 180_000,
+    });
+  } catch (error) {
+    throw new Error(
+      `Linked device did not become active\n${diagnostics.join('\n')}\n${ownerDiagnostics.join('\n')}`,
+      {
+        cause: error,
+      },
+    );
+  }
 }
 
 async function confirmWalletSigning(page: Page): Promise<void> {
@@ -1016,14 +1010,15 @@ async function linkedSigning(
     await expect(tempoFunding).toBeEnabled({ timeout: 120_000 });
     const fundingSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
     await tempoFunding.click();
-    const finishFunding = async (): Promise<void> => {
+    if (emailOtp) {
+      await completeEmailOtpPromptsUntil({
+        page,
+        ...emailOtp,
+        task: requireSuccessfulRouterResponse(fundingSigned, diagnostics),
+      });
+    } else {
       await confirmWalletSigning(page);
       await requireSuccessfulRouterResponse(fundingSigned, diagnostics);
-    };
-    if (emailOtp) {
-      await completeEmailOtpPromptsUntil({ page, ...emailOtp, task: finishFunding() });
-    } else {
-      await finishFunding();
     }
     await expect(tempoFunding).toHaveText('Tempo Account Funded', { timeout: 180_000 });
     await expect(tempoFunding).toBeDisabled();
@@ -1034,14 +1029,15 @@ async function linkedSigning(
   await expect(tempoSign).toBeEnabled({ timeout: 120_000 });
   const tempoSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
   await tempoSign.click();
-  const finishSigning = async (): Promise<void> => {
+  if (emailOtp) {
+    await completeEmailOtpPromptsUntil({
+      page,
+      ...emailOtp,
+      task: requireSuccessfulRouterResponse(tempoSigned, diagnostics),
+    });
+  } else {
     await confirmWalletSigning(page);
     await requireSuccessfulRouterResponse(tempoSigned, diagnostics);
-  };
-  if (emailOtp) {
-    await completeEmailOtpPromptsUntil({ page, ...emailOtp, task: finishSigning() });
-  } else {
-    await finishSigning();
   }
 }
 
@@ -1072,14 +1068,15 @@ async function greetingSigning(
     { timeout: 180_000 },
   );
   await sign.click();
-  const finishSigning = async (): Promise<void> => {
+  if (emailOtp) {
+    await completeEmailOtpPromptsUntil({
+      page,
+      ...emailOtp,
+      task: requireSuccessfulRouterResponse(signed, diagnostics),
+    });
+  } else {
     await confirmWalletSigning(page);
     await requireSuccessfulRouterResponse(signed, diagnostics);
-  };
-  if (emailOtp) {
-    await completeEmailOtpPromptsUntil({ page, ...emailOtp, task: finishSigning() });
-  } else {
-    await finishSigning();
   }
 }
 
@@ -1138,11 +1135,53 @@ function isRevokedWalletUnlockResponse(response: Response): boolean {
   );
 }
 
-function isEcdsaExportResponse(response: Response): boolean {
+function isRevokedLinkedSessionSealResponse(response: Response): boolean {
   return (
     response.request().method() === 'POST' &&
-    new URL(response.url()).pathname === '/router-ab/ecdsa-derivation/export'
+    new URL(response.url()).pathname === '/wallet-session/seal/apply-server-seal' &&
+    !response.ok()
   );
+}
+
+function isRevokedOwnerUnlockResponse(response: Response): boolean {
+  return isRevokedWalletUnlockResponse(response) || isRevokedLinkedSessionSealResponse(response);
+}
+
+function isEcdsaExportResponse(response: Response): boolean {
+  const pathname = new URL(response.url()).pathname;
+  return (
+    response.request().method() === 'POST' &&
+    (pathname === '/router-ab/ecdsa-derivation/export' ||
+      pathname === '/router-ab/ecdsa-derivation/linked-device/export/share')
+  );
+}
+
+function emailOtpRequestOperation(response: Response): string | null {
+  try {
+    const body: unknown = response.request().postDataJSON();
+    return isRecord(body) ? String(body.operation || '').trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+function isEmailOtpExportAuthorizationResponse(
+  response: Response,
+  pathname: '/wallet/email-otp/challenge' | '/wallet/email-otp/factor-release',
+): boolean {
+  return (
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === pathname &&
+    emailOtpRequestOperation(response) === 'export_key'
+  );
+}
+
+function isEmailOtpExportChallengeResponse(response: Response): boolean {
+  return isEmailOtpExportAuthorizationResponse(response, '/wallet/email-otp/challenge');
+}
+
+function isEmailOtpExportFactorReleaseResponse(response: Response): boolean {
+  return isEmailOtpExportAuthorizationResponse(response, '/wallet/email-otp/factor-release');
 }
 
 function isEd25519ExportResponse(response: Response): boolean {
@@ -1150,6 +1189,86 @@ function isEd25519ExportResponse(response: Response): boolean {
     response.request().method() === 'POST' &&
     new URL(response.url()).pathname === '/router-ab/ed25519/yao/export/execute'
   );
+}
+
+function terminalKeyExportDiagnostic(message: ConsoleMessage): string | null {
+  if (message.type() !== 'error') return null;
+  const text = message.text().replace(/\s+/g, ' ').trim();
+  const prefix = '[AccountMenuButton] Key export failed:';
+  if (!text.startsWith(prefix)) return null;
+  const diagnostic = text.slice(prefix.length).trim();
+  return diagnostic || null;
+}
+
+function isTerminalKeyExportFailure(message: ConsoleMessage): boolean {
+  return terminalKeyExportDiagnostic(message) !== null;
+}
+
+function exportResponseOutcome(response: Response): ExportWaitOutcome {
+  return { kind: 'response', response };
+}
+
+function exportTerminalFailureOutcome(message: ConsoleMessage): ExportWaitOutcome {
+  const diagnostic = terminalKeyExportDiagnostic(message);
+  if (!diagnostic) {
+    throw new Error('Terminal key-export console evidence did not include a diagnostic');
+  }
+  return { diagnostic, kind: 'terminal-failure' };
+}
+
+const keyExportWaitTimeoutMs = 60_000;
+
+async function requireEmailOtpExportAuthorization(page: Page): Promise<void> {
+  let challenge: Response;
+  let factorRelease: Response;
+  try {
+    [challenge, factorRelease] = await Promise.all([
+      page.waitForResponse(isEmailOtpExportChallengeResponse, {
+        timeout: keyExportWaitTimeoutMs,
+      }),
+      page.waitForResponse(isEmailOtpExportFactorReleaseResponse, {
+        timeout: keyExportWaitTimeoutMs,
+      }),
+    ]);
+  } catch (error: unknown) {
+    throw new Error(
+      'Email OTP key export did not perform a fresh export_key challenge and factor release',
+      { cause: error },
+    );
+  }
+  expect(challenge.ok(), 'Email OTP export challenge failed').toBe(true);
+  expect(factorRelease.ok(), 'Email OTP export factor release failed').toBe(true);
+}
+
+async function waitForExportResponseOrFailure(
+  page: Page,
+  chain: 'near' | 'evm',
+  diagnostics: readonly string[],
+): Promise<void> {
+  let outcome: ExportWaitOutcome;
+  try {
+    outcome = await Promise.race([
+      page
+        .waitForResponse(chain === 'near' ? isEd25519ExportResponse : isEcdsaExportResponse, {
+          timeout: keyExportWaitTimeoutMs,
+        })
+        .then(exportResponseOutcome),
+      page
+        .waitForEvent('console', {
+          predicate: isTerminalKeyExportFailure,
+          timeout: keyExportWaitTimeoutMs,
+        })
+        .then(exportTerminalFailureOutcome),
+    ]);
+  } catch (error: unknown) {
+    throw new Error(`Key export did not reach Router finalization. ${diagnostics.join('\n')}`, {
+      cause: error,
+    });
+  }
+  if (outcome.kind === 'terminal-failure') {
+    throw new Error(`Key export failed: ${outcome.diagnostic}`);
+  }
+  await requireSuccessfulRouterResponse(Promise.resolve(outcome.response), diagnostics);
 }
 
 async function findExportViewerFrame(page: Page): Promise<Frame> {
@@ -1207,14 +1326,14 @@ async function exportOwnerKey(
   }
   await expect(exportRow).toBeVisible();
   await expect(exportRow).toBeEnabled();
-  const exported = page.waitForResponse(
-    chain === 'near' ? isEd25519ExportResponse : isEcdsaExportResponse,
-    { timeout: 180_000 },
-  );
+  const finishExport = waitForExportResponseOrFailure(page, chain, diagnostics);
+  const exportAuthorization = emailOtp ? requireEmailOtpExportAuthorization(page) : null;
   await exportRow.click();
-  const finishExport = requireSuccessfulRouterResponse(exported, diagnostics);
   if (emailOtp) {
-    await completeEmailOtpPromptsUntil({ page, ...emailOtp, task: finishExport });
+    await Promise.all([
+      completeEmailOtpPromptsUntil({ page, ...emailOtp, task: finishExport }),
+      exportAuthorization,
+    ]);
   } else {
     await finishExport;
   }
@@ -1350,34 +1469,58 @@ async function assertRevokedOwnerCannotUnlock(page: Page): Promise<void> {
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   await unlock.waitFor({ state: 'visible', timeout: 30_000 });
-  const rejected = page.waitForResponse(isRevokedWalletUnlockResponse, {
-    timeout: 90_000,
-  });
+  const rejected = page.waitForResponse(isRevokedOwnerUnlockResponse, { timeout: 30_000 });
   await unlock.click();
   const response = await rejected;
-  const failure = requireRecord(await response.json(), 'revoked owner wallet unlock response');
-  expect(failure).toMatchObject({
-    ok: false,
-    code: 'custody_envelope_unavailable',
-    message: 'Passkey wallet custody is unavailable',
-  });
+  if (isRevokedWalletUnlockResponse(response)) {
+    const failure = requireRecord(await response.json(), 'revoked owner wallet unlock response');
+    expect(failure).toMatchObject({
+      ok: false,
+      code: 'custody_envelope_unavailable',
+      message: 'Passkey wallet custody is unavailable',
+    });
+  } else {
+    expect(response.ok()).toBe(false);
+  }
   await expect(page.locator('.w3a-profile-button-morphable')).toBeHidden();
   await expect(unlock).toBeVisible();
 }
 
-async function revokeLinkedEmailDeviceFromUi(page: Page): Promise<void> {
+async function openLinkedDevicesDialog(page: Page): Promise<Locator> {
   const menu = await openProfileMenu(page);
+  const inventoryResponse = page.waitForResponse(isLinkedDeviceInventoryResponse, {
+    timeout: 60_000,
+  });
   await menu.getByRole('button', { name: /^Linked Devices\b/ }).click();
+  const inventory = await inventoryResponse;
+  const inventoryBody = await inventory.text();
+  expect(
+    inventory.status(),
+    `Linked-devices inventory GET failed: ${inventoryBody}`,
+  ).toBe(200);
   const dialog = page.getByRole('dialog', { name: 'Your devices', exact: true });
   await dialog.waitFor({ state: 'visible', timeout: 30_000 });
-  /* Inventory metadata: the founding Email OTP owner plus the one linked
-     email enrollment, both currently able to use the wallet — and only the
-     linked enrollment is removable here. */
+  return dialog;
+}
+
+async function assertLinkedDeviceInventoryLoaded(page: Page): Promise<void> {
+  const dialog = await openLinkedDevicesDialog(page);
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
-  await expect(cards).toHaveCount(2, { timeout: 60_000 });
-  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(2);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(2);
+  await expect(cards).toHaveCount(1, { timeout: 60_000 });
+  await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(1);
+  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
+  await dialog.locator('.w3a-linked-devices-modal-close').click();
+  await expect(dialog).toBeHidden({ timeout: 10_000 });
+}
+
+async function revokeLinkedEmailDeviceFromUi(page: Page): Promise<void> {
+  const dialog = await openLinkedDevicesDialog(page);
+  /* Email OTP is an account factor rather than a device identity. The device
+     inventory therefore contains only the durable linked enrollment. */
+  const cards = dialog.locator('.w3a-linked-devices-modal-item');
+  await expect(cards).toHaveCount(1, { timeout: 60_000 });
+  await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(1);
+  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
   const remove = dialog.getByRole('button', {
     name: /^Remove Device \d+, Email OTP \(ID /,
   });
@@ -1387,11 +1530,8 @@ async function revokeLinkedEmailDeviceFromUi(page: Page): Promise<void> {
   await expect(dialog.getByRole('status')).toContainText('can no longer use this wallet', {
     timeout: 60_000,
   });
-  /* The reloaded list keeps only the founding owner; the revoked enrollment
-     is history, not a device. The base Email OTP factor stays active. */
-  await expect(cards).toHaveCount(1, { timeout: 60_000 });
-  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
+  await expect(cards).toHaveCount(0, { timeout: 60_000 });
+  await expect(dialog).toContainText('No other devices are using this wallet.');
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
 }
@@ -1401,6 +1541,65 @@ function isLinkedDeviceEmailOtpChallengeResponse(response: Response): boolean {
     response.request().method() === 'POST' &&
     new URL(response.url()).pathname.endsWith('/email-otp/challenge')
   );
+}
+
+function isLinkedDeviceInventoryResponse(response: Response): boolean {
+  return (
+    response.request().method() === 'GET' &&
+    new URL(response.url()).pathname === '/wallet/device-linking/v1/devices'
+  );
+}
+
+function isLinkedDeviceActionResponse(
+  response: Response,
+  action: string,
+  method: 'GET' | 'POST',
+): boolean {
+  return (
+    response.request().method() === method &&
+    response.status() === 200 &&
+    new URL(response.url()).pathname.endsWith(`/${action}`)
+  );
+}
+
+function isLinkedDeviceOwnerApprovalResponse(response: Response): boolean {
+  return isLinkedDeviceActionResponse(response, 'approval', 'POST');
+}
+
+function isLinkedDeviceTargetPreparationResponse(response: Response): boolean {
+  return isLinkedDeviceActionResponse(response, 'target-preparation', 'GET');
+}
+
+function isLinkedDeviceEmailOtpVerificationResponse(response: Response): boolean {
+  return isLinkedDeviceActionResponse(response, 'email-otp/challenge/verify', 'POST');
+}
+
+function isLinkedDevicePreparedDeliveriesResponse(response: Response): boolean {
+  return isLinkedDeviceActionResponse(response, 'prepared-deliveries', 'POST');
+}
+
+function isLinkedDeviceSessionProjectionResponse(response: Response): boolean {
+  const pathname = new URL(response.url()).pathname;
+  const prefix = '/wallet/device-linking/v1/sessions/';
+  const suffix = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : '';
+  return (
+    response.request().method() === 'GET' &&
+    response.status() === 200 &&
+    suffix.length > 0 &&
+    !suffix.includes('/')
+  );
+}
+
+async function isActiveLinkedDeviceSessionResponse(response: Response): Promise<boolean> {
+  if (!isLinkedDeviceSessionProjectionResponse(response)) return false;
+  try {
+    const envelope = requireRecord(await response.json(), 'linked-device session response');
+    return (
+      parseLinkedDeviceSessionProjectionV1(envelope.session).state.state === 'active'
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** The QR v5 create request carries the factor choice; find its discriminator. */
@@ -1430,6 +1629,8 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
   await ownerContext.route(/https:\/\/[^/]*arc\.network\//, fulfillArcRpc);
   await device2Context.route(/https:\/\/[^/]*(?:near\.org|fastnear\.com)\//, fulfillNearRpc);
   await device2Context.route(/https:\/\/[^/]*arc\.network\//, fulfillArcRpc);
+  await ownerContext.addInitScript(enableSigningSessionDiagnostics);
+  await device2Context.addInitScript(enableSigningSessionDiagnostics);
   await ownerContext.addInitScript(installGoogleIdentityStub, requireGoogleIdToken());
   await device2Context.addInitScript(installGoogleIdentityStub, requireGoogleIdToken());
   const ownerPage = await ownerContext.newPage();
@@ -1499,9 +1700,10 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     });
     device2Page.on('console', (message) => {
       const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
+      if (text.includes('[SigningLanes][active-ecdsa')) console.log(text);
       if (
         message.type() === 'error' ||
-        /linked-device|WalletSession|email|otp|bridge/i.test(text)
+        /Device[12]Linking|linked-device|WalletSession|email|otp|bridge/i.test(text)
       ) {
         const diagnostic = `[device2:${message.type()}] ${text}`;
         device2Diagnostics.push(diagnostic);
@@ -1532,6 +1734,23 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     /* The email factor was chosen before the QR existed: the session-create
        request itself carries the discriminator. */
     expect(findTargetFactorKind(createdResponse.request().postDataJSON())).toBe('email_otp');
+    const ownerApproval = ownerPage.waitForResponse(isLinkedDeviceOwnerApprovalResponse, {
+      timeout: 180_000,
+    });
+    const targetPreparation = device2Page.waitForResponse(isLinkedDeviceTargetPreparationResponse, {
+      timeout: 180_000,
+    });
+    const emailOtpVerification = device2Page.waitForResponse(
+      isLinkedDeviceEmailOtpVerificationResponse,
+      { timeout: 180_000 },
+    );
+    const preparedDeliveries = ownerPage.waitForResponse(
+      isLinkedDevicePreparedDeliveriesResponse,
+      { timeout: 180_000 },
+    );
+    const activeSession = device2Page.waitForResponse(isActiveLinkedDeviceSessionResponse, {
+      timeout: 240_000,
+    });
     const claimed = ownerPage.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
@@ -1546,12 +1765,6 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
         response.status() === 200 &&
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith('/credential'),
-      { timeout: 180_000 },
-    );
-    const device2Cancellation = device2Page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname.endsWith('/cancel'),
       { timeout: 180_000 },
     );
     await openOwnerScanner(ownerPage, qrDataUrl);
@@ -1572,6 +1785,14 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
         `Email linked-device claim failed (${claimResponse.status()}): ${await claimResponse.text()}`,
       );
     }
+    const approvalResponse = await ownerApproval;
+    const approval = parseLinkedDeviceApprovalResultV1(await approvalResponse.json());
+    expect(approval.outcome).toBe('pending');
+    if (approval.outcome !== 'pending' || approval.state.state !== 'awaiting_target_factor') {
+      throw new Error('Email linked-device approval did not persist an awaiting target factor');
+    }
+    expect(approval.state.walletId).toBe(publicIdentity.walletId);
+    expect(approval.state.targetFactor.kind).toBe('email_otp');
 
     const challengeResponse = await emailChallenge;
     emailLinkedDeviceStage('Device 2 received Email OTP challenge');
@@ -1591,6 +1812,16 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     );
     /* The challenge names the base enrollment it protects. */
     requireStringField(challenge, 'maskedEmailHint', 'Email linked-device challenge response');
+    const preparationResponse = await targetPreparation;
+    const preparation = parseLinkedDeviceTargetPreparationV1(
+      await preparationResponse.json(),
+    );
+    expect(preparation.walletId).toBe(publicIdentity.walletId);
+    expect(preparation.targetFactor.kind).toBe('email_otp');
+    expect(preparation.ownerEnrollment.kind).toBe(
+      'linked_device_email_otp_owner_enrollment_v1',
+    );
+    expect(preparation.orderedChildren.length).toBeGreaterThan(0);
     const device2Wallet = await walletFrame(device2Page);
     const otpInput = device2Wallet.getByRole('textbox', { name: 'Email verification code' });
     await otpInput.waitFor({ state: 'visible', timeout: 120_000 });
@@ -1600,14 +1831,19 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
       challengeId,
     });
     await otpInput.fill(otpCode);
-    const credentialCommitted = await Promise.race([
-      targetCredentialCommit,
-      device2Cancellation.then(async (response) => {
-        throw new Error(
-          `Device 2 cancelled Email linking at ${device2Page.url()} (${response.status()}): ${await response.text()}\n${device2Diagnostics.join('\n')}`,
-        );
-      }),
-    ]);
+    const verificationResponse = await emailOtpVerification;
+    if (!verificationResponse.ok()) {
+      throw new Error(
+        `Email linked-device OTP verification failed (${verificationResponse.status()}): ${await verificationResponse.text()}`,
+      );
+    }
+    const verification = parseLinkedDeviceEmailOtpVerificationResultV1(
+      await verificationResponse.json(),
+    );
+    expect(verification.verificationGrant.challengeId).toBe(challengeId);
+    expect(verification.verificationGrant.walletId).toBe(publicIdentity.walletId);
+    expect(verification.factorRelease.challengeId).toBe(challengeId);
+    const credentialCommitted = await targetCredentialCommit;
     emailLinkedDeviceStage('Device 2 submitted Email OTP');
     if (!credentialCommitted.ok()) {
       throw new Error(
@@ -1619,6 +1855,10 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     expect(emailChallengeStarts).toBe(1);
     expect(emailChallengeResends).toBe(0);
     expect(webauthnOperations).toEqual([]);
+    const preparedDeliveriesResponse = await preparedDeliveries;
+    expect(preparedDeliveriesResponse.ok()).toBe(true);
+    await activeSession;
+    await waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics);
     await device2Page.goto(`${appOrigin}/wallet`, { waitUntil: 'domcontentloaded' });
     await device2Page
       .locator('.w3a-profile-button-morphable')
@@ -1630,7 +1870,9 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     await lockActiveWallet(device2Page);
     emailLinkedDeviceStage('unlocking Device 2 after reload');
     await unlockEmailOtpWallet(device2Page, device2Context, publicIdentity.walletId);
+    emailLinkedDeviceStage('Device 2 unlock complete');
     await assertOwnerProfileRows(device2Page);
+    emailLinkedDeviceStage('Device 2 owner controls enabled');
     expect(await readActiveWalletId(device2Page)).toBe(publicIdentity.walletId);
     return {
       ownerContext,
@@ -1654,6 +1896,8 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
   await ownerContext.route(/https:\/\/[^/]*arc\.network\//, fulfillArcRpc);
   await device2Context.route(/https:\/\/[^/]*(?:near\.org|fastnear\.com)\//, fulfillNearRpc);
   await device2Context.route(/https:\/\/[^/]*arc\.network\//, fulfillArcRpc);
+  await ownerContext.addInitScript(enableSigningSessionDiagnostics);
+  await device2Context.addInitScript(enableSigningSessionDiagnostics);
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
   const ownerAuthenticator = await addVirtualAuthenticator(ownerPage);
@@ -1679,6 +1923,7 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
     });
     device2Page.on('console', (message) => {
       const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
+      if (text.includes('[SigningLanes][active-ecdsa')) console.log(text);
       if (
         message.type() === 'error' ||
         /linked-device|WalletSession|WebAuthn|bridge|passkey/i.test(text)
@@ -1765,15 +2010,21 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
     ).toHaveLength(0);
     expect(ownerCredentialAddedEvents.slice(ownerCredentialCreationsBeforeLinking)).toHaveLength(0);
     expect(device2CredentialAddedEvents).toHaveLength(1);
+    await waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics);
+    const expectedDevice2: AuthenticatedOwnerSnapshot = {
+      credentialIdB64u: credentialIdB64uFromAddedEvent(device2CredentialAddedEvents[0]),
+      publicIdentity: owner.publicIdentity,
+      routerOrigin: owner.routerOrigin,
+      rpId: owner.rpId,
+    };
     await device2Page.reload({ waitUntil: 'domcontentloaded' });
-    await unlockPasskeyWallet(device2Page, device2Diagnostics);
+    await unlockLinkedPasskeyWallet(device2Page, device2Diagnostics);
     await lockWallet(device2Page);
-    const authenticatedDevice2 = await unlockPasskeyWallet(device2Page, device2Diagnostics);
+    await unlockLinkedPasskeyWallet(device2Page, device2Diagnostics);
     await assertOwnerProfileRows(device2Page);
     const device2WalletId = await readActiveWalletId(device2Page);
     expect(device2WalletId).toBe(owner.publicIdentity.walletId);
-    expect(authenticatedDevice2.publicIdentity).toEqual(owner.publicIdentity);
-    const device2 = ownerCredentialSnapshot(authenticatedDevice2);
+    const device2 = ownerCredentialSnapshot(expectedDevice2);
     return {
       ownerContext,
       device2Context,
@@ -1836,6 +2087,7 @@ test('Email OTP owner links, restores, exports, signs, and revokes Device 2', as
     walletId: pair.publicIdentity.walletId,
   } as const;
   try {
+    await assertLinkedDeviceInventoryLoaded(pair.ownerPage);
     const device2Near = await exportOwnerKey(
       pair.device2Page,
       'near',
