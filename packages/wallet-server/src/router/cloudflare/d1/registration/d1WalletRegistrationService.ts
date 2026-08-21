@@ -4526,7 +4526,7 @@ export class CloudflareD1WalletRegistrationService {
               });
             }
             break;
-          case 'email_otp':
+          case 'email_otp': {
             if (!emailOtpEnrollment.persistence) {
               return {
                 ok: false,
@@ -4560,6 +4560,7 @@ export class CloudflareD1WalletRegistrationService {
               });
             }
             break;
+          }
         }
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
