@@ -477,6 +477,9 @@ const configs = [
       'src/core/indexedDB/index.ts',
       'src/core/accountData/near/keyMaterial.ts',
       'src/core/indexedDB/seamsWalletDB/repositories.ts',
+      // Keep recovery continuity internals stable for focused browser tests.
+      'src/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection.ts',
+      'src/SeamsWeb/operations/recovery/walletRecovery.ts',
       // Keep Email OTP device-local escrow store as a stable deep import for worker wiring/tests.
       // Keep sealed signing-session persistence stable for worker wiring/tests.
       'src/core/signingEngine/session/persistence/sealedSessionStore.ts',

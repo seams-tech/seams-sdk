@@ -5,56 +5,54 @@ import {
   type WalletId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
+import { buildRetiredEnvelopeLifecycle } from '@shared/passkey-custody';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthMethodId,
+  type WalletAuthMethodRecord,
+} from '../../../core/d1WalletAuthMethodStore';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { CloudflareD1WebAuthnStore } from '../../cloudflare/d1/webauthn/d1WebAuthnStore';
 import type { D1WalletStore } from '../../../core/d1WalletStore';
-import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
-import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../core/authService/webauthn';
 import type { WebAuthnCredentialBindingRecord } from '../../../core/WebAuthnCredentialBindingStore';
 import type { D1PreparedStatementLike } from '../../../storage/tenantRoute';
 import {
   consumeReservedRecoveryCode,
-  deriveWalletRecoveryKeyLifecycleId,
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
-import type { WalletRecoveryActivationVerification } from './walletRecoveryKeyManifest';
+import {
+  buildWalletRecoveryEcdsaPossessionChallengesV1,
+  resolveWalletRecoveryKeyManifestV1,
+  verifyWalletRecoveryKeyActivationsV1,
+} from './walletRecoveryKeyManifest';
+import type { WebAuthnRecoveryRegistrationChallengeRecord } from '../../cloudflare/d1/webauthn/d1WebAuthnRecords';
 
 /**
  * Promoting the replacement credential a recovery enrolled.
  *
- * **The order is the safety property.** The new envelope is created first and
- * the old ones retired only after it lands. Retiring first would leave a
- * window — and, if the create then failed, a permanent state — where the
- * wallet has no active envelope and no factor opens its custody seed. The
- * user would be holding a working recovery code they had just spent.
- *
- * So a failed create leaves the wallet exactly as it was: still openable by
- * the credential the user is trying to replace, which is the safe direction to
- * fail in. A failed retire leaves both credentials active, which is worth
- * reporting but is not a lockout — the old one can be revoked again.
- *
- * **Promotion is all-or-nothing across the key set.** The activation proof is
- * built from the server's current signer registry and exact recovery receipts.
- * A raw client outcome can never reach this function.
+ * Promotion installs the replacement credential and retires the source state
+ * in one guarded D1 transaction. The server rebuilds activation challenges
+ * from its current key manifest before that transaction is admitted.
  */
 
 export type WalletRecoveryFinalizationResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
-      /** Retired alongside the promotion. Empty is normal on a first recovery. */
-      readonly retiredEnvelopeIds: readonly string[];
-      /**
-       * Present when the new envelope landed but a retire did not. The wallet
-       * is recovered; an old credential still opens it and should be revoked.
-       */
-      readonly retireFailures?: readonly string[];
+      readonly credential: {
+        readonly credentialIdB64u: string;
+        readonly credentialPublicKeyB64u: string;
+        readonly counter: number;
+      };
     }
   | { readonly kind: 'refused'; readonly reason: string }
   | { readonly kind: 'conflict'; readonly reason: string }
@@ -76,18 +74,13 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly challengeId: string;
   readonly replacementId: string;
-  readonly replacedCredentialIdB64u: string;
   readonly webauthnRegistration: unknown;
   readonly expectedOrigin: string;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly walletStore: D1WalletStore;
-  readonly activationVerification: Extract<
-    WalletRecoveryActivationVerification,
-    { readonly kind: 'verified' }
-  >;
-  readonly ecdsaActivationReceipts: readonly {
+  readonly ecdsaMaterialPossessionProofs: readonly {
     readonly keySetId: string;
-    readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+    readonly proof: import('@shared/wallet-recovery/walletRecoveryEcdsaPossession').WalletRecoveryEcdsaPossessionProofV1;
   }[];
   readonly nowMs: number;
 }): Promise<WalletRecoveryFinalizationResult> {
@@ -111,7 +104,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     };
   }
 
-  const challenge = await input.webAuthnStore.readRecoveryRegistrationChallenge(input.challengeId);
+  const challenge = await input.webAuthnStore.readRecoveryRegistrationChallenge(
+    input.challengeId,
+    input.nowMs,
+  );
   if (!challenge) {
     const replay = await resolveCommittedRecoveryReplayV1({
       envelopeStore: input.envelopeStore,
@@ -121,8 +117,6 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       replacementId: input.replacementId,
       replacementEnvelope: input.replacementEnvelope,
       webAuthnStore: input.webAuthnStore,
-      walletStore: input.walletStore,
-      ecdsaActivationReceipts: input.ecdsaActivationReceipts,
     });
     if (replay.kind === 'promoted' || replay.kind === 'conflict') return replay;
     return {
@@ -130,14 +124,11 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: replay.reason,
     };
   }
-  if (input.activationVerification.keySetIds.length === 0) {
-    return { kind: 'refused', reason: 'wallet recovery verified no key capabilities' };
-  }
   if (
     challenge.walletId !== String(input.walletId) ||
     challenge.reservationId !== String(input.reservationId) ||
     challenge.replacementId !== input.replacementId ||
-    challenge.replacedCredentialIdB64u !== input.replacedCredentialIdB64u ||
+    challenge.origin !== input.expectedOrigin ||
     challenge.expiresAtMs <= input.nowMs
   ) {
     return {
@@ -145,6 +136,72 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: 'the replacement registration challenge is bound to another recovery',
     };
   }
+  const sourceAuthMethod = await sourceAuthMethodForChallenge({
+    walletCustodyCommits: input.walletCustodyCommits,
+    walletId,
+    challenge,
+  });
+  if (!sourceAuthMethod) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the wallet source passkey is no longer the active recovery authority',
+    };
+  }
+  const sourceAuthorityRef = await walletAuthAuthorityRef({
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId,
+      rpId: sourceAuthMethod.rpId,
+      credentialIdB64u: sourceAuthMethod.credentialIdB64u,
+    }),
+  });
+  if (sourceAuthorityRef.authorityDigest !== challenge.sourceAuthorityDigestB64u) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the recovery source authority changed',
+    };
+  }
+
+  let manifest;
+  try {
+    manifest = await resolveWalletRecoveryKeyManifestV1({
+      registry: input.walletStore,
+      walletId,
+    });
+  } catch (error: unknown) {
+    return {
+      kind: 'refused',
+      reason: error instanceof Error ? error.message : 'wallet recovery key manifest unavailable',
+    };
+  }
+  const ecdsaPossessionChallenges = await buildWalletRecoveryEcdsaPossessionChallengesV1({
+    manifest,
+    walletId,
+    reservationId: String(challenge.reservationId),
+    replacementId: challenge.replacementId,
+    sourceAuthorityDigestB64u: challenge.sourceAuthorityDigestB64u,
+    challengeB64u: challenge.challengeB64u,
+    expiresAtMs: challenge.expiresAtMs,
+  });
+  const ecdsaActivationReceipts = manifest.entries.flatMap((entry) =>
+    entry.kind === 'evm_family_ecdsa'
+      ? [{ keySetId: entry.keySetId, activationReceipt: entry.activationReceipt }]
+      : [],
+  );
+  const activationVerification = await verifyWalletRecoveryKeyActivationsV1({
+    registry: input.walletStore,
+    walletId,
+    recoveryCorrelationId: String(challenge.reservationId),
+    replacementId: challenge.replacementId,
+    authorityRef: sourceAuthorityRef,
+    ecdsaPossessionChallenges: [...ecdsaPossessionChallenges.values()],
+    ecdsaActivationReceipts,
+    ecdsaMaterialPossessionProofs: input.ecdsaMaterialPossessionProofs,
+    nowMs: input.nowMs,
+  });
+  if (activationVerification.kind !== 'verified') {
+    return { kind: 'refused', reason: activationVerification.reason };
+  }
+
   const parsedRpId = parseWebAuthnRpId(challenge.rpId);
   if (!parsedRpId.ok) {
     return {
@@ -155,7 +212,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   const verifiedRegistration = await verifyWebAuthnRegistrationCredentialForIntent({
     webauthnRegistration: input.webauthnRegistration,
     expectedChallenge: challenge.challengeB64u,
-    expectedOrigin: input.expectedOrigin,
+    expectedOrigin: challenge.origin,
     rpId: parsedRpId.value,
   });
   if (!verifiedRegistration.ok) {
@@ -186,23 +243,68 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: 'the replacement credential is already registered',
     };
   }
-  const sourceBinding = await input.webAuthnStore.readBindingByCredentialId(
-    input.replacedCredentialIdB64u,
-  );
-  if (!sourceBinding || sourceBinding.userId !== String(input.walletId)) {
+  const sourceBinding = await input.webAuthnStore.readBindingByCredential({
+    rpId: String(challenge.rpId),
+    credentialIdB64u: String(challenge.sourceCredentialIdB64u),
+  });
+  if (
+    !sourceBinding ||
+    sourceBinding.userId !== String(input.walletId) ||
+    sourceBinding.rpId !== String(challenge.rpId) ||
+    sourceBinding.credentialIdB64u !== String(challenge.sourceCredentialIdB64u)
+  ) {
     return {
       kind: 'registration_rejected',
       reason: 'the wallet has no existing credential binding to replace',
     };
   }
+  const sourceEnvelopeLookup = await input.envelopeStore.lookupEnvelopeForFactor({
+    walletId,
+    factor: {
+      kind: 'passkey',
+      rpId: challenge.rpId,
+      credentialIdB64u: challenge.sourceCredentialIdB64u,
+    },
+  });
+  if (sourceEnvelopeLookup.kind !== 'active') {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the wallet has no active source custody envelope to replace',
+    };
+  }
+  const sourceEnvelope = {
+    ...sourceEnvelopeLookup.envelope,
+    lifecycle: buildRetiredEnvelopeLifecycle({
+      activatedAtMs: sourceEnvelopeLookup.envelope.lifecycle.activatedAtMs,
+      retiredAtMs: input.nowMs,
+    }),
+    updatedAtMs: input.nowMs,
+  };
+  const walletAuthMethod: WalletAuthMethodRecord = {
+    version: 'wallet_auth_method_v1',
+    kind: 'passkey',
+    status: 'active',
+    walletId,
+    rpId: parsedRpId.value,
+    credentialIdB64u: verifiedRegistration.credential.credentialIdB64u,
+    credentialPublicKeyB64u: verifiedRegistration.credential.credentialPublicKeyB64u,
+    counter: verifiedRegistration.credential.counter,
+    createdAtMs: input.nowMs,
+    updatedAtMs: input.nowMs,
+  };
   const authenticatorCommit = buildRecoveryAuthenticatorCommit({
     sourceBinding,
     userId: String(input.walletId),
     rpId: parsedRpId.value,
     credential: verifiedRegistration.credential,
+    walletAuthMethod,
     nowMs: input.nowMs,
     challengeDeleteStatement:
-      input.webAuthnStore.prepareRecoveryRegistrationChallengeDeleteStatement(input.challengeId),
+      input.webAuthnStore.prepareRecoveryRegistrationChallengeDeleteStatement({
+        challengeId: input.challengeId,
+        record: challenge,
+        nowMs: input.nowMs,
+      }),
   });
 
   const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(walletId);
@@ -211,8 +313,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   }
   const reservedIndex = storedRecoverySet.record.manifestKekWraps.findIndex(
     (wrap) =>
-      (wrap.lifecycle.state === 'reserved' || wrap.lifecycle.state === 'consumed') &&
-      wrap.lifecycle.reservationId === input.reservationId,
+      wrap.lifecycle.state === 'reserved' && wrap.lifecycle.reservationId === input.reservationId,
   );
   if (reservedIndex < 0) {
     return { kind: 'refused', reason: 'the recovery reservation is unavailable' };
@@ -221,14 +322,11 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   if (!selected) {
     return { kind: 'refused', reason: 'the recovery reservation is unavailable' };
   }
-  const lifecycle =
-    selected.lifecycle.state === 'consumed'
-      ? selected.lifecycle
-      : consumeReservedRecoveryCode({
-          lifecycle: selected.lifecycle,
-          reservationId: input.reservationId,
-          nowMs: input.nowMs,
-        });
+  const lifecycle = consumeReservedRecoveryCode({
+    lifecycle: selected.lifecycle,
+    reservationId: input.reservationId,
+    nowMs: input.nowMs,
+  });
   if ('ok' in lifecycle && !lifecycle.ok) {
     return { kind: 'refused', reason: lifecycle.message };
   }
@@ -244,22 +342,17 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     updatedAtMs: input.nowMs,
   };
 
-  /* Read before the write, so the retire list is the set that was active when
-     the promotion was admitted — not whatever exists after it lands, which
-     would include the new envelope itself. */
-  const existing = await input.envelopeStore.listWalletEnvelopes(
-    input.replacementEnvelope.walletId,
-  );
-  const previouslyActive = existing.filter(
-    (envelope) =>
-      envelope.lifecycle.state === 'active' &&
-      String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
-  );
-
   const committed = await input.walletCustodyCommits.commitRecoveryPromotion({
     recoverySet: consumedRecoverySet,
     expectedRecoverySetVersion: storedRecoverySet.storeVersion,
     replacementEnvelope: input.replacementEnvelope,
+    sourceEnvelope,
+    expectedSourceEnvelopeVersion: sourceEnvelopeLookup.storeVersion,
+    sourceAuthMethod: {
+      record: revokedWalletAuthMethodRecord(sourceAuthMethod, input.nowMs),
+      expectedUpdatedAtMs: sourceAuthMethod.updatedAtMs,
+      revokedAtMs: input.nowMs,
+    },
     reservationId: input.reservationId,
     authenticatorCommit,
   });
@@ -267,39 +360,59 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     return { kind: 'conflict', reason: 'the recovery state changed during finalization' };
   }
   if (committed.kind === 'inconsistent') {
-    /* Nothing has been retired yet, so the wallet is untouched. */
     return {
       kind: 'envelope_rejected',
       reason: committed.reason,
     };
   }
 
-  const retiredEnvelopeIds: string[] = [];
-  const retireFailures: string[] = [];
-  for (const envelope of previouslyActive) {
-    const retired = await input.envelopeStore.retireEnvelope({
-      locator: {
-        walletId: envelope.walletId,
-        factor: envelope.factor,
-        envelopeId: envelope.envelopeId,
-      },
-      retiredAtMs: input.nowMs,
-    });
-    if (retired.kind === 'stored') {
-      retiredEnvelopeIds.push(String(envelope.envelopeId));
-      continue;
-    }
-    /* Reported, never fatal. The wallet is recovered and openable by the new
-       credential; an old one still working is a cleanup task, not a failure
-       of the recovery the user just performed. */
-    retireFailures.push(String(envelope.envelopeId));
-  }
-
   return {
     kind: 'promoted',
     storeVersion: committed.envelopeStoreVersion,
-    retiredEnvelopeIds,
-    ...(retireFailures.length > 0 ? { retireFailures } : {}),
+    credential: {
+      credentialIdB64u: walletAuthMethod.credentialIdB64u,
+      credentialPublicKeyB64u: walletAuthMethod.credentialPublicKeyB64u,
+      counter: walletAuthMethod.counter,
+    },
+  };
+}
+
+async function sourceAuthMethodForChallenge(input: {
+  readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+  readonly walletId: WalletId;
+  readonly challenge: WebAuthnRecoveryRegistrationChallengeRecord;
+}): Promise<Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }> | null> {
+  const methods = await input.walletCustodyCommits.listWalletAuthMethods(input.walletId);
+  const active = methods.filter((method) => method.status === 'active');
+  if (active.length !== 1) return null;
+  const method = active[0];
+  if (!method || method.kind !== 'passkey') return null;
+  if (
+    String(walletAuthMethodId(method)) !== String(input.challenge.sourceWalletAuthMethodId) ||
+    method.rpId !== input.challenge.rpId ||
+    method.credentialIdB64u !== input.challenge.sourceCredentialIdB64u ||
+    method.updatedAtMs !== input.challenge.sourceAuthMethodUpdatedAtMs
+  ) {
+    return null;
+  }
+  return method;
+}
+
+function revokedWalletAuthMethodRecord(
+  record: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>,
+  revokedAtMs: number,
+): Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }> {
+  return {
+    version: record.version,
+    kind: 'passkey',
+    status: 'revoked',
+    walletId: record.walletId,
+    rpId: record.rpId,
+    credentialIdB64u: record.credentialIdB64u,
+    credentialPublicKeyB64u: record.credentialPublicKeyB64u,
+    counter: record.counter,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: revokedAtMs,
   };
 }
 
@@ -316,11 +429,6 @@ type RecoveryReplayInputBase = {
   readonly replacementId: string;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
-  readonly walletStore: D1WalletStore;
-  readonly ecdsaActivationReceipts: readonly {
-    readonly keySetId: string;
-    readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-  }[];
 };
 
 const RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE =
@@ -423,166 +531,56 @@ export async function resolveCommittedRecoveryReplayV1(
     };
   }
 
-  try {
-    if (!(await committedRecoverySignerStateMatches(input))) {
-      return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
-    }
-  } catch {
+  const methods = await input.walletCustodyCommits.listWalletAuthMethods(walletId);
+  const activeMethods = methods.filter((method) => method.status === 'active');
+  const replacementMethod = activeMethods.length === 1 ? activeMethods[0] : undefined;
+  if (
+    !replacementMethod ||
+    replacementMethod.kind !== 'passkey' ||
+    replacementMethod.rpId !== rpId ||
+    replacementMethod.credentialIdB64u !== credentialIdB64u ||
+    replacementMethod.credentialPublicKeyB64u !== authenticator.credentialPublicKeyB64u ||
+    replacementMethod.counter !== authenticator.counter
+  ) {
     return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
   }
-
+  for (const method of methods) {
+    if (method.status !== 'revoked') continue;
+    if (
+      await input.walletCustodyCommits.hasActiveWalletSessionsForAuthMethod({
+        walletId,
+        walletAuthMethodId: String(walletAuthMethodId(method)),
+      })
+    ) {
+      return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
+    }
+  }
   const envelopes = await input.envelopeStore.listWalletEnvelopes(walletId);
-  const retiredEnvelopeIds = envelopes
-    .filter(
-      (envelope) =>
-        envelope.lifecycle.state === 'retired' &&
-        String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
-    )
-    .map((envelope) => String(envelope.envelopeId));
-  const retireFailures = envelopes
-    .filter(
-      (envelope) =>
-        envelope.lifecycle.state === 'active' &&
-        String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
-    )
-    .map((envelope) => String(envelope.envelopeId));
+  const sourceEnvelopes = envelopes.filter(
+    (envelope) =>
+      envelope.factor.kind === 'passkey' &&
+      envelope.factor.rpId === replacementMethod.rpId &&
+      envelope.factor.credentialIdB64u !== replacementMethod.credentialIdB64u,
+  );
+  const sourceRetired = sourceEnvelopes.some((envelope) => envelope.lifecycle.state === 'retired');
+  const otherActive = envelopes.some(
+    (envelope) =>
+      envelope.lifecycle.state === 'active' &&
+      String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
+  );
+  if (!sourceRetired || otherActive) {
+    return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
+  }
 
   return {
     kind: 'promoted',
     storeVersion: storedEnvelope.storeVersion,
-    retiredEnvelopeIds,
-    ...(retireFailures.length > 0 ? { retireFailures } : {}),
+    credential: {
+      credentialIdB64u: replacementMethod.credentialIdB64u,
+      credentialPublicKeyB64u: replacementMethod.credentialPublicKeyB64u,
+      counter: replacementMethod.counter,
+    },
   };
-}
-
-async function committedRecoverySignerStateMatches(
-  input: RecoveryReplayInputBase,
-): Promise<boolean> {
-  const walletId = requireWalletId(input.walletId);
-  const [ed25519Signers, ecdsaSigners] = await Promise.all([
-    input.walletStore.listEd25519SignersForWallet({ walletId }),
-    input.walletStore.listEcdsaSignersForWallet({ walletId }),
-  ]);
-  if (ed25519Signers.length === 0 && ecdsaSigners.length === 0) return false;
-
-  for (const signer of ed25519Signers) {
-    const keySetId = `near_ed25519:${signer.signerId}` as const;
-    const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
-      reservationId: input.reservationId,
-      keySetId,
-    });
-    const expectedMaterialLifecycleBinding = `${lifecycleId}:material-activation`;
-    const capability = signer.activeYaoCapability;
-    if (
-      capability.version !== 'wallet_ed25519_yao_recovery_capability_v1' ||
-      capability.nearAccountId !== signer.nearAccountId ||
-      capability.admissionRequest.application_binding.wallet_id !== String(input.walletId) ||
-      capability.admissionRequest.application_binding.near_ed25519_signing_key_id !==
-        signer.nearEd25519SigningKeyId ||
-      capability.admissionRequest.application_binding.signing_root_id !== signer.signingRootId ||
-      capability.admissionRequest.application_binding.key_creation_signer_slot !==
-        signer.signerSlot ||
-      capability.admissionRequest.participant_ids[0] !== signer.participantIds[0] ||
-      capability.admissionRequest.participant_ids[1] !== signer.participantIds[1] ||
-      capability.admissionRequest.scope.account_id !== String(input.walletId) ||
-      capability.admissionRequest.scope.root_share_epoch !== signer.signingRootVersion ||
-      capability.admissionRequest.scope.threshold_session_id !== signer.thresholdSessionId ||
-      capability.admissionRequest.scope.signing_worker_id !== signer.signingWorkerId ||
-      capability.admissionRequest.scope.lifecycle_id !== lifecycleId ||
-      capability.admissionRequest.scope.material_activation.lifecycle_binding !==
-        expectedMaterialLifecycleBinding ||
-      capability.activationResult.binding.lifecycle.lifecycle_id !== lifecycleId ||
-      capability.activationResult.binding.lifecycle.account_id !== String(input.walletId) ||
-      capability.activationResult.binding.material_activation.lifecycle_binding !==
-        expectedMaterialLifecycleBinding ||
-      capability.activationResult.binding.lifecycle.root_share_epoch !==
-        capability.admissionRequest.scope.root_share_epoch ||
-      capability.activationResult.binding.lifecycle.session_id !==
-        capability.admissionRequest.scope.threshold_session_id ||
-      capability.activationResult.binding.lifecycle.signer_set_id !==
-        capability.admissionRequest.scope.signer_set_id ||
-      capability.activationResult.binding.lifecycle.selected_server_id !==
-        capability.admissionRequest.scope.signing_worker_id ||
-      alphabetizeStringify(capability.runtimePolicyScope) !==
-        alphabetizeStringify(signer.runtimePolicyScope) ||
-      alphabetizeStringify(capability.activationResult.public_receipt.material_activation) !==
-        alphabetizeStringify(capability.admissionRequest.scope.material_activation)
-    ) {
-      return false;
-    }
-  }
-
-  const ecdsaByKeyHandle = new Map<string, WalletEcdsaSignerRecord[]>();
-  for (const signer of ecdsaSigners) {
-    const keyHandle = signer.walletKey.keyHandle;
-    const existing = ecdsaByKeyHandle.get(keyHandle);
-    if (existing) {
-      existing.push(signer);
-    } else {
-      ecdsaByKeyHandle.set(keyHandle, [signer]);
-    }
-  }
-  for (const [keyHandle, signers] of ecdsaByKeyHandle) {
-    const keySetId = `evm_family_ecdsa:${keyHandle}` as const;
-    const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
-      reservationId: input.reservationId,
-      keySetId,
-    });
-    const first = signers[0];
-    if (!first) return false;
-    const capability = first.walletKey.publicCapability;
-    const activation = first.activationReceipt.ecdsa_activation;
-    const matchingReceiptInputs = input.ecdsaActivationReceipts.filter(
-      (receipt) => receipt.keySetId === keySetId,
-    );
-    const expectedUnchangedReceipt = input.ecdsaActivationReceipts.find(
-      (receipt) => receipt.keySetId === keySetId,
-    )?.activationReceipt;
-    if (
-      matchingReceiptInputs.length !== 1 ||
-      !expectedUnchangedReceipt ||
-      alphabetizeStringify(first.activationReceipt) !==
-        alphabetizeStringify(expectedUnchangedReceipt) ||
-      capability.client_id !== String(input.walletId) ||
-      capability.material_activation.material_owner !== String(input.walletId) ||
-      capability.material_activation.lifecycle_binding !==
-        expectedUnchangedReceipt.ecdsa_activation.material_activation.lifecycle_binding ||
-      first.activationReceipt.lifecycle_id !== expectedUnchangedReceipt.lifecycle_id ||
-      activation.activation_epoch !== capability.activation_epoch ||
-      activation.material_activation.lifecycle_binding !==
-        expectedUnchangedReceipt.ecdsa_activation.material_activation.lifecycle_binding ||
-      alphabetizeStringify(activation.context) !== alphabetizeStringify(capability.context) ||
-      alphabetizeStringify(activation.public_identity) !==
-        alphabetizeStringify(capability.public_identity) ||
-      alphabetizeStringify(activation.signing_worker) !==
-        alphabetizeStringify(capability.signer_set.selected_server) ||
-      alphabetizeStringify(activation.material_activation) !==
-        alphabetizeStringify(capability.material_activation)
-    ) {
-      return false;
-    }
-    for (const signer of signers) {
-      if (!sameEcdsaSignerActivation(signer, first)) return false;
-    }
-    const pending = await input.walletStore.listEcdsaPendingSessionActivationsForLifecycle({
-      walletId,
-      lifecycleId,
-    });
-    if (pending.length !== 0) return false;
-  }
-  if (input.ecdsaActivationReceipts.length !== ecdsaByKeyHandle.size) return false;
-  return true;
-}
-
-function sameEcdsaSignerActivation(
-  left: WalletEcdsaSignerRecord,
-  right: WalletEcdsaSignerRecord,
-): boolean {
-  return (
-    alphabetizeStringify(left.walletKey.publicCapability) ===
-      alphabetizeStringify(right.walletKey.publicCapability) &&
-    alphabetizeStringify(left.activationReceipt) === alphabetizeStringify(right.activationReceipt)
-  );
 }
 
 function buildRecoveryAuthenticatorCommit(input: {
@@ -609,6 +607,7 @@ function buildRecoveryAuthenticatorCommit(input: {
     readonly credentialPublicKeyB64u: string;
     readonly counter: number;
   };
+  readonly walletAuthMethod: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>;
   readonly nowMs: number;
   readonly challengeDeleteStatement: D1PreparedStatementLike;
 }): WalletRecoveryAuthenticatorCommit {
@@ -661,6 +660,7 @@ function buildRecoveryAuthenticatorCommit(input: {
       deviceInfo: unknownWebAuthnAuthenticatorDeviceInfo(),
     },
     binding,
+    walletAuthMethod: input.walletAuthMethod,
     challengeDeleteStatement: input.challengeDeleteStatement,
   };
 }

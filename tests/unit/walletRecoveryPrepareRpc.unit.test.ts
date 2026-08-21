@@ -1,23 +1,38 @@
 import { expect, test } from '@playwright/test';
-import {
-  buildWalletRecoveryCeremonyCustodyJson,
-  prepareWalletRecovery,
-  type WalletRecoveryPrepareResult,
-} from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryPrepare';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import { prepareWalletRecoveryWithCode } from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryPrepare';
 
-/**
- * The client's reading of recovery preparation.
- *
- * Two things are load-bearing here, and both are about not being helpful.
- *
- * A rejection carries no guess at *why*. The server merged unknown, spent and
- * malformed on purpose; a client that inferred "you already used this one"
- * from a status would rebuild the oracle on this side of the wire.
- *
- * A 200 whose payload cannot be opened is a failure, not a spend — and this
- * one matters more than the usual incomplete-response case, because the code
- * is burned server-side either way.
- */
+const WALLET_ID = walletIdFromString('alice.testnet');
+const RP_ID = webAuthnRpIdFromString('wallet.example.localhost');
+const RESERVATION_ID = parseRecoveryCodeReservationId('reservation-1');
+
+type CapturedRequest = {
+  url: string;
+  body: unknown;
+};
+
+function webAuthnRpIdFromString(value: string): WebAuthnRpId {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function captureRequest(
+  capture: CapturedRequest,
+  status: number,
+  responseBody: unknown,
+): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capture.url = String(input);
+    capture.body = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify(responseBody), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+}
 
 function respondWith(status: number, body: unknown): typeof fetch {
   return (async () =>
@@ -27,119 +42,71 @@ function respondWith(status: number, body: unknown): typeof fetch {
     })) as unknown as typeof fetch;
 }
 
-async function prepare(status: number, body: unknown): Promise<WalletRecoveryPrepareResult> {
-  return prepareWalletRecovery({
+test('prepare posts only the code-authorized R114 request', async () => {
+  const captured: CapturedRequest = { url: '', body: null };
+  const result = await prepareWalletRecoveryWithCode({
+    relayUrl: 'https://relay.localhost/',
+    walletId: WALLET_ID,
+    rpId: RP_ID,
+    recoveryCodeB64u: 'QUJDREVG',
+    reservationId: RESERVATION_ID,
+    fetchImpl: captureRequest(captured, 400, { ok: false }),
+  });
+
+  expect(captured).toEqual({
+    url: 'https://relay.localhost/wallets/recovery/prepare',
+    body: {
+      walletId: WALLET_ID,
+      rpId: RP_ID,
+      recoveryCodeB64u: 'QUJDREVG',
+      reservationId: RESERVATION_ID,
+    },
+  });
+  expect(result).toEqual({ kind: 'refused' });
+});
+
+test('prepare preserves the three exact failure classifications', async () => {
+  const refused = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
-    walletId: 'alice.testnet',
-    sessionToken: 'app-session',
-    challengeId: 'challenge-1',
-    otpCode: '123456',
-    recoveryCode: 'QUJDREVG',
-    reservationId: 'reservation-1',
-    fetchImpl: respondWith(status, body),
+    walletId: WALLET_ID,
+    rpId: RP_ID,
+    recoveryCodeB64u: 'QUJDREVG',
+    reservationId: RESERVATION_ID,
+    fetchImpl: respondWith(401, { ok: false, code: 'recovery_code_rejected' }),
   });
-}
-
-const NONCE_B64U = 'AAAAAAAAAAAAAAAA';
-const CIPHERTEXT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAA';
-const DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const GOOD_WRAP = {
-  nonceB64u: NONCE_B64U,
-  wrappedManifestKekB64u: CIPHERTEXT_B64U,
-  aadHashB64u: DIGEST_B64U,
-};
-const GOOD_ENTRY = {
-  custodySecretKind: 'wallet_custody_seed_v1',
-  nonceB64u: NONCE_B64U,
-  wrappedCustodySecretB64u: CIPHERTEXT_B64U,
-  aadHashB64u: DIGEST_B64U,
-};
-
-test('preparation returns the wrapped payload and exact reservation', async () => {
-  const result = await prepare(200, {
-    ok: true,
-    wrap: GOOD_WRAP,
-    entries: [GOOD_ENTRY],
-    reservationId: 'reservation-1',
-    reservationExpiresAtMs: 60_000,
-    storeVersion: '5',
-  });
-  expect(result.kind).toBe('prepared');
-  if (result.kind !== 'prepared') return;
-  expect(result.wrap.wrappedManifestKekB64u).toBe(CIPHERTEXT_B64U);
-  expect(result.entries).toHaveLength(1);
-  expect(
-    JSON.parse(
-      buildWalletRecoveryCeremonyCustodyJson({
-        walletId: 'alice.testnet',
-        prepared: result,
-      }),
-    ),
-  ).toEqual({
-    walletId: 'alice.testnet',
-    wrap: GOOD_WRAP,
-    entry: GOOD_ENTRY,
-  });
-});
-
-test('a 200 with an unusable payload is not reported as prepared', async () => {
-  const result = await prepare(200, {
-    ok: true,
-    wrap: { nonceB64u: 'n' },
-    reservationId: 'reservation-1',
-    reservationExpiresAtMs: 60_000,
-    storeVersion: '5',
-  });
-  expect(result.kind).toBe('transport_failed');
-});
-
-test('a prepared response must carry exactly one complete wallet seed entry', async () => {
-  const missing = await prepare(200, {
-    ok: true,
-    wrap: GOOD_WRAP,
-    entries: [],
-    reservationId: 'reservation-1',
-    reservationExpiresAtMs: 60_000,
-    storeVersion: '5',
-  });
-  const rival = await prepare(200, {
-    ok: true,
-    wrap: GOOD_WRAP,
-    entries: [GOOD_ENTRY, GOOD_ENTRY],
-    reservationId: 'reservation-1',
-    reservationExpiresAtMs: 60_000,
-    storeVersion: '5',
-  });
-  expect(missing.kind).toBe('transport_failed');
-  expect(rival.kind).toBe('transport_failed');
-});
-
-test('401 and 400 both read as a plain rejection', async () => {
-  const unauthorized = await prepare(401, { ok: false, code: 'recovery_code_rejected' });
-  const badRequest = await prepare(400, { ok: false, code: 'invalid_request' });
-  expect(unauthorized.kind).toBe('rejected');
-  expect(badRequest.kind).toBe('rejected');
-});
-
-test('a conflict stays distinct, because the code may still be good', async () => {
-  const result = await prepare(409, { ok: false, code: 'recovery_set_conflict' });
-  expect(result.kind).toBe('conflict');
-});
-
-test('a network failure is never a rejection', async () => {
-  const result = await prepareWalletRecovery({
+  const conflict = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
-    walletId: 'alice.testnet',
-    sessionToken: 'app-session',
-    challengeId: 'challenge-1',
-    otpCode: '123456',
-    recoveryCode: 'QUJDREVG',
-    reservationId: 'reservation-1',
+    walletId: WALLET_ID,
+    rpId: RP_ID,
+    recoveryCodeB64u: 'QUJDREVG',
+    reservationId: RESERVATION_ID,
+    fetchImpl: respondWith(409, { ok: false, code: 'recovery_conflict' }),
+  });
+  const uncertain = await prepareWalletRecoveryWithCode({
+    relayUrl: 'https://relay.localhost',
+    walletId: WALLET_ID,
+    rpId: RP_ID,
+    recoveryCodeB64u: 'QUJDREVG',
+    reservationId: RESERVATION_ID,
+    fetchImpl: respondWith(503, { ok: false }),
+  });
+
+  expect(refused).toEqual({ kind: 'refused' });
+  expect(conflict).toEqual({ kind: 'retryable_conflict' });
+  expect(uncertain).toEqual({ kind: 'transport_uncertain' });
+});
+
+test('prepare classifies a network failure as transport uncertainty', async () => {
+  const result = await prepareWalletRecoveryWithCode({
+    relayUrl: 'https://relay.localhost',
+    walletId: WALLET_ID,
+    rpId: RP_ID,
+    recoveryCodeB64u: 'QUJDREVG',
+    reservationId: RESERVATION_ID,
     fetchImpl: (async () => {
       throw new Error('offline');
     }) as unknown as typeof fetch,
   });
-  // Reporting this as "that code cannot be used" would tell someone their
-  // recovery code is dead when their wifi dropped.
-  expect(result).toMatchObject({ kind: 'transport_failed', message: 'offline' });
+
+  expect(result).toEqual({ kind: 'transport_uncertain' });
 });

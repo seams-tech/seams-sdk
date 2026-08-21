@@ -16,8 +16,6 @@ import {
 } from './routes/passkeyCustody';
 import {
   handleReusableWalletSessionStatus,
-  handleWalletEmailOtpRecoveryBootstrapChallenge,
-  handleWalletEmailOtpRecoveryBootstrapVerify,
   handleWalletEmailOtpChallenge,
   handleWalletEmailOtpFactorRelease,
   handleWalletEmailOtpDevCleanupGoogleRegistration,
@@ -95,9 +93,7 @@ export type {
 } from './fetchRouter.types';
 
 function signingSessionSealRecordFromAdmission(
-  admission: NonNullable<
-    Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>
-  >,
+  admission: NonNullable<Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>>,
 ): SigningSessionSealThresholdSessionRecord {
   switch (admission.curve) {
     case 'ecdsa':
@@ -331,8 +327,6 @@ export function createFetchRouter(
     handleWalletUnlockVerify,
     handleWalletEmailOtpChallenge,
     handleWalletEmailOtpFactorRelease,
-    handleWalletEmailOtpRecoveryBootstrapChallenge,
-    handleWalletEmailOtpRecoveryBootstrapVerify,
     handleWalletEmailOtpDevCleanupGoogleRegistration,
     handleWalletEmailOtpRegistrationSeal,
     handleWalletEmailOtpDevOutbox,

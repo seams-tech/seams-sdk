@@ -167,7 +167,10 @@ import {
   createD1LinkedDeviceLocalPresenceVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
-import { D1LinkedDeviceEmailOtpGrantStoreV1, createLinkedDeviceEmailOtpRegistrationPortV1 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
+import {
+  D1LinkedDeviceEmailOtpGrantStoreV1,
+  createLinkedDeviceEmailOtpRegistrationPortV1,
+} from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
 import {
   D1LinkedDeviceEmailOtpTargetFactorV1,
   linkedDeviceEmailOtpBaseFactorReaderV1,
@@ -1643,6 +1646,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   });
   const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({
     webAuthnStore,
+    walletAuthMethodStore,
     walletManifestSource: {
       getEd25519KeyManifestBySlot: readD1Ed25519KeyManifestBySlot.bind(undefined, walletStore),
     },
@@ -1813,7 +1817,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     issuer: emailOtpChallengeIssuer,
     registrationAttempts: googleEmailOtpRegistrationAttempts,
     verifier: emailOtpChallengeVerifier,
-    enrollments: emailOtpEnrollments,
   });
   const emailOtpRecoveryService = new CloudflareD1EmailOtpRecoveryService({
     challengeVerifier: emailOtpChallengeVerifier,
@@ -2086,17 +2089,9 @@ function createD1EmailOtpRouteService(
     consumeEmailOtpGrant: assembly.emailOtpRecoveryService.consumeEmailOtpGrant.bind(
       assembly.emailOtpRecoveryService,
     ),
-    consumeEmailOtpWalletRecoveryBootstrap:
-      assembly.emailOtpRecoveryService.consumeEmailOtpWalletRecoveryBootstrap.bind(
-        assembly.emailOtpRecoveryService,
-      ),
     createEmailOtpChallenge: assembly.emailOtpChallengeService.createEmailOtpChallenge.bind(
       assembly.emailOtpChallengeService,
     ),
-    createEmailOtpWalletRecoveryBootstrapChallenge:
-      assembly.emailOtpChallengeService.createEmailOtpWalletRecoveryBootstrapChallenge.bind(
-        assembly.emailOtpChallengeService,
-      ),
     createEmailOtpEnrollmentChallenge:
       assembly.emailOtpChallengeService.createEmailOtpEnrollmentChallenge.bind(
         assembly.emailOtpChallengeService,
@@ -2129,10 +2124,6 @@ function createD1EmailOtpRouteService(
     verifyEmailOtpChallenge: assembly.emailOtpChallengeService.verifyEmailOtpChallenge.bind(
       assembly.emailOtpChallengeService,
     ),
-    verifyEmailOtpWalletRecoveryBootstrap:
-      assembly.emailOtpChallengeService.verifyEmailOtpWalletRecoveryBootstrap.bind(
-        assembly.emailOtpChallengeService,
-      ),
     verifyEmailOtpWalletRecoveryChallenge:
       assembly.emailOtpChallengeService.verifyEmailOtpWalletRecoveryChallenge.bind(
         assembly.emailOtpChallengeService,

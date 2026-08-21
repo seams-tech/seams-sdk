@@ -276,18 +276,6 @@ export function useSeamsWithSdkFlow(args: {
             rotateWalletRecoveryCodes: (
               ...args: Parameters<RecoveryCapability['rotateWalletRecoveryCodes']>
             ) => recovery.rotateWalletRecoveryCodes(...args),
-            requestWalletRecoveryBootstrapChallenge: (
-              ...args: Parameters<RecoveryCapability['requestWalletRecoveryBootstrapChallenge']>
-            ) => recovery.requestWalletRecoveryBootstrapChallenge(...args),
-            verifyWalletRecoveryBootstrap: (
-              ...args: Parameters<RecoveryCapability['verifyWalletRecoveryBootstrap']>
-            ) => recovery.verifyWalletRecoveryBootstrap(...args),
-            prepareWalletRecoveryWithBootstrap: (
-              ...args: Parameters<RecoveryCapability['prepareWalletRecoveryWithBootstrap']>
-            ) => recovery.prepareWalletRecoveryWithBootstrap(...args),
-            completeWalletRecovery: (
-              ...args: Parameters<RecoveryCapability['completeWalletRecovery']>
-            ) => recovery.completeWalletRecovery(...args),
           } satisfies RecoveryCapability;
         }
 

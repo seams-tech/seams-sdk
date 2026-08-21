@@ -17,15 +17,15 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `walletId`           | Durable wallet identity. For current NEAR-backed wallets this is often the NEAR account id, but code must treat it as the wallet id. |
 | `providerSubject`    | External identity-provider subject, such as a Google subject used by Email OTP registration.                                         |
 | `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`.                                      |
-| `walletSessionId`    | Reusable authenticated Wallet Session identity.                                                                                       |
-| `quotaId`            | Server-authoritative remaining-use and expiry quota for a Wallet Session.                                                             |
-| `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                             |
+| `walletSessionId`    | Reusable authenticated Wallet Session identity.                                                                                      |
+| `quotaId`            | Server-authoritative remaining-use and expiry quota for a Wallet Session.                                                            |
+| `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                            |
 | `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
-| `warm session`       | Short-lived reusable signing session created by registration or unlock.                                                            |
+| `warm session`       | Short-lived reusable signing session created by registration or unlock.                                                              |
 | `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
-| `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to mint a Wallet Session or authorize one exact operation.   |
-| `opaque token`       | Random Wallet Session bearer whose identity, budget, expiry, and revocation state are resolved by the server.                       |
+| `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to mint a Wallet Session or authorize one exact operation.    |
+| `opaque token`       | Random Wallet Session bearer whose identity, budget, expiry, and revocation state are resolved by the server.                        |
 
 ## Global Invariants
 
@@ -217,6 +217,36 @@ Expected behaviour:
   privileged operation.
 - Refresh must not silently switch an Email OTP wallet to passkey paths or a
   passkey wallet to Email OTP paths.
+
+## Account Recovery
+
+### Single-Passkey Wallet
+
+Expected behaviour:
+
+- The hosted login menu accepts an editable wallet id and one unused recovery
+  code, then creates a replacement Passkey from a separate user activation.
+- The recovery code is the sole recovery authorization. The flow does not ask
+  for Email OTP, Google identity, an assertion from the source Passkey, or a
+  client-selected source credential.
+- Recovery is available only when the wallet has exactly one active owner auth
+  method, that method is a Passkey, and it is bound to the requested RP.
+- Finalization verifies the complete stored key manifest and preserves the
+  registered NEAR, Tempo, and Arc/EVM public identities.
+- Replacement installation, recovery-code consumption, source auth-method and
+  envelope retirement, and source Wallet Session revocation occur atomically.
+- Recovery completion proceeds through normal login with the replacement
+  Passkey. That login creates the fresh Wallet Session.
+- A consumed code cannot authorize a second replacement.
+
+Failure behaviour:
+
+- Unknown wallets, malformed or spent codes, RP mismatches, unsupported auth
+  shapes, and conflicting attempts receive the same generic hosted refusal.
+- Precommit cancellation and definite failure leave the recovery code
+  unconsumed.
+- Recovery material, server diagnostics, and code values never enter hosted
+  outcomes, parent-window messages, or logs.
 
 ## Transaction Signing
 

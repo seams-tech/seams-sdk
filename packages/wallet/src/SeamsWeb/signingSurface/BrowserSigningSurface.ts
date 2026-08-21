@@ -480,11 +480,11 @@ import type {
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
 import {
-  isSerializedRegistrationCredential,
+  redactedPasskeyRegistrationCredential,
   serializeRegistrationCredentialWithPRF,
 } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
 import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
 import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import {
@@ -2392,7 +2392,7 @@ export class BrowserSigningSurface {
   }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1> {
     const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
       routerOrigin: args.routerOrigin,
-      authorization: args.authorization,
+      authorization: { kind: 'bearer', value: args.authorization },
       fetch: globalThis.fetch,
       ...(args.traceContext ? { traceContext: args.traceContext } : {}),
     });
@@ -2464,31 +2464,33 @@ export class BrowserSigningSurface {
   }
 
   async createWalletRecoveryReplacementCredential(args: {
-    readonly walletId: string;
+    readonly walletId: WalletId;
     readonly registration: WalletRecoveryRegistrationOptions;
+    readonly cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
   }): Promise<WalletRecoveryReplacementCredential> {
-    const requestId = `wallet-recovery:${args.registration.challengeId}`;
-    const decision = await this.touchConfirm.requestUserConfirmation({
-      requestId,
-      type: UserConfirmationType.REGISTER_ACCOUNT,
-      summary: {
-        walletId: args.walletId,
-        title: 'Recover wallet',
-        body: 'Create a replacement passkey to finish wallet recovery.',
+    const requestId = walletIframeRequestIdFromBoundary(
+      `wallet-recovery:${args.registration.challengeId}`,
+    );
+    const credentialPromise = this.touchIdPrompt.generateRegistrationCredentialsInternal({
+      kind: 'wallet_recovery',
+      walletId: args.walletId,
+      intendedUserName: args.walletId,
+      recoveryRegistration: args.registration,
+      prompt: {
+        kind: 'immediate',
+        requestId,
+        cancellation: args.cancellation,
       },
-      payload: {
-        walletId: args.walletId,
-        walletRecoveryRegistration: args.registration,
-      },
-      intentDigest: `wallet-recovery:${args.walletId}:${args.registration.replacementId}`,
     });
-    if (!decision.confirmed) {
-      throw new Error(decision.error || 'wallet recovery was cancelled');
-    }
-    if (!isSerializedRegistrationCredential(decision.credential)) {
-      throw new Error('wallet recovery confirmation returned no replacement passkey');
-    }
-    return walletRecoveryReplacementCredentialFromRegistrationV1(decision.credential);
+    const credential = await credentialPromise;
+    const replacement = walletRecoveryReplacementCredentialFromRegistrationV1(
+      serializePreparedRegistrationCredential(credential),
+    );
+    return {
+      registration: redactedPasskeyRegistrationCredential(replacement.registration),
+      credentialIdB64u: replacement.credentialIdB64u,
+      factorSecret: replacement.factorSecret,
+    };
   }
 
   async joinWalletCustodyNearEd25519KeySet(args: {
@@ -2505,7 +2507,7 @@ export class BrowserSigningSurface {
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
     const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
       routerOrigin: args.routerOrigin,
-      authorization: args.authorization,
+      authorization: { kind: 'bearer', value: args.authorization },
       fetch: globalThis.fetch,
       ...(args.traceContext ? { traceContext: args.traceContext } : {}),
     });
@@ -2563,7 +2565,7 @@ export class BrowserSigningSurface {
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
     const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
       routerOrigin: args.routerOrigin,
-      authorization: `Bearer ${args.walletSessionToken}`,
+      authorization: { kind: 'bearer', value: `Bearer ${args.walletSessionToken}` },
       fetch: globalThis.fetch,
     });
     const recoveryRequest = await buildWalletSessionEd25519RecoveryAdmissionRequestV1({

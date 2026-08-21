@@ -7,6 +7,7 @@ import {
   type AuthMenuGoogleLoginViewModel,
   type AuthMenuGoogleRegistrationViewModel,
   type AuthMenuLinkDeviceViewModel,
+  type AuthMenuRecoveryViewModel,
   type AuthMenuViewModel,
   isAuthMenuIntent,
   passkeyCeremonyHeadline,
@@ -52,7 +53,7 @@ import {
   type HostedPasskeyLoginOutcome,
   type HostedPasskeyPrepared,
 } from './passkey';
-import { parseWalletId } from '@shared/utils/domainIds';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import { createReadableWalletId } from '@shared/utils/registrationIntent';
 import {
   classifyLinkDeviceFlowEvent,
@@ -66,6 +67,12 @@ import type {
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
 import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
+import type {
+  HostedRecoveryCredentialCreated,
+  HostedRecoveryFailure,
+  HostedRecoveryPort,
+  HostedRecoveryPrepared,
+} from '../recovery-port';
 
 type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPasskeyPrepared;
 
@@ -83,6 +90,9 @@ type PresentedAuthMenuError = {
   readonly message: string;
 };
 
+const RECOVERY_REFUSAL_MESSAGE =
+  'That recovery code can’t be used. Check the wallet ID and code, then try again.';
+
 function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared): void {
   if (prepared.kind === 'hosted_passkey_registration_prepared_v1') {
     cancelHostedPasskeyRegistration(prepared);
@@ -90,6 +100,8 @@ function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared)
   }
   cancelHostedPasskeyPreparation(prepared);
 }
+
+function ignoreRecoveryCancellationFailure(): void {}
 
 export type AuthMenuSessionIdentity = {
   readonly authMenuSessionId: HostedAuthMenuSessionId;
@@ -127,8 +139,52 @@ type AuthMenuReturnState =
       readonly flow: GoogleEmailOtpWalletAuthRegistrationFlow;
     };
 
+type AuthMenuRecoveryState =
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'enter_code' | 'preparing';
+      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation?: never;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'passkey_ready';
+      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation: HostedRecoveryPrepared;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'finalizing';
+      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation: HostedRecoveryPrepared | HostedRecoveryCredentialCreated;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'sign_in_ready';
+      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation?: never;
+    };
+
+function isIrreversibleRecoveryState(state: AuthMenuSessionState): state is Extract<
+  AuthMenuRecoveryState,
+  { readonly stage: 'finalizing' }
+> & {
+  readonly operation: HostedRecoveryCredentialCreated;
+} {
+  return (
+    state.kind === 'recovery' &&
+    state.stage === 'finalizing' &&
+    state.operation.kind === 'hosted_recovery_credential_created'
+  );
+}
+
 export type AuthMenuSessionState =
   | AuthMenuReturnState
+  | AuthMenuRecoveryState
   | {
       readonly kind: 'link_device';
       readonly viewModel: AuthMenuLinkDeviceViewModel;
@@ -156,6 +212,10 @@ type PrepareLoginPasskey = (
   walletId: string | null,
   cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
 ) => Promise<HostedPasskeyMenuPrepared>;
+type PrepareRecoveredLogin = (
+  walletId: WalletId,
+  cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
+) => Promise<HostedPasskeyPrepared>;
 type StartDeviceLinking = (
   targetFactor: LinkedDeviceTargetFactorV1,
   callbacks: {
@@ -342,6 +402,10 @@ function presentedAuthMenuError(viewModel: AuthMenuViewModel): PresentedAuthMenu
         : null;
     case 'link_device':
       return null;
+    case 'recovery':
+      return viewModel.stage === 'sign_in_ready' && viewModel.status.kind === 'recoverable'
+        ? { mode: 'login', message: viewModel.status.message }
+        : null;
     default: {
       const exhaustive: never = viewModel;
       throw new Error(`Unknown auth-menu view model: ${JSON.stringify(exhaustive)}`);
@@ -367,6 +431,120 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
       targetFactor: { kind: 'passkey_prf' },
     },
   };
+}
+
+type RecoveryViewModelArgsBase = {
+  readonly base: AuthMenuViewModel;
+  readonly walletId: string;
+  readonly recoveryCode?: string;
+  readonly walletIdError?: string | null;
+  readonly recoveryCodeError?: string | null;
+};
+
+type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
+  (
+    | {
+        readonly stage?: 'enter_code';
+        readonly status?: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'enter_code' }
+        >['status'];
+      }
+    | {
+        readonly stage: 'preparing';
+        readonly status: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'preparing' }
+        >['status'];
+      }
+    | {
+        readonly stage: 'passkey_ready';
+        readonly status?: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'passkey_ready' }
+        >['status'];
+      }
+    | {
+        readonly stage: 'finalizing';
+        readonly status: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'finalizing' }
+        >['status'];
+      }
+    | {
+        readonly stage: 'sign_in_ready';
+        readonly status?: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'sign_in_ready' }
+        >['status'];
+      }
+  );
+
+function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewModel {
+  const common = {
+    kind: 'recovery',
+    mode: 'login',
+    appearance: args.base.appearance,
+    hostname: args.base.hostname,
+    closeLabel: args.base.closeLabel,
+    heading: 'Recover account',
+    subtitle: 'Enter one recovery code to create a new passkey for this wallet.',
+    ctaLabel:
+      args.stage === 'passkey_ready'
+        ? 'Create new passkey'
+        : args.stage === 'sign_in_ready'
+          ? 'Sign in with new passkey'
+          : 'Continue',
+    showProgress: args.base.showProgress,
+    enabledExternalProviders: args.base.enabledExternalProviders,
+    walletId: args.walletId,
+    recoveryCode: args.recoveryCode ?? '',
+    walletIdError: args.walletIdError ?? null,
+    recoveryCodeError: args.recoveryCodeError ?? null,
+  } as const;
+  switch (args.stage) {
+    case undefined:
+    case 'enter_code':
+      return {
+        ...common,
+        stage: 'enter_code',
+        status: args.status ?? { kind: 'idle', interaction: 'actionable' },
+      };
+    case 'preparing':
+      return { ...common, stage: args.stage, status: args.status };
+    case 'passkey_ready':
+      return {
+        ...common,
+        stage: args.stage,
+        status: args.status ?? { kind: 'idle', interaction: 'actionable' },
+      };
+    case 'finalizing':
+      return { ...common, stage: args.stage, status: args.status };
+    case 'sign_in_ready':
+      return {
+        ...common,
+        stage: args.stage,
+        status: args.status ?? { kind: 'idle', interaction: 'actionable' },
+      };
+  }
+}
+
+function recoveryFailureStatus(
+  failure: HostedRecoveryFailure,
+): Extract<AuthMenuRecoveryViewModel['status'], { readonly kind: 'idle' | 'recoverable' }> {
+  if (failure.kind === 'dismissed') return { kind: 'idle', interaction: 'actionable' };
+  return {
+    kind: 'recoverable',
+    reason: 'error',
+    message: RECOVERY_REFUSAL_MESSAGE,
+  };
+}
+
+function recoveryRetryStatus(): Extract<
+  AuthMenuRecoveryViewModel['status'],
+  { readonly kind: 'recoverable' }
+> {
+  return { kind: 'recoverable', reason: 'error', message: RECOVERY_REFUSAL_MESSAGE };
 }
 
 export class AuthMenuSession {
@@ -403,6 +581,12 @@ export class AuthMenuSession {
   private preparationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReportedError: string | null = null;
+  private readonly recoveryPort: HostedRecoveryPort;
+  private readonly prepareRecoveredLogin: PrepareRecoveredLogin;
+  private recoveryGeneration = 0;
+  private recoveryCancellation: AbortController | null = null;
+  private recoveryLoginPrepared: HostedPasskeyPrepared | null = null;
+  private recoveryReturnState: AuthMenuReturnState | null = null;
 
   constructor(args: {
     request: HostedAuthMenuOpenRequest;
@@ -412,6 +596,8 @@ export class AuthMenuSession {
     beginGoogleEmailOtp: BeginGoogleEmailOtp;
     startDeviceLinking: StartDeviceLinking;
     cancelDeviceLinking: CancelDeviceLinking;
+    recoveryPort: HostedRecoveryPort;
+    prepareRecoveredLogin: PrepareRecoveredLogin;
     sendToParent: (message: ChildToParentEnvelope) => void;
   }) {
     this.identity = {
@@ -422,6 +608,8 @@ export class AuthMenuSession {
     this.beginGoogleEmailOtp = args.beginGoogleEmailOtp;
     this.startDeviceLinking = args.startDeviceLinking;
     this.cancelDeviceLinking = args.cancelDeviceLinking;
+    this.recoveryPort = args.recoveryPort;
+    this.prepareRecoveredLogin = args.prepareRecoveredLogin;
     this.sendToParent = args.sendToParent;
     this.stateValue = {
       kind: 'preparing',
@@ -541,6 +729,15 @@ export class AuthMenuSession {
   }
 
   cancel(reason: 'close_button' | 'component_unmounted' | 'connection_closed'): void {
+    if (isIrreversibleRecoveryState(this.stateValue)) {
+      if (reason === 'close_button') return;
+      this.complete({
+        kind: 'cancelled',
+        authMenuSessionId: this.identity.authMenuSessionId,
+        reason,
+      });
+      return;
+    }
     if (this.stateValue.kind === 'link_device') {
       console.error('[Device2Linking] auth menu cancelled', { reason });
     }
@@ -555,17 +752,14 @@ export class AuthMenuSession {
   private startPasskeyPreparation(): void {
     if (this.stateValue.kind === 'complete') return;
     const viewModel = this.currentViewModel();
+    if (viewModel.kind !== 'passkey') return;
     const registrationPreparation =
-      viewModel.kind === 'passkey' && viewModel.mode === 'register'
-        ? this.registrationPreparation
-        : null;
-    const prepare =
-      viewModel.kind === 'passkey' && viewModel.mode === 'login' ? this.preparePasskey : null;
+      viewModel.mode === 'register' ? this.registrationPreparation : null;
+    const prepare = viewModel.mode === 'login' ? this.preparePasskey : null;
     if (!prepare && !registrationPreparation) return;
 
     if (
       registrationPreparation &&
-      viewModel.kind === 'passkey' &&
       viewModel.mode === 'register' &&
       viewModel.showRegistrationInput &&
       viewModel.passkeyName.trim().length === 0
@@ -616,7 +810,7 @@ export class AuthMenuSession {
           kind: 'ready',
           prepared,
           viewModel: {
-            ...this.currentViewModel(),
+            ...viewModel,
             status: { kind: 'idle', interaction: 'actionable' },
           },
         };
@@ -630,7 +824,7 @@ export class AuthMenuSession {
         this.stateValue = {
           kind: 'preparing',
           viewModel: {
-            ...this.currentViewModel(),
+            ...viewModel,
             status: {
               kind: 'recoverable',
               reason: 'error',
@@ -644,6 +838,7 @@ export class AuthMenuSession {
   }
 
   private invalidatePreparation(): void {
+    this.invalidateRecovery();
     if (this.stateValue.kind === 'link_device') {
       this.deviceLinkGeneration += 1;
       void this.cancelDeviceLinking().catch(() => {});
@@ -665,6 +860,19 @@ export class AuthMenuSession {
     if (this.stateValue.kind === 'google_login' || this.stateValue.kind === 'google_registration') {
       void this.stateValue.flow.cancel().catch(() => {});
     }
+  }
+
+  private invalidateRecovery(): void {
+    this.recoveryGeneration += 1;
+    this.recoveryCancellation?.abort();
+    this.recoveryCancellation = null;
+    const preparedLogin = this.recoveryLoginPrepared;
+    this.recoveryLoginPrepared = null;
+    if (preparedLogin) cancelHostedPasskeyMenuPreparation(preparedLogin);
+    const state = this.stateValue;
+    if (state.kind !== 'recovery' || !state.operation) return;
+    if (isIrreversibleRecoveryState(state)) return;
+    void this.recoveryPort.cancel(state.operation).catch(() => {});
   }
 
   private registrationValue(): string {
@@ -737,7 +945,8 @@ export class AuthMenuSession {
       if (
         this.stateValue.kind !== 'ready' ||
         this.stateValue.prepared !== prepared ||
-        this.prepared !== prepared
+        this.prepared !== prepared ||
+        this.stateValue.viewModel.kind !== 'passkey'
       ) {
         return;
       }
@@ -764,6 +973,7 @@ export class AuthMenuSession {
     const cancellation = new AbortController();
     this.googleCancellation = cancellation;
     const baseViewModel = this.currentViewModel();
+    if (baseViewModel.kind === 'recovery' || baseViewModel.kind === 'link_device') return;
     this.stateValue = {
       kind: 'preparing',
       viewModel: {
@@ -848,6 +1058,8 @@ export class AuthMenuSession {
     provider: HostedAuthMenuExternalAuthRequest['provider'],
   ): HostedAuthMenuExternalAuthRequest | null {
     if (this.stateValue.kind === 'complete') return null;
+    const viewModel = this.currentViewModel();
+    if (viewModel.kind !== 'passkey') return null;
     if (!this.request.enabledExternalProviders.includes(provider)) return null;
     if (this.stateValue.kind === 'awaiting_external_auth') return null;
     this.invalidatePreparation();
@@ -860,12 +1072,12 @@ export class AuthMenuSession {
       authMenuSessionId: this.identity.authMenuSessionId,
       externalAuthRequestId,
       provider,
-      mode: this.currentViewModel().mode,
+      mode: viewModel.mode,
     };
     this.stateValue = {
       kind: 'awaiting_external_auth',
       viewModel: {
-        ...this.currentViewModel(),
+        ...viewModel,
         // 'performing' is what drives the surface's waiting view; 'preparing'
         // left the menu sitting on the form with no feedback during the SSO
         // round trip.
@@ -890,6 +1102,7 @@ export class AuthMenuSession {
     const state = this.stateValue;
     if (
       state.kind !== 'awaiting_external_auth' ||
+      state.viewModel.kind !== 'passkey' ||
       state.request.authMenuSessionId !== resolution.authMenuSessionId ||
       state.request.externalAuthRequestId !== resolution.externalAuthRequestId ||
       this.identity.requestId !== resolution.requestId
@@ -949,6 +1162,7 @@ export class AuthMenuSession {
       case 'google_login':
       case 'google_registration':
       case 'link_device':
+      case 'recovery':
         return this.stateValue.viewModel;
       case 'complete':
         throw new Error('Completed auth-menu session has no view model');
@@ -993,6 +1207,24 @@ export class AuthMenuSession {
         return;
       case 'link_device_open':
         this.openLinkDevice();
+        return;
+      case 'recovery_open':
+        this.openRecovery();
+        return;
+      case 'recovery_wallet_id_changed':
+        this.changeRecoveryWalletId(intent.walletId);
+        return;
+      case 'recovery_code_changed':
+        this.changeRecoveryCode(intent.recoveryCode);
+        return;
+      case 'recovery_submit':
+        this.prepareRecovery();
+        return;
+      case 'recovery_create_passkey':
+        this.createRecoveryPasskey();
+        return;
+      case 'recovery_sign_in':
+        this.signInRecoveredWallet();
         return;
       case 'link_device_factor_selected':
         this.selectLinkedDeviceTargetFactor(intent.targetFactor);
@@ -1132,6 +1364,11 @@ export class AuthMenuSession {
   }
 
   private back(): void {
+    if (this.stateValue.kind === 'recovery') {
+      if (this.stateValue.stage === 'finalizing') return;
+      this.closeRecovery();
+      return;
+    }
     if (this.stateValue.kind === 'link_device') {
       this.closeLinkDevice();
       return;
@@ -1144,6 +1381,504 @@ export class AuthMenuSession {
     ) {
       this.showPasskeyMode(this.stateValue.viewModel.mode);
     }
+  }
+
+  private openRecovery(): void {
+    const state = this.stateValue;
+    if (
+      (state.kind !== 'preparing' && state.kind !== 'ready') ||
+      state.viewModel.kind !== 'passkey' ||
+      state.viewModel.mode !== 'login'
+    ) {
+      return;
+    }
+    const returnState: AuthMenuReturnState = {
+      kind: 'preparing',
+      viewModel: {
+        ...state.viewModel,
+        status: { kind: 'idle', interaction: 'arming' },
+      },
+    };
+    const walletId = this.selectedLoginWalletId ?? '';
+    this.invalidatePreparation();
+    this.recoveryReturnState = returnState;
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'enter_code',
+      returnState,
+      viewModel: recoveryViewModel({ base: state.viewModel, walletId }),
+    };
+    this.updateElement();
+  }
+
+  private closeRecovery(): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery') return;
+    const returnState = state.returnState;
+    this.invalidateRecovery();
+    this.recoveryReturnState = null;
+    this.stateValue = returnState;
+    this.updateElement();
+    this.preparePasskey = this.prepareSelectedLogin;
+    this.startPasskeyPreparation();
+  }
+
+  private changeRecoveryWalletId(walletId: string): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery' || state.stage !== 'enter_code') return;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        walletId,
+        walletIdError: null,
+      },
+    };
+    this.updateElement();
+  }
+
+  private changeRecoveryCode(recoveryCode: string): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery' || state.stage !== 'enter_code') return;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        recoveryCode,
+        recoveryCodeError: null,
+      },
+    };
+    this.updateElement();
+  }
+
+  private prepareRecovery(): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery' || state.stage !== 'enter_code') return;
+    const parsedWalletId = parseWalletId(state.viewModel.walletId.trim());
+    const recoveryCode = state.viewModel.recoveryCode.trim();
+    if (!parsedWalletId.ok || !recoveryCode) {
+      this.stateValue = {
+        ...state,
+        viewModel: {
+          ...state.viewModel,
+          walletIdError: parsedWalletId.ok ? null : 'Enter a valid wallet ID.',
+          recoveryCodeError: recoveryCode ? null : 'Enter a recovery code.',
+        },
+      };
+      this.updateElement();
+      return;
+    }
+    const generation = ++this.recoveryGeneration;
+    const cancellation = new AbortController();
+    this.recoveryCancellation = cancellation;
+    this.stateValue = {
+      ...state,
+      stage: 'preparing',
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(parsedWalletId.value),
+        recoveryCode: state.viewModel.recoveryCode,
+        stage: 'preparing',
+        status: { kind: 'busy', headline: 'Checking recovery code…' },
+      }),
+    };
+    this.updateElement();
+    let preparation: ReturnType<HostedRecoveryPort['prepare']>;
+    try {
+      preparation = this.recoveryPort.prepare({
+        walletId: String(parsedWalletId.value),
+        recoveryCode,
+        signal: cancellation.signal,
+      });
+    } catch {
+      this.rejectRecoveryPreparation(generation);
+      return;
+    }
+    void preparation.then(
+      this.completeRecoveryPreparation.bind(this, generation),
+      this.rejectRecoveryPreparation.bind(this, generation),
+    );
+  }
+
+  private completeRecoveryPreparation(
+    generation: number,
+    result: Awaited<ReturnType<HostedRecoveryPort['prepare']>>,
+  ): void {
+    const state = this.stateValue;
+    if (generation !== this.recoveryGeneration || state.kind !== 'recovery') {
+      if (result.kind === 'hosted_recovery_prepared') {
+        void this.recoveryPort.cancel(result).catch(ignoreRecoveryCancellationFailure);
+      }
+      return;
+    }
+    this.recoveryCancellation = null;
+    if (result.kind !== 'hosted_recovery_prepared') {
+      this.stateValue = {
+        kind: 'recovery',
+        stage: 'enter_code',
+        returnState: state.returnState,
+        viewModel: recoveryViewModel({
+          base: state.viewModel,
+          walletId: state.viewModel.walletId,
+          recoveryCode: state.viewModel.recoveryCode,
+          status: recoveryFailureStatus(result),
+        }),
+      };
+      this.updateElement();
+      return;
+    }
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'passkey_ready',
+      operation: result,
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(result.walletId),
+        recoveryCode: '',
+        stage: 'passkey_ready',
+      }),
+    };
+    this.updateElement();
+  }
+
+  private rejectRecoveryPreparation(generation: number): void {
+    const state = this.stateValue;
+    if (generation !== this.recoveryGeneration || state.kind !== 'recovery') return;
+    this.recoveryCancellation = null;
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'enter_code',
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: state.viewModel.walletId,
+        recoveryCode: state.viewModel.recoveryCode,
+        status: recoveryFailureStatus({ kind: 'transport_uncertain' }),
+      }),
+    };
+    this.updateElement();
+  }
+
+  private createRecoveryPasskey(): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery') return;
+    if (
+      state.stage === 'finalizing' &&
+      state.operation.kind === 'hosted_recovery_credential_created' &&
+      state.viewModel.status.kind === 'recoverable'
+    ) {
+      this.finishRecovery(state.operation);
+      return;
+    }
+    if (state.stage !== 'passkey_ready') return;
+    const generation = ++this.recoveryGeneration;
+    let creation: ReturnType<HostedRecoveryPort['createPasskey']>;
+    try {
+      creation = this.recoveryPort.createPasskey(state.operation);
+    } catch {
+      this.showRecoveryCreateFailure(state, { kind: 'refused' });
+      return;
+    }
+    this.stateValue = {
+      ...state,
+      stage: 'finalizing',
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: state.viewModel.walletId,
+        stage: 'finalizing',
+        status: { kind: 'busy', headline: 'Creating new passkey…' },
+      }),
+    };
+    this.updateElement();
+    void creation.then(
+      this.completeRecoveryCredentialCreation.bind(this, generation),
+      this.rejectRecoveryCredentialCreation.bind(this, generation),
+    );
+  }
+
+  private completeRecoveryCredentialCreation(
+    generation: number,
+    result: Awaited<ReturnType<HostedRecoveryPort['createPasskey']>>,
+  ): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'finalizing' ||
+      state.operation.kind !== 'hosted_recovery_prepared'
+    ) {
+      if (result.kind === 'hosted_recovery_credential_created') {
+        void this.recoveryPort.cancel(result).catch(ignoreRecoveryCancellationFailure);
+      }
+      return;
+    }
+    if (result.kind !== 'hosted_recovery_credential_created') {
+      this.showRecoveryCreateFailure(
+        {
+          returnState: state.returnState,
+          viewModel: state.viewModel,
+          operation: state.operation,
+        },
+        result,
+      );
+      return;
+    }
+    this.finishRecovery(result);
+  }
+
+  private rejectRecoveryCredentialCreation(generation: number): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'finalizing' ||
+      state.operation.kind !== 'hosted_recovery_prepared'
+    ) {
+      return;
+    }
+    this.showRecoveryCreateFailure(
+      {
+        returnState: state.returnState,
+        viewModel: state.viewModel,
+        operation: state.operation,
+      },
+      { kind: 'refused' },
+    );
+  }
+
+  private showRecoveryCreateFailure(
+    state: {
+      readonly returnState: AuthMenuReturnState;
+      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly operation: HostedRecoveryPrepared;
+    },
+    failure: HostedRecoveryFailure,
+  ): void {
+    if (failure.kind === 'refused') {
+      void this.recoveryPort.cancel(state.operation).catch(ignoreRecoveryCancellationFailure);
+      this.stateValue = {
+        kind: 'recovery',
+        stage: 'enter_code',
+        returnState: state.returnState,
+        viewModel: recoveryViewModel({
+          base: state.viewModel,
+          walletId: state.viewModel.walletId,
+          recoveryCode: '',
+          status: recoveryFailureStatus(failure),
+        }),
+      };
+      this.updateElement();
+      return;
+    }
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'passkey_ready',
+      operation: state.operation,
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: state.viewModel.walletId,
+        stage: 'passkey_ready',
+        status: recoveryFailureStatus(failure),
+      }),
+    };
+    this.updateElement();
+  }
+
+  private finishRecovery(operation: HostedRecoveryCredentialCreated): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery') return;
+    const generation = ++this.recoveryGeneration;
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'finalizing',
+      operation,
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: state.viewModel.walletId,
+        stage: 'finalizing',
+        status: { kind: 'busy', headline: 'Finishing recovery…' },
+      }),
+    };
+    this.updateElement();
+    let finalization: ReturnType<HostedRecoveryPort['finalize']>;
+    try {
+      finalization = this.recoveryPort.finalize(operation);
+    } catch {
+      this.rejectRecoveryFinalization(generation);
+      return;
+    }
+    void finalization.then(
+      this.completeRecoveryFinalization.bind(this, generation),
+      this.rejectRecoveryFinalization.bind(this, generation),
+    );
+  }
+
+  private completeRecoveryFinalization(
+    generation: number,
+    result: Awaited<ReturnType<HostedRecoveryPort['finalize']>>,
+  ): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'finalizing' ||
+      state.operation.kind !== 'hosted_recovery_credential_created'
+    ) {
+      return;
+    }
+    if (result.kind !== 'ready_for_sign_in') {
+      if (result.kind === 'refused') {
+        void this.recoveryPort.cancel(state.operation).catch(() => {});
+        this.stateValue = {
+          kind: 'recovery',
+          stage: 'enter_code',
+          returnState: state.returnState,
+          viewModel: recoveryViewModel({
+            base: state.viewModel,
+            walletId: state.viewModel.walletId,
+            status: recoveryFailureStatus(result),
+          }),
+        };
+      } else {
+        this.stateValue = {
+          ...state,
+          viewModel: recoveryViewModel({
+            base: state.viewModel,
+            walletId: state.viewModel.walletId,
+            stage: 'finalizing',
+            status: recoveryRetryStatus(),
+          }),
+        };
+      }
+      this.updateElement();
+      return;
+    }
+    this.prepareRecoveredPasskeyLogin(result.walletId, state.returnState);
+  }
+
+  private rejectRecoveryFinalization(generation: number): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'finalizing' ||
+      state.operation.kind !== 'hosted_recovery_credential_created'
+    ) {
+      return;
+    }
+    this.stateValue = {
+      ...state,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: state.viewModel.walletId,
+        stage: 'finalizing',
+        status: recoveryRetryStatus(),
+      }),
+    };
+    this.updateElement();
+  }
+
+  private prepareRecoveredPasskeyLogin(walletId: WalletId, returnState: AuthMenuReturnState): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery') return;
+    const generation = ++this.recoveryGeneration;
+    const cancellation = new AbortController();
+    this.recoveryCancellation = cancellation;
+    const preparation = this.prepareRecoveredLogin(walletId, {
+      kind: 'abort_signal',
+      signal: cancellation.signal,
+    });
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'sign_in_ready',
+      returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(walletId),
+        stage: 'sign_in_ready',
+        status: { kind: 'busy', headline: 'Preparing sign in…' },
+      }),
+    };
+    this.updateElement();
+    void preparation.then(
+      this.completeRecoveredLoginPreparation.bind(this, generation, returnState),
+      this.rejectRecoveredLoginPreparation.bind(this, generation, walletId, returnState),
+    );
+  }
+
+  private completeRecoveredLoginPreparation(
+    generation: number,
+    returnState: AuthMenuReturnState,
+    prepared: HostedPasskeyMenuPrepared,
+  ): void {
+    const state = this.stateValue;
+    if (generation !== this.recoveryGeneration || state.kind !== 'recovery') {
+      cancelHostedPasskeyMenuPreparation(prepared);
+      return;
+    }
+    this.recoveryCancellation = null;
+    if (prepared.kind !== 'hosted_passkey_login_prepared_v1') {
+      cancelHostedPasskeyMenuPreparation(prepared);
+      const walletId = parseWalletId(state.viewModel.walletId);
+      if (!walletId.ok) return;
+      this.rejectRecoveredLoginPreparation(generation, walletId.value, returnState);
+      return;
+    }
+    this.recoveryLoginPrepared = prepared;
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'sign_in_ready',
+      returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: state.viewModel.walletId,
+        stage: 'sign_in_ready',
+      }),
+    };
+    this.updateElement();
+  }
+
+  private rejectRecoveredLoginPreparation(
+    generation: number,
+    walletId: string,
+    returnState: AuthMenuReturnState,
+  ): void {
+    const state = this.stateValue;
+    if (generation !== this.recoveryGeneration || state.kind !== 'recovery') return;
+    this.recoveryCancellation = null;
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'sign_in_ready',
+      returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(walletId),
+        stage: 'sign_in_ready',
+        status: {
+          kind: 'recoverable',
+          reason: 'error',
+          message: 'Your account was recovered. Prepare sign in again to continue.',
+        },
+      }),
+    };
+    this.updateElement();
+  }
+
+  private signInRecoveredWallet(): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery' || state.stage !== 'sign_in_ready') return;
+    const prepared = this.recoveryLoginPrepared;
+    if (!prepared) {
+      const walletId = parseWalletId(state.viewModel.walletId);
+      if (!walletId.ok) return;
+      this.prepareRecoveredPasskeyLogin(walletId.value, state.returnState);
+      return;
+    }
+    this.recoveryLoginPrepared = null;
+    this.performPreparedPasskey(prepared);
   }
 
   private openLinkDevice(): void {
@@ -1546,7 +2281,11 @@ export class AuthMenuSession {
 
   private retryPreparation(): void {
     const state = this.stateValue;
-    if (state.kind !== 'preparing' || state.viewModel.status.kind !== 'recoverable') {
+    if (
+      state.kind !== 'preparing' ||
+      state.viewModel.kind !== 'passkey' ||
+      state.viewModel.status.kind !== 'recoverable'
+    ) {
       return;
     }
     this.invalidatePreparation();
@@ -1868,17 +2607,30 @@ export class AuthMenuSession {
 
   private performPreparedPasskey(prepared: HostedPasskeyMenuPrepared): void {
     this.prepared = null;
+    const viewModel = this.currentViewModel();
     this.stateValue = {
       kind: 'performing',
       prepared,
-      viewModel: {
-        ...this.currentViewModel(),
-        status: {
-          kind: 'busy',
-          headline: passkeyCeremonyHeadline(this.currentViewModel().mode),
-          detail: 'Continue with your passkey',
-        },
-      },
+      viewModel:
+        viewModel.kind === 'recovery'
+          ? recoveryViewModel({
+              base: viewModel,
+              walletId: viewModel.walletId,
+              stage: 'sign_in_ready',
+              status: {
+                kind: 'busy',
+                headline: passkeyCeremonyHeadline('login'),
+                detail: 'Continue with your passkey',
+              },
+            })
+          : {
+              ...viewModel,
+              status: {
+                kind: 'busy',
+                headline: passkeyCeremonyHeadline(viewModel.mode),
+                detail: 'Continue with your passkey',
+              },
+            },
     };
     if (prepared.kind === 'hosted_passkey_login_prepared_v1') {
       this.updateElement();
@@ -2041,6 +2793,32 @@ export class AuthMenuSession {
     const viewModel = this.stateValue.viewModel;
     cancelHostedPasskeyMenuPreparation(this.stateValue.prepared);
     this.prepared = null;
+    if (viewModel.kind === 'recovery') {
+      const returnState = this.recoveryReturnState;
+      if (!returnState) return;
+      this.recoveryLoginPrepared = null;
+      this.stateValue = {
+        kind: 'recovery',
+        stage: 'sign_in_ready',
+        returnState,
+        viewModel: recoveryViewModel({
+          base: viewModel,
+          walletId: viewModel.walletId,
+          stage: 'sign_in_ready',
+          status:
+            failure.kind === 'dismissed'
+              ? { kind: 'idle', interaction: 'actionable' }
+              : {
+                  kind: 'recoverable',
+                  reason: 'error',
+                  message:
+                    failure.error instanceof Error ? failure.error.message : String(failure.error),
+                },
+        }),
+      };
+      this.updateElement();
+      return;
+    }
     if (failure.kind === 'dismissed') {
       this.invalidatePreparation();
       this.stateValue = {

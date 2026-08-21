@@ -1,17 +1,15 @@
 import type { WalletRecoveryWebContext } from '@/SeamsWeb/signingSurface/ports';
 import {
   buildWalletRecoveryCeremonyCustodyJson,
-  prepareWalletRecoveryWithBootstrap,
-  type WalletRecoveryPrepareResult,
+  prepareWalletRecoveryWithCode,
+  type PreparedWalletRecovery,
+  type WalletRecoveryAttemptFailure,
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
-import type {
-  WalletRecoveryBootstrapChallengeResult,
-  WalletRecoveryBootstrapVerifyResult,
-} from '@/core/rpcClients/relayer/walletRecoveryBootstrap';
 import {
   finalizeWalletRecovery,
   type WalletRecoveryFinalizeResult,
 } from '@/core/rpcClients/relayer/walletRecoveryFinalize';
+import { persistRecoveredPasskeyLocalProjectionV1 } from '@/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection';
 import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
 import type {
   RecoveredWalletCustodyEcdsaKeySetV1,
@@ -19,63 +17,87 @@ import type {
   RecoveredWalletCustodyNearKeySetV1,
 } from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
 import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
-import { base64UrlEncode } from '@shared/utils/encoders';
+import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
+import { toAccountId } from '@/core/types/accountIds';
+import { parseWebAuthnRpId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { decodeWalletRecoveryCode } from '@shared/wallet-recovery/recoveryCodes';
 import {
   parseRecoveryCodeReservationId,
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { secureRandomId } from '@shared/utils/secureRandomId';
+import { sha256Bytes } from '@shared/utils/digests';
 
-export type PrepareWalletWithCodeResult =
-  | {
-      readonly kind: 'ready_for_passkey';
-      readonly recoveryOperationId: string;
-      readonly walletId: string;
-      readonly reservationExpiresAtMs: number;
-      readonly rpId: string;
-    }
-  | Exclude<WalletRecoveryPrepareResult, { readonly kind: 'prepared' }>
-  | { readonly kind: 'failed'; readonly message: string };
+const RECOVERY_PREPARE_RETRY_TTL_MS = 5 * 60 * 1000;
+// ECDSA-only registration establishes its wallet-scoped passkey at slot 1.
+const ECDSA_ONLY_WALLET_SIGNER_SLOT = 1;
 
-export type { WalletRecoveryBootstrapChallengeResult, WalletRecoveryBootstrapVerifyResult };
+export type WalletRecoveryPreparedHandle = {
+  readonly kind: 'prepared';
+  readonly recoveryOperationId: string;
+  readonly walletId: WalletId;
+};
 
-export type CompleteWalletRecoveryResult =
-  | {
-      readonly kind: 'recovered';
-      readonly walletId: string;
-      readonly storeVersion: string;
-      readonly retiredEnvelopeIds: readonly string[];
-      readonly retireFailures: readonly string[];
-      readonly recoveredKeySetIds: readonly string[];
-      readonly localContinuity: 'restored' | 'unlock_required';
-    }
-  | Exclude<WalletRecoveryFinalizeResult, { readonly kind: 'promoted' }>
-  | { readonly kind: 'failed'; readonly message: string };
+export type WalletRecoveryCredentialCreatedHandle = {
+  readonly kind: 'credential_created';
+  readonly recoveryOperationId: string;
+  readonly walletId: WalletId;
+};
+
+export type WalletRecoveryCoordinatorResult<T> = T | WalletRecoveryAttemptFailure;
+
+export type WalletRecoveryCredentialCreationResult =
+  | WalletRecoveryCredentialCreatedHandle
+  | { readonly kind: 'dismissed' }
+  | { readonly kind: 'refused' };
+
+export type WalletRecoveryFinalizeCoordinatorResult =
+  | { readonly kind: 'ready_for_sign_in'; readonly walletId: WalletId }
+  | WalletRecoveryAttemptFailure;
 
 type RecoveryOperationCommon = {
   readonly recoveryOperationId: string;
-  readonly walletId: string;
-  readonly prepared: Extract<WalletRecoveryPrepareResult, { readonly kind: 'prepared' }>;
+  readonly walletId: WalletId;
+  readonly relayUrl: string;
+  readonly prepared: PreparedWalletRecovery;
   readonly custodyJson: string;
   readonly recoveryCodeBytes: Uint8Array;
 };
+
+type CommittedRecoveryCredential = Extract<
+  WalletRecoveryFinalizeResult,
+  { readonly kind: 'promoted' }
+>['credential'];
 
 type RecoveryOperation =
   | (RecoveryOperationCommon & {
       readonly stage: 'prepared';
       readonly replacement?: never;
       readonly recovered?: never;
+      readonly committedCredential?: never;
     })
   | (RecoveryOperationCommon & {
       readonly stage: 'credential_created';
       readonly replacement: WalletRecoveryReplacementCredential;
       readonly recovered?: never;
+      readonly committedCredential?: never;
     })
   | (RecoveryOperationCommon & {
       readonly stage: 'manifest_recovered';
       readonly replacement: WalletRecoveryReplacementCredential;
       readonly recovered: RecoveredWalletCustodyManifestV1;
+      readonly committedCredential?: never;
+    })
+  | (RecoveryOperationCommon & {
+      readonly stage: 'promoted_pending_continuity';
+      readonly replacement: WalletRecoveryReplacementCredential;
+      readonly recovered: RecoveredWalletCustodyManifestV1;
+      readonly committedCredential: CommittedRecoveryCredential;
     });
 
 function createReservationId(): RecoveryCodeReservationId {
@@ -84,13 +106,83 @@ function createReservationId(): RecoveryCodeReservationId {
   );
 }
 
+function pendingPrepareKey(walletId: WalletId, recoveryCodeDigestB64u: string): string {
+  return `${String(walletId)}:${recoveryCodeDigestB64u}`;
+}
+
 function zeroizeBuffer(buffer: ArrayBuffer | null): void {
   if (buffer && buffer.byteLength > 0) new Uint8Array(buffer).fill(0);
 }
 
+function disposeRecoveryOperation(operation: RecoveryOperation): void {
+  operation.recoveryCodeBytes.fill(0);
+  if (operation.stage !== 'prepared') zeroizeBuffer(operation.replacement.factorSecret);
+}
+
+function refused(): WalletRecoveryAttemptFailure {
+  return { kind: 'refused' };
+}
+
+function isCredentialDismissal(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const name = Reflect.get(error, 'name');
+  return name === 'NotAllowedError' || name === 'AbortError';
+}
+
+function credentialCreatedOperation(
+  current: Extract<RecoveryOperation, { stage: 'prepared' }>,
+  replacement: WalletRecoveryReplacementCredential,
+): Extract<RecoveryOperation, { stage: 'credential_created' }> {
+  return {
+    stage: 'credential_created',
+    recoveryOperationId: current.recoveryOperationId,
+    walletId: current.walletId,
+    relayUrl: current.relayUrl,
+    prepared: current.prepared,
+    custodyJson: current.custodyJson,
+    recoveryCodeBytes: current.recoveryCodeBytes,
+    replacement,
+  };
+}
+
+function manifestRecoveredOperation(
+  current: Extract<RecoveryOperation, { stage: 'credential_created' }>,
+  recovered: RecoveredWalletCustodyManifestV1,
+): Extract<RecoveryOperation, { stage: 'manifest_recovered' }> {
+  return {
+    stage: 'manifest_recovered',
+    recoveryOperationId: current.recoveryOperationId,
+    walletId: current.walletId,
+    relayUrl: current.relayUrl,
+    prepared: current.prepared,
+    custodyJson: current.custodyJson,
+    recoveryCodeBytes: current.recoveryCodeBytes,
+    replacement: current.replacement,
+    recovered,
+  };
+}
+
+function promotedPendingContinuityOperation(
+  current: Extract<RecoveryOperation, { stage: 'manifest_recovered' }>,
+  committedCredential: CommittedRecoveryCredential,
+): Extract<RecoveryOperation, { stage: 'promoted_pending_continuity' }> {
+  return {
+    stage: 'promoted_pending_continuity',
+    recoveryOperationId: current.recoveryOperationId,
+    walletId: current.walletId,
+    relayUrl: current.relayUrl,
+    prepared: current.prepared,
+    custodyJson: current.custodyJson,
+    recoveryCodeBytes: current.recoveryCodeBytes,
+    replacement: current.replacement,
+    recovered: current.recovered,
+    committedCredential,
+  };
+}
+
 async function persistRecoveredNearKeySet(input: {
   readonly context: WalletRecoveryWebContext;
-  readonly walletId: string;
+  readonly walletId: WalletId;
   readonly recovered: RecoveredWalletCustodyNearKeySetV1;
 }): Promise<void> {
   const basis = input.recovered.entry.recoveryBasis;
@@ -119,15 +211,13 @@ async function persistRecoveredNearKeySet(input: {
 
 async function persistRecoveredEcdsaKeySet(input: {
   readonly context: WalletRecoveryWebContext;
-  readonly walletId: string;
-  readonly authorityRef: Parameters<
-    WalletRecoveryWebContext['signingEngine']['restoreWalletCustodyEcdsaContinuity']
-  >[0]['authority'];
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthorityRef;
   readonly recovered: RecoveredWalletCustodyEcdsaKeySetV1;
 }): Promise<void> {
   const basis = input.recovered.entry.recoveryBasis;
   await input.context.signingEngine.restoreWalletCustodyEcdsaContinuity({
-    authority: input.authorityRef,
+    authority: input.authority,
     chainTargets: basis.chainTargets,
     walletId: input.walletId,
     keyHandle: input.recovered.entry.keyHandle,
@@ -147,76 +237,123 @@ async function persistRecoveredEcdsaKeySet(input: {
 
 async function persistRecoveredLocalContinuity(input: {
   readonly context: WalletRecoveryWebContext;
-  readonly walletId: string;
-  readonly authorityRef: Parameters<
-    WalletRecoveryWebContext['signingEngine']['restoreWalletCustodyEcdsaContinuity']
-  >[0]['authority'];
-  readonly recovered: RecoveredWalletCustodyManifestV1;
-}): Promise<'restored' | 'unlock_required'> {
-  let complete = true;
-  for (const near of input.recovered.nearKeySets) {
-    try {
-      await persistRecoveredNearKeySet({
+  readonly operation: Extract<RecoveryOperation, { stage: 'promoted_pending_continuity' }>;
+}): Promise<void> {
+  const authority = await walletAuthAuthorityRef({
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: input.operation.walletId,
+      rpId: input.operation.prepared.registration.rpId,
+      credentialIdB64u: input.operation.replacement.credentialIdB64u,
+    }),
+  });
+  await Promise.all([
+    ...input.operation.recovered.nearKeySets.map((recovered) =>
+      persistRecoveredNearKeySet({
         context: input.context,
-        walletId: input.walletId,
-        recovered: near,
-      });
-    } catch {
-      complete = false;
-    }
-  }
-  for (const ecdsa of input.recovered.ecdsaKeySets) {
-    try {
-      await persistRecoveredEcdsaKeySet({
+        walletId: input.operation.walletId,
+        recovered,
+      }),
+    ),
+    ...input.operation.recovered.ecdsaKeySets.map((recovered) =>
+      persistRecoveredEcdsaKeySet({
         context: input.context,
-        walletId: input.walletId,
-        authorityRef: input.authorityRef,
-        recovered: ecdsa,
-      });
-    } catch {
-      complete = false;
-    }
-  }
-  return complete ? 'restored' : 'unlock_required';
-}
+        walletId: input.operation.walletId,
+        authority,
+        recovered,
+      }),
+    ),
+  ]);
 
-function disposeRecoveryOperation(operation: RecoveryOperation): void {
-  operation.recoveryCodeBytes.fill(0);
-  if (operation.stage !== 'prepared') {
-    zeroizeBuffer(operation.replacement.factorSecret);
+  const replacement = input.operation.replacement;
+  const committedCredential = input.operation.committedCredential;
+  const nearProjection = input.operation.recovered.nearKeySets;
+  if (nearProjection.length > 0) {
+    for (const recovered of nearProjection) {
+      const application = recovered.entry.recoveryBasis.applicationBinding;
+      await persistRecoveredPasskeyLocalProjectionV1({
+        kind: 'near',
+        walletId: input.operation.walletId,
+        nearAccountId: toAccountId(recovered.entry.nearAccountId),
+        signerSlot: application.key_creation_signer_slot,
+        nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
+        operationalPublicKey: `ed25519:${base58Encode(recovered.metadata.registeredPublicKey)}`,
+        rpId: input.operation.prepared.registration.rpId,
+        credentialIdB64u: committedCredential.credentialIdB64u,
+        credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
+        counter: committedCredential.counter,
+        credential: {
+          id: replacement.registration.id,
+          rawId: replacement.registration.rawId,
+        },
+      });
+    }
+  } else {
+    await persistRecoveredPasskeyLocalProjectionV1({
+      kind: 'wallet_only',
+      walletId: input.operation.walletId,
+      signerSlot: ECDSA_ONLY_WALLET_SIGNER_SLOT,
+      rpId: input.operation.prepared.registration.rpId,
+      credentialIdB64u: committedCredential.credentialIdB64u,
+      credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
+      counter: committedCredential.counter,
+      credential: {
+        id: replacement.registration.id,
+        rawId: replacement.registration.rawId,
+      },
+    });
   }
 }
 
 export class WalletRecoveryCoordinator {
   readonly #operations = new Map<string, RecoveryOperation>();
-
-  async prepareWithBootstrap(input: {
+  readonly #credentialPrompts = new Map<string, AbortController>();
+  readonly #pendingPrepareReservations = new Map<
+    string,
+    { readonly reservationId: RecoveryCodeReservationId; readonly expiresAtMs: number }
+  >();
+  async prepareWithCode(input: {
+    readonly context: WalletRecoveryWebContext;
     readonly walletId: string;
-    readonly orgId: string;
     readonly relayUrl: string;
-    readonly challengeId: string;
-    readonly recoveryBootstrapGrant: string;
     readonly recoveryCode: string;
-    readonly replacedCredentialIdB64u: string;
-  }): Promise<PrepareWalletWithCodeResult> {
+    readonly signal: AbortSignal;
+  }): Promise<WalletRecoveryCoordinatorResult<WalletRecoveryPreparedHandle>> {
     this.#pruneExpired();
+    const walletId = parseWalletId(input.walletId);
+    const rpId = parseWebAuthnRpId(input.context.signingEngine.getRpId());
+    if (!walletId.ok || !rpId.ok || input.signal.aborted) return refused();
+
     let recoveryCodeBytes: Uint8Array | null = null;
     try {
       recoveryCodeBytes = decodeWalletRecoveryCode(input.recoveryCode);
-      const prepared = await prepareWalletRecoveryWithBootstrap({
+      const recoveryCodeDigestB64u = base64UrlEncode(await sha256Bytes(recoveryCodeBytes));
+      const retryKey = pendingPrepareKey(walletId.value, recoveryCodeDigestB64u);
+      const pending = this.#pendingPrepareReservations.get(retryKey);
+      const reservationId =
+        pending?.expiresAtMs && pending.expiresAtMs > Date.now()
+          ? pending.reservationId
+          : createReservationId();
+      const prepared = await prepareWalletRecoveryWithCode({
         relayUrl: input.relayUrl,
-        walletId: input.walletId,
-        orgId: input.orgId,
-        recoveryBootstrapGrant: input.recoveryBootstrapGrant,
-        challengeId: input.challengeId,
-        recoveryCode: base64UrlEncode(recoveryCodeBytes),
-        reservationId: createReservationId(),
-        replacedCredentialIdB64u: input.replacedCredentialIdB64u,
+        walletId: walletId.value,
+        rpId: rpId.value,
+        recoveryCodeB64u: base64UrlEncode(recoveryCodeBytes),
+        reservationId,
       });
       if (prepared.kind !== 'prepared') {
-        recoveryCodeBytes.fill(0);
+        if (prepared.kind === 'retryable_conflict' || prepared.kind === 'transport_uncertain') {
+          this.#pendingPrepareReservations.set(retryKey, {
+            reservationId,
+            expiresAtMs: Date.now() + RECOVERY_PREPARE_RETRY_TTL_MS,
+          });
+        } else {
+          this.#pendingPrepareReservations.delete(retryKey);
+        }
         return prepared;
       }
+      this.#pendingPrepareReservations.delete(retryKey);
+      if (input.signal.aborted) return refused();
+
       const recoveryOperationId = secureRandomId(
         'wallet-recovery-operation',
         24,
@@ -225,111 +362,190 @@ export class WalletRecoveryCoordinator {
       this.#operations.set(recoveryOperationId, {
         stage: 'prepared',
         recoveryOperationId,
-        walletId: input.walletId,
+        walletId: walletId.value,
+        relayUrl: input.relayUrl,
         prepared,
         custodyJson: buildWalletRecoveryCeremonyCustodyJson({
-          walletId: input.walletId,
+          walletId: walletId.value,
           prepared,
         }),
         recoveryCodeBytes,
       });
       recoveryCodeBytes = null;
-      return {
-        kind: 'ready_for_passkey',
-        recoveryOperationId,
-        walletId: input.walletId,
-        reservationExpiresAtMs: prepared.reservationExpiresAtMs,
-        rpId: prepared.registration.rpId,
-      };
-    } catch (error: unknown) {
+      return { kind: 'prepared', recoveryOperationId, walletId: walletId.value };
+    } catch {
+      return refused();
+    } finally {
       recoveryCodeBytes?.fill(0);
-      return {
-        kind: 'failed',
-        message: error instanceof Error ? error.message : 'wallet recovery preparation failed',
-      };
     }
   }
 
-  async complete(input: {
+  createPasskey(input: {
     readonly context: WalletRecoveryWebContext;
-    readonly recoveryOperationId: string;
-    readonly walletId: string;
-    readonly relayUrl: string;
-  }): Promise<CompleteWalletRecoveryResult> {
+    readonly operation: WalletRecoveryPreparedHandle;
+  }): Promise<WalletRecoveryCredentialCreationResult> {
     this.#pruneExpired();
-    let operation = this.#operations.get(input.recoveryOperationId);
-    if (!operation || operation.walletId !== input.walletId) {
-      return { kind: 'failed', message: 'wallet recovery operation is unavailable or expired' };
+    const current = this.#operations.get(input.operation.recoveryOperationId);
+    if (
+      !current ||
+      current.stage !== 'prepared' ||
+      current.walletId !== input.operation.walletId ||
+      this.#credentialPrompts.has(current.recoveryOperationId)
+    ) {
+      return Promise.resolve({ kind: 'refused' });
     }
+
+    const promptController = new AbortController();
+    this.#credentialPrompts.set(current.recoveryOperationId, promptController);
+    let credentialPromise: Promise<WalletRecoveryReplacementCredential>;
     try {
-      if (operation.stage === 'prepared') {
-        const replacement =
-          await input.context.signingEngine.createWalletRecoveryReplacementCredential({
-            walletId: operation.walletId,
-            registration: operation.prepared.registration,
-          });
-        operation = { ...operation, stage: 'credential_created', replacement };
-        this.#operations.set(operation.recoveryOperationId, operation);
-      }
-      if (operation.stage === 'credential_created') {
-        const recovered = await input.context.signingEngine.recoverWalletCustodyManifest({
-          walletId: operation.walletId,
-          prepared: operation.prepared,
-          custodyJson: operation.custodyJson,
-          recoveryCodeBytes: operation.recoveryCodeBytes,
-          replacementCredentialIdB64u: operation.replacement.credentialIdB64u,
-          replacementFactorSecret: operation.replacement.factorSecret,
-          relayUrl: input.relayUrl,
-        });
-        operation = { ...operation, stage: 'manifest_recovered', recovered };
-        this.#operations.set(operation.recoveryOperationId, operation);
-      }
-      const finalized = await finalizeWalletRecovery({
-        relayUrl: input.relayUrl,
-        walletId: operation.walletId,
-        reservationId: operation.prepared.reservationId,
-        challengeId: operation.prepared.registration.challengeId,
-        replacementId: operation.prepared.registration.replacementId,
-        replacedCredentialIdB64u: operation.prepared.registration.replacedCredentialIdB64u,
-        recoveryAuthorizationToken: operation.prepared.recoveryAuthorizationToken,
-        webauthnRegistration: operation.replacement.registration,
-        replacementEnvelope: operation.recovered.replacementEnvelope,
-        ecdsaMaterialPossessionProofs: operation.recovered.ecdsaKeySets.map((keySet) => ({
-          keySetId: keySet.entry.keySetId,
-          proof: keySet.activation.possessionProof,
-        })),
+      credentialPromise = input.context.signingEngine.createWalletRecoveryReplacementCredential({
+        walletId: current.walletId,
+        registration: current.prepared.registration,
+        cancellation: { kind: 'abort_signal', signal: promptController.signal },
       });
-      if (finalized.kind !== 'promoted') return finalized;
-      const localContinuity = await persistRecoveredLocalContinuity({
-        context: input.context,
-        walletId: operation.walletId,
-        authorityRef: operation.prepared.authorityRef,
-        recovered: operation.recovered,
-      });
-      const result: CompleteWalletRecoveryResult = {
-        kind: 'recovered',
-        walletId: operation.walletId,
-        storeVersion: finalized.storeVersion,
-        retiredEnvelopeIds: finalized.retiredEnvelopeIds,
-        retireFailures: finalized.retireFailures,
-        recoveredKeySetIds: operation.prepared.keyManifest.entries.map((entry) => entry.keySetId),
-        localContinuity,
-      };
-      this.#operations.delete(operation.recoveryOperationId);
-      disposeRecoveryOperation(operation);
-      return result;
-    } catch (error: unknown) {
-      return {
-        kind: 'failed',
-        message: error instanceof Error ? error.message : 'wallet recovery failed',
-      };
+    } catch {
+      this.cancel(current.recoveryOperationId);
+      return Promise.resolve({ kind: 'refused' });
     }
+    return this.#finishCredentialCreation({ current, credentialPromise, promptController });
+  }
+
+  async finalize(input: {
+    readonly context: WalletRecoveryWebContext;
+    readonly operation: WalletRecoveryCredentialCreatedHandle;
+  }): Promise<WalletRecoveryFinalizeCoordinatorResult> {
+    this.#pruneExpired();
+    let current = this.#operations.get(input.operation.recoveryOperationId);
+    if (!current || current.stage === 'prepared' || current.walletId !== input.operation.walletId) {
+      return refused();
+    }
+
+    try {
+      if (current.stage === 'credential_created') {
+        const recovered = await input.context.signingEngine.recoverWalletCustodyManifest({
+          walletId: current.walletId,
+          prepared: current.prepared,
+          custodyJson: current.custodyJson,
+          recoveryCodeBytes: current.recoveryCodeBytes,
+          replacementCredentialIdB64u: current.replacement.credentialIdB64u,
+          replacementFactorSecret: current.replacement.factorSecret,
+          relayUrl: current.relayUrl,
+        });
+        if (this.#operations.get(current.recoveryOperationId) !== current) {
+          disposeRecoveryOperation(current);
+          return refused();
+        }
+        if (current.prepared.reservationExpiresAtMs <= Date.now()) {
+          this.cancel(current.recoveryOperationId);
+          return refused();
+        }
+        current.recoveryCodeBytes.fill(0);
+        zeroizeBuffer(current.replacement.factorSecret);
+        current = manifestRecoveredOperation(current, recovered);
+        this.#operations.set(current.recoveryOperationId, current);
+      }
+
+      if (current.stage === 'manifest_recovered') {
+        const finalized = await finalizeWalletRecovery({
+          relayUrl: current.relayUrl,
+          walletId: current.walletId,
+          reservationId: current.prepared.reservationId,
+          challengeId: current.prepared.registration.challengeId,
+          replacementId: current.prepared.registration.replacementId,
+          webauthnRegistration: current.replacement.registration,
+          replacementEnvelope: current.recovered.replacementEnvelope,
+          ecdsaMaterialPossessionProofs: current.recovered.ecdsaKeySets.map((keySet) => ({
+            keySetId: keySet.entry.keySetId,
+            proof: keySet.activation.possessionProof,
+          })),
+        });
+        if (this.#operations.get(current.recoveryOperationId) !== current) {
+          return finalized.kind === 'promoted' ? { kind: 'transport_uncertain' } : finalized;
+        }
+        if (finalized.kind === 'refused') {
+          this.cancel(current.recoveryOperationId);
+          return finalized;
+        }
+        if (finalized.kind !== 'promoted') return finalized;
+        if (finalized.credential.credentialIdB64u !== current.replacement.credentialIdB64u) {
+          return { kind: 'transport_uncertain' };
+        }
+        current = promotedPendingContinuityOperation(current, finalized.credential);
+        this.#operations.set(current.recoveryOperationId, current);
+      }
+
+      await persistRecoveredLocalContinuity({ context: input.context, operation: current });
+      this.#operations.delete(current.recoveryOperationId);
+      disposeRecoveryOperation(current);
+      return { kind: 'ready_for_sign_in', walletId: current.walletId };
+    } catch {
+      const retained = this.#operations.get(input.operation.recoveryOperationId);
+      if (retained?.stage === 'promoted_pending_continuity') {
+        return { kind: 'transport_uncertain' };
+      }
+      this.cancel(input.operation.recoveryOperationId);
+      return refused();
+    }
+  }
+
+  async #finishCredentialCreation(input: {
+    readonly current: Extract<RecoveryOperation, { stage: 'prepared' }>;
+    readonly credentialPromise: Promise<WalletRecoveryReplacementCredential>;
+    readonly promptController: AbortController;
+  }): Promise<WalletRecoveryCredentialCreationResult> {
+    try {
+      const replacement = await input.credentialPromise;
+      const active = this.#operations.get(input.current.recoveryOperationId);
+      if (active !== input.current || input.promptController.signal.aborted) {
+        zeroizeBuffer(replacement.factorSecret);
+        return { kind: 'dismissed' };
+      }
+      if (input.current.prepared.reservationExpiresAtMs <= Date.now()) {
+        zeroizeBuffer(replacement.factorSecret);
+        this.cancel(input.current.recoveryOperationId);
+        return { kind: 'refused' };
+      }
+      const next = credentialCreatedOperation(input.current, replacement);
+      this.#operations.set(next.recoveryOperationId, next);
+      return {
+        kind: 'credential_created',
+        recoveryOperationId: next.recoveryOperationId,
+        walletId: next.walletId,
+      };
+    } catch (error: unknown) {
+      if (input.promptController.signal.aborted || isCredentialDismissal(error)) {
+        return { kind: 'dismissed' };
+      }
+      this.cancel(input.current.recoveryOperationId);
+      return { kind: 'refused' };
+    } finally {
+      const activePrompt = this.#credentialPrompts.get(input.current.recoveryOperationId);
+      if (activePrompt === input.promptController) {
+        this.#credentialPrompts.delete(input.current.recoveryOperationId);
+      }
+    }
+  }
+
+  cancel(recoveryOperationId: string): void {
+    this.#credentialPrompts.get(recoveryOperationId)?.abort();
+    this.#credentialPrompts.delete(recoveryOperationId);
+    const operation = this.#operations.get(recoveryOperationId);
+    if (!operation) return;
+    this.#operations.delete(recoveryOperationId);
+    disposeRecoveryOperation(operation);
   }
 
   #pruneExpired(): void {
     const nowMs = Date.now();
+    for (const [retryKey, pending] of this.#pendingPrepareReservations) {
+      if (pending.expiresAtMs <= nowMs) this.#pendingPrepareReservations.delete(retryKey);
+    }
     for (const [operationId, operation] of this.#operations) {
+      if (operation.stage === 'promoted_pending_continuity') continue;
       if (operation.prepared.reservationExpiresAtMs > nowMs) continue;
+      this.#credentialPrompts.get(operationId)?.abort();
+      this.#credentialPrompts.delete(operationId);
       this.#operations.delete(operationId);
       disposeRecoveryOperation(operation);
     }

@@ -85,12 +85,6 @@ import type {
 } from '@/SeamsWeb/operations/near/signNEP413';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
 import type {
-  CompleteWalletRecoveryResult,
-  PrepareWalletWithCodeResult,
-  WalletRecoveryBootstrapChallengeResult,
-  WalletRecoveryBootstrapVerifyResult,
-} from '@/SeamsWeb/operations/recovery/walletRecovery';
-import type {
   AddPasskeyAuthorization,
   AddPasskeyHooksOptions,
   AddPasskeyResult,
@@ -102,12 +96,6 @@ import type {
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
-export type {
-  CompleteWalletRecoveryResult,
-  PrepareWalletWithCodeResult,
-  WalletRecoveryBootstrapChallengeResult,
-  WalletRecoveryBootstrapVerifyResult,
-} from '@/SeamsWeb/operations/recovery/walletRecovery';
 export type {
   AddPasskeyAuthorization,
   AddPasskeyHooksOptions,
@@ -1065,36 +1053,6 @@ export interface RecoveryCapability {
     walletId: string;
     authorization: WalletRecoveryRotationAuthorization;
   }): Promise<WalletRecoveryRotationOutcome>;
-
-  requestWalletRecoveryBootstrapChallenge(args: {
-    walletId: string;
-    orgId: string;
-    relayUrl?: string;
-  }): Promise<WalletRecoveryBootstrapChallengeResult>;
-
-  verifyWalletRecoveryBootstrap(args: {
-    walletId: string;
-    orgId: string;
-    challengeId: string;
-    otpCode: string;
-    relayUrl?: string;
-  }): Promise<WalletRecoveryBootstrapVerifyResult>;
-
-  prepareWalletRecoveryWithBootstrap(args: {
-    walletId: string;
-    orgId: string;
-    challengeId: string;
-    recoveryBootstrapGrant: string;
-    replacedCredentialIdB64u: string;
-    recoveryCode: string;
-    relayUrl?: string;
-  }): Promise<PrepareWalletWithCodeResult>;
-
-  completeWalletRecovery(args: {
-    walletId: string;
-    recoveryOperationId: string;
-    relayUrl?: string;
-  }): Promise<CompleteWalletRecoveryResult>;
 }
 
 export interface DevicesCapability {

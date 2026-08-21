@@ -52,7 +52,7 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
-  parseReusableWalletSessionAuthorizationId,
+  parseLinkedDeviceWalletSessionAuthorizationId,
   parseReusableWalletSessionMintId,
   type MpcWalletSigningQuotaId,
   type WalletSessionAuthorizationId,
@@ -4600,7 +4600,7 @@ export async function persistLinkedDeviceWalletSessionAuthorization(
   if (activeSession.kind !== 'found') {
     throw new Error('linked-device Wallet Session delivery is unavailable');
   }
-  const authorizationId = parseReusableWalletSessionAuthorizationId(bundle.authorizationId);
+  const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(bundle.authorizationId);
   const ed25519ThresholdSessionId = parseThresholdEd25519SessionId(bundle.walletSessionId);
   const ecdsaThresholdSessionId = parseThresholdEcdsaSessionId(bundle.walletSessionId);
   if (!authorizationId.ok || !ed25519ThresholdSessionId.ok || !ecdsaThresholdSessionId.ok) {

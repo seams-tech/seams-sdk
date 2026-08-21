@@ -8,6 +8,7 @@ import {
 import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
@@ -287,18 +288,23 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
   clientSignatureShareB64u: string;
 };
 
+type RouterAbEd25519YaoHttpAuthorizationV1 =
+  | { readonly kind: 'bearer'; readonly value: string }
+  | { readonly kind: 'recovery_challenge'; readonly challengeId: string }
+  | { readonly kind: 'cookies' };
+
 export type RouterAbEd25519YaoHttpTransportConfigV1 = {
-  routerOrigin: string;
-  authorization?: string;
-  fetch: typeof fetch;
-  traceContext?: RouterAbTraceContextV1;
+  readonly routerOrigin: string;
+  readonly authorization: RouterAbEd25519YaoHttpAuthorizationV1;
+  readonly fetch: typeof fetch;
+  readonly traceContext?: RouterAbTraceContextV1;
 };
 
 type ParsedHttpTransportConfigV1 = {
-  routerOrigin: string;
-  authorization?: string;
-  fetch: typeof fetch;
-  traceContext: RouterAbTraceContextV1;
+  readonly routerOrigin: string;
+  readonly authorization: RouterAbEd25519YaoHttpAuthorizationV1;
+  readonly fetch: typeof fetch;
+  readonly traceContext: RouterAbTraceContextV1;
 };
 
 type RouterAbEd25519YaoActiveClientLifecycleV1 =
@@ -581,14 +587,24 @@ function parseHttpTransportConfig(
     throw new Error('Router origin must be an HTTP origin without a path');
   }
   if (origin.search || origin.hash) throw new Error('Router origin must not contain query or hash');
-  const authorization =
-    typeof config.authorization === 'string' && config.authorization.length > 0
-      ? config.authorization
-      : undefined;
   if (typeof config.fetch !== 'function') throw new Error('Router fetch is required');
+  switch (config.authorization.kind) {
+    case 'bearer':
+      if (!config.authorization.value.trim()) {
+        throw new Error('Router bearer authorization is required');
+      }
+      break;
+    case 'recovery_challenge':
+      if (!config.authorization.challengeId.trim()) {
+        throw new Error('Router recovery challenge ID is required');
+      }
+      break;
+    case 'cookies':
+      break;
+  }
   return {
     routerOrigin: origin.origin,
-    ...(authorization ? { authorization } : {}),
+    authorization: config.authorization,
     fetch: config.fetch,
     traceContext: resolveHttpTraceContext(config.traceContext),
   };
@@ -692,18 +708,31 @@ export class RouterAbEd25519YaoHttpActivationTransportV1
     let response: Response;
     try {
       const isExportRequest = request.kind === 'export_admit' || request.kind === 'export_execute';
-      const authorization = isExportRequest ? undefined : this.config.authorization;
+      const bearerAuthorization =
+        !isExportRequest && this.config.authorization.kind === 'bearer'
+          ? this.config.authorization.value
+          : null;
+      const recoveryChallengeId =
+        request.kind === 'recovery_admit' && this.config.authorization.kind === 'recovery_challenge'
+          ? this.config.authorization.challengeId
+          : null;
+      const usesCookies = this.config.authorization.kind === 'cookies';
       response = await this.config.fetch.call(
         globalThis,
         new URL(request.path, this.config.routerOrigin),
         {
           method: 'POST',
           headers: {
-            ...(authorization ? { authorization } : {}),
+            ...(bearerAuthorization ? { authorization: bearerAuthorization } : {}),
+            ...(recoveryChallengeId
+              ? {
+                  [ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1]: recoveryChallengeId,
+                }
+              : {}),
             'content-type': 'application/json',
             [ROUTER_AB_TRACE_ID_HEADER_V1]: this.config.traceContext.value,
           },
-          credentials: authorization ? 'omit' : 'include',
+          credentials: usesCookies ? 'include' : 'omit',
           body: JSON.stringify(request.body),
         },
       );
@@ -990,9 +1019,7 @@ export class RouterAbEd25519YaoClientV1 {
       };
     }
     const admissionEnvelope = admissionResponse.value as Record<string, unknown>;
-    const admission = parseRouterAbEd25519YaoExportAdmissionReceiptV1(
-      admissionEnvelope.protocol,
-    );
+    const admission = parseRouterAbEd25519YaoExportAdmissionReceiptV1(admissionEnvelope.protocol);
     if (!admission.ok) {
       return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
     }

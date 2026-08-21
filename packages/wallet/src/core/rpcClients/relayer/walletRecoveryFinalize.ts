@@ -3,12 +3,19 @@ import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { redactedPasskeyRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import {
   parsePasskeyCustodyEnvelopeRecord,
+  rejectUnknownFields,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import {
   parseWalletRecoveryEcdsaPossessionProofV1,
   type WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
+import {
+  parseWebAuthnCredentialIdB64u,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
+import { base64UrlDecode } from '@shared/utils/encoders';
 
 /**
  * Installing the replacement credential a recovery enrolled.
@@ -18,10 +25,8 @@ import {
  * It queries its signer registry and exact activation receipts before a
  * `promoted` reply can consume the code and retire old credentials.
  *
- * `retireFailures` is the field callers forget. The wallet is recovered, but
- * a credential the user was replacing still opens it; surfacing it is the
- * difference between a stale credential someone revokes and one nobody knows
- * about.
+ * Promotion is atomic. The successful response carries the committed
+ * credential projection; every source retirement is part of that same commit.
  */
 
 const WALLET_RECOVERY_FINALIZE_PATH = '/wallets/recovery/finalize';
@@ -35,18 +40,13 @@ export type WalletRecoveryFinalizeResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
-      readonly retiredEnvelopeIds: readonly string[];
-      /** Old credentials that still open the wallet. Usually empty. */
-      readonly retireFailures: readonly string[];
+      readonly credential: {
+        readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+        readonly credentialPublicKeyB64u: string;
+        readonly counter: number;
+      };
     }
-  /** The recovery did not reproduce every required key set. */
-  | { readonly kind: 'incomplete'; readonly message: string }
-  /** The envelope was refused; repeating will not help. */
-  | { readonly kind: 'envelope_rejected'; readonly message: string }
-  /** The replacement WebAuthn registration was refused; retrying cannot fix it. */
-  | { readonly kind: 'registration_rejected'; readonly message: string }
-  | { readonly kind: 'conflict'; readonly message: string }
-  | { readonly kind: 'transport_failed'; readonly message: string };
+  | WalletRecoveryAttemptFailure;
 
 export async function finalizeWalletRecovery(args: {
   readonly relayUrl: string;
@@ -54,8 +54,6 @@ export async function finalizeWalletRecovery(args: {
   readonly reservationId: string;
   readonly challengeId: string;
   readonly replacementId: string;
-  readonly replacedCredentialIdB64u: string;
-  readonly recoveryAuthorizationToken: string;
   readonly webauthnRegistration: WebAuthnRegistrationCredential;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly ecdsaMaterialPossessionProofs: readonly WalletRecoveryEcdsaMaterialPossessionProofInputV1[];
@@ -67,10 +65,7 @@ export async function finalizeWalletRecovery(args: {
   try {
     webauthnRegistration = redactedPasskeyRegistrationCredential(args.webauthnRegistration);
   } catch {
-    return {
-      kind: 'registration_rejected',
-      message: 'the replacement registration is unusable',
-    };
+    return { kind: 'refused' };
   }
   let ecdsaMaterialPossessionProofs: readonly WalletRecoveryEcdsaMaterialPossessionProofInputV1[];
   try {
@@ -93,10 +88,7 @@ export async function finalizeWalletRecovery(args: {
       };
     });
   } catch {
-    return {
-      kind: 'transport_failed',
-      message: 'wallet recovery ECDSA possession proofs are unusable',
-    };
+    return { kind: 'refused' };
   }
   let replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   try {
@@ -114,10 +106,7 @@ export async function finalizeWalletRecovery(args: {
       throw new Error('replacement envelope is not bound to a passkey');
     }
   } catch {
-    return {
-      kind: 'envelope_rejected',
-      message: 'the replacement envelope is unusable',
-    };
+    return { kind: 'refused' };
   }
 
   let response: Response;
@@ -130,69 +119,61 @@ export async function finalizeWalletRecovery(args: {
           reservationId: args.reservationId,
           challengeId: args.challengeId,
           replacementId: args.replacementId,
-          replacedCredentialIdB64u: args.replacedCredentialIdB64u,
-          recoveryAuthorizationToken: args.recoveryAuthorizationToken,
           webauthnRegistration,
           replacementEnvelope,
           ecdsaMaterialPossessionProofs,
         },
       }),
     );
-  } catch (error: unknown) {
-    return {
-      kind: 'transport_failed',
-      message: error instanceof Error ? error.message : 'recovery finalization request failed',
-    };
+  } catch {
+    return { kind: 'transport_uncertain' };
   }
 
   const bodyUnknown: unknown = await response.json().catch(() => ({}));
   const body = isRecord(bodyUnknown) ? bodyUnknown : {};
-  const message = typeof body.message === 'string' ? body.message : '';
-
   if (response.status === 200 && body.ok === true) {
-    const storeVersion = String(body.storeVersion || '').trim();
-    if (!storeVersion) {
+    try {
+      rejectUnknownFields(body, ['ok', 'storeVersion', 'credential'], 'walletRecoveryFinalize');
+      const storeVersion = String(body.storeVersion || '').trim();
+      if (!storeVersion) throw new Error('missing store version');
+      if (!isRecord(body.credential)) throw new Error('missing replacement credential');
+      rejectUnknownFields(
+        body.credential,
+        ['credentialIdB64u', 'credentialPublicKeyB64u', 'counter'],
+        'walletRecoveryFinalize.credential',
+      );
+      const credentialId = parseWebAuthnCredentialIdB64u(body.credential.credentialIdB64u);
+      const credentialPublicKeyB64u = String(body.credential.credentialPublicKeyB64u || '').trim();
+      const counter = body.credential.counter;
+      if (!credentialId.ok || !credentialPublicKeyB64u) {
+        throw new Error('missing replacement credential material');
+      }
+      if (base64UrlDecode(credentialPublicKeyB64u).byteLength === 0) {
+        throw new Error('empty replacement credential public key');
+      }
+      if (!Number.isSafeInteger(counter) || Number(counter) < 0) {
+        throw new Error('invalid replacement credential counter');
+      }
       return {
-        kind: 'transport_failed',
-        message: 'recovery finalization returned no store version',
+        kind: 'promoted',
+        storeVersion,
+        credential: {
+          credentialIdB64u: credentialId.value,
+          credentialPublicKeyB64u,
+          counter: Number(counter),
+        },
       };
+    } catch {
+      return { kind: 'transport_uncertain' };
     }
-    return {
-      kind: 'promoted',
-      storeVersion,
-      retiredEnvelopeIds: stringList(body.retiredEnvelopeIds),
-      /* Defaulted to empty rather than left undefined: a caller checking
-         `.length` should not have to know the field is conditional. */
-      retireFailures: stringList(body.retireFailures),
-    };
   }
   if (response.status === 409) {
-    if (body.code === 'recovery_conflict') {
-      return { kind: 'conflict', message: message || 'recovery finalization conflicted' };
-    }
-    return { kind: 'incomplete', message: message || 'recovery did not reproduce every key set' };
+    return { kind: 'retryable_conflict' };
   }
-  if (response.status === 400) {
-    if (body.code === 'registration_rejected') {
-      return {
-        kind: 'registration_rejected',
-        message: message || 'the replacement registration was refused',
-      };
-    }
-    return {
-      kind: 'envelope_rejected',
-      message: message || 'the replacement envelope was refused',
-    };
+  if (response.status === 400 || response.status === 401) {
+    return { kind: 'refused' };
   }
-  return {
-    kind: 'transport_failed',
-    message: message || `recovery finalization failed (HTTP ${response.status})`,
-  };
-}
-
-function stringList(value: unknown): readonly string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+  return { kind: 'transport_uncertain' };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
