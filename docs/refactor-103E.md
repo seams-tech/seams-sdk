@@ -1200,6 +1200,9 @@ R109A reuses:
 R109A is reconciled to this model. Multiple auth methods on one device may
 reference the same authority. Each method keeps its exact factor envelope and
 Wallet Session; permissions and signer activations remain authority-owned.
+R109A's primary goal is one authority with both factor families active. It
+permits multiple active Passkeys and at most one active Email OTP method per
+authority.
 R109A also replaces R103E's transitional factor-field draft with the canonical
 Passkey and Email OTP provider-identity branches. R103E's authority,
 activation, Wallet Session, and lock contracts remain controlling.
