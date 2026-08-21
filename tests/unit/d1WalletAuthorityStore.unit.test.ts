@@ -231,6 +231,50 @@ async function buildAuthorityFixture(
   };
 }
 
+function pendingAuthorityWithPackageDigest(
+  authority: PendingWalletAuthorityV1,
+  localInstallPackageSetDigestB64u: PendingWalletAuthorityV1['localInstallPackageSetDigestB64u'],
+): PendingWalletAuthorityV1 {
+  return buildPendingWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: authority.provenance,
+    permissions: authority.permissions,
+    signerActivations: authority.signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.updatedAtMs,
+    state: authority.state,
+    localInstallPackageSetDigestB64u,
+  });
+}
+
+function pendingAuthorityWithSignerActivations(
+  authority: PendingWalletAuthorityV1,
+  signerActivations: PendingWalletAuthorityV1['signerActivations'],
+): PendingWalletAuthorityV1 {
+  return buildPendingWalletAuthorityV1({
+    kind: authority.kind,
+    authorityId: authority.authorityId,
+    walletId: authority.walletId,
+    principal: authority.principal,
+    provenance: authority.provenance,
+    permissions: authority.permissions,
+    signerActivations,
+    signerActivationSetDigestB64u: authority.signerActivationSetDigestB64u,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    revocationEpoch: authority.revocationEpoch,
+    createdAtMs: authority.createdAtMs,
+    updatedAtMs: authority.updatedAtMs,
+    state: authority.state,
+    localInstallPackageSetDigestB64u: authority.localInstallPackageSetDigestB64u,
+  });
+}
+
 test('persists pending authority rows, replays exact input, and reports conflicts', async () => {
   const temporary = createTemporaryD1Database();
   try {
@@ -289,6 +333,35 @@ test('activates through the pending CAS, rejects conflicting activation, and rep
       authority: fixture.pendingAuthority,
       authMethod: fixture.pendingAuthMethod,
     });
+
+    const packageDrift = pendingAuthorityWithPackageDigest(
+      fixture.pendingAuthority,
+      parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(13))),
+    );
+    await expect(
+      store.activatePendingAuthority({
+        pendingAuthority: packageDrift,
+        activeAuthority: fixture.activeAuthority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.activeAuthMethod,
+      }),
+    ).resolves.toEqual({ kind: 'conflict', authorityId: fixture.authorityId });
+    await expect(store.readById(fixture.authorityId)).resolves.toEqual(fixture.pendingAuthority);
+
+    const signerDriftFixture = await buildAuthorityFixture({ label: 'activation-signer-drift' });
+    const signerDrift = pendingAuthorityWithSignerActivations(
+      fixture.pendingAuthority,
+      signerDriftFixture.pendingAuthority.signerActivations,
+    );
+    await expect(
+      store.activatePendingAuthority({
+        pendingAuthority: signerDrift,
+        activeAuthority: fixture.activeAuthority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.activeAuthMethod,
+      }),
+    ).rejects.toThrow('authority activation identities do not match');
+    await expect(store.readById(fixture.authorityId)).resolves.toEqual(fixture.pendingAuthority);
 
     const activationResult = await store.activatePendingAuthority({
       pendingAuthority: fixture.pendingAuthority,

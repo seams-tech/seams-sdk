@@ -439,6 +439,18 @@ function assertActivationInput(input: {
   if (
     input.activeAuthority.authorityId !== input.pendingAuthority.authorityId ||
     input.activeAuthority.walletId !== input.pendingAuthority.walletId ||
+    input.activeAuthority.principal.kind !== input.pendingAuthority.principal.kind ||
+    input.activeAuthority.principal.deviceId !== input.pendingAuthority.principal.deviceId ||
+    !provenanceEqual(input.activeAuthority.provenance, input.pendingAuthority.provenance) ||
+    !permissionSetsEqual(input.activeAuthority.permissions, input.pendingAuthority.permissions) ||
+    !signerActivationSetsEqual(
+      input.activeAuthority.signerActivations,
+      input.pendingAuthority.signerActivations,
+    ) ||
+    input.activeAuthority.signerActivationSetDigestB64u !==
+      input.pendingAuthority.signerActivationSetDigestB64u ||
+    input.activeAuthority.revocationEpoch !== input.pendingAuthority.revocationEpoch ||
+    input.activeAuthority.createdAtMs !== input.pendingAuthority.createdAtMs ||
     input.activeAuthMethod.walletAuthMethodId !== input.pendingAuthMethod.walletAuthMethodId ||
     input.activeAuthMethod.walletAuthorityId !== input.activeAuthority.authorityId ||
     input.activeAuthMethod.walletId !== input.activeAuthority.walletId
@@ -508,6 +520,7 @@ function prepareAuthorityTransitionStatement(input: {
   readonly expected: PendingWalletAuthorityV1;
   readonly next: ActiveWalletAuthorityV1;
 }): D1PreparedStatementLike {
+  const expectedColumns = authorityColumns(input.expected);
   const columns = authorityColumns(input.next);
   return input.database
     .prepare(
@@ -526,9 +539,22 @@ function prepareAuthorityTransitionStatement(input: {
         WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
           AND authority_id = ?
           AND wallet_id = ?
-          AND lifecycle_state = 'pending_local_install'
+          AND device_id = ?
+          AND provenance_kind = ?
+          AND enrollment_id IS ?
+          AND source_authority_id IS ?
+          AND link_session_id IS ?
+          AND lifecycle_state = ?
+          AND permissions_json = ?
+          AND signer_activations_json = ?
+          AND local_install_package_set_digest_b64u IS ?
+          AND signer_activation_set_digest_b64u = ?
           AND authority_digest_b64u = ?
-          AND revocation_epoch = ?`,
+          AND revocation_epoch = ?
+          AND created_at_ms = ?
+          AND updated_at_ms = ?
+          AND activated_at_ms IS ?
+          AND revoked_at_ms IS ?`,
     )
     .bind(
       columns.lifecycleState,
@@ -543,8 +569,22 @@ function prepareAuthorityTransitionStatement(input: {
       ...scopeValues(input.scope),
       String(input.expected.authorityId),
       String(input.expected.walletId),
-      String(input.expected.authorityDigestB64u),
-      input.expected.revocationEpoch,
+      expectedColumns.deviceId,
+      expectedColumns.provenanceKind,
+      expectedColumns.enrollmentId,
+      expectedColumns.sourceAuthorityId,
+      expectedColumns.linkSessionId,
+      expectedColumns.lifecycleState,
+      expectedColumns.permissionsJson,
+      expectedColumns.signerActivationsJson,
+      expectedColumns.localInstallPackageSetDigestB64u,
+      expectedColumns.signerActivationSetDigestB64u,
+      expectedColumns.authorityDigestB64u,
+      expectedColumns.revocationEpoch,
+      expectedColumns.createdAtMs,
+      expectedColumns.updatedAtMs,
+      expectedColumns.activatedAtMs,
+      expectedColumns.revokedAtMs,
     );
 }
 
@@ -764,11 +804,26 @@ export class D1WalletAuthorityStore {
   }): Promise<WalletAuthorityActivationResultV1> {
     await this.ensureSchema();
     assertActivationInput(input);
+    if (!(await walletAuthorityDigestsMatchV1(input.pendingAuthority))) {
+      return { kind: 'conflict', authorityId: input.pendingAuthority.authorityId };
+    }
     if (!(await walletAuthorityDigestsMatchV1(input.activeAuthority))) {
       throw new Error('active wallet authority digest does not match its canonical record');
     }
     const existingAuthority = await this.readById(input.pendingAuthority.authorityId);
     const existingMethod = await this.readAuthMethodById(input.pendingAuthMethod.walletAuthMethodId);
+    if (
+      existingAuthority?.state === 'pending_local_install' &&
+      !recordsEqual(existingAuthority, input.pendingAuthority)
+    ) {
+      return { kind: 'conflict', authorityId: input.pendingAuthority.authorityId };
+    }
+    if (
+      existingMethod?.status === 'pending_local_install' &&
+      !authMethodsEqual(existingMethod, input.pendingAuthMethod)
+    ) {
+      return { kind: 'conflict', authorityId: input.pendingAuthority.authorityId };
+    }
     if (
       existingAuthority?.state === 'active' &&
       existingMethod?.status === 'active' &&
