@@ -4,10 +4,7 @@ import type {
   NearProvisioningStateChangedEvent,
   WalletSession,
 } from '@seams/wallet';
-import {
-  buildHostedAuthMenuOpenRequest,
-  hostedAuthMenuSessionIdFromBoundary,
-} from '@seams/wallet';
+import { buildHostedAuthMenuOpenRequest, hostedAuthMenuSessionIdFromBoundary } from '@seams/wallet';
 import {
   ActionType,
   useSeams,
@@ -34,6 +31,7 @@ type IntendedActionName =
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
+  | 'recoverPasskeyWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -293,11 +291,19 @@ type NearProvisioningReadySummary = {
   operationalPublicKey: string;
 };
 
+type PasskeyRecoveryResultSummary = {
+  kind: 'passkey_recovery_success';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | Ed25519AddSignerResultSummary
   | EmailOtpRegistrationResultSummary
   | NearProvisioningReadySummary
+  | PasskeyRecoveryResultSummary
   | NearSigningResultSummary
   | PasskeySyncResultSummary
   | PasskeyUnlockResultSummary
@@ -567,6 +573,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-recover-passkey"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRecoverPasskeyWallet}
+            style={buttonStyle}
+          >
+            Recover Passkey
+          </button>
+          <button
+            type="button"
             data-testid="intended-unlock-passkey"
             disabled={state.action.status === 'running'}
             onClick={controller.runUnlockPasskeyWallet}
@@ -702,6 +717,10 @@ class IntendedPageController {
     void this.syncPasskeyWallet();
   };
 
+  runRecoverPasskeyWallet = (): void => {
+    void this.recoverPasskeyWallet();
+  };
+
   runUnlockEmailOtpWallet = (): void => {
     void this.unlockEmailOtpWallet();
   };
@@ -735,6 +754,7 @@ class IntendedPageController {
           defaults: this.seams.configs.signing.thresholdEcdsa.provisioningDefaults,
           profile: this.passkeyEcdsaTargetProfile,
         }),
+        recoveryCodeBackup: { kind: 'show_builtin_dialog' },
         onEvent: this.recordLifecycleEvent,
       });
       const registration = assertPasskeyRegistrationSucceeded({
@@ -998,6 +1018,58 @@ class IntendedPageController {
           walletId: String(outcome.walletId),
           nearAccountId,
           operationalPublicKey,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  private async recoverPasskeyWallet(): Promise<void> {
+    const action: IntendedActionName = 'recoverPasskeyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-passkey-recovery-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) throw new Error('Passkey recovery auth-menu identity is invalid');
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-recover-passkey"]',
+      );
+      if (!anchorElement) throw new Error('Passkey recovery anchor is unavailable');
+      const outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: [],
+        }),
+        anchorElement,
+      );
+      if (outcome.kind !== 'authenticated') {
+        throw new Error(`Passkey recovery ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId || outcome.method !== 'passkey') {
+        throw new Error('Passkey recovery returned the wrong wallet or auth method');
+      }
+      await this.refreshLoginState(String(outcome.walletId));
+      const recoveryStatus = await this.seams.recovery.getWalletRecoveryCodeStatus({
+        walletId: String(outcome.walletId),
+      });
+      if (recoveryStatus.kind !== 'ready') {
+        throw new Error(`Recovery-code status is ${recoveryStatus.kind}`);
+      }
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'passkey_recovery_success',
+          walletId: String(outcome.walletId),
+          activeRecoveryCodeCount: recoveryStatus.activeCodeCount,
+          totalRecoveryCodeCount: recoveryStatus.totalCodeCount,
         },
       });
     } catch (error) {
@@ -1484,6 +1556,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'passkey_sync_success':
+    case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
@@ -1510,6 +1583,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
+    case 'passkey_recovery_success':
       return null;
     default:
       return assertNever(result);
@@ -1531,6 +1605,7 @@ function intendedActionResultNearSignerSlot(
     case 'near_sign_success':
     case 'passkey_unlock_success':
     case 'passkey_sync_success':
+    case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
@@ -2321,9 +2396,7 @@ type EmailOtpCodeLookup =
       challengeId?: never;
     };
 
-function emailOtpDevOutboxUrl(input: {
-  relayerUrl: string;
-}): string {
+function emailOtpDevOutboxUrl(input: { relayerUrl: string }): string {
   return new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl).href;
 }
 

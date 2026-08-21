@@ -20,6 +20,7 @@ import type { AppearanceConfig } from '@/core/types/seams';
 import type { GoogleEmailOtpWalletAuthLoginFlow } from '@/SeamsWeb/publicApi/types';
 import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
 import { IndexedDBManager } from '@/core/indexedDB';
+import type { HostedRecoveryPort } from '@/SeamsWeb/walletIframe/host/recovery-port';
 
 type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
 type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[1];
@@ -28,6 +29,17 @@ const APPEARANCE = {
   theme: { id: 'default', mode: 'dark', colors: {} },
   palette: 'default',
 } as const satisfies AppearanceConfig;
+
+const UNAVAILABLE_RECOVERY_PORT: HostedRecoveryPort = {
+  prepare: async () => ({ kind: 'refused' }),
+  createPasskey: async () => ({ kind: 'refused' }),
+  finalize: async () => ({ kind: 'refused' }),
+  cancel: async () => {},
+};
+
+async function unavailableRecoveredLogin(): Promise<never> {
+  throw new Error('Recovered login fixture was not configured');
+}
 
 function authMenuSession(
   args: {
@@ -71,6 +83,8 @@ function authMenuSession(
         throw new Error('Device-linking flow fixture was not configured');
       }),
     cancelDeviceLinking: async () => {},
+    recoveryPort: UNAVAILABLE_RECOVERY_PORT,
+    prepareRecoveredLogin: unavailableRecoveredLogin,
     sendToParent: args.sendToParent ?? (() => {}),
   });
 }

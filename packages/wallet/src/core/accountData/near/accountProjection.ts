@@ -32,6 +32,7 @@ import type {
 import type {
   ActivateAccountSignerInput,
   ActivateAccountSignerResult,
+  SignerActivationPolicy,
 } from '../../indexedDB/accountSignerLifecycle';
 import { getNearChainCandidates, inferNearChainIdKey } from './accountRefs';
 import { buildNearProfileId } from './profileId';
@@ -60,6 +61,7 @@ export interface UpsertNearProjectionOperations {
 export async function upsertNearAccountProjectionRecords(args: {
   userData: ClientUserData;
   ops: UpsertNearProjectionOperations;
+  activationPolicy?: SignerActivationPolicy;
 }): Promise<{ signerSlot: number }> {
   const { userData, ops } = args;
   const accountId = toAccountId(userData.nearAccountId);
@@ -109,7 +111,7 @@ export async function upsertNearAccountProjectionRecords(args: {
         passkeyCredentialRawId: userData.passkeyCredential?.rawId,
       },
     },
-    activationPolicy: { mode: 'allocate_next_free' },
+    activationPolicy: args.activationPolicy ?? { mode: 'allocate_next_free' },
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
   });

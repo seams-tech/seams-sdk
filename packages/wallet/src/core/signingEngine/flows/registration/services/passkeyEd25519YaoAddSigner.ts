@@ -89,7 +89,7 @@ function transportConfig(
   );
   return {
     routerOrigin: requireNonEmptyString(input.httpTransport.routerOrigin, 'Yao Router origin'),
-    authorization: `Bearer ${bearerToken}`,
+    authorization: { kind: 'bearer', value: `Bearer ${bearerToken}` },
     fetch: input.httpTransport.fetch,
   };
 }
@@ -124,7 +124,11 @@ export async function prepareVerifiedPasskeyEd25519YaoAddSignerV1(
   );
 
   requireMatchingString(admission.scope.lifecycle_id, ceremonyId, 'Yao lifecycle ID');
-  requireMatchingString(admission.scope.threshold_session_id, ceremonyId, 'Yao Threshold Session ID');
+  requireMatchingString(
+    admission.scope.threshold_session_id,
+    ceremonyId,
+    'Yao Threshold Session ID',
+  );
   requireMatchingString(admission.scope.account_id, String(intent.walletId), 'Yao account ID');
   requireMatchingString(
     admission.scope.signer_set_id,
@@ -189,9 +193,7 @@ export async function admitVerifiedPasskeyEd25519YaoAddSignerV1(
     body: prepared.request,
   });
   if (!response.ok) throw new Error(response.message);
-  const receipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
-    response.value,
-  );
+  const receipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(response.value);
   if (!receipt.ok) throw new Error(receipt.message);
   return {
     request: prepared.request,

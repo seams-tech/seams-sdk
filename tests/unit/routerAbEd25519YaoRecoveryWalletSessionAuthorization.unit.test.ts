@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1,
   parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
   parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -9,92 +10,55 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import {
   buildFullOwnerDelegatedWalletAuthorityV1,
   buildSigningOnlyDelegatedWalletAuthorityV1,
 } from '@shared/authorization/delegatedAuthority';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
-  parseRouterAbEd25519LinkedDeviceWalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../packages/wallet-server/src/core/ThresholdService/validation';
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  deriveWalletRecoveryKeyLifecycleId,
+  parseRecoveryCodeReservationId,
+} from '@shared/wallet-recovery/recoveryCodeReservation';
+import type { PreparedEd25519RecoveryAdmissionV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryKeyManifest';
 import type {
-  SessionParseFailureReason,
-  SessionParseResult,
-} from '../../packages/wallet-server/src/core/sessionValidation';
+  RouterAbEd25519YaoRecoveryAuthorizationInput,
+  RouterAbEd25519YaoRecoveryAuthorizationServicesV1,
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import type { RouterApiAuthorizationSessionService } from '../../packages/wallet-server/src/router/framework/authServicePort';
 import type {
   SessionAdapter,
   SessionClaims,
 } from '../../packages/wallet-server/src/router/framework/routerApi';
-import {
-  buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1,
-  warmBootstrapCapabilityMatchesLinkedDeviceIdentity,
-  type RouterAbEd25519YaoActiveCapabilityDescriptorV1,
-  type RouterAbEd25519YaoRecoveryAuthorizationInput,
-} from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+import type { SessionParseResult } from '../../packages/wallet-server/src/core/sessionValidation';
 
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
-type AuthorizationPhase = RouterAbEd25519YaoRecoveryAuthorizationInput['kind'];
 
 const WALLET_ID = 'recovery-wallet.testnet';
+const WALLET_ID_VALUE = walletIdFromString(WALLET_ID);
+const RESERVATION_ID = parseRecoveryCodeReservationId('recovery-reservation-1');
+const KEY_SET_ID = 'near_ed25519:recovery-signer-1' as const;
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_recovery_wallet';
-const ROOT_SHARE_EPOCH = 'root-epoch-recovery-1';
-const WALLET_SESSION_ID = 'wallet-session-recovery-1';
-const THRESHOLD_SESSION_ID = 'threshold-session-recovery-1';
-const OWNER_SOURCE_THRESHOLD_SESSION_ID = 'threshold-session-owner-source-1';
 const SIGNING_WORKER_ID = 'signing-worker-recovery-1';
 const PARTICIPANT_IDS = [1, 2] as const;
-
-type ClaimsFixtureInput = {
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  walletSessionId: string;
-  quotaId: string;
-  thresholdSessionId: string;
-  rootShareEpoch: string;
-  participantIds: readonly number[];
-  signingWorkerId: string;
-  thresholdExpiresAtMs: number;
-};
-
-type SessionFixtureOutcome =
-  | {
-      readonly kind: 'parsed';
-      readonly result: SessionParseResult<SessionClaims>;
-    }
-  | {
-      readonly kind: 'unavailable';
-      readonly error: Error;
-    };
+const RECOVERY_CHALLENGE_ID = 'webauthn-recovery-challenge-1';
+const RECOVERY_URL = 'https://router.example.test/recovery';
 
 class SessionFixture implements SessionAdapter {
-  parsedAuthorization: string | string[] | undefined;
-
-  constructor(private readonly outcome: SessionFixtureOutcome) {}
+  constructor(private readonly result: SessionParseResult<SessionClaims>) {}
 
   async signJwt(): Promise<string> {
     throw new Error('signJwt is outside the recovery authorization test boundary');
   }
 
-  async parse(
-    headers: Record<string, string | string[] | undefined>,
-  ): Promise<SessionParseResult<SessionClaims>> {
-    this.parsedAuthorization = headers.authorization ?? headers.Authorization;
-    switch (this.outcome.kind) {
-      case 'parsed':
-        return this.outcome.result;
-      case 'unavailable':
-        throw this.outcome.error;
-    }
+  async parse(): Promise<SessionParseResult<SessionClaims>> {
+    return this.result;
   }
 
   buildSetCookie(): string {
@@ -110,13 +74,23 @@ class SessionFixture implements SessionAdapter {
   }
 }
 
-function bytes(seed: number, length = 32): number[] {
-  return new Array<number>(length).fill(seed);
-}
-
-function requireParsed<T>(parsed: { ok: true; value: T } | { ok: false; message: string }): T {
+function requireParsed<T>(
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly message: string },
+): T {
   if (!parsed.ok) throw new Error(parsed.message);
   return parsed.value;
+}
+
+function requireTenantId(): RouterApiAuthorizationSessionService['tenantId'] {
+  const parsed = parseTenantId('org-recovery');
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function bytes(seed: number, length = 32): number[] {
+  return new Array<number>(length).fill(seed);
 }
 
 function materialActivation(label: string) {
@@ -131,29 +105,18 @@ function materialActivation(label: string) {
   };
 }
 
-function parsedSessionFixture(result: SessionParseResult<SessionClaims>): SessionFixture {
-  return new SessionFixture({ kind: 'parsed', result });
-}
-
-function failedSessionFixture(reason: SessionParseFailureReason): SessionFixture {
-  return parsedSessionFixture({ ok: false, reason });
-}
-
-function unavailableSessionFixture(): SessionFixture {
-  return new SessionFixture({
-    kind: 'unavailable',
-    error: new Error('session verifier unavailable'),
+async function admissionRequestFixture(): Promise<RouterAbEd25519YaoRecoveryAdmissionRequestV1> {
+  const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
+    reservationId: RESERVATION_ID,
+    keySetId: KEY_SET_ID,
   });
-}
-
-function admissionRequestFixture(): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
   return requireParsed(
     parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
-        lifecycle_id: 'recovery-lifecycle-1',
-        root_share_epoch: ROOT_SHARE_EPOCH,
+        lifecycle_id: lifecycleId,
+        root_share_epoch: 'root-epoch-recovery-1',
         account_id: WALLET_ID,
-        threshold_session_id: THRESHOLD_SESSION_ID,
+        threshold_session_id: `${lifecycleId}:threshold-session`,
         signer_set_id: 'signer-set-recovery-1',
         signing_worker_id: SIGNING_WORKER_ID,
         material_activation: materialActivation('replacement'),
@@ -173,19 +136,48 @@ function admissionRequestFixture(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
   );
 }
 
-function bootstrapRequestFixture(): RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1 {
-  return requireParsed(
-    parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
-      kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
-      walletId: WALLET_ID,
-      nearAccountId: WALLET_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      signerSlot: 1,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingWorkerId: SIGNING_WORKER_ID,
-      participantIds: PARTICIPANT_IDS,
-    }),
-  );
+function preparedEntryFixture(
+  admission: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+): PreparedEd25519RecoveryAdmissionV1['entries'][number] {
+  return {
+    kind: 'near_ed25519',
+    keySetId: KEY_SET_ID,
+    signerId: 'recovery-signer-1',
+    nearAccountId: WALLET_ID,
+    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+    publicKey: 'ed25519:recovery-public-key',
+    registeredPublicKeyB64u: 'recovery-registered-public-key',
+    recordedKeyManifestDigestB64u: 'recovery-key-manifest-digest',
+    recoveryBasis: {
+      capabilityKind: 'recovery',
+      activeCapabilityBinding: admission.active_capability_binding,
+      activeMaterialActivation: admission.active_material_activation,
+      scope: admission.scope,
+      applicationBinding: admission.application_binding,
+      participantIds: admission.participant_ids,
+      registeredPublicKey: admission.registered_public_key,
+      runtimePolicyScope: {
+        orgId: 'org-recovery',
+        projectId: 'project-recovery',
+        envId: 'test',
+        signingRootVersion: admission.scope.root_share_epoch,
+      },
+      activationTranscript: bytes(13),
+      activationStateEpoch: 2,
+      signingWorkerVerifyingShare: bytes(14),
+    },
+  };
+}
+
+async function preparedAdmissionFixture(
+  admission: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+): Promise<PreparedEd25519RecoveryAdmissionV1> {
+  return {
+    kind: 'prepared_ed25519_recovery_admission_v1',
+    walletId: WALLET_ID_VALUE,
+    reservationId: RESERVATION_ID,
+    entries: [preparedEntryFixture(admission)],
+  };
 }
 
 function recoveryBindingFixture(admission: RouterAbEd25519YaoRecoveryAdmissionRequestV1) {
@@ -254,92 +246,126 @@ function activationRequestFixture(
   );
 }
 
-function authorizationInputFixture(
-  phase: AuthorizationPhase,
-  authenticated: boolean,
-): RouterAbEd25519YaoRecoveryAuthorizationInput {
-  const admission = admissionRequestFixture();
-  const execute = executeRequestFixture(admission);
-  const request = new Request('https://router.example.test/recovery', {
-    method: 'POST',
-    headers: authenticated ? { authorization: 'Bearer recovery-wallet-session' } : {},
-  });
-  switch (phase) {
-    case 'bootstrap':
-      return { kind: phase, request, body: bootstrapRequestFixture() };
-    case 'admit':
-      return { kind: phase, request, body: admission };
-    case 'execute':
-      return { kind: phase, request, body: execute };
-    case 'activate':
-      return { kind: phase, request, body: activationRequestFixture(execute) };
+function warmRecoveryBootstrapRequestFixture(): RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1 {
+  return requireParsed(
+    parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
+      kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
+      walletId: WALLET_ID,
+      nearAccountId: WALLET_ID,
+      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+      signerSlot: 1,
+      thresholdSessionId: 'warm-recovery-threshold-session',
+      signingWorkerId: SIGNING_WORKER_ID,
+      participantIds: PARTICIPANT_IDS,
+    }),
+  );
+}
+
+class PreparedAdmissionReaderFixture {
+  readonly calls: { readonly challengeId: string; readonly nowMs: number }[] = [];
+
+  constructor(private readonly prepared: PreparedEd25519RecoveryAdmissionV1 | null) {}
+
+  async readPreparedEd25519RecoveryAdmission(input: {
+    readonly challengeId: string;
+    readonly nowMs: number;
+  }): Promise<PreparedEd25519RecoveryAdmissionV1 | null> {
+    this.calls.push(input);
+    return this.prepared;
   }
 }
 
-function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims {
-  const values: ClaimsFixtureInput = {
-    walletId: input?.walletId ?? WALLET_ID,
-    nearAccountId: input?.nearAccountId ?? WALLET_ID,
-    nearEd25519SigningKeyId: input?.nearEd25519SigningKeyId ?? NEAR_SIGNING_KEY_ID,
-    walletSessionId: input?.walletSessionId ?? WALLET_SESSION_ID,
-    quotaId: input?.quotaId ?? 'quota-recovery-1',
-    thresholdSessionId: input?.thresholdSessionId ?? THRESHOLD_SESSION_ID,
-    rootShareEpoch: input?.rootShareEpoch ?? ROOT_SHARE_EPOCH,
-    participantIds: input?.participantIds ?? PARTICIPANT_IDS,
-    signingWorkerId: input?.signingWorkerId ?? SIGNING_WORKER_ID,
-    thresholdExpiresAtMs: input?.thresholdExpiresAtMs ?? Date.now() + 60_000,
-  };
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: values.walletId,
-    rpId: 'router.example.test',
-    credentialIdB64u: 'recovery-credential-id',
-  });
-  return {
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: values.walletId,
-    walletId: values.walletId,
-    nearAccountId: values.nearAccountId,
-    nearEd25519SigningKeyId: values.nearEd25519SigningKeyId,
-    walletSessionId: values.walletSessionId,
-    quotaId: values.quotaId,
-    thresholdSessionId: values.thresholdSessionId,
-    relayerKeyId: values.signingWorkerId,
-    authority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-    thresholdExpiresAtMs: values.thresholdExpiresAtMs,
-    participantIds: [...values.participantIds],
-    runtimePolicyScope: {
-      orgId: 'org-recovery',
-      projectId: 'project-recovery',
-      envId: 'test',
-      signingRootVersion: values.rootShareEpoch,
-    },
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: values.signingWorkerId,
-    },
-  };
+async function unsupportedAuthorizationSessionOperation(): Promise<never> {
+  throw new Error('authorization session operation is outside this test boundary');
 }
 
-async function authorizeWithClaims(
-  input: RouterAbEd25519YaoRecoveryAuthorizationInput,
-  claims: SessionClaims,
-) {
-  const session = parsedSessionFixture({ ok: true, claims });
-  const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
-  const result = await authorization.authorize(input);
-  return { result, session };
+async function noOpaqueWalletSession(): Promise<null> {
+  return null;
+}
+
+class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionService {
+  readonly tenantId = requireTenantId();
+
+  async issueReusableWalletSession(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
+  async issueOpaqueWalletSessionToken(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
+  async resolveOpaqueWalletSessionToken() {
+    return await noOpaqueWalletSession();
+  }
+
+  async readReusableWalletSessionStatus(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
+  async readLinkedDeviceWalletSessionAuthorization(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
+  async renewLinkedDeviceWalletSession(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
+  async mintHostedWalletSeamsSessionExchange(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+
+  async redeemHostedWalletSeamsSessionExchange(): Promise<never> {
+    return await unsupportedAuthorizationSessionOperation();
+  }
+}
+
+function authorizationServicesFixture(
+  prepared: PreparedEd25519RecoveryAdmissionV1 | null,
+  session: SessionAdapter = new SessionFixture({ ok: false, reason: 'missing' }),
+): {
+  readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
+  readonly reader: PreparedAdmissionReaderFixture;
+} {
+  const reader = new PreparedAdmissionReaderFixture(prepared);
+  const services = {
+    authorizationSessions: new AuthorizationSessionsFixture(),
+    preparedRecoveryAdmission: reader,
+    session,
+  } satisfies RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
+  return { services, reader };
+}
+
+function authorizationInput(
+  phase: RouterAbEd25519YaoRecoveryAuthorizationInput['kind'],
+  request: Request,
+  admission: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+): RouterAbEd25519YaoRecoveryAuthorizationInput {
+  switch (phase) {
+    case 'bootstrap':
+      return { kind: phase, request, body: warmRecoveryBootstrapRequestFixture() };
+    case 'admit':
+      return { kind: phase, request, body: admission };
+    case 'execute': {
+      const execute = executeRequestFixture(admission);
+      return { kind: phase, request, body: execute };
+    }
+    case 'activate': {
+      const execute = executeRequestFixture(admission);
+      return { kind: phase, request, body: activationRequestFixture(execute) };
+    }
+  }
+}
+
+function recoveryRequest(headers?: Record<string, string>): Request {
+  return new Request(RECOVERY_URL, { method: 'POST', headers });
 }
 
 function linkedClaimsFixture(input?: {
   readonly walletId?: string;
-  readonly nearEd25519SigningKeyId?: string;
   readonly walletKeyId?: string;
   readonly permission?: ReturnType<typeof buildFullOwnerDelegatedWalletAuthorityV1>;
 }): SessionClaims {
   const walletId = input?.walletId ?? WALLET_ID;
-  const nearEd25519SigningKeyId = input?.nearEd25519SigningKeyId ?? NEAR_SIGNING_KEY_ID;
   const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
   const expiresAtMs = issuedAtMs + 60_000;
   return {
@@ -350,7 +376,7 @@ function linkedClaimsFixture(input?: {
     tenantId: 'tenant:recovery',
     deviceId: 'device:recovery-2',
     enrollmentId: 'enrollment:recovery-2',
-    walletKeyId: input?.walletKeyId ?? `wallet-key:ed25519:${walletId}:${nearEd25519SigningKeyId}`,
+    walletKeyId: input?.walletKeyId ?? `wallet-key:ed25519:${walletId}:${NEAR_SIGNING_KEY_ID}`,
     keyManifestDigestB64u: base64UrlEncode(new Uint8Array(32).fill(7)),
     revocationEpoch: 0,
     permission: input?.permission ?? buildFullOwnerDelegatedWalletAuthorityV1(),
@@ -364,237 +390,284 @@ function linkedClaimsFixture(input?: {
   };
 }
 
-function parsedLinkedClaimsFixture(): NonNullable<
-  ReturnType<typeof parseRouterAbEd25519LinkedDeviceWalletSessionClaims>
-> {
-  const claims = parseRouterAbEd25519LinkedDeviceWalletSessionClaims(linkedClaimsFixture());
-  if (!claims) throw new Error('linked Wallet Session fixture is invalid');
-  return claims;
+async function authorizeLinkedBootstrap(claims: SessionClaims) {
+  const admission = await admissionRequestFixture();
+  const { services } = authorizationServicesFixture(null, new SessionFixture({ ok: true, claims }));
+  const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+    async () => services,
+  );
+  return await authorization.authorize(
+    authorizationInput(
+      'bootstrap',
+      recoveryRequest({ authorization: 'Bearer linked-device-wallet-session' }),
+      admission,
+    ),
+  );
 }
 
-function activeCapabilityFixture(): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
-  const thresholdSessionId = parseThresholdEd25519SessionId(OWNER_SOURCE_THRESHOLD_SESSION_ID);
-  if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
-  return {
-    kind: 'router_ab_ed25519_yao_active_capability_v1',
-    materialActivation: {
-      kind: 'mpc_material_activation_ref',
-      activation_id: 'owner-source-material-activation-1',
-      capability: 'owner-source-capability-1',
-      material_owner: WALLET_ID,
-      key_binding: 'owner-source-key-1',
-      lifecycle_binding: 'owner-source-lifecycle-1',
-      signing_worker: SIGNING_WORKER_ID,
-    },
-    activeCapabilityBinding: bytes(22),
-    registeredPublicKey: bytes(23),
-    nearAccountId: WALLET_ID,
-    applicationBinding: {
-      wallet_id: WALLET_ID,
-      near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
-      signing_root_id: 'owner-source-signing-root-1',
-      key_creation_signer_slot: 1,
-    },
-    runtimePolicyScope: {
-      orgId: 'org-recovery',
-      projectId: 'project-recovery',
-      envId: 'test',
-      signingRootVersion: ROOT_SHARE_EPOCH,
-    },
-    participantIds: PARTICIPANT_IDS,
-    lifecycle: {
-      lifecycleId: 'owner-source-lifecycle-1',
-      rootShareEpoch: ROOT_SHARE_EPOCH,
-      accountId: WALLET_ID,
-      thresholdSessionId: thresholdSessionId.value,
-      signerSetId: 'owner-source-signer-set-1',
-      signingWorkerId: SIGNING_WORKER_ID,
-    },
-    stateEpoch: 1,
-    registrationContinuity: {
-      kind: 'recovery',
-      activationTranscript: bytes(24),
-    },
-  };
-}
-
-test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', () => {
-  test('rejects an owner JWT for bootstrap because bootstrap requires an opaque owner session', async () => {
-    const authorized = await authorizeWithClaims(
-      authorizationInputFixture('bootstrap', true),
-      validClaimsFixture(),
+test.describe('Router A/B Ed25519 Yao recovery admission authorization', () => {
+  test('admits an exact durable prepared Near binding from the challenge header', async () => {
+    const admission = await admissionRequestFixture();
+    const prepared = await preparedAdmissionFixture(admission);
+    const { services, reader } = authorizationServicesFixture(prepared);
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
     );
-    expect(authorized.result).toEqual({
+
+    const result = await authorization.authorize(
+      authorizationInput(
+        'admit',
+        recoveryRequest({
+          [ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1]: RECOVERY_CHALLENGE_ID,
+        }),
+        admission,
+      ),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      authorization: { kind: 'wallet_recovery', walletId: WALLET_ID },
+    });
+    expect(reader.calls).toHaveLength(1);
+    expect(reader.calls[0]?.challengeId).toBe(RECOVERY_CHALLENGE_ID);
+    expect(reader.calls[0]?.nowMs).toBeGreaterThan(0);
+  });
+
+  test('rejects admission without the durable challenge header', async () => {
+    const admission = await admissionRequestFixture();
+    const { services, reader } = authorizationServicesFixture(
+      await preparedAdmissionFixture(admission),
+    );
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(authorizationInput('admit', recoveryRequest(), admission)),
+    ).resolves.toEqual({
       ok: false,
       status: 401,
-      code: 'wallet_session_missing',
-      message: 'Wallet Session is missing',
+      code: 'wallet_recovery_challenge_missing',
+      message: 'wallet recovery admission is unavailable',
+    });
+    expect(reader.calls).toHaveLength(0);
+  });
+
+  test('rejects an unknown or spent durable challenge', async () => {
+    const admission = await admissionRequestFixture();
+    const { services, reader } = authorizationServicesFixture(null);
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(
+        authorizationInput(
+          'admit',
+          recoveryRequest({
+            [ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1]: RECOVERY_CHALLENGE_ID,
+          }),
+          admission,
+        ),
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_recovery_challenge_invalid',
+      message: 'wallet recovery admission is unavailable',
+    });
+    expect(reader.calls).toHaveLength(1);
+  });
+
+  test('rejects exact Near lifecycle substitutions', async () => {
+    const admission = await admissionRequestFixture();
+    const prepared = await preparedAdmissionFixture(admission);
+    const { services } = authorizationServicesFixture(prepared);
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+    const substitutions = [
+      {
+        label: 'root share epoch',
+        request: requireParsed(
+          parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+            scope: {
+              lifecycle_id: admission.scope.lifecycle_id,
+              root_share_epoch: 'substituted-root-epoch',
+              account_id: admission.scope.account_id,
+              threshold_session_id: admission.scope.threshold_session_id,
+              signer_set_id: admission.scope.signer_set_id,
+              signing_worker_id: admission.scope.signing_worker_id,
+              material_activation: admission.scope.material_activation,
+            },
+            active_material_activation: admission.active_material_activation,
+            application_binding: admission.application_binding,
+            participant_ids: admission.participant_ids,
+            active_capability_binding: admission.active_capability_binding,
+            replacement_capability_binding: admission.replacement_capability_binding,
+            registered_public_key: admission.registered_public_key,
+          }),
+        ),
+      },
+      {
+        label: 'participant ids',
+        request: requireParsed(
+          parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+            scope: admission.scope,
+            active_material_activation: admission.active_material_activation,
+            application_binding: admission.application_binding,
+            participant_ids: [1, 3],
+            active_capability_binding: admission.active_capability_binding,
+            replacement_capability_binding: admission.replacement_capability_binding,
+            registered_public_key: admission.registered_public_key,
+          }),
+        ),
+      },
+      {
+        label: 'active material activation',
+        request: requireParsed(
+          parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+            scope: admission.scope,
+            active_material_activation: materialActivation('substituted-active'),
+            application_binding: admission.application_binding,
+            participant_ids: admission.participant_ids,
+            active_capability_binding: admission.active_capability_binding,
+            replacement_capability_binding: admission.replacement_capability_binding,
+            registered_public_key: admission.registered_public_key,
+          }),
+        ),
+      },
+    ];
+
+    for (const substitution of substitutions) {
+      await expect(
+        authorization.authorize(
+          authorizationInput(
+            'admit',
+            recoveryRequest({
+              [ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1]: RECOVERY_CHALLENGE_ID,
+            }),
+            substitution.request,
+          ),
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        status: 403,
+        code: 'wallet_recovery_scope_mismatch',
+      });
+    }
+  });
+
+  test('keeps execute and activate on the protocol receipt path without outer auth', async () => {
+    const admission = await admissionRequestFixture();
+    const { services, reader } = authorizationServicesFixture(null);
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    for (const phase of ['execute', 'activate'] as const) {
+      await expect(
+        authorization.authorize(authorizationInput(phase, recoveryRequest(), admission)),
+      ).resolves.toEqual({
+        ok: true,
+        authorization: { kind: 'wallet_recovery', walletId: WALLET_ID },
+      });
+    }
+    expect(reader.calls).toHaveLength(0);
+  });
+
+  test('keeps warm recovery bootstrap behind its opaque Wallet Session path', async () => {
+    const admission = await admissionRequestFixture();
+    const { services, reader } = authorizationServicesFixture(null);
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(
+        authorizationInput(
+          'bootstrap',
+          recoveryRequest({ authorization: 'Bearer wst_warm-recovery' }),
+          admission,
+        ),
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_session_invalid',
+      message: 'Wallet Session is invalid',
+    });
+    expect(reader.calls).toHaveLength(0);
+  });
+
+  test('does not accept the removed JWT admission path', async () => {
+    const admission = await admissionRequestFixture();
+    const { services } = authorizationServicesFixture(await preparedAdmissionFixture(admission));
+    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      async () => services,
+    );
+
+    await expect(
+      authorization.authorize(
+        authorizationInput(
+          'admit',
+          recoveryRequest({ authorization: 'Bearer recovery-wallet-jwt' }),
+          admission,
+        ),
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_recovery_challenge_missing',
+      message: 'wallet recovery admission is unavailable',
     });
   });
 
-  test('authorizes only an export-capable linked Ed25519 Wallet Session for bootstrap', async () => {
-    const authorized = await authorizeWithClaims(
-      authorizationInputFixture('bootstrap', true),
-      linkedClaimsFixture(),
-    );
-    expect(authorized.result).toMatchObject({
+  test('authorizes only an export-capable linked Ed25519 session for bootstrap', async () => {
+    await expect(authorizeLinkedBootstrap(linkedClaimsFixture())).resolves.toMatchObject({
       ok: true,
       authorization: { kind: 'linked_device_wallet_session' },
     });
 
-    const denied = await authorizeWithClaims(
-      authorizationInputFixture('bootstrap', true),
-      linkedClaimsFixture({ permission: buildSigningOnlyDelegatedWalletAuthorityV1() }),
-    );
-    expect(denied.result).toMatchObject({
+    await expect(
+      authorizeLinkedBootstrap(
+        linkedClaimsFixture({ permission: buildSigningOnlyDelegatedWalletAuthorityV1() }),
+      ),
+    ).resolves.toMatchObject({
       ok: false,
       status: 403,
       code: 'wallet_session_scope_mismatch',
     });
 
-    const wrongCurve = await authorizeWithClaims(authorizationInputFixture('bootstrap', true), {
-      ...linkedClaimsFixture(),
-      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    });
-    expect(wrongCurve.result).toMatchObject({
+    await expect(
+      authorizeLinkedBootstrap({
+        ...linkedClaimsFixture(),
+        kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       status: 401,
       code: 'wallet_session_missing',
     });
-  });
-
-  test('returns the owner-source threshold identity when linked session identity differs', () => {
-    const request = bootstrapRequestFixture();
-    const claims = parsedLinkedClaimsFixture();
-    const capability = activeCapabilityFixture();
-    expect(request.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(capability.lifecycle.thresholdSessionId).toBe(OWNER_SOURCE_THRESHOLD_SESSION_ID);
-    expect(
-      warmBootstrapCapabilityMatchesLinkedDeviceIdentity({ request, claims, capability }),
-    ).toBe(true);
-
-    const response = buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1({
-      request,
-      claims,
-      capability,
-    });
-    expect(response.thresholdSessionId).toBe(OWNER_SOURCE_THRESHOLD_SESSION_ID);
-    expect(response.thresholdSessionId).not.toBe(request.thresholdSessionId);
-    expect(response.capability).toEqual(capability);
-  });
-
-  test('rejects linked Wallet Sessions for recovery admission, execution, and activation', async () => {
-    const phases: readonly AuthorizationPhase[] = ['admit', 'execute', 'activate'];
-    for (const phase of phases) {
-      const authorized = await authorizeWithClaims(
-        authorizationInputFixture(phase, true),
-        linkedClaimsFixture(),
-      );
-      expect(authorized.result, phase).toMatchObject({
-        ok: false,
-        status: 401,
-        code: 'wallet_session_claims_invalid',
-      });
-    }
   });
 
   test('rejects linked bootstrap wallet and child-key substitutions', async () => {
-    const substitutions: ReadonlyArray<{ readonly label: string; readonly claims: SessionClaims }> =
-      [
-        {
-          label: 'wallet',
-          claims: linkedClaimsFixture({ walletId: 'substituted-wallet.testnet' }),
-        },
-        {
-          label: 'child key',
-          claims: linkedClaimsFixture({ walletKeyId: 'wallet-key:ed25519:substituted-child' }),
-        },
-      ];
-    for (const substitution of substitutions) {
-      const authorized = await authorizeWithClaims(
-        authorizationInputFixture('bootstrap', true),
-        substitution.claims,
-      );
-      expect(authorized.result, substitution.label).toMatchObject({
-        ok: false,
-        status: 403,
-        code: 'wallet_session_scope_mismatch',
-      });
-    }
-  });
-
-  test('rejects a missing Wallet Session bearer credential', async () => {
-    const session = failedSessionFixture('missing');
-    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
+    await expect(
+      authorizeLinkedBootstrap(linkedClaimsFixture({ walletId: 'substituted-wallet.testnet' })),
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+    });
 
     await expect(
-      authorization.authorize(authorizationInputFixture('admit', false)),
-    ).resolves.toEqual({
+      authorizeLinkedBootstrap(
+        linkedClaimsFixture({ walletKeyId: 'wallet-key:ed25519:substituted-child' }),
+      ),
+    ).resolves.toMatchObject({
       ok: false,
-      status: 401,
-      code: 'wallet_session_missing',
-      message: 'Wallet Session is missing',
-    });
-    expect(session.parsedAuthorization).toBeUndefined();
-  });
-
-  test('rejects malformed Router A/B Ed25519 Wallet Session claims', async () => {
-    const authorized = await authorizeWithClaims(authorizationInputFixture('admit', true), {
-      kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-      authorizationKind: 'owner_wallet_session',
-      sub: WALLET_ID,
-    });
-
-    expect(authorized.result).toEqual({
-      ok: false,
-      status: 401,
-      code: 'wallet_session_claims_invalid',
-      message: 'Wallet Session claims are invalid',
-    });
-  });
-
-  test('rejects a Wallet Session with an invalid signature', async () => {
-    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-      failedSessionFixture('signature_invalid'),
-    );
-
-    await expect(
-      authorization.authorize(authorizationInputFixture('admit', true)),
-    ).resolves.toEqual({
-      ok: false,
-      status: 401,
-      code: 'wallet_session_signature_invalid',
-      message: 'Wallet Session signature is invalid',
-    });
-  });
-
-  test('rejects Wallet Session claims rejected by the session parser', async () => {
-    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-      failedSessionFixture('claims_invalid'),
-    );
-
-    await expect(
-      authorization.authorize(authorizationInputFixture('admit', true)),
-    ).resolves.toEqual({
-      ok: false,
-      status: 401,
-      code: 'wallet_session_claims_invalid',
-      message: 'Wallet Session claims are invalid',
-    });
-  });
-
-  test('reports Wallet Session verification as unavailable', async () => {
-    const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
-      unavailableSessionFixture(),
-    );
-
-    await expect(
-      authorization.authorize(authorizationInputFixture('admit', true)),
-    ).resolves.toEqual({
-      ok: false,
-      status: 503,
-      code: 'wallet_session_unavailable',
-      message: 'Wallet Session status is unavailable',
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
     });
   });
 });

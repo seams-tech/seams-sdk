@@ -25,6 +25,7 @@ import type { D1WalletStore } from '../../../core/d1WalletStore';
 import {
   deriveWalletRecoveryKeyLifecycleId,
   parseRecoveryCodeReservationId,
+  type RecoveryCodeReservationId,
   type WalletRecoveryKeySetId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEcdsaPossessionChallengeV1 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
@@ -84,6 +85,16 @@ export type WalletRecoveryKeyManifestV1 = {
   readonly version: 'wallet_recovery_key_manifest_v1';
   readonly walletId: WalletId;
   readonly entries: readonly WalletRecoveryKeyManifestEntryV1[];
+};
+
+export type PreparedEd25519RecoveryAdmissionV1 = {
+  readonly kind: 'prepared_ed25519_recovery_admission_v1';
+  readonly walletId: WalletId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly entries: readonly Extract<
+    WalletRecoveryKeyManifestEntryV1,
+    { readonly kind: 'near_ed25519' }
+  >[];
 };
 
 export type WalletRecoveryPreparationKeyManifestEntryV1 =
@@ -182,6 +193,56 @@ export type WalletRecoveryEcdsaActivationReceiptInputV1 = {
   readonly keySetId: string;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 };
+
+/**
+ * Builds the ECDSA possession challenges from server-owned recovery state.
+ * The nonce is derived from the stored WebAuthn challenge, so finalization can
+ * reconstruct the exact challenge without accepting another client field.
+ */
+export async function buildWalletRecoveryEcdsaPossessionChallengesV1(input: {
+  readonly manifest: WalletRecoveryKeyManifestV1;
+  readonly walletId: WalletId;
+  readonly reservationId: string;
+  readonly replacementId: string;
+  readonly sourceAuthorityDigestB64u: WalletAuthAuthorityRef['authorityDigest'];
+  readonly challengeB64u: string;
+  readonly expiresAtMs: number;
+}): Promise<ReadonlyMap<`evm_family_ecdsa:${string}`, WalletRecoveryEcdsaPossessionChallengeV1>> {
+  const challenges = new Map<
+    `evm_family_ecdsa:${string}`,
+    WalletRecoveryEcdsaPossessionChallengeV1
+  >();
+  for (const entry of input.manifest.entries) {
+    if (entry.kind !== 'evm_family_ecdsa') continue;
+    const publicCapabilityDigestB64u = parseDigestB64u(
+      base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(entry.publicCapability))),
+    );
+    const serverNonceB64u = parseDigestB64u(
+      base64UrlEncode(
+        await sha256BytesUtf8(
+          `seams:wallet-recovery-ecdsa-server-nonce:v1|${input.challengeB64u}|${entry.keySetId}`,
+        ),
+      ),
+    );
+    challenges.set(entry.keySetId, {
+      kind: 'wallet_recovery_ecdsa_possession_challenge_v1',
+      walletId: String(input.walletId),
+      reservationId: String(input.reservationId),
+      replacementId: input.replacementId,
+      keySetId: entry.keySetId,
+      keyHandle: entry.keyHandle,
+      recordedKeyManifestDigestB64u: parseDigestB64u(entry.recordedKeyManifestDigestB64u),
+      publicCapabilityDigestB64u,
+      authorityRefDigestB64u: parseDigestB64u(input.sourceAuthorityDigestB64u),
+      derivationClientSharePublicKey33B64u:
+        entry.publicCapability.public_identity.derivation_client_share_public_key33_b64u,
+      expectedServerGeneration: entry.activationReceipt.server_generation,
+      expiresAtMs: input.expiresAtMs,
+      serverNonceB64u,
+    });
+  }
+  return challenges;
+}
 
 type WalletRecoveryRegistry = Pick<
   D1WalletStore,

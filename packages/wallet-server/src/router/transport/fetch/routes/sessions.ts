@@ -57,10 +57,7 @@ import {
   type PrincipalId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-} from '@shared/utils/domainIds';
+import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseHostedWalletSeamsSessionExchangeCode,
@@ -88,7 +85,8 @@ function parseExactHostedWalletExchangeBody(
     if (!allowed.has(key)) throw new Error(`Unsupported hosted-wallet exchange field: ${key}`);
   }
   for (const field of fields) {
-    if (!Object.hasOwn(value, field)) throw new Error(`Missing hosted-wallet exchange field: ${field}`);
+    if (!Object.hasOwn(value, field))
+      throw new Error(`Missing hosted-wallet exchange field: ${field}`);
   }
   return value;
 }
@@ -101,12 +99,18 @@ function requestOrigin(request: Request): SessionOrigin {
   return parseSessionOrigin(request.headers.get('origin'));
 }
 
-function hostedWalletExchangeFailure(
-  result: { readonly kind: string },
-): { readonly status: number; readonly code: string; readonly message: string } {
+function hostedWalletExchangeFailure(result: { readonly kind: string }): {
+  readonly status: number;
+  readonly code: string;
+  readonly message: string;
+} {
   switch (result.kind) {
     case 'expired':
-      return { status: 410, code: 'exchange_expired', message: 'Hosted-wallet exchange is expired' };
+      return {
+        status: 410,
+        code: 'exchange_expired',
+        message: 'Hosted-wallet exchange is expired',
+      };
     case 'already_consumed':
       return {
         status: 409,
@@ -116,7 +120,11 @@ function hostedWalletExchangeFailure(
     case 'nonce_mismatch':
     case 'app_origin_mismatch':
     case 'invalid_code':
-      return { status: 401, code: 'exchange_invalid', message: 'Hosted-wallet exchange is invalid' };
+      return {
+        status: 401,
+        code: 'exchange_invalid',
+        message: 'Hosted-wallet exchange is invalid',
+      };
     default:
       return {
         status: 503,
@@ -147,12 +155,17 @@ export async function handleHostedWalletSessionExchangeIssue(
     curve = parseHostedWalletExchangeCurve(record.curve);
     appOrigin = requiredExchangeOrigin(record, 'appOrigin');
     walletOrigin = requiredExchangeOrigin(record, 'walletOrigin');
-    if (requestOrigin(ctx.request) !== appOrigin) throw new Error('request Origin does not match appOrigin');
+    if (requestOrigin(ctx.request) !== appOrigin)
+      throw new Error('request Origin does not match appOrigin');
   } catch (error) {
     return json({ ok: false, code: 'origin_mismatch', message: String(error) }, { status: 403 });
   }
   const token = extractBearerCredential(ctx.request.headers);
-  if (!token) return json({ ok: false, code: 'unauthorized', message: 'No valid Wallet Session' }, { status: 401 });
+  if (!token)
+    return json(
+      { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+      { status: 401 },
+    );
   let resolved: Awaited<
     ReturnType<
       FetchRouterApiContext['service']['authorizationSessions']['resolveOpaqueWalletSessionToken']
@@ -171,7 +184,11 @@ export async function handleHostedWalletSessionExchangeIssue(
       { status: 503 },
     );
   }
-  if (!resolved) return json({ ok: false, code: 'unauthorized', message: 'No valid Wallet Session' }, { status: 401 });
+  if (!resolved)
+    return json(
+      { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+      { status: 401 },
+    );
   let delivery: Awaited<
     ReturnType<
       FetchRouterApiContext['service']['authorizationSessions']['mintHostedWalletSeamsSessionExchange']
@@ -253,7 +270,10 @@ export async function handleHostedWalletSessionExchangeRedeem(
   });
   if (result.kind !== 'redeemed') {
     const failure = hostedWalletExchangeFailure(result);
-    return json({ ok: false, code: failure.code, message: failure.message }, { status: failure.status });
+    return json(
+      { ok: false, code: failure.code, message: failure.message },
+      { status: failure.status },
+    );
   }
   return json(
     {
@@ -423,7 +443,6 @@ function walletUnlockEcdsaSessionContext(
   };
 }
 
-
 async function emitEmailOtpWebhookEvent(
   ctx: FetchRouterApiContext,
   input: {
@@ -467,10 +486,6 @@ async function emitEmailOtpWebhookDescriptor(
     payload: input.descriptor.payload,
   });
 }
-
-
-
-
 
 function parseReusableWalletSessionStatusBody(body: unknown): {
   readonly walletSessionId: WalletSessionId;
@@ -712,10 +727,11 @@ export async function handleWalletEmailOtpChallenge(
   if (!enrollment.ok) {
     return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
   }
-  const authority = await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-    walletId,
-    providerUserId: enrollment.enrollment.providerUserId,
-  });
+  const authority =
+    await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+      walletId,
+      providerUserId: enrollment.enrollment.providerUserId,
+    });
   if (!authority.ok) return json(authority, { status: 403 });
   const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
     walletId,
@@ -737,10 +753,7 @@ export async function handleWalletEmailOtpChallenge(
       sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
     });
     if (!policy.ok) {
-      return json(
-        { ok: false, code: policy.code, message: policy.message },
-        { status: 403 },
-      );
+      return json({ ok: false, code: policy.code, message: policy.message }, { status: 403 });
     }
   }
   const result = await ctx.service.emailOtp.createEmailOtpChallenge({
@@ -792,29 +805,29 @@ function parseWalletEmailOtpFactorReleaseRequest(
       ? ['kind', 'loginGrant', 'walletId', 'workerEphemeralPublicKey65B64u']
       : kind === 'wallet_session'
         ? ['kind', 'walletId', 'workerEphemeralPublicKey65B64u']
-      : kind === 'linked_device_email_otp'
-        ? [
-            'baseWalletAuthMethodId',
-            'challengeId',
-            'deviceId',
-            'enrollmentId',
-            'kind',
-            'linkedOwnerAuthMethodId',
-            'operation',
-            'otpCode',
-            'walletId',
-            'workerEphemeralPublicKey65B64u',
-          ]
-      : kind === 'email_otp'
-        ? [
-            'challengeId',
-            'kind',
-            'operation',
-            'otpCode',
-            'walletId',
-            'workerEphemeralPublicKey65B64u',
-          ]
-        : null;
+        : kind === 'linked_device_email_otp'
+          ? [
+              'baseWalletAuthMethodId',
+              'challengeId',
+              'deviceId',
+              'enrollmentId',
+              'kind',
+              'linkedOwnerAuthMethodId',
+              'operation',
+              'otpCode',
+              'walletId',
+              'workerEphemeralPublicKey65B64u',
+            ]
+          : kind === 'email_otp'
+            ? [
+                'challengeId',
+                'kind',
+                'operation',
+                'otpCode',
+                'walletId',
+                'workerEphemeralPublicKey65B64u',
+              ]
+            : null;
   if (!expectedFields || Object.keys(value).sort().join(',') !== expectedFields.join(',')) {
     throw new Error('Email OTP factor release body has invalid fields');
   }
@@ -932,70 +945,70 @@ export async function handleWalletEmailOtpFactorRelease(
     if (body.kind === 'verified_grant') {
       loginGrant = typeof body.loginGrant === 'string' ? body.loginGrant.trim() : '';
     } else {
-    const challengeId = typeof body.challengeId === 'string' ? body.challengeId.trim() : '';
-    const otpCode = typeof body.otpCode === 'string' ? body.otpCode.trim() : '';
-    if (!challengeId || !otpCode) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Email OTP verification is invalid' },
-        { status: 400 },
-      );
-    }
-    const origin = requestOrigin(ctx.request);
-    const authority =
-      await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-        walletId: walletId.value,
-        providerUserId: enrollment.enrollment.providerUserId,
-      });
-    if (!authority.ok) return json(authority, { status: 403 });
-    if (body.kind === 'linked_device_email_otp') {
-      const enrollmentId = parseLinkedDeviceEnrollmentId(body.enrollmentId);
-      const deviceId = parseLinkedDeviceId(body.deviceId);
-      const linkedOwnerAuthMethodId = parseWalletAuthMethodId(body.linkedOwnerAuthMethodId);
-      const baseWalletAuthMethodId = parseWalletAuthMethodId(body.baseWalletAuthMethodId);
-      if (
-        !enrollmentId.ok ||
-        !deviceId.ok ||
-        !linkedOwnerAuthMethodId.ok ||
-        !baseWalletAuthMethodId.ok
-      ) {
+      const challengeId = typeof body.challengeId === 'string' ? body.challengeId.trim() : '';
+      const otpCode = typeof body.otpCode === 'string' ? body.otpCode.trim() : '';
+      if (!challengeId || !otpCode) {
         return json(
-          { ok: false, code: 'invalid_body', message: 'Linked device identity is invalid' },
+          { ok: false, code: 'invalid_body', message: 'Email OTP verification is invalid' },
           { status: 400 },
         );
       }
-      const activeLinkedAuthority =
-        await ctx.service.walletAuthMethods.verifyActiveLinkedEmailOtpAuthority({
+      const origin = requestOrigin(ctx.request);
+      const authority =
+        await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
           walletId: walletId.value,
-          enrollmentId: enrollmentId.value,
-          deviceId: deviceId.value,
-          linkedOwnerAuthMethodId: linkedOwnerAuthMethodId.value,
-          baseWalletAuthMethodId: baseWalletAuthMethodId.value,
+          providerUserId: enrollment.enrollment.providerUserId,
         });
-      if (!activeLinkedAuthority.ok) {
-        return json(activeLinkedAuthority, { status: 403 });
+      if (!authority.ok) return json(authority, { status: 403 });
+      if (body.kind === 'linked_device_email_otp') {
+        const enrollmentId = parseLinkedDeviceEnrollmentId(body.enrollmentId);
+        const deviceId = parseLinkedDeviceId(body.deviceId);
+        const linkedOwnerAuthMethodId = parseWalletAuthMethodId(body.linkedOwnerAuthMethodId);
+        const baseWalletAuthMethodId = parseWalletAuthMethodId(body.baseWalletAuthMethodId);
+        if (
+          !enrollmentId.ok ||
+          !deviceId.ok ||
+          !linkedOwnerAuthMethodId.ok ||
+          !baseWalletAuthMethodId.ok
+        ) {
+          return json(
+            { ok: false, code: 'invalid_body', message: 'Linked device identity is invalid' },
+            { status: 400 },
+          );
+        }
+        const activeLinkedAuthority =
+          await ctx.service.walletAuthMethods.verifyActiveLinkedEmailOtpAuthority({
+            walletId: walletId.value,
+            enrollmentId: enrollmentId.value,
+            deviceId: deviceId.value,
+            linkedOwnerAuthMethodId: linkedOwnerAuthMethodId.value,
+            baseWalletAuthMethodId: baseWalletAuthMethodId.value,
+          });
+        if (!activeLinkedAuthority.ok) {
+          return json(activeLinkedAuthority, { status: 403 });
+        }
       }
-    }
-    const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
-      walletId: walletId.value,
-      providerUserId: enrollment.enrollment.providerUserId,
-      orgId: orgId.value,
-      operation: body.operation,
-      requestOrigin: origin,
-      audience: origin,
-      authorityRef: await walletAuthAuthorityRef({ authority: authority.authority }),
-    });
-    const verified = await ctx.service.emailOtp.verifyEmailOtpChallenge({
-      userId: enrollment.enrollment.providerUserId,
-      walletId: String(walletId.value),
-      orgId: orgId.value,
-      challengeId,
-      otpCode,
-      otpChannel: EMAIL_OTP_CHANNEL,
-      ownerProofBindingDigest,
-      operation: body.operation,
-    });
-    if (!verified.ok) return json(verified, { status: emailOtpStatusCode(verified.code) });
-    loginGrant = verified.loginGrant;
+      const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
+        walletId: walletId.value,
+        providerUserId: enrollment.enrollment.providerUserId,
+        orgId: orgId.value,
+        operation: body.operation,
+        requestOrigin: origin,
+        audience: origin,
+        authorityRef: await walletAuthAuthorityRef({ authority: authority.authority }),
+      });
+      const verified = await ctx.service.emailOtp.verifyEmailOtpChallenge({
+        userId: enrollment.enrollment.providerUserId,
+        walletId: String(walletId.value),
+        orgId: orgId.value,
+        challengeId,
+        otpCode,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        ownerProofBindingDigest,
+        operation: body.operation,
+      });
+      if (!verified.ok) return json(verified, { status: emailOtpStatusCode(verified.code) });
+      loginGrant = verified.loginGrant;
     }
     if (!loginGrant) {
       return json(
@@ -1148,7 +1161,8 @@ export async function handleWalletUnlockVerify(
     ecdsaSession,
     tenantId: ctx.service.authorizationSessions.tenantId,
     buildVerifiedOwnerProof: ctx.service.authorizedOperations.buildVerifiedOwnerProof,
-    resolveEmailOtpAuthority: ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject,
+    resolveEmailOtpAuthority:
+      ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject,
     emitRouterApiWebhook: async (event) => {
       await emitRouterApiWebhookEvent({
         logger: ctx.logger,
@@ -1169,138 +1183,6 @@ export async function handleWalletUnlockVerify(
   });
   return json(response.body, { status: response.status });
 }
-
-
-export async function handleWalletEmailOtpRecoveryBootstrapChallenge(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-bootstrap/challenge') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const record = isPlainObject(body) ? body : {};
-  const walletId = typeof record.walletId === 'string' ? record.walletId.trim() : '';
-  const orgId = typeof record.orgId === 'string' ? record.orgId.trim() : '';
-  if (!walletId || !orgId) {
-    return json(
-      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
-      { status: 404 },
-    );
-  }
-  const result = await ctx.service.emailOtp.createEmailOtpWalletRecoveryBootstrapChallenge({
-    walletId,
-    orgId,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    requestOrigin: ctx.request.headers.get('origin'),
-  });
-  if (!result.ok) {
-    return json(
-      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
-      { status: 404 },
-    );
-  }
-  return json(
-    {
-      ok: true,
-      challengeId: result.challengeId,
-      otpChannel: result.otpChannel,
-      expiresAtMs: result.expiresAtMs,
-      emailHint: result.emailHint,
-    },
-    { status: 200 },
-  );
-}
-
-/** Verifies the recovery-only challenge and returns a one-purpose grant. */
-export async function handleWalletEmailOtpRecoveryBootstrapVerify(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-bootstrap/verify') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const record = isPlainObject(body) ? body : {};
-  const walletId = typeof record.walletId === 'string' ? record.walletId.trim() : '';
-  const orgId = typeof record.orgId === 'string' ? record.orgId.trim() : '';
-  const challengeId = typeof record.challengeId === 'string' ? record.challengeId.trim() : '';
-  const otpCode = typeof record.otpCode === 'string' ? record.otpCode.trim() : '';
-  if (!walletId || !orgId || !challengeId || !otpCode) {
-    return json(
-      {
-        ok: false,
-        code: 'challenge_expired_or_invalid',
-        message: 'Email OTP challenge expired or invalid',
-      },
-      { status: 401 },
-    );
-  }
-  const result = await ctx.service.emailOtp.verifyEmailOtpWalletRecoveryBootstrap({
-    walletId,
-    orgId,
-    challengeId,
-    otpCode,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-  });
-  if (!result.ok) {
-    return json(
-      { ok: false, code: result.code, message: result.message },
-      { status: result.code === 'invalid_body' ? 400 : 401 },
-    );
-  }
-  const replaceableCredentials = await listWalletRecoveryBootstrapCredentialChoices(
-    ctx,
-    result.walletId,
-  );
-  if (!replaceableCredentials) {
-    return json(
-      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
-      { status: 503 },
-    );
-  }
-  return json(
-    {
-      ok: true,
-      walletId: result.walletId,
-      challengeId: result.challengeId,
-      recoveryBootstrapGrant: result.recoveryBootstrapGrant,
-      recoveryBootstrapGrantExpiresAtMs: result.recoveryBootstrapGrantExpiresAtMs,
-      replaceableCredentials,
-    },
-    { status: 200 },
-  );
-}
-
-async function listWalletRecoveryBootstrapCredentialChoices(
-  ctx: FetchRouterApiContext,
-  walletId: string,
-): Promise<readonly { readonly credentialIdB64u: string; readonly label?: string }[] | null> {
-  const parsedWalletId = parseWalletId(walletId);
-  if (!parsedWalletId.ok) return null;
-  try {
-    const credentials = await ctx.service.passkeyCustody.listWalletCredentials({
-      walletId: parsedWalletId.value,
-    });
-    return credentials.flatMap((credential) => {
-      if (
-        credential.index.factor.kind !== 'passkey' ||
-        credential.index.lifecycle.state !== 'active'
-      ) {
-        return [];
-      }
-      return [
-        {
-          credentialIdB64u: credential.index.factor.credentialIdB64u,
-          ...((credential.index.deviceLabel ?? credential.activity.label)
-            ? { label: credential.index.deviceLabel ?? credential.activity.label }
-            : {}),
-        },
-      ];
-    });
-  } catch {
-    return null;
-  }
-}
-
 
 export async function handleWalletEmailOtpDevCleanupGoogleRegistration(
   ctx: FetchRouterApiContext,

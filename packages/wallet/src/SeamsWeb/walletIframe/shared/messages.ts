@@ -550,7 +550,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
             hasOnlyKeys(loginTargetRecord, ['kind', 'walletId']) &&
             loginWalletId?.ok
           ? { kind: 'wallet_sync', walletId: loginWalletId.value }
-        : null;
+          : null;
   const registrationAccountInput = parseRegistrationAccountInput(record.registrationAccountInput);
   const providers = parseExternalProviders(record.enabledExternalProviders);
   if (
@@ -892,10 +892,6 @@ export type ParentToChildType =
   | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
   | 'PM_ROTATE_WALLET_RECOVERY_CODES'
   | 'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE'
-  | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
-  | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
-  | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
-  | 'PM_COMPLETE_WALLET_RECOVERY'
   | 'PM_SIGN_TX_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TX'
   | 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING'
@@ -1314,36 +1310,6 @@ export interface PMRotateWalletRecoveryCodesPayload extends PMWalletRecoverySess
   authorization: WalletRecoveryRotationAuthorization;
 }
 
-export interface PMRequestWalletRecoveryBootstrapChallengePayload {
-  walletId: string;
-  orgId: string;
-  relayUrl?: string;
-}
-
-export interface PMVerifyWalletRecoveryBootstrapPayload {
-  walletId: string;
-  orgId: string;
-  challengeId: string;
-  otpCode: string;
-  relayUrl?: string;
-}
-
-export interface PMPrepareWalletRecoveryWithBootstrapPayload {
-  walletId: string;
-  orgId: string;
-  challengeId: string;
-  recoveryBootstrapGrant: string;
-  replacedCredentialIdB64u: string;
-  recoveryCode: string;
-  relayUrl?: string;
-}
-
-export interface PMCompleteWalletRecoveryPayload {
-  walletId: string;
-  recoveryOperationId: string;
-  relayUrl?: string;
-}
-
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1486,8 +1452,7 @@ export function isDeviceLinkTargetFactorActivationProgressV1(
     case 'resending':
     case 'completed':
       return (
-        hasOnlyKeys(state, ['kind', 'maskedEmailHint']) &&
-        typeof state.maskedEmailHint === 'string'
+        hasOnlyKeys(state, ['kind', 'maskedEmailHint']) && typeof state.maskedEmailHint === 'string'
       );
     case 'code_input':
     case 'submitting':
@@ -1605,16 +1570,6 @@ export type ParentToChildEnvelope =
       'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE',
       PMRequestWalletCustodyEmailOtpChallengePayload
     >
-  | RpcEnvelope<
-      'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
-      PMRequestWalletRecoveryBootstrapChallengePayload
-    >
-  | RpcEnvelope<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP', PMVerifyWalletRecoveryBootstrapPayload>
-  | RpcEnvelope<
-      'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP',
-      PMPrepareWalletRecoveryWithBootstrapPayload
-    >
-  | RpcEnvelope<'PM_COMPLETE_WALLET_RECOVERY', PMCompleteWalletRecoveryPayload>
   | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>
   | RpcEnvelope<'PM_SIGN_AND_SEND_TX', PMSignAndSendTxPayload>
   | RpcEnvelope<

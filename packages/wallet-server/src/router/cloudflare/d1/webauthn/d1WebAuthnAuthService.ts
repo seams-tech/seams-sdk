@@ -28,6 +28,7 @@ import {
   type WebAuthnSyncChallengeRecord,
   type WebAuthnSyncWalletBinding,
 } from './d1WebAuthnRecords';
+import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 
 export type D1WebAuthnWalletManifestSource = {
   getEd25519KeyManifestBySlot(input: {
@@ -84,13 +85,16 @@ function errorMessage(error: unknown): string {
 export class CloudflareD1WebAuthnAuthService {
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
   private readonly walletManifestSource: D1WebAuthnWalletManifestSource;
+  private readonly walletAuthMethodStore: D1WalletAuthMethodStore;
 
   constructor(input: {
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
     readonly walletManifestSource: D1WebAuthnWalletManifestSource;
+    readonly walletAuthMethodStore: D1WalletAuthMethodStore;
   }) {
     this.webAuthnStore = input.webAuthnStore;
     this.walletManifestSource = input.walletManifestSource;
+    this.walletAuthMethodStore = input.walletAuthMethodStore;
   }
 
   async listWebAuthnAuthenticatorsForUser(
@@ -163,9 +167,28 @@ export class CloudflareD1WebAuthnAuthService {
         userId: userId.value,
         rpId,
       });
+      const activeCredentialIds = new Set(
+        (
+          await this.walletAuthMethodStore.listForWallet({
+            walletId: userId.value,
+            rpId,
+          })
+        )
+          .filter(
+            (method) =>
+              method.kind === 'passkey' && method.status === 'active' && method.rpId === rpId,
+          )
+          .map((method) => method.credentialIdB64u),
+      );
       for (const binding of bindings) {
         const credentialId = toOptionalTrimmedString(binding.credentialIdB64u);
-        if (!credentialId || seenCredentialIds.has(credentialId)) continue;
+        if (
+          !credentialId ||
+          !activeCredentialIds.has(credentialId) ||
+          seenCredentialIds.has(credentialId)
+        ) {
+          continue;
+        }
         seenCredentialIds.add(credentialId);
         credentialIds.push(credentialId);
       }
@@ -227,16 +250,40 @@ export class CloudflareD1WebAuthnAuthService {
       if (expectedUserId) {
         credentialIds = [];
         const seenCredentialIds = new Set<string>();
+        const activeCredentialIds = new Set(
+          (
+            await this.walletAuthMethodStore.listForWallet({
+              walletId: expectedUserId,
+              rpId,
+            })
+          )
+            .filter(
+              (method) =>
+                method.kind === 'passkey' && method.status === 'active' && method.rpId === rpId,
+            )
+            .map((method) => method.credentialIdB64u),
+        );
         const bindings = await this.webAuthnStore.readBindingRows({ userId: expectedUserId, rpId });
         for (const binding of bindings) {
           const credentialId = toOptionalTrimmedString(binding.credentialIdB64u);
-          if (credentialId && !seenCredentialIds.has(credentialId)) {
+          if (
+            credentialId &&
+            activeCredentialIds.has(credentialId) &&
+            !seenCredentialIds.has(credentialId)
+          ) {
             seenCredentialIds.add(credentialId);
             credentialIds.push(credentialId);
           }
-          if (!walletBinding) {
+          if (credentialId && activeCredentialIds.has(credentialId) && !walletBinding) {
             walletBinding = webAuthnSyncWalletBindingFromCredentialBinding(binding) || undefined;
           }
+        }
+        if (credentialIds.length === 0) {
+          return {
+            ok: false,
+            code: 'unknown_credential',
+            message: 'Wallet has no registered active passkey credential',
+          };
         }
       }
 
@@ -493,6 +540,34 @@ export class CloudflareD1WebAuthnAuthService {
           message: 'Missing webauthn_authentication',
         };
       }
+      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
+      if (!credentialId.ok) {
+        return {
+          ok: false,
+          verified: false,
+          code: credentialId.code,
+          message: credentialId.message,
+        };
+      }
+      const activeMethod = await this.walletAuthMethodStore.getPasskey({
+        rpId: challenge.rpId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      if (
+        !activeMethod ||
+        activeMethod.kind !== 'passkey' ||
+        activeMethod.status !== 'active' ||
+        String(activeMethod.walletId) !== String(challenge.userId) ||
+        String(activeMethod.rpId) !== String(challenge.rpId) ||
+        String(activeMethod.credentialIdB64u) !== String(credentialId.credentialIdB64u)
+      ) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not active for this wallet',
+        };
+      }
       const verification = await this.verifyWebAuthnAuthenticationLite({
         userId: challenge.userId,
         rpId: rpId.value,
@@ -506,15 +581,6 @@ export class CloudflareD1WebAuthnAuthService {
           verified: false,
           code: verification.code || 'not_verified',
           message: verification.message || 'Authentication verification failed',
-        };
-      }
-      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
-      if (!credentialId.ok) {
-        return {
-          ok: false,
-          verified: false,
-          code: credentialId.code,
-          message: credentialId.message,
         };
       }
       const binding = await this.webAuthnStore.readBindingByCredential({
@@ -619,6 +685,25 @@ export class CloudflareD1WebAuthnAuthService {
           verified: false,
           code: 'unknown_credential',
           message: `Credential is not registered for account ${challenge.expectedUserId}`,
+        };
+      }
+      const activeMethod = await this.walletAuthMethodStore.getPasskey({
+        rpId: challenge.rpId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      if (
+        !activeMethod ||
+        activeMethod.kind !== 'passkey' ||
+        activeMethod.status !== 'active' ||
+        String(activeMethod.walletId) !== String(binding.userId) ||
+        String(activeMethod.rpId) !== String(challenge.rpId) ||
+        String(activeMethod.credentialIdB64u) !== String(credentialId.credentialIdB64u)
+      ) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential is not active for this wallet',
         };
       }
       const expectedOrigin = toOptionalTrimmedString(input.expected_origin);

@@ -184,6 +184,33 @@ function storedAuthMethodMatches(raw: unknown, authority: WalletAuthAuthorityRef
   return stored === null || stored === authority.walletAuthMethodId;
 }
 
+const ACTIVE_WALLET_AUTH_METHOD_EXISTS_SQL = `
+  EXISTS (
+    SELECT 1
+      FROM wallet_auth_methods AS auth_method
+     WHERE auth_method.namespace = ?
+       AND auth_method.org_id = ?
+       AND auth_method.project_id = ?
+       AND auth_method.env_id = ?
+       AND auth_method.wallet_auth_method_id = ?
+       AND auth_method.wallet_id = ?
+       AND auth_method.status = 'active'
+  )`;
+
+function activeWalletAuthMethodBindings(
+  scope: D1WalletStoreScope,
+  authority: WalletAuthAuthorityRef,
+): readonly string[] {
+  return [
+    scope.namespace,
+    scope.orgId,
+    scope.projectId,
+    scope.envId,
+    authority.walletAuthMethodId,
+    String(authority.walletId),
+  ];
+}
+
 export class CloudflareD1AuthorizationStore
   implements
     AuthorizationSessionPort,
@@ -780,7 +807,8 @@ export class CloudflareD1AuthorizationStore
             WHERE namespace = ?
               AND tenant_id = ?
               AND mint_id = ?
-         )`,
+         )
+           AND ${ACTIVE_WALLET_AUTH_METHOD_EXISTS_SQL}`,
       )
       .bind(
         this.namespace,
@@ -793,6 +821,7 @@ export class CloudflareD1AuthorizationStore
         this.namespace,
         input.session.tenantId,
         input.session.mintId,
+        ...activeWalletAuthMethodBindings(this.walletSignerScope, input.session.authority),
       );
     const sessionStatement = this.database
       .prepare(
@@ -811,9 +840,9 @@ export class CloudflareD1AuthorizationStore
           created_at_ms,
           expires_at_ms
         )
-        VALUES (
+        SELECT
           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?
-        )`,
+         WHERE ${ACTIVE_WALLET_AUTH_METHOD_EXISTS_SQL}`,
       )
       .bind(
         this.namespace,
@@ -830,6 +859,7 @@ export class CloudflareD1AuthorizationStore
         input.session.quotaId,
         requirePositiveInteger(input.session.createdAtMs, 'session.createdAtMs'),
         requirePositiveInteger(input.session.expiresAtMs, 'session.expiresAtMs'),
+        ...activeWalletAuthMethodBindings(this.walletSignerScope, input.session.authority),
       );
     const results = await this.database.batch<D1ResultLike>([
       retireQuotaStatement,

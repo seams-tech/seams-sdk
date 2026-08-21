@@ -20,10 +20,7 @@ export interface WalletAuthMethodStore {
     walletId: string;
     emailHashHex: string;
   }): Promise<WalletAuthMethodRecord | null>;
-  listForWallet(input: {
-    walletId: string;
-    rpId?: string;
-  }): Promise<WalletAuthMethodRecord[]>;
+  listForWallet(input: { walletId: string; rpId?: string }): Promise<WalletAuthMethodRecord[]>;
 }
 
 export interface D1WalletAuthMethodStoreSchemaOptions {
@@ -398,7 +395,7 @@ export function prepareD1WalletAuthMethodInsertStatement(input: {
         created_at_ms,
         updated_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.scope.namespace,
@@ -465,9 +462,12 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
    * missing or concurrently changed active row into a transaction failure;
    * callers must append these statements to the custody-store mutation batch.
    */
-  preparePasskeyRevocationStatements(
-    record: WalletAuthMethodRecord,
-  ): readonly D1PreparedStatementLike[] {
+  preparePasskeyRecoveryRevocationStatements(input: {
+    readonly record: WalletAuthMethodRecord;
+    readonly expectedUpdatedAtMs: number;
+    readonly revokedAtMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    const record = input.record;
     if (record.kind !== 'passkey' || record.status !== 'revoked') {
       throw new Error('Passkey revocation statements require a revoked passkey record');
     }
@@ -476,6 +476,12 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
       throw new Error('Invalid revoked passkey auth method record');
     }
     const authMethodId = walletAuthMethodId(parsed);
+    if (!Number.isSafeInteger(input.expectedUpdatedAtMs) || input.expectedUpdatedAtMs < 0) {
+      throw new Error('Passkey revocation expected updatedAtMs is invalid');
+    }
+    if (!Number.isSafeInteger(input.revokedAtMs) || input.revokedAtMs < input.expectedUpdatedAtMs) {
+      throw new Error('Passkey revocation timestamp is invalid');
+    }
     const update = this.database
       .prepare(
         `UPDATE wallet_auth_methods
@@ -488,7 +494,9 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
             AND env_id = ?4
             AND wallet_auth_method_id = ?5
             AND kind = 'passkey'
-            AND status = 'active'`,
+            AND status = 'active'
+            AND wallet_id = ?8
+            AND updated_at_ms = ?9`,
       )
       .bind(
         this.scope.namespace,
@@ -497,14 +505,74 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
         this.scope.envId,
         authMethodId,
         JSON.stringify(parsed),
-        parsed.updatedAtMs,
+        input.revokedAtMs,
+        String(parsed.walletId),
+        input.expectedUpdatedAtMs,
       );
     const guard = this.database.prepare(`
       INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
       SELECT 1
        WHERE changes() = 0
     `);
-    return [update, guard];
+    const sessionFilter = `
+      FROM reusable_wallet_sessions AS session
+      WHERE session.namespace = ?
+        AND session.tenant_id = ?
+        AND session.wallet_id = ?
+        AND session.wallet_auth_method_id = ?`;
+    const deleteTokens = this.database
+      .prepare(
+        `DELETE FROM opaque_wallet_session_tokens
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.namespace,
+        this.scope.orgId,
+        parsed.walletId,
+        authMethodId,
+      );
+    const exhaustQuotas = this.database
+      .prepare(
+        `UPDATE authorization_wallet_session_quotas
+            SET remaining_uses = 0,
+                lifecycle_kind = 'exhausted'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})
+            AND lifecycle_kind = 'active'`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.namespace,
+        this.scope.orgId,
+        parsed.walletId,
+        authMethodId,
+      );
+    const supersedeSessions = this.database
+      .prepare(
+        `UPDATE reusable_wallet_sessions
+            SET lifecycle_kind = 'superseded'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND wallet_auth_method_id = ?
+            AND lifecycle_kind = 'active'`,
+      )
+      .bind(this.scope.namespace, this.scope.orgId, parsed.walletId, authMethodId);
+    return [update, guard, deleteTokens, exhaustQuotas, supersedeSessions];
+  }
+
+  preparePasskeyRevocationStatements(input: {
+    readonly record: WalletAuthMethodRecord;
+    readonly expectedUpdatedAtMs: number;
+    readonly revokedAtMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    return this.preparePasskeyRecoveryRevocationStatements(input);
   }
 
   /**

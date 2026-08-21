@@ -569,34 +569,23 @@ linking rather than changing the custody root.
 
 ## Credential-Replacement Recovery Flow
 
-Refactor 114 owns the code-only hosted recovery boundary. Before Refactor 109A,
-the flow accepts only a wallet with exactly one active owner auth method, which
-must be a Passkey for the requested RP.
+Refactor 114 defines this operating path. One unused recovery code and its
+`WalletId` authorize replacement for a wallet with exactly one active Passkey
+method bound to the requested RP.
 
-1. Reserve one unused recovery code and resolve the server-selected source
-   Passkey plus the exact key manifest. No Email OTP, Wallet Session, existing
-   Passkey assertion, or client-selected source credential authorizes recovery.
-2. Open every recovery-wrapped custody entry inside the recovery worker.
-3. Create the replacement Passkey and its KEK.
-4. Run Ed25519 Yao same-root recovery for each Ed25519 root entry.
-5. Rebind and explicitly reactivate each ECDSA client-root entry while
-   preserving the threshold public key, address, material owner, key slot,
-   participants, and registered lifecycle identity. Explicit reactivation
-   creates a fresh `MpcMaterialActivationId` and `MpcMaterialActivationRef`
-   through the Refactor 90 activation journal. Activate a fresh threshold
-   session and server generation when required; do not copy the prior
-   threshold-session ID, `AuthorizationGrantRef`, `WalletSessionId`,
-   `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, bearer credential, or
-   nonce state.
-6. Seal every custody entry under the replacement Passkey KEK and verify
-   identity continuity for the complete manifest.
-7. After every required activation receipt verifies, atomically install the
-   replacement authenticator, auth method, binding, and envelope; consume the
-   code; revoke the source auth method and its Wallet Sessions; retire the
-   source envelope; and delete the recovery challenge.
-8. Restore local continuity against the replacement Passkey authority, then use
-   normal Passkey login to create a fresh Wallet Session.
-9. Zeroize all opened recovery material.
+1. Reserve the recovery code and persist a short-lived replacement-Passkey
+   registration challenge containing the server-selected source facts.
+2. Create the replacement Passkey from a dedicated user activation.
+3. Open every recovery-wrapped custody entry inside the recovery worker.
+4. Run Ed25519 Yao same-root recovery and explicitly reactivate each ECDSA
+   client root while preserving every registered public identity.
+5. Seal every custody entry under the replacement Passkey and verify the
+   complete key manifest.
+6. Atomically install the replacement auth method and envelope, consume the
+   reserved code, revoke the source auth method and its Wallet Sessions, retire
+   the source envelope, and delete the registration challenge.
+7. Zeroize opened recovery material and use normal Passkey login to create the
+   fresh Wallet Session.
 
 Recovery never creates a new wallet key, key-creation signer slot, registered
 Ed25519 public key, EVM address, or EVM-family key slot.

@@ -10,9 +10,7 @@ import { parseWalletId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
-import {
-  parseLinkedDeviceWalletSessionDeliveryV1,
-} from '@shared/device-linking/parsers';
+import { parseLinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking/parsers';
 import {
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -27,7 +25,6 @@ import {
   buildR103OwnerEnrollmentCeremonyReaderV1,
   buildR103ProvisioningFixture,
 } from './helpers/deviceLinkContracts.fixtures';
-import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
@@ -189,7 +186,7 @@ test('projects the claimed device identity after owner claim', async () => {
   expect(deliveredApproval.status).toBe(200);
   const deliveredApprovalBody = await deliveredApproval.json();
   expect(deliveredApprovalBody.kind).toBe('linked_device_approval_delivery_v1');
-  expect(deliveredApprovalBody.approval).toEqual(approval);
+  expect(deliveredApprovalBody.approval).toEqual(JSON.parse(JSON.stringify(approval)));
 });
 
 test('owner finalize retry replays the canonical finalize response', async () => {
@@ -276,7 +273,6 @@ test('owner finalize retry replays the canonical finalize response', async () =>
     kind: 'linked_device_owner_finalize_request_v1' as const,
     addAuthMethodCeremonyId: approval.ownerEnrollment.addAuthMethodCeremonyId,
     webauthnRegistration: credential,
-    custodyEnvelope: passkeyCustodyEnvelope({ walletId: String(fixture.approval.walletId) }),
   };
   const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/owner-finalize`;
   const first = await invoke(routeService, { method: 'POST', pathname, body: finalizeRequest });

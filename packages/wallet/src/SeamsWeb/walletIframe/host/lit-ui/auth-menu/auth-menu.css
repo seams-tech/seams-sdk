@@ -61,6 +61,7 @@ seams-auth-menu-surface {
   --w3a-seams-auth-menu-css-ready: 1;
   --w3a-seams-auth-menu-padding-top: calc(var(--w3a-spacing-lg) + 4px);
   position: relative;
+  box-sizing: border-box;
   /* relative position to anchor back button */
   width: min(100dvw, 420px);
   max-width: 100dvw;
@@ -1804,6 +1805,104 @@ seams-auth-menu-surface {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.w3a-signup-menu-root > .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.w3a-recovery-form,
+.w3a-recovery-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 0.75rem 0.25rem;
+}
+
+.w3a-recovery-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.w3a-recovery-field .w3a-field-label {
+  margin: 0 0 6px;
+}
+
+.w3a-recovery-input {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-control, 10px);
+  outline: none;
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textPrimary);
+  font: inherit;
+  font-size: 16px;
+}
+
+.w3a-recovery-code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.w3a-recovery-input:focus-visible {
+  border-color: var(--w3a-colors-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
+}
+
+@media (forced-colors: active) {
+  .w3a-recovery-input:focus-visible,
+  .w3a-link-device-btn:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+.w3a-recovery-input[aria-invalid='true'] {
+  border-color: var(--w3a-colors-error);
+}
+
+.w3a-recovery-error,
+.w3a-recovery-status {
+  min-block-size: 1.25em;
+  margin: 5px 0 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.w3a-recovery-error {
+  color: var(--w3a-colors-error);
+}
+
+.w3a-recovery-wallet {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--w3a-shape-control, 10px);
+  background: var(--w3a-colors-surface);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 320px) {
+  .w3a-signup-menu-root {
+    padding-inline: 1rem;
+  }
+
+  .w3a-recovery-form,
+  .w3a-recovery-confirmation {
+    padding-inline: 0;
+  }
 }
 
 .w3a-auth-intent-switch {

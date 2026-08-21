@@ -391,12 +391,13 @@ export interface UnlockedEd25519ExportRootCapabilitySurface {
 
 export interface WalletCustodyCeremonySurface {
   createWalletRecoveryReplacementCredential(args: {
-    walletId: string;
+    walletId: WalletId;
     registration: WalletRecoveryRegistrationOptions;
+    cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
   }): Promise<WalletRecoveryReplacementCredential>;
 
   recoverWalletCustodyManifest(args: {
-    walletId: string;
+    walletId: WalletId;
     prepared: PreparedWalletRecovery;
     custodyJson: string;
     recoveryCodeBytes: Uint8Array;

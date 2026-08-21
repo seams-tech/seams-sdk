@@ -48,6 +48,8 @@ export const ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/activate' as const;
 export const ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/status' as const;
+export const ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1 =
+  'x-seams-wallet-recovery-challenge-id' as const;
 export const ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1 =
   '/router-ab/ed25519/yao/recovery/bootstrap' as const;
 export const ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 =

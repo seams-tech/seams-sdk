@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { normalizeLogger } from '../../packages/wallet-server/src/core/logger';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { parseWalletId, parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   requireParsedDomainId,
@@ -20,9 +20,32 @@ import {
   type D1WebAuthnWalletManifestSource,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import type { WalletAuthMethodRecord } from '../../packages/wallet-server/src/core/WalletStore';
 
 const SYNC_KEY_MANIFEST_DIGEST_B64U = Buffer.alloc(32, 21).toString('base64url');
 const SYNC_SIGNER_SLOT = 4;
+
+function passkeyAuthMethodRecord(input: {
+  readonly walletId: string;
+  readonly credentialIdB64u: string;
+  readonly credentialPublicKeyB64u: string;
+  readonly status: 'active' | 'revoked';
+  readonly updatedAtMs: number;
+}): Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }> {
+  return {
+    version: 'wallet_auth_method_v1',
+    kind: 'passkey',
+    status: input.status,
+    walletId: requireParsedDomainId(parseWalletId(input.walletId)),
+    rpId: requireParsedDomainId(parseWebAuthnRpId('example.com')),
+    credentialIdB64u: input.credentialIdB64u,
+    credentialPublicKeyB64u: input.credentialPublicKeyB64u,
+    counter: 0,
+    createdAtMs: 100,
+    updatedAtMs: input.updatedAtMs,
+  };
+}
 
 class RecordingWalletManifestSource implements D1WebAuthnWalletManifestSource {
   readonly requests: Parameters<
@@ -58,6 +81,14 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
       googleOidcClientId: 'google-client',
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
+    const walletAuthMethodStore = new D1WalletAuthMethodStore({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      ensureSchema: false,
+    });
 
     await expect(
       service.webAuthn.createWebAuthnLoginOptions({
@@ -70,6 +101,15 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
     });
 
     await insertWebAuthn({ database, ...scope, credentialIdB64u: 'credential-a' });
+    await walletAuthMethodStore.put(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: 'credential-a',
+        credentialPublicKeyB64u: 'credential-public-key-a',
+        status: 'active',
+        updatedAtMs: 100,
+      }),
+    );
     await expect(
       service.webAuthn.createWebAuthnLoginOptions({
         userId: scope.userId,
@@ -79,6 +119,21 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
       ok: true,
       credentialIds: ['credential-a'],
     });
+    await walletAuthMethodStore.put(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: 'credential-a',
+        credentialPublicKeyB64u: 'credential-public-key-a',
+        status: 'revoked',
+        updatedAtMs: 200,
+      }),
+    );
+    await expect(
+      service.webAuthn.createWebAuthnLoginOptions({
+        userId: scope.userId,
+        rpId: 'example.com',
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'unknown_credential' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -96,6 +151,14 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       userId: 'wallet-a',
     };
     const manifestSource = new RecordingWalletManifestSource();
+    const walletAuthMethodStore = new D1WalletAuthMethodStore({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      ensureSchema: false,
+    });
     const syncWebAuthnService = new CloudflareD1WebAuthnAuthService({
       webAuthnStore: new CloudflareD1WebAuthnStore({
         database,
@@ -105,6 +168,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         envId: scope.envId,
       }),
       walletManifestSource: manifestSource,
+      walletAuthMethodStore,
     });
     const service = createCloudflareD1RouterApiAuthService({
       database,
@@ -131,6 +195,15 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       subject: 'wallet:oidc:linked',
     });
     await insertWebAuthn({ database, ...scope });
+    await walletAuthMethodStore.put(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: 'credential-a',
+        credentialPublicKeyB64u: 'credential-public-key-a',
+        status: 'active',
+        updatedAtMs: 100,
+      }),
+    );
     await insertNearPublicKey({ database, ...scope });
 
     await expect(service.identity.listIdentities({ userId: scope.userId })).resolves.toEqual({
@@ -249,6 +322,15 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
       signerSlot: SYNC_SIGNER_SLOT,
     });
+    await walletAuthMethodStore.put(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: webAuthnFixture.credentialIdB64u,
+        credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+        status: 'active',
+        updatedAtMs: 100,
+      }),
+    );
     const loginOptions = await service.webAuthn.createWebAuthnLoginOptions({
       userId: scope.userId,
       rpId: 'example.com',
@@ -309,6 +391,40 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
       }),
     ).resolves.toMatchObject({ counter: 1 });
+    const revokedLoginOptions = await service.webAuthn.createWebAuthnLoginOptions({
+      userId: scope.userId,
+      rpId: 'example.com',
+      ttlMs: 60_000,
+    });
+    expect(revokedLoginOptions.ok).toBe(true);
+    if (!revokedLoginOptions.ok) throw new Error(revokedLoginOptions.message);
+    const revokedAssertion = await createWebAuthnAssertion({
+      fixture: webAuthnFixture,
+      rpId: 'example.com',
+      origin: 'https://example.com',
+      challengeB64u: String(revokedLoginOptions.challengeB64u || ''),
+      counter: 2,
+    });
+    await walletAuthMethodStore.put(
+      passkeyAuthMethodRecord({
+        walletId: scope.userId,
+        credentialIdB64u: webAuthnFixture.credentialIdB64u,
+        credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+        status: 'revoked',
+        updatedAtMs: 200,
+      }),
+    );
+    await expect(
+      service.webAuthn.verifyWebAuthnLogin({
+        challengeId: String(revokedLoginOptions.challengeId || ''),
+        webauthn_authentication: revokedAssertion,
+        expected_origin: 'https://example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      verified: false,
+      code: 'unknown_credential',
+    });
     await expect(
       service.webAuthn.createWebAuthnLoginOptions({ userId: 'bad user', rpId: 'example.com' }),
     ).resolves.toMatchObject({
@@ -336,7 +452,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     const syncChallengeId = String(syncOptions.challengeId || '');
     expect(syncChallengeId).not.toBe('');
     expect(syncOptions.challengeB64u).toEqual(expect.any(String));
-    expect(syncOptions.credentialIds).toEqual(['credential-a', webAuthnFixture.credentialIdB64u]);
+    expect(syncOptions.credentialIds).toEqual(['credential-a']);
     expect(syncOptions.walletBinding).toEqual({
       walletId: scope.userId,
       nearAccountId: 'near.testnet',
@@ -379,22 +495,11 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         expected_origin: 'https://example.com',
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      verified: true,
-      accountId: scope.userId,
-      walletId: scope.userId,
-      nearAccountId: 'near.testnet',
-      nearEd25519SigningKeyId: 'ed25519:key',
-      custodyKeyManifestDigestB64u: SYNC_KEY_MANIFEST_DIGEST_B64U,
-      rpId: 'example.com',
-      signerSlot: SYNC_SIGNER_SLOT,
-      publicKey: 'ed25519:public',
-      credentialIdB64u: webAuthnFixture.credentialIdB64u,
-      credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+      ok: false,
+      verified: false,
+      code: 'unknown_credential',
     });
-    expect(manifestSource.requests).toEqual([
-      { walletId: scope.userId, signerSlot: SYNC_SIGNER_SLOT },
-    ]);
+    expect(manifestSource.requests).toEqual([]);
     await expect(
       readWebAuthnAuthenticatorRow({
         database,
@@ -402,7 +507,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         userId: scope.userId,
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
       }),
-    ).resolves.toMatchObject({ counter: 2 });
+    ).resolves.toMatchObject({ counter: 1 });
     await expect(
       syncWebAuthnService.createWebAuthnSyncAccountOptions({
         account_id: scope.userId,
