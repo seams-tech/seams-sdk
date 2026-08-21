@@ -12,6 +12,7 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
@@ -98,6 +99,8 @@ test('builds replay-stable mixed-curve owner planning facts from D1 signer recor
       parseWalletSessionAuthorizationId('wallet-authorization:owner-planning-adapter'),
     ),
     expiresAtMs: base.payload.expiresAtMs,
+    permission: buildFullOwnerDelegatedWalletAuthorityV1(),
+    keyManifestDigestB64u: base.receipt.manifestDigestB64u,
     curve: 'ed25519' as const,
     authority: buildPasskeyWalletAuthAuthority({
       walletId,
@@ -152,4 +155,14 @@ test('builds replay-stable mixed-curve owner planning facts from D1 signer recor
     sourceServerVerifyingShare33B64u: ecdsaSigner.walletKey.relayerVerifyingShareB64u,
   });
   expect(String(first.metadata.policyDigestB64u)).not.toBe(String(digest));
+
+  await expect(
+    deployment.planOwnerPlanningV1({
+      ...input,
+      orderedOwnerSourceLaneHints: [hints[0]],
+      projections: [edProjection],
+    }),
+  ).rejects.toThrow(
+    'owner planning source lanes do not cover the canonical wallet signer manifest',
+  );
 });

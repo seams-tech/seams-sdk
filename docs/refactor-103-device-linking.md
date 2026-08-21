@@ -6,7 +6,7 @@ Rewritten: July 22, 2026
 
 Last reconciled: August 19, 2026 (closeout scope)
 
-Status: closeout. The strict QR v4 contract, exhaustive session
+Status: complete. The strict QR v4 contract, exhaustive session
 state, durable claim and expiry store, authenticated request-proof transport,
 owner approval responses, committed-delivery recovery, aggregate activation
 verification, private Gateway completion API, linked authorization domain, and
@@ -14,14 +14,14 @@ public SDK/iframe/React cutover are implemented. Both key families use their
 linked normal-signing paths, and aggregate revocation is implemented. Refactor
 102 provides the curve-specific target-lane lifecycle. The D1 composition owns
 lane authorization and curve execution, operator-recovery authentication, and
-management-side local-state invalidation. Deployment proof still requires the
-configured production topology and credentials.
+management-side local-state invalidation. The real two-profile Passkey and
+Email OTP contract now covers linking, refresh, unlock, signing, fresh-step-up
+export, metadata inventory, and revocation without mocked lifecycle state.
 
-## Active Closeout Scope
+## Closeout verification
 
-One high-impact task remains: automate the real two-device Passkey and Email
-OTP operating flows. Each flow must use two independent browser profiles and
-the composed runtime, then prove linking, refresh, unlock, signing, export,
+The real two-device operating contract uses independent browser profiles and
+the composed runtime to prove linking, refresh, unlock, signing, export,
 metadata persistence, and revocation without mocked lifecycle state.
 
 This closeout scope supersedes older unchecked checklist entries below. Those

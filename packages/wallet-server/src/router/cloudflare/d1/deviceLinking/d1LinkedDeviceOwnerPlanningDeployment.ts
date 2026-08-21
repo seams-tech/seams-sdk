@@ -77,6 +77,11 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
     if (input.orderedOwnerSourceLaneHints.length !== input.projections.length) {
       throw new Error('owner planning hints and projections are out of order');
     }
+    await assertCompleteCanonicalSignerManifestV1({
+      walletSource: this.walletSource,
+      walletId: input.owner.walletId,
+      projections: input.projections,
+    });
     const policyDigestB64u = await digestDomainV1('policy', {
       permission: input.payload.requestedPermission,
     });
@@ -268,6 +273,55 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
       sourceServerVerifyingShare33B64u: signer.walletKey.relayerVerifyingShareB64u,
     };
   }
+}
+
+async function assertCompleteCanonicalSignerManifestV1(input: {
+  readonly walletSource: D1LinkedDeviceOwnerPlanningWalletSourceV1;
+  readonly walletId: WalletId;
+  readonly projections: NonEmpty<ActiveOwnerWalletExecutionLaneProjection>;
+}): Promise<void> {
+  const [ed25519Signers, ecdsaSigners] = await Promise.all([
+    input.walletSource.listEd25519SignersForWallet({ walletId: input.walletId }),
+    input.walletSource.listEcdsaSignersForWallet({ walletId: input.walletId }),
+  ]);
+  const canonicalEd25519Ids = new Set(
+    ed25519Signers.map(
+      (signer) =>
+        `wallet-key:ed25519:${signer.walletId}:${signer.nearEd25519SigningKeyId}`,
+    ),
+  );
+  const canonicalEcdsaIds = new Set(ecdsaSigners.map(walletKeyIdForEcdsaSigner));
+  if (canonicalEd25519Ids.size > 1 || canonicalEcdsaIds.size > 1) {
+    throw new Error('canonical wallet signer manifest contains conflicting family identities');
+  }
+
+  const projectedEd25519Ids = new Set<string>();
+  const projectedEcdsaIds = new Set<string>();
+  for (const projection of input.projections) {
+    const target =
+      projection.walletKey.keyFamily === 'ed25519'
+        ? projectedEd25519Ids
+        : projectedEcdsaIds;
+    const walletKeyId = String(projection.walletKey.walletKeyId);
+    if (target.has(walletKeyId)) {
+      throw new Error('owner planning source lanes contain a duplicate signer family');
+    }
+    target.add(walletKeyId);
+  }
+  if (
+    !sameStringSet(canonicalEd25519Ids, projectedEd25519Ids) ||
+    !sameStringSet(canonicalEcdsaIds, projectedEcdsaIds)
+  ) {
+    throw new Error('owner planning source lanes do not cover the canonical wallet signer manifest');
+  }
+}
+
+function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
 }
 
 function walletKeyIdForEcdsaSigner(signer: WalletEcdsaSignerRecord): string {

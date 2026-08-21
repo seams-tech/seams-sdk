@@ -1712,6 +1712,10 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
           kind: 'unlocked_ed25519_export_root_capability';
           capability: UnlockedWalletEd25519ExportRootCapabilityV1;
           applicationBindingDigestB64u: string;
+          walletKeyId: string;
+          enrollmentId: string;
+          revocationEpoch: number;
+          registeredPublicKeyB64u: string;
         };
     result: { sourceHandle: string };
   };

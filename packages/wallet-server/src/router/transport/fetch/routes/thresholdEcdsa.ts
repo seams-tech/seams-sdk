@@ -161,6 +161,7 @@ import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRoute
 import { handleLinkedDeviceEcdsaNormalSigning } from './linkedDeviceNormalSigning';
 import {
   handleLinkedDeviceEcdsaPresign,
+  ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH,
   ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH,
 } from './linkedDeviceEcdsaPresign';
@@ -2663,6 +2664,7 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
     pathname !== ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH &&
+    pathname !== ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH
   ) {
@@ -2671,6 +2673,7 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
 
   const bodyUnknown = await readJson(ctx.request.clone());
   if (
+    pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH ||
     pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH ||
     pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH
   ) {

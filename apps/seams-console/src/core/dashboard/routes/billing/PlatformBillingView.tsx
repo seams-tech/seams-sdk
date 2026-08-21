@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import {
   createDashboardPlatformBillingManualAdminDebit,
   createDashboardPlatformBillingManualSupportCredit,
@@ -234,7 +235,6 @@ export function PlatformBillingView(): React.JSX.Element {
   const [refundReason, setRefundReason] = React.useState<string>('');
   const [refundActionId, setRefundActionId] = React.useState<string>('');
   const [refundActionError, setRefundActionError] = React.useState<string>('');
-  const [refundActionMessage, setRefundActionMessage] = React.useState<string>('');
   const searchRequestIdRef = React.useRef<number>(0);
   const skipRequestedRouteSelectionEffectRef = React.useRef<boolean>(false);
   const suppressSearchValueRef = React.useRef<string>(
@@ -346,7 +346,6 @@ export function PlatformBillingView(): React.JSX.Element {
     setAdjustmentActionError('');
     setAdjustmentActionMessage('');
     setRefundActionError('');
-    setRefundActionMessage('');
     setPeriodMonthUtcFilter('');
     setEventTypeFilter('all');
     setIsAdjustmentModalOpen(false);
@@ -384,7 +383,6 @@ export function PlatformBillingView(): React.JSX.Element {
       setAdjustmentActionError('');
       setAdjustmentActionMessage('');
       setRefundActionError('');
-      setRefundActionMessage('');
       setPeriodMonthUtcFilter('');
       setEventTypeFilter('all');
       setIsAdjustmentModalOpen(false);
@@ -441,7 +439,6 @@ export function PlatformBillingView(): React.JSX.Element {
       setAdjustmentActionError('');
       setAdjustmentActionMessage('');
       setRefundActionError('');
-      setRefundActionMessage('');
       setIsAdjustmentModalOpen(false);
       resetAdjustmentDraft();
       const result = await loadLookup(request);
@@ -737,7 +734,6 @@ export function PlatformBillingView(): React.JSX.Element {
       if (!lookupResult?.organization.id || !canSubmitRefund || refundAmountMinor == null) return;
       setRefundActionId('create');
       setRefundActionError('');
-      setRefundActionMessage('');
       try {
         const result = await createDashboardPlatformBillingRefund({
           orgId: lookupResult.organization.id,
@@ -751,7 +747,7 @@ export function PlatformBillingView(): React.JSX.Element {
             Math.random().toString(16).slice(2, 10),
           ].join(':'),
         });
-        setRefundActionMessage(
+        toast.success(
           `Refund ${result.refund.id} is ${result.refund.status}. Balance is ${formatUsdMinor(result.creditBalanceMinor)}.`,
         );
         setRefundPurchaseId('');
@@ -781,13 +777,12 @@ export function PlatformBillingView(): React.JSX.Element {
       if (!lookupResult?.organization.id || !refundId || refundActionId) return;
       setRefundActionId(refundId);
       setRefundActionError('');
-      setRefundActionMessage('');
       try {
         const result = await reconcileDashboardPlatformBillingRefund({
           orgId: lookupResult.organization.id,
           refundId,
         });
-        setRefundActionMessage(`Refund ${refundId} is ${result.refund.status}.`);
+        toast.success(`Refund ${refundId} is ${result.refund.status}.`);
         if (activeLookupRequest) await loadLookup(activeLookupRequest);
       } catch (error: unknown) {
         setRefundActionError(error instanceof Error ? error.message : String(error));
@@ -1041,9 +1036,6 @@ export function PlatformBillingView(): React.JSX.Element {
                   <p className="dashboard-form-alert" role="alert">
                     {refundActionError}
                   </p>
-                ) : null}
-                {refundActionMessage ? (
-                  <p className="dashboard-info-banner">{refundActionMessage}</p>
                 ) : null}
                 <div className="dashboard-form-actions">
                   <button

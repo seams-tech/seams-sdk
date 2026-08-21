@@ -1,18 +1,23 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
+use core::fmt::Write as _;
 use curve25519_dalek::{
     constants::ED25519_BASEPOINT_POINT, edwards::CompressedEdwardsY, scalar::Scalar,
     traits::IsIdentity,
 };
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
-use k256::{elliptic_curve::sec1::ToEncodedPoint, ProjectivePoint, PublicKey, SecretKey};
+use k256::{
+    elliptic_curve::{sec1::ToEncodedPoint, PrimeField},
+    ProjectivePoint, PublicKey, Scalar as K256Scalar, SecretKey,
+};
 use router_ab_core::{
     Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoLaneJobV1,
     Ed25519YaoPackageKindV1, MpcMaterialActivationRefV1,
 };
 use router_ab_ecdsa_client_protocol::{
     ecdsa_lane_public_identity_relation_digest_v1, open_ecdsa_lane_payload_v1,
-    EcdsaAdditiveLaneJobV1, EcdsaLaneEncryptedPayloadV1, EcdsaLaneTargetOperationV1,
-    EcdsaMaterialActivationRefV1,
+    open_ecdsa_signing_worker_export_share_v1, EcdsaAdditiveLaneJobV1, EcdsaLaneEncryptedPayloadV1,
+    EcdsaLaneTargetOperationV1, EcdsaMaterialActivationRefV1,
+    EcdsaSigningWorkerExportShareBindingV1, EcdsaSigningWorkerExportShareEnvelopeV1,
 };
 use router_ab_ed25519_yao_protocol::{
     combine_lane_holder_packages_v1, ed25519_yao_lane_recipient_package_aad_v1,
@@ -55,6 +60,86 @@ impl core::fmt::Display for LaneHolderError {
 }
 
 impl std::error::Error for LaneHolderError {}
+
+/// Exact linked-lane facts required to redeem one ECDSA export share.
+///
+/// The record is public identity only. The holder and SigningWorker scalars
+/// remain in this crate until the explicit export artifact is serialized.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct EcdsaLaneExportPublicFactsV1 {
+    wallet_id: String,
+    wallet_key_id: String,
+    enrollment_id: String,
+    operation_id: String,
+    lane_id: String,
+    lane_share_epoch: String,
+    target_material_activation_id: String,
+    ecdsa_threshold_key_id: String,
+    threshold_public_key33_b64u: String,
+    evm_address: String,
+    target_holder_public_commitment33_b64u: String,
+    target_server_public_commitment33_b64u: String,
+    public_identity_digest_b64u: String,
+}
+
+impl EcdsaLaneExportPublicFactsV1 {
+    fn from_job_and_receipt(
+        job: &EcdsaAdditiveLaneJobV1,
+        receipt: &LaneProtocolCommitReceiptWireV1,
+    ) -> Self {
+        Self {
+            wallet_id: job.wallet_id.clone(),
+            wallet_key_id: job.wallet_key_id.clone(),
+            enrollment_id: job.enrollment_id.clone(),
+            operation_id: job.operation_id.clone(),
+            lane_id: ecdsa_target_lane_id(job).to_owned(),
+            lane_share_epoch: ecdsa_target_lane_share_epoch(job).to_owned(),
+            target_material_activation_id: job.target_material_activation_id.clone(),
+            ecdsa_threshold_key_id: job.target_capability.ecdsa_threshold_key_id.clone(),
+            threshold_public_key33_b64u: job.threshold_public_key33_b64u.clone(),
+            evm_address: job.evm_address.clone(),
+            target_holder_public_commitment33_b64u: receipt
+                .target_holder_public_commitment_b64u
+                .clone(),
+            target_server_public_commitment33_b64u: receipt
+                .target_server_public_commitment_b64u
+                .clone(),
+            public_identity_digest_b64u: receipt.public_identity_digest_b64u.clone(),
+        }
+    }
+
+    fn validate(&self) -> Result<(), LaneHolderError> {
+        for value in [
+            &self.wallet_id,
+            &self.wallet_key_id,
+            &self.enrollment_id,
+            &self.operation_id,
+            &self.lane_id,
+            &self.lane_share_epoch,
+            &self.target_material_activation_id,
+            &self.ecdsa_threshold_key_id,
+            &self.evm_address,
+        ] {
+            if value.is_empty() || value.trim() != value {
+                return Err(LaneHolderError::InvalidShape);
+            }
+        }
+        decode_33(&self.threshold_public_key33_b64u)?;
+        decode_evm_address20(&self.evm_address)?;
+        decode_33(&self.target_holder_public_commitment33_b64u)?;
+        decode_33(&self.target_server_public_commitment33_b64u)?;
+        decode_32(&self.public_identity_digest_b64u)?;
+        Ok(())
+    }
+}
+
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub(crate) struct EcdsaLaneExportArtifactV1 {
+    pub(crate) public_key33: [u8; 33],
+    pub(crate) private_key32: [u8; 32],
+    pub(crate) ethereum_address20: [u8; 20],
+}
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub(crate) struct LaneCustodySealV1 {
@@ -231,7 +316,8 @@ pub(crate) enum LaneHolderSigningMaterialV1 {
         registered_public_key: [u8; 32],
     },
     Ecdsa {
-        _share: Zeroizing<[u8; 32]>,
+        share: Zeroizing<[u8; 32]>,
+        export_facts: EcdsaLaneExportPublicFactsV1,
     },
     Destroyed,
 }
@@ -298,7 +384,10 @@ impl LaneHolderSigningMaterialV1 {
         if !bool::from(commitment.as_bytes().ct_eq(&expected_commitment)) {
             return Err(LaneHolderError::InvalidShare);
         }
-        Ok(Self::Ecdsa { _share: share })
+        Ok(Self::Ecdsa {
+            share,
+            export_facts: EcdsaLaneExportPublicFactsV1::from_job_and_receipt(&job, &receipt),
+        })
     }
 
     pub(crate) fn kind(&self) -> Result<&'static str, LaneHolderError> {
@@ -321,7 +410,14 @@ impl LaneHolderSigningMaterialV1 {
 
     pub(crate) fn ecdsa_material(&self) -> Result<&[u8; 32], LaneHolderError> {
         match self {
-            Self::Ecdsa { _share: share } => Ok(share),
+            Self::Ecdsa { share, .. } => Ok(share),
+            Self::Ed25519 { .. } | Self::Destroyed => Err(LaneHolderError::BindingMismatch),
+        }
+    }
+
+    fn ecdsa_export_facts(&self) -> Result<&EcdsaLaneExportPublicFactsV1, LaneHolderError> {
+        match self {
+            Self::Ecdsa { export_facts, .. } => Ok(export_facts),
             Self::Ed25519 { .. } | Self::Destroyed => Err(LaneHolderError::BindingMismatch),
         }
     }
@@ -434,6 +530,144 @@ impl LaneHolderRecipientV1 {
         opened.zeroize();
         result
     }
+
+    pub(crate) fn finalize_ecdsa_export(
+        &mut self,
+        holder_material: &LaneHolderSigningMaterialV1,
+        signing_worker_export_json: &str,
+        expected_binding_json: &str,
+        expected_public_facts_json: &str,
+    ) -> Result<EcdsaLaneExportArtifactV1, LaneHolderError> {
+        let expected_binding =
+            serde_json::from_str::<EcdsaSigningWorkerExportShareBindingV1>(expected_binding_json)
+                .map_err(|_| LaneHolderError::InvalidShape)?;
+        let expected_facts =
+            serde_json::from_str::<EcdsaLaneExportPublicFactsV1>(expected_public_facts_json)
+                .map_err(|_| LaneHolderError::InvalidShape)?;
+        expected_facts.validate()?;
+        let recipient_public_key = x25519_protocol_key(&self.recipient_public_key_b64u)?;
+        if self.operation_id != expected_binding.recipient_identity
+            || recipient_public_key != expected_binding.recipient_public_key
+        {
+            return Err(LaneHolderError::BindingMismatch);
+        }
+
+        let holder_facts = holder_material.ecdsa_export_facts()?;
+        if holder_facts != &expected_facts {
+            return Err(LaneHolderError::BindingMismatch);
+        }
+        if expected_binding.wallet_id != expected_facts.wallet_id
+            || expected_binding.ecdsa_threshold_key_id != expected_facts.ecdsa_threshold_key_id
+            || expected_binding.threshold_public_key33_b64u
+                != expected_facts.threshold_public_key33_b64u
+            || expected_binding.material_activation.activation_id
+                != expected_facts.target_material_activation_id
+            || expected_binding.material_activation.material_owner != expected_facts.wallet_id
+        {
+            return Err(LaneHolderError::BindingMismatch);
+        }
+
+        let recipient_private_key = self
+            .recipient_private_key
+            .take()
+            .ok_or(LaneHolderError::AlreadyConsumed)?;
+        let envelope = serde_json::from_str::<EcdsaSigningWorkerExportShareEnvelopeV1>(
+            signing_worker_export_json,
+        )
+        .map_err(|_| LaneHolderError::InvalidShape)?;
+        let mut server_share = open_ecdsa_signing_worker_export_share_v1(
+            &envelope,
+            &expected_binding,
+            &recipient_private_key,
+        )
+        .map_err(|_| LaneHolderError::HpkeFailed)?;
+        let result = combine_ecdsa_export_shares(holder_material, &server_share, &expected_facts);
+        server_share.zeroize();
+        result
+    }
+}
+
+fn x25519_protocol_key(recipient_public_key_b64u: &str) -> Result<String, LaneHolderError> {
+    let recipient_public_key = decode_32(recipient_public_key_b64u)?;
+    let mut encoded = String::with_capacity("x25519:".len() + recipient_public_key.len() * 2);
+    encoded.push_str("x25519:");
+    for byte in recipient_public_key {
+        write!(&mut encoded, "{byte:02x}").map_err(|_| LaneHolderError::InvalidShape)?;
+    }
+    Ok(encoded)
+}
+
+fn combine_ecdsa_export_shares(
+    holder_material: &LaneHolderSigningMaterialV1,
+    server_share: &[u8; 32],
+    facts: &EcdsaLaneExportPublicFactsV1,
+) -> Result<EcdsaLaneExportArtifactV1, LaneHolderError> {
+    let holder_share = holder_material.ecdsa_material()?;
+    let holder_secret =
+        SecretKey::from_slice(holder_share).map_err(|_| LaneHolderError::InvalidShare)?;
+    let server_secret =
+        SecretKey::from_slice(server_share).map_err(|_| LaneHolderError::InvalidShare)?;
+    let holder_commitment = holder_secret.public_key().to_encoded_point(true);
+    let server_commitment = server_secret.public_key().to_encoded_point(true);
+    let expected_holder_commitment = decode_33(&facts.target_holder_public_commitment33_b64u)?;
+    let expected_server_commitment = decode_33(&facts.target_server_public_commitment33_b64u)?;
+    if !bool::from(
+        holder_commitment
+            .as_bytes()
+            .ct_eq(&expected_holder_commitment),
+    ) || !bool::from(
+        server_commitment
+            .as_bytes()
+            .ct_eq(&expected_server_commitment),
+    ) {
+        return Err(LaneHolderError::InvalidShare);
+    }
+    verify_ecdsa_public_identity_facts(
+        &facts.target_holder_public_commitment33_b64u,
+        &facts.target_server_public_commitment33_b64u,
+        &facts.threshold_public_key33_b64u,
+        &facts.evm_address,
+        &facts.public_identity_digest_b64u,
+    )?;
+
+    let holder_scalar = Option::<K256Scalar>::from(K256Scalar::from_repr((*holder_share).into()))
+        .ok_or(LaneHolderError::InvalidShare)?;
+    let server_scalar = Option::<K256Scalar>::from(K256Scalar::from_repr((*server_share).into()))
+        .ok_or(LaneHolderError::InvalidShare)?;
+    let private_key32 = holder_scalar + server_scalar;
+    let private_key = SecretKey::from_slice(&private_key32.to_bytes())
+        .map_err(|_| LaneHolderError::InvalidShare)?;
+    let public_key33: [u8; 33] = private_key
+        .public_key()
+        .to_encoded_point(true)
+        .as_bytes()
+        .try_into()
+        .map_err(|_| LaneHolderError::InvalidShare)?;
+    let expected_public_key33 = decode_33(&facts.threshold_public_key33_b64u)?;
+    if !bool::from(public_key33.ct_eq(&expected_public_key33)) {
+        return Err(LaneHolderError::InvalidShare);
+    }
+    let ethereum_address20 = ethereum_address_from_public_key33(&public_key33)?;
+    let expected_ethereum_address20 = decode_evm_address20(&facts.evm_address)?;
+    if !bool::from(ethereum_address20.ct_eq(&expected_ethereum_address20)) {
+        return Err(LaneHolderError::InvalidShare);
+    }
+    Ok(EcdsaLaneExportArtifactV1 {
+        public_key33,
+        private_key32: private_key32.to_bytes().into(),
+        ethereum_address20,
+    })
+}
+
+fn ethereum_address_from_public_key33(
+    public_key33: &[u8; 33],
+) -> Result<[u8; 20], LaneHolderError> {
+    let address =
+        signer_core::secp256k1::secp256k1_public_key_33_to_ethereum_address_20(public_key33)
+            .map_err(|_| LaneHolderError::InvalidShape)?;
+    address
+        .try_into()
+        .map_err(|_| LaneHolderError::InvalidShape)
 }
 
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -1132,12 +1366,17 @@ fn map_activation_error(_: ClientActivationError) -> LaneHolderError {
 #[cfg(test)]
 mod tests {
     use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, scalar::Scalar};
-    use k256::{elliptic_curve::sec1::ToEncodedPoint, ProjectivePoint, Scalar as K256Scalar};
+    use k256::{
+        elliptic_curve::sec1::ToEncodedPoint, ProjectivePoint, Scalar as K256Scalar, SecretKey,
+    };
     use sha2::{Digest, Sha256};
+    use zeroize::Zeroizing;
 
     use super::{
-        b64, open_sealed_holder_secret, verify_ecdsa_public_identity_facts,
-        verify_ed_public_identity_facts, verify_recipient_digests, LaneCustodySealV1,
+        b64, combine_ecdsa_export_shares, ethereum_address_from_public_key33,
+        open_sealed_holder_secret, verify_ecdsa_public_identity_facts,
+        verify_ed_public_identity_facts, verify_recipient_digests, EcdsaLaneExportPublicFactsV1,
+        LaneCustodySealV1, LaneHolderSigningMaterialV1,
     };
     use signer_core::passkey_custody::{
         PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1,
@@ -1331,6 +1570,76 @@ mod tests {
             &b64([2_u8; 32]),
         )
         .is_err());
+    }
+
+    #[test]
+    fn ecdsa_export_combines_and_verifies_exact_lane_shares() {
+        let holder_scalar = K256Scalar::from(2_u64);
+        let server_scalar = K256Scalar::from(3_u64);
+        let holder_share: [u8; 32] = holder_scalar.to_bytes().into();
+        let server_share: [u8; 32] = server_scalar.to_bytes().into();
+        let holder_secret = SecretKey::from_slice(&holder_share).expect("holder scalar");
+        let server_secret = SecretKey::from_slice(&server_share).expect("server scalar");
+        let holder_public: [u8; 33] = holder_secret
+            .public_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .expect("holder public key");
+        let server_public: [u8; 33] = server_secret
+            .public_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .expect("server public key");
+        let threshold_public: [u8; 33] = (ProjectivePoint::GENERATOR * K256Scalar::from(5_u64))
+            .to_affine()
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .expect("threshold public key");
+        let ethereum_address20 = ethereum_address_from_public_key33(&threshold_public)
+            .expect("threshold Ethereum address");
+        let public_identity_digest =
+            router_ab_ecdsa_client_protocol::ecdsa_lane_public_identity_relation_digest_v1(
+                &holder_public,
+                &server_public,
+                &threshold_public,
+                &ethereum_address20,
+            )
+            .expect("public identity digest");
+        let facts = EcdsaLaneExportPublicFactsV1 {
+            wallet_id: "wallet-1".to_owned(),
+            wallet_key_id: "wallet-key-1".to_owned(),
+            enrollment_id: "enrollment-1".to_owned(),
+            operation_id: "operation-1".to_owned(),
+            lane_id: "lane-1".to_owned(),
+            lane_share_epoch: "epoch-1".to_owned(),
+            target_material_activation_id: "activation-1".to_owned(),
+            ecdsa_threshold_key_id: "threshold-1".to_owned(),
+            threshold_public_key33_b64u: b64(threshold_public),
+            evm_address: format!("0x{}", hex::encode(ethereum_address20)),
+            target_holder_public_commitment33_b64u: b64(holder_public),
+            target_server_public_commitment33_b64u: b64(server_public),
+            public_identity_digest_b64u: b64(public_identity_digest),
+        };
+        let holder_material = LaneHolderSigningMaterialV1::Ecdsa {
+            share: Zeroizing::new(holder_share),
+            export_facts: facts.clone(),
+        };
+
+        let artifact = combine_ecdsa_export_shares(&holder_material, &server_share, &facts)
+            .expect("exact ECDSA shares combine");
+        let expected_private_key: [u8; 32] = K256Scalar::from(5_u64).to_bytes().into();
+        assert_eq!(artifact.private_key32, expected_private_key);
+        assert_eq!(artifact.public_key33, threshold_public);
+        assert_eq!(artifact.ethereum_address20, ethereum_address20);
+
+        let mut tampered_facts = facts;
+        tampered_facts.evm_address = format!("0x{}", "00".repeat(20));
+        assert!(
+            combine_ecdsa_export_shares(&holder_material, &server_share, &tampered_facts,).is_err()
+        );
     }
 
     #[test]

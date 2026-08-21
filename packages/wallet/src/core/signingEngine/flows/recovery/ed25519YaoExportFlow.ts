@@ -182,7 +182,7 @@ function requireDurablePasskeyExportContext(args: {
   if (
     !mpcMaterialActivationRefsEqual(
       args.selectedMaterialActivation,
-      descriptor.capability.materialActivation,
+      args.context.selectedLaneMaterialActivation,
     )
   ) {
     throw new Error('[SigningEngine][ed25519-export] durable Yao context activation mismatch');
@@ -260,7 +260,8 @@ async function resolveExactEmailOtpExportContext(
     materialActivation: args.materialActivation,
   });
   if (
-    !mpcMaterialActivationRefsEqual(args.materialActivation, context.material.materialActivation)
+    !mpcMaterialActivationRefsEqual(args.materialActivation, context.material.materialActivation) &&
+    context.material.kind !== 'sealed_export_root'
   ) {
     throw new Error('[SigningEngine][ed25519-export] Email OTP Yao context activation mismatch');
   }

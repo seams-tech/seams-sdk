@@ -18,10 +18,7 @@ import {
 } from '../../components/DashboardTable';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { useDashboardConsoleSession } from '../../consoleSession';
-import {
-  getDashboardEnvironmentLabel,
-  getDashboardProjectLabel,
-} from '../../utils/scopeLabels';
+import { getDashboardEnvironmentLabel, getDashboardProjectLabel } from '../../utils/scopeLabels';
 import {
   clearDashboardUiState,
   replaceDashboardSelectedContext,
@@ -50,9 +47,7 @@ function toErrorMessage(error: unknown): string {
 
 const ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS = dashboardTableColumns(1.4, 0.95, 1.05, 0.9, 0.9);
 
-function isProvisionedPlaceholderOrganization(
-  organization: DashboardAccountOrganization,
-): boolean {
+function isProvisionedPlaceholderOrganization(organization: DashboardAccountOrganization): boolean {
   if (organization.onboardingComplete) return false;
   return isDashboardDefaultOrganizationName({
     name: String(organization.name || '').trim(),
@@ -65,7 +60,6 @@ export function AccountSettingsPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
-  const [noticeMessage, setNoticeMessage] = React.useState<string>('');
   const [actionErrorMessage, setActionErrorMessage] = React.useState<string>('');
   const [profile, setProfile] = React.useState<DashboardAccountProfile | null>(null);
   const [organizations, setOrganizations] = React.useState<DashboardAccountOrganization[]>([]);
@@ -161,7 +155,6 @@ export function AccountSettingsPage(): React.JSX.Element {
   const onSaveProfile = React.useCallback(async () => {
     setSavingProfile(true);
     setProfileModalErrorMessage('');
-    setNoticeMessage('');
     try {
       const nextProfile = await updateDashboardAccountProfile({
         displayName: displayNameDraft,
@@ -195,7 +188,6 @@ export function AccountSettingsPage(): React.JSX.Element {
   const onAddBackupEmail = React.useCallback(async () => {
     setAddingBackupEmail(true);
     setProfileModalErrorMessage('');
-    setNoticeMessage('');
     try {
       const nextProfile = await updateDashboardAccountProfile({
         addBackupEmail: newBackupEmail,
@@ -213,7 +205,6 @@ export function AccountSettingsPage(): React.JSX.Element {
   const onRemoveBackupEmail = React.useCallback(async (email: string) => {
     setRemovingBackupEmail(email);
     setProfileModalErrorMessage('');
-    setNoticeMessage('');
     try {
       const nextProfile = await updateDashboardAccountProfile({
         removeBackupEmail: email,
@@ -229,7 +220,6 @@ export function AccountSettingsPage(): React.JSX.Element {
 
   const onCreateOrganization = React.useCallback(() => {
     setActionErrorMessage('');
-    setNoticeMessage('');
     go('/dashboard/onboarding?createOrganization=1');
   }, [go]);
 
@@ -238,14 +228,13 @@ export function AccountSettingsPage(): React.JSX.Element {
       const nextName = String(renameDrafts[organization.id] || '').trim();
       setRenamingOrganizationId(organization.id);
       setActionErrorMessage('');
-      setNoticeMessage('');
       try {
         await updateDashboardAccountOrganization(organization.id, {
           name: nextName,
         });
         await reloadAccountSettings();
         setRenameModalOrganizationId('');
-        setNoticeMessage(`Updated ${organization.name}.`);
+        toast.success(`Updated ${organization.name}.`);
       } catch (error: unknown) {
         setActionErrorMessage(toErrorMessage(error));
       } finally {
@@ -279,7 +268,6 @@ export function AccountSettingsPage(): React.JSX.Element {
       }
       setLeavingOrganizationId(organization.id);
       setActionErrorMessage('');
-      setNoticeMessage('');
       try {
         await leaveDashboardAccountOrganization();
         clearDashboardUiState();
@@ -301,7 +289,6 @@ export function AccountSettingsPage(): React.JSX.Element {
     async (organization: DashboardAccountOrganization) => {
       setSwitchingOrganizationId(organization.id);
       setActionErrorMessage('');
-      setNoticeMessage('');
       try {
         if (!organization.isCurrentOrg) {
           const nextContext = await switchDashboardAccountOrganizationContext(organization.id);
@@ -339,11 +326,10 @@ export function AccountSettingsPage(): React.JSX.Element {
       }
       setDeletingOrganizationId(organization.id);
       setActionErrorMessage('');
-      setNoticeMessage('');
       try {
         await deleteDashboardAccountOrganization(organization.id);
         await reloadAccountSettings();
-        setNoticeMessage(`Deleted ${organization.name}.`);
+        toast.success(`Deleted ${organization.name}.`);
       } catch (error: unknown) {
         setActionErrorMessage(toErrorMessage(error));
       } finally {
@@ -440,123 +426,118 @@ export function AccountSettingsPage(): React.JSX.Element {
       ariaLabel="Edit profile modal"
       onRequestClose={onCloseProfileModal}
       className="dashboard-account-profile-modal"
+    >
+      <h2>Edit profile</h2>
+      <form
+        className="dashboard-view-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSaveProfile();
+        }}
       >
-        <h2>Edit profile</h2>
-        <form
-          className="dashboard-view-grid"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onSaveProfile();
-          }}
-        >
-          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
-            <label className="dashboard-form-field">
-              <span>Display name</span>
-              <input
-                className="dashboard-input"
-                value={displayNameDraft}
-                onChange={(event) => setDisplayNameDraft(event.target.value)}
-                placeholder="Display name"
-                autoFocus
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>
-                {profile?.canEditPrimaryEmail === false
-                  ? 'Primary email (read-only)'
-                  : 'Primary email'}
+        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
+          <label className="dashboard-form-field">
+            <span>Display name</span>
+            <input
+              className="dashboard-input"
+              value={displayNameDraft}
+              onChange={(event) => setDisplayNameDraft(event.target.value)}
+              placeholder="Display name"
+              autoFocus
+            />
+          </label>
+          <label className="dashboard-form-field">
+            <span>
+              {profile?.canEditPrimaryEmail === false
+                ? 'Primary email (read-only)'
+                : 'Primary email'}
+            </span>
+            <input
+              className="dashboard-input"
+              value={primaryEmailDraft}
+              onChange={(event) => setPrimaryEmailDraft(event.target.value)}
+              disabled={profile?.canEditPrimaryEmail === false}
+              placeholder="name@example.com"
+            />
+            {profile?.canEditPrimaryEmail === false ? (
+              <span className="dashboard-pagination-note">
+                Primary email is managed by your identity provider.
               </span>
+            ) : null}
+          </label>
+        </div>
+        <div className="dashboard-account-subsection dashboard-account-subsection--compact">
+          <div className="dashboard-section-toolbar dashboard-account-subsection-header">
+            <div className="dashboard-section-toolbar__copy">
+              <h3>Backup Emails</h3>
+            </div>
+          </div>
+          {profile?.backupEmails.length ? (
+            <div className="dashboard-account-backup-list">
+              {profile.backupEmails.map((backupEmail) => (
+                <article className="dashboard-account-backup-item" key={backupEmail.email}>
+                  <div className="dashboard-account-backup-item__content">
+                    <strong>{backupEmail.email}</strong>
+                    <p className="dashboard-pagination-note">
+                      {backupEmail.status} • added {formatTimestamp(backupEmail.createdAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--danger dashboard-account-backup-item__action"
+                    onClick={() => void onRemoveBackupEmail(backupEmail.email)}
+                    disabled={removingBackupEmail === backupEmail.email}
+                  >
+                    {removingBackupEmail === backupEmail.email ? 'Removing...' : 'Remove'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          ) : null}
+          <div className="dashboard-account-inline-form">
+            <label className="dashboard-form-field">
+              <span className="dashboard-visually-hidden">Backup email</span>
               <input
                 className="dashboard-input"
-                value={primaryEmailDraft}
-                onChange={(event) => setPrimaryEmailDraft(event.target.value)}
-                disabled={profile?.canEditPrimaryEmail === false}
-                placeholder="name@example.com"
+                value={newBackupEmail}
+                onChange={(event) => setNewBackupEmail(event.target.value)}
+                placeholder="recovery@example.com"
               />
-              {profile?.canEditPrimaryEmail === false ? (
-                <span className="dashboard-pagination-note">
-                  Primary email is managed by your identity provider.
-                </span>
-              ) : null}
             </label>
-          </div>
-          <div className="dashboard-account-subsection dashboard-account-subsection--compact">
-            <div className="dashboard-section-toolbar dashboard-account-subsection-header">
-              <div className="dashboard-section-toolbar__copy">
-                <h3>Backup Emails</h3>
-              </div>
-            </div>
-            {profile?.backupEmails.length ? (
-              <div className="dashboard-account-backup-list">
-                {profile.backupEmails.map((backupEmail) => (
-                  <article className="dashboard-account-backup-item" key={backupEmail.email}>
-                    <div className="dashboard-account-backup-item__content">
-                      <strong>{backupEmail.email}</strong>
-                      <p className="dashboard-pagination-note">
-                        {backupEmail.status} • added {formatTimestamp(backupEmail.createdAt)}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--danger dashboard-account-backup-item__action"
-                      onClick={() => void onRemoveBackupEmail(backupEmail.email)}
-                      disabled={removingBackupEmail === backupEmail.email}
-                    >
-                      {removingBackupEmail === backupEmail.email ? 'Removing...' : 'Remove'}
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-            <div className="dashboard-account-inline-form">
-              <label className="dashboard-form-field">
-                <span className="dashboard-visually-hidden">Backup email</span>
-                <input
-                  className="dashboard-input"
-                  value={newBackupEmail}
-                  onChange={(event) => setNewBackupEmail(event.target.value)}
-                  placeholder="recovery@example.com"
-                />
-              </label>
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={() => void onAddBackupEmail()}
-                disabled={addingBackupEmail}
-              >
-                {addingBackupEmail ? 'Adding...' : 'Add'}
-              </button>
-            </div>
-          </div>
-          {profileModalErrorMessage ? (
-            <p className="dashboard-form-alert" role="alert">
-              {profileModalErrorMessage}
-            </p>
-          ) : null}
-          <div className="dashboard-form-actions">
             <button
               type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={onCloseProfileModal}
-              disabled={savingProfile || addingBackupEmail || Boolean(removingBackupEmail)}
+              className="dashboard-pagination-button"
+              onClick={() => void onAddBackupEmail()}
+              disabled={addingBackupEmail}
             >
-              Cancel
-            </button>
-            <button type="submit" className="dashboard-pagination-button" disabled={savingProfile}>
-              {savingProfile ? 'Saving...' : 'Save'}
+              {addingBackupEmail ? 'Adding...' : 'Add'}
             </button>
           </div>
-        </form>
+        </div>
+        {profileModalErrorMessage ? (
+          <p className="dashboard-form-alert" role="alert">
+            {profileModalErrorMessage}
+          </p>
+        ) : null}
+        <div className="dashboard-form-actions">
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+            onClick={onCloseProfileModal}
+            disabled={savingProfile || addingBackupEmail || Boolean(removingBackupEmail)}
+          >
+            Cancel
+          </button>
+          <button type="submit" className="dashboard-pagination-button" disabled={savingProfile}>
+            {savingProfile ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
     </DashboardInlineModal>
   ) : null;
 
   return (
     <div className="dashboard-account-settings" aria-label="Account settings page">
-      {noticeMessage ? (
-        <p className="dashboard-form-alert dashboard-account-alert--success" role="status">
-          {noticeMessage}
-        </p>
-      ) : null}
       {actionErrorMessage ? (
         <p className="dashboard-form-alert" role="alert">
           {actionErrorMessage}

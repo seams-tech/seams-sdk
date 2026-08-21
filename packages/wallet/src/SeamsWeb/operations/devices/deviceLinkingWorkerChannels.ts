@@ -1,4 +1,9 @@
 import {
+  parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
+  type RouterAbEcdsaSigningWorkerExportShareBindingV1,
+  type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
   encodeLinkedDeviceRequestProofV1,
   parseLinkedDeviceProvisioningChildV1,
   parseLinkedDeviceTargetPreparationV1,
@@ -44,6 +49,9 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type {
   DeviceLinkingEd25519SigningShareV1,
+  DeviceLinkingEcdsaExportArtifactV1,
+  DeviceLinkingEcdsaExportPublicFactsV1,
+  DeviceLinkingEcdsaExportRecipientV1,
   DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1,
   DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
@@ -94,7 +102,18 @@ type DeviceLinkingWorkerRequestV1 =
       readonly handleId: string;
       readonly preparation: LinkedDeviceTargetPreparationV1;
       readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
-      readonly exportRoot: DeviceLinkingEmailOtpExportRootPreparationInputV1;
+      readonly exportRoot:
+        | {
+            readonly kind: 'required';
+            readonly transferBindingJson: string;
+            readonly ephemeralPublicKeyB64u: string;
+            readonly nonceB64u: string;
+            readonly sealedExportRootB64u: string;
+            readonly bindingDigestB64u: string;
+            readonly ciphertextDigestB64u: string;
+            readonly replacementEnvelopeBindingJson: string;
+          }
+        | { readonly kind: 'not_required' };
     }
   | {
       readonly kind: 'device_linking_holder_signing_material_open_v1';
@@ -144,6 +163,19 @@ type DeviceLinkingWorkerRequestV1 =
       readonly signingWorkerVerifyingShareB64u: string;
     }
   | {
+      readonly kind: 'device_linking_holder_ecdsa_export_recipient_prepare_v1';
+      readonly handleId: string;
+      readonly operationId: string;
+    }
+  | {
+      readonly kind: 'device_linking_holder_ecdsa_export_finalize_v1';
+      readonly handleId: string;
+      readonly recipientHandleId: string;
+      readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
+      readonly expectedBinding: RouterAbEcdsaSigningWorkerExportShareBindingV1;
+      readonly expectedPublicFacts: DeviceLinkingEcdsaExportPublicFactsV1;
+    }
+  | {
       readonly kind: 'device_linking_request_sign_v1';
       readonly handleId: string;
       readonly linkSessionId: LinkDeviceSessionId;
@@ -183,6 +215,11 @@ type DeviceLinkingHolderSigningMaterialBatchResultV1 = {
     DeviceLinkingHolderSigningMaterialHandleV1,
     ...DeviceLinkingHolderSigningMaterialHandleV1[],
   ];
+};
+
+type DeviceLinkingInitialHolderSigningMaterialBatchResultV1 =
+  DeviceLinkingHolderSigningMaterialBatchResultV1 & {
+  readonly warmSessionFactorSecret: ArrayBuffer;
 };
 
 function isEmailOtpTargetPreparation(
@@ -350,6 +387,31 @@ function parseHolderSigningMaterialBatchResult(
   };
 }
 
+function parseInitialHolderSigningMaterialBatchResult(
+  value: unknown,
+  children: DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1['orderedChildren'],
+): DeviceLinkingInitialHolderSigningMaterialBatchResultV1 {
+  const record = exactRecord(
+    value,
+    ['holderSigningMaterialHandles', 'warmSessionFactorSecret'],
+    'device-linking initial Email OTP holder signing material batch response',
+  );
+  if (
+    !(record.warmSessionFactorSecret instanceof ArrayBuffer) ||
+    record.warmSessionFactorSecret.byteLength !== 32
+  ) {
+    throw new Error('device-linking Email OTP warm-session factor secret is invalid');
+  }
+  const parsed = parseHolderSigningMaterialBatchResult(
+    { holderSigningMaterialHandles: record.holderSigningMaterialHandles },
+    children,
+  );
+  return {
+    ...parsed,
+    warmSessionFactorSecret: record.warmSessionFactorSecret,
+  };
+}
+
 function nonEmptyTupleV1<T>(first: T, rest: readonly T[]): readonly [T, ...T[]] {
   return [first, ...rest];
 }
@@ -384,6 +446,41 @@ function parseEd25519SigningShare(value: unknown): DeviceLinkingEd25519SigningSh
       'clientSignatureShareB64u',
     ),
   };
+}
+
+function parseEcdsaExportRecipient(value: unknown): DeviceLinkingEcdsaExportRecipientV1 {
+  const record = exactRecord(
+    value,
+    ['recipientHandleId', 'recipientIdentity', 'recipientPublicKeyB64u'],
+    'device-linking ECDSA export recipient',
+  );
+  return {
+    kind: 'device_linking_ecdsa_export_recipient_v1',
+    recipientHandleId: nonEmpty(record.recipientHandleId, 'recipientHandleId'),
+    recipientIdentity: nonEmpty(record.recipientIdentity, 'recipientIdentity'),
+    recipientPublicKeyB64u: parseFixedB64u(
+      record.recipientPublicKeyB64u,
+      32,
+      'recipientPublicKeyB64u',
+    ),
+  };
+}
+
+function parseEcdsaExportArtifact(value: unknown): DeviceLinkingEcdsaExportArtifactV1 {
+  const record = exactRecord(
+    value,
+    ['publicKeyHex', 'privateKeyHex', 'ethereumAddress'],
+    'device-linking ECDSA export artifact',
+  );
+  const publicKeyHex = nonEmpty(record.publicKeyHex, 'publicKeyHex');
+  const privateKeyHex = nonEmpty(record.privateKeyHex, 'privateKeyHex');
+  const ethereumAddress = nonEmpty(record.ethereumAddress, 'ethereumAddress');
+  if (!/^0x[0-9a-f]{66}$/.test(publicKeyHex)) throw new Error('publicKeyHex is invalid');
+  if (!/^0x[0-9a-f]{64}$/.test(privateKeyHex)) throw new Error('privateKeyHex is invalid');
+  if (!/^0x[0-9a-f]{40}$/.test(ethereumAddress)) {
+    throw new Error('ethereumAddress is invalid');
+  }
+  return { publicKeyHex, privateKeyHex, ethereumAddress };
 }
 
 function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
@@ -504,12 +601,16 @@ function parseEmailOtpTargetResult(
   if (registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length) {
     throw new Error('device-linking worker returned the wrong holder child count');
   }
-  const exportRootRequirement = exactRecord(
+  const exportRootRequirement = requireRecord(
     record.exportRootRequirement,
-    ['kind'],
     'device-linking Email OTP export-root preparation requirement',
   );
   if (exportRootRequirement.kind === 'not_required') {
+    exactRecord(
+      exportRootRequirement,
+      ['kind'],
+      'device-linking Email OTP export-root preparation requirement',
+    );
     return {
       orderedHolderRegistrations: registration.orderedHolderRegistrations,
       exportRootRequirement: { kind: 'not_required' },
@@ -830,7 +931,11 @@ export function createDeviceLinkingKeyMaterialPortV1(
               ? {
                   kind: 'required',
                   transferBindingJson: input.exportRoot.transferBindingJson,
-                  package: input.exportRoot.package,
+                  ephemeralPublicKeyB64u: input.exportRoot.package.ephemeralPublicKeyB64u,
+                  nonceB64u: input.exportRoot.package.nonceB64u,
+                  sealedExportRootB64u: input.exportRoot.package.sealedExportRootB64u,
+                  bindingDigestB64u: input.exportRoot.package.bindingDigestB64u,
+                  ciphertextDigestB64u: input.exportRoot.package.ciphertextDigestB64u,
                   replacementEnvelopeBindingJson: input.exportRoot.replacementEnvelopeBindingJson,
                 }
               : { kind: 'not_required' },
@@ -921,7 +1026,7 @@ export function createDeviceLinkingKeyMaterialPortV1(
         'targetPreparationDigestB64u',
       );
       const parsedChildren = nonEmptyTupleV1(first, orderedChildren.slice(1));
-      const result = parseHolderSigningMaterialBatchResult(
+      const result = parseInitialHolderSigningMaterialBatchResult(
         await request({
           kind: 'device_linking_email_otp_holder_signing_material_batch_open_v1',
           handleId: handle.handleId,
@@ -936,6 +1041,7 @@ export function createDeviceLinkingKeyMaterialPortV1(
       );
       return {
         handles: result.holderSigningMaterialHandles,
+        warmSessionFactorSecret: result.warmSessionFactorSecret,
       };
     },
     async openPersistedEmailOtpHolderSigningMaterialsFromFactorReleaseV1(input) {
@@ -1006,6 +1112,38 @@ export function createDeviceLinkingKeyMaterialPortV1(
             32,
             'signingWorkerVerifyingShareB64u',
           ),
+        }),
+      );
+    },
+    async prepareEcdsaExportRecipientV1(input) {
+      const handle = parseHolderSigningMaterialHandleInput(input.handle);
+      if (handle.keyFamily !== 'ecdsa_secp256k1') {
+        throw new Error('ECDSA export requires an ECDSA holder handle');
+      }
+      return parseEcdsaExportRecipient(
+        await request({
+          kind: 'device_linking_holder_ecdsa_export_recipient_prepare_v1',
+          handleId: handle.handleId,
+          operationId: nonEmpty(input.operationId, 'operationId'),
+        }),
+      );
+    },
+    async finalizeEcdsaExportV1(input) {
+      const handle = parseHolderSigningMaterialHandleInput(input.handle);
+      if (handle.keyFamily !== 'ecdsa_secp256k1') {
+        throw new Error('ECDSA export requires an ECDSA holder handle');
+      }
+      const signingWorkerExport = parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
+        input.signingWorkerExport,
+      );
+      return parseEcdsaExportArtifact(
+        await request({
+          kind: 'device_linking_holder_ecdsa_export_finalize_v1',
+          handleId: handle.handleId,
+          recipientHandleId: nonEmpty(input.recipientHandleId, 'recipientHandleId'),
+          signingWorkerExport,
+          expectedBinding: input.expectedBinding,
+          expectedPublicFacts: input.expectedPublicFacts,
         }),
       );
     },

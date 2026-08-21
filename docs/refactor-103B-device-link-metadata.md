@@ -1,12 +1,10 @@
 # Refactor 103B — Canonical Device-Link Metadata
 
-Status: closeout. Implementation Phases 1–4 are complete. One high-impact gate
-remains: the automated real two-device Passkey and Email OTP flows owned by
-Refactor 103. They must prove canonical metadata persistence and exact
-credential revocation through the composed operating path.
-
-This gate is the only active Refactor 103B task. Older prerequisite language
-and unchecked lifecycle notes below remain as historical context.
+Status: complete. Implementation Phases 1–4 and the real two-device Passkey
+and Email OTP operating-path gate are complete. The contract proves canonical
+metadata persistence and exact credential revocation through the composed
+runtime. Older prerequisite language and unchecked lifecycle notes below remain
+as historical context.
 
 Last reconciled: August 19, 2026 (closeout scope).
 

@@ -104,7 +104,7 @@ function rootEnvelopeKey(
     identity.targetFactor.kind === 'passkey_prf'
       ? String(identity.targetFactor.rpId) + ':' + String(identity.targetFactor.credentialIdB64u)
       : identity.targetFactor.enrollmentSealKeyVersion,
-  ].map((part) => encodeURIComponent(String(part || '').trim()));
+  ].map((part) => encodeURIComponent(String(part ?? '').trim()));
   if (parts.some((part) => !part)) {
     throw new Error('Ed25519 Yao client-root envelope identity is required');
   }
@@ -229,9 +229,10 @@ function rootEnvelopeMatchesIdentity(
         String(identity.targetFactor.credentialIdB64u)
     );
   }
-  return envelope.factor.kind === 'email_otp' &&
-    String(envelope.factor.enrollmentId) === String(identity.enrollmentId) &&
-    envelope.factor.enrollmentSealKeyVersion === identity.targetFactor.enrollmentSealKeyVersion;
+  return (
+    envelope.factor.kind === 'email_otp' &&
+    envelope.factor.enrollmentSealKeyVersion === identity.targetFactor.enrollmentSealKeyVersion
+  );
 }
 
 function rootEnvelopeMatchesEmailOtpLookup(
@@ -348,8 +349,7 @@ function rootEnvelopeMatchesEmailScope(
     binding.registeredPublicKeyB64u === scope.registeredPublicKeyB64u &&
     binding.revocationEpoch === scope.revocationEpoch &&
     binding.targetFactor.kind === 'email_otp' &&
-    envelope.factor.kind === 'email_otp' &&
-    envelope.factor.enrollmentId === scope.enrollmentId
+    envelope.factor.kind === 'email_otp'
   );
 }
 
@@ -500,7 +500,5 @@ export async function readEd25519YaoExportEnvelopeForPasskeyV1(args: {
   readonly walletId: string;
   readonly credentialIdB64u: string;
 }): Promise<PasskeyCustodyEnvelopeRecord | null> {
-  const exportRootEnvelope = await readUniqueEd25519YaoClientRootEnvelopeForPasskeyV1(args);
-  if (exportRootEnvelope) return exportRootEnvelope;
-  return await readPasskeyCustodySessionEnvelope(args);
+  return await readUniqueEd25519YaoClientRootEnvelopeForPasskeyV1(args);
 }

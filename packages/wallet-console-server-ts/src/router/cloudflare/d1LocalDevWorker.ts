@@ -1110,6 +1110,7 @@ async function createLocalRouterApiHandler(
       return {
         authorizationSessions: routerApiService.authorizationSessions,
         preparedRecoveryAdmission: routerApiService.passkeyCustody,
+        session,
       };
     },
   );

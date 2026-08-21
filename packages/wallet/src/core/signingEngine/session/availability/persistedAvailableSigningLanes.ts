@@ -1,8 +1,5 @@
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
-import {
-  signingLaneAuthMethod,
-  type OwnerLaneScope,
-} from '../identity/signingLaneAuthBinding';
+import { signingLaneAuthMethod, type OwnerLaneScope } from '../identity/signingLaneAuthBinding';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -23,6 +20,7 @@ import {
   readAvailableSigningLanes,
   type ReadAvailableSigningLanesForSigningInput,
   type ReadAvailableSigningLanesInput,
+  type ReadAvailableSigningLanesPorts,
   type AvailableSigningLanes,
   type ConcreteAvailableEcdsaSigningLane,
 } from './availableSigningLanes';
@@ -51,6 +49,8 @@ export type PersistedAvailableSigningLanesDeps = {
   readActiveWalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
+  readActiveExecutionBundleForWallet?: ReadAvailableSigningLanesPorts['readActiveExecutionBundleForWallet'];
+  readActiveEcdsaExportContextForWallet?: ReadAvailableSigningLanesPorts['readActiveEcdsaExportContextForWallet'];
   listEcdsaSigningCapabilitiesForWallet: (args: {
     walletId: string;
     chainTargets: readonly ThresholdEcdsaChainTarget[];
@@ -240,12 +240,12 @@ export async function readPersistedAvailableSigningLanesForTargets(
     },
     {
       listPublicCapabilityReferences: deps.ed25519YaoPublicCapabilityLanes
-        ? deps.ed25519YaoPublicCapabilityLanes.listLanes.bind(
-            deps.ed25519YaoPublicCapabilityLanes,
-          )
+        ? deps.ed25519YaoPublicCapabilityLanes.listLanes.bind(deps.ed25519YaoPublicCapabilityLanes)
         : undefined,
       isPublicCapabilityActive: deps.isEd25519YaoPublicCapabilityActive,
       readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
+      readActiveExecutionBundleForWallet: deps.readActiveExecutionBundleForWallet,
+      readActiveEcdsaExportContextForWallet: deps.readActiveEcdsaExportContextForWallet,
       listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
           authMethod: SignerAuthMethod,

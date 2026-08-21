@@ -4,9 +4,18 @@ Date created: August 20, 2026
 
 Last reconciled: August 21, 2026 (additive delegated activation implemented)
 
-Status: implemented. This document is the canonical activation model for linked
-devices and future delegated signer holders. The remaining verification gate is
-the automated real two-device Passkey and Email OTP flow.
+Status: complete. This document is the canonical activation model for linked
+devices and future delegated signer holders. The real two-device Passkey and
+Email OTP contract covers activation, signing, fresh-step-up export, inventory,
+and revocation; manual two-device verification confirmed the operating path.
+
+Implemented production boundaries include canonical permission parsing,
+parent-to-child permission attenuation, exact complete-manifest planning,
+additive per-family activation, factor-sealed Ed25519 export-root delivery,
+ordinary Device 2 signing and export consumption, durable device inventory,
+and local activation before Wallet Session persistence and receipt
+acknowledgement. Recovery, rotation, promotion, export hydration, and
+wallet-wide selection are absent from the linking path.
 
 ## Decision
 

@@ -1,4 +1,73 @@
+/* Dashboard tokens live on :root, not on .dashboard-shell: surfaces that
+   portal out of the shell (the command palette escapes the top bar's
+   backdrop-filter containing block) still have to resolve them. */
 :root {
+  /* Alpha overlay ladder. Every hairline, quiet fill and hover state is
+     translucent ink over whatever sits behind it rather than a solid grey, so
+     one value works on white, on the rail tint and on a raised card. The ink
+     carries a trace of the marketing site's warmth; over white it resolves
+     within a point of neutral. */
+  --dashboard-alpha-50: rgba(28, 24, 23, 0.02);
+  --dashboard-alpha-75: rgba(28, 24, 23, 0.032);
+  --dashboard-alpha-100: rgba(28, 24, 23, 0.043);
+  --dashboard-alpha-150: rgba(28, 24, 23, 0.075);
+  --dashboard-alpha-200: rgba(28, 24, 23, 0.1);
+  --dashboard-alpha-300: rgba(28, 24, 23, 0.16);
+  --dashboard-alpha-400: rgba(28, 24, 23, 0.35);
+  --dashboard-alpha-450: rgba(28, 24, 23, 0.44);
+  --dashboard-alpha-500: rgba(28, 24, 23, 0.53);
+
+  --dashboard-bg: #ffffff;
+  --dashboard-surface: #ffffff;
+  --dashboard-surface-soft: var(--dashboard-alpha-50); /* quiet fills */
+  --dashboard-border: var(--dashboard-alpha-150); /* component outlines */
+  --dashboard-line: var(--dashboard-alpha-150); /* structural hairlines */
+  --dashboard-ink: #0f0f10; /* primary text */
+  --dashboard-graphite: var(--dashboard-alpha-500); /* secondary text */
+  --dashboard-ink-soft: var(--dashboard-alpha-500); /* tertiary text */
+  --dashboard-ash: var(--dashboard-alpha-450); /* muted labels */
+  --dashboard-muted: var(--dashboard-alpha-100);
+  --dashboard-active: var(--dashboard-alpha-100);
+  --dashboard-active-border: var(--dashboard-alpha-300);
+  --dashboard-active-ink: #0f0f10;
+  --dashboard-active-ink-soft: var(--dashboard-alpha-500);
+  --dashboard-env-bg: var(--dashboard-alpha-100);
+  --dashboard-env-ink: var(--dashboard-alpha-500);
+  /* Radius ladder. */
+  --dashboard-radius-sm: 6px;
+  --dashboard-radius-md: 8px;
+  --dashboard-radius-lg: 10px;
+  --dashboard-radius-xl: 12px;
+  --dashboard-radius-2xl: 16px;
+  --dashboard-radius-3xl: 24px;
+  /* Stacked "natural" elevation: a hairline ring plus four decaying blurs, so
+     a raised surface reads lifted without a grey halo under it. */
+  --dashboard-shadow-sm:
+    0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 1px -0.5px rgba(0, 0, 0, 0.06),
+    0 3px 3px -1.5px rgba(0, 0, 0, 0.06), 0 6px 6px -3px rgba(0, 0, 0, 0.06),
+    0 12px 12px -6px rgba(0, 0, 0, 0.04);
+  --dashboard-shadow-md:
+    0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 1px -0.5px rgba(0, 0, 0, 0.06),
+    0 3px 3px -1.5px rgba(0, 0, 0, 0.06), 0 6px 6px -3px rgba(0, 0, 0, 0.06),
+    0 12px 12px -6px rgba(0, 0, 0, 0.04), 0 24px 24px -12px rgba(0, 0, 0, 0.04);
+  /* Accent + status, mirrored from the frontpage chips. Green is a product
+     accent (never plain chrome); status softs match .h2-chip. */
+  --dashboard-accent: #157f5f;
+  --dashboard-success: #157f5f;
+  --dashboard-success-soft: #e4f0eb;
+  --dashboard-warning: #b45309;
+  --dashboard-warning-soft: #f7ecdd;
+  --dashboard-danger: #b91c1c;
+  --dashboard-danger-soft: #f8e7e7;
+  --dashboard-sidebar-width: 256px;
+  --dashboard-topbar-height: 50px;
+  --dashboard-motion-sidebar: 150ms;
+  --dashboard-motion-item: 200ms;
+  --dashboard-motion-fast: 75ms;
+  --dashboard-motion-header-delay: 0ms;
+  --dashboard-motion-label-delay: 0ms;
+  --dashboard-ease-layout: cubic-bezier(0.22, 1, 0.36, 1);
+  --dashboard-ease-reveal: cubic-bezier(0.16, 1, 0.3, 1);
   --console-font-sans:
     'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Helvetica, Arial, sans-serif;
@@ -25,41 +94,6 @@ textarea {
 }
 
 .dashboard-shell {
-  /* Paper palette shared with the marketing site. */
-  --dashboard-bg: #ffffff;
-  --dashboard-surface: #ffffff;
-  --dashboard-surface-soft: #f5f3f1; /* h2-taupe: quiet fills */
-  --dashboard-border: #ebe8e4; /* h2-stone: component outlines */
-  --dashboard-line: #eeece8; /* h2-line: structural hairlines */
-  --dashboard-ink: #0a0a0a; /* h2-ink: primary text */
-  --dashboard-graphite: #44403b; /* h2-graphite: secondary text */
-  --dashboard-ink-soft: #777169; /* h2-smoke: tertiary text */
-  --dashboard-ash: #a59f97; /* h2-ash: muted labels */
-  --dashboard-muted: #f5f3f1;
-  --dashboard-active: #f5f3f1; /* active nav = taupe, per frontpage window */
-  --dashboard-active-border: #a59f97;
-  --dashboard-active-ink: #0a0a0a;
-  --dashboard-active-ink-soft: #44403b;
-  --dashboard-env-bg: #f5f3f1;
-  --dashboard-env-ink: #44403b;
-  /* Accent + status, mirrored from the frontpage chips. Green is a product
-     accent (never plain chrome); status softs match .h2-chip. */
-  --dashboard-accent: #157f5f;
-  --dashboard-success: #157f5f;
-  --dashboard-success-soft: #e4f0eb;
-  --dashboard-warning: #b45309;
-  --dashboard-warning-soft: #f7ecdd;
-  --dashboard-danger: #b91c1c;
-  --dashboard-danger-soft: #f8e7e7;
-  --dashboard-sidebar-width: 264px;
-  --dashboard-topbar-height: 48px;
-  --dashboard-motion-sidebar: 280ms;
-  --dashboard-motion-item: 220ms;
-  --dashboard-motion-fast: 140ms;
-  --dashboard-motion-header-delay: 0ms;
-  --dashboard-motion-label-delay: 0ms;
-  --dashboard-ease-layout: cubic-bezier(0.22, 1, 0.36, 1);
-  --dashboard-ease-reveal: cubic-bezier(0.16, 1, 0.3, 1);
   min-height: 100dvh;
   height: 100dvh;
   display: grid;
@@ -74,16 +108,6 @@ textarea {
 .dashboard-shell--route-overview {
   --dashboard-bg: #ffffff;
   --dashboard-surface: #ffffff;
-  --dashboard-border: #ebe8e4;
-  --dashboard-ink: #0a0a0a;
-  --dashboard-ink-soft: #777169;
-  --dashboard-muted: #f5f3f1;
-  --dashboard-active: #f5f3f1;
-  --dashboard-active-border: #a59f97;
-  --dashboard-active-ink: #0a0a0a;
-  --dashboard-active-ink-soft: #44403b;
-  --dashboard-env-bg: #f5f3f1;
-  --dashboard-env-ink: #44403b;
 }
 
 .dashboard-shell--route-overview .dashboard-topbar {
@@ -345,16 +369,17 @@ textarea {
   justify-items: center;
   align-content: start;
   padding-top: 12vh;
-  background: color-mix(in srgb, #1c1917 24%, transparent);
-  backdrop-filter: blur(2px);
+  background: rgba(217, 216, 214, 0.3);
+  backdrop-filter: blur(2.5px);
+  -webkit-backdrop-filter: blur(2.5px);
 }
 
 .dashboard-command-palette {
   width: min(560px, calc(100vw - 32px));
-  border: 1px solid var(--dashboard-border);
-  border-radius: 16px;
+  border: 0;
+  border-radius: var(--dashboard-radius-2xl);
   background: var(--dashboard-surface);
-  box-shadow: 0 24px 60px color-mix(in srgb, #1c1917 30%, transparent);
+  box-shadow: var(--dashboard-shadow-md);
   overflow: hidden;
 }
 
@@ -362,18 +387,26 @@ textarea {
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--dashboard-line);
-  padding: 14px 16px;
+  padding: 16px 16px 16px 44px;
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.9375rem;
   color: var(--dashboard-ink);
-  background: transparent;
+  /* The glyph rides the input's own background so the search row needs no
+     extra element around the field. */
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='rgba(28,24,23,0.44)' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.75'/%3E%3Cpath d='M10.5 10.5 14 14'/%3E%3C/svg%3E")
+    no-repeat 16px center / 16px 16px;
   outline: none;
+}
+
+.dashboard-command-palette__input::placeholder {
+  color: var(--dashboard-ash);
 }
 
 .dashboard-command-palette__list {
   max-height: 320px;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
   display: grid;
   gap: 2px;
 }
@@ -384,23 +417,26 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--dashboard-radius-lg);
   background: transparent;
   color: var(--dashboard-ink);
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-command-palette__item.is-active {
-  background: var(--dashboard-surface-soft);
+  background: var(--dashboard-alpha-50);
 }
 
 .dashboard-command-palette__group {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
   color: var(--dashboard-ash);
 }
 
@@ -820,12 +856,13 @@ textarea {
      white content column reads as the page, reference-app style. Hover and
      active steps sit above that fill. Scoping the neutrals here keeps the
      rest of the console on the paper tokens. */
-  --rail-bg: #f5f3f1;
-  --rail-ink: #1c1c1c;
-  --rail-muted: #9b9b98;
-  --rail-icon: #6f6f6c;
-  --rail-hover: #ebe8e4;
-  --rail-active: #e3ded7;
+  --rail-bg: #fafafa;
+  --rail-ink: var(--dashboard-ink);
+  --rail-label: var(--dashboard-alpha-500);
+  --rail-muted: var(--dashboard-alpha-450);
+  --rail-icon: var(--dashboard-alpha-500);
+  --rail-hover: var(--dashboard-alpha-100);
+  --rail-active: var(--dashboard-alpha-150);
   grid-column: 1;
   /* Full-height rail: brand at top, nav, context card docked at bottom.
      Top padding lives on the sticky head so nothing can scroll above it. */
@@ -1364,7 +1401,7 @@ textarea {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 0;
+  gap: 4px;
 }
 
 .dashboard-nav-item {
@@ -1377,8 +1414,9 @@ textarea {
   text-align: left;
   font: inherit;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
+  min-height: 32px;
   gap: 10px;
   padding: 5px 8px;
   cursor: pointer;
@@ -1470,12 +1508,14 @@ textarea {
   background: transparent;
 }
 
+/* A rail entry is secondary text until it is the current page or under the
+   cursor; the ink step is what marks position, not a heavier weight. */
 .dashboard-nav-label {
   display: block;
   min-width: 0;
-  font-size: 0.95rem;
-  font-weight: 400;
-  color: var(--rail-ink, var(--dashboard-ink));
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--rail-label, var(--dashboard-graphite));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1489,13 +1529,14 @@ textarea {
   transition-delay: var(--dashboard-motion-label-delay);
 }
 
-.dashboard-nav-item--active .dashboard-nav-label {
+.dashboard-nav-item--active .dashboard-nav-label,
+.dashboard-nav-item:hover .dashboard-nav-label {
   color: var(--rail-ink, var(--dashboard-active-ink));
 }
 
 .dashboard-nav-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   color: var(--rail-icon, var(--dashboard-ink-soft));
   display: inline-flex;
   align-items: center;
@@ -1509,8 +1550,8 @@ textarea {
 }
 
 .dashboard-nav-icon > svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   display: block;
 }
 
@@ -1597,8 +1638,12 @@ textarea {
 }
 
 /* Dim, don't blur: a blurred page behind a form reads as a broken render. */
+/* A pale scrim plus a light blur, not a dark wash: the page stays legible
+   behind the dialog and the sheet reads as raised rather than spotlit. */
 .dashboard-overlay-layer--modal-open {
-  background: color-mix(in srgb, #1c1917 24%, transparent);
+  background: rgba(217, 216, 214, 0.3);
+  backdrop-filter: blur(2.5px);
+  -webkit-backdrop-filter: blur(2.5px);
 }
 
 /* One header row per page: title left, the route's primary action right —
@@ -1622,12 +1667,15 @@ textarea {
   display: none;
 }
 
+/* 24/30 at regular weight with a hair of negative tracking: the reference app
+   sizes a page title just above body copy and lets position, not weight, carry
+   the hierarchy. */
 .dashboard-main__title {
   margin: 0;
-  font-size: 1.8rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: 1.5rem;
+  font-weight: 450;
+  letter-spacing: -0.006em;
+  line-height: 1.25;
   color: var(--dashboard-ink);
 }
 
@@ -1635,20 +1683,20 @@ textarea {
   margin: 0;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--dashboard-active-border) 55%, #ebe8e4 45%);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--dashboard-active) 84%, #f5f3f1 16%);
+  border-radius: var(--dashboard-radius-lg);
+  background: var(--dashboard-alpha-50);
   color: var(--dashboard-ink);
-  font-size: 0.92rem;
+  font-size: 0.875rem;
 }
 
 .dashboard-info-banner {
   margin: 0;
   border: 1px solid var(--dashboard-border);
-  border-radius: 12px;
+  border-radius: var(--dashboard-radius-xl);
   padding: 14px 16px;
-  background: color-mix(in srgb, var(--dashboard-surface) 92%, #f5f3f1 8%);
+  background: var(--dashboard-alpha-50);
   color: var(--dashboard-ink);
-  font-size: 0.98rem;
+  font-size: 0.875rem;
   line-height: 1.45;
 }
 
@@ -1661,8 +1709,8 @@ textarea {
 
 .dashboard-warning-banner {
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--dashboard-warning) 55%, var(--dashboard-border) 45%);
-  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-warning) 26%, transparent);
+  border-radius: var(--dashboard-radius-xl);
   padding: 12px 14px;
   background: color-mix(in srgb, var(--dashboard-warning-soft) 86%, var(--dashboard-surface) 14%);
   color: color-mix(in srgb, var(--dashboard-warning) 88%, var(--dashboard-ink) 12%);
@@ -1674,9 +1722,9 @@ textarea {
 
 .dashboard-warning-banner p {
   margin: 0;
-  font-size: 0.98rem;
-  font-weight: 650;
-  line-height: 1.4;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .dashboard-warning-banner__dismiss {
@@ -1725,16 +1773,24 @@ textarea {
   gap: 10px;
 }
 
+/* Filter controls are inputs, not pills: they share the input's height,
+   corner and hairline so a toolbar row lines up with the form fields below. */
 .dashboard-search-control {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 999px;
+  gap: 8px;
+  border: 1px solid var(--dashboard-alpha-200);
+  border-radius: var(--dashboard-radius-lg);
   background: var(--dashboard-surface);
-  padding: 0 14px;
-  min-height: 46px;
+  padding: 0 12px;
+  min-height: 36px;
+  transition: border-color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-search-control:hover,
+.dashboard-search-control:focus-within {
+  border-color: var(--dashboard-alpha-300);
 }
 
 .dashboard-search-icon {
@@ -1763,7 +1819,7 @@ textarea {
   background: transparent;
   color: var(--dashboard-ink);
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.875rem;
 }
 
 .dashboard-search-control input::placeholder {
@@ -1773,10 +1829,10 @@ textarea {
 .dashboard-search-control--compact {
   gap: 8px;
   padding: 0 12px;
-  height: 40px;
-  min-height: 40px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--dashboard-muted) 58%, var(--dashboard-surface) 42%);
+  height: 36px;
+  min-height: 36px;
+  border-radius: var(--dashboard-radius-lg);
+  background: var(--dashboard-surface);
   align-self: end;
 }
 
@@ -1786,14 +1842,14 @@ textarea {
 }
 
 .dashboard-search-control--compact input {
-  font-size: 0.95rem;
+  font-size: 0.875rem;
 }
 
 .dashboard-select-control,
 .dashboard-columns-control {
-  min-height: 46px;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 999px;
+  min-height: 36px;
+  border: 1px solid var(--dashboard-alpha-200);
+  border-radius: var(--dashboard-radius-lg);
   background: var(--dashboard-surface);
   color: var(--dashboard-ink-soft);
   font: inherit;
@@ -1881,10 +1937,13 @@ textarea {
 
 /* Borderless tables, ElevenLabs-style: no box, no cell borders, no header
    band. Muted sentence-case column labels, thin row dividers, quiet hover. */
+/* The reference app frames a table in a hairline box with a soft corner and no
+   fill or shadow, so the grid reads as one object against the page instead of
+   a run of loose rows. */
 .dashboard-table-wrapper,
 .dashboard-data-table {
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-md);
   background: transparent;
   box-shadow: none;
 }
@@ -1928,6 +1987,7 @@ textarea {
 .dashboard-data-table__intro {
   display: grid;
   gap: 8px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--dashboard-line);
   background: transparent;
 }
@@ -1944,12 +2004,19 @@ textarea {
   background: transparent;
 }
 
+/* Column labels are ordinary sentence-case text at full ink, not the small
+   uppercase caption a spreadsheet uses — the reference app leans on weight and
+   the rule beneath to separate them from the data. */
 .dashboard-data-table__header-cell {
   min-width: 0;
-  padding: 8px 12px 12px;
-  font-size: 0.84rem;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--dashboard-ink-soft);
+  line-height: 1.4;
+  color: var(--dashboard-ink);
   overflow-wrap: anywhere;
 }
 
@@ -1964,16 +2031,16 @@ textarea {
 }
 
 .dashboard-data-table__row:hover {
-  background: var(--dashboard-surface-soft);
+  background: var(--dashboard-alpha-50);
 }
 
 .dashboard-data-table__cell {
   min-width: 0;
-  padding: 17px 12px;
+  padding: 12px 16px;
   display: grid;
   align-content: start;
   gap: 8px;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   line-height: 1.45;
   color: var(--dashboard-ink);
   font-variant-numeric: tabular-nums;
@@ -2045,16 +2112,8 @@ textarea {
   white-space: nowrap;
 }
 
-/* Line the outer columns up with the page gutter. */
-.dashboard-data-table__header-cell:first-child,
-.dashboard-data-table__cell:first-child {
-  padding-left: 0;
-}
-
-.dashboard-data-table__header-cell:last-child,
-.dashboard-data-table__cell:last-child {
-  padding-right: 0;
-}
+/* Inside a framed table the outer columns keep their padding — flush-to-edge
+   text would sit on the border. */
 
 .dashboard-data-table__cell--muted {
   color: var(--dashboard-ink-soft);
@@ -2287,15 +2346,15 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.35;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .dashboard-data-table__badge {
-  padding: 2px 9px;
+  padding: 2px 8px;
 }
 
 .dashboard-data-table__status {
@@ -2304,8 +2363,8 @@ textarea {
 
 .dashboard-data-table__badge--neutral,
 .dashboard-data-table__status--neutral {
-  background: var(--dashboard-surface-soft);
-  color: var(--dashboard-ink-soft);
+  background: var(--dashboard-alpha-100);
+  color: var(--dashboard-graphite);
 }
 
 .dashboard-data-table__badge--success,
@@ -2336,29 +2395,31 @@ textarea {
   gap: 8px;
 }
 
+/* Row controls sit a size step below the page's primary action so a table
+   full of them never competes with the header button. */
 .dashboard-data-table__action-button {
   max-width: 100%;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 10px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--dashboard-alpha-200);
+  border-radius: var(--dashboard-radius-md);
   background: var(--dashboard-surface);
   color: var(--dashboard-ink);
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   white-space: normal;
   text-align: center;
   cursor: pointer;
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
+    background-color var(--dashboard-motion-fast) ease,
+    border-color var(--dashboard-motion-fast) ease,
+    color var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-data-table__action-button:hover {
-  background: var(--dashboard-surface-soft);
-  border-color: var(--dashboard-ash);
+  background: var(--dashboard-alpha-50);
+  border-color: var(--dashboard-alpha-300);
 }
 
 .dashboard-data-table__action-button:disabled {
@@ -2704,16 +2765,16 @@ textarea {
 }
 
 .dashboard-gas-coverage__stat > span {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--dashboard-ink-soft);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--dashboard-ash);
 }
 
 .dashboard-gas-coverage__stat > strong {
-  font-size: 0.92rem;
-  font-weight: 650;
+  font-size: 1rem;
+  font-weight: 500;
   color: var(--dashboard-ink);
 }
 
@@ -3173,8 +3234,8 @@ textarea {
 }
 
 .dashboard-policy-rule-panel__header > span {
-  font-size: 0.92rem;
-  font-weight: 650;
+  font-size: 0.875rem;
+  font-weight: 500;
   color: var(--dashboard-ink);
 }
 
@@ -3196,21 +3257,28 @@ textarea {
   gap: 8px;
 }
 
+/* A row of these is a control group, not a row of buttons: small, softly
+   cornered and quiet until chosen. */
 .dashboard-policy-segment {
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--dashboard-surface) 80%, var(--dashboard-bg) 20%);
-  color: var(--dashboard-ink-soft);
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--dashboard-alpha-200);
+  border-radius: var(--dashboard-radius-md);
+  background: var(--dashboard-surface);
+  color: var(--dashboard-graphite);
   font: inherit;
-  font-size: 0.84rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 500;
   cursor: pointer;
+  transition:
+    background-color var(--dashboard-motion-fast) ease,
+    border-color var(--dashboard-motion-fast) ease,
+    color var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-policy-segment:hover {
-  border-color: var(--dashboard-active-border);
+  border-color: var(--dashboard-alpha-300);
+  background: var(--dashboard-alpha-50);
   color: var(--dashboard-ink);
 }
 
@@ -3824,24 +3892,24 @@ textarea {
    badges, and search). Default = white outline; --primary = black fill. */
 .dashboard-pagination-button {
   min-height: 36px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid var(--dashboard-border);
+  padding: 0 12px;
+  border-radius: var(--dashboard-radius-lg);
+  border: 1px solid var(--dashboard-alpha-200);
   background: var(--dashboard-surface);
   color: var(--dashboard-ink);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    color 150ms ease;
+    background-color var(--dashboard-motion-fast) ease,
+    border-color var(--dashboard-motion-fast) ease,
+    color var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-pagination-button:hover:not(:disabled) {
-  border-color: var(--dashboard-ash);
-  background: var(--dashboard-surface-soft);
+  border-color: var(--dashboard-alpha-300);
+  background: var(--dashboard-alpha-50);
 }
 
 .dashboard-pagination-button:disabled {
@@ -3850,14 +3918,14 @@ textarea {
 }
 
 .dashboard-pagination-button--primary {
-  border-color: #000000;
-  background: #000000;
+  border-color: var(--dashboard-ink);
+  background: var(--dashboard-ink);
   color: #ffffff;
 }
 
 .dashboard-pagination-button--primary:hover:not(:disabled) {
-  border-color: #262626;
-  background: #262626;
+  border-color: #454545;
+  background: #454545;
 }
 
 .dashboard-pagination-button--secondary {
@@ -4179,9 +4247,9 @@ textarea {
 .dashboard-view__section h2,
 .dashboard-view-card h2 {
   margin: 0 0 10px;
-  font-size: 1.1rem;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .dashboard-view__section--toolbar {
@@ -4819,8 +4887,9 @@ details.dashboard-view__section[open] > summary {
 }
 
 .dashboard-form-field > span {
-  font-size: 0.88rem;
-  color: var(--dashboard-ink-soft);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--dashboard-ink);
 }
 
 .dashboard-form-hint {
@@ -4836,14 +4905,26 @@ details.dashboard-view__section[open] > summary {
 
 .dashboard-input {
   width: 100%;
-  min-height: 40px;
-  border-radius: 10px;
-  border: 1px solid var(--dashboard-border);
+  min-height: 36px;
+  border-radius: var(--dashboard-radius-lg);
+  border: 1px solid var(--dashboard-alpha-200);
   background: var(--dashboard-surface);
   color: var(--dashboard-ink);
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   padding: 0 12px;
+  transition:
+    border-color var(--dashboard-motion-fast) ease,
+    background-color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-input:hover:not(:disabled) {
+  border-color: var(--dashboard-alpha-300);
+}
+
+.dashboard-input:focus-visible {
+  outline: none;
+  border-color: var(--dashboard-ink);
 }
 
 /* Brand-green focus: color appears only on interaction */
@@ -5353,36 +5434,43 @@ select.dashboard-input {
   -webkit-overflow-scrolling: touch;
 }
 
+/* A pale scrim plus a light blur, not a dark wash: the page stays legible
+   behind the dialog and the sheet reads as raised rather than spotlit. */
 .dashboard-inline-modal-backdrop--self-styled {
-  background: color-mix(in srgb, #1c1917 24%, transparent);
+  background: rgba(217, 216, 214, 0.3);
+  backdrop-filter: blur(2.5px);
+  -webkit-backdrop-filter: blur(2.5px);
 }
 
+/* A dialog is a single soft-cornered sheet: generous corner, no outline, and
+   the stacked elevation instead of one long drop shadow. */
 .dashboard-modal {
-  width: min(520px, calc(100% - 24px));
+  width: min(512px, calc(100% - 24px));
   /* Long forms scroll inside the dialog instead of clipping the footer
      off-screen. */
   max-height: calc(100dvh - 96px);
   overflow-y: auto;
-  border-radius: 18px;
-  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-3xl);
+  border: 0;
   background: var(--dashboard-surface);
   padding: 24px;
   display: grid;
-  gap: 14px;
-  box-shadow: 0 24px 60px color-mix(in srgb, #1c1917 26%, transparent);
+  gap: 20px;
+  box-shadow: var(--dashboard-shadow-md);
   outline: none;
 }
 
 /* 920px made single-line text inputs nearly a metre wide on a desktop. */
 .dashboard-modal--wide {
-  width: min(680px, calc(100% - 24px));
+  width: min(640px, calc(100% - 24px));
 }
 
 .dashboard-modal h2 {
   margin: 0;
-  font-size: 1.2rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
 }
 
 .dashboard-onboarding-stepper {
@@ -5690,7 +5778,7 @@ select.dashboard-input {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
   border: 1px solid var(--dashboard-border);
-  border-radius: 12px;
+  border-radius: var(--dashboard-radius-xl);
   background: var(--dashboard-surface);
   overflow: hidden;
 }
@@ -5699,6 +5787,7 @@ select.dashboard-input {
   min-width: 0;
   margin: 0;
   padding: 14px 16px;
+  align-content: start;
   border-right: 1px solid var(--dashboard-border);
   display: grid;
   gap: 6px;
@@ -5708,20 +5797,25 @@ select.dashboard-input {
   border-right: 0;
 }
 
+/* Stat label and figure sit one step apart, both mid-weight — the figure is
+   read as a value in a strip, not as a headline competing with the page title
+   above it. */
 .dashboard-kpi-card__label {
   margin: 0;
-  font-size: 0.74rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--dashboard-ink-soft);
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--dashboard-ash);
 }
 
 .dashboard-kpi-card__value {
   margin: 0;
-  font-size: 1.45rem;
-  font-weight: 670;
-  line-height: 1.1;
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.0025em;
   color: var(--dashboard-ink);
 }
 
@@ -5773,17 +5867,19 @@ select.dashboard-input {
 
 .dashboard-wallet-summary__label {
   margin: 0;
-  color: var(--dashboard-ink-soft);
-  font-size: 0.85rem;
+  color: var(--dashboard-ash);
+  font-size: 0.8125rem;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
 .dashboard-wallet-summary__value {
   margin: 0;
   color: var(--dashboard-ink);
-  font-size: 1.4rem;
-  font-weight: 650;
-  line-height: 1.1;
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.0025em;
 }
 
 .dashboard-observability-summary {
@@ -5803,18 +5899,21 @@ select.dashboard-input {
 
 .dashboard-observability-summary__label {
   margin: 0;
-  color: var(--dashboard-ink-soft);
-  font-size: 0.85rem;
+  color: var(--dashboard-ash);
+  font-size: 0.8125rem;
+  font-weight: 500;
   letter-spacing: 0;
 }
 
+/* A figure in a summary strip is a value, not a headline: it sits one step
+   above body copy so the page title above it still leads. */
 .dashboard-observability-summary__value {
   margin: 0;
   color: var(--dashboard-ink);
-  font-size: 1.9rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: -0.0025em;
+  line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
 
@@ -7099,4 +7198,86 @@ select.dashboard-input {
   .dashboard-account-backup-item__action {
     justify-self: start;
   }
+}
+
+/* Toasts. The reference app floats a dark, faintly translucent slab over the
+   white page rather than a light card — a confirmation reads as chrome that
+   arrived, not as another panel in the layout. Colours and the inset/outer
+   shadow pair are its own toast tokens. */
+.dashboard-toaster {
+  font-family: var(--console-font-sans);
+}
+
+/* The surface is set here rather than through sonner's --normal-* variables:
+   it writes those inline on the list element, and an inline value beats any
+   rule we could add. */
+.dashboard-toaster [data-sonner-toast] {
+  gap: 10px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--dashboard-radius-xl);
+  background: rgba(33, 33, 33, 0.85);
+  color: #fafafa;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.35),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.075),
+    0 0 0 0.5px rgba(0, 0, 0, 0.44),
+    0 2px 6px -2px rgba(0, 0, 0, 0.13),
+    0 18px 40px -10px rgba(0, 0, 0, 0.35);
+}
+
+.dashboard-toaster [data-sonner-toast] [data-title] {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.dashboard-toaster [data-sonner-toast] [data-description] {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.71);
+}
+
+/* The status dot is the only colour on the slab, so it carries the whole
+   success/failure read; muted hues keep it legible against the dark ground. */
+.dashboard-toaster [data-sonner-toast] [data-icon] {
+  width: 8px;
+  height: 8px;
+  margin: 0 2px 0 0;
+  align-self: center;
+  border-radius: 999px;
+  background: #a1a5ab;
+  box-shadow: 0 0 0 4px rgba(161, 165, 171, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast] [data-icon] > * {
+  display: none;
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='success'] [data-icon] {
+  background: #8ab895;
+  box-shadow: 0 0 0 4px rgba(138, 184, 149, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='error'] [data-icon] {
+  background: #c5857f;
+  box-shadow: 0 0 0 4px rgba(197, 133, 127, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='warning'] [data-icon] {
+  background: #cfaa77;
+  box-shadow: 0 0 0 4px rgba(207, 170, 119, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast][data-type='info'] [data-icon] {
+  background: #83a8cf;
+  box-shadow: 0 0 0 4px rgba(131, 168, 207, 0.15);
+}
+
+.dashboard-toaster [data-sonner-toast] [data-close-button] {
+  border: 0;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fafafa;
 }

@@ -40,26 +40,23 @@ export function useSeamsContextValue(args: {
     hostSetTheme,
   });
 
-  const lock: SeamsContextType['lock'] = useCallback(() => {
+  const lock: SeamsContextType['lock'] = useCallback(async () => {
     try {
-      void seams.auth.lock().catch((error) => {
-        console.warn('Wallet lock warning:', error);
-      });
+      await seams.auth.lock();
+      setLoginState((prevState) => ({
+        ...prevState,
+        isLoggedIn: false,
+        walletId: null,
+        nearAccountId: null,
+        nearPublicKey: null,
+        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+        authMethods: [],
+        thresholdEcdsaEthereumAddress: null,
+        thresholdEcdsaPublicKeyB64u: null,
+      }));
     } catch (error) {
       console.warn('Wallet lock warning:', error);
     }
-
-    setLoginState((prevState) => ({
-      ...prevState,
-      isLoggedIn: false,
-      walletId: null,
-      nearAccountId: null,
-      nearPublicKey: null,
-      currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-      authMethods: [],
-      thresholdEcdsaEthereumAddress: null,
-      thresholdEcdsaPublicKeyB64u: null,
-    }));
   }, [setLoginState, seams]);
 
   const startDevice2LinkingFlow: SeamsContextType['startDevice2LinkingFlow'] = useCallback(

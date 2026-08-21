@@ -1092,6 +1092,38 @@ export class CloudflareD1WalletAuthMethodService {
     return { ok: true };
   }
 
+  async verifyActiveLinkedEmailOtpAuthority(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+    readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  }): Promise<{ readonly ok: true } | WalletAuthMethodError> {
+    const binding = this.linkedDeviceOwnerAuthBindingStore
+      ? await this.linkedDeviceOwnerAuthBindingStore.readByAuthMethodV1({
+          walletId: input.walletId,
+          walletAuthMethodId: input.linkedOwnerAuthMethodId,
+        })
+      : null;
+    if (
+      !binding ||
+      binding.walletId !== input.walletId ||
+      binding.enrollmentId !== input.enrollmentId ||
+      binding.deviceId !== input.deviceId ||
+      binding.walletAuthMethodId !== input.linkedOwnerAuthMethodId ||
+      binding.lifecycle.state !== 'active' ||
+      binding.factor.kind !== 'email_otp' ||
+      binding.factor.baseWalletAuthMethodId !== input.baseWalletAuthMethodId
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Linked Email OTP device authority is not active for this wallet',
+      };
+    }
+    return { ok: true };
+  }
+
   async resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
     readonly walletId: string;
     readonly providerUserId: string;

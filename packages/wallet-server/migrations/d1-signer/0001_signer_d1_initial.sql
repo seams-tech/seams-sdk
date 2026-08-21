@@ -1322,9 +1322,13 @@ WHEN NEW.principal_id != 'linked-device:' || NEW.device_id
   OR NEW.wallet_session_id = NEW.authorization_id
   OR NEW.wallet_session_id = NEW.quota_id
   OR NEW.authorization_id = NEW.quota_id
-  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'owner_equivalent_signing'
-  OR json_extract(NEW.permission_json, '$.administrationScope') IS NOT 'signing_only'
-  OR json_extract(NEW.permission_json, '$.localUserPresence') IS NOT 'required'
+  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'delegated_wallet_authority_v1'
+  OR json_type(NEW.permission_json, '$.permissions') IS NOT 'array'
+  OR NOT EXISTS (
+    SELECT 1
+      FROM json_each(NEW.permission_json, '$.permissions') AS permission
+     WHERE permission.value = 'sign'
+  )
 BEGIN
   SELECT RAISE(ABORT, 'linked_device_wallet_session_authorization_identity_rejected');
 END;
@@ -1335,9 +1339,13 @@ WHEN NEW.principal_id != 'linked-device:' || NEW.device_id
   OR NEW.wallet_session_id = NEW.authorization_id
   OR NEW.wallet_session_id = NEW.quota_id
   OR NEW.authorization_id = NEW.quota_id
-  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'owner_equivalent_signing'
-  OR json_extract(NEW.permission_json, '$.administrationScope') IS NOT 'signing_only'
-  OR json_extract(NEW.permission_json, '$.localUserPresence') IS NOT 'required'
+  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'delegated_wallet_authority_v1'
+  OR json_type(NEW.permission_json, '$.permissions') IS NOT 'array'
+  OR NOT EXISTS (
+    SELECT 1
+      FROM json_each(NEW.permission_json, '$.permissions') AS permission
+     WHERE permission.value = 'sign'
+  )
 BEGIN
   SELECT RAISE(ABORT, 'linked_device_wallet_session_authorization_identity_rejected');
 END;
@@ -1638,9 +1646,13 @@ WHEN NEW.lifecycle_kind = 'claimed'
   AND NEW.authorization_grant_kind = 'linked_device_wallet_session_authorization_v1'
 BEGIN
   SELECT CASE
-    WHEN NEW.quota_kind != 'consume_reusable_wallet_session'
+    WHEN (
+        (NEW.operation_kind IN ('near.export_key', 'evm.export_key')
+          AND NEW.quota_kind != 'quota_neutral')
+        OR (NEW.operation_kind NOT IN ('near.export_key', 'evm.export_key')
+          AND NEW.quota_kind != 'consume_reusable_wallet_session')
+      )
       OR NEW.capability_kind NOT IN ('near_ed25519_mpc_signing', 'evm_ecdsa_mpc_signing')
-      OR NEW.operation_kind IN ('near.export_key', 'evm.export_key')
       OR NOT EXISTS (
         SELECT 1
           FROM linked_device_wallet_session_authorizations AS grant_record
@@ -1713,15 +1725,26 @@ BEGIN
            AND grant_record.tenant_id = NEW.tenant_id
            AND grant_record.authorization_id = NEW.authorization_id
            AND grant_record.principal_id = NEW.principal_id
-           AND grant_record.quota_id = NEW.quota_id
+           AND (
+             NEW.quota_kind = 'quota_neutral'
+             OR grant_record.quota_id = NEW.quota_id
+           )
            AND grant_record.wallet_id = NEW.linked_wallet_id
            AND grant_record.enrollment_id = NEW.linked_enrollment_id
            AND grant_record.device_id = NEW.linked_device_id
            AND grant_record.lifecycle_kind = 'active'
            AND grant_record.expires_at_ms > NEW.claimed_at_ms
-           AND json_extract(grant_record.permission_json, '$.kind') = 'owner_equivalent_signing'
-           AND json_extract(grant_record.permission_json, '$.administrationScope') = 'signing_only'
-           AND json_extract(grant_record.permission_json, '$.localUserPresence') = 'required'
+           AND json_extract(grant_record.permission_json, '$.kind') = 'delegated_wallet_authority_v1'
+           AND json_type(grant_record.permission_json, '$.permissions') = 'array'
+           AND EXISTS (
+             SELECT 1
+               FROM json_each(grant_record.permission_json, '$.permissions') AS permission
+              WHERE permission.value = CASE
+                WHEN NEW.operation_kind IN ('near.export_key', 'evm.export_key')
+                THEN 'export_keys'
+                ELSE 'sign'
+              END
+           )
       )
     THEN RAISE(ABORT, 'authorization_linked_device_rejected')
   END;
