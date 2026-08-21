@@ -24,14 +24,21 @@ import type {
 export {
   D1WalletAuthMethodStore,
   WALLET_AUTH_METHOD_STORE_D1_SCHEMA_SQL,
+  WALLET_AUTH_METHOD_STORE_D1_SCHEMA_V2_SQL,
   ensureWalletAuthMethodStoreD1Schema,
+  ensureWalletAuthMethodStoreD1SchemaV2,
   normalizeWalletAuthMethod,
+  normalizeWalletAuthMethodV2,
+  prepareD1WalletAuthMethodV2PutStatement,
+  walletAuthMethodV2Id,
 } from './d1WalletAuthMethodStore';
 export type {
   D1WalletAuthMethodStoreOptions,
   D1WalletAuthMethodStoreSchemaOptions,
   WalletAuthMethodRecord,
+  WalletAuthMethodRecordV2Owned,
   WalletAuthMethodStore,
+  WalletAuthMethodV2Store,
 } from './d1WalletAuthMethodStore';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -237,7 +244,7 @@ export function createWalletAuthMethodStore(input: {
   logger: NormalizedLogger;
   isNode: boolean;
 }): WalletAuthMethodStore {
-  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const config: Record<string, unknown> = isObject(input.config) ? input.config : {};
   const namespace = resolveWalletAuthMethodStoreNamespace(config);
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'd1') {
