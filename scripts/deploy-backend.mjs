@@ -1129,7 +1129,8 @@ function runRouterCommand(args) {
 
 async function smokeBackend(lane) {
   const checks = [];
-  const consoleOrigin = consoleOriginFor(lane.gatewayOrigin);
+  const consoleOrigin =
+    lane.release === 'staging' ? lane.gatewayOrigin : consoleOriginFor(lane.gatewayOrigin);
   for (const requestPath of BACKEND_SMOKE_PATHS) {
     checks.push({
       name: requestPath,
