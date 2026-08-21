@@ -16,6 +16,21 @@ import {
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import {
+  buildActiveWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+  computeWalletAuthorityDigestB64u,
+  computeWalletSignerActivationSetDigestB64u,
+  type ActiveWalletAuthorityV1,
+  type WalletSignerActivationSetV1,
+} from '@shared/authorization/walletAuthority';
+import {
+  buildExactAdministeredSignerManifestV1,
+  type ExactAdministeredEcdsaSignerV1,
+  type ExactAdministeredEd25519SignerV1,
+  type ExactAdministeredSignerManifestV1,
+} from '@shared/device-linking/delegatedActivationPlan';
 import { parseVerifiedOwnerProofId, parseSessionOrigin } from '../../../../authorization/domain';
 import {
   buildVerifiedOwnerProof,
@@ -49,6 +64,8 @@ import {
   type RegistrationNearEd25519SignerPlan,
   type RegistrationSignerPlan,
   type ResolvedRegistrationNearAccount,
+  buildWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
   type WalletId,
   registrationEd25519AuthorityScopeFromAuthority,
   type RegistrationAuthMethodInput,
@@ -56,10 +73,15 @@ import {
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import {
+  routerAbMpcMaterialActivationRefFromWire,
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  parseEd25519PublicKeyB64u,
+  parseSecp256k1CompressedPublicKeyB64u,
+} from '@shared/passkey-custody/primitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
@@ -74,8 +96,11 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
+  parseWalletKeyId,
+  type MpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletAuthorityId,
+  type WalletKeyId,
 } from '@shared/utils/domainIds';
 import type {
   RegistrationEstablishedEcdsaSession,
@@ -318,6 +343,291 @@ function allocateWalletRegistrationOperationPrepared(): D1WalletRegistrationOper
       'walletAuthMethodId',
     ),
   };
+}
+
+type FoundingEd25519Facts = {
+  readonly signer: WalletEd25519SignerRecord;
+  readonly registeredPublicKeyB64u: string;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
+type FoundingEcdsaFacts = {
+  readonly walletKey: WalletRegistrationEcdsaWalletKey;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
+type FoundingSignerFacts =
+  | {
+      readonly kind: 'ed25519';
+      readonly keyFamilies: readonly ['ed25519'];
+      readonly ed25519: FoundingEd25519Facts;
+      readonly ecdsa?: never;
+    }
+  | {
+      readonly kind: 'ecdsa_secp256k1';
+      readonly keyFamilies: readonly ['ecdsa_secp256k1'];
+      readonly ed25519?: never;
+      readonly ecdsa: FoundingEcdsaFacts;
+    }
+  | {
+      readonly kind: 'both';
+      readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'];
+      readonly ed25519: FoundingEd25519Facts;
+      readonly ecdsa: FoundingEcdsaFacts;
+    };
+
+type FoundingAuthorityRecords = {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+};
+
+function requireFoundingWalletKeyId(raw: string, label: string): WalletKeyId {
+  const parsed = parseWalletKeyId(raw);
+  if (!parsed.ok) throw new Error(`${label} is invalid: ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function requireFoundingEvmAddress(raw: string): string {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
+    throw new Error('ECDSA registration returned an invalid owner address');
+  }
+  return raw;
+}
+
+function requireSingleFoundingEcdsaWalletKey(
+  walletKeys: readonly WalletRegistrationEcdsaWalletKey[],
+): WalletRegistrationEcdsaWalletKey {
+  const first = walletKeys[0];
+  if (!first) throw new Error('ECDSA founding authority is missing wallet-key facts');
+  for (const candidate of walletKeys.slice(1)) {
+    if (
+      candidate.walletId !== first.walletId ||
+      candidate.evmFamilySigningKeySlotId !== first.evmFamilySigningKeySlotId ||
+      candidate.thresholdEcdsaPublicKeyB64u !== first.thresholdEcdsaPublicKeyB64u ||
+      candidate.thresholdOwnerAddress !== first.thresholdOwnerAddress
+    ) {
+      throw new Error('ECDSA founding authority received conflicting wallet-key facts');
+    }
+  }
+  return first;
+}
+
+function foundingEd25519SignerIdentity(
+  walletId: WalletId,
+  facts: FoundingEd25519Facts,
+): ExactAdministeredEd25519SignerV1 {
+  return {
+    kind: 'exact_administered_ed25519_signer_v1',
+    keyFamily: 'ed25519',
+    walletId,
+    walletKeyId: requireFoundingWalletKeyId(
+      `wallet-key:ed25519:${walletId}:${facts.signer.nearEd25519SigningKeyId}`,
+      'Ed25519 walletKeyId',
+    ),
+    registeredPublicKeyB64u: parseEd25519PublicKeyB64u(facts.registeredPublicKeyB64u),
+  };
+}
+
+function foundingEcdsaSignerIdentity(
+  walletId: WalletId,
+  facts: FoundingEcdsaFacts,
+): ExactAdministeredEcdsaSignerV1 {
+  return {
+    kind: 'exact_administered_ecdsa_signer_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    walletId,
+    walletKeyId: requireFoundingWalletKeyId(
+      `wallet-key:ecdsa:${walletId}:${facts.walletKey.evmFamilySigningKeySlotId}`,
+      'ECDSA walletKeyId',
+    ),
+    thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
+      facts.walletKey.thresholdEcdsaPublicKeyB64u,
+    ),
+    evmAddress: requireFoundingEvmAddress(facts.walletKey.thresholdOwnerAddress),
+  };
+}
+
+function foundingSignerManifest(
+  walletId: WalletId,
+  facts: FoundingSignerFacts,
+): ExactAdministeredSignerManifestV1 {
+  switch (facts.kind) {
+    case 'ed25519':
+      return buildExactAdministeredSignerManifestV1([
+        foundingEd25519SignerIdentity(walletId, facts.ed25519),
+      ]);
+    case 'ecdsa_secp256k1':
+      return buildExactAdministeredSignerManifestV1([
+        foundingEcdsaSignerIdentity(walletId, facts.ecdsa),
+      ]);
+    case 'both':
+      return buildExactAdministeredSignerManifestV1([
+        foundingEd25519SignerIdentity(walletId, facts.ed25519),
+        foundingEcdsaSignerIdentity(walletId, facts.ecdsa),
+      ]);
+    default:
+      return assertNeverFoundingSignerFacts(facts);
+  }
+}
+
+function foundingSignerActivations(
+  walletId: WalletId,
+  facts: FoundingSignerFacts,
+): WalletSignerActivationSetV1 {
+  const manifest = foundingSignerManifest(walletId, facts);
+  switch (facts.kind) {
+    case 'ed25519':
+      return buildWalletSignerActivationSetV1({
+        manifest,
+        materialActivations: {
+          keyFamilies: ['ed25519'],
+          ed25519: facts.ed25519.materialActivation,
+        },
+      });
+    case 'ecdsa_secp256k1':
+      return buildWalletSignerActivationSetV1({
+        manifest,
+        materialActivations: {
+          keyFamilies: ['ecdsa_secp256k1'],
+          ecdsa: facts.ecdsa.materialActivation,
+        },
+      });
+    case 'both':
+      return buildWalletSignerActivationSetV1({
+        manifest,
+        materialActivations: {
+          keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+          ed25519: facts.ed25519.materialActivation,
+          ecdsa: facts.ecdsa.materialActivation,
+        },
+      });
+    default:
+      return assertNeverFoundingSignerFacts(facts);
+  }
+}
+
+async function buildActiveFoundingAuthority(input: {
+  readonly walletId: WalletId;
+  readonly prepared: D1WalletRegistrationOperationPreparedV1;
+  readonly signerFacts: FoundingSignerFacts;
+  readonly now: number;
+}): Promise<ActiveWalletAuthorityV1> {
+  const signerActivations = foundingSignerActivations(input.walletId, input.signerFacts);
+  const signerActivationSetDigestB64u = await computeWalletSignerActivationSetDigestB64u(
+    signerActivations,
+  );
+  const permissions = buildFullOwnerPermissionsV1();
+  const draft: ActiveWalletAuthorityV1 = {
+    kind: 'wallet_authority_v1',
+    authorityId: input.prepared.walletAuthorityId,
+    walletId: input.walletId,
+    principal: { kind: 'owner_device', deviceId: input.prepared.deviceId },
+    provenance: { kind: 'wallet_registration' },
+    permissions,
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: signerActivationSetDigestB64u,
+    revocationEpoch: 0,
+    createdAtMs: input.now,
+    updatedAtMs: input.now,
+    state: 'active',
+    activatedAtMs: input.now,
+  };
+  const authorityDigestB64u = await computeWalletAuthorityDigestB64u(draft);
+  return buildActiveWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u,
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
+}
+
+function buildActiveFoundingAuthMethod(input: {
+  readonly authority: StoredRegistrationAuthority;
+  readonly prepared: D1WalletRegistrationOperationPreparedV1;
+  readonly now: number;
+}): Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
+  switch (input.authority.kind) {
+    case 'passkey':
+      return requireActiveFoundingAuthMethod(buildWalletAuthMethodRecordV2({
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.prepared.walletAuthMethodId,
+        walletId: input.authority.walletId,
+        walletAuthorityId: input.prepared.walletAuthorityId,
+        kind: 'passkey',
+        status: 'active',
+        rpId: input.authority.rpId,
+        credentialIdB64u: requirePreparedRegistrationId(
+          parseWebAuthnCredentialIdB64u(input.authority.credentialIdB64u),
+          'registration credentialIdB64u',
+        ),
+        credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
+        counter: input.authority.counter,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+        activatedAtMs: input.now,
+      }));
+    case 'email_otp':
+      return requireActiveFoundingAuthMethod(buildWalletAuthMethodRecordV2({
+        version: 'wallet_auth_method_v2',
+        walletAuthMethodId: input.prepared.walletAuthMethodId,
+        walletId: input.authority.walletId,
+        walletAuthorityId: input.prepared.walletAuthorityId,
+        kind: 'email_otp',
+        status: 'active',
+        emailHashHex: input.authority.emailHashHex,
+        registrationAuthorityId: input.authority.registrationAuthorityId,
+        createdAtMs: input.now,
+        updatedAtMs: input.now,
+        activatedAtMs: input.now,
+      }));
+  }
+}
+
+function requireActiveFoundingAuthMethod(
+  record: WalletAuthMethodRecordV2,
+): Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
+  if (record.status !== 'active') {
+    throw new Error('Founding wallet auth method must be active');
+  }
+  return record;
+}
+
+async function buildFoundingAuthorityRecords(input: {
+  readonly authority: StoredRegistrationAuthority;
+  readonly walletId: WalletId;
+  readonly prepared: D1WalletRegistrationOperationPreparedV1;
+  readonly signerFacts: FoundingSignerFacts;
+  readonly now: number;
+}): Promise<FoundingAuthorityRecords> {
+  const authority = await buildActiveFoundingAuthority({
+    walletId: input.walletId,
+    prepared: input.prepared,
+    signerFacts: input.signerFacts,
+    now: input.now,
+  });
+  return {
+    authority,
+    authMethod: buildActiveFoundingAuthMethod({
+      authority: input.authority,
+      prepared: input.prepared,
+      now: input.now,
+    }),
+  };
+}
+
+function assertNeverFoundingSignerFacts(value: never): never {
+  throw new Error(`Unsupported founding signer facts: ${String(value)}`);
 }
 
 /** The activate operation row stores activate's own merged terminal bytes. */
@@ -3782,6 +4092,7 @@ export class CloudflareD1WalletRegistrationService {
         }
       }
       const ecdsaWalletKeys: WalletRegistrationEcdsaWalletKey[] = [];
+      let ecdsaMaterialActivation: MpcMaterialActivationRef | null = null;
       let ecdsaFinalizeState: D1RegistrationEcdsaFinalizeState = {
         kind: 'ecdsa_registration_disabled',
       };
@@ -3830,10 +4141,27 @@ export class CloudflareD1WalletRegistrationService {
         }
         if (!walletKeyResult.ok) return walletKeyResult;
         ecdsaWalletKeys.push(...walletKeyResult.walletKeys);
+        ecdsaMaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+          ecdsaState.activation.ecdsa_activation.material_activation,
+        );
         ecdsaFinalizeState = {
           kind: 'ecdsa_registration_responded',
           state: ecdsaState,
         };
+      } else if (storedEcdsaBranch?.kind === 'evm_family_ecdsa_finalized') {
+        const walletKeyResult = buildD1EcdsaWalletKeysFromBootstrap({
+          bootstraps: storedEcdsaBranch.chainTargets.map((chainTarget) => ({
+            chainTarget,
+            bootstrap: storedEcdsaBranch.bootstrap,
+          })),
+          publicCapability: storedEcdsaBranch.publicCapability,
+          errorContext: 'ECDSA registration final Ed25519 finalize',
+        });
+        if (!walletKeyResult.ok) return walletKeyResult;
+        ecdsaWalletKeys.push(...walletKeyResult.walletKeys);
+        ecdsaMaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+          storedEcdsaBranch.activation.ecdsa_activation.material_activation,
+        );
       }
 
       const now = Date.now();
@@ -3861,6 +4189,8 @@ export class CloudflareD1WalletRegistrationService {
       let ed25519PublicResult: WalletRegistrationEd25519YaoPublicResult | null = null;
       let resolvedNearAccount: ResolvedRegistrationNearAccount | null = null;
       let ed25519SignerRecord: WalletEd25519SignerRecord | null = null;
+      let ed25519MaterialActivation: MpcMaterialActivationRef | null = null;
+      let ed25519RegisteredPublicKeyB64u: string | null = null;
       let ed25519CapabilityInstallation: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 | null =
         null;
       if (finalizeNearEd25519) {
@@ -3938,9 +4268,10 @@ export class CloudflareD1WalletRegistrationService {
         }
         const participantIds: readonly [number, number] = [firstParticipantId, secondParticipantId];
         const publicKeyBytes = consumed.activation.result.public_receipt.registered_public_key;
+        ed25519RegisteredPublicKeyB64u = base64UrlEncode(Uint8Array.from(publicKeyBytes));
         if (
           walletCustodyCommitPayload.registeredPublicKeyB64u !==
-          base64UrlEncode(Uint8Array.from(publicKeyBytes))
+          ed25519RegisteredPublicKeyB64u
         ) {
           return {
             ok: false,
@@ -4033,6 +4364,9 @@ export class CloudflareD1WalletRegistrationService {
           },
         };
         ed25519PublicResult = activatedEd25519PublicResult;
+        ed25519MaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+          consumed.activation.admissionRequest.scope.material_activation,
+        );
         ed25519SignerRecord = buildYaoEd25519WalletSignerRecord({
           walletId: ceremony.intent.walletId,
           nearAccountId,
@@ -4086,6 +4420,81 @@ export class CloudflareD1WalletRegistrationService {
         );
       }
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
+      const foundingCommitComplete =
+        (finalizeEvmFamilyEcdsa !== null && requestedNearEd25519 === null) ||
+        (finalizeNearEd25519 !== null && requestedEvmFamilyEcdsa === null) ||
+        (finalizeNearEd25519 !== null && storedEcdsaBranch?.kind === 'evm_family_ecdsa_finalized');
+      let foundingAuthorityRecords: FoundingAuthorityRecords | null = null;
+      if (foundingCommitComplete) {
+        const ecdsaWalletKey = ecdsaWalletKeys[0];
+        if (ed25519SignerRecord && ed25519MaterialActivation && ed25519RegisteredPublicKeyB64u) {
+          if (!ecdsaWalletKey || !ecdsaMaterialActivation) {
+            if (requestedEvmFamilyEcdsa !== null) {
+              return {
+                ok: false,
+                code: 'invalid_state',
+                message: 'Complete registration is missing ECDSA founding facts',
+              };
+            }
+            foundingAuthorityRecords = await buildFoundingAuthorityRecords({
+              authority: ceremonyAuthority,
+              walletId: ceremony.intent.walletId,
+              prepared,
+              signerFacts: {
+                kind: 'ed25519',
+                keyFamilies: ['ed25519'],
+                ed25519: {
+                  signer: ed25519SignerRecord,
+                  registeredPublicKeyB64u: ed25519RegisteredPublicKeyB64u,
+                  materialActivation: ed25519MaterialActivation,
+                },
+              },
+              now,
+            });
+          } else {
+            foundingAuthorityRecords = await buildFoundingAuthorityRecords({
+              authority: ceremonyAuthority,
+              walletId: ceremony.intent.walletId,
+              prepared,
+              signerFacts: {
+                kind: 'both',
+                keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+                ed25519: {
+                  signer: ed25519SignerRecord,
+                  registeredPublicKeyB64u: ed25519RegisteredPublicKeyB64u,
+                  materialActivation: ed25519MaterialActivation,
+                },
+                ecdsa: {
+                  walletKey: requireSingleFoundingEcdsaWalletKey(ecdsaWalletKeys),
+                  materialActivation: ecdsaMaterialActivation,
+                },
+              },
+              now,
+            });
+          }
+        } else if (ecdsaWalletKey && ecdsaMaterialActivation) {
+          foundingAuthorityRecords = await buildFoundingAuthorityRecords({
+            authority: ceremonyAuthority,
+            walletId: ceremony.intent.walletId,
+            prepared,
+            signerFacts: {
+              kind: 'ecdsa_secp256k1',
+              keyFamilies: ['ecdsa_secp256k1'],
+              ecdsa: {
+                walletKey: requireSingleFoundingEcdsaWalletKey(ecdsaWalletKeys),
+                materialActivation: ecdsaMaterialActivation,
+              },
+            },
+            now,
+          });
+        } else {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Complete registration is missing founding signer facts',
+          };
+        }
+      }
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {
         switch (ceremonyAuthority.kind) {
@@ -4097,13 +4506,25 @@ export class CloudflareD1WalletRegistrationService {
                 message: 'Passkey registration cannot persist Email OTP enrollment state',
               };
             }
-            await this.walletRegistrationCommitStore.commit({
-              kind: 'passkey_wallet_registration_commit_v1',
-              wallet,
-              walletSigners,
-              authority: ceremonyAuthority,
-              now,
-            });
+            if (foundingAuthorityRecords) {
+              await this.walletRegistrationCommitStore.commit({
+                kind: 'passkey_wallet_registration_commit_v1',
+                wallet,
+                walletSigners,
+                authority: ceremonyAuthority,
+                foundingAuthority: foundingAuthorityRecords.authority,
+                foundingAuthMethod: foundingAuthorityRecords.authMethod,
+                now,
+              });
+            } else {
+              await this.walletRegistrationCommitStore.commit({
+                kind: 'passkey_wallet_registration_commit_v1',
+                wallet,
+                walletSigners,
+                authority: ceremonyAuthority,
+                now,
+              });
+            }
             break;
           case 'email_otp':
             if (!emailOtpEnrollment.persistence) {
@@ -4113,16 +4534,31 @@ export class CloudflareD1WalletRegistrationService {
                 message: 'Email OTP registration is missing enrollment persistence state',
               };
             }
-            await this.walletRegistrationCommitStore.commit({
-              kind: 'email_otp_wallet_registration_commit_v1',
-              wallet,
-              walletSigners,
-              authority: ceremonyAuthority,
-              emailOtp: this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
+            const emailOtp =
+              this.emailOtpRegistrationEnrollmentFinalizer.prepareRegistrationCommitPlan(
                 emailOtpEnrollment.persistence,
-              ),
-              now,
-            });
+              );
+            if (foundingAuthorityRecords) {
+              await this.walletRegistrationCommitStore.commit({
+                kind: 'email_otp_wallet_registration_commit_v1',
+                wallet,
+                walletSigners,
+                authority: ceremonyAuthority,
+                emailOtp,
+                foundingAuthority: foundingAuthorityRecords.authority,
+                foundingAuthMethod: foundingAuthorityRecords.authMethod,
+                now,
+              });
+            } else {
+              await this.walletRegistrationCommitStore.commit({
+                kind: 'email_otp_wallet_registration_commit_v1',
+                wallet,
+                walletSigners,
+                authority: ceremonyAuthority,
+                emailOtp,
+                now,
+              });
+            }
             break;
         }
       } finally {

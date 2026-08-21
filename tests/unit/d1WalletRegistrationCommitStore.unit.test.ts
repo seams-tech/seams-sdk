@@ -11,7 +11,30 @@ import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/wallet-serve
 import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import type { EmailOtpWalletEnrollmentRecord } from '../../packages/wallet-server/src/core/EmailOtpStores';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
+import { parseDeviceId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletKeyId,
+} from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  buildFullOwnerPermissionsV1,
+} from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import {
+  buildActiveWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+  computeWalletAuthorityDigestB64u,
+  computeWalletSignerActivationSetDigestB64u,
+  type ActiveWalletAuthorityV1,
+} from '../../packages/shared-ts/src/authorization/walletAuthority';
+import { buildExactAdministeredSignerManifestV1 } from '../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import {
+  buildWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseSecp256k1CompressedPublicKeyB64u } from '../../packages/shared-ts/src/passkey-custody/primitives';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import {
   walletIdFromString,
   type RegistrationAuthority,
@@ -90,6 +113,99 @@ function testEcdsaSigner(walletId: WalletId, now: number): WalletEcdsaSignerReco
   return createWalletEcdsaSignerRecord({ walletId, now });
 }
 
+function requireTestParsed<T>(
+  result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  label: string,
+): T {
+  if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
+  return result.value;
+}
+
+async function testFoundingRecords(input: {
+  readonly walletId: WalletId;
+  readonly signer: WalletEcdsaSignerRecord;
+  readonly now: number;
+}): Promise<{
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+}> {
+  const walletKeyId = requireTestParsed(
+    parseWalletKeyId(`wallet-key:ecdsa:${input.walletId}:ecdsa-slot-1`),
+    'wallet key id',
+  );
+  const manifest = buildExactAdministeredSignerManifestV1([
+    {
+      kind: 'exact_administered_ecdsa_signer_v1',
+      keyFamily: 'ecdsa_secp256k1',
+      walletId: input.walletId,
+      walletKeyId,
+      thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
+        input.signer.walletKey.thresholdEcdsaPublicKeyB64u,
+      ),
+      evmAddress: input.signer.walletKey.thresholdOwnerAddress,
+    },
+  ]);
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest,
+    materialActivations: {
+      keyFamilies: ['ecdsa_secp256k1'],
+      ecdsa: routerAbMpcMaterialActivationRefFromWire(
+        input.signer.walletKey.publicCapability.material_activation,
+      ),
+    },
+  });
+  const signerActivationSetDigestB64u = await computeWalletSignerActivationSetDigestB64u(
+    signerActivations,
+  );
+  const authorityId = requireTestParsed(
+    parseWalletAuthorityId('wallet-authority:registration-test'),
+    'authority id',
+  );
+  const deviceId = requireTestParsed(parseDeviceId('device:registration-test'), 'device id');
+  const authMethodId = requireTestParsed(
+    parseWalletAuthMethodId('wallet-auth-method:registration-test'),
+    'auth method id',
+  );
+  const permissions = buildFullOwnerPermissionsV1();
+  const draft: ActiveWalletAuthorityV1 = {
+    kind: 'wallet_authority_v1',
+    authorityId,
+    walletId: input.walletId,
+    principal: { kind: 'owner_device', deviceId },
+    provenance: { kind: 'wallet_registration' },
+    permissions,
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: signerActivationSetDigestB64u,
+    revocationEpoch: 0,
+    createdAtMs: input.now,
+    updatedAtMs: input.now,
+    state: 'active',
+    activatedAtMs: input.now,
+  };
+  const authority = buildActiveWalletAuthorityV1({
+    ...draft,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(draft),
+  });
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: authMethodId,
+    walletId: input.walletId,
+    walletAuthorityId: authorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: testRpId(),
+    credentialIdB64u: 'credential-a',
+    credentialPublicKeyB64u: 'credential-public-key-a',
+    counter: 0,
+    createdAtMs: input.now,
+    updatedAtMs: input.now,
+    activatedAtMs: input.now,
+  });
+  if (authMethod.status !== 'active') throw new Error('test auth method is not active');
+  return { authority, authMethod };
+}
+
 function testPasskeyAuthority(
   walletId: WalletId,
 ): Extract<RegistrationAuthority, { readonly kind: 'passkey' }> {
@@ -166,6 +282,110 @@ test('D1 registration commit binds the passkey credential before Ed25519 exists'
     expect(binding?.nearEd25519SigningKeyId).toBeUndefined();
     expect(binding?.signerSlot).toBeUndefined();
     expect(binding?.publicKey).toBeUndefined();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('D1 registration commit writes the founding authority and V2 method atomically', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const now = 1_900_000_000_000;
+    const signer = testEcdsaSigner(walletId, now);
+    const founding = await testFoundingRecords({ walletId, signer, now });
+    const store = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    const commitInput = () => ({
+      kind: 'passkey_wallet_registration_commit_v1' as const,
+      wallet: testWalletRecord(walletId, now),
+      walletSigners: [signer],
+      authority: testPasskeyAuthority(walletId),
+      foundingAuthority: founding.authority,
+      foundingAuthMethod: founding.authMethod,
+      now,
+    });
+
+    await store.commit(commitInput());
+    await store.commit(commitInput());
+
+    await expect(countRows(database, 'wallets')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_authorities')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
+    const authorityRow = await database
+      .prepare('SELECT record_json FROM wallet_authorities LIMIT 1')
+      .first<{ readonly record_json?: unknown }>();
+    expect(JSON.parse(String(authorityRow?.record_json))).toMatchObject({
+      kind: 'wallet_authority_v1',
+      authorityId: 'wallet-authority:registration-test',
+      state: 'active',
+      provenance: { kind: 'wallet_registration' },
+      revocationEpoch: 0,
+    });
+    const authMethodRow = await database
+      .prepare('SELECT record_json FROM wallet_auth_methods LIMIT 1')
+      .first<{ readonly record_json?: unknown }>();
+    expect(JSON.parse(String(authMethodRow?.record_json))).toMatchObject({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: 'wallet-auth-method:registration-test',
+      walletAuthorityId: 'wallet-authority:registration-test',
+      status: 'active',
+    });
+
+    const conflicting = await testFoundingRecords({
+      walletId,
+      signer,
+      now: now + 1,
+    });
+    await expect(
+      store.commit({
+        kind: 'passkey_wallet_registration_commit_v1',
+        wallet: testWalletRecord(walletId, now + 1),
+        walletSigners: [signer],
+        authority: testPasskeyAuthority(walletId),
+        foundingAuthority: conflicting.authority,
+        foundingAuthMethod: conflicting.authMethod,
+        now: now + 1,
+      }),
+    ).rejects.toThrow(/replay conflicts/);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('D1 founding authority commit rolls back on a signer constraint failure', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('brisk-bloom-abcdef');
+    const now = 1_900_000_000_000;
+    const signer = testEcdsaSigner(walletId, now);
+    const founding = await testFoundingRecords({ walletId, signer, now });
+    const invalidSigner = { ...signer, updatedAtMs: now - 1 };
+    const store = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+
+    await expect(
+      store.commit({
+        kind: 'passkey_wallet_registration_commit_v1',
+        wallet: testWalletRecord(walletId, now),
+        walletSigners: [invalidSigner],
+        authority: testPasskeyAuthority(walletId),
+        foundingAuthority: founding.authority,
+        foundingAuthMethod: founding.authMethod,
+        now,
+      }),
+    ).rejects.toThrow(/CHECK constraint failed/);
+    await expect(countRows(database, 'wallets')).resolves.toBe(0);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(0);
+    await expect(countRows(database, 'wallet_authorities')).resolves.toBe(0);
+    await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(0);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
