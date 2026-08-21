@@ -23,19 +23,28 @@ import {
   useDashboardTablePagination,
 } from '@core/dashboard/components/DashboardTable';
 import { FuelIcon } from '@core/dashboard/icons/SidebarIcons';
-import {
-  clearDashboardCreateIntent,
-  readDashboardCreateIntent,
-} from '@core/dashboard/utils/routeCreateIntent';
+import { useDashboardCreateIntent } from '@core/dashboard/utils/routeCreateIntent';
 import { DashboardInlineModal } from '@core/dashboard/components/DashboardInlineModal';
 import { DashboardPageActions } from '@core/dashboard/components/DashboardPageActions';
-import { listDashboardEnvironments, listDashboardProjects } from '@core/dashboard/consoleContextApi';
-import { canDashboardEditProject, useDashboardConsoleSession } from '@core/dashboard/consoleSession';
+import {
+  listDashboardEnvironments,
+  listDashboardProjects,
+} from '@core/dashboard/consoleContextApi';
+import {
+  canDashboardEditProject,
+  useDashboardConsoleSession,
+} from '@core/dashboard/consoleSession';
 import { useSessionDraft } from '@core/dashboard/drafts/useSessionDraft';
 import type { DashboardDraftIdentity } from '@core/dashboard/drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '@core/dashboard/selectedContext';
-import { getDashboardEnvironmentLabel, getDashboardProjectLabel } from '@core/dashboard/utils/scopeLabels';
-import { BillingMetricsGrid, type BillingMetric } from '@core/dashboard/routes/billing/billingShared';
+import {
+  getDashboardEnvironmentLabel,
+  getDashboardProjectLabel,
+} from '@core/dashboard/utils/scopeLabels';
+import {
+  BillingMetricsGrid,
+  type BillingMetric,
+} from '@core/dashboard/routes/billing/billingShared';
 import {
   formatUsdMinor,
   getDashboardBillingOverview,
@@ -980,7 +989,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
   const [billingOverviewLoading, setBillingOverviewLoading] = React.useState<boolean>(false);
   const [billingOverviewError, setBillingOverviewError] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
-  const [mutationNotice, setMutationNotice] = React.useState<string>('');
   const [mutating, setMutating] = React.useState<boolean>(false);
   const [activeModal, setActiveModal] = React.useState<GasSponsorshipModalKind | null>(null);
   const [editingPolicyId, setEditingPolicyId] = React.useState<string>('');
@@ -1282,20 +1290,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
     setModalInitialForm(createInitialFormState(selectedProjectId, selectedEnvironmentId));
     setActiveModal('create');
     setMutationError('');
-    setMutationNotice('');
   }, [selectedEnvironmentId, selectedOrgId, selectedProjectId]);
 
-  /* Opened from the rail's "+": wait for scope and permissions to resolve, then
-     open once and drop the param so a reload does not reopen the dialog. */
-  const createIntentHandledRef = React.useRef(false);
-  React.useEffect(() => {
-    if (createIntentHandledRef.current) return;
-    if (!readDashboardCreateIntent()) return;
-    if (!canMutatePolicy) return;
-    createIntentHandledRef.current = true;
-    clearDashboardCreateIntent();
-    openCreateModal();
-  }, [canMutatePolicy, openCreateModal]);
+  /* Opened from the rail's "+", including while this route is already on
+     screen. */
+  useDashboardCreateIntent('/dashboard/gas-sponsorship', canMutatePolicy, openCreateModal);
 
   const onEditPolicy = React.useCallback(
     (policy: DashboardGasSponsorshipPolicy) => {
@@ -1311,7 +1310,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
       );
       setActiveModal('edit');
       setMutationError('');
-      setMutationNotice('');
     },
     [selectedEnvironmentId, selectedOrgId, selectedProjectId],
   );
@@ -1525,15 +1523,14 @@ export function GasSponsorshipPage(): React.JSX.Element {
       }
       setMutating(true);
       setMutationError('');
-      setMutationNotice('');
       try {
         const request = buildGasSponsorshipRequest(form, selectedEnvironmentNetworkClass);
         if (editingPolicyId) {
           await updateDashboardGasSponsorshipPolicy(editingPolicyId, request);
-          setMutationNotice('Gas sponsorship policy updated.');
+          toast.success('Gas sponsorship policy updated.');
         } else {
           await createDashboardGasSponsorshipPolicy(request);
-          setMutationNotice('Gas sponsorship policy created.');
+          toast.success('Gas sponsorship policy created.');
         }
         await loadGasPolicies();
         clearDraft();
@@ -1595,12 +1592,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
       }
       setMutating(true);
       setMutationError('');
-      setMutationNotice('');
       try {
         const enabled = !isGasSponsorshipPolicyEnabled(policy);
         await setDashboardGasSponsorshipPolicyEnabled(policy.id, enabled);
         await loadGasPolicies();
-        setMutationNotice(`${policy.name || policy.id} ${enabled ? 'enabled' : 'disabled'}.`);
+        toast.success(`${policy.name || policy.id} ${enabled ? 'enabled' : 'disabled'}.`);
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -1628,11 +1624,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
       }
       setMutating(true);
       setMutationError('');
-      setMutationNotice('');
       try {
         await deleteDashboardGasSponsorshipPolicy(policy.id);
         await loadGasPolicies();
-        setMutationNotice(`${policy.name || policy.id} deleted.`);
+        toast.success(`${policy.name || policy.id} deleted.`);
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -1707,10 +1702,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
       className="dashboard-view dashboard-gas-sponsorship-view"
       aria-label="Gas sponsorship page"
     >
-      {mutationNotice || mutationError ? (
-        <section className="dashboard-view__section" aria-label="Gas sponsorship summary">
-          {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
-          {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
+      {mutationError ? (
+        <section className="dashboard-view__section" aria-label="Gas sponsorship error">
+          <p className="dashboard-pagination-note" role="alert">
+            {mutationError}
+          </p>
         </section>
       ) : null}
 
