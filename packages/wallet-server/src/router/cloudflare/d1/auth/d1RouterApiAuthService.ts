@@ -10,6 +10,7 @@ import type {
   RegistrationEstablishedSession,
 } from '@shared/utils/registrationEstablishedSession';
 import {
+  parseDeviceId,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -18,6 +19,8 @@ import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseWalletId,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
 } from '@shared/utils/domainIds';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
@@ -898,9 +901,25 @@ function parseSponsoredNearAccountSideEffectRecord(
 function parseWalletRegistrationOperationPrepared(
   raw: unknown,
 ): D1WalletRegistrationOperationPreparedV1 | null {
-  return isRecordValue(raw) && raw.kind === 'd1_wallet_registration_operation_prepared_v1'
-    ? { kind: 'd1_wallet_registration_operation_prepared_v1' }
-    : null;
+  if (!isRecordValue(raw) || raw.kind !== 'd1_wallet_registration_operation_prepared_v1') {
+    return null;
+  }
+  const record = raw;
+  const keys = ['kind', 'walletAuthorityId', 'deviceId', 'walletAuthMethodId'];
+  const recordKeys = Object.keys(record);
+  if (recordKeys.length !== keys.length || !hasOnlyKeys(record, keys)) {
+    return null;
+  }
+  const walletAuthorityId = parseWalletAuthorityId(record.walletAuthorityId);
+  const deviceId = parseDeviceId(record.deviceId);
+  const walletAuthMethodId = parseWalletAuthMethodId(record.walletAuthMethodId);
+  if (!walletAuthorityId.ok || !deviceId.ok || !walletAuthMethodId.ok) return null;
+  return {
+    kind: 'd1_wallet_registration_operation_prepared_v1',
+    walletAuthorityId: walletAuthorityId.value,
+    deviceId: deviceId.value,
+    walletAuthMethodId: walletAuthMethodId.value,
+  };
 }
 
 type RegistrationEstablishedSessionIdentity = Pick<

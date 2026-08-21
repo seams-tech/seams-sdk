@@ -4,9 +4,11 @@ import type {
 } from '../../../../core/registrationContracts';
 import {
   parseAuthFactorId,
+  parseDeviceId,
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
+  type DeviceId,
   type PrincipalId,
   type MpcWalletSigningQuotaId,
   type ReusableWalletSessionMintId,
@@ -70,6 +72,10 @@ import {
   parseEmailOtpChallengeId,
   parseProviderSubject,
   parseWebAuthnCredentialIdB64u,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
 } from '@shared/utils/domainIds';
 import type {
   RegistrationEstablishedEcdsaSession,
@@ -281,7 +287,38 @@ async function walletRegistrationFinalizeRequestFingerprint(
 
 export type D1WalletRegistrationOperationPreparedV1 = {
   readonly kind: 'd1_wallet_registration_operation_prepared_v1';
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly deviceId: DeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
 };
+
+function requirePreparedRegistrationId<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+  label: string,
+): T {
+  if (!result.ok) throw new Error(`${label} is invalid: ${result.error.message}`);
+  return result.value;
+}
+
+function allocateWalletRegistrationOperationPrepared(): D1WalletRegistrationOperationPreparedV1 {
+  return {
+    kind: 'd1_wallet_registration_operation_prepared_v1',
+    walletAuthorityId: requirePreparedRegistrationId(
+      parseWalletAuthorityId(`wallet-authority:${secureRandomBase64Url(32)}`),
+      'walletAuthorityId',
+    ),
+    deviceId: requirePreparedRegistrationId(
+      parseDeviceId(`device:${secureRandomBase64Url(32)}`),
+      'deviceId',
+    ),
+    walletAuthMethodId: requirePreparedRegistrationId(
+      parseWalletAuthMethodId(`wallet-auth-method:${secureRandomBase64Url(32)}`),
+      'walletAuthMethodId',
+    ),
+  };
+}
 
 /** The activate operation row stores activate's own merged terminal bytes. */
 export type D1WalletRegistrationActivateSideEffectStore =
@@ -2592,9 +2629,12 @@ export class CloudflareD1WalletRegistrationService {
     });
   }
 
-  private async commitDeferredEd25519Signer(args: {
-    readonly input: WalletRegistrationNearProvisioningInput;
-  }): Promise<WalletRegistrationNearProvisioningFinalizeResponse> {
+  private async commitDeferredEd25519Signer(
+    args: {
+      readonly input: WalletRegistrationNearProvisioningInput;
+    },
+    prepared: D1WalletRegistrationOperationPreparedV1,
+  ): Promise<WalletRegistrationNearProvisioningFinalizeResponse> {
     /* The ceremony is still present for a fresh side-effect execution. Keep
        this read inside the operation callback so an exact replay can return
        its stored response after finalize has tombstoned the ceremony. */
@@ -2611,7 +2651,7 @@ export class CloudflareD1WalletRegistrationService {
       ed25519: args.input.ed25519,
       emailOtpEnrollment: args.input.emailOtpEnrollment,
       walletCustodyCommit: args.input.walletCustodyCommit,
-    } as FinalizeWalletRegistrationInput);
+    } as FinalizeWalletRegistrationInput, prepared);
     const finalized = committed.ok
       ? committed
       : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
@@ -2686,7 +2726,7 @@ export class CloudflareD1WalletRegistrationService {
           requestFingerprint,
           resumeAfterMs: D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS,
           nowMs: Date.now,
-          prepare: async () => ({ kind: 'd1_wallet_registration_operation_prepared_v1' }) as const,
+          prepare: async () => allocateWalletRegistrationOperationPrepared(),
           derivePreparedArtifactFingerprint: async (prepared) =>
             base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
           execute: this.commitDeferredEd25519Signer.bind(this, { input }),
@@ -3112,7 +3152,7 @@ export class CloudflareD1WalletRegistrationService {
         requestFingerprint: activateDigestB64u,
         resumeAfterMs: D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS,
         nowMs: Date.now,
-        prepare: async () => ({ kind: 'd1_wallet_registration_operation_prepared_v1' }) as const,
+        prepare: async () => allocateWalletRegistrationOperationPrepared(),
         derivePreparedArtifactFingerprint: async (prepared) =>
           base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
         execute: this.executeWalletRegistrationActivation.bind(this, {
@@ -3167,12 +3207,15 @@ export class CloudflareD1WalletRegistrationService {
    * persistence, as one unit inside the operation row. The commit is told the
    * operation row owns idempotency, so it maintains no replay cache of its own.
    */
-  private async executeWalletRegistrationActivation(context: {
-    readonly registrationCeremonyId: string;
-    readonly idempotencyKey: string;
-    readonly input: WalletRegistrationActivateInput;
-    readonly traceContext?: RouterAbTraceContextV1;
-  }): Promise<WalletRegistrationActivateResponseV2> {
+  private async executeWalletRegistrationActivation(
+    context: {
+      readonly registrationCeremonyId: string;
+      readonly idempotencyKey: string;
+      readonly input: WalletRegistrationActivateInput;
+      readonly traceContext?: RouterAbTraceContextV1;
+    },
+    prepared: D1WalletRegistrationOperationPreparedV1,
+  ): Promise<WalletRegistrationActivateResponseV2> {
     /* Fresh execution only — the ceremony still exists here. Activation
        persists wallet identity, so the proof must already be bound. */
     const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
@@ -3252,7 +3295,7 @@ export class CloudflareD1WalletRegistrationService {
       ...(context.input.walletCustodyCommit !== undefined
         ? { walletCustodyCommit: context.input.walletCustodyCommit }
         : {}),
-    } as FinalizeWalletRegistrationInput);
+    } as FinalizeWalletRegistrationInput, prepared);
     if (!commit.ok) return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(commit);
     /* The terminal response is both legs merged. Activation produced the
        receipt and the derivation bootstrap; the commit produced the wallet
@@ -3602,6 +3645,7 @@ export class CloudflareD1WalletRegistrationService {
 
   private async executeWalletRegistrationFinalize(
     request: FinalizeWalletRegistrationInput,
+    prepared: D1WalletRegistrationOperationPreparedV1,
   ): Promise<WalletRegistrationFinalizeResponse> {
     const finalizeTiming = createD1RegistrationRouteTimingRecorder('wallets_register_finalize');
     const totalTiming = startD1RegistrationRouteTiming('registerFinalizeTotalMs');
