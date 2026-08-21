@@ -52,6 +52,8 @@ export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
 // authorization identity.
 export type PasskeyEnvelopeId = DomainId<'PasskeyEnvelopeId'>;
 export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
+// One opaque authority that owns wallet permissions and exact signer activations.
+export type WalletAuthorityId = DomainId<'WalletAuthorityId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
 // Opaque identities that keep MPC capability, material, runtime, and lifecycle
 // bindings independent from authorization and wallet-session identities.
@@ -324,6 +326,10 @@ export function parsePasskeyEnvelopeId(raw: unknown): DomainIdParseResult<Passke
 
 export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {
   return parseDomainId(raw, 'walletAuthMethodId');
+}
+
+export function parseWalletAuthorityId(raw: unknown): DomainIdParseResult<WalletAuthorityId> {
+  return parseDomainId(raw, 'walletAuthorityId');
 }
 
 export function parseWalletAuthorityBindingDigest(

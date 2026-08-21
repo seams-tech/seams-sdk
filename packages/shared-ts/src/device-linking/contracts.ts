@@ -3,6 +3,7 @@ import type { DelegatedWalletAuthorityV1 } from '../authorization/delegatedAutho
 import type {
   AuthorizationEvidenceSetId,
   AuthorizedOperationId,
+  DeviceId,
   LinkedDeviceWalletSessionAuthorizationId,
   MpcWalletSigningQuotaId,
   TenantId,
@@ -29,6 +30,7 @@ import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerCon
 import type {
   MpcMaterialActivationId,
   MpcMaterialActivationRef,
+  WalletAuthorityId,
   WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
@@ -52,6 +54,15 @@ import type {
   EcdsaCapabilityManifestRevision,
 } from '../utils/ecdsaCapabilityActivation';
 import type { NearAccountId } from '../utils/near';
+import type { ActiveWalletAuthorityV1 } from '../authorization/walletAuthority';
+import type {
+  CanonicalDelegatedWalletPermissionSetV1,
+} from '../authorization/delegatedAuthority';
+import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPlan';
+import type {
+  EmailOtpWalletAuthMethodDraftV1,
+  PasskeyWalletAuthMethodDraftV1,
+} from '../utils/registrationIntent';
 
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
@@ -1017,3 +1028,144 @@ export type LinkedDeviceLocalAccountProjectionV1 = {
   /** The canonical Ed25519 key's creation slot. Never assume 1. */
   readonly signerSlot: number;
 };
+
+export type LinkPrecommitFailureV1 =
+  | { readonly kind: 'invalid_input'; readonly reason: string }
+  | { readonly kind: 'unauthorized_source'; readonly reason: string }
+  | { readonly kind: 'revoked_source'; readonly reason: string }
+  | { readonly kind: 'permission_attenuation_failed'; readonly reason: string }
+  | { readonly kind: 'target_factor_failed'; readonly reason: string }
+  | { readonly kind: 'expired_session'; readonly reason: string }
+  | { readonly kind: 'cancelled_session'; readonly reason: string }
+  | { readonly kind: 'claim_conflict'; readonly reason: string }
+  | { readonly kind: 'package_preparation_failed'; readonly reason: string };
+
+/** The only durable states retained by the linear link-session boundary. */
+export type LinkSessionStateV1 =
+  | {
+      readonly state: 'displaying_qr';
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'claimed';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'awaiting_target_factor';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'provisioning';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'authority_pending_local_install';
+      readonly deviceId: DeviceId;
+      readonly authorityId: WalletAuthorityId;
+      readonly packageSetDigestB64u: DigestB64u;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'active';
+      readonly deviceId: DeviceId;
+      readonly authorityId: WalletAuthorityId;
+      readonly activatedAtMs: number;
+      readonly packageSetDigestB64u?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'failed_before_commit';
+      readonly error: LinkPrecommitFailureV1;
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'cancelled';
+      readonly cancelledAtMs: number;
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'expired';
+      readonly expiredAtMs: number;
+      readonly deviceId?: never;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+    };
+
+export type VerifiedSourceAuthorityV1 = {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly verifiedRevocationEpoch: number;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly verifiedAtMs: number;
+};
+
+export type VerifiedTargetFactorV1 =
+  | {
+      readonly kind: 'verified_passkey_target_v1';
+      readonly authMethod: PasskeyWalletAuthMethodDraftV1;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+    }
+  | {
+      readonly kind: 'verified_email_otp_target_v1';
+      readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+    };
+
+export type VerifiedLinkInputV1 = {
+  readonly walletId: WalletId;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly targetDeviceId: DeviceId;
+  readonly sourceAuthority: VerifiedSourceAuthorityV1;
+  readonly targetFactor: VerifiedTargetFactorV1;
+  readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
+  readonly signerManifest: ExactAdministeredSignerManifestV1;
+};
+
+export function assertNeverLinkSessionStateV1(value: never): never {
+  throw new Error(`[LinkSessionStateV1] unsupported state: ${String(value)}`);
+}

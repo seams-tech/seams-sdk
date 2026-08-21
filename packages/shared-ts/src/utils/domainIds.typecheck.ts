@@ -11,6 +11,7 @@ import type {
   GoogleProviderSubject,
   LaneShareEpoch,
   LinkedDeviceId,
+  LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
   MandatePolicyId,
   MpcCapabilityRuntimeRef,
@@ -29,6 +30,8 @@ import type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   VerifiedGoogleEmail,
+  WalletAuthorityId,
+  WalletAuthMethodId,
   WalletId,
   WalletKeyId,
 } from './domainIds';
@@ -44,10 +47,18 @@ import {
   parseMpcReauthorizationPolicyRef,
   parseMpcRegisteredPublicKeyBindingRef,
   parseMpcSigningWorkerRef,
+  parseWalletAuthorityId,
+  parseWalletAuthMethodId,
 } from './domainIds';
-import type { WalletSessionId } from '../authorization/capabilityKinds';
+import type {
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '../authorization/capabilityKinds';
 
 declare const walletId: WalletId;
+declare const walletAuthorityId: WalletAuthorityId;
+declare const walletAuthMethodId: WalletAuthMethodId;
+declare const walletSessionAuthorizationId: WalletSessionAuthorizationId;
 declare const providerSubject: ProviderSubject;
 declare const googleProviderSubject: GoogleProviderSubject;
 declare const verifiedGoogleEmail: VerifiedGoogleEmail;
@@ -65,6 +76,7 @@ declare const signingLaneId: SigningLaneId;
 declare const laneShareEpoch: LaneShareEpoch;
 declare const agentPrincipalId: AgentPrincipalId;
 declare const linkedDeviceId: LinkedDeviceId;
+declare const linkedDeviceEnrollmentId: LinkedDeviceEnrollmentId;
 declare const mandatePolicyId: MandatePolicyId;
 declare const delegatedIntentDigest: DelegatedIntentDigest;
 declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
@@ -90,6 +102,10 @@ const mpcMaterialActivationRef = buildMpcMaterialActivationRef({
 });
 
 function acceptsWalletId(value: WalletId): void {
+  void value;
+}
+
+function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
   void value;
 }
 
@@ -218,6 +234,7 @@ function acceptsMpcMaterialActivationRef(value: MpcMaterialActivationRef): void 
 }
 
 acceptsWalletId(walletId);
+acceptsWalletAuthorityId(walletAuthorityId);
 acceptsProviderSubject(providerSubject);
 acceptsProviderSubject(googleProviderSubject);
 acceptsGoogleProviderSubject(googleProviderSubject);
@@ -273,9 +290,26 @@ parseMpcMaterialActivationRef({
   lifecycleBinding: 'lifecycle',
   signingWorker: 'worker',
 }) satisfies DomainIdParseResult<MpcMaterialActivationRef>;
+parseWalletAuthorityId('wallet-authority') satisfies DomainIdParseResult<WalletAuthorityId>;
+parseWalletAuthMethodId('wallet-auth-method') satisfies DomainIdParseResult<WalletAuthMethodId>;
 
 // @ts-expect-error Provider subjects are not wallet ids.
 acceptsWalletId(providerSubject);
+
+// @ts-expect-error Wallet ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletId);
+
+// @ts-expect-error Auth-method ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletAuthMethodId);
+
+// @ts-expect-error Material activation ids are not wallet authority ids.
+acceptsWalletAuthorityId(mpcMaterialActivationId);
+
+// @ts-expect-error Link enrollment ids are not wallet authority ids.
+acceptsWalletAuthorityId(linkedDeviceEnrollmentId);
+
+// @ts-expect-error Wallet Session authorization ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletSessionAuthorizationId);
 
 // @ts-expect-error Wallet ids are not provider subjects.
 acceptsProviderSubject(walletId);
