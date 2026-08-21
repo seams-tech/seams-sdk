@@ -80,7 +80,7 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
     .poll(async () => page.evaluate(readDocsAppearance))
     .toEqual({
       colorScheme: 'dark',
-      canvas: '#121110',
+      canvas: '#0a0a0b',
       hasDarkClass: true,
     });
 
