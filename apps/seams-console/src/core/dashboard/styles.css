@@ -16,6 +16,7 @@
   --dashboard-alpha-400: rgba(28, 24, 23, 0.35);
   --dashboard-alpha-450: rgba(28, 24, 23, 0.44);
   --dashboard-alpha-500: rgba(28, 24, 23, 0.53);
+  --dashboard-alpha-600: rgba(28, 24, 23, 0.64);
 
   --dashboard-bg: #ffffff;
   --dashboard-surface: #ffffff;
@@ -858,9 +859,11 @@ textarea {
      rest of the console on the paper tokens. */
   --rail-bg: #fafafa;
   --rail-ink: var(--dashboard-ink);
-  --rail-label: var(--dashboard-alpha-500);
-  --rail-muted: var(--dashboard-alpha-450);
-  --rail-icon: var(--dashboard-alpha-500);
+  /* One step darker than the console's secondary text: the rail sits on its
+     own tint, so the same alpha reads lighter here than it does on white. */
+  --rail-label: var(--dashboard-alpha-600);
+  --rail-muted: var(--dashboard-alpha-500);
+  --rail-icon: var(--dashboard-alpha-600);
   --rail-hover: var(--dashboard-alpha-100);
   --rail-active: var(--dashboard-alpha-150);
   grid-column: 1;
