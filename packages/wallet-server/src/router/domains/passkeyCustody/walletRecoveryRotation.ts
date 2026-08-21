@@ -7,7 +7,10 @@ import {
   type WalletRecoverySetRotationWireV1,
 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 import type { WalletId } from '@shared/utils/domainIds';
-import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import type {
+  CloudflareD1WalletCustodyCommitStore,
+  WalletRecoveryCodeLocatorRecord,
+} from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 
 /**
  * Replaces all ten recovery wraps and the seed entry produced by the active
@@ -54,6 +57,7 @@ export async function rotateWalletRecoveryCodesV1(input: {
   readonly store: CloudflareD1WalletCustodyCommitStore;
   readonly walletId: WalletId;
   readonly replacement: WalletRecoverySetRotationWireV1;
+  readonly recoveryCodeLocators: readonly WalletRecoveryCodeLocatorRecord[];
   readonly expectedStoreVersion: string;
   readonly nowMs: number;
 }): Promise<WalletRecoveryRotationResult> {
@@ -69,6 +73,22 @@ export async function rotateWalletRecoveryCodesV1(input: {
   }
   if (String(input.replacement.walletId) !== String(input.walletId)) {
     return { kind: 'rejected', reason: 'replacement recovery set names a different wallet' };
+  }
+  if (input.recoveryCodeLocators.length !== input.replacement.manifestKekWraps.length) {
+    return { kind: 'rejected', reason: 'recovery code locators do not match the recovery wraps' };
+  }
+  const locatorValues = new Set<string>();
+  for (const [index, locator] of input.recoveryCodeLocators.entries()) {
+    const wrap = input.replacement.manifestKekWraps[index];
+    if (
+      !wrap ||
+      String(locator.walletId) !== String(input.walletId) ||
+      String(locator.recoveryKeyId) !== String(wrap.recoveryKeyId) ||
+      locatorValues.has(String(locator.locatorB64u))
+    ) {
+      return { kind: 'rejected', reason: 'recovery code locators do not match the recovery wraps' };
+    }
+    locatorValues.add(String(locator.locatorB64u));
   }
 
   let next: WalletRecoveryEnvelopeSetRecord;
@@ -92,7 +112,11 @@ export async function rotateWalletRecoveryCodesV1(input: {
   const written = await input.store.replaceRecoveryEnvelopeSetAndPreserveBackupAcknowledgement({
     record: next,
     expectedRecoverySetVersion: stored.storeVersion,
+    recoveryCodeLocators: input.recoveryCodeLocators,
   });
   if (written.kind === 'conflict') return { kind: 'conflict' };
+  if (written.kind === 'collision') {
+    return { kind: 'rejected', reason: 'recovery code locator already exists' };
+  }
   return { kind: 'rotated', issuedAtMs: input.nowMs, storeVersion: written.storeVersion };
 }

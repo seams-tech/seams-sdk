@@ -55,6 +55,13 @@ function recoveryWrap(index: number) {
   };
 }
 
+function recoveryCodeLocators() {
+  return Array.from({ length: 10 }, (_, index) => ({
+    locatorB64u: `${String.fromCharCode(65 + index)}${DIGEST_B64U.slice(1)}`,
+    recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
+  }));
+}
+
 function establishingPayload(
   overrides: Partial<WalletCustodyCeremonyCommitPayload> = {},
 ): WalletCustodyCeremonyCommitPayload {
@@ -62,6 +69,7 @@ function establishingPayload(
     walletId: WALLET_ID,
     keySet: 'evm_family_ecdsa_v1',
     keyManifestDigestB64u: DIGEST_B64U,
+    recoveryBackupAcknowledged: true,
     establishedCustody: {
       envelopeId: ENVELOPE_ID,
       envelopeBindingJson: envelopeBindingJson(),
@@ -70,6 +78,7 @@ function establishingPayload(
       envelopeAadHashB64u: ALT_DIGEST_B64U,
       envelopeCiphertextDigestB64u: CIPHERTEXT_DIGEST_B64U,
       recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) => recoveryWrap(index)),
+      recoveryCodeLocators: recoveryCodeLocators(),
       recoveryEntryNonceB64u: NONCE_12_B64U,
       recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
       recoveryEntryAadHashB64u: DIGEST_B64U,

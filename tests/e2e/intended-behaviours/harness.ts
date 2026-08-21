@@ -1109,7 +1109,7 @@ export class IntendedBehaviourHarness {
     await this.ensureIntendedPageOpen();
     await this.page.getByTestId('intended-recover-passkey').click();
     await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
-    await driveHostedPasskeyRecovery(this.page, this.walletId, recoveryCode);
+    await driveHostedPasskeyRecovery(this.page, recoveryCode);
     const snapshot = await this.waitForIntendedPageActionCompletion(
       'recoverPasskeyWallet',
       'success',
@@ -1153,9 +1153,9 @@ export class IntendedBehaviourHarness {
     if (!recoveryCode) throw new Error('Recovery-code reuse requires a captured recovery code');
     await this.page.getByTestId('intended-recover-passkey').click();
     await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
-    const frame = await fillHostedRecoveryCode(this.page, this.walletId, recoveryCode);
+    const frame = await fillHostedRecoveryCode(this.page, recoveryCode);
     await expect(frame.locator('.w3a-recovery-status')).toHaveText(
-      'That recovery code can’t be used. Check the wallet ID and code, then try again.',
+      'That recovery code can’t be used. Check the code and try again.',
       { timeout: 30_000 },
     );
     await this.page.goto('about:blank');
@@ -4243,14 +4243,9 @@ async function hostedAuthMenuFrame(page: Page): Promise<FrameLocator> {
   return iframe.contentFrame();
 }
 
-async function fillHostedRecoveryCode(
-  page: Page,
-  walletId: string,
-  recoveryCode: string,
-): Promise<FrameLocator> {
+async function fillHostedRecoveryCode(page: Page, recoveryCode: string): Promise<FrameLocator> {
   const frame = await hostedAuthMenuFrame(page);
   await frame.getByRole('button', { name: 'Recover account' }).click({ timeout: 15_000 });
-  await frame.locator('[data-recovery-wallet-id]').fill(walletId);
   await frame.locator('[data-recovery-code]').fill(recoveryCode);
   await frame.getByRole('button', { name: 'Continue', exact: true }).click();
   return frame;
@@ -4281,12 +4276,8 @@ async function waitForHostedPasskeyRecoverySignIn(page: Page, frame: FrameLocato
   throw new Error(`Passkey recovery did not reach sign-in-ready: ${label}; ${message}`);
 }
 
-async function driveHostedPasskeyRecovery(
-  page: Page,
-  walletId: string,
-  recoveryCode: string,
-): Promise<void> {
-  const frame = await fillHostedRecoveryCode(page, walletId, recoveryCode);
+async function driveHostedPasskeyRecovery(page: Page, recoveryCode: string): Promise<void> {
+  const frame = await fillHostedRecoveryCode(page, recoveryCode);
   await frame.getByRole('button', { name: 'Create new passkey', exact: true }).click({
     timeout: 30_000,
   });

@@ -20,7 +20,6 @@ export type HostedRecoveryCredentialCreated = {
 
 export type HostedRecoveryPort = {
   prepare(input: {
-    readonly walletId: string;
     readonly recoveryCode: string;
     readonly signal: AbortSignal;
   }): Promise<HostedRecoveryPrepared | HostedRecoveryFailure>;

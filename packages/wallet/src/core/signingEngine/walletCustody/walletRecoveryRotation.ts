@@ -7,6 +7,7 @@ import {
   walletRecoverySetRotationWireFromWorkerResultV1,
   type WalletRecoverySetRotationWorkerResultV1,
 } from '@shared/wallet-recovery/walletRecoveryRotation';
+import { deriveRecoveryCodeLocatorV1FromBytes } from '@shared/wallet-recovery/recoveryCodeLocator';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { joinCustodyWireFromEnvelopeRecord } from './joinCustodyWire';
@@ -88,6 +89,10 @@ export async function rotateWalletRecoverySetWithActiveFactorV1(input: {
     if (replacement.walletId !== input.walletId) {
       throw new Error('Recovery rotation worker returned a different wallet');
     }
+    const recoveryCodeLocators = await deriveRecoveryCodeLocators(
+      issued.codeBytes,
+      replacement.manifestKekWraps,
+    );
     const rotated = await rotateWalletRecoverySet({
       relayUrl: input.relayUrl,
       walletId: input.walletId,
@@ -98,10 +103,12 @@ export async function rotateWalletRecoverySetWithActiveFactorV1(input: {
           expectedStoreVersion: current.storeVersion,
           manifestKekWraps: replacement.manifestKekWraps,
           entries: [replacement.entry],
+          recoveryCodeLocators,
         },
       }),
       expectedStoreVersion: current.storeVersion,
       replacement,
+      recoveryCodeLocators,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
     });
     if (rotated.kind !== 'rotated') return rotated;
@@ -147,6 +154,10 @@ export async function rotateWalletRecoverySetWithEmailOtpV1(input: {
     if (replacement.walletId !== input.walletId) {
       throw new Error('Recovery rotation worker returned a different wallet');
     }
+    const recoveryCodeLocators = await deriveRecoveryCodeLocators(
+      issued.codeBytes,
+      replacement.manifestKekWraps,
+    );
     const rotated = await rotateWalletRecoverySet({
       relayUrl: input.relayUrl,
       walletId: input.walletId,
@@ -157,10 +168,12 @@ export async function rotateWalletRecoverySetWithEmailOtpV1(input: {
           expectedStoreVersion: current.storeVersion,
           manifestKekWraps: replacement.manifestKekWraps,
           entries: [replacement.entry],
+          recoveryCodeLocators,
         },
       }),
       expectedStoreVersion: current.storeVersion,
       replacement,
+      recoveryCodeLocators,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
     });
     if (rotated.kind !== 'rotated') return rotated;
@@ -175,4 +188,30 @@ export async function rotateWalletRecoverySetWithEmailOtpV1(input: {
     if (issued) zeroizeIssuedWalletRecoveryCodes(issued);
     issued = null;
   }
+}
+
+async function deriveRecoveryCodeLocators(
+  codeBytes: readonly Uint8Array[],
+  wraps: readonly { readonly recoveryKeyId: string }[],
+): Promise<readonly { readonly locatorB64u: string; readonly recoveryKeyId: string }[]> {
+  if (codeBytes.length !== wraps.length) {
+    throw new Error('Recovery code locators do not match the replacement wraps');
+  }
+  const recoveryCodeLocators = await Promise.all(
+    codeBytes.map(async (bytes, index) => {
+      const wrap = wraps[index];
+      if (!wrap) throw new Error('Recovery code locators do not match the replacement wraps');
+      return {
+        locatorB64u: await deriveRecoveryCodeLocatorV1FromBytes(bytes),
+        recoveryKeyId: wrap.recoveryKeyId,
+      };
+    }),
+  );
+  if (
+    new Set(recoveryCodeLocators.map((locator) => locator.locatorB64u)).size !==
+    recoveryCodeLocators.length
+  ) {
+    throw new Error('Recovery code locators must be unique');
+  }
+  return recoveryCodeLocators;
 }

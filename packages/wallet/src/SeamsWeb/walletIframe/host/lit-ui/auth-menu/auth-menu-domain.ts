@@ -171,28 +171,34 @@ type AuthMenuRecoverableStatus = Extract<AuthMenuSurfaceStatus, { readonly kind:
 export type AuthMenuRecoveryViewModel = AuthMenuViewModelCommon & {
   readonly kind: 'recovery';
   readonly mode: 'login';
-  readonly walletId: string;
   readonly recoveryCode: string;
-  readonly walletIdError: string | null;
   readonly recoveryCodeError: string | null;
   readonly passkeyName?: never;
   readonly passkeyNameLabel?: never;
 } & (
     | {
         readonly stage: 'enter_code';
+        readonly walletId?: never;
         readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
       }
-    | { readonly stage: 'preparing'; readonly status: AuthMenuBusyStatus }
+    | {
+        readonly stage: 'preparing';
+        readonly walletId?: never;
+        readonly status: AuthMenuBusyStatus;
+      }
     | {
         readonly stage: 'passkey_ready';
+        readonly walletId: string;
         readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
       }
     | {
         readonly stage: 'finalizing';
+        readonly walletId: string;
         readonly status: AuthMenuBusyStatus | AuthMenuRecoverableStatus;
       }
     | {
         readonly stage: 'sign_in_ready';
+        readonly walletId: string;
         readonly status: AuthMenuIdleStatus | AuthMenuBusyStatus | AuthMenuRecoverableStatus;
       }
   );
@@ -224,10 +230,6 @@ export type AuthMenuIntent =
     }
   | {
       readonly kind: 'recovery_open';
-    }
-  | {
-      readonly kind: 'recovery_wallet_id_changed';
-      readonly walletId: string;
     }
   | {
       readonly kind: 'recovery_code_changed';
@@ -330,8 +332,6 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
     case 'link_device_email_otp_submit':
     case 'registration_reroll':
       return true;
-    case 'recovery_wallet_id_changed':
-      return typeof record.walletId === 'string';
     case 'recovery_code_changed':
       return typeof record.recoveryCode === 'string';
     case 'link_device_factor_selected':

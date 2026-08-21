@@ -19,7 +19,7 @@ import type {
 import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
 import { toAccountId } from '@/core/types/accountIds';
-import { parseWebAuthnRpId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import { parseWebAuthnRpId, type WalletId } from '@shared/utils/domainIds';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -106,8 +106,8 @@ function createReservationId(): RecoveryCodeReservationId {
   );
 }
 
-function pendingPrepareKey(walletId: WalletId, recoveryCodeDigestB64u: string): string {
-  return `${String(walletId)}:${recoveryCodeDigestB64u}`;
+function pendingPrepareKey(recoveryCodeDigestB64u: string): string {
+  return recoveryCodeDigestB64u;
 }
 
 function zeroizeBuffer(buffer: ArrayBuffer | null): void {
@@ -313,21 +313,19 @@ export class WalletRecoveryCoordinator {
   >();
   async prepareWithCode(input: {
     readonly context: WalletRecoveryWebContext;
-    readonly walletId: string;
     readonly relayUrl: string;
     readonly recoveryCode: string;
     readonly signal: AbortSignal;
   }): Promise<WalletRecoveryCoordinatorResult<WalletRecoveryPreparedHandle>> {
     this.#pruneExpired();
-    const walletId = parseWalletId(input.walletId);
     const rpId = parseWebAuthnRpId(input.context.signingEngine.getRpId());
-    if (!walletId.ok || !rpId.ok || input.signal.aborted) return refused();
+    if (!rpId.ok || input.signal.aborted) return refused();
 
     let recoveryCodeBytes: Uint8Array | null = null;
     try {
       recoveryCodeBytes = decodeWalletRecoveryCode(input.recoveryCode);
       const recoveryCodeDigestB64u = base64UrlEncode(await sha256Bytes(recoveryCodeBytes));
-      const retryKey = pendingPrepareKey(walletId.value, recoveryCodeDigestB64u);
+      const retryKey = pendingPrepareKey(recoveryCodeDigestB64u);
       const pending = this.#pendingPrepareReservations.get(retryKey);
       const reservationId =
         pending?.expiresAtMs && pending.expiresAtMs > Date.now()
@@ -335,7 +333,6 @@ export class WalletRecoveryCoordinator {
           : createReservationId();
       const prepared = await prepareWalletRecoveryWithCode({
         relayUrl: input.relayUrl,
-        walletId: walletId.value,
         rpId: rpId.value,
         recoveryCodeB64u: base64UrlEncode(recoveryCodeBytes),
         reservationId,
@@ -362,17 +359,17 @@ export class WalletRecoveryCoordinator {
       this.#operations.set(recoveryOperationId, {
         stage: 'prepared',
         recoveryOperationId,
-        walletId: walletId.value,
+        walletId: prepared.walletId,
         relayUrl: input.relayUrl,
         prepared,
         custodyJson: buildWalletRecoveryCeremonyCustodyJson({
-          walletId: walletId.value,
+          walletId: prepared.walletId,
           prepared,
         }),
         recoveryCodeBytes,
       });
       recoveryCodeBytes = null;
-      return { kind: 'prepared', recoveryOperationId, walletId: walletId.value };
+      return { kind: 'prepared', recoveryOperationId, walletId: prepared.walletId };
     } catch {
       return refused();
     } finally {

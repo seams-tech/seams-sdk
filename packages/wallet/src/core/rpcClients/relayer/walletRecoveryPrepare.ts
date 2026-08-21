@@ -212,6 +212,7 @@ export type WalletRecoveryAttemptFailure =
 export type WalletRecoveryPrepareResult =
   | {
       readonly kind: 'prepared';
+      readonly walletId: WalletId;
       readonly wrap: {
         readonly nonceB64u: EnvelopeNonceB64u;
         readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
@@ -254,7 +255,6 @@ export function buildWalletRecoveryCeremonyCustodyJson(args: {
 
 export async function prepareWalletRecoveryWithCode(args: {
   readonly relayUrl: string;
-  readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
   readonly recoveryCodeB64u: string;
   readonly reservationId: RecoveryCodeReservationId;
@@ -264,7 +264,6 @@ export async function prepareWalletRecoveryWithCode(args: {
   if (!requested.ok) return { kind: requested.kind };
   return await parseWalletRecoveryPrepareResponse({
     response: requested.response,
-    walletId: args.walletId,
     rpId: args.rpId,
     reservationId: args.reservationId,
   });
@@ -272,7 +271,6 @@ export async function prepareWalletRecoveryWithCode(args: {
 
 async function requestWalletRecoveryPrepare(args: {
   readonly relayUrl: string;
-  readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
   readonly recoveryCodeB64u: string;
   readonly reservationId: RecoveryCodeReservationId;
@@ -289,7 +287,6 @@ async function requestWalletRecoveryPrepare(args: {
       url,
       buildRelayerJsonPostRequestInit({
         body: {
-          walletId: args.walletId,
           rpId: args.rpId,
           recoveryCodeB64u: args.recoveryCodeB64u,
           reservationId: args.reservationId,
@@ -304,7 +301,6 @@ async function requestWalletRecoveryPrepare(args: {
 
 async function parseWalletRecoveryPrepareResponse(args: {
   readonly response: Response;
-  readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
   readonly reservationId: RecoveryCodeReservationId;
 }): Promise<WalletRecoveryPrepareResult> {
@@ -317,6 +313,7 @@ async function parseWalletRecoveryPrepareResponse(args: {
         body,
         [
           'ok',
+          'walletId',
           'wrap',
           'entries',
           'keyManifest',
@@ -329,13 +326,13 @@ async function parseWalletRecoveryPrepareResponse(args: {
       );
       const wrap = parsePreparedRecoveryWrap(body.wrap);
       const entries = parsePreparedRecoveryEntries(body.entries);
-      const keyManifest = parseWalletRecoveryPreparationKeyManifest(
-        body.keyManifest,
-        args.walletId,
-      );
+      const walletIdResult = parseWalletId(body.walletId);
+      if (!walletIdResult.ok) throw new Error('walletRecoveryPrepare.walletId is invalid');
+      const walletId = walletIdResult.value;
+      const keyManifest = parseWalletRecoveryPreparationKeyManifest(body.keyManifest, walletId);
       const registration = parseWalletRecoveryRegistrationOptions(
         body.registration,
-        args.walletId,
+        String(walletId),
         args.rpId,
       );
       const reservationId = parseRecoveryCodeReservationId(body.reservationId);
@@ -349,6 +346,7 @@ async function parseWalletRecoveryPrepareResponse(args: {
       }
       return {
         kind: 'prepared',
+        walletId,
         wrap,
         entries,
         keyManifest,

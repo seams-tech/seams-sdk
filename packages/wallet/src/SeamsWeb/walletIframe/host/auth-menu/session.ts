@@ -90,8 +90,7 @@ type PresentedAuthMenuError = {
   readonly message: string;
 };
 
-const RECOVERY_REFUSAL_MESSAGE =
-  'That recovery code can’t be used. Check the wallet ID and code, then try again.';
+const RECOVERY_REFUSAL_MESSAGE = 'That recovery code can’t be used. Check the code and try again.';
 
 function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared): void {
   if (prepared.kind === 'hosted_passkey_registration_prepared_v1') {
@@ -435,9 +434,7 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
 
 type RecoveryViewModelArgsBase = {
   readonly base: AuthMenuViewModel;
-  readonly walletId: string;
   readonly recoveryCode?: string;
-  readonly walletIdError?: string | null;
   readonly recoveryCodeError?: string | null;
 };
 
@@ -445,6 +442,7 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
   (
     | {
         readonly stage?: 'enter_code';
+        readonly walletId?: never;
         readonly status?: Extract<
           AuthMenuRecoveryViewModel,
           { readonly stage: 'enter_code' }
@@ -452,6 +450,7 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
       }
     | {
         readonly stage: 'preparing';
+        readonly walletId?: never;
         readonly status: Extract<
           AuthMenuRecoveryViewModel,
           { readonly stage: 'preparing' }
@@ -459,6 +458,7 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
       }
     | {
         readonly stage: 'passkey_ready';
+        readonly walletId: string;
         readonly status?: Extract<
           AuthMenuRecoveryViewModel,
           { readonly stage: 'passkey_ready' }
@@ -466,6 +466,7 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
       }
     | {
         readonly stage: 'finalizing';
+        readonly walletId: string;
         readonly status: Extract<
           AuthMenuRecoveryViewModel,
           { readonly stage: 'finalizing' }
@@ -473,6 +474,7 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
       }
     | {
         readonly stage: 'sign_in_ready';
+        readonly walletId: string;
         readonly status?: Extract<
           AuthMenuRecoveryViewModel,
           { readonly stage: 'sign_in_ready' }
@@ -488,7 +490,7 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
     hostname: args.base.hostname,
     closeLabel: args.base.closeLabel,
     heading: 'Recover account',
-    subtitle: 'Enter one recovery code to create a new passkey for this wallet.',
+    subtitle: 'Enter one recovery code to create a new passkey for your wallet.',
     ctaLabel:
       args.stage === 'passkey_ready'
         ? 'Create new passkey'
@@ -497,9 +499,7 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
           : 'Continue',
     showProgress: args.base.showProgress,
     enabledExternalProviders: args.base.enabledExternalProviders,
-    walletId: args.walletId,
     recoveryCode: args.recoveryCode ?? '',
-    walletIdError: args.walletIdError ?? null,
     recoveryCodeError: args.recoveryCodeError ?? null,
   } as const;
   switch (args.stage) {
@@ -515,18 +515,27 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
     case 'passkey_ready':
       return {
         ...common,
+        walletId: args.walletId,
         stage: args.stage,
         status: args.status ?? { kind: 'idle', interaction: 'actionable' },
       };
     case 'finalizing':
-      return { ...common, stage: args.stage, status: args.status };
+      return { ...common, walletId: args.walletId, stage: args.stage, status: args.status };
     case 'sign_in_ready':
       return {
         ...common,
+        walletId: args.walletId,
         stage: args.stage,
         status: args.status ?? { kind: 'idle', interaction: 'actionable' },
       };
   }
+}
+
+function recoveryWalletId(viewModel: AuthMenuRecoveryViewModel): string {
+  if (viewModel.stage === 'enter_code' || viewModel.stage === 'preparing') {
+    throw new Error('recovery wallet id is unavailable before preparation');
+  }
+  return viewModel.walletId;
 }
 
 function recoveryFailureStatus(
@@ -1211,9 +1220,6 @@ export class AuthMenuSession {
       case 'recovery_open':
         this.openRecovery();
         return;
-      case 'recovery_wallet_id_changed':
-        this.changeRecoveryWalletId(intent.walletId);
-        return;
       case 'recovery_code_changed':
         this.changeRecoveryCode(intent.recoveryCode);
         return;
@@ -1399,14 +1405,13 @@ export class AuthMenuSession {
         status: { kind: 'idle', interaction: 'arming' },
       },
     };
-    const walletId = this.selectedLoginWalletId ?? '';
     this.invalidatePreparation();
     this.recoveryReturnState = returnState;
     this.stateValue = {
       kind: 'recovery',
       stage: 'enter_code',
       returnState,
-      viewModel: recoveryViewModel({ base: state.viewModel, walletId }),
+      viewModel: recoveryViewModel({ base: state.viewModel }),
     };
     this.updateElement();
   }
@@ -1421,20 +1426,6 @@ export class AuthMenuSession {
     this.updateElement();
     this.preparePasskey = this.prepareSelectedLogin;
     this.startPasskeyPreparation();
-  }
-
-  private changeRecoveryWalletId(walletId: string): void {
-    const state = this.stateValue;
-    if (state.kind !== 'recovery' || state.stage !== 'enter_code') return;
-    this.stateValue = {
-      ...state,
-      viewModel: {
-        ...state.viewModel,
-        walletId,
-        walletIdError: null,
-      },
-    };
-    this.updateElement();
   }
 
   private changeRecoveryCode(recoveryCode: string): void {
@@ -1454,15 +1445,13 @@ export class AuthMenuSession {
   private prepareRecovery(): void {
     const state = this.stateValue;
     if (state.kind !== 'recovery' || state.stage !== 'enter_code') return;
-    const parsedWalletId = parseWalletId(state.viewModel.walletId.trim());
     const recoveryCode = state.viewModel.recoveryCode.trim();
-    if (!parsedWalletId.ok || !recoveryCode) {
+    if (!recoveryCode) {
       this.stateValue = {
         ...state,
         viewModel: {
           ...state.viewModel,
-          walletIdError: parsedWalletId.ok ? null : 'Enter a valid wallet ID.',
-          recoveryCodeError: recoveryCode ? null : 'Enter a recovery code.',
+          recoveryCodeError: 'Enter a recovery code.',
         },
       };
       this.updateElement();
@@ -1476,7 +1465,6 @@ export class AuthMenuSession {
       stage: 'preparing',
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: String(parsedWalletId.value),
         recoveryCode: state.viewModel.recoveryCode,
         stage: 'preparing',
         status: { kind: 'busy', headline: 'Checking recovery code…' },
@@ -1486,7 +1474,6 @@ export class AuthMenuSession {
     let preparation: ReturnType<HostedRecoveryPort['prepare']>;
     try {
       preparation = this.recoveryPort.prepare({
-        walletId: String(parsedWalletId.value),
         recoveryCode,
         signal: cancellation.signal,
       });
@@ -1519,7 +1506,6 @@ export class AuthMenuSession {
         returnState: state.returnState,
         viewModel: recoveryViewModel({
           base: state.viewModel,
-          walletId: state.viewModel.walletId,
           recoveryCode: state.viewModel.recoveryCode,
           status: recoveryFailureStatus(result),
         }),
@@ -1552,7 +1538,6 @@ export class AuthMenuSession {
       returnState: state.returnState,
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: state.viewModel.walletId,
         recoveryCode: state.viewModel.recoveryCode,
         status: recoveryFailureStatus({ kind: 'transport_uncertain' }),
       }),
@@ -1585,7 +1570,7 @@ export class AuthMenuSession {
       stage: 'finalizing',
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: state.viewModel.walletId,
+        walletId: recoveryWalletId(state.viewModel),
         stage: 'finalizing',
         status: { kind: 'busy', headline: 'Creating new passkey…' },
       }),
@@ -1663,7 +1648,6 @@ export class AuthMenuSession {
         returnState: state.returnState,
         viewModel: recoveryViewModel({
           base: state.viewModel,
-          walletId: state.viewModel.walletId,
           recoveryCode: '',
           status: recoveryFailureStatus(failure),
         }),
@@ -1678,7 +1662,7 @@ export class AuthMenuSession {
       returnState: state.returnState,
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: state.viewModel.walletId,
+        walletId: recoveryWalletId(state.viewModel),
         stage: 'passkey_ready',
         status: recoveryFailureStatus(failure),
       }),
@@ -1697,7 +1681,7 @@ export class AuthMenuSession {
       returnState: state.returnState,
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: state.viewModel.walletId,
+        walletId: recoveryWalletId(state.viewModel),
         stage: 'finalizing',
         status: { kind: 'busy', headline: 'Finishing recovery…' },
       }),
@@ -1738,7 +1722,6 @@ export class AuthMenuSession {
           returnState: state.returnState,
           viewModel: recoveryViewModel({
             base: state.viewModel,
-            walletId: state.viewModel.walletId,
             status: recoveryFailureStatus(result),
           }),
         };
@@ -1747,7 +1730,7 @@ export class AuthMenuSession {
           ...state,
           viewModel: recoveryViewModel({
             base: state.viewModel,
-            walletId: state.viewModel.walletId,
+            walletId: recoveryWalletId(state.viewModel),
             stage: 'finalizing',
             status: recoveryRetryStatus(),
           }),
@@ -1773,7 +1756,7 @@ export class AuthMenuSession {
       ...state,
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: state.viewModel.walletId,
+        walletId: recoveryWalletId(state.viewModel),
         stage: 'finalizing',
         status: recoveryRetryStatus(),
       }),
@@ -1822,7 +1805,7 @@ export class AuthMenuSession {
     this.recoveryCancellation = null;
     if (prepared.kind !== 'hosted_passkey_login_prepared_v1') {
       cancelHostedPasskeyMenuPreparation(prepared);
-      const walletId = parseWalletId(state.viewModel.walletId);
+      const walletId = parseWalletId(recoveryWalletId(state.viewModel));
       if (!walletId.ok) return;
       this.rejectRecoveredLoginPreparation(generation, walletId.value, returnState);
       return;
@@ -1834,7 +1817,7 @@ export class AuthMenuSession {
       returnState,
       viewModel: recoveryViewModel({
         base: state.viewModel,
-        walletId: state.viewModel.walletId,
+        walletId: recoveryWalletId(state.viewModel),
         stage: 'sign_in_ready',
       }),
     };
@@ -1872,7 +1855,7 @@ export class AuthMenuSession {
     if (state.kind !== 'recovery' || state.stage !== 'sign_in_ready') return;
     const prepared = this.recoveryLoginPrepared;
     if (!prepared) {
-      const walletId = parseWalletId(state.viewModel.walletId);
+      const walletId = parseWalletId(recoveryWalletId(state.viewModel));
       if (!walletId.ok) return;
       this.prepareRecoveredPasskeyLogin(walletId.value, state.returnState);
       return;
@@ -2615,7 +2598,7 @@ export class AuthMenuSession {
         viewModel.kind === 'recovery'
           ? recoveryViewModel({
               base: viewModel,
-              walletId: viewModel.walletId,
+              walletId: recoveryWalletId(viewModel),
               stage: 'sign_in_ready',
               status: {
                 kind: 'busy',
@@ -2803,7 +2786,7 @@ export class AuthMenuSession {
         returnState,
         viewModel: recoveryViewModel({
           base: viewModel,
-          walletId: viewModel.walletId,
+          walletId: recoveryWalletId(viewModel),
           stage: 'sign_in_ready',
           status:
             failure.kind === 'dismissed'

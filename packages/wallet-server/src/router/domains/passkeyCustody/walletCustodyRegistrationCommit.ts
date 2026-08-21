@@ -19,12 +19,14 @@ import {
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery';
 import { buildWalletRecoveryBackupAcknowledgementV1 } from '@shared/wallet-recovery/recoveryCodes';
+import { parseRecoveryCodeLocatorV1 } from '@shared/wallet-recovery/recoveryCodeLocator';
 import { isPlainObject } from '@shared/utils/validation';
 import { parsePasskeyEnvelopeId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
 export type { WalletCustodyCeremonyCommitPayload };
 import type {
   CloudflareD1WalletCustodyCommitStore,
+  WalletRecoveryCodeLocatorRecord,
   WalletCustodyRegistrationCommitResult,
 } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 
@@ -45,6 +47,7 @@ import type {
 export type WalletCustodyRegistrationRecords = {
   readonly envelope: PasskeyCustodyEnvelopeRecord;
   readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
+  readonly recoveryCodeLocators: readonly WalletRecoveryCodeLocatorRecord[];
   readonly recoveryBackupAcknowledgement: ReturnType<
     typeof buildWalletRecoveryBackupAcknowledgementV1
   >;
@@ -178,6 +181,27 @@ export function buildWalletCustodyRegistrationRecords(args: {
     });
   });
 
+  const rawLocators = custody.recoveryCodeLocators ?? [];
+  if (rawLocators.length !== wraps.length) {
+    throw new Error('a recovery set carries one locator for every code wrap');
+  }
+  const recoveryCodeLocators: WalletRecoveryCodeLocatorRecord[] = rawLocators.map(
+    (rawLocator, index) => {
+      const locatorB64u = parseRecoveryCodeLocatorV1(
+        rawLocator.locatorB64u,
+        `recoveryCodeLocator[${index}].locatorB64u`,
+      );
+      const recoveryKeyId = parseDerivedWalletRecoveryKeyId(
+        rawLocator.recoveryKeyId,
+        `recoveryCodeLocator[${index}].recoveryKeyId`,
+      );
+      if (String(recoveryKeyId) !== String(manifestKekWraps[index].recoveryKeyId)) {
+        throw new Error('a recovery code locator does not match its code wrap');
+      }
+      return { locatorB64u, walletId, recoveryKeyId };
+    },
+  );
+
   const recoverySet = buildWalletRecoveryEnvelopeSetRecord({
     walletId,
     manifestKekWraps,
@@ -198,6 +222,7 @@ export function buildWalletCustodyRegistrationRecords(args: {
   return {
     envelope,
     recoverySet,
+    recoveryCodeLocators,
     recoveryBackupAcknowledgement: buildWalletRecoveryBackupAcknowledgementV1({
       walletId,
       issuedAtMs: nowMs,

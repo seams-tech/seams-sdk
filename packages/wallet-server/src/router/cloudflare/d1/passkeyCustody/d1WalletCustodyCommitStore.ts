@@ -12,6 +12,14 @@ import {
 } from '@shared/passkey-custody';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import {
+  parseRecoveryCodeLocatorV1,
+  type RecoveryCodeLocatorV1,
+} from '@shared/wallet-recovery/recoveryCodeLocator';
+import {
+  parseDerivedWalletRecoveryKeyId,
+  type DerivedWalletRecoveryKeyId,
+} from '@shared/wallet-recovery/recoveryKeyId';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
@@ -82,6 +90,13 @@ export type WalletCustodyRegistrationCommit = {
   readonly envelope: PasskeyCustodyEnvelopeRecord;
   readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
   readonly recoveryBackupAcknowledgement: WalletRecoveryBackupAcknowledgementV1;
+  readonly recoveryCodeLocators: readonly WalletRecoveryCodeLocatorRecord[];
+};
+
+export type WalletRecoveryCodeLocatorRecord = {
+  readonly locatorB64u: RecoveryCodeLocatorV1;
+  readonly walletId: WalletId;
+  readonly recoveryKeyId: DerivedWalletRecoveryKeyId;
 };
 
 export type WalletCustodyRegistrationCommitResult =
@@ -181,6 +196,33 @@ function commitInconsistency(commit: WalletCustodyRegistrationCommit): string | 
   if (commit.recoverySet.entries.length !== 1) {
     return 'a recovery set carries exactly one custody entry';
   }
+  if (commit.recoveryCodeLocators.length !== commit.recoverySet.manifestKekWraps.length) {
+    return 'recovery code locators do not match the recovery wraps';
+  }
+  const recoveryKeyIds = new Set(
+    commit.recoverySet.manifestKekWraps.map((wrap) => String(wrap.recoveryKeyId)),
+  );
+  if (recoveryKeyIds.size !== commit.recoverySet.manifestKekWraps.length) {
+    return 'recovery wraps must have distinct key ids';
+  }
+  const locatorKeyIds = new Set<string>();
+  const locatorValues = new Set<string>();
+  for (const locator of commit.recoveryCodeLocators) {
+    if (String(locator.walletId) !== String(commit.recoverySet.walletId)) {
+      return 'recovery code locator names a different wallet';
+    }
+    const recoveryKeyId = String(locator.recoveryKeyId);
+    const locatorValue = String(locator.locatorB64u);
+    if (
+      !recoveryKeyIds.has(recoveryKeyId) ||
+      locatorKeyIds.has(recoveryKeyId) ||
+      locatorValues.has(locatorValue)
+    ) {
+      return 'recovery code locators do not match the recovery wraps';
+    }
+    locatorKeyIds.add(recoveryKeyId);
+    locatorValues.add(locatorValue);
+  }
   if (
     commit.recoveryBackupAcknowledgement.walletId !== String(commit.recoverySet.walletId) ||
     commit.recoveryBackupAcknowledgement.issuedAtMs !== commit.recoverySet.issuedAtMs
@@ -188,6 +230,11 @@ function commitInconsistency(commit: WalletCustodyRegistrationCommit): string | 
     return 'recovery backup acknowledgement does not match the issued recovery set';
   }
   return null;
+}
+
+function isRecoveryCodeLocatorCollision(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('wallet_recovery_code_locators') && /unique|constraint/i.test(message);
 }
 
 export class CloudflareD1WalletCustodyCommitStore {
@@ -217,6 +264,140 @@ export class CloudflareD1WalletCustodyCommitStore {
     });
   }
 
+  async readRecoveryCodeLocator(
+    locatorB64u: RecoveryCodeLocatorV1,
+  ): Promise<WalletRecoveryCodeLocatorRecord | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT locator_b64u, wallet_id, recovery_key_id
+           FROM wallet_recovery_code_locators
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND locator_b64u = ?5`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(locatorB64u),
+      )
+      .first<{
+        readonly locator_b64u?: unknown;
+        readonly wallet_id?: unknown;
+        readonly recovery_key_id?: unknown;
+      }>();
+    if (!row) return null;
+    const walletId = parseWalletId(row.wallet_id);
+    if (!walletId.ok) return null;
+    try {
+      const parsedLocator = parseRecoveryCodeLocatorV1(row.locator_b64u);
+      if (String(parsedLocator) !== String(locatorB64u)) return null;
+      return {
+        locatorB64u: parsedLocator,
+        walletId: walletId.value,
+        recoveryKeyId: parseDerivedWalletRecoveryKeyId(row.recovery_key_id),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private prepareRecoveryCodeLocatorInsertStatement(
+    locator: WalletRecoveryCodeLocatorRecord,
+  ): D1PreparedStatementLike {
+    return this.database
+      .prepare(
+        `INSERT INTO wallet_recovery_code_locators
+          (namespace, org_id, project_id, env_id, locator_b64u, wallet_id, recovery_key_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(locator.locatorB64u),
+        String(locator.walletId),
+        String(locator.recoveryKeyId),
+      );
+  }
+
+  private prepareRecoveryCodeLocatorsDeleteForWalletStatement(
+    walletId: WalletId,
+  ): D1PreparedStatementLike {
+    return this.database
+      .prepare(
+        `DELETE FROM wallet_recovery_code_locators
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND wallet_id = ?5`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(walletId),
+      );
+  }
+
+  private prepareRecoveryCodeLocatorCollisionGuardStatement(
+    locators: readonly WalletRecoveryCodeLocatorRecord[],
+  ): D1PreparedStatementLike {
+    if (locators.length === 0) {
+      throw new Error('recovery code locator collision guard requires locators');
+    }
+    const locatorParameters = locators.map((_, index) => `?${5 + index}`).join(', ');
+    return this.database
+      .prepare(
+        `INSERT INTO wallet_recovery_code_locators
+          (namespace, org_id, project_id, env_id, locator_b64u, wallet_id, recovery_key_id)
+         SELECT namespace, org_id, project_id, env_id, locator_b64u, wallet_id, recovery_key_id
+           FROM wallet_recovery_code_locators
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND locator_b64u IN (${locatorParameters})`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        ...locators.map((locator) => String(locator.locatorB64u)),
+      );
+  }
+
+  private prepareRecoveryCodeLocatorDeleteStatement(input: {
+    readonly walletId: WalletId;
+    readonly recoveryKeyId: DerivedWalletRecoveryKeyId;
+  }): D1PreparedStatementLike {
+    return this.database
+      .prepare(
+        `DELETE FROM wallet_recovery_code_locators
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND wallet_id = ?5
+            AND recovery_key_id = ?6`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(input.walletId),
+        String(input.recoveryKeyId),
+      );
+  }
+
   /**
    * Writes the envelope and the recovery set in one transaction.
    *
@@ -238,15 +419,28 @@ export class CloudflareD1WalletCustodyCommitStore {
       commit.recoverySet.walletId,
     );
 
-    const stored = await this.records.putMany([
-      { key: envelopeKey, value: commit.envelope, expectedVersion: null },
-      { key: recoverySetKey, value: commit.recoverySet, expectedVersion: null },
-      {
-        key: recoveryBackupAcknowledgementKey,
-        value: commit.recoveryBackupAcknowledgement,
-        expectedVersion: null,
-      },
-    ]);
+    let stored: Awaited<ReturnType<typeof this.records.putManyWithAdditionalStatements>>;
+    try {
+      stored = await this.records.putManyWithAdditionalStatements(
+        [
+          { key: envelopeKey, value: commit.envelope, expectedVersion: null },
+          { key: recoverySetKey, value: commit.recoverySet, expectedVersion: null },
+          {
+            key: recoveryBackupAcknowledgementKey,
+            value: commit.recoveryBackupAcknowledgement,
+            expectedVersion: null,
+          },
+        ],
+        commit.recoveryCodeLocators.map((locator) =>
+          this.prepareRecoveryCodeLocatorInsertStatement(locator),
+        ),
+      );
+    } catch (error: unknown) {
+      if (isRecoveryCodeLocatorCollision(error)) {
+        return { kind: 'inconsistent', reason: 'recovery code locator already exists' };
+      }
+      throw error;
+    }
     if (stored.kind === 'version_mismatch') {
       // Which record is the duplicate decides what the caller does next. The
       // recovery-set key is wallet-scoped — it is the establish mutex — while
@@ -401,7 +595,10 @@ export class CloudflareD1WalletCustodyCommitStore {
   async replaceRecoveryEnvelopeSetAndPreserveBackupAcknowledgement(input: {
     readonly record: WalletRecoveryEnvelopeSetRecord;
     readonly expectedRecoverySetVersion: string;
-  }): Promise<{ kind: 'stored'; storeVersion: string } | { kind: 'conflict' }> {
+    readonly recoveryCodeLocators: readonly WalletRecoveryCodeLocatorRecord[];
+  }): Promise<
+    { kind: 'stored'; storeVersion: string } | { kind: 'conflict' } | { kind: 'collision' }
+  > {
     const acknowledgementKey = walletRecoveryBackupAcknowledgementRecordKey(input.record.walletId);
     const existingAcknowledgement = await this.records.read(acknowledgementKey);
     const mutations = [
@@ -420,7 +617,19 @@ export class CloudflareD1WalletCustodyCommitStore {
           ]
         : []),
     ] as const;
-    const stored = await this.records.putMany(mutations);
+    let stored: Awaited<ReturnType<typeof this.records.putManyWithAdditionalStatements>>;
+    try {
+      stored = await this.records.putManyWithAdditionalStatements(mutations, [
+        this.prepareRecoveryCodeLocatorCollisionGuardStatement(input.recoveryCodeLocators),
+        this.prepareRecoveryCodeLocatorsDeleteForWalletStatement(input.record.walletId),
+        ...input.recoveryCodeLocators.map((locator) =>
+          this.prepareRecoveryCodeLocatorInsertStatement(locator),
+        ),
+      ]);
+    } catch (error: unknown) {
+      if (isRecoveryCodeLocatorCollision(error)) return { kind: 'collision' };
+      throw error;
+    }
     if (stored.kind === 'version_mismatch') return { kind: 'conflict' };
     const version = stored.versions.find(
       (entry) => entry.key === walletRecoveryEnvelopeSetRecordKey(input.record.walletId),
@@ -447,6 +656,7 @@ export class CloudflareD1WalletCustodyCommitStore {
       readonly revokedAtMs: number;
     };
     readonly reservationId: RecoveryCodeReservationId;
+    readonly recoveryKeyId: DerivedWalletRecoveryKeyId;
     readonly authenticatorCommit: WalletRecoveryAuthenticatorCommit;
   }): Promise<WalletCustodyRecoveryPromotionCommitResult> {
     if (String(input.recoverySet.walletId) !== String(input.replacementEnvelope.walletId)) {
@@ -602,6 +812,10 @@ export class CloudflareD1WalletCustodyCommitStore {
           ...authMethodStatements,
           input.authenticatorCommit.challengeDeleteStatement,
           this.database.prepare(WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD),
+          this.prepareRecoveryCodeLocatorDeleteStatement({
+            walletId: input.recoverySet.walletId,
+            recoveryKeyId: input.recoveryKeyId,
+          }),
         ],
       );
     } catch {

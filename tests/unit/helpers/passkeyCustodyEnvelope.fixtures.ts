@@ -44,6 +44,7 @@ export const NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-key-1';
 export const ENROLLMENT_ID = 'enrollment-1';
 export const THRESHOLD_ECDSA_SESSION_ID = 'threshold-ecdsa-session-1';
 export const RECOVERY_KEY_ID = `wallet-rkid-v1-${DIGEST_B64U}`;
+export const RECOVERY_LOCATOR_DIGEST_B64U = DIGEST_B64U;
 
 export const ED25519_WALLET_KEY_ID = 'wallet-key:ed25519:alice.testnet:root-1:v1';
 export const EVM_WALLET_KEY_ID = 'wallet-key:evm-family:alice.testnet:root-1:v1';
@@ -185,6 +186,13 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
     updatedAtMs: 2_000,
     ...overrides,
   };
+}
+
+export function rawWalletRecoveryCodeLocators(): RawRecord[] {
+  return rawManifestKekWrapSet().map((wrap, index) => ({
+    locatorB64u: `${String.fromCharCode(65 + index)}${RECOVERY_LOCATOR_DIGEST_B64U.slice(1)}`,
+    recoveryKeyId: wrap.recoveryKeyId,
+  }));
 }
 
 /**

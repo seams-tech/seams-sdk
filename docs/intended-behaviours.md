@@ -224,8 +224,8 @@ Expected behaviour:
 
 Expected behaviour:
 
-- The hosted login menu accepts an editable wallet id and one unused recovery
-  code, then creates a replacement Passkey from a separate user activation.
+- The hosted login menu accepts one unused recovery code, resolves its wallet,
+  then creates a replacement Passkey from a separate user activation.
 - The recovery code is the sole recovery authorization. The flow does not ask
   for Email OTP, Google identity, an assertion from the source Passkey, or a
   client-selected source credential.
@@ -436,8 +436,8 @@ wallet with exactly one active Passkey owner method for the requested RP.
 
 Expected behaviour:
 
-- The hosted wallet-iframe menu accepts an editable Wallet ID and one unused
-  recovery code. It does not request Email OTP, Google authentication, an
+- The hosted wallet-iframe menu accepts one unused recovery code. The server
+  resolves the wallet from the code locator. It does not request Email OTP, Google authentication, an
   existing Passkey assertion, or an old credential ID.
 - Preparation reserves the code and returns replacement Passkey registration
   options. A separate **Create new passkey** activation starts WebAuthn.
@@ -491,8 +491,8 @@ restore, lane selection, or budget handling.
 | Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                  |
 | Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                  |
 | Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note           |
-| Code recovery replaces one Passkey and preserves all public identities  | Intended-behaviour recovery contract                       |
-| Code recovery revokes source sessions and consumes exactly one code     | Intended-behaviour recovery contract                       |
+| Code recovery replaces one Passkey and preserves all public identities   | Intended-behaviour recovery contract                       |
+| Code recovery revokes source sessions and consumes exactly one code      | Intended-behaviour recovery contract                       |
 | Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                |
 | ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                |
 

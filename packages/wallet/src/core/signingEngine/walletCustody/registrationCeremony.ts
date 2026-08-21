@@ -5,6 +5,7 @@ import {
   zeroizeIssuedWalletRecoveryCodes,
   type IssuedWalletRecoveryCodes,
 } from '@shared/wallet-recovery/recoveryCodes';
+import { deriveRecoveryCodeLocatorV1FromBytes } from '@shared/wallet-recovery/recoveryCodeLocator';
 import {
   walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
   type WalletCustodyCeremonyCommitPayload,
@@ -130,6 +131,7 @@ export async function establishNearEd25519CustodyV1(
       throw new Error('the NEAR custody ceremony produced no activation session id');
     }
 
+    const commitPayload = await walletCustodyCommitPayloadWithRecoveryCodeLocators(payload, issued);
     return {
       recoveryCodes: issued.codes,
       activationReference: {
@@ -140,7 +142,7 @@ export async function establishNearEd25519CustodyV1(
         lifecycle_id: input.registrationCeremonyId,
         session_id: activationSessionId,
       },
-      commitPayload: walletCustodyCommitPayloadForWire(payload),
+      commitPayload: walletCustodyCommitPayloadForWire(commitPayload),
       localMaterial:
         payload.ed25519LocalMaterialB64u &&
         payload.ed25519LocalMaterialNonceB64u &&
@@ -227,6 +229,8 @@ export async function establishEvmFamilyCustodyV1(
   let admittedCommitPayload: WalletCustodyCeremonyCommitPayload | null = null;
   let clientBootstrap: EstablishedEvmFamilyCustody['clientBootstrap'] | null = null;
   try {
+    const issuedForCeremony = issued;
+    if (!issuedForCeremony) throw new Error('recovery codes were not issued');
     const payload = await runWalletCustodyKeySetCeremony({
       runStep: input.runStep,
       custody: {
@@ -246,10 +250,12 @@ export async function establishEvmFamilyCustodyV1(
         evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
         beforeRelayerRound: input.confirmRecoveryCodesBackedUp.bind(undefined, issued.codes),
         runRelayerRound: async (bootstrap) => {
+          const enrichedCommitPayload = await walletCustodyCommitPayloadWithRecoveryCodeLocators(
+            bootstrap.preActivationCommitPayload,
+            issuedForCeremony,
+          );
           const preActivationCommitPayload =
-            walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
-              bootstrap.preActivationCommitPayload,
-            );
+            walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(enrichedCommitPayload);
           admittedCommitPayload = preActivationCommitPayload;
           clientBootstrap = {
             contextBinding32B64u: bootstrap.contextBinding32B64u,
@@ -412,9 +418,9 @@ export type RecoverEvmFamilyCustodyInput = WalletRecoveryCustodyInput & {
 };
 
 export type RecoveredEvmFamilyCustody = RejoinedEvmFamilyCustody & {
-  readonly recoveryReplacementEnvelope:
-    | NonNullable<WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']>
-    | null;
+  readonly recoveryReplacementEnvelope: NonNullable<
+    WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']
+  > | null;
 };
 
 export async function recoverEvmFamilyCustodyV1(
@@ -546,11 +552,7 @@ export async function computeWalletCustodyNearEd25519KeyManifestDigestB64u(input
     new TextEncoder().encode('seams/wallet-custody/key-set-manifest/near-ed25519/v1'),
   );
   appendManifestField(fields, 'walletId', new TextEncoder().encode(walletId));
-  appendManifestField(
-    fields,
-    'nearEd25519SigningKeyId',
-    new TextEncoder().encode(signingKeyId),
-  );
+  appendManifestField(fields, 'nearEd25519SigningKeyId', new TextEncoder().encode(signingKeyId));
   appendManifestField(fields, 'registeredPublicKey', registeredPublicKey);
   return base64UrlEncode(await sha256Bytes(Uint8Array.from(fields)));
 }
@@ -577,6 +579,40 @@ export function walletCustodyCommitPayloadForWire(
     ...wire
   } = payload;
   return wire;
+}
+
+async function walletCustodyCommitPayloadWithRecoveryCodeLocators(
+  payload: WalletCustodyCeremonyCommitPayload,
+  issued: IssuedWalletRecoveryCodes,
+): Promise<WalletCustodyCeremonyCommitPayload> {
+  const established = payload.establishedCustody;
+  if (!established) return payload;
+  if (established.recoveryManifestKekWraps.length !== issued.codeBytes.length) {
+    throw new Error('recovery code and wrap counts do not match');
+  }
+  const recoveryCodeLocators = await Promise.all(
+    issued.codeBytes.map(async (codeBytes, index) => {
+      const wrap = established.recoveryManifestKekWraps[index];
+      if (!wrap) throw new Error('recovery code and wrap counts do not match');
+      return {
+        locatorB64u: await deriveRecoveryCodeLocatorV1FromBytes(codeBytes),
+        recoveryKeyId: wrap.recoveryKeyId,
+      };
+    }),
+  );
+  if (
+    new Set(recoveryCodeLocators.map((locator) => locator.locatorB64u)).size !==
+    recoveryCodeLocators.length
+  ) {
+    throw new Error('recovery code locators must be unique');
+  }
+  return {
+    ...payload,
+    establishedCustody: {
+      ...established,
+      recoveryCodeLocators,
+    },
+  };
 }
 
 /**
@@ -680,9 +716,9 @@ export type RecoveredNearEd25519Custody = {
   readonly localMaterial: RejoinedNearEd25519Custody['localMaterial'];
   readonly activationResultJson: string;
   readonly activationReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1;
-  readonly recoveryReplacementEnvelope:
-    | NonNullable<WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']>
-    | null;
+  readonly recoveryReplacementEnvelope: NonNullable<
+    WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']
+  > | null;
 };
 
 export async function recoverNearEd25519CustodyV1(

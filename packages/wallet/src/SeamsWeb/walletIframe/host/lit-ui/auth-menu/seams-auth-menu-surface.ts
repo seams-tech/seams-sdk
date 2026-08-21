@@ -187,6 +187,26 @@ function linkDeviceIcon(): TemplateResult {
   `;
 }
 
+function recoveryIcon(): TemplateResult {
+  return html`
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="m21 2-9.6 9.6" />
+      <path d="m15.5 7.5 2 2L21 6l-2-2" />
+    </svg>
+  `;
+}
+
 const LINK_DEVICE_DOT_COUNT = 12;
 
 /* Three phases of one badge: `waiting` sweeps the dots like a clock spinner,
@@ -481,7 +501,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         return;
       }
       if (previous?.kind !== 'recovery' || previous.stage !== 'enter_code') {
-        this.querySelector<HTMLElement>('[data-recovery-wallet-id]')?.focus();
+        this.querySelector<HTMLElement>('[data-recovery-code]')?.focus();
       }
       return;
     }
@@ -687,11 +707,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
 
   private onRecoveryOpen = (): void => {
     this.emitIntent({ kind: 'recovery_open' });
-  };
-
-  private onRecoveryWalletIdInput = (event: Event): void => {
-    if (!(event.currentTarget instanceof HTMLInputElement)) return;
-    this.emitIntent({ kind: 'recovery_wallet_id_changed', walletId: event.currentTarget.value });
   };
 
   private onRecoveryCodeInput = (event: Event): void => {
@@ -1021,7 +1036,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
                   data-recovery-action
                   @click=${this.onRecoveryOpen}
                 >
-                  Recover account
+                  ${recoveryIcon()} Recover account
                 </button>
               `
             : null}
@@ -1036,28 +1051,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
       return html`
         ${this.renderHeader(viewModel)}
         <form class="w3a-recovery-form" novalidate @submit=${this.onRecoverySubmit}>
-          <div class="w3a-recovery-field">
-            <label class="w3a-field-label" for="w3a-recovery-wallet-id">Wallet ID</label>
-            <input
-              id="w3a-recovery-wallet-id"
-              class="w3a-recovery-input"
-              data-auth-menu-input
-              data-recovery-wallet-id
-              name="walletId"
-              type="text"
-              autocomplete="username"
-              autocapitalize="none"
-              autocorrect="off"
-              spellcheck="false"
-              aria-invalid=${viewModel.walletIdError ? 'true' : 'false'}
-              aria-describedby=${viewModel.walletIdError ? 'w3a-recovery-wallet-id-error' : ''}
-              .value=${viewModel.walletId}
-              @input=${this.onRecoveryWalletIdInput}
-            />
-            <p id="w3a-recovery-wallet-id-error" class="w3a-recovery-error">
-              ${viewModel.walletIdError ?? ''}
-            </p>
-          </div>
           <div class="w3a-recovery-field">
             <label class="w3a-field-label" for="w3a-recovery-code">Recovery code</label>
             <input
@@ -1102,7 +1095,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     return html`
       ${this.renderHeader(viewModel)}
       <div class="w3a-recovery-confirmation">
-        <p class="w3a-recovery-wallet" title=${viewModel.walletId}>${viewModel.walletId}</p>
         <p class="w3a-recovery-status">${message}</p>
         <button
           class="w3a-link-device-btn w3a-link-device-btn-primary"

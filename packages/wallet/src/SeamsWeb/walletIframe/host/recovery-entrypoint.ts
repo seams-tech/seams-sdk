@@ -20,13 +20,11 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
   ) {}
 
   async prepare(input: {
-    readonly walletId: string;
     readonly recoveryCode: string;
     readonly signal: AbortSignal;
   }): Promise<HostedRecoveryPrepared | HostedRecoveryFailure> {
     const result = await this.#coordinator.prepareWithCode({
       context: this.context,
-      walletId: input.walletId,
       relayUrl: this.relayUrl,
       recoveryCode: input.recoveryCode,
       signal: input.signal,

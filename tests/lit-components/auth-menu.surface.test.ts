@@ -60,9 +60,7 @@ type RecoveryEntryViewModel = Extract<AuthMenuRecoveryViewModel, { readonly stag
 
 function recoveryEntryViewModel(
   overrides: Partial<{
-    walletId: string;
     recoveryCode: string;
-    walletIdError: string | null;
     recoveryCodeError: string | null;
   }> = {},
 ): RecoveryEntryViewModel {
@@ -73,14 +71,12 @@ function recoveryEntryViewModel(
     kind: 'recovery',
     mode: 'login',
     heading: 'Recover account',
-    subtitle: 'Enter one recovery code to create a new passkey for this wallet.',
+    subtitle: 'Enter one recovery code to create a new passkey for your wallet.',
     ctaLabel: 'Continue',
     showProgress: true,
     enabledExternalProviders: [],
     stage: 'enter_code',
-    walletId: overrides.walletId ?? '',
     recoveryCode: overrides.recoveryCode ?? '',
-    walletIdError: overrides.walletIdError ?? null,
     recoveryCodeError: overrides.recoveryCodeError ?? null,
     status: { kind: 'idle', interaction: 'actionable' },
   };
@@ -91,7 +87,8 @@ function recoveryFinalizingViewModel(): Extract<
   { readonly stage: 'finalizing' }
 > {
   return {
-    ...recoveryEntryViewModel({ walletId: 'wallet-1.test' }),
+    ...recoveryEntryViewModel(),
+    walletId: 'wallet-1.test',
     stage: 'finalizing',
     recoveryCode: '',
     status: { kind: 'busy', headline: 'Finishing recovery…' },
@@ -215,12 +212,10 @@ test.describe('wallet-host Lit auth menu surface', () => {
       { tagName: AUTH_MENU_TAG, viewModel: recoveryEntryViewModel() },
     );
 
-    const walletInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-wallet-id]`);
     const codeInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-code]`);
-    await expect(walletInput).toHaveAttribute('aria-invalid', 'false');
+    await expect(codeInput).toHaveAttribute('aria-invalid', 'false');
     await expect(codeInput).toHaveCSS('font-size', '16px');
     await expect(page.locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`)).toBeEnabled();
-    await walletInput.fill('wallet-1.test');
     await codeInput.fill('ABCD-EFGH');
     await page.locator(`${AUTH_MENU_TAG} form`).press('Enter');
 
@@ -236,13 +231,12 @@ test.describe('wallet-host Lit auth menu surface', () => {
       {
         tagName: AUTH_MENU_TAG,
         viewModel: recoveryEntryViewModel({
-          walletIdError: 'Enter a valid wallet ID.',
           recoveryCodeError: 'Enter a recovery code.',
         }),
       },
     );
-    await expect(walletInput).toBeFocused();
-    await expect(walletInput).toHaveAttribute('aria-describedby', 'w3a-recovery-wallet-id-error');
+    await expect(codeInput).toBeFocused();
+    await expect(codeInput).toHaveAttribute('aria-describedby', 'w3a-recovery-code-error');
 
     await page.evaluate(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -254,7 +248,6 @@ test.describe('wallet-host Lit auth menu surface', () => {
     );
     expect(intents).toEqual([
       { kind: 'recovery_open' },
-      { kind: 'recovery_wallet_id_changed', walletId: 'wallet-1.test' },
       { kind: 'recovery_code_changed', recoveryCode: 'ABCD-EFGH' },
       { kind: 'recovery_submit' },
       { kind: 'back' },

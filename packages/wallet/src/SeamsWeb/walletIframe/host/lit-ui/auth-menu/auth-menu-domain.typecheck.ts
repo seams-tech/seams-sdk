@@ -14,9 +14,7 @@ const recoveryCommon = {
   ctaLabel: 'Continue',
   showProgress: true,
   enabledExternalProviders: [],
-  walletId: 'wallet.test',
   recoveryCode: '',
-  walletIdError: null,
   recoveryCodeError: null,
 };
 
@@ -24,6 +22,14 @@ const preparing: AuthMenuRecoveryViewModel = {
   ...recoveryCommon,
   stage: 'preparing',
   status: { kind: 'busy', headline: 'Checking recovery code…' },
+};
+
+// @ts-expect-error The code-entry state cannot carry a server-resolved wallet.
+const invalidEntryWalletIdentity: AuthMenuRecoveryViewModel = {
+  ...recoveryCommon,
+  stage: 'enter_code',
+  walletId: 'wallet.test',
+  status: { kind: 'idle', interaction: 'actionable' },
 };
 
 // @ts-expect-error Code entry cannot carry an in-flight status.
@@ -41,5 +47,6 @@ const invalidFinalization: AuthMenuRecoveryViewModel = {
 };
 
 void preparing;
+void invalidEntryWalletIdentity;
 void invalidCodeEntry;
 void invalidFinalization;
