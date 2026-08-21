@@ -165,6 +165,7 @@ const sidebarGroups: SidebarGroup[] = [
         path: '/dashboard/webhooks',
         icon: WebhookIcon,
         component: WebhooksPage,
+        createLabel: 'New webhook endpoint',
       },
     ],
   },

@@ -154,6 +154,22 @@ export const FileTextIcon: React.FC<SidebarIconProps> = (props) => (
   </SidebarIconBase>
 );
 
+export const ServerIcon: React.FC<SidebarIconProps> = (props) => (
+  <SidebarIconBase iconName="server" {...props}>
+    <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+    <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+    <line x1="6" x2="6.01" y1="6" y2="6" />
+    <line x1="6" x2="6.01" y1="18" y2="18" />
+  </SidebarIconBase>
+);
+
+export const ArrowRightIcon: React.FC<SidebarIconProps> = (props) => (
+  <SidebarIconBase iconName="arrow-right" {...props}>
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </SidebarIconBase>
+);
+
 export const ChevronDownIcon: React.FC<SidebarIconProps> = (props) => (
   <SidebarIconBase iconName="chevron-down" {...props}>
     <path d="m6 9 6 6 6-6" />
