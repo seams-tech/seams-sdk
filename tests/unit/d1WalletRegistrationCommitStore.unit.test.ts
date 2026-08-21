@@ -12,15 +12,16 @@ import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/wallet-ser
 import type { EmailOtpWalletEnrollmentRecord } from '../../packages/wallet-server/src/core/EmailOtpStores';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { parseDeviceId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletKeyId,
 } from '../../packages/shared-ts/src/utils/domainIds';
-import {
-  buildFullOwnerPermissionsV1,
-} from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { buildFullOwnerPermissionsV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
 import {
   buildActiveWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
@@ -104,6 +105,7 @@ function testEd25519Signer(walletId: WalletId, now: number): WalletEd25519Signer
     signingRootVersion: 'root-v1',
     runtimePolicyScope,
     activeYaoCapability: activeYao.capability,
+    custodyKeyManifestDigestB64u: Buffer.alloc(32, 22).toString('base64url'),
     createdAtMs: now,
     updatedAtMs: now,
   };
@@ -114,7 +116,9 @@ function testEcdsaSigner(walletId: WalletId, now: number): WalletEcdsaSignerReco
 }
 
 function requireTestParsed<T>(
-  result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
   label: string,
 ): T {
   if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
@@ -154,9 +158,8 @@ async function testFoundingRecords(input: {
       ),
     },
   });
-  const signerActivationSetDigestB64u = await computeWalletSignerActivationSetDigestB64u(
-    signerActivations,
-  );
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
   const authorityId = requireTestParsed(
     parseWalletAuthorityId('wallet-authority:registration-test'),
     'authority id',
@@ -195,7 +198,10 @@ async function testFoundingRecords(input: {
     kind: 'passkey',
     status: 'active',
     rpId: testRpId(),
-    credentialIdB64u: 'credential-a',
+    credentialIdB64u: requireTestParsed(
+      parseWebAuthnCredentialIdB64u('credential-a'),
+      'credential id',
+    ),
     credentialPublicKeyB64u: 'credential-public-key-a',
     counter: 0,
     createdAtMs: input.now,
@@ -213,7 +219,10 @@ function testPasskeyAuthority(
     kind: 'passkey',
     walletId,
     rpId: testRpId(),
-    credentialIdB64u: 'credential-a',
+    credentialIdB64u: requireTestParsed(
+      parseWebAuthnCredentialIdB64u('credential-a'),
+      'credential id',
+    ),
     credentialPublicKeyB64u: 'credential-public-key-a',
     counter: 0,
     device: unknownWebAuthnAuthenticatorDeviceInfo(),
@@ -412,7 +421,6 @@ test('D1 registration commit stores a mixed Ed25519 and ECDSA wallet atomically'
 
     await expect(countRows(database, 'wallets')).resolves.toBe(1);
     await expect(countRows(database, 'wallet_signers')).resolves.toBe(2);
-    await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
     const walletStore = new D1WalletStore({
       database,
       ...TEST_SCOPE,
@@ -521,12 +529,9 @@ function testEnrollmentRecord(walletId: WalletId, now: number): EmailOtpWalletEn
     enrollmentId: 'enrollment-a',
     enrollmentVersion: 'v1',
     enrollmentSealKeyVersion: 'seal-v1',
-    signingRootId: 'signing-root-a',
-    signingRootVersion: 'root-v1',
-    recoveryWrappedEnrollmentEscrowCount: 5,
     clientUnlockPublicKeyB64u: 'client-unlock-public-key-a',
     unlockKeyVersion: 'unlock-v1',
-    thresholdEcdsaClientVerifyingShareB64u: 'client-verifying-share-a',
+    serverSealedFactorCiphertextB64u: 'server-sealed-factor-ciphertext-a',
     createdAtMs: now,
     updatedAtMs: now,
   };
@@ -650,7 +655,6 @@ test('re-running the Email OTP registration commit converges instead of duplicat
 
     await expect(countRows(database, 'wallets')).resolves.toBe(1);
     await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
-    await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
     await expect(countRows(database, 'email_otp_wallet_enrollments')).resolves.toBe(1);
   } finally {
     cleanupTemporaryD1Database(tempDir);
