@@ -243,6 +243,29 @@ textarea {
   gap: 10px;
 }
 
+/* A quiet text link, sized to the topbar's other controls: present when
+   wanted, never competing with the page title or the account avatar. */
+.dashboard-topbar__docs {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--dashboard-radius-md);
+  color: var(--dashboard-graphite);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background-color var(--dashboard-motion-fast) ease,
+    color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-topbar__docs:hover {
+  background: var(--dashboard-alpha-100);
+  color: var(--dashboard-ink);
+}
+
 .dashboard-network-toggle {
   position: relative;
   display: inline-grid;

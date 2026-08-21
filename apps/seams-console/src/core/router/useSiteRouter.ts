@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { isHttpUrl, resolveHref } from './siteRouting';
+import { resolveHref } from './siteRouting';
 
 type GoFn = (to: string) => void;
 
@@ -10,21 +10,30 @@ function isModifiedClick(e: React.MouseEvent<any>): boolean {
 function navigateInternal(href: string): void {
   const currentHref = window.location.pathname + window.location.search + window.location.hash;
   const target = new URL(href, window.location.origin);
+  /* A deployed build hands us absolute hrefs, so compare and push the
+     same-origin path rather than the raw string — otherwise the equality test
+     below never matches and history fills with absolute duplicates. */
+  const nextHref = `${target.pathname}${target.search}${target.hash}`;
 
-  if (currentHref === href) {
+  if (currentHref === nextHref) {
     // Allow same-route nav clicks (for routes like /pricing) to reset scroll.
     if (!target.hash) window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     return;
   }
 
-  window.history.pushState({}, '', href);
+  window.history.pushState({}, '', nextHref);
   window.dispatchEvent(new Event('site:navigate'));
   if (!target.hash) window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
 }
 
 function requiresDocumentNavigation(href: string): boolean {
-  if (isHttpUrl(href)) return true;
-  const pathname = new URL(href, window.location.origin).pathname;
+  const target = new URL(href, window.location.origin);
+  /* Same origin means same app. A deployed build resolves internal hrefs
+     against VITE_SITE_ORIGIN, so every one of them arrives here absolute —
+     testing for a protocol instead of an origin switched client-side routing
+     off in staging and production while leaving it working locally. */
+  if (target.origin !== window.location.origin) return true;
+  const pathname = target.pathname;
   const isConsolePath =
     pathname === '/dashboard' ||
     pathname.startsWith('/dashboard/') ||

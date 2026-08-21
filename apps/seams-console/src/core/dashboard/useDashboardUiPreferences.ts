@@ -1,8 +1,5 @@
 import React from 'react';
-import {
-  DEFAULT_EXPANDED_SIDEBAR_GROUPS,
-  SIDEBAR_GROUP_KEYS,
-} from '@app/dashboardConfig';
+import { DEFAULT_EXPANDED_SIDEBAR_GROUPS, SIDEBAR_GROUP_KEYS } from '@app/dashboardConfig';
 import type {
   ExpandedSidebarGroupsState,
   SidebarGroupKey,
@@ -85,10 +82,7 @@ function sanitizeSelectedContext(
   };
 }
 
-function areSelectedContextsEqual(
-  left: TopbarContextState,
-  right: TopbarContextState,
-): boolean {
+function areSelectedContextsEqual(left: TopbarContextState, right: TopbarContextState): boolean {
   return (
     left.organization === right.organization &&
     left.project === right.project &&
@@ -202,12 +196,16 @@ function readUrlState(
       : {}),
     ...(hasContextOverride
       ? {
-          selectedContext: sanitizeSelectedContext({
-            organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
-            project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
-            environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
-            accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
-          }, dropdownOptions, defaultContext),
+          selectedContext: sanitizeSelectedContext(
+            {
+              organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
+              project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
+              environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
+              accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
+            },
+            dropdownOptions,
+            defaultContext,
+          ),
         }
       : {}),
   };
@@ -232,12 +230,16 @@ function readUrlSelectedContext(
     accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
   });
 
-  const sanitized = sanitizeSelectedContext({
-    organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
-    project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
-    environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
-    accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
-  }, dropdownOptions, defaultContext);
+  const sanitized = sanitizeSelectedContext(
+    {
+      organization: params.get(DASHBOARD_UI_QUERY_KEYS.organization) || undefined,
+      project: params.get(DASHBOARD_UI_QUERY_KEYS.project) || undefined,
+      environment: params.get(DASHBOARD_UI_QUERY_KEYS.environment) || undefined,
+      accountSettings: params.get(DASHBOARD_UI_QUERY_KEYS.accountSettings) || undefined,
+    },
+    dropdownOptions,
+    defaultContext,
+  );
   return {
     ...sanitized,
     // Preserve explicit context overrides from URL even before dropdown options hydrate.
@@ -260,19 +262,27 @@ function readInitialState(
   const explicitUrlContext = readExplicitSelectedContext(fromUrl.selectedContext);
 
   return {
-    isSidebarExpanded:
-      fromUrl.isSidebarExpanded ?? stored.isSidebarExpanded ?? baseState.isSidebarExpanded,
+    /* Opening the Console always starts with the rail open. Collapsing it is a
+       working posture for the session you are in, not a preference to carry
+       into the next one — a stored collapse used to greet you with a bare rail
+       of icons on every later visit. An explicit ?db_sb= override still wins,
+       since that is deliberate. */
+    isSidebarExpanded: fromUrl.isSidebarExpanded ?? baseState.isSidebarExpanded,
     expandedGroups: sanitizeExpandedGroups({
       ...baseState.expandedGroups,
       ...stored.expandedGroups,
       ...fromUrl.expandedGroups,
     }),
     selectedContext: {
-      ...sanitizeSelectedContext({
-        ...baseState.selectedContext,
-        ...stored.selectedContext,
-        ...fromUrl.selectedContext,
-      }, dropdownOptions, defaultContext),
+      ...sanitizeSelectedContext(
+        {
+          ...baseState.selectedContext,
+          ...stored.selectedContext,
+          ...fromUrl.selectedContext,
+        },
+        dropdownOptions,
+        defaultContext,
+      ),
       ...explicitStoredContext,
       ...explicitUrlContext,
     },
@@ -415,13 +425,16 @@ export function useDashboardUiPreferences(
     }));
   }, []);
 
-  const onSelectContext = React.useCallback((menu: TopbarMenuKey, value: string) => {
-    if (!hasTopbarOption(menu, value, dropdownOptions)) return;
-    setSelectedContext((current) => ({
-      ...current,
-      [menu]: value,
-    }));
-  }, [dropdownOptions]);
+  const onSelectContext = React.useCallback(
+    (menu: TopbarMenuKey, value: string) => {
+      if (!hasTopbarOption(menu, value, dropdownOptions)) return;
+      setSelectedContext((current) => ({
+        ...current,
+        [menu]: value,
+      }));
+    },
+    [dropdownOptions],
+  );
 
   React.useEffect(() => {
     setSelectedContext((current) => {
