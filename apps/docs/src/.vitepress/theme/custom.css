@@ -43,6 +43,11 @@
   /* Accent surfaces (active markers, rails) take the gradient; accent text
      stays flat so it keeps its contrast ratio. */
   --seams-accent-gradient: linear-gradient(180deg, #22c55e 0%, #16a34a 55%, #15803d 100%);
+
+  /* Inline code is body text in a chip, not an accent: black on a lighter
+     grey. Code inside a link keeps the accent so the link still reads as one. */
+  --vp-code-bg: #f4f4f5;
+  --vp-code-color: var(--vp-c-text-1);
 }
 
 /* The same roles on a warm neutral ink, so the two modes read as one brand. */
@@ -86,6 +91,9 @@
   --vp-c-text-3: #71717a;
 
   --seams-accent-gradient: linear-gradient(180deg, #86efac 0%, #4ade80 55%, #22c55e 100%);
+
+  --vp-code-bg: #1c1c1f;
+  --vp-code-color: var(--vp-c-text-1);
 }
 
 /* The sidebar carries the brand, search, and appearance switch, so the top
