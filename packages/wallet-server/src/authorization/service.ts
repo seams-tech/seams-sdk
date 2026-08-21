@@ -17,7 +17,9 @@ import type {
   LinkedDeviceWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
+  IssuedWalletSessionAuthorizationV2,
   WalletSessionAuthorization,
+  WalletSessionAuthorizationV2,
   VerifiedOwnerProof,
 } from './domain';
 import {
@@ -26,6 +28,8 @@ import {
   buildLinkedDevicePrincipalId,
   buildLinkedDeviceWalletSessionAuthorization,
   buildWalletSessionAuthorization,
+  buildWalletSessionAuthorizationV2,
+  buildWalletSessionCapabilitySubjectsV1,
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseMpcWalletSigningQuotaId,
@@ -150,6 +154,18 @@ export interface AuthorizationGrantPort {
     readonly mintId: ReusableWalletSessionMintId;
     readonly nowMs: number;
   }): Promise<IssuedReusableWalletSession | null>;
+  putWalletSessionAuthorizationV2(input: {
+    readonly session: WalletSessionAuthorizationV2;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void>;
+  readWalletSessionAuthorizationV2ByMint(input: {
+    readonly expected: WalletSessionAuthorizationV2;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
+  readWalletSessionAuthorizationV2ByAuthorizationId(input: {
+    readonly expected: WalletSessionAuthorizationV2;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
   putOpaqueWalletSessionToken(input: {
     readonly tokenHash: DigestB64u;
     readonly curve: OpaqueWalletSessionCurve;
@@ -286,6 +302,18 @@ export type IssueReusableWalletSessionInput = {
   readonly principalId: PrincipalId;
   readonly walletId: WalletId;
   readonly authority: WalletAuthAuthorityRef;
+  readonly mintId: ReusableWalletSessionMintId;
+  readonly remainingUses: number;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export type IssueWalletSessionAuthorizationV2Input = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authority: import('@shared/authorization/walletAuthority').ActiveWalletAuthorityV1;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly mintId: ReusableWalletSessionMintId;
   readonly remainingUses: number;
   readonly issuedAtMs: number;
@@ -795,6 +823,71 @@ export class AuthorizationService {
     return persisted;
   }
 
+  async issueWalletSessionAuthorizationV2(
+    input: IssueWalletSessionAuthorizationV2Input,
+  ): Promise<IssuedWalletSessionAuthorizationV2> {
+    if (input.authority.walletId !== input.walletId) {
+      throw new Error('Wallet Session authorization authority does not identify the wallet');
+    }
+    const authorizationId = parseRequired(
+      await deriveWalletSessionAuthorizationV2Id(input, 'authorization'),
+      parseWalletSessionAuthorizationId,
+    );
+    const walletSessionId = parseRequired(
+      await deriveWalletSessionAuthorizationV2Id(input, 'wallet_session'),
+      parseWalletSessionId,
+    );
+    const quotaId = parseRequired(
+      await deriveWalletSessionAuthorizationV2Id(input, 'quota'),
+      parseMpcWalletSigningQuotaId,
+    );
+    const session = buildWalletSessionAuthorizationV2({
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      walletId: input.walletId,
+      authorityId: input.authority.authorityId,
+      walletAuthMethodId: input.walletAuthMethodId,
+      authorityDigestB64u: input.authority.authorityDigestB64u,
+      authorityRevocationEpoch: input.authority.revocationEpoch,
+      mintId: input.mintId,
+      authorizationId,
+      walletSessionId,
+      quotaId,
+      capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(input.authority),
+      createdAtMs: input.issuedAtMs,
+      expiresAtMs: input.expiresAtMs,
+    });
+    const quota = buildActiveWalletSessionQuota({
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletSessionId,
+      quotaId,
+      remainingUses: input.remainingUses,
+      expiresAtMs: session.expiresAtMs,
+    });
+    await this.ports.grants.putWalletSessionAuthorizationV2({ session, quota });
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint({
+      expected: session,
+      nowMs: input.issuedAtMs,
+    });
+    if (!persisted) throw new Error('Issued V2 Wallet Session authorization was not persisted');
+    return persisted;
+  }
+
+  async readWalletSessionAuthorizationV2ByMint(input: {
+    readonly expected: WalletSessionAuthorizationV2;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+    return await this.ports.grants.readWalletSessionAuthorizationV2ByMint(input);
+  }
+
+  async readWalletSessionAuthorizationV2ByAuthorizationId(input: {
+    readonly expected: WalletSessionAuthorizationV2;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+    return await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId(input);
+  }
+
   async issueOpaqueWalletSessionToken(input: {
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly tenantId: TenantId;
@@ -1041,6 +1134,30 @@ async function deriveReusableWalletSessionId(
         input.principalId,
         input.walletId,
         input.authority.authorityDigest,
+        input.mintId,
+      ].join('\0'),
+    ),
+  );
+  const prefix = kind === 'authorization' ? 'wlt' : kind === 'wallet_session' ? 'wls' : 'wsq';
+  return `${prefix}_${digest}`;
+}
+
+async function deriveWalletSessionAuthorizationV2Id(
+  input: IssueWalletSessionAuthorizationV2Input,
+  kind: 'authorization' | 'wallet_session' | 'quota',
+): Promise<string> {
+  const digest = base64UrlEncode(
+    await sha256BytesUtf8(
+      [
+        'seams:wallet-session-authorization-v2-issuance:v1',
+        kind,
+        input.tenantId,
+        input.principalId,
+        input.walletId,
+        input.authority.authorityId,
+        input.walletAuthMethodId,
+        input.authority.authorityDigestB64u,
+        String(input.authority.revocationEpoch),
         input.mintId,
       ].join('\0'),
     ),
