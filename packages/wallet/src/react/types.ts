@@ -197,7 +197,7 @@ export interface SeamsContextType {
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: RegistrationCapability['registerPasskey'];
   unlock: (walletId: string, options?: LoginHooksOptions) => Promise<LoginAndCreateSessionResult>;
-  lock: () => void;
+  lock: () => Promise<void>;
 
   // Execute actions
   executeAction: (args: {

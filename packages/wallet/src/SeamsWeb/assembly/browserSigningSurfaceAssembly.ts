@@ -11,6 +11,7 @@ import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal'
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
+import { readActiveLinkedDeviceExecutionBundleForWalletV1 } from '../operations/devices/linkedDeviceSigningRuntime';
 import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { BrowserSealedSigningSessionStorePorts } from './createBrowserSigningStores';
@@ -666,6 +667,7 @@ export function createBrowserSigningSurfaceEnginePorts(
             );
             return read.kind === 'found' ? read.projection : null;
           },
+          readActiveExecutionBundleForWallet: readActiveLinkedDeviceExecutionBundleForWalletV1,
           listEcdsaSigningCapabilitiesForWallet: (input) =>
             listBrowserEcdsaSigningCapabilitiesForWallet(args, input),
         },

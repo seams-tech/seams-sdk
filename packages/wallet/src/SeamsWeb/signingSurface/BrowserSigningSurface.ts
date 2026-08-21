@@ -22,6 +22,7 @@ import type {
   WalletAuthenticationState,
 } from '@/core/types/seams';
 import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
@@ -162,6 +163,7 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+import type { PasskeyEd25519WarmRecoverySubject } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
   nearEd25519YaoOperationMaterialFacts,
   buildEmailOtpRouterAbEd25519WalletSessionState,
@@ -382,6 +384,8 @@ import {
   closeLinkedDeviceWarmSigningSessionV1,
   openLinkedDeviceEmailOtpWarmSigningSessionV1,
   openLinkedDeviceWarmSigningSessionV1,
+  readActiveLinkedDeviceExecutionBundleForWalletV1,
+  resolveActiveLinkedDeviceEcdsaExportContextV1,
   restoreLinkedDeviceWarmSigningSessionV1,
   signLinkedDeviceEvmFamilyV1,
   signLinkedDeviceNearTransactionV1,
@@ -397,7 +401,11 @@ import type {
   LinkSessionSubscriptionV1,
 } from '../operations/devices/deviceLinkingPorts';
 import { nextLinkedDevicePollingDelayMsV1 } from '../operations/devices/deviceLinkingHttpTransport';
-import type { LinkedDeviceApprovalResultV1, LinkedDeviceApprovalV1 } from '@shared/device-linking';
+import type {
+  LinkedDeviceApprovalResultV1,
+  LinkedDeviceApprovalV1,
+  LinkedDeviceWalletSessionDeliveryV1,
+} from '@shared/device-linking';
 import type { LinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking';
 import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import {
@@ -417,6 +425,7 @@ import type {
   Ed25519YaoLaneJobV1,
   WasmEd25519YaoLaneClientV1,
 } from '@shared/signing-lanes/rotation';
+import type { ActiveLinkedDeviceExecutionBundleV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import {
   assertEd25519YaoLaneCeremonyBindingParityV1,
   createEd25519YaoLaneDerivationWorkerWasmV1,
@@ -487,6 +496,7 @@ import type {
   ReservedRegistrationWebAuthnPrompt,
   WebAuthnPromptCancellation,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+import { persistLinkedDeviceWalletSessionAuthorization } from '../operations/auth/login';
 
 type LinkedDeviceSigningSessionActivationWithAuthenticatorV1 =
   | Extract<
@@ -815,6 +825,128 @@ function isEcdsaLaneAuthorizedByWalletSession(
     lane.authorization !== undefined &&
     walletSessionIdentityMatches(lane.authorization.projection, authorization)
   );
+}
+
+function delegatedPasskeyExportSubjectForLane(args: {
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly laneIdentity: ExactEd25519ExportMaterialIdentity;
+  readonly materialActivation: MpcMaterialActivationRef;
+}): Extract<
+  PasskeyEd25519WarmRecoverySubject,
+  { readonly kind: 'delegated_active_bundle' }
+> | null {
+  if (!hasDelegatedWalletPermissionV1(args.bundle.permission, 'export_keys')) return null;
+  const registration = args.bundle.targetCredentialRegistration;
+  const preparation = args.bundle.targetPreparation;
+  if (
+    registration.targetFactor.kind !== 'passkey_prf' ||
+    preparation.targetFactor.kind !== 'passkey_prf' ||
+    !registration.webauthnRegistration ||
+    !preparation.ownerEnrollment.registration
+  ) {
+    return null;
+  }
+  let execution: Extract<
+    ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+    { readonly keyFamily: 'ed25519' }
+  > | null = null;
+  for (const candidate of args.bundle.orderedExecutions) {
+    if (candidate.keyFamily !== 'ed25519') continue;
+    if (execution) {
+      throw new Error('delegated Ed25519 export lane is ambiguous');
+    }
+    execution = candidate;
+  }
+  if (!execution || execution.job.source.sourceKind !== 'owner_registration') return null;
+  const signer = args.laneIdentity.signer;
+  const targetCredentialId = registration.webauthnRegistration.credentialIdB64u;
+  if (
+    String(signer.account.wallet.walletId) !== String(args.bundle.walletId) ||
+    String(signer.account.nearAccountId) !== String(args.bundle.nearAccountId) ||
+    String(signer.nearEd25519SigningKeyId) !== String(execution.job.nearEd25519SigningKeyId) ||
+    signer.signerSlot !== execution.job.keyCreationSignerSlot ||
+    args.laneIdentity.auth.kind !== 'passkey' ||
+    String(args.laneIdentity.auth.rpId) !== String(preparation.ownerEnrollment.registration.rpId) ||
+    String(args.laneIdentity.auth.credentialIdB64u) !== String(targetCredentialId) ||
+    !mpcMaterialActivationRefsEqual(execution.materialActivation, args.materialActivation)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'delegated_active_bundle',
+    walletId: String(args.bundle.walletId),
+    nearAccountId: String(args.bundle.nearAccountId),
+    nearEd25519SigningKeyId: String(execution.job.nearEd25519SigningKeyId),
+    signerSlot: execution.job.keyCreationSignerSlot,
+    targetMaterialActivation: args.materialActivation,
+    sourceMaterialActivation: execution.job.source.materialActivation,
+    bundle: args.bundle,
+    sourceOwnerCapability: execution.job.source,
+  };
+}
+
+async function resolveLinkedEmailOtpExportRootForLane(args: {
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly laneIdentity: ResolvedWalletCustodyEd25519ExportV1['lane'];
+  readonly selectedMaterialActivation: MpcMaterialActivationRef;
+}) {
+  if (!hasDelegatedWalletPermissionV1(args.bundle.permission, 'export_keys')) return null;
+  const registration = args.bundle.targetCredentialRegistration;
+  const preparation = args.bundle.targetPreparation;
+  const exportRoot = preparation.ed25519ExportRoot;
+  if (
+    registration.targetFactor.kind !== 'email_otp' ||
+    preparation.targetFactor.kind !== 'email_otp' ||
+    !registration.emailOtpVerificationGrant ||
+    !exportRoot ||
+    args.laneIdentity.auth.kind !== 'email_otp'
+  ) {
+    return null;
+  }
+  let execution: Extract<
+    ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+    { readonly keyFamily: 'ed25519' }
+  > | null = null;
+  for (const candidate of args.bundle.orderedExecutions) {
+    if (candidate.keyFamily !== 'ed25519') continue;
+    if (execution) throw new Error('delegated Ed25519 export lane is ambiguous');
+    execution = candidate;
+  }
+  if (!execution || execution.job.source.sourceKind !== 'owner_registration') return null;
+  const signer = args.laneIdentity.signer;
+  const source = execution.job.source;
+  if (
+    String(signer.account.wallet.walletId) !== String(args.bundle.walletId) ||
+    String(signer.account.nearAccountId) !== String(args.bundle.nearAccountId) ||
+    String(signer.nearEd25519SigningKeyId) !== String(execution.job.nearEd25519SigningKeyId) ||
+    signer.signerSlot !== execution.job.keyCreationSignerSlot ||
+    args.laneIdentity.auth.providerSubjectId !==
+      registration.emailOtpVerificationGrant.providerUserId ||
+    exportRoot.walletKeyId !== execution.walletKeyId ||
+    exportRoot.registeredPublicKeyB64u !== execution.job.registeredPublicKeyB64u ||
+    !mpcMaterialActivationRefsEqual(
+      execution.materialActivation,
+      args.selectedMaterialActivation,
+    )
+  ) {
+    return null;
+  }
+  const envelope = await readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1({
+    walletId: String(args.bundle.walletId),
+    registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
+  });
+  if (!envelope) {
+    throw new Error('[SigningEngine][ed25519-export] linked export root is unavailable');
+  }
+  return {
+    envelope,
+    source: {
+      materialActivation: source.materialActivation,
+      signingWorkerId: String(source.ownerParticipantContinuity.signingWorkerId),
+      participantIds: source.ownerParticipantContinuity.participantIds,
+      registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
+    },
+  };
 }
 
 function appendOwnerSourceLaneCandidate(
@@ -2055,6 +2187,7 @@ export class BrowserSigningSurface {
       ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
       isEd25519YaoPublicCapabilityActive: this.isEd25519YaoPublicCapabilityActive.bind(this),
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
+      readActiveExecutionBundleForWallet: readActiveLinkedDeviceExecutionBundleForWalletV1,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
           {
@@ -2108,6 +2241,9 @@ export class BrowserSigningSurface {
       ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
       isEd25519YaoPublicCapabilityActive: this.isEd25519YaoPublicCapabilityActive.bind(this),
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
+      readActiveExecutionBundleForWallet: readActiveLinkedDeviceExecutionBundleForWalletV1,
+      readActiveEcdsaExportContextForWallet:
+        this.readActiveLinkedDeviceEcdsaExportContext.bind(this),
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
           {
@@ -2921,6 +3057,7 @@ export class BrowserSigningSurface {
   async establishLinkedDeviceSigningSession(input: {
     readonly walletId: WalletId;
     readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
+    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
     readonly activation:
       | LinkedDeviceSigningSessionActivationV1
       | LinkedDeviceEmailOtpWarmSigningActivationV1;
@@ -2948,6 +3085,7 @@ export class BrowserSigningSurface {
     const nextSession = await openLinkedDeviceWarmSigningSessionV1({
       walletId: input.walletId,
       enrollmentId: input.enrollmentId,
+      walletSessionDelivery: input.walletSessionDelivery,
       relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
       warmMaterial: this.passkeyMpcSession,
       activation,
@@ -2956,6 +3094,7 @@ export class BrowserSigningSurface {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
     this.linkedDeviceWarmSigningSession = nextSession;
+    await persistLinkedDeviceWalletSessionAuthorization(nextSession.bundle);
     this.setWalletAuthenticated({
       kind: 'authenticated',
       walletId: input.walletId,
@@ -2984,6 +3123,7 @@ export class BrowserSigningSurface {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
     this.linkedDeviceWarmSigningSession = nextSession;
+    await persistLinkedDeviceWalletSessionAuthorization(nextSession.bundle);
     this.setWalletAuthenticated({
       kind: 'authenticated',
       walletId: input.walletId,
@@ -3014,6 +3154,7 @@ export class BrowserSigningSurface {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
     this.linkedDeviceWarmSigningSession = nextSession;
+    await persistLinkedDeviceWalletSessionAuthorization(nextSession.bundle);
     this.setWalletAuthenticated({
       kind: 'authenticated',
       walletId,
@@ -3027,6 +3168,20 @@ export class BrowserSigningSurface {
 
   hasLinkedDeviceSigningSession(walletId: WalletId): boolean {
     return this.linkedDeviceWarmSigningSession?.walletId === walletId;
+  }
+
+  private async readActiveLinkedDeviceEcdsaExportContext(args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    nowMs: number;
+  }) {
+    const warmSession = this.linkedDeviceWarmSigningSession;
+    if (!warmSession || warmSession.walletId !== args.walletId) return null;
+    return await resolveActiveLinkedDeviceEcdsaExportContextV1({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+      warmSession,
+    });
   }
 
   async clearLinkedDeviceRefreshMaterial(): Promise<void> {
@@ -3315,21 +3470,26 @@ export class BrowserSigningSurface {
         break;
       }
       case WALLET_AUTH_METHODS.emailOtp: {
-        const capability = readUnlockedWalletEd25519ExportRootCapabilityV1(String(args.job.walletId));
+        const capability = readUnlockedWalletEd25519ExportRootCapabilityV1(
+          String(args.job.walletId),
+        );
         if (!capability) {
           throw new Error('Wallet-host Email OTP custody capability is unavailable');
         }
         if (
           capability.walletAuthMethodId !==
-            String(lane.authorization.authority.walletAuthMethodId) ||
-          capability.walletSessionId !== String(lane.authorization.walletSessionId)
+          String(lane.authorization.authority.walletAuthMethodId)
         ) {
-          throw new Error('Wallet-host Email OTP custody capability identity mismatch');
+          throw new Error('Wallet-host Email OTP custody capability authority mismatch');
         }
         source = await openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1({
           workerCtx: this.getSignerWorkerContext(),
           capability,
           applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
+          walletKeyId: String(args.job.walletKeyId),
+          enrollmentId: String(args.job.enrollmentId),
+          revocationEpoch: args.job.source.revocationEpoch,
+          registeredPublicKeyB64u: args.job.registeredPublicKeyB64u,
         });
         break;
       }
@@ -3406,6 +3566,7 @@ export class BrowserSigningSurface {
           await this.establishLinkedDeviceSigningSession({
             walletId: input.walletId,
             enrollmentId: input.enrollmentId,
+            walletSessionDelivery: input.walletSessionDelivery,
             activation: input.activation,
           }),
       },
@@ -4746,8 +4907,27 @@ export class BrowserSigningSurface {
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] passkey export requires relayerUrl');
     }
+    const walletId = toWalletId(String(args.laneIdentity.signer.account.wallet.walletId));
+    const activeBundle = await readActiveLinkedDeviceExecutionBundleForWalletV1({
+      walletId,
+      nowMs: Date.now(),
+    });
+    if (activeBundle) {
+      const delegatedSubject = delegatedPasskeyExportSubjectForLane({
+        bundle: activeBundle,
+        laneIdentity: args.laneIdentity,
+        materialActivation: args.materialActivation,
+      });
+      if (delegatedSubject) {
+        return await resolvePasskeyEd25519YaoExportContextV1({
+          subject: delegatedSubject,
+          relayerUrl,
+          fetch: fetchWithGlobalThis,
+        });
+      }
+    }
     const runtime = await requireExactEd25519SealedRuntimeForMaterialActivation({
-      walletId: toWalletId(String(args.laneIdentity.signer.account.wallet.walletId)),
+      walletId,
       laneIdentity: args.laneIdentity,
       materialActivation: args.materialActivation,
     });
@@ -4768,8 +4948,10 @@ export class BrowserSigningSurface {
     }
     const input = {
       subject: {
+        kind: 'owner_sealed_runtime',
         walletId: toWalletId(String(args.laneIdentity.signer.account.wallet.walletId)),
         nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
+        nearEd25519SigningKeyId: String(args.laneIdentity.signer.nearEd25519SigningKeyId),
         signerSlot: args.laneIdentity.signer.signerSlot,
         thresholdSessionId,
         materialActivation: args.materialActivation,
@@ -4796,13 +4978,27 @@ export class BrowserSigningSurface {
           nearAccountId: toAccountId(nearAccountId),
           materialActivation,
         }),
-      resolveEd25519YaoClientRootEnvelope: async ({ capability }) => {
-        if (!capability) return null;
-        return await readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1({
-          walletId: String(args.laneIdentity.signer.account.wallet.walletId),
-          registeredPublicKeyB64u: base64UrlEncode(
-            Uint8Array.from(capability.registeredPublicKey),
-          ),
+      resolveEd25519YaoClientRootEnvelope: async ({
+        capability,
+        selectedMaterialActivation,
+      }) => {
+        if (capability) {
+          return await readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1({
+            walletId: String(args.laneIdentity.signer.account.wallet.walletId),
+            registeredPublicKeyB64u: base64UrlEncode(
+              Uint8Array.from(capability.registeredPublicKey),
+            ),
+          });
+        }
+        const activeBundle = await readActiveLinkedDeviceExecutionBundleForWalletV1({
+          walletId: args.laneIdentity.signer.account.wallet.walletId,
+          nowMs: Date.now(),
+        });
+        if (!activeBundle) return null;
+        return await resolveLinkedEmailOtpExportRootForLane({
+          bundle: activeBundle,
+          laneIdentity: args.laneIdentity,
+          selectedMaterialActivation,
         });
       },
       loadWalletCustodyMaterial: () =>

@@ -368,7 +368,54 @@ export class CloudflareD1AuthorizationStore
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.namespace, input.tenantId, input.walletId, input.walletAuthMethodId);
-    await this.database.batch([deleteTokens, exhaustQuotas, supersedeSessions]);
+    const revokeLinkedDeviceSessions = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_authorizations
+            SET lifecycle_kind = 'revoked',
+                revoked_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND enrollment_id IN (
+              SELECT binding.enrollment_id
+                FROM linked_device_owner_auth_bindings AS binding
+               WHERE binding.namespace = ?
+                 AND binding.org_id = ?
+                 AND binding.project_id = ?
+                 AND binding.env_id = ?
+                 AND binding.wallet_id = ?
+                 AND (
+                   binding.wallet_auth_method_id = ?
+                   OR binding.base_wallet_auth_method_id = ?
+                 )
+            )
+            AND lifecycle_kind = 'active'`,
+      )
+      .bind(
+        input.nowMs,
+        this.walletSignerScope.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.walletId,
+        this.walletSignerScope.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.walletId,
+        input.walletAuthMethodId,
+        input.walletAuthMethodId,
+      );
+    await this.database.batch([
+      deleteTokens,
+      exhaustQuotas,
+      supersedeSessions,
+      revokeLinkedDeviceSessions,
+    ]);
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(
@@ -1267,10 +1314,10 @@ export class CloudflareD1AuthorizationStore
     }
     const nowMs = requirePositiveInteger(input.nowMs, 'linked authorization read time');
     if (rows.lifecycleKind !== 'active' || rows.quotaLifecycleKind !== 'active') {
-      throw new Error('linked-device Wallet Session authorization is no longer active');
+      return null;
     }
     if (rows.expiresAtMs <= nowMs) {
-      throw new Error('linked-device Wallet Session authorization has expired');
+      return null;
     }
     const quota = buildActiveWalletSessionQuota({
       tenantId: rows.quotaTenantId,

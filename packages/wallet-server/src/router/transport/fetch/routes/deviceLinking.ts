@@ -394,7 +394,11 @@ export type DeviceLinkingRouteServiceV1 = {
   readWalletSessionAuthorizationV1(input: {
     readonly session: Extract<
       LinkedDeviceSessionRecordV1,
-      { readonly state: { readonly state: 'active' } }
+      {
+        readonly state: {
+          readonly state: 'committed_completion_required' | 'active';
+        };
+      }
     >;
     readonly requestedAtMs: number;
   }): Promise<
@@ -1628,7 +1632,7 @@ async function handleWalletSession(
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'GET') return methodNotAllowedResponse();
-  if (!isActiveLinkedDeviceSessionRecord(authenticated.session)) {
+  if (!isWalletSessionEligibleLinkedDeviceSessionRecord(authenticated.session)) {
     return invalidStateResponse(authenticated.session);
   }
   const session = authenticated.session;
@@ -1747,10 +1751,7 @@ async function authenticateWalletSessionRenewal(
 async function respondWithLinkedDeviceWalletSessionDelivery(input: {
   readonly ctx: FetchRouterApiContext;
   readonly service: DeviceLinkingRouteServiceV1;
-  readonly session: Extract<
-    LinkedDeviceSessionRecordV1,
-    { readonly state: { readonly state: 'active' } }
-  >;
+  readonly session: WalletSessionEligibleLinkedDeviceSessionRecordV1;
   readonly approval: LinkedDeviceApprovalV1;
   readonly authorization: IssuedLinkedDeviceWalletSession;
   readonly nowMs: number;
@@ -1808,6 +1809,26 @@ function isActiveLinkedDeviceSessionRecord(
   { readonly state: { readonly state: 'active' } }
 > {
   return session.state.state === 'active';
+}
+
+type CommittedLinkedDeviceSessionRecordV1 = Extract<
+  LinkedDeviceSessionRecordV1,
+  { readonly state: { readonly state: 'committed_completion_required' } }
+>;
+
+type ActiveLinkedDeviceSessionRecordV1 = Extract<
+  LinkedDeviceSessionRecordV1,
+  { readonly state: { readonly state: 'active' } }
+>;
+
+type WalletSessionEligibleLinkedDeviceSessionRecordV1 =
+  | CommittedLinkedDeviceSessionRecordV1
+  | ActiveLinkedDeviceSessionRecordV1;
+
+function isWalletSessionEligibleLinkedDeviceSessionRecord(
+  session: LinkedDeviceSessionRecordV1,
+): session is WalletSessionEligibleLinkedDeviceSessionRecordV1 {
+  return session.state.state === 'committed_completion_required' || session.state.state === 'active';
 }
 
 type LinkedDeviceWalletSessionTokenSigningResultV1 =
@@ -1907,20 +1928,21 @@ async function signLinkedDeviceWalletSessionTokenForFamily(
 
 function assertIssuedAuthorizationMatchesSession(
   issued: IssuedLinkedDeviceWalletSession,
-  session: Extract<LinkedDeviceSessionRecordV1, { readonly state: { readonly state: 'active' } }>,
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
   nowMs: number,
 ): void {
   const authorization = issued.authorization;
   const quota = issued.quota;
   const approval = session.approvalTranscript.value;
-  const receipt = session.aggregateReceipt;
+  const manifestDigestB64u = walletSessionEligibleManifestDigestV1(session);
+  const eligibleAtMs = walletSessionEligibleAtMsV1(session);
   if (
     authorization.walletId !== approval.walletId ||
     authorization.enrollmentId !== approval.enrollmentId ||
     authorization.deviceId !== approval.deviceId ||
-    authorization.keyManifestDigestB64u !== receipt.manifestDigestB64u ||
+    authorization.keyManifestDigestB64u !== manifestDigestB64u ||
     !sameDelegatedWalletAuthorityV1(authorization.permission, approval.permission) ||
-    authorization.issuedAtMs < receipt.activatedAtMs ||
+    authorization.issuedAtMs < eligibleAtMs ||
     authorization.issuedAtMs > nowMs ||
     authorization.expiresAtMs <= nowMs ||
     quota.tenantId !== authorization.tenantId ||
@@ -1931,9 +1953,27 @@ function assertIssuedAuthorizationMatchesSession(
     quota.remainingUses <= 0
   ) {
     throw new DeviceLinkingInputError(
-      'linked-device Wallet Session authorization does not match the active session',
+      'linked-device Wallet Session authorization does not match the eligible session',
     );
   }
+}
+
+function walletSessionEligibleManifestDigestV1(
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
+): DigestB64u {
+  if (isActiveLinkedDeviceSessionRecord(session)) {
+    return session.aggregateReceipt.manifestDigestB64u;
+  }
+  return session.state.keyManifestDigestB64u;
+}
+
+function walletSessionEligibleAtMsV1(
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
+): number {
+  if (isActiveLinkedDeviceSessionRecord(session)) {
+    return session.aggregateReceipt.activatedAtMs;
+  }
+  return session.updatedAtMs;
 }
 
 async function handleRetry(

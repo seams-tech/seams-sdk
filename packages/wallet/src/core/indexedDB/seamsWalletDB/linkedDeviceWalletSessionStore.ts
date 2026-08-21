@@ -13,8 +13,12 @@ import type { LinkedDeviceEnrollmentId, WalletKeyId } from '@shared/signing-lane
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
+import {
+  parseWalletAuthMethodId,
+  type WalletAuthMethodId,
+} from '@shared/utils/domainIds';
 
-export type LinkedDeviceSealedRefreshMaterialV1 = {
+type LinkedDeviceSealedRefreshMaterialBaseV1 = {
   readonly kind: 'linked_device_sealed_refresh_material_v1';
   readonly algorithm: typeof SIGNING_SESSION_SEAL_ALG;
   readonly groupId: typeof SIGNING_SESSION_SEAL_GROUP_ID;
@@ -22,13 +26,26 @@ export type LinkedDeviceSealedRefreshMaterialV1 = {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: string;
   readonly walletSessionId: string;
-  readonly credentialIdB64u: string;
   readonly sealedSecretB64u: string;
   readonly keyVersion: string | null;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
   readonly remainingUses: number;
 };
+
+export type LinkedDeviceSealedRefreshMaterialV1 = LinkedDeviceSealedRefreshMaterialBaseV1 &
+  (
+    | {
+        readonly authMethod: 'passkey';
+        readonly credentialIdB64u: string;
+        readonly walletAuthMethodId?: never;
+      }
+    | {
+        readonly authMethod: 'email_otp';
+        readonly walletAuthMethodId: WalletAuthMethodId;
+        readonly credentialIdB64u?: never;
+      }
+  );
 
 type StoredLinkedDeviceWalletSessionRowV1 = {
   readonly enrollment_id: string;
@@ -137,13 +154,19 @@ function positiveSafeInteger(value: unknown): number {
   return parsed;
 }
 
+function walletAuthMethodId(value: unknown): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function parseSealedRefresh(
   raw: unknown,
   delivery: LinkedDeviceWalletSessionDeliveryV1,
 ): LinkedDeviceSealedRefreshMaterialV1 | null {
   if (raw === null) return null;
   if (!isRecord(raw)) throw new Error('sealed refresh must be an object');
-  const fields = [
+  const commonFields = [
     'kind',
     'algorithm',
     'groupId',
@@ -151,14 +174,22 @@ function parseSealedRefresh(
     'enrollmentId',
     'deviceId',
     'walletSessionId',
-    'credentialIdB64u',
+    'authMethod',
     'sealedSecretB64u',
     'keyVersion',
     'issuedAtMs',
     'expiresAtMs',
     'remainingUses',
   ] as const;
-  if (!hasExactFields(raw, fields)) throw new Error('sealed refresh fields are invalid');
+  const identityFields =
+    raw.authMethod === 'passkey'
+      ? (['credentialIdB64u'] as const)
+      : raw.authMethod === 'email_otp'
+        ? (['walletAuthMethodId'] as const)
+        : null;
+  if (!identityFields || !hasExactFields(raw, [...commonFields, ...identityFields])) {
+    throw new Error('sealed refresh fields are invalid');
+  }
   if (
     raw.kind !== 'linked_device_sealed_refresh_material_v1' ||
     raw.algorithm !== SIGNING_SESSION_SEAL_ALG ||
@@ -170,7 +201,7 @@ function parseSealedRefresh(
   if (enrollmentId !== delivery.enrollmentId) {
     throw new Error('sealed refresh enrollment identity does not match its Wallet Session');
   }
-  const parsed: LinkedDeviceSealedRefreshMaterialV1 = {
+  const common: LinkedDeviceSealedRefreshMaterialBaseV1 = {
     kind: 'linked_device_sealed_refresh_material_v1',
     algorithm: SIGNING_SESSION_SEAL_ALG,
     groupId: SIGNING_SESSION_SEAL_GROUP_ID,
@@ -178,13 +209,24 @@ function parseSealedRefresh(
     enrollmentId: delivery.enrollmentId,
     deviceId: nonEmptyString(raw.deviceId),
     walletSessionId: nonEmptyString(raw.walletSessionId),
-    credentialIdB64u: canonicalBase64Url(raw.credentialIdB64u),
     sealedSecretB64u: canonicalBase64Url(raw.sealedSecretB64u),
     keyVersion: raw.keyVersion === null ? null : nonEmptyString(raw.keyVersion),
     issuedAtMs: nonNegativeSafeInteger(raw.issuedAtMs),
     expiresAtMs: positiveSafeInteger(raw.expiresAtMs),
     remainingUses: nonNegativeSafeInteger(raw.remainingUses),
   };
+  const parsed: LinkedDeviceSealedRefreshMaterialV1 =
+    raw.authMethod === 'passkey'
+      ? {
+          ...common,
+          authMethod: 'passkey',
+          credentialIdB64u: canonicalBase64Url(raw.credentialIdB64u),
+        }
+      : {
+          ...common,
+          authMethod: 'email_otp',
+          walletAuthMethodId: walletAuthMethodId(raw.walletAuthMethodId),
+        };
   if (
     parsed.walletId !== delivery.walletId ||
     parsed.enrollmentId !== delivery.enrollmentId ||
@@ -309,6 +351,41 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       }
       await replaceCurrentWalletSessionRow(store, toStoredRow(delivery));
       await tx.done;
+      return delivery;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async putExactActiveDeliveryWithSealedRefreshV1(input: {
+    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
+    readonly sealedRefresh: LinkedDeviceSealedRefreshMaterialV1;
+  }): Promise<LinkedDeviceWalletSessionDeliveryV1> {
+    const delivery = parseLinkedDeviceWalletSessionDeliveryV1(input.delivery);
+    const sealedRefresh = parseSealedRefresh(input.sealedRefresh, delivery);
+    if (!sealedRefresh) throw new Error('Linked-device sealed refresh material is required');
+    const db = await this.manager.getDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    try {
+      const existingRaw = await store.get(delivery.enrollmentId);
+      if (existingRaw !== undefined) {
+        const existing = parseStoredRow(existingRaw);
+        if (!existing) throw new Error('Stored linked-device Wallet Session is corrupt');
+        if (!deliveriesEqual(existing.delivery, delivery)) {
+          throw new Error('Linked-device Wallet Session replay does not match');
+        }
+      }
+      await replaceCurrentWalletSessionRow(
+        store,
+        rowWithSealedRefresh(toStoredRow(delivery), sealedRefresh),
+      );
+      await tx.done;
+      lockedLinkedDeviceEnrollments.delete(String(delivery.enrollmentId));
       return delivery;
     } catch (error) {
       try {

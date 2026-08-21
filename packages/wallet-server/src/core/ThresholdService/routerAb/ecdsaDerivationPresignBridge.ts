@@ -2,11 +2,14 @@ import {
   buildCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
   parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptForRequestV1,
   parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1,
+  parseRouterAbEcdsaSigningWorkerProtocolExportShareEnvelopeV1,
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
   type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1Wire,
   type CloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutRequestV1Wire,
   type RouterAbEcdsaDerivationServerPresignatureShareV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaSigningWorkerExportShareBindingV1,
+  type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { postRouterAbInternalServiceJson } from './internalServiceHttp';
 export { ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1 } from './internalServiceHttp';
@@ -21,6 +24,8 @@ export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_PRESIGN_SESSION_INIT_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/linked-device/presignature-session/init' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_PRESIGN_SESSION_STEP_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/linked-device/presignature-session/step' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_EXPORT_SHARE_PATH =
+  '/router-ab/signing-worker/ecdsa-derivation/linked-device/export-share' as const;
 
 export type RouterAbEcdsaDerivationPresignaturePoolFillInput = {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
@@ -123,6 +128,75 @@ export type RouterAbEcdsaPresignSessionProgress =
 export type RouterAbEcdsaPresignSessionHttpResult =
   | { ok: true; value: RouterAbEcdsaPresignSessionProgress }
   | { ok: false; code: 'network_error' | 'http_error' | 'invalid_response'; message: string };
+
+export type RouterAbLinkedDeviceEcdsaExportShareHttpResult =
+  | { ok: true; value: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 }
+  | { ok: false; code: 'network_error' | 'http_error' | 'invalid_response'; message: string };
+
+function encodeClientProtocolMaterialActivation(
+  input: RouterAbEcdsaSigningWorkerExportShareBindingV1['material_activation'],
+) {
+  return {
+    kind: input.kind,
+    activationId: input.activation_id,
+    capability: input.capability,
+    materialOwner: input.material_owner,
+    keyBinding: input.key_binding,
+    lifecycleBinding: input.lifecycle_binding,
+    signingWorker: input.signing_worker,
+  };
+}
+
+function encodeClientProtocolExportBinding(
+  input: RouterAbEcdsaSigningWorkerExportShareBindingV1,
+) {
+  return {
+    ...input,
+    material_activation: encodeClientProtocolMaterialActivation(input.material_activation),
+  };
+}
+
+export async function exportRouterAbLinkedDeviceEcdsaShare(input: {
+  signingWorkerBaseUrl: string;
+  scope: Record<string, unknown>;
+  materialSource: Record<string, unknown>;
+  binding: RouterAbEcdsaSigningWorkerExportShareBindingV1;
+  auth: RouterAbEcdsaDerivationPresignaturePoolFillAuth;
+  fetchImpl: typeof fetch;
+}): Promise<RouterAbLinkedDeviceEcdsaExportShareHttpResult> {
+  const base = input.signingWorkerBaseUrl.trim().replace(/\/+$/, '');
+  if (!base) {
+    return { ok: false, code: 'invalid_response', message: 'signingWorkerBaseUrl is required' };
+  }
+  const response = await postRouterAbInternalServiceJson({
+    url: `${base}${CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_EXPORT_SHARE_PATH}`,
+    body: {
+      scope: input.scope,
+      material_source: input.materialSource,
+      binding: encodeClientProtocolExportBinding(input.binding),
+    },
+    authSecret: input.auth.secret,
+    fetchImpl: input.fetchImpl,
+  });
+  if (!response.ok) {
+    return {
+      ok: false,
+      code: response.code,
+      message:
+        response.code === 'network_error'
+          ? response.message
+          : response.bodyText || 'SigningWorker linked ECDSA export-share request failed',
+    };
+  }
+  try {
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaSigningWorkerProtocolExportShareEnvelopeV1(response.json),
+    };
+  } catch (error: unknown) {
+    return { ok: false, code: 'invalid_response', message: errorMessage(error) };
+  }
+}
 
 function parseStrictPresignProgress(input: unknown): RouterAbEcdsaPresignSessionProgress {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {

@@ -52,6 +52,7 @@ import type {
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
 import type { LinkedDeviceEnrollmentId, MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import type { LinkedDeviceSigningSessionActivationV1 } from '../operations/devices/deviceLinkingPorts';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -613,6 +614,7 @@ export interface WalletAuthenticationSurface {
   establishLinkedDeviceSigningSession(input: {
     readonly walletId: WalletId;
     readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
     readonly activation: LinkedDeviceSigningSessionActivationV1;
   }): Promise<void>;
   unlockLinkedDeviceEmailOtpSigningSession(input: {

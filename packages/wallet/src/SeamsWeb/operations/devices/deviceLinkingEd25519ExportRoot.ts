@@ -240,7 +240,8 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
           ),
         };
       } finally {
-        replacementFactorSecret.fill(0);
+        // The worker transfer detaches this view after taking ownership.
+        if (replacementFactorSecret.byteLength > 0) replacementFactorSecret.fill(0);
       }
     },
 

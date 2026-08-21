@@ -10,7 +10,11 @@ import {
   parseLinkedDeviceProtocolVersionV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
-import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
+import {
+  hasDelegatedWalletPermissionV1,
+  validateDelegatedWalletAuthorityAttenuationV1,
+  type DelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -150,6 +154,11 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
       const payload = parseQrLinkedDeviceSessionPayloadV5(input.payload);
       const ownerError = validateOwnerContext(input.owner, input.requestedAtMs, nowV1);
       if (ownerError) return ownerError;
+      const attenuationError = requestedAuthorityAttenuationError(
+        input.owner.permission,
+        payload.requestedPermission,
+      );
+      if (attenuationError) return denied('unauthorized', attenuationError);
       if (input.requestedAtMs < payload.issuedAtMs || input.requestedAtMs >= payload.expiresAtMs) {
         return denied('expired', 'linked-device QR session is outside its lifetime');
       }
@@ -193,6 +202,11 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
     authorizeOwnerApprovalV1: async (input) => {
       const ownerError = validateOwnerContext(input.owner, input.requestedAtMs, nowV1);
       if (ownerError) return ownerError;
+      const attenuationError = requestedAuthorityAttenuationError(
+        input.owner.permission,
+        input.approval.permission,
+      );
+      if (attenuationError) return denied('unauthorized', attenuationError);
       if (!isApprovalSession(input.session)) {
         return denied('invalid', 'linked-device approval session is not owner-claimed');
       }
@@ -227,6 +241,11 @@ function createOwnerAuthorizationRouteV1(input: {
       const ownerError = validateOwnerContext(request.owner, request.requestedAtMs, input.nowV1);
       if (ownerError) throw new Error(ownerError.message);
       const payload = parseQrLinkedDeviceSessionPayloadV5(request.payload);
+      const attenuationError = requestedAuthorityAttenuationError(
+        request.owner.permission,
+        payload.requestedPermission,
+      );
+      if (attenuationError) throw new Error(attenuationError);
       const planning = await input.planningWriter.writeV1({
         owner: request.owner,
         payload,
@@ -318,6 +337,16 @@ function assertApprovedOwnerContext(
     nowMs >= owner.expiresAtMs
   ) {
     throw new Error('approved owner Wallet Session context is expired or mismatched');
+  }
+  if (!hasDelegatedWalletPermissionV1(owner.permission, 'link_devices')) {
+    throw new Error('approved owner Wallet Session authority does not contain link_devices');
+  }
+  if (request.kind === 'preparation') {
+    const attenuationError = requestedAuthorityAttenuationError(
+      owner.permission,
+      request.approval.permission,
+    );
+    if (attenuationError) throw new Error(attenuationError);
   }
   if (
     request.kind === 'preparation' &&
@@ -472,6 +501,17 @@ function validateOwnerContext(
     return denied('invalid', 'owner Wallet Session context is invalid or expired');
   }
   return null;
+}
+
+function requestedAuthorityAttenuationError(
+  parent: DelegatedWalletAuthorityV1,
+  child: DelegatedWalletAuthorityV1,
+): string | null {
+  if (!hasDelegatedWalletPermissionV1(parent, 'link_devices')) {
+    return 'owner Wallet Session authority does not contain link_devices';
+  }
+  const result = validateDelegatedWalletAuthorityAttenuationV1({ parent, child });
+  return result.ok ? null : result.error.message;
 }
 
 function denied(

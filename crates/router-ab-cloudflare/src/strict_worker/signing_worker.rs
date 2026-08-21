@@ -100,6 +100,18 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             )
             .await
         }
+        CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_EXPORT_SHARE_PATH => {
+            let now_unix_ms = match cloudflare_now_unix_ms_v1() {
+                Ok(now_unix_ms) => now_unix_ms,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+            handle_cloudflare_signing_worker_linked_ecdsa_export_share_private_fetch_v1(
+                request,
+                &env,
+                now_unix_ms,
+            )
+            .await
+        }
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_PATH => {
             let now_unix_ms = match cloudflare_now_unix_ms_v1() {
                 Ok(now_unix_ms) => now_unix_ms,

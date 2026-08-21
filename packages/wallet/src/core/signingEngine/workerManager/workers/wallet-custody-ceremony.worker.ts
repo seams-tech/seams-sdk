@@ -18,6 +18,7 @@ import initNearSigner, {
   type WasmPasskeyCustodyHandleV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import initEd25519YaoClient, {
+  ed25519_yao_lane_source_from_wallet_seed_v1,
   WasmEd25519YaoLaneClientV1,
   WasmEd25519YaoLaneSourceV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
@@ -355,23 +356,32 @@ async function openEd25519YaoLaneSource(
     throw new Error('Too many Ed25519 Yao lane sources are active');
   }
   const payload = request.payload;
-  const opened =
-    payload.kind === 'factor'
-      ? {
-          envelope: parsePasskeyCustodyEnvelopeRecord(payload.envelope),
-          factorSecret: toBytes(payload.factorSecret),
-        }
-      : openedCustodyCapabilityLaneSourceInput(payload.capability);
+  const opened = payload.kind === 'factor'
+    ? {
+        envelope: parsePasskeyCustodyEnvelopeRecord(payload.envelope),
+        factorSecret: toBytes(payload.factorSecret),
+      }
+    : openedCustodyCapabilityLaneSourceInput(payload.capability);
   const factorSecret = opened.factorSecret;
   try {
-    const source = new WasmEd25519YaoLaneSourceV1(
+    const envelopeArgs = [
       factorSecret,
       custodyEnvelopeBindingJson(opened.envelope),
       base64UrlDecode(opened.envelope.nonceB64u),
       base64UrlDecode(opened.envelope.sealedCustodySecretB64u),
       base64UrlDecode(opened.envelope.aadHashB64u),
       base64UrlDecode(opened.envelope.ciphertextDigestB64u),
-    );
+    ] as const;
+    const source = payload.kind === 'factor'
+      ? new WasmEd25519YaoLaneSourceV1(...envelopeArgs)
+      : ed25519_yao_lane_source_from_wallet_seed_v1(
+          ...envelopeArgs,
+          base64UrlDecode(payload.applicationBindingDigestB64u),
+          payload.walletKeyId,
+          payload.enrollmentId,
+          BigInt(payload.revocationEpoch),
+          base64UrlDecode(payload.registeredPublicKeyB64u),
+        );
     const sourceHandle = secureOpaqueHandle('ed25519-yao-lane-source-v1');
     ed25519YaoLaneSources.set(sourceHandle, source);
     return { sourceHandle };

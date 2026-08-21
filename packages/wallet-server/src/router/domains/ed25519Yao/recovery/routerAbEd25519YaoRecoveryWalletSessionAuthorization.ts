@@ -4,6 +4,8 @@ import type { SessionAdapter } from '../../../framework/routerApi';
 import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { resolveOpaqueOwnerWalletSessionAdmission } from '../../../auth/commonRouterUtils';
+import { parseLinkedDeviceWalletSessionForCurve } from '../../signingOperations/linkedDeviceNormalSigning';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import {
   walletSessionFailureCodeFromParseReason,
   walletSessionFailureMessage,
@@ -226,6 +228,43 @@ async function authorizeOpaqueOwnerRecovery(input: {
   };
 }
 
+async function authorizeLinkedDeviceExportBootstrap(input: {
+  readonly request: RouterAbEd25519YaoRecoveryAuthorizationInput;
+  readonly session: SessionAdapter;
+}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult | null> {
+  if (input.request.kind !== 'bootstrap') return null;
+  const token = extractBearerCredential(headersToRecord(input.request.request.headers));
+  if (!token || token.startsWith('wst_')) return null;
+  const linked = await parseLinkedDeviceWalletSessionForCurve({
+    curve: 'ed25519',
+    session: input.session,
+    headers: headersToRecord(input.request.request.headers),
+  });
+  if (linked.kind !== 'linked_device' || linked.curve !== 'ed25519') {
+    return null;
+  }
+  const claims = linked.claims;
+  const expectedWalletKeyId = `wallet-key:ed25519:${input.request.body.walletId}:${input.request.body.nearEd25519SigningKeyId}`;
+  if (
+    !hasDelegatedWalletPermissionV1(claims.permission, 'export_keys') ||
+    claims.walletId !== input.request.body.walletId ||
+    String(claims.walletKeyId) !== expectedWalletKeyId
+  ) {
+    return authorizationFailure({
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    });
+  }
+  return {
+    ok: true,
+    authorization: {
+      kind: 'linked_device_wallet_session',
+      claims,
+    },
+  };
+}
+
 export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   constructor(
     private readonly session: SessionAdapter,
@@ -240,6 +279,11 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
       resolveAuthorizationSessions: this.resolveAuthorizationSessions,
     });
     if (opaque) return opaque;
+    const linked = await authorizeLinkedDeviceExportBootstrap({
+      request: input,
+      session: this.session,
+    });
+    if (linked) return linked;
     if (input.kind === 'bootstrap') {
       return authorizationFailure({
         status: 401,

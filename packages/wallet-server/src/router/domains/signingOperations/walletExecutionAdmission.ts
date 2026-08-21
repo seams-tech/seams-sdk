@@ -457,13 +457,22 @@ export async function prepareLinkedDeviceWalletExecution(input: {
   if (operation.claimedAtMs < grant.issuedAtMs || operation.claimedAtMs >= grant.expiresAtMs) {
     return linkedRefused('authorization_expired');
   }
-  if (!hasDelegatedWalletPermissionV1(grant.permission, 'sign')) {
+  const isExportOperation =
+    operation.operation.operation.operationKind === 'near.export_key' ||
+    operation.operation.operation.operationKind === 'evm.export_key';
+  if (
+    !hasDelegatedWalletPermissionV1(
+      grant.permission,
+      isExportOperation ? 'export_keys' : 'sign',
+    )
+  ) {
     return linkedRefused('authorization_permission_mismatch');
   }
-  if (
-    operation.quota.kind !== 'consume_reusable_wallet_session' ||
-    String(operation.quota.quotaId) !== String(grant.quotaId)
-  ) {
+  const quotaMatches = isExportOperation
+    ? operation.quota.kind === 'quota_neutral'
+    : operation.quota.kind === 'consume_reusable_wallet_session' &&
+      String(operation.quota.quotaId) === String(grant.quotaId);
+  if (!quotaMatches) {
     return linkedRefused('authorization_grant_mismatch');
   }
 
@@ -734,13 +743,11 @@ function operationMatchesWalletKey(
   switch (walletKey.keyFamily) {
     case 'ed25519':
       return (
-        operation.operation.operation.capabilityKind === CAPABILITY_KINDS.nearEd25519MpcSigning &&
-        operation.operation.operation.operationKind !== NEAR_ED25519_MPC_OPERATION_KINDS.exportKey
+        operation.operation.operation.capabilityKind === CAPABILITY_KINDS.nearEd25519MpcSigning
       );
     case 'ecdsa_secp256k1':
       return (
-        operation.operation.operation.capabilityKind === CAPABILITY_KINDS.evmEcdsaMpcSigning &&
-        operation.operation.operation.operationKind !== EVM_ECDSA_MPC_OPERATION_KINDS.exportKey
+        operation.operation.operation.capabilityKind === CAPABILITY_KINDS.evmEcdsaMpcSigning
       );
   }
 }
