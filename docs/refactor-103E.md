@@ -44,9 +44,10 @@ An implementer should not reopen these design choices:
    boundary. Runtime operations do not repair it.
 10. The refactor finishes by deleting replaced records, paths, types, fixtures,
     and mocks. Aliasing old names to new behavior does not satisfy completion.
-11. Every user-initiated revocation targets one exact `WalletAuthMethodId` and
-    must leave another active method for the wallet. No ordinary route accepts
-    `WalletAuthorityId` as a revocation target.
+11. Every user-initiated revocation targets one exact `WalletAuthMethodId`, is
+    authorized by a different active method under an exact full-owner
+    authority, and must leave another active method for the wallet. No ordinary
+    route accepts `WalletAuthorityId` as a revocation target.
 
 ## Explicitly out of scope
 
@@ -501,8 +502,8 @@ infer an authority.
 Device 2 creates a fresh `DeviceId` for every new link attempt that reaches
 target preparation. It is an installation identity, not a hardware fingerprint
 or browser-global identifier. Re-linking the same physical browser therefore
-creates a new `DeviceId` and independently revocable `WalletAuthorityId`.
-R109A factor addition reuses the existing authority and its `DeviceId`.
+creates a new `DeviceId`, `WalletAuthorityId`, and independently revocable auth
+method. R109A factor addition reuses the existing authority and its `DeviceId`.
 
 ## Durable ownership and schema
 
@@ -510,7 +511,7 @@ R109A factor addition reuses the existing authority and its `DeviceId`.
 
 Add one `wallet_authorities` table. It replaces
 `linked_device_owner_auth_bindings` as the lifecycle, inventory, permission,
-and revocation source.
+and internal authority-retirement source.
 
 Required columns:
 
@@ -991,10 +992,11 @@ second event stream.
 
 Wire values carry raw strings and version tags. Their boundary parsers must
 produce the branded and branch-specific values defined above before invoking
-core code. A route body may carry a previously returned
-`WalletAuthorityId`; it may not nominate a new authority ID, auth-method ID,
+core code. Link-operation bodies may carry a previously returned
+`WalletAuthorityId`; they may not nominate a new authority ID, auth-method ID,
 activation ref, package digest, permission requirement, or export-root
-requirement.
+requirement. The revocation body instead carries one previously returned
+`WalletAuthMethodId`. Its parser rejects `WalletAuthorityId` as a target.
 
 Use these HTTP classes consistently while preserving typed response bodies:
 
@@ -1003,7 +1005,7 @@ Use these HTTP classes consistently while preserving typed response bodies:
 | malformed or unsupported boundary input | 400 |
 | missing or invalid authentication | 401 |
 | authenticated source lacks the requested permission | 403 |
-| claim, idempotency, lifecycle, or receipt conflict | 409 |
+| claim, idempotency, lifecycle, receipt conflict, or `would_remove_last_wallet_auth_method` | 409 |
 | expired or already-consumed precommit link session | 410 |
 | retryable worker or infrastructure unavailability | 503 |
 | persisted digest or identity integrity failure | 500 |
@@ -1160,7 +1162,7 @@ activation already proved the exact set complete.
 
 User-initiated revocation loads one exact `WalletAuthMethodId`. Its fresh
 source proof must come from a different active method for the same wallet, and
-the source authority must carry the required revocation permission. The D1
+the source authority must have exact `FULL_OWNER_PERMISSIONS`. The D1
 transaction refuses the request unless another active method backed by an
 active authority will remain for the wallet.
 
@@ -1390,6 +1392,8 @@ Required static fixtures reject:
 - Ed25519, ECDSA, or both with a missing or extra family member;
 - a Passkey record with OTP fields and an OTP record with Passkey fields;
 - an active auth method referencing a pending authority in a builder input;
+- a revocation input with `WalletAuthorityId` or more than one
+  `WalletAuthMethodId` as its target;
 - broad object spreads that bypass the branch-specific builders.
 
 ### Workstream A — server authority lifecycle
@@ -1600,9 +1604,12 @@ Use fresh wallets and two independent browser profiles. Verify:
    leaves Device 1 active;
 8. revocation of the wallet's final active method is refused without changing
    any method, authority, session, or signer state;
-9. re-linking the same physical Device 2 creates a fresh installation identity
+9. two competing revocations against the final two active methods serialize so
+   exactly one succeeds and one active method remains;
+10. authority-ID and batch revocation requests are rejected at the boundary;
+11. re-linking the same physical Device 2 creates a fresh installation identity
    and independently revocable auth method without mutating the earlier one;
-10. R109A multi-method wallets and all four R109B factor combinations after
+12. R109A multi-method wallets and all four R109B factor combinations after
    those refactors land.
 
 Mocks cannot satisfy this gate. The test must use real composed routes, stores,
@@ -1644,7 +1651,8 @@ independent lock/reload/unlock, and revocation. When a family is present and
 When a family is absent, assert its UI/action is unavailable and no empty
 signer menu is rendered. Snapshot Device 1's authority, auth method, activation
 refs, revocation epoch, and local record digests before linking and assert they
-are unchanged after Device 2 activates and after Device 2 is revoked.
+are unchanged after Device 2 activates and after Device 2's method is revoked
+and its zero-method authority retires.
 
 R109B later adds Passkey-to-Email-OTP and Email-OTP-to-Passkey rows. R109A later
 adds multiple auth methods referencing one authority. Those future rows do not
