@@ -490,6 +490,18 @@ function prepareAuthorityInsertStatement(input: {
     );
 }
 
+export function prepareD1WalletAuthorityPutStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WalletAuthorityStoreScope;
+  readonly authority: WalletAuthorityV1;
+}): D1PreparedStatementLike {
+  return prepareAuthorityInsertStatement({
+    database: input.database,
+    scope: normalizeScope(input.scope),
+    authority: input.authority,
+  });
+}
+
 function prepareAuthorityTransitionStatement(input: {
   readonly database: D1DatabaseLike;
   readonly scope: NormalizedScope;
