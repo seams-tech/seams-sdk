@@ -8,10 +8,12 @@ supported authentication combinations.
 
 ## Goal
 
-Device linking should create one independently revocable wallet authority on
-Device 2, install its ordinary signer material, and issue its ordinary Wallet
-Session. Once active, Device 2 uses the same signing, export, inventory, reload,
-unlock, and revocation paths as every other wallet authority.
+Device linking should create one wallet authority on Device 2, install its
+ordinary signer material, and issue its ordinary Wallet Session. Once active,
+Device 2 uses the same signing, export, inventory, reload, unlock, and
+auth-method revocation paths as every other wallet authority. Users revoke its
+auth methods one at a time; the authority is retired internally after its last
+method is revoked and another active method remains for the wallet.
 
 The completed implementation must be easier to understand and smaller than the
 current implementation. R103E does not introduce a workflow framework, a second
@@ -42,6 +44,9 @@ An implementer should not reopen these design choices:
    boundary. Runtime operations do not repair it.
 10. The refactor finishes by deleting replaced records, paths, types, fixtures,
     and mocks. Aliasing old names to new behavior does not satisfy completion.
+11. Every user-initiated revocation targets one exact `WalletAuthMethodId` and
+    must leave another active method for the wallet. No ordinary route accepts
+    `WalletAuthorityId` as a revocation target.
 
 ## Explicitly out of scope
 
@@ -634,10 +639,11 @@ displaying_qr
 
 `failed_before_commit`, `cancelled`, and `expired` are reachable only before
 `authority_pending_local_install`. A committed pending authority cannot be
-cancelled or expired; it must resume to active or be explicitly revoked by its
-exact authority ID. Precommit cancellation/expiry deletes any inactive worker
-reservations by their planned activation refs. Cleanup is idempotent and never
-touches source-authority material.
+cancelled or expired; it must resume to active or be retired by internal
+cleanup keyed to its exact authority ID. That cleanup is unavailable to
+ordinary user requests. Precommit cancellation/expiry deletes any inactive
+worker reservations by their planned activation refs. Cleanup is idempotent
+and never touches source-authority material.
 
 ## One linear activation
 
@@ -1152,18 +1158,25 @@ authority. Inventory validates the persisted `WalletAuthorityV1` parser and
 its signer-activation-set digest. It does not re-derive lane-product coverage:
 activation already proved the exact set complete.
 
-Revocation updates one exact `WalletAuthority` and its epoch, disables its
-server shares, marks every auth method attached to that authority revoked, and
-invalidates its Wallet Sessions. Other authorities and auth methods remain
-unchanged. Get and revoke load by exact `WalletAuthorityId`; neither operation
-depends on retained link-session history.
+User-initiated revocation loads one exact `WalletAuthMethodId`. Its fresh
+source proof must come from a different active method for the same wallet, and
+the source authority must carry the required revocation permission. The D1
+transaction refuses the request unless another active method backed by an
+active authority will remain for the wallet.
 
-Revocation is fail-closed across services. D1 first compare-and-sets the exact
-authority to revoked, increments its epoch, revokes attached auth methods, and
-invalidates sessions. Ordinary admission then rejects the authority even if a
-worker cleanup call is delayed. Worker share disablement is idempotent and
-retried by exact activation ref. A failed worker cleanup never restores the D1
-authority to active.
+The transaction revokes only the target method, its verifier, and sessions
+issued through that method. When the target authority retains another active
+method, its epoch, signer activations, sibling methods, and sibling sessions
+remain unchanged. When the target was its final method, the same transaction
+retires the now-unusable authority, increments its epoch, and invalidates any
+remaining authority sessions. Exact worker-share disablement follows that
+retirement idempotently. Ordinary admission rejects the retired authority even
+if worker cleanup is delayed.
+
+No user-facing request targets `WalletAuthorityId` or revokes all methods on an
+authority at once. The wallet's final active method returns
+`would_remove_last_wallet_auth_method` without changing durable state. Method
+inventory and revocation do not depend on retained link-session history.
 
 ## Relationship to R109A
 
@@ -1397,7 +1410,9 @@ Required static fixtures reject:
 - make commit idempotent by `WalletAuthorityId` and package digest;
 - verify the local installation receipt and activate the authority;
 - issue the exact Wallet Session during activation;
-- derive inventory and revocation from `WalletAuthority`;
+- derive grouped inventory from `WalletAuthority` and its exact auth methods;
+- revoke one exact auth method, enforce the wallet-wide remaining-method
+  invariant, and retire a zero-method authority internally;
 - delete server projections, R102 promotion, and recovery admission superseded
   by this lifecycle.
 
@@ -1580,11 +1595,14 @@ Use fresh wallets and two independent browser profiles. Verify:
 5. independent lock, reload, and unlock on both devices;
 6. retry after interruption between server commit, local install, and
    activation without duplicate material;
-7. Device 2 revocation blocks its unlock and operations while Device 1 remains
-   active;
-8. re-linking the same physical Device 2 creates a fresh installation identity
-   and independently revocable authority without mutating the earlier one;
-9. R109A multi-method wallets and all four R109B factor combinations after
+7. revoking Device 2's exact auth method from a different active method blocks
+   Device 2 unlock and operations, retires its zero-method authority, and
+   leaves Device 1 active;
+8. revocation of the wallet's final active method is refused without changing
+   any method, authority, session, or signer state;
+9. re-linking the same physical Device 2 creates a fresh installation identity
+   and independently revocable auth method without mutating the earlier one;
+10. R109A multi-method wallets and all four R109B factor combinations after
    those refactors land.
 
 Mocks cannot satisfy this gate. The test must use real composed routes, stores,
@@ -1700,7 +1718,8 @@ inventory symptom.
    real Email OTP link before expanding tests.
 5. **Switch ordinary readers.** D changes signing, export, reload, unlock,
    inventory, and revocation to exact auth-method/authority/activation reads.
-   Remove wallet-wide selection at the same time.
+   Revocation accepts only an exact method target and counts wallet-wide active
+   methods transactionally. Remove wallet-wide inference at the same time.
 6. **Add interruption and failure handling.** Implement only the retry matrix
    specified above. Do not add new lifecycle branches for transport or UI
    convenience.
@@ -1735,7 +1754,9 @@ R103E is complete when:
 - the architecture contains only the five operating concepts listed above;
 - Device 2 activation is one linear, resumable sequence;
 - `WalletAuthority` is the single source for permissions, activation
-  references, status, inventory, and revocation;
+  references, status, and internal retirement;
+- users revoke one exact auth method at a time and can never revoke the
+  wallet's final active method;
 - all ordinary operations follow exact branded references;
 - Passkey and Email OTP converge immediately after factor verification;
 - key export has no linked-device-specific execution or repair path;

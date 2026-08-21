@@ -44,18 +44,24 @@ An implementer should not reopen these decisions:
    method in one transaction. The existing intent is the sole server-side
    resume record; R109A does not persist a second pending-method workflow in
    D1.
-6. The existing authority, its activations, its revocation epoch, and every
-   sibling auth method remain unchanged when a method is added or revoked.
+6. The existing authority, its activations, and its revocation epoch remain
+   unchanged when a method is added or when another active method still
+   references that authority after revocation.
 7. A new method is never selected silently. The source Wallet Session remains
    selected after addition; the new method is exercised through an explicit
    lock and unlock or explicit method switch.
-8. Revoking a method invalidates only sessions and local envelopes issued for
-   that exact `WalletAuthMethodId`. It never revokes the shared authority.
-9. Until a separate `manage_auth_methods` permission is designed, add and
+8. Every user-initiated revocation targets one exact `WalletAuthMethodId`.
+   There is no user-facing operation that accepts `WalletAuthorityId` as its
+   revocation target.
+9. The revocation transaction must leave at least one active auth method backed
+   by an active authority for the wallet. If the target authority loses its
+   final method while another wallet method remains, the server retires that
+   now-unusable authority as an internal consequence of the method revocation.
+10. Until a separate `manage_auth_methods` permission is designed, add and
    revoke operations require an active authority with the exact canonical
    `FULL_OWNER_PERMISSIONS` set. A signing-only or attenuated authority cannot
    escalate itself by adding a factor.
-10. Runtime code never infers a method from `walletId`, auth kind, email hint,
+11. Runtime code never infers a method from `walletId`, auth kind, email hint,
     credential label, recent use, or record order. It resolves one exact
     branded `WalletAuthMethodId`.
 
@@ -65,7 +71,7 @@ An implementer should not reopen these decisions:
 - mixed-method device linking, which belongs to R109B;
 - changing an authority's permissions or signer families;
 - transferring custody seed or signer material between devices;
-- recovery-factor replacement or revoking the final active method;
+- recovery-factor replacement or revoking the wallet's final active method;
 - enterprise SSO;
 - custom factor-management permissions;
 - a generic ceremony, workflow, saga, projection, or migration framework;
@@ -657,7 +663,7 @@ Each route has one input owner:
 | `intent` | source method ID, source Wallet Session ID, target kind, raw email only for Email OTP | route wallet, authority, device, RP, provider, normalized email hash, authority snapshot, scope, nonce, expiry, target method ID |
 | `start` | intent grant, intent digest, fresh source proof | exact source session/method/authority binding and one factor-specific target challenge |
 | `finalize` | intent grant, target ceremony result, exact local installation receipt | target proof, credential uniqueness, unchanged source authority snapshot, active method commit |
-| `revoke` | target method ID and fresh proof from a different source method | same active authority, full-owner permission, remaining-method invariant, exact session invalidation |
+| `revoke` | target method ID and fresh proof from a different source method | same wallet, active full-owner source authority, wallet-wide remaining-method invariant, exact session invalidation, and zero-method target-authority retirement |
 
 Boundary parsers construct the narrow verified unions once. Core services do
 not accept the raw create request, route wallet string, optional proof bags, or
@@ -675,7 +681,7 @@ Boundary failures map consistently:
 | `400` | malformed boundary input or `target_verification_failed` |
 | `401` | missing, expired, or invalid Wallet Session/source proof |
 | `403` | `forbidden` for a valid authority without exact management permission |
-| `409` | `already_exists`, immutable client retry conflict, or request/receipt binding mismatch |
+| `409` | `already_exists`, `would_remove_last_wallet_auth_method`, immutable client retry conflict, or request/receipt binding mismatch |
 | `410` | `expired` or `cancelled` intent |
 | `503` | required existing custody or local-install dependency unavailable before commit |
 | `500` | unexpected internal failure only |
@@ -757,9 +763,10 @@ a session issued through a sibling method.
 
 ## Method inventory, selection, and revocation
 
-The settings surface lists auth methods for the selected authority. Server
-records provide identity, factor kind, lifecycle, and approved display hint.
-IndexedDB determines whether each active method is locally usable.
+The settings surface lists auth methods for the selected wallet, grouped by
+authority and device. Server records provide identity, factor kind, lifecycle,
+and approved display hint. IndexedDB determines whether each active method is
+locally usable.
 
 Supported display states are:
 
@@ -775,20 +782,30 @@ result. Unlock never scans for a sibling method or repairs it automatically.
 Selection requires an explicit user action. Labels and masked email hints are
 display data. They are never authority inputs.
 
-Revocation requires fresh proof from a different active local method attached
-to the same full-owner authority. The method being revoked cannot authorize
-its own revocation. The server transaction:
+Revocation requires fresh proof from a different active local method for the
+same wallet. The source method's authority must be active and have exact
+`FULL_OWNER_PERMISSIONS`. The method being revoked cannot authorize its own
+revocation. No ordinary request accepts a `WalletAuthorityId` as the target.
 
-1. verifies at least one other active method will remain;
-2. marks the exact target method and its verifier/authenticator revoked;
-3. invalidates Wallet Sessions issued through that method;
-4. writes the audit event.
+The server transaction:
+
+1. resolves the exact active source method, target method, and both authorities
+   under the route wallet;
+2. proves that another active method backed by an active authority will remain
+   for the wallet;
+3. marks the exact target method and its verifier/authenticator revoked;
+4. invalidates Wallet Sessions issued through that method;
+5. when the target authority now has no active methods, marks that authority
+   revoked, increments its epoch, invalidates its remaining sessions, and
+   schedules exact signer-share disablement;
+6. writes the method-revocation and optional authority-retirement audit facts.
 
 Local cleanup deletes only records keyed by the revoked auth-method ID. If
-cleanup fails, server admission still rejects the method. The authority,
-signer activations, source method, sibling methods, and their sessions remain
-unchanged. Revocation of the final active method is refused; recovery
-replacement is outside R109A.
+cleanup fails, server admission still rejects the method. A target authority
+that retains another active method and all of its signer activations remain
+unchanged. The wallet's final active method returns
+`would_remove_last_wallet_auth_method` without changing durable state;
+recovery replacement is outside R109A.
 
 ## Product behavior
 
@@ -933,11 +950,16 @@ R109A auth-method row or sealed local payload stored in D1.
 
 ### Phase 3 — Unlock, inventory, and revocation
 
-- list exact server methods plus exact local availability;
+- list exact server methods wallet-wide, grouped by authority and device, plus
+  exact local availability;
 - require explicit method selection;
 - issue sessions through the selected method and shared authority;
-- revoke one exact method using a different active method's fresh proof;
-- reject final-method revocation;
+- revoke one exact method using a different active wallet method's fresh
+  proof;
+- reject revocation of the wallet's final active method;
+- retire an authority internally after its last method is revoked and another
+  wallet method remains;
+- remove user-facing authority-wide revocation targets;
 - remove recent-record, auth-kind, and first-record inference;
 - preserve durable lock behavior across refresh and pending addition retries.
 
@@ -994,7 +1016,7 @@ For every applicable cell:
 7. reload while locked and prove neither method auto-unlocks;
 8. revoke the new method using the source method and prove the source method
    still unlocks and operates;
-9. reject self-revocation and final-method revocation;
+9. reject self-revocation and revocation of the wallet's final active method;
 10. repeat finalize after a lost response and prove the method, verifier,
     envelope, and local record counts do not increase;
 11. interrupt at every boundary in the retry table and prove convergence or
@@ -1091,8 +1113,12 @@ R109A is complete when:
 - every active local method can unlock and issue its own ordinary Wallet
   Session;
 - step-up uses the exact selected method;
-- revoking one method leaves the authority and sibling methods operational;
-- final-method revocation is refused;
+- revoking one method leaves sibling methods operational and leaves its
+  authority operational whenever that authority retains another method;
+- an authority with no remaining methods is retired internally only after the
+  transaction proves another active wallet method remains;
+- no user-facing operation revokes an authority or several methods at once;
+- revocation of the wallet's final active method is refused;
 - obsolete one-method, per-factor-authority, projection, inference, and mocked
   paths are deleted;
 - the real four-combination browser matrix passes.
