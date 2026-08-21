@@ -5,7 +5,9 @@ import {
   parseAuthorizationGrantRef,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
+  parseReusableWalletSessionMintId,
   parseTenantId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type {
@@ -41,11 +43,17 @@ import type {
 import { computeCapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
 import {
   parseLinkedDeviceEnrollmentId,
+  parseMpcMaterialActivationRef,
   parseLinkedDeviceId,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWalletId,
   type DomainId,
   type LinkedDeviceEnrollmentId,
   type LinkedDeviceId,
+  type MpcMaterialActivationRef,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import type { ProviderSubject, WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
@@ -60,6 +68,8 @@ import {
   parseDelegatedWalletAuthorityV1,
   type DelegatedWalletAuthorityV1,
 } from '@shared/authorization/delegatedAuthority';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import type { ActiveWalletAuthorityV1, WalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
 
 /** A server-only identity for one consumed owner authentication result. */
 export type VerifiedOwnerProofId = DomainId<'VerifiedOwnerProofId'>;
@@ -214,6 +224,378 @@ export type WalletSessionAuthorization = {
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type WalletSessionCapabilitySubjectV1 =
+  | {
+      readonly kind: 'sign';
+      readonly keyFamily: 'ed25519';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'sign';
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'export_keys';
+      readonly keyFamily: 'ed25519';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'export_keys';
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'link_devices';
+      readonly authorityId: WalletAuthorityId;
+    }
+  | {
+      readonly kind: 'revoke_devices';
+      readonly authorityId: WalletAuthorityId;
+    };
+
+export type WalletSessionCapabilitySubjectsV1 = readonly [
+  WalletSessionCapabilitySubjectV1,
+  ...WalletSessionCapabilitySubjectV1[],
+];
+
+export type WalletSessionAuthorizationV2 = {
+  readonly kind: 'wallet_session_authorization_v2';
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly authorityRevocationEpoch: number;
+  readonly mintId: ReusableWalletSessionMintId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly capabilitySubjects: WalletSessionCapabilitySubjectsV1;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export type IssuedWalletSessionAuthorizationV2 = {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly quota: ActiveWalletSessionQuota;
+};
+
+type WalletSessionSignerSubjectKind = 'sign' | 'export_keys';
+
+function appendWalletSessionSignerSubjects(
+  subjects: WalletSessionCapabilitySubjectV1[],
+  kind: WalletSessionSignerSubjectKind,
+  signerActivations: WalletSignerActivationSetV1,
+): void {
+  if (
+    signerActivations.keyFamilies.length === 1 &&
+    signerActivations.keyFamilies[0] === 'ed25519'
+  ) {
+    if (!signerActivations.ed25519) {
+      throw new Error('Ed25519 signer activation is missing');
+    }
+    subjects.push({
+      kind,
+      keyFamily: 'ed25519',
+      materialActivation: signerActivations.ed25519.materialActivation,
+    });
+    return;
+  }
+  if (
+    signerActivations.keyFamilies.length === 1 &&
+    signerActivations.keyFamilies[0] === 'ecdsa_secp256k1'
+  ) {
+    if (!signerActivations.ecdsa) {
+      throw new Error('ECDSA signer activation is missing');
+    }
+    subjects.push({
+      kind,
+      keyFamily: 'ecdsa_secp256k1',
+      materialActivation: signerActivations.ecdsa.materialActivation,
+    });
+    return;
+  }
+  if (!signerActivations.ed25519 || !signerActivations.ecdsa) {
+    throw new Error('both-family signer activations are incomplete');
+  }
+  subjects.push(
+    {
+      kind,
+      keyFamily: 'ed25519',
+      materialActivation: signerActivations.ed25519.materialActivation,
+    },
+    {
+      kind,
+      keyFamily: 'ecdsa_secp256k1',
+      materialActivation: signerActivations.ecdsa.materialActivation,
+    },
+  );
+}
+
+export function buildWalletSessionCapabilitySubjectsV1(
+  authority: ActiveWalletAuthorityV1,
+): WalletSessionCapabilitySubjectsV1 {
+  const subjects: WalletSessionCapabilitySubjectV1[] = [];
+  if (authority.permissions.includes('sign')) {
+    appendWalletSessionSignerSubjects(subjects, 'sign', authority.signerActivations);
+  }
+  if (authority.permissions.includes('export_keys')) {
+    appendWalletSessionSignerSubjects(subjects, 'export_keys', authority.signerActivations);
+  }
+  if (authority.permissions.includes('link_devices')) {
+    subjects.push({ kind: 'link_devices', authorityId: authority.authorityId });
+  }
+  if (authority.permissions.includes('revoke_devices')) {
+    subjects.push({ kind: 'revoke_devices', authorityId: authority.authorityId });
+  }
+  const [firstSubject, ...remainingSubjects] = subjects;
+  if (!firstSubject) {
+    throw new Error('active wallet authority must produce capability subjects');
+  }
+  return [firstSubject, ...remainingSubjects];
+}
+
+export function buildWalletSessionAuthorizationV2(
+  fields: Omit<WalletSessionAuthorizationV2, 'kind'>,
+): WalletSessionAuthorizationV2 {
+  requireNonnegativeInteger(
+    fields.authorityRevocationEpoch,
+    'Wallet Session authority revocation epoch',
+  );
+  parseDigestB64u(fields.authorityDigestB64u);
+  if (fields.capabilitySubjects.length === 0) {
+    throw new Error('Wallet Session capability subjects are required');
+  }
+  requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'Wallet Session authorization');
+  const identityValues = [
+    String(fields.authorizationId),
+    String(fields.walletSessionId),
+    String(fields.quotaId),
+  ];
+  if (new Set(identityValues).size !== identityValues.length) {
+    throw new Error('Wallet Session authorization identities must be pairwise distinct');
+  }
+  return {
+    kind: 'wallet_session_authorization_v2',
+    tenantId: fields.tenantId,
+    principalId: fields.principalId,
+    walletId: fields.walletId,
+    authorityId: fields.authorityId,
+    walletAuthMethodId: fields.walletAuthMethodId,
+    authorityDigestB64u: fields.authorityDigestB64u,
+    authorityRevocationEpoch: fields.authorityRevocationEpoch,
+    mintId: fields.mintId,
+    authorizationId: fields.authorizationId,
+    walletSessionId: fields.walletSessionId,
+    quotaId: fields.quotaId,
+    capabilitySubjects: fields.capabilitySubjects,
+    createdAtMs: fields.createdAtMs,
+    expiresAtMs: fields.expiresAtMs,
+  };
+}
+
+export function walletSessionCapabilitySubjectsV1Equal(
+  left: WalletSessionCapabilitySubjectsV1,
+  right: WalletSessionCapabilitySubjectsV1,
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftSubject = left[index];
+    const rightSubject = right[index];
+    if (!leftSubject || !rightSubject || leftSubject.kind !== rightSubject.kind) return false;
+    switch (leftSubject.kind) {
+      case 'sign':
+      case 'export_keys':
+        break;
+      case 'link_devices':
+      case 'revoke_devices':
+        if (
+          rightSubject.kind !== leftSubject.kind ||
+          leftSubject.authorityId !== rightSubject.authorityId
+        ) {
+          return false;
+        }
+        break;
+    }
+    if (leftSubject.kind === 'sign' || leftSubject.kind === 'export_keys') {
+      if (
+        rightSubject.kind !== leftSubject.kind ||
+        leftSubject.keyFamily !== rightSubject.keyFamily ||
+        !mpcMaterialActivationRefsEqual(
+          leftSubject.materialActivation,
+          rightSubject.materialActivation,
+        )
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+export function walletSessionAuthorizationV2RecordsEqual(
+  left: WalletSessionAuthorizationV2,
+  right: WalletSessionAuthorizationV2,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.tenantId === right.tenantId &&
+    left.principalId === right.principalId &&
+    left.walletId === right.walletId &&
+    left.authorityId === right.authorityId &&
+    left.walletAuthMethodId === right.walletAuthMethodId &&
+    left.authorityDigestB64u === right.authorityDigestB64u &&
+    left.authorityRevocationEpoch === right.authorityRevocationEpoch &&
+    left.mintId === right.mintId &&
+    left.authorizationId === right.authorizationId &&
+    left.walletSessionId === right.walletSessionId &&
+    left.quotaId === right.quotaId &&
+    walletSessionCapabilitySubjectsV1Equal(left.capabilitySubjects, right.capabilitySubjects) &&
+    left.createdAtMs === right.createdAtMs &&
+    left.expiresAtMs === right.expiresAtMs
+  );
+}
+
+function hasExactFields(value: Record<string, unknown>, expectedFields: readonly string[]): boolean {
+  const fields = Object.keys(value).sort();
+  const sortedExpectedFields = [...expectedFields].sort();
+  return (
+    fields.length === sortedExpectedFields.length &&
+    fields.every((field, index) => field === sortedExpectedFields[index])
+  );
+}
+
+function parseMpcMaterialActivationRefRequired(value: unknown): MpcMaterialActivationRef {
+  const parsed = parseMpcMaterialActivationRef(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseWalletAuthorityIdRequired(value: unknown): WalletAuthorityId {
+  const parsed = parseWalletAuthorityId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseWalletAuthMethodIdRequired(value: unknown): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseWalletSessionCapabilitySubject(
+  value: unknown,
+): WalletSessionCapabilitySubjectV1 {
+  if (!isRecord(value) || typeof value.kind !== 'string') {
+    throw new Error('Wallet Session capability subject must be an object');
+  }
+  switch (value.kind) {
+    case 'sign':
+    case 'export_keys': {
+      if (!hasExactFields(value, ['kind', 'keyFamily', 'materialActivation'])) {
+        throw new Error('Wallet Session signer capability subject contains unexpected fields');
+      }
+      if (value.keyFamily !== 'ed25519' && value.keyFamily !== 'ecdsa_secp256k1') {
+        throw new Error('Wallet Session signer capability subject key family is invalid');
+      }
+      return {
+        kind: value.kind,
+        keyFamily: value.keyFamily,
+        materialActivation: parseMpcMaterialActivationRefRequired(value.materialActivation),
+      };
+    }
+    case 'link_devices':
+    case 'revoke_devices':
+      if (!hasExactFields(value, ['kind', 'authorityId'])) {
+        throw new Error('Wallet Session administration capability subject contains unexpected fields');
+      }
+      return {
+        kind: value.kind,
+        authorityId: parseWalletAuthorityIdRequired(value.authorityId),
+      };
+    default:
+      throw new Error('Wallet Session capability subject kind is unsupported');
+  }
+}
+
+function parseWalletSessionCapabilitySubjects(
+  value: unknown,
+): WalletSessionCapabilitySubjectsV1 {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('Wallet Session capability subjects must be non-empty');
+  }
+  const subjects: WalletSessionCapabilitySubjectV1[] = [];
+  for (const subject of value) {
+    subjects.push(parseWalletSessionCapabilitySubject(subject));
+  }
+  const [firstSubject, ...remainingSubjects] = subjects;
+  if (!firstSubject) throw new Error('Wallet Session capability subjects must be non-empty');
+  return [firstSubject, ...remainingSubjects];
+}
+
+export function parseWalletSessionAuthorizationV2(
+  value: unknown,
+): WalletSessionAuthorizationV2 {
+  if (
+    !isRecord(value) ||
+    !hasExactFields(value, [
+      'kind',
+      'tenantId',
+      'principalId',
+      'walletId',
+      'authorityId',
+      'walletAuthMethodId',
+      'authorityDigestB64u',
+      'authorityRevocationEpoch',
+      'mintId',
+      'authorizationId',
+      'walletSessionId',
+      'quotaId',
+      'capabilitySubjects',
+      'createdAtMs',
+      'expiresAtMs',
+    ])
+  ) {
+    throw new Error('Wallet Session authorization V2 contains unexpected fields');
+  }
+  if (value.kind !== 'wallet_session_authorization_v2') {
+    throw new Error('Wallet Session authorization V2 kind is invalid');
+  }
+  const tenantId = parseTenantIdRequired(value.tenantId);
+  const principalId = parsePrincipalIdRequired(value.principalId);
+  const walletId = parseWalletIdRequired(value.walletId);
+  const authorityId = parseWalletAuthorityIdRequired(value.authorityId);
+  const walletAuthMethodId = parseWalletAuthMethodIdRequired(value.walletAuthMethodId);
+  const authorityDigestB64u = parseDigestB64u(value.authorityDigestB64u);
+  const mintIdResult = parseReusableWalletSessionMintId(value.mintId);
+  if (!mintIdResult.ok) throw new Error(mintIdResult.error.message);
+  const authorizationIdResult = parseWalletSessionAuthorizationId(value.authorizationId);
+  if (!authorizationIdResult.ok) throw new Error(authorizationIdResult.error.message);
+  const walletSessionId = parseWalletSessionIdRequired(value.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaIdRequired(value.quotaId);
+  return buildWalletSessionAuthorizationV2({
+    tenantId,
+    principalId,
+    walletId,
+    authorityId,
+    walletAuthMethodId,
+    authorityDigestB64u,
+    authorityRevocationEpoch: requireNonnegativeInteger(
+      value.authorityRevocationEpoch,
+      'Wallet Session authority revocation epoch',
+    ),
+    mintId: mintIdResult.value,
+    authorizationId: authorizationIdResult.value,
+    walletSessionId,
+    quotaId,
+    capabilitySubjects: parseWalletSessionCapabilitySubjects(value.capabilitySubjects),
+    createdAtMs: requirePositiveTimestamp(value.createdAtMs, 'Wallet Session createdAtMs'),
+    expiresAtMs: requirePositiveTimestamp(value.expiresAtMs, 'Wallet Session expiresAtMs'),
+  });
+}
 
 export type LinkedDeviceWalletSessionPermissionV1 = DelegatedWalletAuthorityV1;
 
