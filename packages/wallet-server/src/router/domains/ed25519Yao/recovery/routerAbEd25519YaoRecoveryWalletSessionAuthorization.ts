@@ -3,12 +3,16 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import { deriveWalletRecoveryKeyLifecycleId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
+import type { SessionAdapter } from '../../../framework/routerApi';
+import { headersToRecord } from '../../../framework/http';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { resolveOpaqueOwnerWalletSessionAdmission } from '../../../auth/commonRouterUtils';
 import { walletSessionFailureMessage } from '../../../auth/walletSessionFailure';
 import type { PreparedEd25519RecoveryAdmissionV1 } from '../../passkeyCustody/walletRecoveryKeyManifest';
+import { parseLinkedDeviceWalletSessionForCurve } from '../../signingOperations/linkedDeviceNormalSigning';
 import type {
   RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   RouterAbEd25519YaoRecoveryAuthorizationInput,
@@ -33,6 +37,7 @@ export interface PreparedEd25519RecoveryAdmissionReaderV1 {
 export type RouterAbEd25519YaoRecoveryAuthorizationServicesV1 = {
   readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly preparedRecoveryAdmission: PreparedEd25519RecoveryAdmissionReaderV1;
+  readonly session: SessionAdapter;
 };
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -195,6 +200,39 @@ async function authorizeOpaqueOwnerRecovery(input: {
   return { ok: true, authorization: { kind: 'wallet_session', binding } };
 }
 
+async function authorizeLinkedDeviceExportBootstrap(input: {
+  readonly request: RouterAbEd25519YaoRecoveryAuthorizationInput;
+  readonly session: SessionAdapter;
+}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult | null> {
+  if (input.request.kind !== 'bootstrap') return null;
+  const headers = headersToRecord(input.request.request.headers);
+  const token = extractBearerCredential(headers);
+  if (!token || token.startsWith('wst_')) return null;
+  const linked = await parseLinkedDeviceWalletSessionForCurve({
+    curve: 'ed25519',
+    session: input.session,
+    headers,
+  });
+  if (linked.kind !== 'linked_device' || linked.curve !== 'ed25519') return null;
+  const claims = linked.claims;
+  const expectedWalletKeyId = `wallet-key:ed25519:${input.request.body.walletId}:${input.request.body.nearEd25519SigningKeyId}`;
+  if (
+    !hasDelegatedWalletPermissionV1(claims.permission, 'export_keys') ||
+    claims.walletId !== input.request.body.walletId ||
+    String(claims.walletKeyId) !== expectedWalletKeyId
+  ) {
+    return authorizationFailure({
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    });
+  }
+  return {
+    ok: true,
+    authorization: { kind: 'linked_device_wallet_session', claims },
+  };
+}
+
 export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   constructor(
     private readonly resolveServices: () => Promise<RouterAbEd25519YaoRecoveryAuthorizationServicesV1>,
@@ -215,6 +253,11 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
     }
     const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
     if (opaque) return opaque;
+    const linked = await authorizeLinkedDeviceExportBootstrap({
+      request: input,
+      session: services.session,
+    });
+    if (linked) return linked;
     switch (input.kind) {
       case 'bootstrap':
         return authorizationFailure({

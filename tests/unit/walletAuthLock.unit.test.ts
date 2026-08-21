@@ -3,6 +3,10 @@ import {
   lockDomain,
   type WalletLockDomainDeps,
 } from '../../packages/wallet/src/SeamsWeb/operations/auth/walletAuth';
+import {
+  passkeyAuthenticatedWalletStateFixture,
+  signedOutWalletStateFixture,
+} from './helpers/walletAuthenticationState.fixtures';
 
 type LockFixture = {
   deps: WalletLockDomainDeps;
@@ -10,6 +14,9 @@ type LockFixture = {
     clearNonce: number;
     clearLinkedRefresh: number;
     clearAuthentication: number;
+    retireAuthorization: number;
+    retiredWalletId: string | null;
+    retirementCompleted: boolean;
     clearEcdsaQueue: number;
     clearWarmMaterial: number;
     hostLock: number;
@@ -19,6 +26,8 @@ type LockFixture = {
 function createLockFixture(args: {
   useWalletIframe: boolean;
   hostLock: () => Promise<unknown>;
+  authenticatedWalletId?: string;
+  retireAuthorization?: () => Promise<void>;
   clearLinkedRefresh?: () => Promise<void>;
   clearWarmMaterial?: () => Promise<void>;
 }): LockFixture {
@@ -26,19 +35,34 @@ function createLockFixture(args: {
     clearNonce: 0,
     clearLinkedRefresh: 0,
     clearAuthentication: 0,
+    retireAuthorization: 0,
+    retiredWalletId: null,
+    retirementCompleted: false,
     clearEcdsaQueue: 0,
     clearWarmMaterial: 0,
     hostLock: 0,
   };
+  const authentication = args.authenticatedWalletId
+    ? passkeyAuthenticatedWalletStateFixture(args.authenticatedWalletId)
+    : signedOutWalletStateFixture();
   const deps: WalletLockDomainDeps = {
     getContext: () => ({
       signingEngine: {
+        readWalletAuthenticationState() {
+          return authentication;
+        },
         async clearLinkedDeviceRefreshMaterial(): Promise<void> {
           calls.clearLinkedRefresh += 1;
           await args.clearLinkedRefresh?.();
         },
         clearWalletAuthentication(): void {
           calls.clearAuthentication += 1;
+        },
+        async retireActiveWalletSessionAuthorizationForLock(walletId): Promise<void> {
+          calls.retireAuthorization += 1;
+          calls.retiredWalletId = String(walletId);
+          await args.retireAuthorization?.();
+          calls.retirementCompleted = true;
         },
         getNonceCoordinator: () => ({
           clearAll(): void {
@@ -69,17 +93,32 @@ function createLockFixture(args: {
 
 test.describe('wallet lock lifecycle', () => {
   test('clears local runtime state before acknowledging direct-mode lock', async () => {
+    let releaseRetirement!: () => void;
+    const retirement = new Promise<void>((resolve) => {
+      releaseRetirement = resolve;
+    });
     const fixture = createLockFixture({
       useWalletIframe: false,
+      authenticatedWalletId: 'lock-target-wallet',
+      retireAuthorization: () => retirement,
       hostLock: async () => undefined,
     });
 
-    await lockDomain(fixture.deps);
+    const lockPromise = lockDomain(fixture.deps);
+    await expect.poll(() => fixture.calls.retireAuthorization).toBe(1);
+    expect(fixture.calls.retiredWalletId).toBe('lock-target-wallet');
+    expect(fixture.calls.clearAuthentication).toBe(0);
+
+    releaseRetirement();
+    await lockPromise;
 
     expect(fixture.calls).toEqual({
       clearNonce: 1,
       clearLinkedRefresh: 1,
       clearAuthentication: 1,
+      retireAuthorization: 1,
+      retiredWalletId: 'lock-target-wallet',
+      retirementCompleted: true,
       clearEcdsaQueue: 1,
       clearWarmMaterial: 1,
       hostLock: 0,

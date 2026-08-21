@@ -5,9 +5,15 @@ import {
 import {
   ecdsaSigningTargetFromChainTarget,
   resolveEcdsaExportMaterialForLane,
+  type ActiveLinkedDeviceEcdsaExportLane,
+  type ActiveLinkedDeviceEcdsaExportMaterial,
   type EcdsaExportMaterial,
+  type ExactEcdsaExportLane,
+  type FreshEmailOtpEcdsaExportMaterial,
+  type FreshPasskeyEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import {
+  exportActiveExecutionBundleEcdsaKey,
   exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth,
   exportThresholdEcdsaKeyWithFreshPasskeyAuthorization,
   type EcdsaExportFlowDeps,
@@ -60,10 +66,19 @@ export type ExportKeypairWithUIDeps = {
 type ExportedKeySchemes = Array<'ed25519' | 'secp256k1'>;
 type ExportKeypairResult = { accountId: string; exportedSchemes: ExportedKeySchemes };
 
-type PreparedEcdsaExport = {
-  exportLane: Awaited<ReturnType<typeof resolveEcdsaSessionForExport>>;
-  exportMaterial: EcdsaExportMaterial;
-};
+type PreparedEcdsaExport =
+  | {
+      readonly kind: 'active_execution_bundle';
+      readonly exportLane: ActiveLinkedDeviceEcdsaExportLane;
+      readonly exportMaterial: ActiveLinkedDeviceEcdsaExportMaterial;
+    }
+  | {
+      readonly kind: 'canonical_capability';
+      readonly exportLane: ExactEcdsaExportLane;
+      readonly exportMaterial:
+        | FreshEmailOtpEcdsaExportMaterial
+        | FreshPasskeyEcdsaExportMaterial;
+    };
 
 type KeyExportAttempt =
   | { readonly kind: 'initial' }
@@ -143,7 +158,27 @@ async function prepareEcdsaExport(
     deps.ecdsa.sessionStore,
     exportLane,
   );
-  return { exportLane, exportMaterial };
+  switch (exportLane.source) {
+    case 'active_execution_bundle':
+      if (exportMaterial.kind !== 'active_execution_bundle') {
+        throw new Error('[SigningEngine][ecdsa-export] active lane material mismatch');
+      }
+      return { kind: 'active_execution_bundle', exportLane, exportMaterial };
+    case 'canonical_capability':
+      if (exportMaterial.kind === 'active_execution_bundle') {
+        throw new Error('[SigningEngine][ecdsa-export] canonical lane material mismatch');
+      }
+      return { kind: 'canonical_capability', exportLane, exportMaterial };
+  }
+}
+
+function exportAuthorizationWalletSessionId(
+  lane: Awaited<ReturnType<typeof resolveEcdsaSessionForExport>> | undefined,
+): string | undefined {
+  if (!lane?.authorization) return undefined;
+  return lane.source === 'active_execution_bundle'
+    ? lane.authorization.walletSessionId
+    : lane.authorization.projection.walletSessionId;
 }
 
 function emitEcdsaExportFailureDiagnostics(args: {
@@ -153,7 +188,7 @@ function emitEcdsaExportFailureDiagnostics(args: {
   exportMaterial?: EcdsaExportMaterial;
   error: unknown;
 }): void {
-  const publicFacts = args.exportMaterial?.publicFacts || args.exportLane?.publicFacts;
+  const publicFacts = args.exportLane?.publicFacts;
   const keyFingerprint = args.exportLane
     ? deriveEvmFamilyKeyFingerprintFromPublicFacts({
         walletId: args.exportLane.key.walletId,
@@ -167,8 +202,8 @@ function emitEcdsaExportFailureDiagnostics(args: {
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
       ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
-      ...(args.exportLane?.authorization
-        ? { walletSessionId: args.exportLane.authorization.projection.walletSessionId }
+      ...(exportAuthorizationWalletSessionId(args.exportLane)
+        ? { walletSessionId: exportAuthorizationWalletSessionId(args.exportLane) }
         : {}),
       materialActivationId:
         args.exportLane?.laneIdentity.signer.materialActivation.activationId,
@@ -185,6 +220,19 @@ async function executePreparedEcdsaExport(
   prepared: PreparedEcdsaExport,
 ): Promise<ExportKeypairResult> {
   const walletId = toWalletId(args.walletSession.walletId);
+  if (prepared.kind === 'active_execution_bundle') {
+    return await exportActiveExecutionBundleEcdsaKey(deps.ecdsa, {
+      walletId,
+      exportLane: prepared.exportLane,
+      material: prepared.exportMaterial,
+      options: {
+        variant: args.options.variant,
+        theme: args.options.theme,
+      },
+      flowId: args.flowId,
+      onEvent: args.options.onEvent,
+    });
+  }
   if (prepared.exportMaterial.kind === 'fresh_email_otp_route_auth_ready') {
     return await exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(deps.ecdsa, {
       walletId,
@@ -224,6 +272,20 @@ async function exportEcdsaKeypairWithSessionLifecycle(
     prepareEcdsaExport(deps, args),
     deps.ecdsa.touchConfirm.initialize(),
   ]);
+  if (prepared.kind === 'active_execution_bundle') {
+    try {
+      return await executePreparedEcdsaExport(deps, args, prepared);
+    } catch (error: unknown) {
+      emitEcdsaExportFailureDiagnostics({
+        input: args,
+        flowId: args.flowId,
+        exportLane: prepared.exportLane,
+        exportMaterial: prepared.exportMaterial,
+        error,
+      });
+      throw error;
+    }
+  }
   if (prepared.exportLane.authorizationState === 'authorization_required') {
     try {
       return await executePreparedEcdsaExport(deps, args, prepared);

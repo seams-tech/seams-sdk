@@ -257,6 +257,10 @@ export async function openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1(arg
   readonly workerCtx: WorkerOperationContext;
   readonly capability: UnlockedWalletEd25519ExportRootCapabilityV1;
   readonly applicationBindingDigestB64u: string;
+  readonly walletKeyId: string;
+  readonly enrollmentId: string;
+  readonly revocationEpoch: number;
+  readonly registeredPublicKeyB64u: string;
 }): Promise<Ed25519YaoLaneWorkerSourceV1> {
   const opened = await executeWorkerOperation({
     ctx: args.workerCtx,
@@ -267,6 +271,10 @@ export async function openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1(arg
         kind: 'unlocked_ed25519_export_root_capability',
         capability: args.capability,
         applicationBindingDigestB64u: args.applicationBindingDigestB64u,
+        walletKeyId: args.walletKeyId,
+        enrollmentId: args.enrollmentId,
+        revocationEpoch: args.revocationEpoch,
+        registeredPublicKeyB64u: args.registeredPublicKeyB64u,
       },
     },
   });

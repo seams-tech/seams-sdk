@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -305,7 +306,6 @@ export function TeamMembersPage(): React.JSX.Element {
   const [loading, setLoading] = React.useState(true);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [mutationError, setMutationError] = React.useState('');
-  const [notice, setNotice] = React.useState('');
   const [query, setQuery] = React.useState('');
   const [busyId, setBusyId] = React.useState('');
   const [modal, setModal] = React.useState<'invite' | 'edit' | null>(null);
@@ -417,7 +417,7 @@ export function TeamMembersPage(): React.JSX.Element {
           email: inviteEmail,
           ...inviteGrant,
         });
-        setNotice(`Invitation sent to ${inviteEmail.trim().toLowerCase()}.`);
+        toast.success(`Invitation sent to ${inviteEmail.trim().toLowerCase()}.`);
         closeModal();
         reload();
       } catch (error: unknown) {
@@ -469,7 +469,7 @@ export function TeamMembersPage(): React.JSX.Element {
             });
           }
         }
-        setNotice(`Updated ${editingMembership.email}.`);
+        toast.success(`Updated ${editingMembership.email}.`);
         closeModal();
         reload();
       } catch (error: unknown) {
@@ -504,7 +504,7 @@ export function TeamMembersPage(): React.JSX.Element {
         } else {
           await removeDashboardOrganizationMembership(membership.id);
         }
-        setNotice(`${membership.email} was ${pastTense}.`);
+        toast.success(`${membership.email} was ${pastTense}.`);
         reload();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -522,10 +522,10 @@ export function TeamMembersPage(): React.JSX.Element {
       try {
         if (action === 'resend') {
           await resendDashboardOrganizationInvitation(invitation.id);
-          setNotice(`Invitation resent to ${invitation.email}.`);
+          toast.success(`Invitation resent to ${invitation.email}.`);
         } else {
           await revokeDashboardOrganizationInvitation(invitation.id);
-          setNotice(`Invitation to ${invitation.email} was revoked.`);
+          toast.success(`Invitation to ${invitation.email} was revoked.`);
         }
         reload();
       } catch (error: unknown) {
@@ -664,7 +664,6 @@ export function TeamMembersPage(): React.JSX.Element {
             unavailable.
           </p>
         ) : null}
-        {notice ? <p className="dashboard-pagination-note">{notice}</p> : null}
         {mutationError && !modal ? (
           <p className="dashboard-form-alert" role="alert">
             {mutationError}

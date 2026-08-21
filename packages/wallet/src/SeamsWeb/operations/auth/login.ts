@@ -195,7 +195,11 @@ import {
   DEFAULT_UNLOCK_REMAINING_USES,
   resolveWalletUnlockSessionUsesFromRequestedUses,
 } from '@/core/signingEngine/threshold/sessionPolicy';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import {
+  SIGNER_AUTH_METHODS,
+  SIGNER_KINDS,
+  SIGNER_SOURCES,
+} from '@shared/utils/signerDomain';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import {
@@ -1651,10 +1655,21 @@ async function unlockLinkedDeviceSessionIfAvailable(
   if (!linkedNearKey || !requestedNearKey || String(linkedNearKey) !== String(requestedNearKey)) {
     return null;
   }
+  const walletSession = await linkedDeviceWalletSessions.readActiveForEnrollmentV1({
+    enrollmentId: result.bundle.enrollmentId,
+    nowMs: Date.now(),
+  });
+  if (walletSession.kind !== 'found') return null;
+  const registration = result.bundle.targetCredentialRegistration;
+  if (registration.targetFactor.kind !== 'passkey_prf' || !registration.webauthnRegistration) {
+    return null;
+  }
   return await unlockInternal(context, subjectSet, options, {
     kind: 'linked_device',
     walletId: result.bundle.walletId,
     enrollmentId: result.bundle.enrollmentId,
+    credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
+    walletSessionDelivery: walletSession.delivery,
   });
 }
 
@@ -1664,6 +1679,8 @@ type LoginUnlockCompletion =
       readonly kind: 'linked_device';
       readonly walletId: WalletId;
       readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
+      readonly credentialIdB64u: string;
+      readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
     };
 
 async function activateLinkedDeviceFromVerifiedOwnerUnlock(args: {
@@ -1680,6 +1697,7 @@ async function activateLinkedDeviceFromVerifiedOwnerUnlock(args: {
     await args.context.signingEngine.establishLinkedDeviceSigningSession({
       walletId: args.completion.walletId,
       enrollmentId: args.completion.enrollmentId,
+      walletSessionDelivery: args.completion.walletSessionDelivery,
       activation: { kind: 'verified_owner_unlock', factorSecret },
     });
   } finally {
@@ -2158,6 +2176,41 @@ async function unlockInternal(
         });
     };
 
+    if (completion.kind === 'linked_device') {
+      if (localUnlockAuthMethod !== SIGNER_AUTH_METHODS.passkey) {
+        throw new Error('[login] linked-device Passkey unlock resolved a non-Passkey factor');
+      }
+      loginCredential = await collectLocalPasskeyCredentialForChallenge({
+        challengeB64u: createLocalUnlockChallengeB64u(),
+        saveAsLoginCredential: true,
+        credentialIds: [completion.credentialIdB64u],
+      });
+      await activateLinkedDeviceFromVerifiedOwnerUnlock({
+        context,
+        completion,
+        credential: loginCredential,
+      });
+      await persistSuccessfulLoginState(baseSignerSlot);
+      void recoverNonceLanesAfterUnlock();
+      const loginResult = buildSuccessfulLoginResult({
+        identity: walletIdentity,
+        accountSubject,
+      });
+      emitUnlockEvent(onEvent, unlockSubjectId, {
+        phase: UnlockEventPhase.STEP_06_SESSION_READY,
+        status: 'succeeded',
+        authMethod: 'passkey',
+      });
+      return await finalizeLoginSuccess({
+        context,
+        authMethod: localUnlockAuthMethod,
+        unlockSubjectId,
+        loginResult,
+        onEvent,
+        afterCall,
+      });
+    }
+
     // Avoid a duplicate prompt when threshold warmup will collect the assertion itself.
     const noServerSessionPasskeyCredentialPlan = resolveLoginNoServerSessionPasskeyCredentialPlan({
       requiresLocalPasskeyUnlock,
@@ -2261,21 +2314,6 @@ async function unlockInternal(
           walletIdentity,
           signersWarmed: warmupPhase.signersWarmed,
           credential: authenticatedCredential,
-        });
-      }
-    }
-
-    if (completion.kind === 'linked_device') {
-      if (localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey) {
-        if (!loginCredential) {
-          throw new Error(
-            '[login] linked-device Passkey activation requires the verified owner credential',
-          );
-        }
-        await activateLinkedDeviceFromVerifiedOwnerUnlock({
-          context,
-          completion,
-          credential: loginCredential,
         });
       }
     }
@@ -4488,6 +4526,14 @@ async function persistLinkedDeviceLocalWalletProfile(
   ) {
     throw new Error('linked-device local wallet signer inventory is invalid');
   }
+  const authMethod =
+    bundle.targetCredentialRegistration.targetFactor.kind === 'email_otp'
+      ? SIGNER_AUTH_METHODS.emailOtp
+      : SIGNER_AUTH_METHODS.passkey;
+  const signerSource =
+    authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? SIGNER_SOURCES.emailOtpRegistration
+      : SIGNER_SOURCES.passkeyRegistration;
   if (ed25519Executions.length === 0) {
     if (ecdsaExecutions.length !== 1 || bundle.nearAccountId !== undefined) {
       throw new Error('linked-device ECDSA-only wallet identity is invalid');
@@ -4509,10 +4555,41 @@ async function persistLinkedDeviceLocalWalletProfile(
       nearAccountId: String(bundle.nearAccountId),
     },
   });
+  const execution = ed25519Executions[0];
+  const operationalPublicKey = `ed25519:${base58Encode(
+    base64UrlDecode(execution.walletKey.registeredPublicKeyB64u),
+  )}`;
+  await IndexedDBManager.activateAccountSigner({
+    account: {
+      profileId: String(bundle.walletId),
+      chainIdKey: 'wallet',
+      accountAddress: String(bundle.walletId),
+      accountModel: 'wallet',
+    },
+    signer: {
+      signerId: operationalPublicKey,
+      signerType: 'threshold',
+      signerKind: SIGNER_KINDS.thresholdEd25519,
+      signerAuthMethod: authMethod,
+      signerSource,
+      metadata: {
+        walletId: String(bundle.walletId),
+        nearAccountId: String(bundle.nearAccountId),
+        nearEd25519SigningKeyId: String(execution.walletKey.nearEd25519SigningKeyId),
+        operationalPublicKey,
+      },
+    },
+    activationPolicy: {
+      mode: 'fail_if_occupied',
+      signerSlot: profile.defaultSignerSlot,
+    },
+    preferredSlot: profile.defaultSignerSlot,
+    mutation: { routeThroughOutbox: false },
+  });
   return profile.defaultSignerSlot;
 }
 
-async function persistLinkedDeviceWalletSessionAuthorization(
+export async function persistLinkedDeviceWalletSessionAuthorization(
   bundle: ActiveLinkedDeviceExecutionBundleV1,
 ): Promise<void> {
   await persistLinkedDeviceEmailOtpAuthMethod(bundle);
@@ -6035,7 +6112,9 @@ export async function getRecentUnlocks(
 /** Lock clears authentication and volatile signing material. */
 export type LockOperationContext = {
   signingEngine: {
+    readWalletAuthenticationState(): WalletAuthenticationState;
     clearLinkedDeviceRefreshMaterial(): Promise<void>;
+    retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void>;
     clearWalletAuthentication(): void;
     getNonceCoordinator(): { clearAll(): void };
     clearThresholdEcdsaSigningQueue(): void;
@@ -6045,7 +6124,11 @@ export type LockOperationContext = {
 
 export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
+  const authentication = signingEngine.readWalletAuthenticationState();
   const linkedDeviceRefreshCleanup = signingEngine.clearLinkedDeviceRefreshMaterial();
+  if (authentication.kind === 'authenticated') {
+    await signingEngine.retireActiveWalletSessionAuthorizationForLock(authentication.walletId);
+  }
   signingEngine.clearWalletAuthentication();
   try {
     signingEngine.getNonceCoordinator().clearAll();

@@ -128,6 +128,14 @@ type LinkedDeviceReusableOperationRef = Extract<
   }
 >['operation']['operation'];
 
+type LinkedDeviceQuotaNeutralOperationRef = Extract<
+  AuthorizedOperationInput,
+  {
+    readonly authorization: { readonly kind: 'authorization_grant' };
+    readonly quota: { readonly kind: 'quota_neutral' };
+  }
+>['operation']['operation'];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -264,6 +272,50 @@ export async function admitLinkedDeviceAuthorizedOperation(input: {
     material: input.material,
   });
   return outcome;
+}
+
+export async function admitLinkedDeviceQuotaNeutralAuthorizedOperation(input: {
+  readonly authorizedOperations: Pick<
+    RouterApiAuthorizedOperationService,
+    'admitAuthorizedOperation'
+  >;
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly capabilityId: CapabilityId;
+  readonly operationId: CapabilityOperationId;
+  readonly operation: LinkedDeviceQuotaNeutralOperationRef;
+  readonly digests: OperationDigestSet;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly auditEventId: AuthorizationAuditEventId;
+  readonly authorizationId: Parameters<typeof buildLinkedDeviceWalletSessionAuthorizationRef>[0];
+  readonly material: LinkedDeviceMaterialActivationScopeV1;
+  readonly claimedAtMs: number;
+}): Promise<LinkedDeviceAuthorizedOperationAdmissionResultV1> {
+  const envelope = buildCapabilityOperationEnvelope({
+    tenantId: input.tenantId,
+    principalId: input.principalId,
+    capabilityId: input.capabilityId,
+    operationId: input.operationId,
+    operation: input.operation,
+    digests: input.digests,
+  });
+  return await input.authorizedOperations.admitAuthorizedOperation({
+    operation: {
+      tenantId: input.tenantId,
+      authorizedOperationId: input.authorizedOperationId,
+      auditEventId: input.auditEventId,
+      operation: envelope,
+      authorization: {
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildLinkedDeviceWalletSessionAuthorizationRef(
+          input.authorizationId,
+        ),
+      },
+      quota: { kind: 'quota_neutral' },
+      claimedAtMs: input.claimedAtMs,
+    } satisfies AuthorizedOperationInput,
+    material: input.material,
+  });
 }
 
 export async function parseLinkedDeviceWalletSessionForCurve(input: {

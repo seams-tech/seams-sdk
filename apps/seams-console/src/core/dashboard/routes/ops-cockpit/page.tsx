@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from 'sonner';
 import { useSiteRouter } from '@core/router/useSiteRouter';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
 import { FuelIcon, KeyRoundIcon, ScaleIcon } from '../../icons/SidebarIcons';
@@ -114,10 +115,8 @@ export function OpsCockpitPage(): React.JSX.Element {
   const [rejectingApprovalId, setRejectingApprovalId] = React.useState<string>('');
   const [approvalMutationErrorMessage, setApprovalMutationErrorMessage] =
     React.useState<string>('');
-  const [approvalMutationNotice, setApprovalMutationNotice] = React.useState<string>('');
   const [replayingDeadLetterId, setReplayingDeadLetterId] = React.useState<string>('');
   const [mutationErrorMessage, setMutationErrorMessage] = React.useState<string>('');
-  const [mutationNotice, setMutationNotice] = React.useState<string>('');
   const [data, setData] = React.useState<OpsCockpitData>({
     summary: null,
     warnings: [],
@@ -192,13 +191,12 @@ export function OpsCockpitPage(): React.JSX.Element {
       }
       setReplayingDeadLetterId(entry.deadLetter.id);
       setMutationErrorMessage('');
-      setMutationNotice('');
       try {
         await replayDashboardWebhookDelivery({
           endpointId: entry.endpointId,
           deliveryId,
         });
-        setMutationNotice(`Replay queued for delivery ${deliveryId}.`);
+        toast.success(`Replay queued for delivery ${deliveryId}.`);
         loadOpsCockpit();
       } catch (error: unknown) {
         setMutationErrorMessage(toErrorMessage(error));
@@ -228,14 +226,13 @@ export function OpsCockpitPage(): React.JSX.Element {
       }
       setApprovingApprovalId(approvalId);
       setApprovalMutationErrorMessage('');
-      setApprovalMutationNotice('');
       try {
         const updated = await approveDashboardApproval({
           approvalId,
           reason: OPS_COCKPIT_APPROVE_REASON,
           mfaVerified: false,
         });
-        setApprovalMutationNotice(`Approval request ${approvalId} is now ${updated.status}.`);
+        toast.success(`Approval request ${approvalId} is now ${updated.status}.`);
         loadOpsCockpit();
       } catch (error: unknown) {
         setApprovalMutationErrorMessage(toErrorMessage(error));
@@ -259,13 +256,12 @@ export function OpsCockpitPage(): React.JSX.Element {
       }
       setRejectingApprovalId(approvalId);
       setApprovalMutationErrorMessage('');
-      setApprovalMutationNotice('');
       try {
         const updated = await rejectDashboardApproval({
           approvalId,
           reason: OPS_COCKPIT_REJECT_REASON,
         });
-        setApprovalMutationNotice(`Approval request ${approvalId} is now ${updated.status}.`);
+        toast.success(`Approval request ${approvalId} is now ${updated.status}.`);
         loadOpsCockpit();
       } catch (error: unknown) {
         setApprovalMutationErrorMessage(toErrorMessage(error));
@@ -331,9 +327,6 @@ export function OpsCockpitPage(): React.JSX.Element {
           <div className="dashboard-hero__status-grid">
             <section className="dashboard-hero__status-card" aria-label="Pending approvals summary">
               <h2>Pending approvals</h2>
-              {approvalMutationNotice ? (
-                <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
-              ) : null}
               {approvalMutationErrorMessage ? (
                 <p className="dashboard-pagination-note">{approvalMutationErrorMessage}</p>
               ) : null}
@@ -422,16 +415,11 @@ export function OpsCockpitPage(): React.JSX.Element {
                 title="Failed webhooks (dead letters)"
                 badge={`${failedWebhooks.length}`}
               >
-                {mutationNotice ? (
-                  <p className="dashboard-pagination-note">{mutationNotice}</p>
-                ) : null}
                 {mutationErrorMessage ? (
                   <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
                 ) : null}
                 {failedWebhooks.length === 0 ? (
-                  <p className="dashboard-pagination-note">
-                    No unresolved webhook dead letters.
-                  </p>
+                  <p className="dashboard-pagination-note">No unresolved webhook dead letters.</p>
                 ) : (
                   <ul className="dashboard-view-list">
                     {failedWebhooks.slice(0, 8).map((entry) => (
@@ -450,7 +438,9 @@ export function OpsCockpitPage(): React.JSX.Element {
                             !String(entry.deadLetter.deliveryId || '').trim()
                           }
                         >
-                          {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
+                          {replayingDeadLetterId === entry.deadLetter.id
+                            ? 'Replaying...'
+                            : 'Replay'}
                         </button>
                       </li>
                     ))}
@@ -484,7 +474,6 @@ export function OpsCockpitPage(): React.JSX.Element {
           ) : null}
         </section>
       ) : null}
-
     </div>
   );
 }

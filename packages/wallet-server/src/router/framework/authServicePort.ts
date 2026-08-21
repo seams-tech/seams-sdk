@@ -1087,6 +1087,15 @@ export interface RouterApiWalletAuthMethodService {
   ): Promise<
     { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   >;
+  verifyActiveLinkedEmailOtpAuthority(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+    readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  }): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
     readonly walletId: string;
     readonly providerUserId: string;

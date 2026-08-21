@@ -1,6 +1,7 @@
 import React from 'react';
 import { DashboardPage } from '@core/dashboard/page';
 import { DashboardLoginPage } from '@core/dashboard/login/page';
+import { DashboardToaster } from '@core/dashboard/components/DashboardToaster';
 
 // Static composition of the customer Console: core routes plus the Wallet
 // Console route group registered in dashboardConfig. No SeamsWebProvider,
@@ -21,9 +22,7 @@ function usePathname(): string {
   return pathname;
 }
 
-export function App(): React.JSX.Element {
-  const pathname = usePathname();
-
+function AppRoute({ pathname }: { pathname: string }): React.JSX.Element {
   if (pathname === '/dashboard/login') {
     return <DashboardLoginPage />;
   }
@@ -38,4 +37,14 @@ export function App(): React.JSX.Element {
     window.location.replace('/dashboard/overview');
   }
   return <></>;
+}
+
+export function App(): React.JSX.Element {
+  const pathname = usePathname();
+  return (
+    <>
+      <AppRoute pathname={pathname} />
+      <DashboardToaster />
+    </>
+  );
 }

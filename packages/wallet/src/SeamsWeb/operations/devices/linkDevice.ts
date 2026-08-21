@@ -860,14 +860,20 @@ export class LinkDeviceFlow {
         await this.resumeCommittedDelivery(event.state, runEpoch);
         return;
       case 'active': {
-        await this.waitForTargetCredentialActivation();
         this.assertCurrentRun(runEpoch);
         if (!this.session) throw new Error('device-link session is unavailable');
         this.session = { ...this.session, state: event.state };
-        await this.ensureWalletSessionDeliveryPersistedV1({ state: event.state, runEpoch });
         if (!this.localSigningSessionActivated) {
           throw new Error('linked-device server became active before local signing activation');
         }
+        const walletSessionDelivery = await this.fetchValidatedWalletSessionDeliveryV1({
+          state: event.state,
+          runEpoch,
+        });
+        await this.ensureWalletSessionDeliveryPersistedV1({
+          delivery: walletSessionDelivery,
+          runEpoch,
+        });
         this.clearTargetCredentialActivationState();
         this.emailOtpTargetActivationState = { kind: 'idle' };
         this.resealedExportRootEnvelope = null;
@@ -1361,6 +1367,7 @@ export class LinkDeviceFlow {
           message,
         };
         this.notifyEmailOtpActivationV1({ kind: 'unavailable', message });
+        await this.cancelFailedPrecommitSession(context.event).catch(() => undefined);
       }
       throw error;
     }
@@ -1511,6 +1518,7 @@ export class LinkDeviceFlow {
       }
     >;
     readonly runEpoch: number;
+    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
   }): Promise<void> {
     if (this.localSigningSessionActivated) return;
     if (this.localSigningSessionActivationInProgress) {
@@ -1523,6 +1531,7 @@ export class LinkDeviceFlow {
     const activationPromise = this.ports.sessionActivation.activateLinkedDeviceSigningSessionV1({
       walletId: input.state.walletId,
       enrollmentId: input.state.enrollmentId,
+      walletSessionDelivery: input.walletSessionDelivery,
       activation,
     });
     this.localSigningSessionActivationInProgress = activationPromise;
@@ -1975,8 +1984,20 @@ export class LinkDeviceFlow {
       runEpoch,
     });
     if (!this.session) return;
-    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
-    await this.ensureLocalSigningSessionActivatedV1({ state, runEpoch });
+    const walletSessionDelivery = await this.fetchValidatedWalletSessionDeliveryV1({
+      state,
+      runEpoch,
+      deviceId,
+    });
+    await this.ensureWalletSessionDeliveryPersistedV1({
+      delivery: walletSessionDelivery,
+      runEpoch,
+    });
+    await this.ensureLocalSigningSessionActivatedV1({
+      state,
+      runEpoch,
+      walletSessionDelivery,
+    });
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -2021,7 +2042,7 @@ export class LinkDeviceFlow {
       stage: 'lane_provisioning_approval_loaded',
     });
     if (!this.session) throw new Error('device-link session is unavailable');
-    const deliveryState = await this.waitForPreparedDeliveryCommitV1({
+    await this.waitForPreparedDeliveryCommitV1({
       authenticatedTransport,
       linkSessionId: state.linkSessionId,
       expiresAtMs: this.session.qrData.expiresAtMs,
@@ -2031,9 +2052,7 @@ export class LinkDeviceFlow {
       flowId: this.flowId,
       linkSessionId: state.linkSessionId,
       stage: 'source_delivery_commit_observed',
-      details: { state: deliveryState },
     });
-    if (deliveryState === 'active') return;
     const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
       command: buildLinkedDeviceProvisioningCommandV1({
         linkSessionId: state.linkSessionId,
@@ -2067,8 +2086,20 @@ export class LinkDeviceFlow {
       receipt,
       runEpoch,
     });
-    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
-    await this.ensureLocalSigningSessionActivatedV1({ state, runEpoch });
+    const walletSessionDelivery = await this.fetchValidatedWalletSessionDeliveryV1({
+      state,
+      runEpoch,
+      deviceId,
+    });
+    await this.ensureWalletSessionDeliveryPersistedV1({
+      delivery: walletSessionDelivery,
+      runEpoch,
+    });
+    await this.ensureLocalSigningSessionActivatedV1({
+      state,
+      runEpoch,
+      walletSessionDelivery,
+    });
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -2086,7 +2117,7 @@ export class LinkDeviceFlow {
     readonly linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId;
     readonly expiresAtMs: number;
     readonly runEpoch: number;
-  }): Promise<'committed' | 'active'> {
+  }): Promise<void> {
     let attempt = 0;
     while (Date.now() < input.expiresAtMs) {
       this.assertCurrentRun(input.runEpoch);
@@ -2106,9 +2137,9 @@ export class LinkDeviceFlow {
       });
       switch (snapshot.state.state) {
         case 'committed_completion_required':
-          return 'committed';
+          return;
         case 'active':
-          return 'active';
+          return;
         case 'claimed_by_owner':
         case 'awaiting_target_factor':
         case 'provisioning':
@@ -2185,25 +2216,15 @@ export class LinkDeviceFlow {
   }
 
   private async ensureWalletSessionDeliveryPersistedV1(input: {
-    readonly state: Extract<
-      LinkedDeviceSessionState,
-      {
-        readonly state:
-          | 'awaiting_target_factor'
-          | 'provisioning'
-          | 'committed_completion_required'
-          | 'active';
-      }
-    >;
+    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
     readonly runEpoch: number;
-    readonly deviceId?: import('@shared/signing-lanes/ids').LinkedDeviceId;
   }): Promise<void> {
     if (this.walletSessionDeliveryPersisted) return;
     if (this.walletSessionDeliveryInProgress) {
       await this.walletSessionDeliveryInProgress;
       return;
     }
-    const persistence = this.fetchAndPersistWalletSessionDeliveryV1(input);
+    const persistence = this.persistWalletSessionDeliveryV1(input);
     this.walletSessionDeliveryInProgress = persistence;
     try {
       await persistence;
@@ -2215,7 +2236,7 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async fetchAndPersistWalletSessionDeliveryV1(input: {
+  private async fetchValidatedWalletSessionDeliveryV1(input: {
     readonly state: Extract<
       LinkedDeviceSessionState,
       {
@@ -2228,7 +2249,7 @@ export class LinkDeviceFlow {
     >;
     readonly runEpoch: number;
     readonly deviceId?: import('@shared/signing-lanes/ids').LinkedDeviceId;
-  }): Promise<void> {
+  }): Promise<LinkedDeviceWalletSessionDeliveryV1> {
     await Promise.resolve();
     const transport = this.requireAuthenticatedTransport();
     const deviceId = input.deviceId ?? (await this.requireDeviceId(input.state));
@@ -2248,7 +2269,15 @@ export class LinkDeviceFlow {
       state: input.state,
       deviceId,
     });
-    await this.ports.walletSessions.putExactActiveDeliveryV1(delivery);
+    this.assertCurrentRun(input.runEpoch);
+    return delivery;
+  }
+
+  private async persistWalletSessionDeliveryV1(input: {
+    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
+    readonly runEpoch: number;
+  }): Promise<void> {
+    await this.ports.walletSessions.putExactActiveDeliveryV1(input.delivery);
     this.assertCurrentRun(input.runEpoch);
   }
 
@@ -2285,8 +2314,7 @@ export class LinkDeviceFlow {
           delivery.orderedTokens[index]?.revocationEpoch !== binding.sourceRevocationEpoch,
       ) ||
       (receipt !== null &&
-        (delivery.keyManifestDigestB64u !== receipt.manifestDigestB64u ||
-          delivery.issuedAtMs !== receipt.activatedAtMs))
+        delivery.keyManifestDigestB64u !== receipt.manifestDigestB64u)
     ) {
       throw new Error('linked-device Wallet Session delivery does not match activation');
     }

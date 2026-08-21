@@ -28,7 +28,14 @@ import {
   handleEmailOtpRegistrationSealRoute,
   sealEmailOtpFactorSecretForWorker,
 } from '../../../domains/emailOtp/emailOtpRouteHandlers';
-import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseOrgId,
+  parseProviderSubject,
+  parseWalletAuthMethodId,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -776,6 +783,16 @@ type WalletEmailOtpFactorReleaseRequest = {
       readonly otpCode: unknown;
       readonly operation: WalletEmailOtpOperation;
     }
+  | {
+      readonly kind: 'linked_device_email_otp';
+      readonly baseWalletAuthMethodId: unknown;
+      readonly challengeId: unknown;
+      readonly deviceId: unknown;
+      readonly enrollmentId: unknown;
+      readonly linkedOwnerAuthMethodId: unknown;
+      readonly otpCode: unknown;
+      readonly operation: WalletEmailOtpOperation;
+    }
 );
 
 function parseWalletEmailOtpFactorReleaseRequest(
@@ -788,16 +805,29 @@ function parseWalletEmailOtpFactorReleaseRequest(
       ? ['kind', 'loginGrant', 'walletId', 'workerEphemeralPublicKey65B64u']
       : kind === 'wallet_session'
         ? ['kind', 'walletId', 'workerEphemeralPublicKey65B64u']
-        : kind === 'email_otp'
+        : kind === 'linked_device_email_otp'
           ? [
+              'baseWalletAuthMethodId',
               'challengeId',
+              'deviceId',
+              'enrollmentId',
               'kind',
+              'linkedOwnerAuthMethodId',
               'operation',
               'otpCode',
               'walletId',
               'workerEphemeralPublicKey65B64u',
             ]
-          : null;
+          : kind === 'email_otp'
+            ? [
+                'challengeId',
+                'kind',
+                'operation',
+                'otpCode',
+                'walletId',
+                'workerEphemeralPublicKey65B64u',
+              ]
+            : null;
   if (!expectedFields || Object.keys(value).sort().join(',') !== expectedFields.join(',')) {
     throw new Error('Email OTP factor release body has invalid fields');
   }
@@ -818,6 +848,20 @@ function parseWalletEmailOtpFactorReleaseRequest(
   }
   const operation = parseWalletEmailOtpLoginOperation(value.operation);
   if (!operation.ok) throw new Error(operation.message);
+  if (kind === 'linked_device_email_otp') {
+    return {
+      kind,
+      walletId: value.walletId,
+      baseWalletAuthMethodId: value.baseWalletAuthMethodId,
+      challengeId: value.challengeId,
+      deviceId: value.deviceId,
+      enrollmentId: value.enrollmentId,
+      linkedOwnerAuthMethodId: value.linkedOwnerAuthMethodId,
+      otpCode: value.otpCode,
+      operation: operation.operation,
+      workerEphemeralPublicKey65B64u: value.workerEphemeralPublicKey65B64u,
+    };
+  }
   return {
     kind: 'email_otp',
     walletId: value.walletId,
@@ -916,6 +960,34 @@ export async function handleWalletEmailOtpFactorRelease(
           providerUserId: enrollment.enrollment.providerUserId,
         });
       if (!authority.ok) return json(authority, { status: 403 });
+      if (body.kind === 'linked_device_email_otp') {
+        const enrollmentId = parseLinkedDeviceEnrollmentId(body.enrollmentId);
+        const deviceId = parseLinkedDeviceId(body.deviceId);
+        const linkedOwnerAuthMethodId = parseWalletAuthMethodId(body.linkedOwnerAuthMethodId);
+        const baseWalletAuthMethodId = parseWalletAuthMethodId(body.baseWalletAuthMethodId);
+        if (
+          !enrollmentId.ok ||
+          !deviceId.ok ||
+          !linkedOwnerAuthMethodId.ok ||
+          !baseWalletAuthMethodId.ok
+        ) {
+          return json(
+            { ok: false, code: 'invalid_body', message: 'Linked device identity is invalid' },
+            { status: 400 },
+          );
+        }
+        const activeLinkedAuthority =
+          await ctx.service.walletAuthMethods.verifyActiveLinkedEmailOtpAuthority({
+            walletId: walletId.value,
+            enrollmentId: enrollmentId.value,
+            deviceId: deviceId.value,
+            linkedOwnerAuthMethodId: linkedOwnerAuthMethodId.value,
+            baseWalletAuthMethodId: baseWalletAuthMethodId.value,
+          });
+        if (!activeLinkedAuthority.ok) {
+          return json(activeLinkedAuthority, { status: 403 });
+        }
+      }
       const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
         walletId: walletId.value,
         providerUserId: enrollment.enrollment.providerUserId,

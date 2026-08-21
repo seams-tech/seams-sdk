@@ -35,9 +35,13 @@ import type { LinkedDeviceOwnerAuthBindingV1 } from '@shared/device-linking/owne
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
 import { parseEnrollmentRow, parseProductEpochRow } from '../signingLanes/d1LaneRecords';
-import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
+import {
+  parseDelegatedWalletAuthorityV1,
+  sameDelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
 
 const ENROLLMENT_TABLE = 'lane_enrollments';
+const AUTHORIZATION_TABLE = 'linked_device_wallet_session_authorizations';
 const WALLET_AUTH_METHOD_TABLE = 'wallet_auth_methods';
 const WEBAUTHN_AUTHENTICATOR_TABLE = 'webauthn_authenticators';
 const AUTHORIZATION_AUDIT_TABLE = 'authorized_operation_audit_events';
@@ -132,9 +136,7 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
 
     const authMethodIds = [
       ...new Set(
-        [...selectedBindings.values()].map((binding) =>
-          canonicalAuthMethodIdForBinding(binding),
-        ),
+        [...selectedBindings.values()].map((binding) => canonicalAuthMethodIdForBinding(binding)),
       ),
     ];
     const authMethodRows = await queryD1All(
@@ -414,7 +416,7 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     const summaries: LinkedDeviceSummaryV1[] = [];
     for (const binding of bindings.records) {
       const target = await this.projectBindingTargetV1(binding);
-      summaries.push(target.summary);
+      if (target) summaries.push(target.summary);
     }
     // Founding owner devices ride the first page only; later pages would
     // otherwise repeat them under every cursor.
@@ -438,11 +440,20 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
   /** Projects one device from the durable owner binding and lane inventory. */
   private async projectBindingTargetV1(
     binding: LinkedDeviceOwnerAuthBindingV1,
-  ): Promise<LinkedDeviceManagementTargetV1> {
+  ): Promise<LinkedDeviceManagementTargetV1 | null> {
     if (String(binding.walletId).trim().length === 0) {
       throw new Error('linked-device owner auth binding wallet is missing');
     }
     const laneEnrollmentId = parseRequiredLaneEnrollmentId(String(binding.enrollmentId));
+    const permission = await readLinkedDevicePermissionV1({
+      database: this.database,
+      scope: this.scope,
+      tenantId: binding.tenantId,
+      walletId: binding.walletId,
+      enrollmentId: binding.enrollmentId,
+      deviceId: binding.deviceId,
+    });
+    if (!permission) return null;
     const enrollmentRow = await queryD1One(
       this.database,
       `SELECT enrollment_id, wallet_id, manifest_digest_b64u, manifest_json,
@@ -485,9 +496,6 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     const products: LaneProductEpochRecordV1[] = [];
     for (const row of productRows) products.push(parseProductEpochRow(row));
     assertProductsMatchManifest(products, parsed.manifest, parsed.lifecycle, manifestDigestB64u);
-    if (products.length !== parsed.manifest.orderedChildren.length) {
-      throw new Error('linked-device owner binding lane product coverage is incomplete');
-    }
     const revocationEpoch = requireUniformProductRevocationEpochV1(products);
     if (binding.revocationEpoch !== revocationEpoch) {
       throw new Error(
@@ -519,7 +527,7 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
       enrollmentId: binding.enrollmentId,
       walletId: binding.walletId,
       credential,
-      permission: LINKED_OWNER_EXECUTION_PERMISSION_V1,
+      permission,
       keyManifestDigestB64u: manifestDigestB64u,
       coveredWalletKeys: parsed.manifest.orderedChildren.map((child) => child.walletKeyId),
       state: projectBindingState(binding, parsed.lifecycle),
@@ -798,9 +806,75 @@ function projectBindingState(
   return lifecycle.state === 'active' ? 'active' : 'provisioning';
 }
 
-/** The narrow linked execution grant every Phase 8 linked owner holds. */
-const LINKED_OWNER_EXECUTION_PERMISSION_V1: LinkedDeviceSummaryV1['permission'] =
-  buildFullOwnerDelegatedWalletAuthorityV1();
+async function readLinkedDevicePermissionV1(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1LinkedDeviceSessionScopeV1;
+  readonly tenantId: TenantId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+}): Promise<LinkedDeviceSummaryV1['permission'] | null> {
+  const rows = await queryD1All(
+    input.database,
+    `SELECT tenant_id, wallet_id, enrollment_id, device_id,
+            authorization_id, permission_json, issued_at_ms
+       FROM ${AUTHORIZATION_TABLE}
+      WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+        AND tenant_id = ?5 AND wallet_id = ?6 AND enrollment_id = ?7 AND device_id = ?8
+      ORDER BY issued_at_ms DESC, authorization_id ASC`,
+    [
+      ...scopeValues(input.scope),
+      String(input.tenantId),
+      String(input.walletId),
+      String(input.enrollmentId),
+      String(input.deviceId),
+    ],
+  );
+  if (rows.length === 0) return null;
+
+  const permissions: LinkedDeviceSummaryV1['permission'][] = [];
+  for (const row of rows) {
+    const authorizationId = requiredString(
+      field(row, 'authorization_id'),
+      'linked-device authorization_id',
+    );
+    if (
+      requiredString(field(row, 'tenant_id'), 'linked-device authorization tenant_id') !==
+        String(input.tenantId) ||
+      requiredString(field(row, 'wallet_id'), 'linked-device authorization wallet_id') !==
+        String(input.walletId) ||
+      requiredString(field(row, 'enrollment_id'), 'linked-device authorization enrollment_id') !==
+        String(input.enrollmentId) ||
+      requiredString(field(row, 'device_id'), 'linked-device authorization device_id') !==
+        String(input.deviceId)
+    ) {
+      throw new Error(
+        `linked-device authorization ${authorizationId} identity differs from its owner binding`,
+      );
+    }
+    requiredTimestamp(field(row, 'issued_at_ms'), 'linked-device authorization issued_at_ms');
+    const parsed = parseDelegatedWalletAuthorityV1(
+      parseD1JsonColumn(field(row, 'permission_json')),
+    );
+    if (!parsed.ok) {
+      throw new Error(
+        `linked-device authorization ${authorizationId} permission is invalid: ${parsed.error.message}`,
+      );
+    }
+    permissions.push(parsed.value);
+  }
+
+  const first = permissions[0];
+  if (!first) {
+    throw new Error('linked-device authorization permission rows are empty');
+  }
+  for (const permission of permissions.slice(1)) {
+    if (!sameDelegatedWalletAuthorityV1(first, permission)) {
+      throw new Error('linked-device authorization permissions disagree for one owner binding');
+    }
+  }
+  return first;
+}
 
 function productActivityAtMs(product: LaneProductEpochRecordV1): number {
   switch (product.state) {

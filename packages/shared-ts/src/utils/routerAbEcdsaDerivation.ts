@@ -1524,7 +1524,7 @@ function parseRouterAbEcdsaExplicitExportForwardedResponseWithV1(
   };
 }
 
-function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
+export function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   value: unknown,
 ): RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 {
   return parseRouterAbEcdsaSigningWorkerExportShareEnvelopeWithV1(
@@ -1533,7 +1533,7 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   );
 }
 
-function parseRouterAbEcdsaSigningWorkerProtocolExportShareEnvelopeV1(
+export function parseRouterAbEcdsaSigningWorkerProtocolExportShareEnvelopeV1(
   value: unknown,
 ): RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 {
   return parseRouterAbEcdsaSigningWorkerExportShareEnvelopeWithV1(

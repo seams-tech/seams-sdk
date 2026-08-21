@@ -1156,6 +1156,7 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
       return {
         authorizationSessions: service.authorizationSessions,
         preparedRecoveryAdmission: service.passkeyCustody,
+        session,
       };
     }),
     capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({

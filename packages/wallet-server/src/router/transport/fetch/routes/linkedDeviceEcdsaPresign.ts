@@ -1,9 +1,10 @@
-import { buildLinkedDevicePrincipalId } from '../../../../authorization/domain';
+import { buildLinkedDevicePrincipalId, parseSessionOrigin } from '../../../../authorization/domain';
 import type { AuthorizedOperation } from '../../../../authorization/domain';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 import {
   admitLinkedDeviceAuthorizedOperation,
+  admitLinkedDeviceQuotaNeutralAuthorizedOperation,
   parseLinkedDeviceExecutionEnvelopeV1,
   parseLinkedDeviceWalletSessionForCurve,
   verifyLinkedDeviceLocalPresenceForOperation,
@@ -22,14 +23,23 @@ import {
 } from '@shared/authorization/operationFingerprint';
 import {
   buildEvmEcdsaMpcOperationRef,
+  parseAuthFactorId,
   parseAuthorizationAuditEventId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
   parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
+  parsePrincipalId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { mpcMaterialActivationRefsEqual, parseWalletId } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseEmailOtpChallengeId,
+  parseRootShareEpoch,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import {
   parseLinkedDeviceEcdsaNormalSigningScopeV1,
   type LinkedDeviceEcdsaNormalSigningScopeV1,
@@ -38,13 +48,37 @@ import {
   routerAbMpcMaterialActivationRefFromWire,
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import type { RouterAbEcdsaPresignSessionProgress } from '../../../../core/ThresholdService/routerAb/ecdsaDerivationPresignBridge';
+import type {
+  RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire,
+  RouterAbEcdsaSigningWorkerExportShareBindingV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  parseWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type EmailOtpWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  buildVerifiedWalletOperationEmailOtpFactorResult,
+  buildVerifiedWalletOperationPasskeyFactorResult,
+  type VerifiedWalletOperationFactorResult,
+} from '../../../../authorization/factorEvidence';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
+} from '@shared/utils/emailOtpDomain';
+import { hashEmailOtpOperationBinding } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 
 export const ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH =
   '/router-ab/ecdsa-derivation/linked-device/presign/init' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH =
   '/router-ab/ecdsa-derivation/linked-device/presign/step' as const;
+export const ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH =
+  '/router-ab/ecdsa-derivation/linked-device/export/share' as const;
 
 type LinkedPresignPhase = 'init' | 'step';
 
@@ -69,6 +103,596 @@ type LinkedEcdsaPresignAuthenticated = Extract<
   { readonly kind: 'linked_device'; readonly curve: 'ecdsa' }
 >;
 
+type LinkedEcdsaExportShareRequest = {
+  readonly scope: LinkedDeviceEcdsaNormalSigningScopeV1;
+  readonly envelope: ReturnType<typeof parseLinkedDeviceExecutionEnvelopeV1>;
+  readonly requestId: string;
+  readonly operationId: ReturnType<typeof requireOperationId>;
+  readonly authorizedOperationId: ReturnType<typeof requireAuthorizedOperationId>;
+  readonly auditEventId: ReturnType<typeof requireAuditEventId>;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly materialActivationValue: ReturnType<typeof routerAbMpcMaterialActivationRefFromWire>;
+  readonly expiresAtMs: number;
+  readonly recipientIdentity: string;
+  readonly recipientPublicKey: string;
+  readonly digests: OperationDigestSet;
+  readonly freshStepUpProof: LinkedEcdsaFreshExportProof;
+};
+
+type LinkedEcdsaFreshExportProof =
+  | {
+      readonly kind: 'passkey';
+      readonly authority: PasskeyWalletAuthAuthority;
+      readonly webauthnAuthentication: RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly providerUserId: string;
+      readonly challengeId: string;
+      readonly otpCode: string;
+    };
+
+const LINKED_ECDSA_EXPORT_STEP_UP_CHALLENGE_DOMAIN_V1 =
+  'seams:linked-device:ecdsa-export-step-up:v1';
+
+function assertLinkedEcdsaExportBinding(
+  binding: RouterAbEcdsaSigningWorkerExportShareBindingV1,
+): void {
+  for (const [label, value] of [
+    ['wallet_id', binding.wallet_id],
+    ['key_handle', binding.key_handle],
+    ['ecdsa_threshold_key_id', binding.ecdsa_threshold_key_id],
+    ['signing_root_id', binding.signing_root_id],
+    ['signing_root_version', binding.signing_root_version],
+    ['activation_epoch', binding.activation_epoch],
+    ['signing_worker_id', binding.signing_worker_id],
+    ['export_nonce', binding.export_nonce],
+    ['authorization_id', binding.authorization_id],
+    ['lifecycle_id', binding.lifecycle_id],
+    ['recipient_identity', binding.recipient_identity],
+  ] as const) {
+    requireText(value, `binding.${label}`);
+  }
+  requireFixedBase64Url(binding.context_binding_b64u, 'binding.context_binding_b64u', 32);
+  requireFixedBase64Url(
+    binding.threshold_public_key33_b64u,
+    'binding.threshold_public_key33_b64u',
+    33,
+  );
+  requireFixedBase64Url(
+    binding.export_request_digest_b64u,
+    'binding.export_request_digest_b64u',
+    32,
+  );
+  requireFixedBase64Url(
+    binding.export_authorization_digest_b64u,
+    'binding.export_authorization_digest_b64u',
+    32,
+  );
+  if (!/^x25519:[0-9a-f]{64}$/.test(binding.recipient_public_key)) {
+    throw new Error('linked ECDSA export recipient key is invalid');
+  }
+  if (binding.material_activation.material_owner !== binding.wallet_id) {
+    throw new Error('linked ECDSA export material owner does not match wallet');
+  }
+  if (binding.material_activation.signing_worker !== binding.signing_worker_id) {
+    throw new Error('linked ECDSA export material worker does not match SigningWorker');
+  }
+  if (binding.expires_at_ms <= 0) {
+    throw new Error('linked ECDSA export expiry is invalid');
+  }
+}
+
+function encodeX25519PublicKey(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const decoded = atob(padded);
+  if (decoded.length !== 32) {
+    throw new Error('linked ECDSA export recipient key must contain 32 bytes');
+  }
+  let hex = '';
+  for (let index = 0; index < decoded.length; index += 1) {
+    hex += decoded.charCodeAt(index).toString(16).padStart(2, '0');
+  }
+  return `x25519:${hex}`;
+}
+
+function requireExactFields(
+  record: Record<string, unknown>,
+  label: string,
+  expected: readonly string[],
+): void {
+  const actual = Object.keys(record).sort();
+  const fields = [...expected].sort();
+  if (actual.length !== fields.length || actual.some((field, index) => field !== fields[index])) {
+    throw new Error(`${label} has invalid fields`);
+  }
+}
+
+function parseLinkedEcdsaFreshExportWebAuthnCredential(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire {
+  const credential = requireRecord(value, 'fresh_step_up_proof.webauthn_authentication');
+  requireExactFields(credential, 'fresh_step_up_proof.webauthn_authentication', [
+    'id',
+    'rawId',
+    'type',
+    'authenticatorAttachment',
+    'response',
+    'clientExtensionResults',
+  ]);
+  const response = requireRecord(
+    credential.response,
+    'fresh_step_up_proof.webauthn_authentication.response',
+  );
+  requireExactFields(response, 'fresh_step_up_proof.webauthn_authentication.response', [
+    'clientDataJSON',
+    'authenticatorData',
+    'signature',
+    'userHandle',
+  ]);
+  const authenticatorAttachment =
+    credential.authenticatorAttachment === null
+      ? null
+      : requireText(
+          credential.authenticatorAttachment,
+          'fresh_step_up_proof.webauthn_authentication.authenticatorAttachment',
+        );
+  const userHandle =
+    response.userHandle === null
+      ? null
+      : requireText(
+          response.userHandle,
+          'fresh_step_up_proof.webauthn_authentication.response.userHandle',
+        );
+  if (credential.clientExtensionResults === undefined) {
+    throw new Error('fresh_step_up_proof.webauthn_authentication.clientExtensionResults is required');
+  }
+  return {
+    id: requireText(credential.id, 'fresh_step_up_proof.webauthn_authentication.id'),
+    rawId: requireText(credential.rawId, 'fresh_step_up_proof.webauthn_authentication.rawId'),
+    type: requireText(credential.type, 'fresh_step_up_proof.webauthn_authentication.type'),
+    authenticatorAttachment,
+    response: {
+      clientDataJSON: requireText(
+        response.clientDataJSON,
+        'fresh_step_up_proof.webauthn_authentication.response.clientDataJSON',
+      ),
+      authenticatorData: requireText(
+        response.authenticatorData,
+        'fresh_step_up_proof.webauthn_authentication.response.authenticatorData',
+      ),
+      signature: requireText(
+        response.signature,
+        'fresh_step_up_proof.webauthn_authentication.response.signature',
+      ),
+      userHandle,
+    },
+    clientExtensionResults: credential.clientExtensionResults,
+  };
+}
+
+function parseLinkedEcdsaFreshExportProof(value: unknown): LinkedEcdsaFreshExportProof {
+  const proof = requireRecord(value, 'fresh_step_up_proof');
+  switch (proof.kind) {
+    case 'passkey': {
+      requireExactFields(proof, 'fresh_step_up_proof', [
+        'kind',
+        'authority',
+        'webauthn_authentication',
+      ]);
+      const authority = parseWalletAuthAuthority(proof.authority);
+      if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
+        throw new Error('fresh_step_up_proof requires an exact passkey authority');
+      }
+      return {
+        kind: 'passkey',
+        authority,
+        webauthnAuthentication: parseLinkedEcdsaFreshExportWebAuthnCredential(
+          proof.webauthn_authentication,
+        ),
+      };
+    }
+    case 'email_otp':
+      requireExactFields(proof, 'fresh_step_up_proof', [
+        'kind',
+        'provider_user_id',
+        'challenge_id',
+        'otp_code',
+      ]);
+      return {
+        kind: 'email_otp',
+        providerUserId: requireText(
+          proof.provider_user_id,
+          'fresh_step_up_proof.provider_user_id',
+        ),
+        challengeId: requireText(proof.challenge_id, 'fresh_step_up_proof.challenge_id'),
+        otpCode: requireText(proof.otp_code, 'fresh_step_up_proof.otp_code'),
+      };
+    default:
+      throw new Error('fresh_step_up_proof.kind is invalid');
+  }
+}
+
+async function linkedEcdsaExportStepUpChallenge(input: {
+  readonly request: LinkedEcdsaExportShareRequest;
+}): Promise<DigestB64u> {
+  const { request } = input;
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        alphabetizeStringify({
+          domain: LINKED_ECDSA_EXPORT_STEP_UP_CHALLENGE_DOMAIN_V1,
+          requestId: request.requestId,
+          operationId: String(request.operationId),
+          walletId: String(request.scope.walletId),
+          laneId: String(request.scope.laneId),
+          laneShareEpoch: String(request.scope.laneShareEpoch),
+          publicIdentityDigestB64u: String(request.scope.publicIdentityDigestB64u),
+          operationDigests: {
+            lane_digest_b64u: request.digests.laneDigest,
+            intent_digest_b64u: request.digests.intentDigest,
+            display_digest_b64u: request.digests.displayDigest,
+          },
+          recipientIdentity: request.recipientIdentity,
+          recipientPublicKey: request.recipientPublicKey,
+          expiresAtMs: request.expiresAtMs,
+        }),
+      ),
+    ),
+  );
+}
+
+async function verifyLinkedEcdsaExportFreshStepUp(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly request: LinkedEcdsaExportShareRequest;
+}): Promise<void> {
+  const requestOrigin = parseSessionOrigin(input.ctx.request.headers.get('origin'));
+  const walletId = input.request.scope.walletId;
+  const tenantId = input.ctx.service.authorizedOperations.tenantId;
+  const operation = buildEvmEcdsaMpcOperationRef('evm.export_key');
+  const principalId = parsePrincipalId(
+    input.request.freshStepUpProof.kind === 'email_otp'
+      ? input.request.freshStepUpProof.providerUserId
+      : String(walletId),
+  );
+  if (!principalId.ok) throw new Error(principalId.error.message);
+  const envelope = buildCapabilityOperationEnvelope({
+    tenantId,
+    principalId: principalId.value,
+    capabilityId: requireCapabilityId(input.request.materialActivation.capability),
+    operationId: input.request.operationId,
+    operation,
+    digests: input.request.digests,
+  });
+  const expectedChallenge = await linkedEcdsaExportStepUpChallenge({ request: input.request });
+  const nowMs = Date.now();
+  let authorityRef: Awaited<ReturnType<typeof walletAuthAuthorityRef>>;
+  let factor: VerifiedWalletOperationFactorResult;
+  switch (input.request.freshStepUpProof.kind) {
+    case 'passkey': {
+      const proof = input.request.freshStepUpProof;
+      if (proof.authority.walletId !== walletId) {
+        throw new Error('fresh passkey authority wallet does not match linked export');
+      }
+      const active = await input.ctx.service.walletAuthMethods.verifyActivePasskeyAuthority(
+        proof.authority,
+      );
+      if (!active.ok) throw new Error('fresh passkey authority is not active');
+      const credentialId = String(
+        proof.webauthnAuthentication.rawId || proof.webauthnAuthentication.id,
+      ).trim();
+      if (credentialId !== proof.authority.factor.credentialIdB64u) {
+        throw new Error('fresh passkey credential does not match its authority');
+      }
+      const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
+        userId: String(walletId),
+        rpId: proof.authority.verifier.rpId,
+        expectedChallenge,
+        expected_origin: requestOrigin,
+        webauthn_authentication: proof.webauthnAuthentication,
+      });
+      if (!verified.success || !verified.verified) {
+        throw new Error(verified.message || 'fresh WebAuthn step-up verification failed');
+      }
+      authorityRef = await walletAuthAuthorityRef({ authority: proof.authority });
+      factor = buildVerifiedWalletOperationPasskeyFactorResult({
+        tenantId,
+        principalId: principalId.value,
+        walletId,
+        requestOrigin,
+        audience: requestOrigin,
+        factorId: requireParsedAuthFactorId(
+          `passkey:${proof.authority.factor.credentialIdB64u}`,
+        ),
+        authorityRef,
+        operation: envelope,
+        credentialIdB64u: proof.authority.factor.credentialIdB64u,
+        assertionDigest: parseDigestB64u(
+          base64UrlEncode(
+            await sha256BytesUtf8(alphabetizeStringify(proof.webauthnAuthentication)),
+          ),
+        ),
+        verifiedAtMs: nowMs,
+        expiresAtMs: input.request.expiresAtMs,
+      });
+      break;
+    }
+    case 'email_otp': {
+      const proof = input.request.freshStepUpProof;
+      const resolved =
+        await input.ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+          walletId: String(walletId),
+          providerUserId: proof.providerUserId,
+        });
+      if (!resolved.ok) throw new Error('fresh Email OTP authority is not active');
+      const authority: EmailOtpWalletAuthAuthority = resolved.authority;
+      if (
+        !isEmailOtpWalletAuthAuthority(authority) ||
+        authority.walletId !== walletId ||
+        authority.factor.providerUserId !== proof.providerUserId
+      ) {
+        throw new Error('fresh Email OTP authority does not match linked export');
+      }
+      const active = await input.ctx.service.walletAuthMethods.verifyActiveEmailOtpAuthority(
+        authority,
+      );
+      if (!active.ok) throw new Error('fresh Email OTP authority is not active');
+      authorityRef = await walletAuthAuthorityRef({ authority });
+      const operationBinding = await hashEmailOtpOperationBinding({
+        walletId: String(walletId),
+        providerUserId: proof.providerUserId,
+        orgId: String(tenantId),
+        operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+        requestOrigin,
+        audience: requestOrigin,
+        authorityRef,
+      });
+      const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
+        userId: proof.providerUserId,
+        walletId: String(walletId),
+        orgId: String(tenantId),
+        challengeId: proof.challengeId,
+        otpCode: proof.otpCode,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        ownerProofBindingDigest: operationBinding,
+        operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+      });
+      if (!verified.ok) throw new Error(verified.message || 'fresh Email OTP verification failed');
+      const challengeId = parseEmailOtpChallengeId(verified.challengeId);
+      if (!challengeId.ok) throw new Error(challengeId.error.message);
+      factor = buildVerifiedWalletOperationEmailOtpFactorResult({
+        tenantId,
+        principalId: principalId.value,
+        walletId,
+        requestOrigin,
+        audience: requestOrigin,
+        factorId: requireParsedAuthFactorId(
+          `email_otp:${authority.factor.provider}:${authority.factor.providerUserId}`,
+        ),
+        authorityRef,
+        operation: envelope,
+        challengeId: challengeId.value,
+        verificationReceiptDigest: parseDigestB64u(
+          base64UrlEncode(
+            await sha256BytesUtf8(
+              alphabetizeStringify({
+                challengeId: verified.challengeId,
+                operationFingerprint: expectedChallenge,
+              }),
+            ),
+          ),
+        ),
+        verifiedAtMs: nowMs,
+        expiresAtMs: Math.min(input.request.expiresAtMs, verified.grantExpiresAtMs),
+      });
+      break;
+    }
+    default: {
+      const exhaustive: never = input.request.freshStepUpProof;
+      throw new Error(`Unsupported linked ECDSA export proof: ${String(exhaustive)}`);
+    }
+  }
+  const evidenceId = requireParsedEvidenceId(
+    `linked-ecdsa-export-step-up-evidence:${input.request.requestId}`,
+  );
+  const evidenceSetId = requireParsedEvidenceSetId(
+    `linked-ecdsa-export-step-up-evidence-set:${input.request.requestId}`,
+  );
+  await input.ctx.service.authorizedOperations.recordVerifiedWalletOperationFactorEvidenceSet({
+    operation: envelope,
+    evidenceId,
+    evidenceSetId,
+    factor,
+  });
+}
+
+async function handleLinkedDeviceEcdsaExportShare(ctx: FetchRouterApiContext): Promise<Response> {
+  const authenticated = await parseLinkedDeviceWalletSessionForCurve({
+    curve: 'ecdsa',
+    session: ctx.opts.session,
+    headers: Object.fromEntries(ctx.request.headers.entries()),
+  });
+  if (authenticated.kind !== 'linked_device' || authenticated.curve !== 'ecdsa') {
+    return json(
+      { ok: false, code: 'wallet_session_required', message: 'Linked-device Wallet Session is required' },
+      { status: 401 },
+    );
+  }
+  const runtime = ctx.service.thresholdRuntime.getRouterAbEcdsaPresignRuntime();
+  const linkedDeviceExecution = ctx.service.linkedDeviceExecution;
+  if (!runtime || !linkedDeviceExecution) {
+    return json(
+      { ok: false, code: 'not_configured', message: 'Linked-device ECDSA export is not configured' },
+      { status: 501 },
+    );
+  }
+  if (authenticated.claims.tenantId !== ctx.service.authorizedOperations.tenantId) {
+    return json(
+      { ok: false, code: 'wallet_session_mismatch', message: 'Linked-device tenant changed' },
+      { status: 403 },
+    );
+  }
+  try {
+    const request = parseLinkedEcdsaExportShareRequest(await readJsonRecord(ctx.request));
+    assertLinkedPresignScopeMatches({
+      claims: authenticated,
+      envelope: request.envelope,
+      scope: request.scope,
+      materialActivation: request.materialActivationValue,
+    });
+    assertRequestLifetime({
+      expiresAtMs: request.expiresAtMs,
+      walletSessionExpiresAtMs: authenticated.claims.expiresAtMs,
+    });
+    await verifyLinkedEcdsaExportFreshStepUp({ ctx, request });
+    const operation = buildEvmEcdsaMpcOperationRef('evm.export_key');
+    const admission = await admitLinkedDeviceQuotaNeutralAuthorizedOperation({
+      authorizedOperations: ctx.service.authorizedOperations,
+      tenantId: authenticated.claims.tenantId,
+      principalId: buildLinkedDevicePrincipalId(authenticated.claims.deviceId),
+      capabilityId: requireCapabilityId(request.materialActivation.capability),
+      operationId: request.operationId,
+      operation,
+      digests: request.digests,
+      authorizedOperationId: request.authorizedOperationId,
+      auditEventId: request.auditEventId,
+      authorizationId: authenticated.claims.authorizationId,
+      material: {
+        kind: 'linked_device_lane',
+        walletId: request.scope.walletId,
+        enrollmentId: authenticated.claims.enrollmentId,
+        deviceId: authenticated.claims.deviceId,
+        walletKeyId: request.envelope.walletKeyId,
+        laneId: request.envelope.laneId,
+        laneShareEpoch: request.envelope.laneShareEpoch,
+        revocationEpoch: authenticated.claims.revocationEpoch,
+        materialActivation: request.materialActivation,
+      },
+      claimedAtMs: Date.now(),
+    });
+    if (admission.kind !== 'claimed') {
+      if (admission.kind === 'replayed') return replayAuthorizedOperation(admission.operation);
+      return json(
+        {
+          ok: false,
+          code: 'linked_device_authorization_rejected',
+          message: `Linked-device ECDSA export authorization was rejected: ${admission.kind}`,
+        },
+        { status: admission.kind === 'operation_in_progress' ? 409 : 403 },
+      );
+    }
+    if (admission.operation.lifecycle !== 'claimed') {
+      throw new Error('linked-device ECDSA export claim is not active');
+    }
+    const projection = await resolveLinkedProjection({
+      authenticated,
+      envelope: request.envelope,
+      authorizedOperation: admission.operation,
+      linkedDeviceExecution,
+    });
+    if (projection.kind === 'refused' || !projection.projection.ecdsaNormalSigningScope) {
+      throw new Error('active linked ECDSA execution projection is unavailable');
+    }
+    if (
+      alphabetizeStringify(projection.projection.ecdsaNormalSigningScope) !==
+      alphabetizeStringify(request.scope)
+    ) {
+      throw new Error('active linked ECDSA scope changed after export admission');
+    }
+    const prepared = await prepareLinkedDeviceWalletExecution({
+      authorizedOperation: admission.operation,
+      evidence: {
+        ...projection.projection,
+        expectedMaterialActivation: request.materialActivationValue,
+      },
+      localPresence: buildLinkedDeviceLocalPresenceCapabilityV1(admission.operation),
+    });
+    if (prepared.kind === 'refused') {
+      throw new Error(`active linked ECDSA export preparation failed: ${prepared.reason}`);
+    }
+    const activationEpoch = parseRootShareEpoch(String(request.scope.laneShareEpoch));
+    if (!activationEpoch.ok) throw new Error(activationEpoch.error.message);
+    const binding: RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
+      wallet_id: String(request.scope.walletId),
+      key_handle: String(request.scope.walletKeyId),
+      ecdsa_threshold_key_id: String(request.scope.targetCapability.ecdsaThresholdKeyId),
+      signing_root_id: String(request.scope.laneId),
+      signing_root_version: String(request.scope.laneShareEpoch),
+      activation_epoch: activationEpoch.value,
+      signing_worker_id: String(request.scope.signingWorkerParticipantId),
+      context_binding_b64u: String(request.scope.publicIdentityDigestB64u),
+      threshold_public_key33_b64u: String(request.scope.thresholdPublicKey33B64u),
+      export_request_digest_b64u: request.digests.intentDigest,
+      export_authorization_digest_b64u: request.digests.laneDigest,
+      export_nonce: request.requestId,
+      authorization_kind: 'reusable_wallet_session',
+      authorization_id: authenticated.claims.authorizationId,
+      material_activation: request.materialActivation,
+      lifecycle_id: String(request.operationId),
+      recipient_identity: request.recipientIdentity,
+      recipient_public_key: encodeX25519PublicKey(request.recipientPublicKey),
+      expires_at_ms: request.expiresAtMs,
+    };
+    assertLinkedEcdsaExportBinding(binding);
+    const exported = await runtime.exportLinkedDeviceShare({
+      scope: request.scope,
+      materialSource: projection.projection.materialSource,
+      binding,
+    });
+    if (!exported.ok) throw new Error(exported.message);
+    const responseBody = JSON.stringify({
+      ok: true,
+      signing_worker_export: exported.value,
+      binding: exported.value.binding,
+    });
+    await ctx.service.authorizedOperations.completeAuthorizedOperation({
+      operation: admission.operation,
+      result: 'succeeded',
+      response: { status: 200, contentType: 'application/json', bodyText: responseBody },
+      completedAtMs: Date.now(),
+    });
+    return json(JSON.parse(responseBody), { status: 200 });
+  } catch (error: unknown) {
+    return json(
+      { ok: false, code: 'linked_export_failed', message: error instanceof Error ? error.message : String(error) },
+      { status: 400 },
+    );
+  }
+}
+
+function parseLinkedEcdsaExportShareRequest(body: Record<string, unknown>): LinkedEcdsaExportShareRequest {
+  const scope = parseLinkedDeviceEcdsaNormalSigningScopeV1(body.scope);
+  const envelope = parseLinkedDeviceExecutionEnvelopeV1(body.linkedDeviceExecution);
+  const requestId = requireText(body.request_id, 'request_id');
+  const operationDigests = requireRecord(body.operation_digests, 'operation_digests');
+  const materialActivation = requireMaterialActivation(body.material_activation);
+  const materialActivationValue = routerAbMpcMaterialActivationRefFromWire(materialActivation);
+  if (!mpcMaterialActivationRefsEqual(materialActivationValue, scope.materialActivation)) {
+    throw new Error('linked ECDSA export material activation does not match scope');
+  }
+  const expiresAtMs = requirePositiveMs(body.expires_at_ms, 'expires_at_ms');
+  return {
+    scope,
+    envelope,
+    requestId,
+    operationId: requireOperationId(body.operation_id),
+    authorizedOperationId: requireAuthorizedOperationId(`linked-ecdsa-export:${requestId}`),
+    auditEventId: requireAuditEventId(`linked-ecdsa-export-audit:${requestId}`),
+    materialActivation,
+    materialActivationValue,
+    expiresAtMs,
+    recipientIdentity: requireText(body.recipient_identity, 'recipient_identity'),
+    recipientPublicKey: requireFixedBase64Url(body.recipient_public_key, 'recipient_public_key', 32),
+    freshStepUpProof: parseLinkedEcdsaFreshExportProof(body.fresh_step_up_proof),
+    digests: {
+      laneDigest: parseDigestB64u(requireText(operationDigests.lane_digest_b64u, 'lane_digest_b64u')),
+      intentDigest: parseDigestB64u(requireText(operationDigests.intent_digest_b64u, 'intent_digest_b64u')),
+      displayDigest: parseDigestB64u(requireText(operationDigests.display_digest_b64u, 'display_digest_b64u')),
+    },
+  };
+}
+
 /**
  * Starts or advances the linked ECDSA presign protocol. Init is the only
  * branch that claims the reusable operation quota; steps read that claim and
@@ -77,6 +701,12 @@ type LinkedEcdsaPresignAuthenticated = Extract<
 export async function handleLinkedDeviceEcdsaPresign(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
+  if (
+    ctx.method === 'POST' &&
+    ctx.pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH
+  ) {
+    return await handleLinkedDeviceEcdsaExportShare(ctx);
+  }
   const phase =
     ctx.pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH
       ? ('init' as const)
@@ -743,6 +1373,24 @@ function requireWalletId(value: unknown) {
 
 function requireCapabilityId(value: unknown) {
   const parsed = parseCapabilityId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requireParsedAuthFactorId(value: string) {
+  const parsed = parseAuthFactorId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requireParsedEvidenceId(value: string) {
+  const parsed = parseAuthorizationEvidenceId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requireParsedEvidenceSetId(value: string) {
+  const parsed = parseAuthorizationEvidenceSetId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }

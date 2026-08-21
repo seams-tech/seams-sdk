@@ -66,6 +66,7 @@ function requireEd25519YaoClientRootEnvelopeV1(
 export type ResolvedWalletCustodyEd25519ExportV1 = {
   readonly kind: 'wallet_custody_ed25519_export_context_v1';
   readonly lane: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+  readonly selectedLaneMaterialActivation: MpcMaterialActivationRef;
   readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly material:
     | {
@@ -89,6 +90,16 @@ export type ResolvedWalletCustodyEd25519ExportV1 = {
         readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
         readonly exportRootEnvelope: Ed25519YaoClientRootEnvelopeRecordV1;
       };
+};
+
+export type EmailOtpEd25519YaoExportRootResolutionV1 = {
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly source: {
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly signingWorkerId: string;
+    readonly participantIds: readonly [number, number];
+    readonly registeredPublicKeyB64u: string;
+  };
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -142,7 +153,11 @@ function requireParticipantIds(value: unknown): readonly [number, number] {
 async function readColdExportBootstrap(input: {
   readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
   readonly authorization: ActiveWalletSessionAuthorizationProjection;
-  readonly material: LoadedWalletCustodyEd25519MaterialV1;
+  readonly source: {
+    readonly signingWorkerId: string;
+    readonly participantIds: readonly [number, number];
+    readonly registeredPublicKeyB64u: string;
+  };
   readonly reusableSession: ReusableWalletSessionState;
   readonly expectedMaterialActivation: MpcMaterialActivationRef;
   readonly relayerUrl: string;
@@ -161,7 +176,7 @@ async function readColdExportBootstrap(input: {
   const walletSessionToken = walletSessionTokenForCurve(input.authorization, 'ed25519');
   const authorizationId = walletSessionAuthorizationIdForCurve(input.authorization, 'ed25519');
   const signer = input.subject.signer;
-  const binding = input.material.binding;
+  const binding = input.source;
   if (
     !walletSessionToken ||
     input.authorization.walletId !== signer.account.wallet.walletId ||
@@ -169,10 +184,9 @@ async function readColdExportBootstrap(input: {
     !authorizationId ||
     !input.authorization.walletSessionId ||
     !input.authorization.quotaId ||
-    binding.walletId !== String(signer.account.wallet.walletId) ||
-    binding.nearAccountId !== String(signer.account.nearAccountId) ||
-    binding.nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
-    binding.signerSlot !== signer.signerSlot
+    !binding.signingWorkerId ||
+    binding.participantIds.length !== 2 ||
+    !binding.registeredPublicKeyB64u
   ) {
     throw new Error('[SigningEngine][ed25519-export] sealed custody identity mismatch');
   }
@@ -261,7 +275,7 @@ async function readColdExportBootstrap(input: {
     walletId !== String(signer.account.wallet.walletId) ||
     nearAccountId !== String(signer.account.nearAccountId) ||
     nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
-    thresholdSessionId.value !== input.subject.thresholdSessionId ||
+    thresholdSessionId.value !== capability.lifecycle.thresholdSessionId ||
     walletSessionId.value !== input.authorization.walletSessionId ||
     quotaId.value !== input.authorization.quotaId ||
     requirePositiveInteger(record.signerSlot, 'bootstrap.signerSlot') !== signer.signerSlot ||
@@ -308,6 +322,118 @@ async function readColdExportBootstrap(input: {
       capability,
     },
   };
+}
+
+async function readLinkedExportCapability(input: {
+  readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly source: {
+    readonly signingWorkerId: string;
+    readonly participantIds: readonly [number, number];
+    readonly registeredPublicKeyB64u: string;
+  };
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly relayerUrl: string;
+  readonly fetch: typeof fetch;
+}): Promise<EmailOtpEd25519YaoActiveCapabilityDescriptorV1> {
+  const walletSessionToken = walletSessionTokenForCurve(input.authorization, 'ed25519');
+  const signer = input.subject.signer;
+  if (
+    !walletSessionToken ||
+    input.authorization.walletId !== signer.account.wallet.walletId ||
+    input.authorization.authMethod !== 'email_otp'
+  ) {
+    throw new Error('[SigningEngine][ed25519-export] linked Wallet Session is unavailable');
+  }
+  const request = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
+    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
+    walletId: String(signer.account.wallet.walletId),
+    nearAccountId: String(signer.account.nearAccountId),
+    nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
+    signerSlot: signer.signerSlot,
+    thresholdSessionId: input.subject.thresholdSessionId,
+    signingWorkerId: input.source.signingWorkerId,
+    participantIds: input.source.participantIds,
+  });
+  if (!request.ok) throw new Error(request.message);
+  const response = await input.fetch(
+    `${new URL(input.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${walletSessionToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(request.value),
+    },
+  );
+  const raw = await response.json().catch(() => null);
+  if (!response.ok) {
+    const failure = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+    throw new Error(
+      `[SigningEngine][ed25519-export] linked capability bootstrap failed (HTTP ${response.status}): ${String(failure?.message || 'invalid response')}`,
+    );
+  }
+  const record = requireRecord(raw, 'linked Ed25519 export bootstrap');
+  requireExactKeys(
+    record,
+    [
+      'kind',
+      'walletId',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'signerSlot',
+      'thresholdSessionId',
+      'walletSessionId',
+      'quotaId',
+      'signingWorkerId',
+      'thresholdExpiresAtMs',
+      'participantIds',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
+      'capability',
+    ],
+    'linked Ed25519 export bootstrap',
+  );
+  if (record.kind !== 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1') {
+    throw new Error('linked Ed25519 export bootstrap kind is invalid');
+  }
+  const thresholdSessionId = parseThresholdEd25519SessionId(record.thresholdSessionId);
+  const walletSessionId = parseWalletSessionId(record.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
+  const runtimePolicyScope = normalizeRuntimePolicyScope(record.runtimePolicyScope);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    record.routerAbNormalSigning,
+  );
+  const parsedCapability = parseEd25519YaoRecoveryCapabilityV1(record.capability);
+  const capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
+    kind: 'router_ab_ed25519_yao_active_capability_v1',
+    ...parsedCapability,
+  };
+  const participantIds = requireParticipantIds(record.participantIds);
+  const registeredPublicKeyB64u = base64UrlEncode(Uint8Array.from(capability.registeredPublicKey));
+  if (
+    !thresholdSessionId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    !runtimePolicyScope ||
+    !routerAbNormalSigning ||
+    requireString(record.walletId, 'bootstrap.walletId') !== String(signer.account.wallet.walletId) ||
+    requireString(record.nearAccountId, 'bootstrap.nearAccountId') !==
+      String(signer.account.nearAccountId) ||
+    requireString(record.nearEd25519SigningKeyId, 'bootstrap.nearEd25519SigningKeyId') !==
+      String(signer.nearEd25519SigningKeyId) ||
+    requirePositiveInteger(record.signerSlot, 'bootstrap.signerSlot') !== signer.signerSlot ||
+    thresholdSessionId.value !== capability.lifecycle.thresholdSessionId ||
+    walletSessionId.value !== input.authorization.walletSessionId ||
+    quotaId.value !== input.authorization.quotaId ||
+    requireString(record.signingWorkerId, 'bootstrap.signingWorkerId') !==
+      input.source.signingWorkerId ||
+    participantIds[0] !== input.source.participantIds[0] ||
+    participantIds[1] !== input.source.participantIds[1] ||
+    registeredPublicKeyB64u !== input.source.registeredPublicKeyB64u ||
+    !mpcMaterialActivationRefsEqual(capability.materialActivation, input.expectedMaterialActivation)
+  ) {
+    throw new Error('[SigningEngine][ed25519-export] linked capability identity mismatch');
+  }
+  return capability;
 }
 
 function resolveActiveEmailOtpAuthorization(args: {
@@ -402,7 +528,8 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   resolveEd25519YaoClientRootEnvelope?: (args: {
     readonly subject: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
     readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1 | null;
-  }) => Promise<PasskeyCustodyEnvelopeRecord | null>;
+    readonly selectedMaterialActivation: MpcMaterialActivationRef;
+  }) => Promise<PasskeyCustodyEnvelopeRecord | EmailOtpEd25519YaoExportRootResolutionV1 | null>;
   loadWalletCustodyMaterial: () => Promise<
     | { readonly kind: 'found'; readonly material: LoadedWalletCustodyEd25519MaterialV1 }
     | { readonly kind: 'absent' }
@@ -434,14 +561,28 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
         material,
       })
     : null;
-  const rootEnvelope = input.resolveEd25519YaoClientRootEnvelope
+  const rootResolution = input.resolveEd25519YaoClientRootEnvelope
     ? await input.resolveEd25519YaoClientRootEnvelope({
         subject: input.subject,
         capability: activeCapability,
+        selectedMaterialActivation: input.expectedMaterialActivation,
       })
     : null;
+  const rootEnvelope =
+    rootResolution && 'envelope' in rootResolution ? rootResolution.envelope : rootResolution;
+  let rootCapability = activeCapability;
+  if (rootResolution && 'envelope' in rootResolution) {
+    rootCapability = await readLinkedExportCapability({
+      subject: input.subject,
+      authorization,
+      source: rootResolution.source,
+      expectedMaterialActivation: rootResolution.source.materialActivation,
+      relayerUrl: input.relayerUrl,
+      fetch: input.fetch,
+    });
+  }
   if (rootEnvelope) {
-    if (!activeCapability) {
+    if (!rootCapability) {
       throw new Error(
         '[SigningEngine][ed25519-export] Ed25519 export-root capability is unavailable',
       );
@@ -449,11 +590,12 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     return {
       kind: 'wallet_custody_ed25519_export_context_v1',
       lane: input.subject,
+      selectedLaneMaterialActivation: input.expectedMaterialActivation,
       authorization,
       material: {
         kind: 'sealed_export_root',
-        materialActivation: input.expectedMaterialActivation,
-        capability: activeCapability,
+        materialActivation: rootCapability.materialActivation,
+        capability: rootCapability,
         exportRootEnvelope: requireEd25519YaoClientRootEnvelopeV1(rootEnvelope),
       },
     };
@@ -467,6 +609,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     return {
       kind: 'wallet_custody_ed25519_export_context_v1',
       lane: input.subject,
+      selectedLaneMaterialActivation: input.expectedMaterialActivation,
       authorization,
       material: {
         kind: 'active_capability',
@@ -484,7 +627,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   const cold = await readColdExportBootstrap({
     subject: input.subject,
     authorization,
-    material: loaded.material,
+    source: loaded.material.binding,
     reusableSession: await input.readReusableWalletSessionState(),
     expectedMaterialActivation: input.expectedMaterialActivation,
     relayerUrl: input.relayerUrl,
@@ -493,6 +636,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   return {
     kind: 'wallet_custody_ed25519_export_context_v1',
     lane: input.subject,
+    selectedLaneMaterialActivation: input.expectedMaterialActivation,
     authorization,
     material: {
       kind: 'sealed_custody',

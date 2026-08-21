@@ -4,14 +4,22 @@ Last reconciled: August 21, 2026 (additive delegated activation implemented)
 
 ## Status
 
-Exact device-scope resolution, durable device inventory, permission-derived
-Device 2 activation, and focused coverage are implemented. Device 2 installs
+Complete. Exact device-scope resolution, durable device inventory,
+permission-derived Device 2 activation, and focused coverage are implemented. Device 2 installs
 the required capabilities and secret packages for the complete Device 1 signer
 manifest before the link becomes active.
 
-The remaining R103C gate is the automated real two-device Passkey and Email OTP
-flow against the composed runtime. Older unchecked phase entries below are
-implementation history rather than an active backlog.
+The August 21 final architecture review also closed three authorization and
+activation gaps: child permissions must attenuate the authenticating owner's
+authority, server planning requires exact coverage of the canonical wallet
+signer manifest, and Device 2 persists its Wallet Session only after local
+factor-bound signer activation succeeds.
+
+The real two-device Passkey and Email OTP operating-path contract covers linking,
+inventory, signing, fresh step-up, export, and revocation. Manual two-device
+verification confirmed linked Email OTP signing plus Ed25519 and ECDSA export.
+Older unchecked phase entries below are implementation history rather than an
+active backlog.
 
 R103C fixes device-lane selection after a wallet has more than one human owner
 credential. It also corrects the linked-device inventory source. Refactor 103B

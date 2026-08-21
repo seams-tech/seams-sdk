@@ -21,6 +21,15 @@ export type ActiveLinkedDeviceSessionRecordV1 = Extract<
   { readonly state: { readonly state: 'active' } }
 >;
 
+export type CommittedLinkedDeviceSessionRecordV1 = Extract<
+  LinkedDeviceSessionRecordV1,
+  { readonly state: { readonly state: 'committed_completion_required' } }
+>;
+
+export type WalletSessionEligibleLinkedDeviceSessionRecordV1 =
+  | CommittedLinkedDeviceSessionRecordV1
+  | ActiveLinkedDeviceSessionRecordV1;
+
 export type D1LinkedDeviceWalletSessionIssuerOptionsV1 = {
   readonly tenantId: TenantId;
   readonly authorizationService: Pick<
@@ -61,8 +70,8 @@ export type LinkedDeviceWalletSessionRenewalTargetV1 = {
 export class D1LinkedDeviceWalletSessionIssuerV1 {
   constructor(private readonly options: D1LinkedDeviceWalletSessionIssuerOptionsV1) {}
 
-  async issueForActiveSessionV1(input: {
-    readonly session: ActiveLinkedDeviceSessionRecordV1;
+  async issueForEligibleSessionV1(input: {
+    readonly session: WalletSessionEligibleLinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<void> {
     const issueInput = await this.buildIssueInputV1(input);
@@ -140,7 +149,7 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
   }
 
   async resolveActiveForSessionV1(input: {
-    readonly session: ActiveLinkedDeviceSessionRecordV1;
+    readonly session: WalletSessionEligibleLinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<ActiveLinkedDeviceWalletSessionResolutionV1> {
     const issueInput = await this.buildIssueInputV1(input);
@@ -157,14 +166,13 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
   }
 
   private async buildIssueInputV1(input: {
-    readonly session: ActiveLinkedDeviceSessionRecordV1;
+    readonly session: WalletSessionEligibleLinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<IssueLinkedDeviceWalletSessionInput> {
     const { session, requestedAtMs } = input;
     const approval = session.approvalTranscript.value;
-    const receipt = session.aggregateReceipt;
-    requireActiveSessionIdentity(session);
-    if (!Number.isSafeInteger(requestedAtMs) || requestedAtMs < receipt.activatedAtMs) {
+    requireWalletSessionEligibleIdentity(session);
+    if (!Number.isSafeInteger(requestedAtMs) || requestedAtMs < session.updatedAtMs) {
       throw new Error('linked-device Wallet Session request time is invalid');
     }
 
@@ -179,7 +187,7 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
     if (
       String(manifest.enrollmentId) !== String(session.state.enrollmentId) ||
       String(manifest.walletId) !== String(session.state.walletId) ||
-      manifestDigestB64u !== receipt.manifestDigestB64u ||
+      manifestDigestB64u !== walletSessionManifestDigestV1(session) ||
       manifest.authorization.kind !== 'linked_device_enrollment' ||
       String(manifest.authorization.linkedDeviceEnrollmentId) !==
         String(session.state.enrollmentId) ||
@@ -192,8 +200,8 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
     const products = await this.options.laneLifecycle.listEnrollmentProductEpochs(
       enrollmentId.value,
     );
-    const revocationEpoch = requireActiveProductCoverage(session, manifest, products);
-    const issuedAtMs = receipt.activatedAtMs;
+    const revocationEpoch = requireWalletSessionProductCoverage(session, manifest, products);
+    const issuedAtMs = requestedAtMs;
     const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
     if (!Number.isSafeInteger(expiresAtMs)) {
       throw new Error('linked-device Wallet Session expiry is invalid');
@@ -203,7 +211,7 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
       deviceId: approval.deviceId,
       walletId: approval.walletId,
       enrollmentId: approval.enrollmentId,
-      keyManifestDigestB64u: receipt.manifestDigestB64u,
+      keyManifestDigestB64u: walletSessionManifestDigestV1(session),
       permission: approval.permission,
       revocationEpoch,
       remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -217,38 +225,72 @@ function assertNeverLinkedDeviceWalletSessionStatus(value: never): never {
   throw new Error(`unknown linked-device Wallet Session status: ${String(value)}`);
 }
 
-function requireActiveSessionIdentity(session: ActiveLinkedDeviceSessionRecordV1): void {
+function requireWalletSessionEligibleIdentity(
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
+): void {
   const approval = session.approvalTranscript.value;
   const claim = session.claimTranscript.value;
-  const receipt = session.aggregateReceipt;
   if (
     approval.linkSessionId !== session.linkSessionId ||
     approval.linkSessionId !== session.state.linkSessionId ||
     approval.walletId !== session.state.walletId ||
     approval.enrollmentId !== session.state.enrollmentId ||
-    approval.deviceId !== claim.deviceId ||
+    approval.deviceId !== claim.deviceId
+  ) {
+    throw new Error('linked-device Wallet Session eligible session binding is invalid');
+  }
+  if (!isActiveWalletSessionEligibleRecordV1(session)) return;
+  const receipt = session.aggregateReceipt;
+  if (
     receipt.walletId !== approval.walletId ||
     receipt.enrollmentId !== approval.enrollmentId ||
-    receipt.deviceId !== approval.deviceId ||
-    receipt.activatedAtMs !== session.state.activatedAtMs
+    receipt.deviceId !== approval.deviceId
   ) {
-    throw new Error('linked-device Wallet Session active session binding is invalid');
+    throw new Error('linked-device active Wallet Session receipt identity is invalid');
+  }
+  if (receipt.activatedAtMs !== session.state.activatedAtMs) {
+    throw new Error('linked-device active Wallet Session timestamp binding is invalid');
   }
 }
 
-function requireActiveProductCoverage(
-  session: ActiveLinkedDeviceSessionRecordV1,
+function isActiveWalletSessionEligibleRecordV1(
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
+): session is ActiveLinkedDeviceSessionRecordV1 {
+  switch (session.state.state) {
+    case 'active':
+      return true;
+    case 'committed_completion_required':
+      return false;
+    }
+  return session.state satisfies never;
+}
+
+function walletSessionManifestDigestV1(
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
+) {
+  if (isActiveWalletSessionEligibleRecordV1(session)) {
+    return session.aggregateReceipt.manifestDigestB64u;
+  }
+  return session.state.keyManifestDigestB64u;
+}
+
+function requireWalletSessionProductCoverage(
+  session: WalletSessionEligibleLinkedDeviceSessionRecordV1,
   manifest: LaneEnrollmentManifestV1,
   products: Awaited<ReturnType<CloudflareD1LaneLifecycleStore['listEnrollmentProductEpochs']>>,
 ): number {
   const approval = session.approvalTranscript.value;
-  const receipt = session.aggregateReceipt;
   if (
     manifest.orderedChildren.length !== approval.orderedKeyBindings.length ||
-    products.length !== manifest.orderedChildren.length ||
-    products.length !== receipt.orderedChildReceipts.length
+    products.length !== manifest.orderedChildren.length
   ) {
     throw new Error('linked-device Wallet Session product coverage is incomplete');
+  }
+  const receipt = isActiveWalletSessionEligibleRecordV1(session)
+    ? session.aggregateReceipt
+    : null;
+  if (receipt && products.length !== receipt.orderedChildReceipts.length) {
+    throw new Error('linked-device active Wallet Session receipt coverage is incomplete');
   }
   const productsByOperation = new Map<string, (typeof products)[number]>();
   for (const product of products) {
@@ -266,7 +308,7 @@ function requireActiveProductCoverage(
   for (let index = 0; index < manifest.orderedChildren.length; index += 1) {
     const manifestChild = manifest.orderedChildren[index];
     const binding = approval.orderedKeyBindings[index];
-    const child = receipt.orderedChildReceipts[index];
+    const child = receipt?.orderedChildReceipts[index];
     const product = manifestChild
       ? productsByOperation.get(String(manifestChild.operationId))
       : undefined;
@@ -274,7 +316,6 @@ function requireActiveProductCoverage(
       !manifestChild ||
       !product ||
       !binding ||
-      !child ||
       product.state !== 'active' ||
       product.laneKind !== 'linked_device' ||
       product.walletId !== approval.walletId ||
@@ -288,13 +329,14 @@ function requireActiveProductCoverage(
       product.laneId !== manifestChild.targetLaneId ||
       product.laneShareEpoch !== manifestChild.targetLaneShareEpoch ||
       product.targetMaterialActivationId !== manifestChild.targetMaterialActivationId ||
-      product.walletKeyId !== child.walletKeyId ||
-      product.keyFamily !== child.keyFamily ||
-      product.laneId !== child.targetLaneId ||
-      product.laneShareEpoch !== child.targetLaneShareEpoch ||
-      product.aggregateManifestDigestB64u !== receipt.manifestDigestB64u ||
-      product.aggregateActivationReceiptDigestB64u !== receipt.aggregateReceiptDigestB64u ||
-      !mpcMaterialActivationRefsEqual(product.materialActivation, child.materialActivation)
+      product.aggregateManifestDigestB64u !== walletSessionManifestDigestV1(session) ||
+      (child !== undefined &&
+        (product.walletKeyId !== child.walletKeyId ||
+          product.keyFamily !== child.keyFamily ||
+          product.laneId !== child.targetLaneId ||
+          product.laneShareEpoch !== child.targetLaneShareEpoch ||
+          product.aggregateActivationReceiptDigestB64u !== receipt?.aggregateReceiptDigestB64u ||
+          !mpcMaterialActivationRefsEqual(product.materialActivation, child.materialActivation)))
     ) {
       throw new Error(`linked-device Wallet Session product ${index} is invalid`);
     }

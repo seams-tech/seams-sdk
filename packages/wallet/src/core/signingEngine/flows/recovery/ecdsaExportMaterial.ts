@@ -16,9 +16,16 @@ import {
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   AvailableEcdsaSigningLane,
+  ActiveExecutionBundleEcdsaSigningLane,
   ConcreteAvailableEcdsaSigningLane,
 } from '../../session/availability/availableSigningLanes';
 import { isConcreteAvailableSigningLane } from '../../session/availability/availableSigningLanes';
+import type { DeviceLinkingHolderSigningMaterialHandleV1 } from '../../session/lanes/linkedDevicePorts';
+import type { DeviceLinkingHolderSigningMaterialPortV1 } from '../../session/lanes/linkedDevicePorts';
+import type { LinkedDeviceWalletSessionTokenReadResultV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
+import type { EcdsaAdditiveLaneJobV1 } from '@shared/signing-lanes/rotation';
+import type { LinkedDeviceEcdsaNormalSigningScopeV1 } from '@shared/signing-lanes/linkedEcdsaScope';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   buildPersistedEcdsaRoleLocalMaterial,
   type PersistedEcdsaRoleLocalMaterial,
@@ -44,6 +51,36 @@ export type EcdsaExportMaterialAvailability =
   | { kind: 'loaded_worker_material' }
   | { kind: 'sealed_worker_material' }
   | { kind: 'material_pending'; reason: 'email_otp_route_auth' };
+
+export type ActiveLinkedDeviceEcdsaExportMaterial = {
+  kind: 'active_execution_bundle';
+  job: EcdsaAdditiveLaneJobV1;
+  materialActivation: ActiveExecutionBundleEcdsaSigningLane['materialActivation'];
+  laneScope: LinkedDeviceEcdsaNormalSigningScopeV1;
+  holderHandle: Extract<
+    DeviceLinkingHolderSigningMaterialHandleV1,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >;
+  holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
+  walletSession: Extract<LinkedDeviceWalletSessionTokenReadResultV1, { readonly kind: 'found' }>;
+};
+
+/** Internal selection result for an activated linked lane. Public export results remain ordinary. */
+export type ActiveLinkedDeviceEcdsaExportLane = {
+  curve: 'ecdsa';
+  source: 'active_execution_bundle';
+  laneIdentity: ExactEcdsaSigningLaneIdentity;
+  laneScope: LinkedDeviceEcdsaNormalSigningScopeV1;
+  key: EvmFamilyEcdsaKeyIdentity;
+  publicFacts: VerifiedEcdsaPublicFacts;
+  chainTarget: ThresholdEcdsaChainTarget;
+  authMethod: 'email_otp' | 'passkey';
+  material: ActiveLinkedDeviceEcdsaExportMaterial;
+  state: 'ready';
+  authorizationState: 'authorized';
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  capability?: never;
+};
 
 type ExactEcdsaExportLaneBase = {
   curve: 'ecdsa';
@@ -118,10 +155,13 @@ export type FreshPasskeyEcdsaExportMaterial = {
 };
 
 export type EcdsaExportMaterial =
+  | ActiveLinkedDeviceEcdsaExportMaterial
   | FreshEmailOtpEcdsaExportMaterial
   | FreshPasskeyEcdsaExportMaterial;
 
-export function ecdsaExportBoundaryChain(lane: ExactEcdsaExportLane): 'evm' | 'tempo' {
+export function ecdsaExportBoundaryChain(
+  lane: ExactEcdsaExportLane | ActiveLinkedDeviceEcdsaExportLane,
+): 'evm' | 'tempo' {
   return lane.chainTarget.kind;
 }
 
@@ -156,6 +196,23 @@ export function isConcreteEcdsaExportLane(
   }
   if (lane.authorization) return true;
   return lane.state === 'deferred';
+}
+
+export function isConcreteActiveLinkedDeviceEcdsaExportLane(
+  lane: AvailableEcdsaSigningLane | null | undefined,
+): lane is ActiveExecutionBundleEcdsaSigningLane {
+  return (
+    lane !== null &&
+    lane !== undefined &&
+    lane.source === 'active_execution_bundle' &&
+    lane.curve === 'ecdsa' &&
+    lane.state === 'ready' &&
+    lane.authorizationState === 'authorized' &&
+    lane.auth.kind !== undefined &&
+    lane.materialActivation.activationId === lane.laneIdentity.targetMaterialActivationId &&
+    lane.job.targetMaterialActivationId === lane.laneIdentity.targetMaterialActivationId &&
+    lane.holderHandle.keyFamily === 'ecdsa_secp256k1'
+  );
 }
 
 function exactEcdsaParticipantIds(value: readonly number[]): readonly [number, number] {
@@ -406,8 +463,11 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
 
 export async function resolveEcdsaExportMaterialForLane(
   deps: EcdsaExportSessionStoreDeps,
-  exportLane: ExactEcdsaExportLane,
+  exportLane: ExactEcdsaExportLane | ActiveLinkedDeviceEcdsaExportLane,
 ): Promise<EcdsaExportMaterial> {
+  if (exportLane.source === 'active_execution_bundle') {
+    return exportLane.material;
+  }
   if (exportLane.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
   }

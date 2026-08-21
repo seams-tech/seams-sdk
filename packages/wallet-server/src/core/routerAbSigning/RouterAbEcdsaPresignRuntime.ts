@@ -8,10 +8,13 @@ import {
   type RouterAbEcdsaPresignSigningWorkerTransport,
 } from '../ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
 import {
+  exportRouterAbLinkedDeviceEcdsaShare,
   startRouterAbLinkedDeviceEcdsaPresignSession,
   stepRouterAbLinkedDeviceEcdsaPresignSession,
+  type RouterAbLinkedDeviceEcdsaExportShareHttpResult,
   type RouterAbEcdsaPresignSessionHttpResult,
 } from '../ThresholdService/routerAb/ecdsaDerivationPresignBridge';
+import type { RouterAbEcdsaSigningWorkerExportShareBindingV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbConfiguredSigningWorkerPrivateTransport } from './RouterAbNormalSigningRuntime';
 
 export type RouterAbEcdsaPresignRuntimeConfig = {
@@ -151,6 +154,22 @@ export class RouterAbEcdsaPresignRuntime {
       requestedStage: input.requestedStage,
       outgoingMessagesB64u: input.outgoingMessagesB64u,
       expiresAtMs: input.expiresAtMs,
+      auth: transport.auth,
+      fetchImpl: transport.fetchImpl,
+    });
+  }
+
+  async exportLinkedDeviceShare(input: {
+    readonly scope: Record<string, unknown>;
+    readonly materialSource: Record<string, unknown>;
+    readonly binding: RouterAbEcdsaSigningWorkerExportShareBindingV1;
+  }): Promise<RouterAbLinkedDeviceEcdsaExportShareHttpResult> {
+    const transport = this.signingWorkerTransport;
+    return await exportRouterAbLinkedDeviceEcdsaShare({
+      signingWorkerBaseUrl: transport.signingWorkerBaseUrl,
+      scope: input.scope,
+      materialSource: input.materialSource,
+      binding: input.binding,
       auth: transport.auth,
       fetchImpl: transport.fetchImpl,
     });

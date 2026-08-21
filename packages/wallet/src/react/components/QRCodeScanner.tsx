@@ -65,7 +65,9 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   const qrCamera = useQRCamera({
     onQRDetected: async (qrData: QrLinkedDeviceSessionPayloadV5) => {
       scannedPayloadRef.current = qrData;
-      await linkDevice(qrData, QRScanMode.CAMERA);
+      const linkOperation = linkDevice(qrData, QRScanMode.CAMERA);
+      onClose?.();
+      await linkOperation;
     },
     onError,
     isOpen: showCamera ? isOpen : false, // Only active when camera should be shown

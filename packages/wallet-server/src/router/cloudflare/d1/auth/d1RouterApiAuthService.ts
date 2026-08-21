@@ -2008,6 +2008,10 @@ function createD1WalletAuthMethodRouteService(
     verifyActiveEmailOtpAuthority: assembly.walletAuthMethods.verifyActiveEmailOtpAuthority.bind(
       assembly.walletAuthMethods,
     ),
+    verifyActiveLinkedEmailOtpAuthority:
+      assembly.walletAuthMethods.verifyActiveLinkedEmailOtpAuthority.bind(
+        assembly.walletAuthMethods,
+      ),
     resolveActiveEmailOtpAuthorityForVerifiedSubject:
       assembly.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(
         assembly.walletAuthMethods,

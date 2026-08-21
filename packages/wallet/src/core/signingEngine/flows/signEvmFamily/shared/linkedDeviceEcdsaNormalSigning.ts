@@ -15,7 +15,7 @@ import {
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseRootShareEpoch } from '@shared/utils/domainIds';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseSecp256k1CompressedPublicKeyB64u } from '@shared/passkey-custody/primitives';
 import {
   routerAbMpcMaterialActivationRefToWire,
@@ -24,7 +24,14 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { routerAbEcdsaRerandomizationClientCommitmentV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { alphabetizeStringify } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  buildPasskeyWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import type { ActiveLinkedDeviceEcdsaExportMaterial } from '../../recovery/ecdsaExportMaterial';
 import type { AuthenticatorPort } from '@/core/platform';
 import type { LinkedDeviceWalletSessionTokenReadResultV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type {
@@ -44,6 +51,7 @@ import { verifySecp256k1RecoverableSignatureAgainstPublicKey33Wasm } from '@/cor
 const LINKED_ECDSA_PRESIGN_INIT_PATH = '/router-ab/ecdsa-derivation/linked-device/presign/init';
 const LINKED_ECDSA_PRESIGN_STEP_PATH = '/router-ab/ecdsa-derivation/linked-device/presign/step';
 const LINKED_ECDSA_FINALIZE_PATH = '/router-ab/ecdsa-derivation/sign';
+const LINKED_ECDSA_EXPORT_SHARE_PATH = '/router-ab/ecdsa-derivation/linked-device/export/share';
 const MAX_PRESIGN_STEPS = 64;
 
 type LinkedMaterialActivationScopeWire = {
@@ -68,6 +76,23 @@ type LinkedDeviceEcdsaOperationDigestsWireV1 = {
   readonly intent_digest_b64u: string;
   readonly display_digest_b64u: string;
 };
+
+export type LinkedDeviceEcdsaFreshExportProofV1 =
+  | {
+      readonly kind: 'passkey';
+      readonly authority: PasskeyWalletAuthAuthority;
+      readonly webauthn_authentication: RouterAbEcdsaOperationStepUpWebAuthnCredentialV1Wire;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly provider_user_id: string;
+      readonly challenge_id: string;
+      readonly otp_code: string;
+    };
+
+export type LinkedDeviceEcdsaFreshExportAuthorizationV1 = (input: {
+  readonly challengeB64u: string;
+}) => Promise<LinkedDeviceEcdsaFreshExportProofV1>;
 
 export type LinkedDeviceEcdsaPrepareRequestWireV1 = {
   readonly scope: LinkedDeviceEcdsaScopeWireV1;
@@ -266,6 +291,148 @@ function materialActivationScopeWire(
 
 function scopeToWire(scope: LinkedDeviceEcdsaNormalSigningScopeV1): LinkedDeviceEcdsaScopeWireV1 {
   return { ...scope, materialActivation: materialActivationScopeWire(scope.materialActivation) };
+}
+
+async function linkedEcdsaExportDigest(value: unknown) {
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(value))));
+}
+
+const LINKED_ECDSA_EXPORT_STEP_UP_CHALLENGE_DOMAIN_V1 =
+  'seams:linked-device:ecdsa-export-step-up:v1';
+
+async function linkedEcdsaExportStepUpChallenge(input: {
+  readonly scope: LinkedDeviceEcdsaNormalSigningScopeV1;
+  readonly requestId: string;
+  readonly operationId: string;
+  readonly digests: OperationDigestSet;
+  readonly recipientIdentity: string;
+  readonly recipientPublicKey: string;
+  readonly expiresAtMs: number;
+}): Promise<DigestB64u> {
+  return await linkedEcdsaExportDigest({
+    domain: LINKED_ECDSA_EXPORT_STEP_UP_CHALLENGE_DOMAIN_V1,
+    requestId: input.requestId,
+    operationId: input.operationId,
+    walletId: String(input.scope.walletId),
+    laneId: String(input.scope.laneId),
+    laneShareEpoch: String(input.scope.laneShareEpoch),
+    publicIdentityDigestB64u: String(input.scope.publicIdentityDigestB64u),
+    operationDigests: operationDigestsToWire(input.digests),
+    recipientIdentity: input.recipientIdentity,
+    recipientPublicKey: input.recipientPublicKey,
+    expiresAtMs: input.expiresAtMs,
+  });
+}
+
+export async function exportActiveLinkedDeviceEcdsaArtifactV1(input: {
+  readonly relayServerUrl: string;
+  readonly material: ActiveLinkedDeviceEcdsaExportMaterial;
+  readonly flowId: string;
+  readonly authorize: LinkedDeviceEcdsaFreshExportAuthorizationV1;
+}): Promise<{
+  readonly publicKeyHex: string;
+  readonly privateKeyHex: string;
+  readonly ethereumAddress: string;
+}> {
+  const requestId = secureRandomId('linked-ecdsa-export', 24, 'linked ECDSA export request');
+  const operationId = `${input.flowId}:${requestId}`;
+  const scope = input.material.laneScope;
+  if (String(input.material.walletSession.delivery.enrollmentId) !== String(scope.enrollmentId)) {
+    throw new Error('linked ECDSA export Wallet Session enrollment does not match its lane');
+  }
+  const expiresAtMs = Math.min(input.material.walletSession.delivery.expiresAtMs, Date.now() + 60_000);
+  const recipient = await input.material.holderMaterial.prepareEcdsaExportRecipientV1({
+    handle: input.material.holderHandle,
+    operationId,
+  });
+  const laneDigest = await linkedEcdsaExportDigest({
+    walletId: scope.walletId,
+    enrollmentId: input.material.walletSession.delivery.enrollmentId,
+    laneId: scope.laneId,
+    laneShareEpoch: scope.laneShareEpoch,
+    materialActivation: scope.materialActivation,
+  });
+  const intentDigest = await linkedEcdsaExportDigest({
+    operation: 'evm.export_key',
+    requestId,
+    operationId,
+    walletId: scope.walletId,
+    laneId: scope.laneId,
+  });
+  const displayDigest = await linkedEcdsaExportDigest({
+    operation: 'Export Private Key',
+    publicKey: scope.thresholdPublicKey33B64u,
+    address: scope.evmAddress,
+  });
+  const recipientIdentity = recipient.recipientIdentity;
+  const recipientPublicKey = recipient.recipientPublicKeyB64u;
+  const freshStepUpProof = await input.authorize({
+    challengeB64u: await linkedEcdsaExportStepUpChallenge({
+      scope,
+      requestId,
+      operationId,
+      digests: { laneDigest, intentDigest, displayDigest },
+      recipientIdentity,
+      recipientPublicKey,
+      expiresAtMs,
+    }),
+  });
+  const envelope = buildLinkedDeviceExecutionEnvelopeV1({
+    enrollmentId: input.material.walletSession.delivery.enrollmentId,
+    deviceId: input.material.walletSession.delivery.deviceId,
+    walletKeyId: scope.walletKeyId,
+    laneId: scope.laneId,
+    laneShareEpoch: scope.laneShareEpoch,
+    materialActivation: scope.materialActivation,
+  });
+  const payload = await postLinkedJson(
+    input.relayServerUrl,
+    LINKED_ECDSA_EXPORT_SHARE_PATH,
+    {
+      kind: 'wallet_session_jwt',
+      walletSessionJwt: input.material.walletSession.token.walletSessionJwt,
+    },
+    {
+      scope: scopeToWire(scope),
+      linkedDeviceExecution: envelope,
+      request_id: requestId,
+      operation_id: operationId,
+      operation_digests: operationDigestsToWire({ laneDigest, intentDigest, displayDigest }),
+      material_activation: routerAbMpcMaterialActivationRefToWire(scope.materialActivation),
+      recipient_identity: recipientIdentity,
+      recipient_public_key: recipientPublicKey,
+      expires_at_ms: expiresAtMs,
+      fresh_step_up_proof: freshStepUpProof,
+    },
+  );
+  const response = requireResponseOk(payload, 'linked ECDSA export response');
+  const signingWorkerExport = parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
+    response.signing_worker_export,
+  );
+  if (alphabetizeStringify(response.binding) !== alphabetizeStringify(signingWorkerExport.binding)) {
+    throw new Error('linked ECDSA export response binding does not match its share envelope');
+  }
+  return await input.material.holderMaterial.finalizeEcdsaExportV1({
+    handle: input.material.holderHandle,
+    recipientHandleId: recipient.recipientHandleId,
+    signingWorkerExport,
+    expectedBinding: signingWorkerExport.binding,
+    expectedPublicFacts: {
+      walletId: String(scope.walletId),
+      walletKeyId: String(scope.walletKeyId),
+      enrollmentId: String(scope.enrollmentId),
+      operationId: String(scope.operationId),
+      laneId: String(scope.laneId),
+      laneShareEpoch: String(scope.laneShareEpoch),
+      targetMaterialActivationId: String(scope.targetMaterialActivationId),
+      ecdsaThresholdKeyId: String(scope.targetCapability.ecdsaThresholdKeyId),
+      thresholdPublicKey33B64u: String(scope.thresholdPublicKey33B64u),
+      evmAddress: String(scope.evmAddress),
+      targetHolderPublicCommitment33B64u: String(scope.targetHolderPublicCommitmentB64u),
+      targetServerPublicCommitment33B64u: String(scope.targetServerPublicCommitmentB64u),
+      publicIdentityDigestB64u: String(scope.publicIdentityDigestB64u),
+    },
+  });
 }
 
 export function buildLinkedDeviceEcdsaScopeV1(input: {
