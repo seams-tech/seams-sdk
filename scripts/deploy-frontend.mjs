@@ -178,7 +178,10 @@ function buildFrontendEnvironment(site) {
   for (const lane of site.lanes) {
     const prefix = site.id === 'production' ? `VITE_${lane.network.toUpperCase()}_` : 'VITE_';
     environment[`${prefix}RELAYER_URL`] = lane.gatewayOrigin;
-    environment[`${prefix}CONSOLE_BASE_URL`] = consoleOriginFor(lane.gatewayOrigin);
+    // Staging serves the Console API from the gateway hostname. Production
+    // keeps the dedicated Console hostname until the Console cut-over lands.
+    environment[`${prefix}CONSOLE_BASE_URL`] =
+      site.id === 'staging' ? lane.gatewayOrigin : consoleOriginFor(lane.gatewayOrigin);
     environment[`${prefix}WALLET_ORIGIN`] = lane.walletOrigin;
     environment[`${prefix}RP_ID_BASE`] = new URL(lane.walletOrigin).hostname;
     environment[`${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`] =
