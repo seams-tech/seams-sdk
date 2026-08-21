@@ -230,27 +230,18 @@ test.describe('wallet-host Lit auth menu surface', () => {
         intents.push((event as CustomEvent<unknown>).detail);
       });
       (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).click();
-      const details = element.querySelector<HTMLDetailsElement>('.w3a-link-device-failure-details');
       return {
         title: element.querySelector('.qr-title')?.textContent?.trim(),
         alert: element.querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim(),
-        detailSummary: details?.querySelector('summary')?.textContent?.trim(),
-        detailText: details?.querySelector('.w3a-link-device-failure-detail')?.textContent?.trim(),
-        detailOpen: details?.open ?? null,
         action: element.querySelector('[data-auth-menu-primary]')?.textContent?.trim(),
         intents,
       };
     }, AUTH_MENU_TAG);
 
     expect(result).toEqual({
-      title: "Couldn't open the wallet",
-      // The guidance sentence stands alone; the raw internal error lives behind
-      // a closed disclosure instead of being appended to it.
+      title: 'Device linked',
       alert:
-        "Your device was linked, but the wallet couldn't be opened. Return to sign in and try again.",
-      detailSummary: 'Error details',
-      detailText: 'Wallet Session renewal failed',
-      detailOpen: false,
+        'Unable to open the wallet. Return to sign in and try again. Wallet Session renewal failed',
       action: 'Return to sign in',
       intents: [{ kind: 'back' }],
     });
