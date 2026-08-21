@@ -6,8 +6,20 @@ import type {
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SignerAuthMethod, SignerKind, SignerSource } from '@shared/utils';
-import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
+import type {
+  WalletAuthMethodRecord,
+  WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { DeviceId } from '@shared/authorization/capabilityKinds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type {
+  MpcMaterialActivationRef,
+  WalletAuthMethodId,
+  WalletAuthorityId,
+  WalletKeyId,
+} from '@shared/utils/domainIds';
+import type { WalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
 
 export interface PasskeyCredentialRecord {
   id: string;
@@ -170,6 +182,50 @@ export type LocalWalletAuthMethodRecord =
       localStatus: 'synced' | 'pending';
       authority: EmailOtpWalletAuthAuthority;
     });
+
+export type WalletAuthoritySignerMaterialRecordV1 = {
+  readonly kind: 'wallet_authority_signer_material_v1';
+  readonly authorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly activationId: MpcMaterialActivationRef['activationId'];
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly sealedMaterialB64u: string;
+  readonly sealedMaterialDigestB64u: DigestB64u;
+};
+
+export type WalletAuthorityExportRootRecordV1 = {
+  readonly kind: 'wallet_authority_export_root_v1';
+  readonly authorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletKeyId: WalletKeyId;
+  readonly sealedRootB64u: string;
+  readonly sealedRootDigestB64u: DigestB64u;
+};
+
+export type LocalAuthorityInstallationReceiptV1 = {
+  readonly kind: 'local_authority_installation_receipt_v1';
+  readonly authorityId: WalletAuthorityId;
+  readonly walletId: WalletId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly deviceId: DeviceId;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly installedActivationRefs: WalletSignerActivationSetV1;
+  readonly installedRecordSetDigestB64u: DigestB64u;
+  readonly targetFactorVerificationDigestB64u: DigestB64u;
+  readonly installedAtMs: number;
+};
+
+export type WalletSelectionRecordV1 = {
+  readonly kind: 'wallet_selection_v1';
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly lockGeneration: number;
+  readonly lockState: 'locked' | 'unlocked';
+  readonly updatedAtMs: number;
+};
+
+export type { WalletAuthMethodRecordV2 };
 
 export interface ProfileContinuitySnapshot {
   profile: ProfileRecord;

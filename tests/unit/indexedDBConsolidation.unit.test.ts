@@ -15,7 +15,7 @@ const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(22);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(23);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -735,6 +735,19 @@ test.describe('IndexedDB consolidation', () => {
           registrationAuthorityId: 'challenge-a',
           createdAtMs: 5,
           updatedAtMs: 6,
+          authority: {
+            walletId: 'wallet_email_a',
+            factor: {
+              kind: 'email_otp',
+              provider: 'email',
+              providerUserId: 'email-a',
+            },
+            verifier: {
+              kind: 'email_otp_wallet_auth_method',
+              emailHashHex: 'same-email-hash',
+            },
+            bindingId: 'email_otp:wallet_email_a:same-email-hash',
+          },
         })
         .then(() => false)
         .catch(() => true);
@@ -750,6 +763,19 @@ test.describe('IndexedDB consolidation', () => {
           registrationAuthorityId: 'challenge-a',
           createdAtMs: 5,
           updatedAtMs: 6,
+          authority: {
+            walletId: 'wallet_email_a',
+            factor: {
+              kind: 'email_otp',
+              provider: 'email',
+              providerUserId: 'email-a',
+            },
+            verifier: {
+              kind: 'email_otp_wallet_auth_method',
+              emailHashHex: 'same-email-hash',
+            },
+            bindingId: 'email_otp:wallet_email_a:same-email-hash',
+          },
         }),
         repositories.upsertWalletAuthMethod({
           version: 'wallet_auth_method_v1',
@@ -761,6 +787,19 @@ test.describe('IndexedDB consolidation', () => {
           registrationAuthorityId: 'challenge-b',
           createdAtMs: 7,
           updatedAtMs: 8,
+          authority: {
+            walletId: 'wallet_email_b',
+            factor: {
+              kind: 'email_otp',
+              provider: 'email',
+              providerUserId: 'email-b',
+            },
+            verifier: {
+              kind: 'email_otp_wallet_auth_method',
+              emailHashHex: 'same-email-hash',
+            },
+            bindingId: 'email_otp:wallet_email_b:same-email-hash',
+          },
         }),
       ]);
       const ambiguousSharedEmailLookup = await repositories.getWalletAuthMethod({
