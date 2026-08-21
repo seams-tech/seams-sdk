@@ -2,7 +2,15 @@
 
 Date created: August 20, 2026
 
-Status: planned. Depends on Refactor 109A multi-method wallet authentication.
+Status: blocked pending rewrite. Depends on Refactor 103E authority activation
+and Refactor 109A multi-method wallet authentication.
+
+> **Implementation stop:** Do not implement the body of this document yet.
+> It still contains the retired R102 owner/lane model, custody-seed transfer,
+> factor-specific target-authority construction, and reuse of R109A's
+> same-device persistence flow. R103E and the **Relationship to R103E and
+> R109B** section of R109A define the controlling seam. Rewrite R109B against
+> those contracts before assigning implementation work.
 
 ## Goal
 
