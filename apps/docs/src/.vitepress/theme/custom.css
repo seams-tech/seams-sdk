@@ -7,10 +7,12 @@
   --vp-c-gray-3: #ebe8e4;
   --vp-c-gray-soft: rgb(109 103 95 / 0.14);
 
-  --vp-c-indigo-1: #4a6fa5;
-  --vp-c-indigo-2: #365f90;
-  --vp-c-indigo-3: #4a6fa5;
-  --vp-c-indigo-soft: rgb(74 111 165 / 0.14);
+  /* VitePress derives --vp-c-brand-* from the indigo slots, so the accent is
+     set here: evergreen rather than blue. */
+  --vp-c-indigo-1: #157f5f;
+  --vp-c-indigo-2: #0f6b50;
+  --vp-c-indigo-3: #157f5f;
+  --vp-c-indigo-soft: rgb(21 127 95 / 0.14);
 
   --vp-c-green-1: #157f5f;
   --vp-c-green-2: #157f5f;
@@ -37,6 +39,10 @@
   --vp-c-text-1: #0a0a0a;
   --vp-c-text-2: #4d4943;
   --vp-c-text-3: #6d675f;
+
+  /* Accent surfaces (active markers, rails) take the gradient; accent text
+     stays flat so it keeps its contrast ratio. */
+  --seams-accent-gradient: linear-gradient(180deg, #3fae86 0%, #157f5f 55%, #0f6b50 100%);
 }
 
 /* The same roles on a warm neutral ink, so the two modes read as one brand. */
@@ -48,10 +54,10 @@
   --vp-c-gray-3: #2a2724;
   --vp-c-gray-soft: rgb(180 173 164 / 0.16);
 
-  --vp-c-indigo-1: #9db8e3;
-  --vp-c-indigo-2: #b3c8ea;
-  --vp-c-indigo-3: #7e9fd2;
-  --vp-c-indigo-soft: rgb(157 184 227 / 0.16);
+  --vp-c-indigo-1: #6ec7a4;
+  --vp-c-indigo-2: #8ad9bb;
+  --vp-c-indigo-3: #52ab89;
+  --vp-c-indigo-soft: rgb(110 199 164 / 0.16);
 
   --vp-c-green-1: #6ec7a4;
   --vp-c-green-2: #6ec7a4;
@@ -78,6 +84,8 @@
   --vp-c-text-1: #f1ede8;
   --vp-c-text-2: #b5aea5;
   --vp-c-text-3: #857e76;
+
+  --seams-accent-gradient: linear-gradient(180deg, #8ad9bb 0%, #6ec7a4 55%, #52ab89 100%);
 }
 
 /* A soft, fixed page wash: two cool washes and one warm one, all under 10%
@@ -86,17 +94,17 @@
 body {
   background-color: var(--vp-c-bg);
   background-image:
-    radial-gradient(1100px 620px at 6% -10%, rgb(122 137 214 / 0.07), transparent 62%),
-    radial-gradient(900px 540px at 98% 4%, rgb(214 186 168 / 0.1), transparent 60%),
-    radial-gradient(1250px 700px at 80% 100%, rgb(126 159 210 / 0.09), transparent 66%);
+    radial-gradient(1100px 620px at 6% -10%, rgb(63 174 134 / 0.08), transparent 62%),
+    radial-gradient(900px 540px at 98% 4%, rgb(214 200 168 / 0.1), transparent 60%),
+    radial-gradient(1250px 700px at 80% 100%, rgb(110 178 160 / 0.1), transparent 66%);
   background-attachment: fixed;
 }
 
 .dark body {
   background-image:
-    radial-gradient(1100px 620px at 6% -10%, rgb(122 137 214 / 0.14), transparent 62%),
-    radial-gradient(900px 540px at 98% 4%, rgb(224 172 104 / 0.06), transparent 60%),
-    radial-gradient(1250px 700px at 80% 100%, rgb(110 199 164 / 0.08), transparent 66%);
+    radial-gradient(1100px 620px at 6% -10%, rgb(63 174 134 / 0.14), transparent 62%),
+    radial-gradient(900px 540px at 98% 4%, rgb(224 190 104 / 0.05), transparent 60%),
+    radial-gradient(1250px 700px at 80% 100%, rgb(110 199 164 / 0.1), transparent 66%);
 }
 
 .VPContent,
@@ -187,8 +195,15 @@ body {
   border-radius: 0;
 }
 
-.VPSidebar .VPSidebarItem.level-1.is-active > .item > .indicator {
-  background-color: var(--vp-c-brand-1);
+.VPSidebar .VPSidebarItem.level-1.is-active > .item > .indicator,
+.VPSidebar .VPSidebarItem.level-2.is-active > .item > .indicator,
+.VPSidebar .VPSidebarItem.level-3.is-active > .item > .indicator {
+  background: var(--seams-accent-gradient);
+}
+
+/* The outline's active marker is the same rail on the other side. */
+.VPDocAsideOutline .outline-marker {
+  background: var(--seams-accent-gradient);
 }
 
 /* Markdown keeps its H1 so VitePress local search indexes the page title.

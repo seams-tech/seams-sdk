@@ -235,7 +235,7 @@ body {
 
 /* Install panel (hero code block) */
 .install-panel {
-  --install-panel-surface: color-mix(in srgb, var(--site-surface) 90%, #edf1f6 10%);
+  --install-panel-surface: color-mix(in srgb, var(--site-surface) 90%, #eef4f1 10%);
   margin-top: 1rem;
   border-radius: 1rem;
   border: 1px solid var(--w3a-colors-borderPrimary);
@@ -299,7 +299,7 @@ body {
 
 .install-tab.active {
   color: var(--site-text-primary);
-  background: color-mix(in srgb, var(--install-panel-surface) 92%, #dce3ec 8%);
+  background: color-mix(in srgb, var(--install-panel-surface) 92%, #dde9e3 8%);
 }
 
 /* Subtle press feedback */
@@ -690,26 +690,26 @@ body {
 }
 
 .marketing-stack {
-  --marketing-focus-ring: color-mix(in srgb, #89a7c6 32%, transparent);
+  --marketing-focus-ring: color-mix(in srgb, #88c0aa 32%, transparent);
   --marketing-panel-surface:
     radial-gradient(
       132% 168% at 95% -12%,
-      color-mix(in srgb, #94b1cc 12%, #f2f6fb 88%) 0%,
+      color-mix(in srgb, #93c4b0 12%, #f1f7f4 88%) 0%,
       transparent 52%
     ),
-    linear-gradient(154deg, #f8fbff 0%, #eaf0f7 100%);
+    linear-gradient(154deg, #f8fdfa 0%, #e8f2ed 100%);
   --marketing-panel-highlight: linear-gradient(
     118deg,
-    color-mix(in srgb, #91adca 18%, transparent) 0%,
+    color-mix(in srgb, #8fc2ae 18%, transparent) 0%,
     transparent 45%
   );
   --marketing-panel-highlight-opacity: 0.38;
-  --marketing-eyebrow: color-mix(in srgb, #5d6e82 84%, #1f2d3a 16%);
-  --marketing-title: #1f2d3a;
-  --marketing-trust-icon: color-mix(in srgb, #7e9fbe 58%, #455567 42%);
-  --marketing-trust-title: #1f2d3a;
-  --marketing-trust-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
-  --marketing-item-surface: linear-gradient(124deg, #fafdff 0%, #e9f0f8 100%);
+  --marketing-eyebrow: color-mix(in srgb, #5c7d72 84%, #16302a 16%);
+  --marketing-title: #16302a;
+  --marketing-trust-icon: color-mix(in srgb, #7cbda6 58%, #3f5d54 42%);
+  --marketing-trust-title: #16302a;
+  --marketing-trust-copy: color-mix(in srgb, #5c7d72 90%, #16302a 10%);
+  --marketing-item-surface: linear-gradient(124deg, #fafdfb 0%, #e7f1ec 100%);
   --marketing-solution-item-surface: linear-gradient(
     124deg,
     color-mix(in srgb, var(--site-surface) 90%, var(--site-brand) 10%) 0%,
@@ -720,16 +720,16 @@ body {
     var(--site-border) 70%,
     var(--site-brand) 30%
   );
-  --marketing-item-text: #1f2d3a;
-  --marketing-item-title: #1f2d3a;
-  --marketing-item-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
+  --marketing-item-text: #16302a;
+  --marketing-item-title: #16302a;
+  --marketing-item-copy: color-mix(in srgb, #5c7d72 90%, #16302a 10%);
   --marketing-final-cta-surface: linear-gradient(
     24deg,
-    color-mix(in srgb, #90acc8 17%, #eef3f8 83%) 0%,
-    #e9eef5 44%,
-    #e1e8f1 100%
+    color-mix(in srgb, #8fc0ac 17%, #eef5f1 83%) 0%,
+    #e9f2ee 44%,
+    #e2ece7 100%
   );
-  --marketing-final-cta-copy: color-mix(in srgb, #5c6d81 90%, #1f2d3a 10%);
+  --marketing-final-cta-copy: color-mix(in srgb, #5c7d72 90%, #16302a 10%);
 }
 
 .credibility-bands {

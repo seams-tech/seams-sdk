@@ -55,7 +55,9 @@
   --site-text-button: var(--w3a-colors-textButton);
   --site-border: var(--w3a-colors-borderPrimary);
   --site-border-strong: var(--w3a-colors-borderHover);
-  --site-focus: var(--w3a-colors-focus);
+  /* The SDK theme still resolves --w3a-colors-focus to a blue; the site's
+     focus ring stays in the evergreen accent. */
+  --site-focus: #4fb894;
   --site-brand: var(--w3a-colors-primary);
   --site-brand-hover: var(--w3a-colors-primaryHover);
   --site-action: var(--w3a-colors-buttonBackground);
