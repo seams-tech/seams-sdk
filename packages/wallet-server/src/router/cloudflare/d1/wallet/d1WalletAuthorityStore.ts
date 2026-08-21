@@ -545,10 +545,13 @@ function prepareAuthMethodTransitionStatement(input: {
   if (input.expected.status !== 'pending_local_install' || input.next.status !== 'active') {
     throw new Error('auth method transition must be pending_local_install to active');
   }
+  const expected = parseWalletAuthMethodRecordV2(input.expected);
+  const next = parseWalletAuthMethodRecordV2(input.next);
+  if (!expected || !next) throw new Error('auth method transition contains an invalid record');
   const columns = {
-    record: JSON.stringify(input.next),
-    updatedAtMs: input.next.updatedAtMs,
-    activatedAtMs: input.next.activatedAtMs,
+    record: JSON.stringify(next),
+    updatedAtMs: next.updatedAtMs,
+    activatedAtMs: next.activatedAtMs,
   };
   return input.database
     .prepare(
@@ -573,7 +576,7 @@ function prepareAuthMethodTransitionStatement(input: {
       String(input.expected.walletAuthMethodId),
       String(input.expected.walletAuthorityId),
       input.expected.updatedAtMs,
-      JSON.stringify(input.expected),
+      JSON.stringify(expected),
     );
 }
 
