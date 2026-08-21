@@ -199,8 +199,12 @@ function readEcdsaUseCaseReadyLane(args: {
   if (!lane.authorization || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
+  const authorizationProjection =
+    lane.source === 'active_execution_bundle'
+      ? lane.authorization
+      : lane.authorization.projection;
   const authorizationId = walletSessionAuthorizationIdForCurve(
-    lane.authorization.projection,
+    authorizationProjection,
     'ecdsa',
   );
   if (!authorizationId) return 'lane_inventory_mismatch';

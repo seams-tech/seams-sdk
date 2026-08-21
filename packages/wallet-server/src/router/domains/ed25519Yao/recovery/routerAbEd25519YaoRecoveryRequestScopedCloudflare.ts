@@ -39,9 +39,13 @@ import {
   type RouterAbEd25519YaoRecoveryFailure,
   type RouterAbEd25519YaoRecoveryServiceResult,
   type RouterAbEd25519YaoActiveCapabilityResolverV1,
+  buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapV1,
 } from './routerAbEd25519YaoRecovery';
-import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
+import {
+  warmBootstrapCapabilityMatchesLinkedDeviceIdentity,
+  warmBootstrapCapabilityMatchesStableIdentity,
+} from './routerAbEd25519YaoRecovery';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519SessionId,
@@ -425,9 +429,7 @@ async function runRecoveryStatusRequest(
 function recoveryStatus(
   lifecycleId: string,
   recovery:
-    | ReturnType<
-        RouterAbEd25519YaoProductRegistrationStateV1['recovery']['recoveries']['get']
-      >
+    | ReturnType<RouterAbEd25519YaoProductRegistrationStateV1['recovery']['recoveries']['get']>
     | undefined,
 ): RouterAbEd25519YaoRecoveryStatusV1 {
   if (!recovery) return { stage: 'missing', lifecycle_id: lifecycleId };
@@ -478,7 +480,10 @@ async function runWarmRecoveryBootstrapRequest(
       { status: authorized.status },
     );
   }
-  if (authorized.authorization.kind !== 'wallet_session') {
+  if (
+    authorized.authorization.kind !== 'wallet_session' &&
+    authorized.authorization.kind !== 'linked_device_wallet_session'
+  ) {
     return json(
       {
         ok: false,
@@ -488,7 +493,6 @@ async function runWarmRecoveryBootstrapRequest(
       { status: 401 },
     );
   }
-  const binding = authorized.authorization.binding;
   const activeCapability = await context.input.capabilities.resolveActiveCapability({
     kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
     walletId: request.walletId,
@@ -503,6 +507,33 @@ async function runWarmRecoveryBootstrapRequest(
       { status: activeCapability.code === 'unknown_capability' ? 404 : 409 },
     );
   }
+  if (authorized.authorization.kind === 'linked_device_wallet_session') {
+    if (
+      !warmBootstrapCapabilityMatchesLinkedDeviceIdentity({
+        request,
+        claims: authorized.authorization.claims,
+        capability: activeCapability.capability,
+      })
+    ) {
+      return json(
+        {
+          ok: false,
+          code: 'continuity_mismatch',
+          message: 'active Ed25519 Yao capability does not match the linked Wallet Session',
+        },
+        { status: 409 },
+      );
+    }
+    return json(
+      buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1({
+        request,
+        claims: authorized.authorization.claims,
+        capability: activeCapability.capability,
+      }),
+      { status: 200 },
+    );
+  }
+  const binding = authorized.authorization.binding;
   if (
     !warmBootstrapCapabilityMatchesStableIdentity({
       request,

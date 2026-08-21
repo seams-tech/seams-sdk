@@ -24,13 +24,15 @@ import {
 import {
   resolveActiveLinkedDeviceExecutionBundleV1,
   resolveLinkedDeviceExecutionBundleV1,
+  resolveUniqueActiveLinkedDeviceExecutionBundleV1,
   linkedDeviceExecutionEvidence,
 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import { laneSealedHolderMaterialRepository } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type {
-  ActiveLinkedDeviceExecutionBundleV1,
-  ActiveLinkedDeviceExecutionChildV1,
+import {
+  buildActiveLinkedDeviceExecutionBundleFromEvidenceV1,
+  type ActiveLinkedDeviceExecutionBundleV1,
+  type ActiveLinkedDeviceExecutionChildV1,
 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { executeLinkedDeviceEd25519NormalSigningV1 } from '@/core/signingEngine/flows/signNear/shared/linkedDeviceEd25519NormalSigning';
 import { createDeviceLinkingKeyMaterialPortV1 } from './deviceLinkingWorkerChannels';
@@ -45,12 +47,13 @@ import { routerAbNormalSigningActionFingerprint } from '@/core/rpcClients/relaye
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { base58Encode } from '@shared/utils/base58';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import type { WalletId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EvmFamilySigningDeps } from '@/core/signingEngine/interfaces/operationDeps';
-import type {
-  WalletSessionRef,
-  ThresholdEcdsaChainTarget,
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+  type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
@@ -64,13 +67,16 @@ import {
   parseSigningOperationFingerprintDigest,
 } from '@/core/signingEngine/session/planning/operationFingerprint';
 import { executeEvmFamilyTransactionSigning } from '@/core/signingEngine/flows/signEvmFamily/transactionExecutor';
-import { executeLinkedDeviceEcdsaNormalSigningV1 } from '@/core/signingEngine/flows/signEvmFamily/shared/linkedDeviceEcdsaNormalSigning';
+import {
+  buildLinkedDeviceEcdsaScopeV1,
+  executeLinkedDeviceEcdsaNormalSigningV1,
+} from '@/core/signingEngine/flows/signEvmFamily/shared/linkedDeviceEcdsaNormalSigning';
 import { resolveNearNetwork } from '@/core/config/chains';
 import type {
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
-import type { LinkedDeviceEnrollmentId } from '@shared/signing-lanes/ids';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type {
   DeviceLinkingPersistedHolderSigningMaterialChildV1,
   DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1,
@@ -122,6 +128,14 @@ import {
   type Ed25519YaoClientRootEnvelopeRecordV1,
 } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type { ActiveExecutionBundleEcdsaExportContext } from '@/core/signingEngine/session/availability/availableSigningLanes';
 
 type LinkedDeviceWarmSigningSessionBaseV1 = {
   readonly kind: 'linked_device_warm_signing_session_v1';
@@ -130,6 +144,29 @@ type LinkedDeviceWarmSigningSessionBaseV1 = {
   readonly handles: readonly DeviceLinkingHolderSigningMaterialHandleV1[];
   readonly ed25519YaoClientRootEnvelope: Ed25519YaoClientRootEnvelopeRecordV1 | null;
 };
+
+export async function readActiveLinkedDeviceExecutionBundleForWalletV1(args: {
+  readonly walletId: WalletId;
+  readonly nowMs: number;
+}): Promise<ActiveLinkedDeviceExecutionBundleV1 | null> {
+  const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
+    walletId: String(args.walletId),
+    nowMs: args.nowMs,
+    evidenceRepository: linkedDeviceExecutionEvidence,
+    walletSessionRepository: linkedDeviceWalletSessions,
+  });
+  switch (result.kind) {
+    case 'found':
+      return result.bundle;
+    case 'missing':
+    case 'expired':
+      return null;
+    case 'ambiguous':
+    case 'corrupt':
+    case 'persistence_unavailable':
+      throw new Error(`linked-device active execution bundle is ${result.kind}`);
+  }
+}
 
 export type LinkedDeviceWarmSigningSessionV1 = LinkedDeviceWarmSigningSessionBaseV1 &
   (
@@ -185,7 +222,9 @@ function linkedDeviceEd25519YaoClientRootIdentityV1(
   const root = bundle.targetPreparation.ed25519ExportRoot;
   if (!root) return null;
   const execution = bundle.orderedExecutions.find(
-    (candidate): candidate is Extract<
+    (
+      candidate,
+    ): candidate is Extract<
       ActiveLinkedDeviceExecutionChildV1,
       { readonly keyFamily: 'ed25519' }
     > => candidate.keyFamily === 'ed25519',
@@ -204,7 +243,7 @@ function linkedDeviceEd25519YaoClientRootIdentityV1(
       return {
         walletId: String(bundle.walletId),
         linkSessionId: String(bundle.linkSessionId),
-        walletKeyId: String(execution.walletKeyId),
+        walletKeyId: String(root.walletKeyId),
         enrollmentId: String(bundle.enrollmentId),
         deviceId: String(bundle.deviceId),
         applicationBindingDigestB64u: String(root.applicationBindingDigestB64u),
@@ -219,16 +258,14 @@ function linkedDeviceEd25519YaoClientRootIdentityV1(
     }
     case 'email_otp': {
       const factor =
-        input.suppliedEnvelope?.factor.kind === 'email_otp'
-          ? input.suppliedEnvelope.factor
-          : null;
+        input.suppliedEnvelope?.factor.kind === 'email_otp' ? input.suppliedEnvelope.factor : null;
       const enrollmentSealKeyVersion =
         factor?.enrollmentSealKeyVersion ?? input.emailOtpEnrollmentSealKeyVersion;
       if (!enrollmentSealKeyVersion) {
         return {
           walletId: String(bundle.walletId),
           linkSessionId: String(bundle.linkSessionId),
-          walletKeyId: String(execution.walletKeyId),
+          walletKeyId: String(root.walletKeyId),
           enrollmentId: String(bundle.enrollmentId),
           deviceId: String(bundle.deviceId),
           applicationBindingDigestB64u: String(root.applicationBindingDigestB64u),
@@ -240,7 +277,7 @@ function linkedDeviceEd25519YaoClientRootIdentityV1(
       return {
         walletId: String(bundle.walletId),
         linkSessionId: String(bundle.linkSessionId),
-        walletKeyId: String(execution.walletKeyId),
+        walletKeyId: String(root.walletKeyId),
         enrollmentId: String(bundle.enrollmentId),
         deviceId: String(bundle.deviceId),
         applicationBindingDigestB64u: String(root.applicationBindingDigestB64u),
@@ -256,9 +293,7 @@ function linkedDeviceEd25519YaoClientRootIdentityV1(
 }
 
 function isEmailRootScopeV1(
-  identity:
-    | Ed25519YaoClientRootEnvelopeIdentityV1
-    | Ed25519YaoClientRootEnvelopeEmailScopeV1,
+  identity: Ed25519YaoClientRootEnvelopeIdentityV1 | Ed25519YaoClientRootEnvelopeEmailScopeV1,
 ): identity is Ed25519YaoClientRootEnvelopeEmailScopeV1 {
   return (
     identity.targetFactor.kind === 'email_otp' &&
@@ -267,9 +302,7 @@ function isEmailRootScopeV1(
 }
 
 function requireFullRootIdentityV1(
-  identity:
-    | Ed25519YaoClientRootEnvelopeIdentityV1
-    | Ed25519YaoClientRootEnvelopeEmailScopeV1,
+  identity: Ed25519YaoClientRootEnvelopeIdentityV1 | Ed25519YaoClientRootEnvelopeEmailScopeV1,
 ): Ed25519YaoClientRootEnvelopeIdentityV1 {
   if (isEmailRootScopeV1(identity)) {
     throw new Error('linked-device export-root factor identity is incomplete');
@@ -354,10 +387,8 @@ async function cacheLinkedDeviceEd25519YaoClientRootV1(input: {
           enrollmentSealKeyVersion: input.suppliedEnvelope.factor.enrollmentSealKeyVersion,
         },
       };
-    } else if (identity.targetFactor.kind === 'passkey_prf') {
-      exactIdentity = identity;
     } else {
-      throw new Error('linked-device export-root factor identity is incomplete');
+      exactIdentity = identity;
     }
     await rememberEd25519YaoClientRootEnvelopeV1({
       identity: exactIdentity,
@@ -369,9 +400,7 @@ async function cacheLinkedDeviceEd25519YaoClientRootV1(input: {
   if (isEmailRootScopeV1(identity)) {
     cached = await readEd25519YaoClientRootEnvelopeForEmailScopeV1(identity);
   } else {
-    cached = await readEd25519YaoClientRootEnvelopeV1(
-      requireFullRootIdentityV1(identity),
-    );
+    cached = await readEd25519YaoClientRootEnvelopeV1(requireFullRootIdentityV1(identity));
   }
   if (!cached) return null;
   if (!isEd25519YaoClientRootEnvelopeRecordV1(cached)) {
@@ -396,6 +425,34 @@ function requireLinkedDevicePasskeyCredentialIdV1(
     throw new Error('linked-device Passkey registration is missing WebAuthn evidence');
   }
   return webauthnRegistration.credentialIdB64u;
+}
+
+function requireLinkedDeviceEmailOtpWalletAuthMethodIdV1(
+  bundle: ActiveLinkedDeviceExecutionBundleV1,
+) {
+  const registration = bundle.targetCredentialRegistration;
+  if (registration.targetFactor.kind !== 'email_otp') {
+    throw new Error('linked-device Email OTP credential crossed a Passkey target boundary');
+  }
+  const verificationGrant = registration.emailOtpVerificationGrant;
+  if (!verificationGrant) {
+    throw new Error('linked-device Email OTP registration is missing verification evidence');
+  }
+  return verificationGrant.linkedOwnerAuthMethodId;
+}
+
+function requireLinkedDeviceEmailOtpBaseWalletAuthMethodIdV1(
+  bundle: ActiveLinkedDeviceExecutionBundleV1,
+): WalletAuthMethodId {
+  const registration = bundle.targetCredentialRegistration;
+  if (registration.targetFactor.kind !== 'email_otp') {
+    throw new Error('linked-device Email OTP credential crossed a Passkey target boundary');
+  }
+  const verificationGrant = registration.emailOtpVerificationGrant;
+  if (!verificationGrant) {
+    throw new Error('linked-device Email OTP registration is missing verification evidence');
+  }
+  return verificationGrant.baseWalletAuthMethodId;
 }
 
 function linkedDeviceWalletAuthMethodV1(
@@ -663,17 +720,32 @@ function linkedDeviceSealTransportV1(input: {
 }): LinkedDeviceSealTransportV1 {
   const token = input.delivery.orderedTokens[0];
   if (!token) throw new Error('linked-device Wallet Session has no signing token');
-  const credentialIdB64u = requireLinkedDevicePasskeyCredentialIdV1(input.bundle);
-  return {
-    curve: 'linked_device',
-    authMethod: 'passkey',
+  const common = {
+    curve: 'linked_device' as const,
     walletId: String(input.bundle.walletId),
     relayerUrl: input.relayServerUrl,
     walletSessionToken: token.walletSessionJwt,
     enrollmentId: String(input.bundle.enrollmentId),
     deviceId: String(input.bundle.deviceId),
-    credentialIdB64u,
   };
+  const targetFactor = input.bundle.targetCredentialRegistration.targetFactor;
+  switch (targetFactor.kind) {
+    case 'passkey_prf':
+      return {
+        ...common,
+        authMethod: 'passkey',
+        credentialIdB64u: requireLinkedDevicePasskeyCredentialIdV1(input.bundle),
+      };
+    case 'email_otp':
+      return {
+        ...common,
+        authMethod: 'email_otp',
+        walletAuthMethodId: requireLinkedDeviceEmailOtpWalletAuthMethodIdV1(input.bundle),
+      };
+    default:
+      targetFactor satisfies never;
+      throw new Error('linked-device target factor is unsupported');
+  }
 }
 
 function linkedDeviceWarmMaterialClaimTargetV1(
@@ -743,8 +815,10 @@ async function discardLinkedDeviceHolderHandlesV1(input: {
 
 async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
   readonly activation: LinkedDeviceEmailOtpWarmSigningActivationV1;
   readonly relayServerUrl: string;
+  readonly warmMaterial: LinkedDeviceWarmMaterialPortV1;
 }): Promise<LinkedDeviceWarmSigningSessionV1> {
   const rootEnvelope = await persistLinkedDeviceExportRootBeforeActivationV1({
     bundle: input.bundle,
@@ -776,7 +850,15 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
       orderedChildren: [first, ...orderedChildren.slice(1)],
     });
   const handles = opened.handles;
+  const warmSessionFactorSecret = new Uint8Array(opened.warmSessionFactorSecret);
   try {
+    await sealLinkedDeviceWarmMaterialV1({
+      bundle: input.bundle,
+      delivery: input.delivery,
+      factorSecret: warmSessionFactorSecret,
+      relayServerUrl: input.relayServerUrl,
+      warmMaterial: input.warmMaterial,
+    });
     return {
       kind: 'linked_device_warm_signing_session_v1',
       walletId: input.bundle.walletId,
@@ -792,6 +874,8 @@ async function openInitialLinkedDeviceEmailOtpWarmSessionV1(input: {
       handles,
     });
     throw error;
+  } finally {
+    zeroizeLiveBytes(warmSessionFactorSecret);
   }
 }
 
@@ -816,20 +900,42 @@ async function sealLinkedDeviceWarmMaterialV1(input: {
   if (!sealed.ok) {
     throw new Error(`linked-device sealed refresh failed (${sealed.code}): ${sealed.message}`);
   }
-  await linkedDeviceWalletSessions.putSealedRefreshV1({
-    kind: 'linked_device_sealed_refresh_material_v1',
-    algorithm: SIGNING_SESSION_SEAL_ALG,
-    groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-    walletId: String(input.bundle.walletId),
-    enrollmentId: input.bundle.enrollmentId,
-    deviceId: String(input.bundle.deviceId),
-    walletSessionId: String(input.bundle.walletSessionId),
-    credentialIdB64u: requireLinkedDevicePasskeyCredentialIdV1(input.bundle),
-    sealedSecretB64u: sealed.sealedSecretB64u,
-    keyVersion: sealed.keyVersion ?? null,
-    issuedAtMs: input.bundle.issuedAtMs,
-    expiresAtMs: sealed.expiresAtMs,
-    remainingUses: sealed.remainingUses,
+  await linkedDeviceWalletSessions.putExactActiveDeliveryWithSealedRefreshV1({
+    delivery: input.delivery,
+    sealedRefresh:
+      input.bundle.targetCredentialRegistration.targetFactor.kind === 'passkey_prf'
+        ? {
+            kind: 'linked_device_sealed_refresh_material_v1',
+            algorithm: SIGNING_SESSION_SEAL_ALG,
+            groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+            walletId: String(input.bundle.walletId),
+            enrollmentId: input.bundle.enrollmentId,
+            deviceId: String(input.bundle.deviceId),
+            walletSessionId: String(input.bundle.walletSessionId),
+            authMethod: 'passkey',
+            credentialIdB64u: requireLinkedDevicePasskeyCredentialIdV1(input.bundle),
+            sealedSecretB64u: sealed.sealedSecretB64u,
+            keyVersion: sealed.keyVersion ?? null,
+            issuedAtMs: input.bundle.issuedAtMs,
+            expiresAtMs: sealed.expiresAtMs,
+            remainingUses: sealed.remainingUses,
+          }
+        : {
+            kind: 'linked_device_sealed_refresh_material_v1',
+            algorithm: SIGNING_SESSION_SEAL_ALG,
+            groupId: SIGNING_SESSION_SEAL_GROUP_ID,
+            walletId: String(input.bundle.walletId),
+            enrollmentId: input.bundle.enrollmentId,
+            deviceId: String(input.bundle.deviceId),
+            walletSessionId: String(input.bundle.walletSessionId),
+            authMethod: 'email_otp',
+            walletAuthMethodId: requireLinkedDeviceEmailOtpWalletAuthMethodIdV1(input.bundle),
+            sealedSecretB64u: sealed.sealedSecretB64u,
+            keyVersion: sealed.keyVersion ?? null,
+            issuedAtMs: input.bundle.issuedAtMs,
+            expiresAtMs: sealed.expiresAtMs,
+            remainingUses: sealed.remainingUses,
+          },
   });
 }
 
@@ -909,6 +1015,10 @@ function parseLinkedDeviceEmailOtpFactorReleaseResponseV1(
 async function requestLinkedDeviceEmailOtpFactorReleaseV1(input: {
   readonly relayServerUrl: string;
   readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+  readonly baseWalletAuthMethodId: WalletAuthMethodId;
   readonly challengeId: string;
   readonly otpCode: string;
   readonly workerPublicKey65B64u: string;
@@ -919,7 +1029,11 @@ async function requestLinkedDeviceEmailOtpFactorReleaseV1(input: {
       ...buildRelayerJsonPostRequestInit({
         body: {
           walletId: String(input.walletId),
-          kind: 'email_otp',
+          kind: 'linked_device_email_otp',
+          enrollmentId: input.enrollmentId,
+          deviceId: input.deviceId,
+          linkedOwnerAuthMethodId: input.linkedOwnerAuthMethodId,
+          baseWalletAuthMethodId: input.baseWalletAuthMethodId,
           challengeId: input.challengeId,
           otpCode: input.otpCode,
           operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -1025,6 +1139,10 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
     const factorRelease = await requestLinkedDeviceEmailOtpFactorReleaseV1({
       relayServerUrl: input.relayServerUrl,
       walletId: bundle.walletId,
+      enrollmentId: bundle.enrollmentId,
+      deviceId: bundle.deviceId,
+      linkedOwnerAuthMethodId: requireLinkedDeviceEmailOtpWalletAuthMethodIdV1(bundle),
+      baseWalletAuthMethodId: requireLinkedDeviceEmailOtpBaseWalletAuthMethodIdV1(bundle),
       challengeId: input.challengeId,
       otpCode: input.otpCode,
       workerPublicKey65B64u: keyMaterial.emailOtpReleasePublicKey65B64u,
@@ -1080,23 +1198,24 @@ export async function openLinkedDeviceEmailOtpWarmSigningSessionV1(input: {
 export async function openLinkedDeviceWarmSigningSessionV1(input: {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
   readonly relayServerUrl: string;
   readonly warmMaterial: LinkedDeviceWarmMaterialPortV1;
   readonly activation: LinkedDeviceWarmSigningActivationV1WithEmail;
 }): Promise<LinkedDeviceWarmSigningSessionV1> {
   const nowMs = Date.now();
-  const resolved = await resolveLinkedDeviceExecutionBundleV1({
-    enrollmentId: input.enrollmentId,
-    evidenceRepository: linkedDeviceExecutionEvidence,
-    walletSessionRepository: linkedDeviceWalletSessions,
-  });
-  if (resolved.kind !== 'found') {
-    throw new Error(`linked-device execution bundle is ${resolved.kind} during unlock`);
+  const evidence = await linkedDeviceExecutionEvidence.readForEnrollmentV1(input.enrollmentId);
+  if (evidence.kind !== 'found') {
+    throw new Error(`linked-device execution evidence is ${evidence.kind} during activation`);
   }
-  if (resolved.bundle.walletId !== input.walletId) {
+  let activeBundle = await buildActiveLinkedDeviceExecutionBundleFromEvidenceV1({
+    evidence: evidence.evidence,
+    walletSessionDelivery: input.walletSessionDelivery,
+  });
+  if (activeBundle.walletId !== input.walletId) {
     throw new Error('linked-device execution bundle changed its wallet identity');
   }
-  const child = resolved.bundle.orderedExecutions[0];
+  const child = activeBundle.orderedExecutions[0];
   if (!child) throw new Error('linked-device execution bundle has no signing lane');
   let delivery: LinkedDeviceWalletSessionDeliveryV1;
   let factorSecret: Uint8Array | null = null;
@@ -1105,48 +1224,22 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
     switch (input.activation.kind) {
       case 'target_email_otp_activation': {
         assertLinkedDeviceEmailOtpActivationV1({
-          bundle: resolved.bundle,
+          bundle: activeBundle,
           activation: input.activation,
         });
-        const stored = await linkedDeviceWalletSessions.readActiveForEnrollmentV1({
-          enrollmentId: resolved.bundle.enrollmentId,
-          nowMs,
-        });
-        if (
-          stored.kind !== 'found' ||
-          stored.delivery.walletId !== resolved.bundle.walletId ||
-          stored.delivery.enrollmentId !== resolved.bundle.enrollmentId ||
-          stored.delivery.deviceId !== resolved.bundle.deviceId ||
-          stored.delivery.walletSessionId !== resolved.bundle.walletSessionId
-        ) {
-          throw new Error('linked-device initial Email OTP Wallet Session is unavailable');
-        }
         return await openInitialLinkedDeviceEmailOtpWarmSessionV1({
-          bundle: resolved.bundle,
+          bundle: activeBundle,
+          delivery: input.walletSessionDelivery,
           activation: input.activation,
           relayServerUrl: input.relayServerUrl,
+          warmMaterial: input.warmMaterial,
         });
       }
       case 'target_passkey_creation':
       case 'verified_owner_unlock': {
         // Creation and owner unlock already verified this passkey. Reuse that
         // ceremony's PRF instead of asking the authenticator a second time.
-        const stored = await linkedDeviceWalletSessions.readActiveForEnrollmentV1({
-          enrollmentId: resolved.bundle.enrollmentId,
-          nowMs,
-        });
-        if (stored.kind !== 'found') {
-          throw new Error(`linked-device initial Wallet Session is ${stored.kind}`);
-        }
-        if (
-          stored.delivery.walletId !== resolved.bundle.walletId ||
-          stored.delivery.enrollmentId !== resolved.bundle.enrollmentId ||
-          stored.delivery.deviceId !== resolved.bundle.deviceId ||
-          stored.delivery.walletSessionId !== resolved.bundle.walletSessionId
-        ) {
-          throw new Error('linked-device initial Wallet Session binding changed');
-        }
-        delivery = stored.delivery;
+        delivery = input.walletSessionDelivery;
         factorSecret = input.activation.factorSecret.slice();
         if (factorSecret.byteLength !== 32) {
           throw new Error('linked-device target passkey creation PRF output must be 32 bytes');
@@ -1156,15 +1249,15 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
       case 'existing_target_passkey': {
         const authorizedOperationId = linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1();
         const intentDigestB64u = await computeLinkedDeviceWalletSessionRenewalIntentDigestV1({
-          authorizationId: resolved.bundle.authorizationId,
-          walletSessionId: resolved.bundle.walletSessionId,
-          quotaId: resolved.bundle.quotaId,
-          deviceId: resolved.bundle.deviceId,
-          enrollmentId: resolved.bundle.enrollmentId,
+          authorizationId: activeBundle.authorizationId,
+          walletSessionId: activeBundle.walletSessionId,
+          quotaId: activeBundle.quotaId,
+          deviceId: activeBundle.deviceId,
+          enrollmentId: activeBundle.enrollmentId,
         });
         const authentication = await authenticateLinkedDeviceLocalPresenceV1({
           authenticator: input.activation.authenticator,
-          bundle: resolved.bundle,
+          bundle: activeBundle,
           child,
           authorizedOperationId,
           intentDigestB64u,
@@ -1177,7 +1270,7 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
         factorSecret = authentication.factorSecret;
         delivery = await renewLinkedDeviceWalletSessionV1({
           relayServerUrl: input.relayServerUrl,
-          bundle: resolved.bundle,
+          bundle: activeBundle,
           keyFamily: child.keyFamily,
           localPresenceAssertion: authentication.localPresenceAssertion,
         });
@@ -1189,36 +1282,39 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
         throw new Error('linked-device signing activation is unsupported');
     }
     if (!factorSecret) throw new Error('linked-device factor secret is unavailable');
-    const renewed = await resolveActiveLinkedDeviceExecutionBundleV1({
-      enrollmentId: resolved.bundle.enrollmentId,
-      nowMs: Date.now(),
-      evidenceRepository: linkedDeviceExecutionEvidence,
-      walletSessionRepository: linkedDeviceWalletSessions,
-    });
-    if (renewed.kind !== 'found' || renewed.bundle.enrollmentId !== resolved.bundle.enrollmentId) {
-      throw new Error('linked-device execution bundle is unavailable after unlock');
+    if (input.activation.kind === 'existing_target_passkey') {
+      const renewed = await resolveActiveLinkedDeviceExecutionBundleV1({
+        enrollmentId: activeBundle.enrollmentId,
+        nowMs: Date.now(),
+        evidenceRepository: linkedDeviceExecutionEvidence,
+        walletSessionRepository: linkedDeviceWalletSessions,
+      });
+      if (renewed.kind !== 'found' || renewed.bundle.enrollmentId !== activeBundle.enrollmentId) {
+        throw new Error('linked-device execution bundle is unavailable after unlock');
+      }
+      activeBundle = renewed.bundle;
     }
     const rootEnvelope = await persistLinkedDeviceExportRootBeforeActivationV1({
-      bundle: renewed.bundle,
+      bundle: activeBundle,
       activation: input.activation,
     });
     holderMaterial = createDeviceLinkingKeyMaterialPortV1();
+    const handles = await openLinkedDeviceHolderHandlesV1({
+      bundle: activeBundle,
+      factorSecret,
+      holderMaterial,
+    });
     await sealLinkedDeviceWarmMaterialV1({
-      bundle: renewed.bundle,
+      bundle: activeBundle,
       delivery,
       factorSecret,
       relayServerUrl: input.relayServerUrl,
       warmMaterial: input.warmMaterial,
     });
-    const handles = await openLinkedDeviceHolderHandlesV1({
-      bundle: renewed.bundle,
-      factorSecret,
-      holderMaterial,
-    });
     return {
       kind: 'linked_device_warm_signing_session_v1',
-      walletId: renewed.bundle.walletId,
-      bundle: renewed.bundle,
+      walletId: activeBundle.walletId,
+      bundle: activeBundle,
       holderMaterialOwnership: 'owned_port',
       holderMaterial,
       handles,
@@ -1253,13 +1349,35 @@ export async function restoreLinkedDeviceWarmSigningSessionV1(input: {
   if (resolved.bundle.walletId !== input.walletId) {
     throw new Error('linked-device sealed refresh changed its wallet identity');
   }
-  const credentialIdB64u = requireLinkedDevicePasskeyCredentialIdV1(resolved.bundle);
   if (
     stored.sealedRefresh.enrollmentId !== resolved.bundle.enrollmentId ||
-    stored.sealedRefresh.walletSessionId !== resolved.bundle.walletSessionId ||
-    stored.sealedRefresh.credentialIdB64u !== credentialIdB64u
+    stored.sealedRefresh.walletSessionId !== resolved.bundle.walletSessionId
   ) {
     throw new Error('linked-device sealed refresh binding changed');
+  }
+  const targetFactor = resolved.bundle.targetCredentialRegistration.targetFactor;
+  switch (targetFactor.kind) {
+    case 'passkey_prf':
+      if (
+        stored.sealedRefresh.authMethod !== 'passkey' ||
+        stored.sealedRefresh.credentialIdB64u !==
+          requireLinkedDevicePasskeyCredentialIdV1(resolved.bundle)
+      ) {
+        throw new Error('linked-device sealed refresh passkey binding changed');
+      }
+      break;
+    case 'email_otp':
+      if (
+        stored.sealedRefresh.authMethod !== 'email_otp' ||
+        stored.sealedRefresh.walletAuthMethodId !==
+          requireLinkedDeviceEmailOtpWalletAuthMethodIdV1(resolved.bundle)
+      ) {
+        throw new Error('linked-device sealed refresh Email OTP binding changed');
+      }
+      break;
+    default:
+      targetFactor satisfies never;
+      throw new Error('linked-device target factor is unsupported');
   }
   const transport = linkedDeviceSealTransportV1({
     bundle: resolved.bundle,
@@ -1391,6 +1509,94 @@ export async function resolveActiveLinkedDeviceCurveSigningContextV1<
     walletSession,
     holderMaterial: input.warmSession.holderMaterial,
     holderHandle: requireWarmHandle(input.warmSession, input.keyFamily),
+  };
+}
+
+export async function resolveActiveLinkedDeviceEcdsaExportContextV1(input: {
+  readonly walletId: WalletId | string;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly warmSession: LinkedDeviceWarmSigningSessionV1;
+}): Promise<ActiveExecutionBundleEcdsaExportContext | null> {
+  if (!hasDelegatedWalletPermissionV1(input.warmSession.bundle.permission, 'export_keys')) {
+    return null;
+  }
+  const linked = await resolveActiveLinkedDeviceCurveSigningContextV1({
+    walletId: input.walletId,
+    keyFamily: 'ecdsa_secp256k1',
+    warmSession: input.warmSession,
+  });
+  if (!linked) {
+    return null;
+  }
+  const targetSession = linked.child.job.targetCapability.orderedThresholdSessions.find((session) =>
+    thresholdEcdsaChainTargetsEqual(session.chainTarget, input.chainTarget),
+  );
+  if (!targetSession) {
+    return null;
+  }
+
+  const registration = linked.bundle.targetCredentialRegistration;
+  const preparation = linked.bundle.targetPreparation;
+  let auth;
+  let authority;
+  switch (registration.targetFactor.kind) {
+    case 'passkey_prf': {
+      if (
+        preparation.targetFactor.kind !== 'passkey_prf' ||
+        !preparation.ownerEnrollment.registration ||
+        !registration.webauthnRegistration
+      ) {
+        throw new Error('linked-device Passkey export authority is unavailable');
+      }
+      auth = {
+        kind: 'passkey' as const,
+        rpId: toRpId(preparation.ownerEnrollment.registration.rpId),
+        credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
+      };
+      authority = buildPasskeyWalletAuthAuthority({
+        walletId: linked.bundle.walletId,
+        rpId: auth.rpId,
+        credentialIdB64u: auth.credentialIdB64u,
+      });
+      break;
+    }
+    case 'email_otp': {
+      const grant = registration.emailOtpVerificationGrant;
+      if (!grant) throw new Error('linked-device Email OTP export authority is unavailable');
+      auth = {
+        kind: 'email_otp' as const,
+        providerSubjectId: grant.providerUserId,
+      };
+      authority = buildEmailOtpWalletAuthAuthority({
+        walletId: linked.bundle.walletId,
+        provider: 'google',
+        providerUserId: grant.providerUserId,
+        emailHashHex: grant.emailHashHex,
+      });
+      break;
+    }
+  }
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  return {
+    bundle: linked.bundle,
+    execution: linked.child,
+    job: linked.child.job,
+    materialActivation: linked.child.materialActivation,
+    laneIdentity: buildLinkedDeviceEcdsaScopeV1({
+      bundle: linked.bundle,
+      child: linked.child,
+    }),
+    holderHandle: linked.holderHandle,
+    holderMaterial: linked.holderMaterial,
+    walletSession: linked.walletSession,
+    chainTarget: input.chainTarget,
+    auth,
+    linkedOwner: {
+      enrollmentId: linked.bundle.enrollmentId,
+      deviceId: linked.bundle.deviceId,
+      walletAuthMethodId: authorityRef.walletAuthMethodId,
+      authorityDigest: parseDigestB64u(String(authorityRef.authorityDigest)),
+    },
   };
 }
 

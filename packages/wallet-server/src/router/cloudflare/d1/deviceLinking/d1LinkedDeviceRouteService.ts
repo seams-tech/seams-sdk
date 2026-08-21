@@ -138,7 +138,10 @@ export function createD1LinkedDeviceRouteServiceV1(
     walletSessionIssuer,
   );
   const readWalletSessionAuthorizationV1: DeviceLinkingRouteServiceV1['readWalletSessionAuthorizationV1'] =
-    async (input) => await walletSessionIssuer.resolveActiveForSessionV1(input);
+    async (input) => {
+      await walletSessionIssuer.issueForEligibleSessionV1(input);
+      return await walletSessionIssuer.resolveActiveForSessionV1(input);
+    };
   const renewWalletSessionAuthorizationV1: DeviceLinkingRouteServiceV1['renewWalletSessionAuthorizationV1'] =
     async (input) => {
       const target = await walletSessionIssuer.resolveRenewalTargetV1({
@@ -369,7 +372,7 @@ async function acknowledgeReceiptAndIssueWalletSessionV1(
   ) {
     throw new Error('linked-device receipt acknowledgement returned a different active session');
   }
-  await walletSessionIssuer.issueForActiveSessionV1({
+  await walletSessionIssuer.issueForEligibleSessionV1({
     session: result.record,
     requestedAtMs: input.requestedAtMs,
   });

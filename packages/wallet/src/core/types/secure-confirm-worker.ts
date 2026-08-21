@@ -116,6 +116,19 @@ export type WarmSessionSealTransportInput =
       ecdsaRestore?: never;
       ed25519Restore?: never;
       emailOtpRestore?: never;
+    })
+  | (EmailOtpWarmSessionSealTransportCommon & {
+      curve: 'linked_device';
+      authMethod: 'email_otp';
+      walletId: string;
+      walletSessionToken: string;
+      enrollmentId: string;
+      deviceId: string;
+      walletAuthMethodId: string;
+      chainTarget?: never;
+      ecdsaRestore?: never;
+      ed25519Restore?: never;
+      emailOtpRestore?: never;
     });
 
 export interface WarmSessionSealAndPersistPayload {

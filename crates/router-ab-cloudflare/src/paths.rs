@@ -104,6 +104,9 @@ pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: &st
 /// Private SigningWorker endpoint for one-time explicit-export share delivery.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/export-share";
+/// Private SigningWorker endpoint for one active additive-lane export share.
+pub const CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_EXPORT_SHARE_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-derivation/linked-device/export-share";
 /// Private SigningWorker endpoint for validating active ECDSA export material without releasing a share.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PREFLIGHT_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/export-preflight";

@@ -704,8 +704,7 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
           base64UrlEncode(Uint8Array.from(state.material.capability.registeredPublicKey)) ||
         rootEnvelope.factor.kind !== 'email_otp' ||
         rootEnvelope.factor.enrollmentId !== released.enrollmentId ||
-        rootEnvelope.factor.enrollmentSealKeyVersion !== released.enrollmentSealKeyVersion ||
-        rootEnvelope.binding.enrollmentId !== released.enrollmentId
+        rootEnvelope.factor.enrollmentSealKeyVersion !== released.enrollmentSealKeyVersion
       ) {
         throw new Error('Email OTP Ed25519 export root is bound to another factor or lane');
       }
@@ -4611,7 +4610,6 @@ function parseEmailOtpEd25519YaoExportMaterial(value: unknown): EmailOtpEd25519Y
         exportRootEnvelope.binding.kind !== 'ed25519_yao_client_root_v1' ||
         exportRootEnvelope.binding.targetFactor.kind !== 'email_otp' ||
         exportRootEnvelope.factor.kind !== 'email_otp' ||
-        exportRootEnvelope.binding.enrollmentId !== exportRootEnvelope.factor.enrollmentId ||
         exportRootEnvelope.binding.registeredPublicKeyB64u !==
           base64UrlEncode(Uint8Array.from(capability.registeredPublicKey)) ||
         exportRootEnvelope.walletId !== capability.applicationBinding.wallet_id

@@ -499,6 +499,7 @@ impl CloudflareSigningWorkerNormalSigningMaterialSourceV1 {
                     && identity.target_material_activation_id
                         == scope.material_activation.activation_id
                     && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1
+                    && group_public_key == &scope.public_identity.threshold_public_key33_b64u
                 {
                     return Ok(());
                 }

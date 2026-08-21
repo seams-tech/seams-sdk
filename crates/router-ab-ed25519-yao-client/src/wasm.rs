@@ -15,12 +15,13 @@ use router_ab_ecdsa_presign::session::{
 };
 use router_ab_ecdsa_presign::{AdditiveKeyShare, PresignOutput};
 use router_ab_ecdsa_wire::{CompressedPointBytes, ScalarBytes};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::lane_holder::{
-    verify_holder_package, LaneCustodySealV1, LaneHolderRecipientV1, LaneHolderSigningMaterialV1,
+    verify_holder_package, EcdsaLaneExportArtifactV1, LaneCustodySealV1, LaneHolderRecipientV1,
+    LaneHolderSigningMaterialV1,
 };
 use crate::{
     complete_client_export_v1, create_client_signing_share_v1, prepare_client_export_with_root_v1,
@@ -40,7 +41,10 @@ use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
 };
 use signer_core::near_threshold_ed25519::CommitmentsWire;
-use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
+use signer_core::passkey_custody::{
+    open_wallet_custody_seed_envelope_v1, PasskeyCustodyEnvelopeBindingV1,
+};
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 const LANE_HOLDER_FROST_PARTICIPANT_ID_V1: u16 = 1;
 const LANE_SIGNING_WORKER_FROST_PARTICIPANT_ID_V1: u16 = 2;
@@ -236,6 +240,28 @@ impl WasmLaneHolderSigningMaterialV1 {
             )?,
             completed: None,
         })
+    }
+
+    /// Opens one exact SigningWorker ECDSA export share and returns the
+    /// ordinary explicit export artifact. Holder and server shares stay inside
+    /// this WASM boundary until the artifact is serialized.
+    pub fn finalize_ecdsa_export(
+        &self,
+        recipient: &mut WasmLaneHolderRecipientV1,
+        signing_worker_export_json: &str,
+        expected_binding_json: &str,
+        expected_public_facts_json: &str,
+    ) -> Result<String, JsValue> {
+        let artifact = recipient
+            .inner
+            .finalize_ecdsa_export(
+                &self.inner,
+                signing_worker_export_json,
+                expected_binding_json,
+                expected_public_facts_json,
+            )
+            .map_err(js_error)?;
+        serialize_ecdsa_export_artifact(artifact)
     }
 
     /// Immediately destroys retained holder material.
@@ -851,10 +877,8 @@ fn parse_32(value: &[u8], label: &str) -> Result<[u8; 32], JsValue> {
 
 struct RootEnvelopeFactsV1 {
     wallet_id: String,
-    link_session_id: String,
     wallet_key_id: String,
     enrollment_id: String,
-    device_id: String,
     revocation_epoch: u64,
     application_binding_digest: [u8; 32],
     registered_public_key: [u8; 32],
@@ -864,12 +888,10 @@ fn root_envelope_facts(
     binding: &PasskeyCustodyEnvelopeBindingV1,
 ) -> Result<RootEnvelopeFactsV1, JsValue> {
     let signer_core::passkey_custody::PasskeyCustodySecretBindingV1::Ed25519YaoClientRoot {
-        link_session_id,
         wallet_key_id,
         application_binding_digest_b64u,
         registered_public_key_b64u,
         enrollment_id,
-        device_id,
         revocation_epoch,
         ..
     } = &binding.binding
@@ -884,10 +906,8 @@ fn root_envelope_facts(
         .map_err(|_| JsValue::from_str("registeredPublicKeyB64u must be base64url"))?;
     Ok(RootEnvelopeFactsV1 {
         wallet_id: binding.wallet_id.clone(),
-        link_session_id: link_session_id.clone(),
         wallet_key_id: wallet_key_id.clone(),
         enrollment_id: enrollment_id.clone(),
-        device_id: device_id.clone(),
         revocation_epoch: *revocation_epoch,
         application_binding_digest: parse_32(
             &application_binding_digest,
@@ -899,6 +919,27 @@ fn root_envelope_facts(
 
 fn js_error(error: impl core::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EcdsaLaneExportArtifactOutputV1 {
+    public_key_hex: String,
+    private_key_hex: String,
+    ethereum_address: String,
+}
+
+fn serialize_ecdsa_export_artifact(artifact: EcdsaLaneExportArtifactV1) -> Result<String, JsValue> {
+    let output = EcdsaLaneExportArtifactOutputV1 {
+        public_key_hex: hex_prefixed(&artifact.public_key33),
+        private_key_hex: hex_prefixed(&artifact.private_key32),
+        ethereum_address: hex_prefixed(&artifact.ethereum_address20),
+    };
+    serde_json::to_string(&output).map_err(js_error)
+}
+
+fn hex_prefixed(bytes: &[u8]) -> String {
+    format!("0x{}", hex::encode(bytes))
 }
 
 fn parse_js_domain_value<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
@@ -917,10 +958,8 @@ fn parse_js_domain_value<T: DeserializeOwned>(value: JsValue) -> Result<T, JsVal
 pub struct WasmEd25519YaoLaneSourceV1 {
     root: Ed25519YaoClientRootV1,
     wallet_id: String,
-    link_session_id: String,
     wallet_key_id: String,
     enrollment_id: String,
-    device_id: String,
     revocation_epoch: u64,
     application_binding_digest: [u8; 32],
     registered_public_key: [u8; 32],
@@ -956,15 +995,60 @@ impl WasmEd25519YaoLaneSourceV1 {
         Ok(Self {
             root,
             wallet_id: root_facts.wallet_id,
-            link_session_id: root_facts.link_session_id,
             wallet_key_id: root_facts.wallet_key_id,
             enrollment_id: root_facts.enrollment_id,
-            device_id: root_facts.device_id,
             revocation_epoch: root_facts.revocation_epoch,
             application_binding_digest: root_facts.application_binding_digest,
             registered_public_key: root_facts.registered_public_key,
         })
     }
+}
+
+/// Opens a verified owner custody-seed envelope and derives the exact Client
+/// root for an approved lane job. This is the owner-capability branch; ordinary
+/// factor opens continue to require a dedicated Client-root envelope.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn ed25519_yao_lane_source_from_wallet_seed_v1(
+    factor_secret: &[u8],
+    envelope_binding_json: &str,
+    envelope_nonce: &[u8],
+    envelope_ciphertext: &[u8],
+    envelope_aad_hash: &[u8],
+    envelope_ciphertext_digest: &[u8],
+    application_binding_digest: &[u8],
+    wallet_key_id: &str,
+    enrollment_id: &str,
+    revocation_epoch: u64,
+    registered_public_key: &[u8],
+) -> Result<WasmEd25519YaoLaneSourceV1, JsValue> {
+    let envelope_binding =
+        serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+            .map_err(js_error)?;
+    let factor_secret = Zeroizing::new(factor_secret.to_vec());
+    let (seed, _) = open_wallet_custody_seed_envelope_v1(
+        &factor_secret,
+        &envelope_binding,
+        envelope_nonce,
+        envelope_ciphertext,
+        envelope_aad_hash,
+        envelope_ciphertext_digest,
+    )
+    .map_err(js_error)?;
+    let application_binding_digest =
+        parse_32(application_binding_digest, "application binding digest")?;
+    let root_bytes =
+        derive_ed25519_yao_client_root_from_seed_v1(&seed, &application_binding_digest)
+            .map_err(js_error)?;
+    Ok(WasmEd25519YaoLaneSourceV1 {
+        root: Ed25519YaoClientRootV1::from_secret_bytes(*root_bytes),
+        wallet_id: envelope_binding.wallet_id,
+        wallet_key_id: wallet_key_id.to_owned(),
+        enrollment_id: enrollment_id.to_owned(),
+        revocation_epoch,
+        application_binding_digest,
+        registered_public_key: parse_32(registered_public_key, "registered Ed25519 public key")?,
+    })
 }
 
 #[derive(Debug)]

@@ -109,6 +109,9 @@ export type DeviceLinkingEmailOtpTargetPreparationResultV1 = {
 );
 export type {
   DeviceLinkingEd25519SigningShareV1,
+  DeviceLinkingEcdsaExportArtifactV1,
+  DeviceLinkingEcdsaExportPublicFactsV1,
+  DeviceLinkingEcdsaExportRecipientV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
@@ -305,6 +308,7 @@ export type DeviceLinkingEmailOtpHolderSigningMaterialBatchResultV1 = {
     DeviceLinkingHolderSigningMaterialHandleV1,
     ...DeviceLinkingHolderSigningMaterialHandleV1[],
   ];
+  readonly warmSessionFactorSecret: ArrayBuffer;
 };
 
 export type DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1 = {
@@ -497,6 +501,7 @@ export type DeviceLinkingSessionActivationPortV1 = {
   activateLinkedDeviceSigningSessionV1(input: {
     readonly walletId: WalletId;
     readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
     readonly activation: LinkedDeviceSigningSessionActivationV1;
   }): Promise<void>;
 };
