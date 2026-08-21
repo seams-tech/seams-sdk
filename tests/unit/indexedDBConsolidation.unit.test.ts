@@ -9,9 +9,194 @@ import {
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from '../../packages/wallet/src/core/indexedDB/schemaNames';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
+import {
+  buildPendingWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+  computeWalletAuthorityDigestB64u,
+  computeWalletSignerActivationSetDigestB64u,
+} from '@shared/authorization/walletAuthority';
+import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+  parseWalletKeyId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+
+function unwrap<T>(result: { ok: true; value: T } | { ok: false; error: { message: string } }): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
+function fixtureDigest(fill: number) {
+  return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
+}
+
+async function buildLocalAuthorityInstallationFixture() {
+  const walletId = unwrap(parseWalletId('wallet:r103e-install'));
+  const authorityId = unwrap(parseWalletAuthorityId('authority:r103e-install'));
+  const authMethodId = unwrap(parseWalletAuthMethodId('auth-method:r103e-install'));
+  const deviceId = unwrap(parseDeviceId('device:r103e-install'));
+  const walletKeyId = unwrap(parseWalletKeyId('wallet-key:r103e-install'));
+  const rpId = unwrap(parseWebAuthnRpId('wallet.example.test'));
+  const credentialIdB64u = unwrap(parseWebAuthnCredentialIdB64u('credential-r103e-install'));
+  const materialActivation = buildMpcMaterialActivationRefFixture('r103e-install');
+  const manifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ed25519'],
+    signers: [
+      {
+        kind: 'exact_administered_ed25519_signer_v1',
+        keyFamily: 'ed25519',
+        walletId,
+        walletKeyId,
+        registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(1)),
+      },
+    ],
+  });
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest,
+    materialActivations: { keyFamilies: ['ed25519'], ed25519: materialActivation },
+  });
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
+  const packageSetDigestB64u = fixtureDigest(2);
+  const authorityDraft = buildPendingWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId,
+    walletId,
+    principal: { kind: 'owner_device', deviceId },
+    provenance: { kind: 'wallet_registration' },
+    permissions: buildFullOwnerPermissionsV1(),
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: fixtureDigest(3),
+    revocationEpoch: 0,
+    createdAtMs: 10,
+    updatedAtMs: 10,
+    state: 'pending_local_install',
+    localInstallPackageSetDigestB64u: packageSetDigestB64u,
+  });
+  const authority = buildPendingWalletAuthorityV1({
+    kind: authorityDraft.kind,
+    authorityId: authorityDraft.authorityId,
+    walletId: authorityDraft.walletId,
+    principal: authorityDraft.principal,
+    provenance: authorityDraft.provenance,
+    permissions: authorityDraft.permissions,
+    signerActivations: authorityDraft.signerActivations,
+    signerActivationSetDigestB64u: authorityDraft.signerActivationSetDigestB64u,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityDraft),
+    revocationEpoch: authorityDraft.revocationEpoch,
+    createdAtMs: authorityDraft.createdAtMs,
+    updatedAtMs: authorityDraft.updatedAtMs,
+    state: authorityDraft.state,
+    localInstallPackageSetDigestB64u: authorityDraft.localInstallPackageSetDigestB64u,
+  });
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: authMethodId,
+    walletId,
+    walletAuthorityId: authorityId,
+    kind: 'passkey',
+    status: 'pending_local_install',
+    rpId,
+    credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(4)),
+    counter: 0,
+    createdAtMs: 10,
+    updatedAtMs: 10,
+  });
+  const signerMaterial = {
+    kind: 'wallet_authority_signer_material_v1' as const,
+    authorityId,
+    walletAuthMethodId: authMethodId,
+    activationId: materialActivation.activationId,
+    keyFamily: 'ed25519' as const,
+    materialActivation,
+    sealedMaterialB64u: 'sealed-material-r103e',
+    sealedMaterialDigestB64u: fixtureDigest(5),
+  };
+  const exportRoot = {
+    kind: 'wallet_authority_export_root_v1' as const,
+    authorityId,
+    walletAuthMethodId: authMethodId,
+    walletKeyId,
+    sealedRootB64u: 'sealed-root-r103e',
+    sealedRootDigestB64u: fixtureDigest(8),
+  };
+  const receipt = {
+    kind: 'local_authority_installation_receipt_v1' as const,
+    authorityId,
+    walletId,
+    authMethodId,
+    deviceId,
+    packageSetDigestB64u,
+    installedActivationRefs: signerActivations,
+    installedRecordSetDigestB64u: fixtureDigest(6),
+    targetFactorVerificationDigestB64u: fixtureDigest(7),
+    installedAtMs: 20,
+  };
+  return {
+    walletId,
+    authMethodId,
+    input: {
+      authority,
+      authMethod,
+      signerMaterials: [signerMaterial],
+      exportRoot,
+      receipt,
+      expectedLockGeneration: 7,
+    },
+    selection: {
+      wallet_id: walletId,
+      wallet_auth_method_id: authMethodId,
+      lock_generation: 7,
+      lock_state: 'locked',
+      updated_at_ms: 1,
+      record: {
+        kind: 'wallet_selection_v1' as const,
+        walletId,
+        walletAuthMethodId: authMethodId,
+        lockGeneration: 7,
+        lockState: 'locked' as const,
+        updatedAtMs: 1,
+      },
+    },
+  };
+}
+
+type LocalAuthorityInstallationFixture = Awaited<
+  ReturnType<typeof buildLocalAuthorityInstallationFixture>
+>;
+
+function replayInput(
+  fixture: LocalAuthorityInstallationFixture,
+  signerMaterials = fixture.input.signerMaterials,
+  exportRoot = fixture.input.exportRoot,
+  receipt = fixture.input.receipt,
+) {
+  return {
+    authority: fixture.input.authority,
+    authMethod: fixture.input.authMethod,
+    signerMaterials,
+    exportRoot,
+    receipt,
+    expectedLockGeneration: fixture.input.expectedLockGeneration,
+  };
+}
+
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
@@ -1081,6 +1266,179 @@ test.describe('IndexedDB consolidation', () => {
       signerId: 'ed25519:real-material',
       publicKey: 'ed25519:real-material',
       relayerKeyId: 'relayer-real',
+    });
+  });
+
+  test('installs a local authority atomically and resolves the selected V2 method exactly', async ({
+    page,
+  }) => {
+    const fixture = await buildLocalAuthorityInstallationFixture();
+    const material = fixture.input.signerMaterials[0];
+    const materialConflictInput = replayInput(
+      fixture,
+      [
+        {
+          kind: material.kind,
+          authorityId: material.authorityId,
+          walletAuthMethodId: material.walletAuthMethodId,
+          activationId: material.activationId,
+          keyFamily: material.keyFamily,
+          materialActivation: material.materialActivation,
+          sealedMaterialB64u: 'different-sealed-material-r103e',
+          sealedMaterialDigestB64u: material.sealedMaterialDigestB64u,
+        },
+      ],
+    );
+    const root = fixture.input.exportRoot;
+    if (!root) throw new Error('fixture export root is required');
+    const exportRootConflictInput = replayInput(fixture, fixture.input.signerMaterials, {
+      kind: root.kind,
+      authorityId: root.authorityId,
+      walletAuthMethodId: root.walletAuthMethodId,
+      walletKeyId: root.walletKeyId,
+      sealedRootB64u: 'different-sealed-root-r103e',
+      sealedRootDigestB64u: root.sealedRootDigestB64u,
+    });
+    const receipt = fixture.input.receipt;
+    const receiptConflictInput = replayInput(
+      fixture,
+      fixture.input.signerMaterials,
+      fixture.input.exportRoot,
+      {
+        kind: receipt.kind,
+        authorityId: receipt.authorityId,
+        walletId: receipt.walletId,
+        authMethodId: receipt.authMethodId,
+        deviceId: receipt.deviceId,
+        packageSetDigestB64u: receipt.packageSetDigestB64u,
+        installedActivationRefs: receipt.installedActivationRefs,
+        installedRecordSetDigestB64u: fixtureDigest(9),
+        targetFactorVerificationDigestB64u: receipt.targetFactorVerificationDigestB64u,
+        installedAtMs: receipt.installedAtMs,
+      },
+    );
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(async ({
+      fixture,
+      materialConflictInput,
+      exportRootConflictInput,
+      receiptConflictInput,
+    }) => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const repositoryModule =
+        await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(`authority_install_${crypto.randomUUID()}`);
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const repositories = new repositoryModule.SeamsWalletRepositories(manager);
+      const db = await manager.getDB();
+      await db.put(schemaNames.SEAMS_WALLET_STORES.walletSelections, fixture.selection);
+
+      const installed = await repositories.installLocalAuthority(fixture.input);
+      const replayed = await repositories.installLocalAuthority(fixture.input);
+      const resolved = await repositories.resolveSelectedWalletAuthority(fixture.walletId);
+      const materialConflict = await repositories.installLocalAuthority(materialConflictInput);
+      const exportRootConflict = await repositories.installLocalAuthority(exportRootConflictInput);
+      const receiptConflict = await repositories.installLocalAuthority(receiptConflictInput);
+      const storedMaterial = await db.get(
+        schemaNames.SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
+        [
+          fixture.input.authority.authorityId,
+          fixture.input.authMethod.walletAuthMethodId,
+          fixture.input.signerMaterials[0].activationId,
+        ],
+      );
+      const storedExportRoot = await db.get(
+        schemaNames.SEAMS_WALLET_STORES.walletAuthorityExportRoots,
+        [
+          fixture.input.exportRoot.authorityId,
+          fixture.input.exportRoot.walletAuthMethodId,
+          fixture.input.exportRoot.walletKeyId,
+        ],
+      );
+      const storedReceipt = await db.get(
+        schemaNames.SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+        fixture.input.receipt.authorityId,
+      );
+      await db.put(schemaNames.SEAMS_WALLET_STORES.walletSelections, {
+        wallet_id: fixture.walletId,
+        wallet_auth_method_id: fixture.authMethodId,
+        lock_generation: 8,
+        lock_state: 'locked',
+        updated_at_ms: 2,
+        record: {
+          kind: 'wallet_selection_v1',
+          walletId: fixture.walletId,
+          walletAuthMethodId: fixture.authMethodId,
+          lockGeneration: 8,
+          lockState: 'locked',
+          updatedAtMs: 2,
+        },
+      });
+      const stale = await repositories.installLocalAuthority(fixture.input);
+      const authorityCount = await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthorities);
+      const authMethodCount = await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods);
+      const materialCount = await db.count(
+        schemaNames.SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
+      );
+      const receiptCount = await db.count(
+        schemaNames.SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+      );
+      const exportRootCount = await db.count(schemaNames.SEAMS_WALLET_STORES.walletAuthorityExportRoots);
+      const selectionCount = await db.count(schemaNames.SEAMS_WALLET_STORES.walletSelections);
+      manager.close();
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      return {
+        installed: installed.kind,
+        replayed: replayed.kind,
+        resolved: resolved.kind,
+        resolvedAuthorityId: resolved.kind === 'resolved' ? resolved.authority.authorityId : null,
+        materialConflict: materialConflict.kind,
+        exportRootConflict: exportRootConflict.kind,
+        receiptConflict: receiptConflict.kind,
+        storedMaterial: storedMaterial.record.sealedMaterialB64u,
+        storedExportRoot: storedExportRoot.record.sealedRootB64u,
+        storedReceipt: storedReceipt.record.installedRecordSetDigestB64u,
+        stale: stale.kind,
+        actualLockGeneration: stale.kind === 'stale_lock_generation' ? stale.actualLockGeneration : null,
+        counts: {
+          authorityCount,
+          authMethodCount,
+          materialCount,
+          receiptCount,
+          exportRootCount,
+          selectionCount,
+        },
+      };
+    }, { fixture, materialConflictInput, exportRootConflictInput, receiptConflictInput });
+
+    expect(result).toEqual({
+      installed: 'installed',
+      replayed: 'idempotent_replay',
+      resolved: 'resolved',
+      resolvedAuthorityId: fixture.input.authority.authorityId,
+      materialConflict: 'integrity_error',
+      exportRootConflict: 'integrity_error',
+      receiptConflict: 'integrity_error',
+      storedMaterial: 'sealed-material-r103e',
+      storedExportRoot: 'sealed-root-r103e',
+      storedReceipt: fixture.input.receipt.installedRecordSetDigestB64u,
+      stale: 'stale_lock_generation',
+      actualLockGeneration: 8,
+      counts: {
+        authorityCount: 1,
+        authMethodCount: 1,
+        materialCount: 1,
+        receiptCount: 1,
+        exportRootCount: 1,
+        selectionCount: 1,
+      },
     });
   });
 });
