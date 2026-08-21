@@ -12,7 +12,12 @@ import type {
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
+  LinkPrecommitFailureV1,
+  LinkSessionStateV1,
   QrLinkedDeviceSessionPayloadV5,
+  VerifiedLinkInputV1,
+  VerifiedSourceAuthorityV1,
+  VerifiedTargetFactorV1,
 } from './contracts';
 import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
 import type {
@@ -20,6 +25,7 @@ import type {
   EcdsaCapabilityManifestRevision,
 } from '../utils/ecdsaCapabilityActivation';
 import type {
+  DeviceId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -43,12 +49,27 @@ import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerCon
 import type {
   MpcMaterialActivationId,
   MpcMaterialActivationRef,
+  WalletAuthorityId,
   WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
+import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPlan';
+import type { CanonicalDelegatedWalletPermissionSetV1 } from '../authorization/delegatedAuthority';
+import type {
+  ActiveWalletAuthorityV1,
+  RevokedWalletAuthorityV1,
+  WalletAuthorityV1,
+  WalletEcdsaSignerActivationV1,
+  WalletEd25519SignerActivationV1,
+  WalletSignerActivationSetV1,
+} from '../authorization/walletAuthority';
+import type {
+  EmailOtpWalletAuthMethodDraftV1,
+  PasskeyWalletAuthMethodDraftV1,
+} from '../utils/registrationIntent';
 
 declare const linkSessionId: LinkDeviceSessionId;
 declare const walletId: WalletId;
@@ -84,6 +105,26 @@ declare const materialActivation: MpcMaterialActivationRef;
 declare const ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
 declare const manifestId: EcdsaCapabilityManifestId;
 declare const manifestRevision: EcdsaCapabilityManifestRevision;
+declare const targetDeviceId: DeviceId;
+declare const walletAuthorityId: WalletAuthorityId;
+declare const activeAuthority: ActiveWalletAuthorityV1;
+declare const revokedAuthority: RevokedWalletAuthorityV1;
+declare const ed25519Activation: WalletEd25519SignerActivationV1;
+declare const ecdsaActivation: WalletEcdsaSignerActivationV1;
+declare const permissionSet: CanonicalDelegatedWalletPermissionSetV1;
+declare const signerManifest: ExactAdministeredSignerManifestV1;
+declare const passkeyAuthMethod: PasskeyWalletAuthMethodDraftV1;
+declare const emailOtpAuthMethod: EmailOtpWalletAuthMethodDraftV1;
+
+function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
+  void value;
+}
+
+acceptsWalletAuthorityId(walletAuthorityId);
+// @ts-expect-error Wallet ids cannot be used as authority identities.
+acceptsWalletAuthorityId(walletId);
+// @ts-expect-error Auth-method ids cannot be used as authority identities.
+acceptsWalletAuthorityId(walletAuthMethodId);
 
 declare const payload: QrLinkedDeviceSessionPayloadV5;
 declare const ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
@@ -461,3 +502,199 @@ void ecdsaOwnerSource;
 void invalidEd25519OwnerSource;
 void invalidEcdsaOwnerSource;
 void invalidCrossCurveOwnerSource;
+
+const ed25519OnlyAuthorityActivations: Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ed25519'] }
+> = {
+  kind: 'wallet_signer_activation_set_v1',
+  keyFamilies: ['ed25519'],
+  ed25519: ed25519Activation,
+};
+
+const ecdsaOnlyAuthorityActivations: Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+> = {
+  kind: 'wallet_signer_activation_set_v1',
+  keyFamilies: ['ecdsa_secp256k1'],
+  ecdsa: ecdsaActivation,
+};
+
+const bothAuthorityActivations: Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
+> = {
+  kind: 'wallet_signer_activation_set_v1',
+  keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+  ed25519: ed25519Activation,
+  ecdsa: ecdsaActivation,
+};
+void ed25519OnlyAuthorityActivations;
+void ecdsaOnlyAuthorityActivations;
+void bothAuthorityActivations;
+
+const ed25519AuthorityWithEcdsa: Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ed25519'] }
+> = {
+  kind: 'wallet_signer_activation_set_v1',
+  keyFamilies: ['ed25519'],
+  ed25519: ed25519Activation,
+  // @ts-expect-error Ed25519-only authorities cannot carry ECDSA activation material.
+  ecdsa: ecdsaActivation,
+};
+void ed25519AuthorityWithEcdsa;
+
+// @ts-expect-error A pending authority cannot retain an activation timestamp.
+const pendingAuthorityWithActivation: Extract<
+  WalletAuthorityV1,
+  { readonly state: 'pending_local_install' }
+> = {
+  ...activeAuthority,
+  state: 'pending_local_install',
+  localInstallPackageSetDigestB64u: activeAuthority.authorityDigestB64u,
+};
+void pendingAuthorityWithActivation;
+
+const activeAuthorityWithPendingPackage: ActiveWalletAuthorityV1 = {
+  ...activeAuthority,
+  // @ts-expect-error Active authorities cannot carry a local-install package digest.
+  localInstallPackageSetDigestB64u: activeAuthority.authorityDigestB64u,
+};
+void activeAuthorityWithPendingPackage;
+
+const revokedAuthorityWithPendingPackage: RevokedWalletAuthorityV1 = {
+  ...revokedAuthority,
+  // @ts-expect-error Revoked authorities cannot carry a local-install package digest.
+  localInstallPackageSetDigestB64u: revokedAuthority.authorityDigestB64u,
+};
+void revokedAuthorityWithPendingPackage;
+
+const validLinkSessionStates = [
+  { state: 'displaying_qr' },
+  { state: 'claimed', deviceId: targetDeviceId },
+  { state: 'awaiting_target_factor', deviceId: targetDeviceId },
+  { state: 'provisioning', deviceId: targetDeviceId },
+  {
+    state: 'authority_pending_local_install',
+    deviceId: targetDeviceId,
+    authorityId: walletAuthorityId,
+    packageSetDigestB64u: digest,
+  },
+  {
+    state: 'active',
+    deviceId: targetDeviceId,
+    authorityId: walletAuthorityId,
+    activatedAtMs: 4,
+  },
+  {
+    state: 'failed_before_commit',
+    error: { kind: 'invalid_input', reason: 'invalid fixture' },
+  },
+  { state: 'cancelled', cancelledAtMs: 5 },
+  { state: 'expired', expiredAtMs: 6 },
+] satisfies readonly LinkSessionStateV1[];
+void validLinkSessionStates;
+
+const validFailure = {
+  kind: 'claim_conflict',
+  reason: 'already claimed',
+} satisfies LinkPrecommitFailureV1;
+void validFailure;
+
+const verifiedSourceAuthority = {
+  authority: activeAuthority,
+  authMethodId: walletAuthMethodId,
+  verifiedRevocationEpoch: 0,
+  authorityDigestB64u: digest,
+  verifiedAtMs: 7,
+} satisfies VerifiedSourceAuthorityV1;
+
+const verifiedPasskeyTarget = {
+  kind: 'verified_passkey_target_v1',
+  authMethod: passkeyAuthMethod,
+  verificationDigestB64u: digest,
+  verifiedAtMs: 8,
+} satisfies VerifiedTargetFactorV1;
+
+const verifiedEmailOtpTarget = {
+  kind: 'verified_email_otp_target_v1',
+  authMethod: emailOtpAuthMethod,
+  verificationDigestB64u: digest,
+  verifiedAtMs: 9,
+} satisfies VerifiedTargetFactorV1;
+
+const verifiedLinkInput = {
+  walletId,
+  linkSessionId,
+  enrollmentId,
+  targetDeviceId,
+  sourceAuthority: verifiedSourceAuthority,
+  targetFactor: verifiedPasskeyTarget,
+  permissions: permissionSet,
+  signerManifest,
+} satisfies VerifiedLinkInputV1;
+void verifiedLinkInput;
+void verifiedEmailOtpTarget;
+
+// @ts-expect-error claimed cannot carry an authority identity
+const invalidClaimedAuthorityState: LinkSessionStateV1 = {
+  state: 'claimed',
+  deviceId: targetDeviceId,
+  authorityId: walletAuthorityId,
+};
+void invalidClaimedAuthorityState;
+
+// @ts-expect-error active requires its activation timestamp
+const invalidActiveState: LinkSessionStateV1 = {
+  state: 'active',
+  deviceId: targetDeviceId,
+  authorityId: walletAuthorityId,
+};
+void invalidActiveState;
+
+// @ts-expect-error displaying_qr cannot carry a device identity
+const invalidDisplayingDevice: LinkSessionStateV1 = {
+  state: 'displaying_qr',
+  deviceId: targetDeviceId,
+};
+void invalidDisplayingDevice;
+
+// @ts-expect-error cancelled cannot carry an authority identity
+const invalidCancelledAuthority: LinkSessionStateV1 = {
+  state: 'cancelled',
+  cancelledAtMs: 10,
+  authorityId: walletAuthorityId,
+};
+void invalidCancelledAuthority;
+
+const invalidTargetDeviceIdSwap: VerifiedLinkInputV1 = {
+  ...verifiedLinkInput,
+  // @ts-expect-error a wallet-authority id cannot replace the target device id
+  targetDeviceId: walletAuthorityId,
+};
+void invalidTargetDeviceIdSwap;
+
+// @ts-expect-error email target verification requires the email-OTP draft
+const invalidTargetFactorSwap: VerifiedTargetFactorV1 = {
+  kind: 'verified_email_otp_target_v1',
+  authMethod: passkeyAuthMethod,
+  verificationDigestB64u: digest,
+  verifiedAtMs: 11,
+};
+void invalidTargetFactorSwap;
+
+const activeLinkState = {
+  state: 'active',
+  deviceId: targetDeviceId,
+  authorityId: walletAuthorityId,
+  activatedAtMs: 12,
+} satisfies Extract<LinkSessionStateV1, { readonly state: 'active' }>;
+
+// @ts-expect-error a broad spread cannot turn active state into displaying_qr
+const invalidBroadSpreadState: LinkSessionStateV1 = {
+  ...activeLinkState,
+  state: 'displaying_qr',
+};
+void invalidBroadSpreadState;
