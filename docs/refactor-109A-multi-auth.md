@@ -12,12 +12,19 @@ not introduce another authority model.
 
 ## Goal
 
-Allow one installed wallet authority to use multiple active authentication
-methods across both supported factor families:
+Allow a wallet authority that started with either supported factor to have both
+a Passkey and verified Email OTP active at the same time. This cross-family
+coexistence is the release goal.
 
-- one or more Passkeys;
-- one or more verified Email OTP methods;
-- any valid combination of the two.
+The resulting cardinality is:
+
+- zero or more Passkeys;
+- zero or one verified Email OTP method;
+- at least one active method while the authority is active.
+
+Additional Passkeys are a secondary benefit of the same auth-method relation
+and factor-addition path. They do not justify another workflow or broader
+release scope.
 
 Every added method opens the same authenticated wallet custody seed and the
 same exact signer activations. It receives its own opaque
@@ -64,6 +71,10 @@ An implementer should not reopen these decisions:
 11. Runtime code never infers a method from `walletId`, auth kind, email hint,
     credential label, recent use, or record order. It resolves one exact
     branded `WalletAuthMethodId`.
+12. The primary behavior is Passkey and Email OTP coexistence regardless of
+    which factor created the wallet. Additional Passkeys reuse that model. An
+    authority may have at most one active Email OTP method across all Email OTP
+    providers.
 
 ## Explicitly out of scope
 
@@ -71,6 +82,8 @@ An implementer should not reopen these decisions:
 - mixed-method device linking, which belongs to R109B;
 - changing an authority's permissions or signer families;
 - transferring custody seed or signer material between devices;
+- adding a second active Email OTP method or replacing the active Email OTP
+  identity;
 - recovery-factor replacement or revoking the wallet's final active method;
 - enterprise SSO;
 - custom factor-management permissions;
@@ -176,13 +189,18 @@ inputs and are deleted after cutover.
 Required active uniqueness constraints are:
 
 - Passkey: `(scope, rp_id, credential_id)`;
-- Email OTP: `(scope, wallet_authority_id, provider, provider_user_id)`;
+- Email OTP: one active row for `(scope, wallet_authority_id)` across the whole
+  `email_otp` factor family;
 - all methods: opaque `wallet_auth_method_id` primary key.
 
 Here, `scope` is the existing server tenant/environment scope. It is never a
 wallet ID or browser-local profile. `credential_id` and `provider_user_id` use
 their existing branded domain types; normalized email and masked email remain
 attributes rather than substitute identifiers.
+
+Implement the Email OTP rule as a partial unique index over active Email OTP
+rows. Revoked history does not consume the slot. An existing Google-backed
+Email OTP method counts as the authority's one active Email OTP method.
 
 Replace the current wallet-only `AddAuthMethodIntentV1` with one precise
 versioned intent. Do not extend V1 with optional identity fields:
@@ -255,12 +273,13 @@ expires without a method or verifier commit; a new create may allocate a new
 intent and target method ID safely.
 
 A repeated finalize with the same intent returns the original method. An
-attempt to add a credential already active under another method returns
-`already_exists`; it does not create an alias or duplicate envelope. That
-result carries no existing method ID. The caller refreshes the exact authority
-inventory, which avoids disclosing a credential association from another
-authority or tenant. Masked email text never participates in identity or
-deduplication.
+attempt to add a Passkey credential already active under another method, or to
+add Email OTP when the authority already has an active Email OTP method,
+returns `already_exists`. It does not create an alias or duplicate envelope.
+That result carries no existing method ID. The caller refreshes the exact
+authority inventory, which avoids disclosing a credential association from
+another authority or tenant. Masked email text never participates in identity
+or deduplication.
 
 The uniqueness indexes apply to active methods. Re-adding a factor identity
 after its prior method was revoked creates a fresh opaque method ID through a
@@ -427,6 +446,11 @@ The server creates one add-auth-method intent and allocates the target
 A retry returns the same intent and target method ID. A request with different
 immutable fields returns a conflict.
 
+For an Email OTP target, intent creation first checks whether the authority
+already has an active Email OTP method. It returns `already_exists` before
+allocating a target challenge or creating local state. The partial unique index
+repeats this check at activation to close concurrent-addition races.
+
 ### 2. Verify source and target factors
 
 Obtain a fresh source-owner proof. Then create or verify the target factor.
@@ -435,15 +459,14 @@ factor family.
 
 Interaction budget:
 
-| Source | Added factor | Required user actions |
-| --- | --- | --- |
-| Passkey | Passkey | one source assertion and one target credential creation |
-| Passkey | Email OTP | one source assertion and one target email-code verification |
-| Email OTP | Passkey | one source email-code verification and one target credential creation |
-| Email OTP | Email OTP | one source email-code verification and one target email-code verification |
+| Source | Added factor | Product role | Required user actions |
+| --- | --- | --- | --- |
+| Passkey | Email OTP | primary | one source assertion and one target email-code verification |
+| Email OTP | Passkey | primary | one source email-code verification and one target credential creation |
+| Passkey | Passkey | secondary | one source assertion and one target credential creation |
 
-Do not trigger either action twice. Adding the same active credential or exact
-Email OTP provider identity is rejected as `already_exists`.
+Do not trigger either action twice. Adding the same active Passkey credential
+or any second active Email OTP method is rejected as `already_exists`.
 
 ### 3. Reseal and install the pending local record set
 
@@ -820,7 +843,7 @@ recovery replacement is outside R109A.
 
 ### Add Email OTP
 
-From an unlocked full-owner wallet:
+From an unlocked full-owner authority with no active Email OTP method:
 
 1. Open **Authentication methods**.
 2. Select **Add email code** and enter an email address.
@@ -832,6 +855,8 @@ From an unlocked full-owner wallet:
 Raw email is normalized once at the request boundary. Core records retain the
 verified provider identity and email hash. The server supplies the masked
 display hint; masked text is never compared for identity or authorization.
+When the authority already has an active Email OTP method, settings does not
+offer **Add email code** and the server still enforces `already_exists`.
 
 ### Add Passkey
 
@@ -941,8 +966,12 @@ new authority/device identity, and a method record without its exact authority.
   transaction, and final local commit;
 - preserve source authority, source method, source session, and signer records;
 - expose typed retry, cancellation, duplicate, and integrity results;
+- reject an Email OTP target at intent creation when the authority's active
+  Email OTP slot is occupied, with the partial unique index as the activation
+  race guard;
 - add `registration.addEmailOtp` beside the existing public operation;
-- make existing `registration.addPasskey` call the shared operation.
+- make existing `registration.addPasskey` call the shared operation without a
+  separate additional-Passkey workflow.
 
 Primary locations:
 
@@ -953,9 +982,10 @@ Primary locations:
 - existing wallet auth-method D1 service and add-auth-method routes
 - existing IndexedDB auth-method and sealed-material stores
 
-Exit: all four source/target factor combinations activate one new method with
-the original authority, device, and activation refs unchanged, and no pending
-R109A auth-method row or sealed local payload stored in D1.
+Exit: Passkey-to-Email-OTP and Email-OTP-to-Passkey both activate the missing
+factor with the original authority, device, and activation refs unchanged.
+Passkey-to-Passkey uses the same operation as a secondary supported path. No
+path stores a pending R109A auth-method row or sealed local payload in D1.
 
 ### Phase 3 — Unlock, inventory, and revocation
 
@@ -999,18 +1029,16 @@ and the operating matrix passes without mocked lifecycle transitions.
 
 ## Required verification
 
-Use a fresh wallet and clean browser profile for every source-factor case.
-Run all four additions against Ed25519-only, ECDSA-only, and both-family
-wallets:
+Use a fresh wallet and clean browser profile for every source-factor case. Run
+the primary cross-family matrix against Ed25519-only, ECDSA-only, and
+both-family wallets:
 
 | Existing selected method | Added method |
 | --- | --- |
-| Passkey | Passkey |
 | Passkey | Email OTP |
 | Email OTP | Passkey |
-| Email OTP | Email OTP using a different verified provider identity |
 
-For every applicable cell:
+For every primary matrix cell:
 
 1. add exactly one method and assert the original authority ID, device ID,
    activation refs, authority digest, revocation epoch, and source method are
@@ -1024,19 +1052,26 @@ For every applicable cell:
    method per export;
 7. reload while locked and prove neither method auto-unlocks;
 8. revoke the new method using the source method and prove the source method
-   still unlocks and operates;
-9. reject self-revocation and revocation of the wallet's final active method;
-10. submit two competing revocations when only two active wallet methods
-    remain and prove exactly one succeeds and exactly one active method
-    remains;
-11. reject a revoke request that supplies `WalletAuthorityId` or attempts a
-    batch of method IDs;
-12. repeat finalize after a lost response and prove the method, verifier,
-    envelope, and local record counts do not increase;
-13. interrupt at every boundary in the retry table and prove convergence or
-    complete precommit cleanup;
-14. attempt to add the same Passkey credential or Email OTP provider identity
-    twice and assert `already_exists` without duplicate records.
+   still unlocks and operates.
+
+Then run these focused checks without multiplying them across every matrix
+cell:
+
+1. add a second Passkey to a both-family authority and prove both Passkeys can
+   explicitly unlock and operate the same signer activations;
+2. reject self-revocation and revocation of the wallet's final active method;
+3. submit two competing revocations when only two active wallet methods remain
+   and prove exactly one succeeds and exactly one active method remains;
+4. reject a revoke request that supplies `WalletAuthorityId` or attempts a
+   batch of method IDs;
+5. repeat finalize after a lost response and prove the method, verifier,
+   envelope, and local record counts do not increase;
+6. interrupt each boundary in the retry table once per target factor branch and
+   prove convergence or complete precommit cleanup;
+7. attempt to add the same Passkey credential twice and any second active Email
+   OTP method, including a different provider identity, and assert
+   `already_exists` without target verification, local installation, or
+   duplicate records.
 
 External email delivery and chain RPC may be stubbed at their network
 boundaries. Auth-method intents, source proofs, target verification, custody
@@ -1103,12 +1138,14 @@ first implementation commit.
 3. Land shared union/lifecycle changes and type fixtures without runtime
    adapters.
 4. Implement one successful Passkey-to-Email-OTP path end to end.
-5. Add the other three factor combinations through the same operation.
-6. Add exact unlock and Wallet Session selection.
-7. Add method inventory and revocation.
-8. Add only the specified interruption and deduplication behavior.
-9. Delete the obsolete paths and fixtures listed above.
-10. Run the real browser matrix and inspect exact IDs and record counts.
+5. Add Email-OTP-to-Passkey through the same operation and complete the primary
+   cross-family goal.
+6. Preserve Passkey-to-Passkey through that operation as the secondary path.
+7. Add exact unlock and Wallet Session selection.
+8. Add method inventory and revocation.
+9. Add only the specified interruption and deduplication behavior.
+10. Delete the obsolete paths and fixtures listed above.
+11. Run the real browser matrix and inspect exact IDs and record counts.
 
 Checkpoint commits should separate shared contracts, factor reseal and
 activation, unlock/session selection, inventory/revocation, behavioral tests,
@@ -1118,7 +1155,10 @@ and legacy deletion.
 
 R109A is complete when:
 
-- one active authority owns several independently revocable auth methods;
+- a Passkey authority can add Email OTP and an Email OTP authority can add a
+  Passkey without changing authority or signer material;
+- each authority supports multiple active Passkeys and at most one active Email
+  OTP method;
 - every method references the same exact authority and device;
 - factor addition changes no signer or authority material;
 - Passkey and Email OTP converge after their verified boundaries;
@@ -1135,4 +1175,5 @@ R109A is complete when:
 - revocation of the wallet's final active method is refused;
 - obsolete one-method, per-factor-authority, projection, inference, and mocked
   paths are deleted;
-- the real four-combination browser matrix passes.
+- the primary two-combination browser matrix and focused additional-Passkey
+  check pass.
