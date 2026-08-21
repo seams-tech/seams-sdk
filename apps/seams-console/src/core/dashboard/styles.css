@@ -5392,26 +5392,367 @@ select.dashboard-input {
   width: 100%;
 }
 
-.dashboard-audit-period-inputs {
+/* Audit toolbar: one search line with the export action pinned right, then
+   the additive filter chips, then the activity card. */
+.dashboard-audit-toolbar {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-audit-toolbar__search {
+  align-self: stretch;
+}
+
+.dashboard-audit-chips {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  justify-self: stretch;
-  width: 100%;
-  min-width: 340px;
+  margin-top: 12px;
 }
 
-.dashboard-audit-controls-grid .dashboard-form-field--audit-period .dashboard-input--audit {
-  width: 100%;
+.dashboard-audit-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--dashboard-alpha-200);
+  border-radius: 999px;
+  background: var(--dashboard-surface);
+  transition:
+    border-color var(--dashboard-motion-fast) ease,
+    background-color var(--dashboard-motion-fast) ease;
 }
 
-.dashboard-audit-period-separator {
-  font-size: 0.74rem;
+.dashboard-audit-chip:hover,
+.dashboard-audit-chip--open {
+  border-color: var(--dashboard-alpha-300);
+}
+
+.dashboard-audit-chip--active {
+  border-color: var(--dashboard-alpha-300);
+  background: var(--dashboard-alpha-50);
+}
+
+.dashboard-audit-chip__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0 12px;
+  min-height: 30px;
+  color: var(--dashboard-ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dashboard-audit-chip--active .dashboard-audit-chip__trigger {
+  padding-right: 4px;
+}
+
+.dashboard-audit-chip__plus {
+  color: var(--dashboard-ash);
+}
+
+.dashboard-audit-chip__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.dashboard-audit-chip__separator {
+  color: var(--dashboard-ash);
+}
+
+.dashboard-audit-chip__value {
+  color: var(--dashboard-ink);
+  font-weight: 600;
+}
+
+.dashboard-audit-chip__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0 9px 0 3px;
+  color: var(--dashboard-ash);
+  cursor: pointer;
+  transition: color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-audit-chip__clear:hover {
+  color: var(--dashboard-ink);
+}
+
+/* The chip is the positioning context, so anchor the menu to its left edge
+   rather than to the base menu's 10px inset. */
+.dashboard-audit-chip .dashboard-audit-chip__menu {
+  top: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  min-width: 190px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 30;
+}
+
+.dashboard-audit-chips__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  color: var(--dashboard-ash);
+  cursor: pointer;
+  transition:
+    color var(--dashboard-motion-fast) ease,
+    background-color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-audit-chips__clear:hover {
+  color: var(--dashboard-ink);
+  background: var(--dashboard-alpha-75);
+}
+
+.dashboard-context-menu__item.is-selected {
+  background: var(--dashboard-alpha-75);
+  font-weight: 600;
+}
+
+/* Activity card */
+.dashboard-audit-activity {
+  margin-top: 12px;
+  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-xl);
+  background: var(--dashboard-surface);
+  padding: 14px 16px 12px;
+}
+
+.dashboard-audit-activity__plot-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+/* The axis shares the plot's height and coordinate space so a tick anchored
+   at the same fraction as its gridline lands exactly on it. */
+.dashboard-audit-activity__axis {
+  position: relative;
+  height: 132px;
+  min-width: 20px;
+  font-size: 0.72rem;
+  color: var(--dashboard-ash);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-audit-activity__axis-tick {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
   line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-audit-activity__plot {
+  position: relative;
+  height: 132px;
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.dashboard-audit-activity__gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--dashboard-alpha-100);
+}
+
+.dashboard-audit-activity__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--dashboard-alpha-100);
+  border-left: 1px solid var(--dashboard-alpha-300);
+  border-right: 1px solid var(--dashboard-alpha-300);
+  pointer-events: none;
+}
+
+.dashboard-audit-activity__bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.dashboard-audit-activity__bar {
+  position: relative;
+  flex: 1 1 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+/* A non-empty bucket is always at least 2px tall, so a single event in a
+   tall window stays visible instead of rounding away to nothing. */
+.dashboard-audit-activity__bar-fill {
+  position: relative;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 1.5px;
+  background: var(--dashboard-accent);
+}
+
+.dashboard-audit-activity__bar-failures {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  min-height: 1px;
+  border-radius: 1.5px 1.5px 0 0;
+  background: var(--dashboard-danger);
+}
+
+.dashboard-audit-activity__scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--dashboard-ash);
+}
+
+.dashboard-audit-activity__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dashboard-line);
+}
+
+.dashboard-audit-activity__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Segmented range stepper: one outline around three controls, hairlines
+   between them, so it reads as a single period control. */
+.dashboard-audit-range {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--dashboard-alpha-200);
+  border-radius: var(--dashboard-radius-lg);
+  background: var(--dashboard-surface);
+}
+
+.dashboard-audit-range__divider {
+  width: 1px;
+  background: var(--dashboard-alpha-150);
+}
+
+.dashboard-audit-range__step,
+.dashboard-audit-range__preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--dashboard-ink);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-audit-range__step {
+  color: var(--dashboard-graphite);
+  padding: 0 8px;
+}
+
+.dashboard-audit-range__step:first-child {
+  border-radius: var(--dashboard-radius-lg) 0 0 var(--dashboard-radius-lg);
+}
+
+.dashboard-audit-range__step:last-child {
+  border-radius: 0 var(--dashboard-radius-lg) var(--dashboard-radius-lg) 0;
+}
+
+.dashboard-audit-range__step:hover:not(:disabled),
+.dashboard-audit-range__preset:hover {
+  background: var(--dashboard-alpha-50);
+}
+
+.dashboard-audit-range__step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dashboard-audit-range__label {
+  white-space: nowrap;
+}
+
+.dashboard-audit-range__zone {
+  color: var(--dashboard-ash);
+}
+
+/* Opens upward, so the base menu's downward shadow is inverted to keep the
+   lift on the side the menu actually leaves the surface from. */
+.dashboard-audit-range .dashboard-audit-range__menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  min-width: 180px;
+  z-index: 30;
+  box-shadow: 0 -24px 34px -28px
+    color-mix(in srgb, var(--site-shadow-md, rgba(15, 23, 42, 0.34)) 70%, transparent);
+}
+
+.dashboard-audit-jump {
+  position: relative;
+  display: inline-flex;
+}
+
+.dashboard-audit-jump__panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 10px;
+  min-width: 260px;
+  padding: 12px;
+  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-xl);
+  background: var(--dashboard-surface);
+  box-shadow: var(--dashboard-shadow-md);
+}
+
+.dashboard-audit-jump__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .dashboard-scope-picker {
@@ -7050,16 +7391,30 @@ select.dashboard-input {
     width: 100%;
   }
 
-  .dashboard-audit-controls-grid
-    .dashboard-form-field--audit-period
-    .dashboard-audit-period-inputs {
+  /* Narrow: the export action drops under the search line, and the range
+     stepper and its actions stack instead of sharing a row. */
+  .dashboard-audit-toolbar {
     grid-template-columns: 1fr;
-    row-gap: 6px;
-    width: 100%;
   }
 
-  .dashboard-audit-period-separator {
-    display: none;
+  /* Stacked, the action keeps its own width on the right rather than
+     stretching into a full-width bar that reads as a primary CTA. */
+  .dashboard-audit-toolbar > .dashboard-pagination-button {
+    justify-self: end;
+  }
+
+  .dashboard-audit-activity__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashboard-audit-activity__footer-actions {
+    justify-content: flex-end;
+  }
+
+  .dashboard-audit-jump__panel {
+    right: auto;
+    left: 0;
   }
 
   .dashboard-gas-target-matrix__header,

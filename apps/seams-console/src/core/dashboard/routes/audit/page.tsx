@@ -29,11 +29,26 @@ import {
 import { listDashboardEnvironments, listDashboardProjects } from '../../consoleContextApi';
 import { useSiteRouter } from '@core/router/useSiteRouter';
 import {
+  createDashboardAuditExport,
   listDashboardAuditEvents,
   type DashboardConsoleAuditCategory,
   type DashboardConsoleAuditEvent,
   type DashboardConsoleAuditOutcome,
 } from './consoleAuditApi';
+import { AuditActivityChart } from './AuditActivityChart';
+import { AuditFilterChips, type AuditFilterDefinition } from './AuditFilterChips';
+import {
+  auditRangeFromPreset,
+  bucketAuditActivity,
+  canStepAuditRangeForward,
+  centreAuditRange,
+  clampAuditRangeToSpan,
+  shiftAuditRange,
+  DEFAULT_AUDIT_RANGE_PRESET_ID,
+  type AuditRangePresetId,
+  type AuditTimeRange,
+} from './auditActivity';
+import { DownloadIcon } from '../../icons/SidebarIcons';
 import {
   listDashboardApprovals,
   type DashboardConsoleApprovalRequest,
@@ -71,17 +86,13 @@ function formatAuditCategoryLabel(category: DashboardConsoleAuditCategory): stri
 }
 const AUDIT_EVENTS_TABLE_COLUMNS = dashboardTableColumns(1.05, 2.1, 0.95, 1.1, 0.8, 0.75);
 const AUDIT_EVENTS_LIMIT = 100;
+/* Bar count is fixed rather than measured: at the card's width these land
+   near 8px apiece with a hairline gap, which reads as a distribution
+   without implying per-bar precision the bucketing does not have. */
+const AUDIT_ACTIVITY_BIN_COUNT = 96;
 
 function formatTimestamp(value: string): string {
   return formatDashboardTimestamp(value, '—');
-}
-
-function toIsoTimestamp(value: string): string | undefined {
-  const normalized = String(value || '').trim();
-  if (!normalized) return undefined;
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return undefined;
-  return date.toISOString();
 }
 
 function readText(value: unknown): string {
@@ -645,8 +656,15 @@ export function AuditLogsPage(): React.JSX.Element {
   const [debouncedSearchInput, setDebouncedSearchInput] = React.useState<string>('');
   const [eventCategoryFilter, setEventCategoryFilter] = React.useState<string>('');
   const [eventOutcomeFilter, setEventOutcomeFilter] = React.useState<string>('');
-  const [fromInput, setFromInput] = React.useState<string>('');
-  const [toInput, setToInput] = React.useState<string>('');
+  const [eventActorFilter, setEventActorFilter] = React.useState<string>('');
+  /* One clock read seeds the window and then anchors every "is this the
+     present?" check, so the range cannot drift under a re-render. */
+  const [nowMs, setNowMs] = React.useState<number>(() => Date.now());
+  const [range, setRange] = React.useState<AuditTimeRange>(() =>
+    auditRangeFromPreset(DEFAULT_AUDIT_RANGE_PRESET_ID, Date.now()),
+  );
+  const [selection, setSelection] = React.useState<AuditTimeRange | null>(null);
+  const [exporting, setExporting] = React.useState<boolean>(false);
   const [expandedEventId, setExpandedEventId] = React.useState<string>('');
   const [memberDirectory, setMemberDirectory] = React.useState<
     Record<string, DashboardIdentitySource>
@@ -866,9 +884,10 @@ export function AuditLogsPage(): React.JSX.Element {
       ...(eventOutcomeFilter
         ? { outcome: eventOutcomeFilter as DashboardConsoleAuditOutcome }
         : {}),
+      ...(eventActorFilter ? { actorUserId: eventActorFilter } : {}),
       ...(debouncedSearchInput ? { q: debouncedSearchInput } : {}),
-      ...(toIsoTimestamp(fromInput) ? { from: toIsoTimestamp(fromInput) } : {}),
-      ...(toIsoTimestamp(toInput) ? { to: toIsoTimestamp(toInput) } : {}),
+      from: new Date(range.fromMs).toISOString(),
+      to: new Date(range.toMs).toISOString(),
       limit: AUDIT_EVENTS_LIMIT,
     };
     const scopedRequest = {
@@ -908,15 +927,16 @@ export function AuditLogsPage(): React.JSX.Element {
     };
   }, [
     debouncedSearchInput,
+    eventActorFilter,
     eventCategoryFilter,
     eventOutcomeFilter,
     setEventsPage,
-    fromInput,
+    range.fromMs,
+    range.toMs,
     selectedEnvironmentId,
     selectedProjectId,
     session.claims,
     session.errorMessage,
-    toInput,
   ]);
 
   React.useEffect(() => {
@@ -928,73 +948,164 @@ export function AuditLogsPage(): React.JSX.Element {
     return cleanup;
   }, [loadAuditEvents, session.loading]);
 
+  const activityBins = React.useMemo(
+    () => bucketAuditActivity(events, range, AUDIT_ACTIVITY_BIN_COUNT),
+    [events, range],
+  );
+
+  /* Actor options come from the rows on screen rather than from the whole
+     directory: filtering to somebody with no events in this window would
+     only ever return nothing. */
+  const actorOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of events) {
+      const actorUserId = readText(row.actorUserId);
+      if (!actorUserId || seen.has(actorUserId)) continue;
+      const identity = memberDirectory[actorUserId] || { userId: actorUserId };
+      seen.set(actorUserId, resolveDashboardIdentityPrimaryLabel(identity, session.claims));
+    }
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [events, memberDirectory, session.claims]);
+
+  const filterDefinitions = React.useMemo<AuditFilterDefinition[]>(
+    () => [
+      {
+        id: 'category',
+        label: 'Category',
+        value: eventCategoryFilter,
+        options: CATEGORY_OPTIONS.map((entry) => ({
+          value: entry,
+          label: formatAuditCategoryLabel(entry),
+        })),
+      },
+      {
+        id: 'outcome',
+        label: 'Outcome',
+        value: eventOutcomeFilter,
+        options: OUTCOME_OPTIONS.map((entry) => ({
+          value: entry,
+          label: entry.charAt(0) + entry.slice(1).toLowerCase(),
+        })),
+      },
+      { id: 'actor', label: 'Actor', value: eventActorFilter, options: actorOptions },
+    ],
+    [actorOptions, eventActorFilter, eventCategoryFilter, eventOutcomeFilter],
+  );
+
+  const onFilterChange = React.useCallback((id: string, value: string) => {
+    if (id === 'category') setEventCategoryFilter(value);
+    else if (id === 'outcome') setEventOutcomeFilter(value);
+    else if (id === 'actor') setEventActorFilter(value);
+  }, []);
+
+  const onClearFilters = React.useCallback(() => {
+    setEventCategoryFilter('');
+    setEventOutcomeFilter('');
+    setEventActorFilter('');
+  }, []);
+
+  /* Every range move re-reads the clock: a window opened an hour ago should
+     step relative to the present, not to the render that seeded it. */
+  const onPresetChange = React.useCallback((next: AuditRangePresetId) => {
+    const atMs = Date.now();
+    setNowMs(atMs);
+    setSelection(null);
+    setRange(auditRangeFromPreset(next, atMs));
+  }, []);
+
+  const onStepRange = React.useCallback((direction: -1 | 1) => {
+    const atMs = Date.now();
+    setNowMs(atMs);
+    setSelection(null);
+    setRange((current) => shiftAuditRange(current, direction, atMs));
+  }, []);
+
+  const onJumpToTimestamp = React.useCallback((atMs: number) => {
+    const clockMs = Date.now();
+    setNowMs(clockMs);
+    setSelection(null);
+    setRange((current) => centreAuditRange(current, atMs, clockMs));
+  }, []);
+
+  const onFocusSelection = React.useCallback(() => {
+    if (!selection) return;
+    setNowMs(Date.now());
+    setRange(clampAuditRangeToSpan(selection, range));
+    setSelection(null);
+  }, [range, selection]);
+
+  const onExportEvents = React.useCallback(() => {
+    setExporting(true);
+    createDashboardAuditExport({
+      format: 'CSV',
+      domain: 'ALL',
+      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+      ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
+      from: new Date(range.fromMs).toISOString(),
+      to: new Date(range.toMs).toISOString(),
+    })
+      .then(() => {
+        toast.success('Export queued', {
+          description: 'The audit export will be ready to download shortly.',
+        });
+      })
+      .catch((error: unknown) => {
+        toast.error('Export failed', {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => setExporting(false));
+  }, [range.fromMs, range.toMs, selectedEnvironmentId, selectedProjectId]);
+
   return (
     <div className="dashboard-view" aria-label="Audit logs page">
       <section
         className="dashboard-view__section dashboard-audit-section--plain"
         aria-label="Audit event filters"
       >
-        <div className="dashboard-filters" aria-label="Event filters">
-          <label className="dashboard-search-control dashboard-search-control--compact">
+        <div className="dashboard-audit-toolbar">
+          <label className="dashboard-search-control dashboard-search-control--compact dashboard-audit-toolbar__search">
             <span className="dashboard-search-icon" aria-hidden="true" />
             <input
               type="search"
               aria-label="Search events"
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search events"
+              placeholder="Search action, summary, or actor..."
             />
           </label>
-          <label className="dashboard-form-field">
-            <select
-              className="dashboard-input"
-              aria-label="Filter events by category"
-              value={eventCategoryFilter}
-              onChange={(event) => setEventCategoryFilter(event.target.value)}
-            >
-              <option value="">Category: All</option>
-              {CATEGORY_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  Category: {formatAuditCategoryLabel(entry)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="dashboard-form-field">
-            <select
-              className="dashboard-input"
-              aria-label="Filter events by outcome"
-              value={eventOutcomeFilter}
-              onChange={(event) => setEventOutcomeFilter(event.target.value)}
-            >
-              <option value="">Outcome: All</option>
-              {OUTCOME_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  Outcome: {entry.charAt(0) + entry.slice(1).toLowerCase()}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="dashboard-audit-period-inputs">
-            <input
-              className="dashboard-input"
-              type="datetime-local"
-              aria-label="Period start"
-              value={fromInput}
-              onChange={(event) => setFromInput(event.target.value)}
-            />
-            <span className="dashboard-audit-period-separator" aria-hidden="true">
-              to
-            </span>
-            <input
-              className="dashboard-input"
-              type="datetime-local"
-              aria-label="Period end"
-              value={toInput}
-              onChange={(event) => setToInput(event.target.value)}
-            />
-          </div>
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--secondary dashboard-pagination-button--with-icon"
+            onClick={onExportEvents}
+            disabled={exporting || loading}
+          >
+            <DownloadIcon size={15} strokeWidth={1.75} />
+            {exporting ? 'Exporting...' : 'Export'}
+          </button>
         </div>
+
+        <AuditFilterChips
+          filters={filterDefinitions}
+          onChange={onFilterChange}
+          onClearAll={onClearFilters}
+        />
+
+        <AuditActivityChart
+          bins={activityBins}
+          range={range}
+          nowMs={nowMs}
+          loading={loading}
+          selection={selection}
+          canStepForward={canStepAuditRangeForward(range, nowMs)}
+          onPresetChange={onPresetChange}
+          onStepRange={onStepRange}
+          onSelectionChange={setSelection}
+          onFocusSelection={onFocusSelection}
+          onJumpToTimestamp={onJumpToTimestamp}
+        />
 
         {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
       </section>
@@ -1003,7 +1114,6 @@ export function AuditLogsPage(): React.JSX.Element {
         className="dashboard-view__section dashboard-audit-section--plain"
         aria-label="Audit events table"
       >
-        <h2>Events</h2>
         <DashboardTable
           ariaLabel="Audit events"
           columns={AUDIT_EVENTS_TABLE_COLUMNS}
