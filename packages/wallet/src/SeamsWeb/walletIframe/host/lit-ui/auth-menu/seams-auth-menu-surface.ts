@@ -1186,17 +1186,28 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'error' | 'activation_error' }>,
   ): TemplateResult {
     const activationFailed = linkDevice.kind === 'activation_error';
+    // Activation failures arrive as raw internal error strings. The person
+    // reads the headline and the one instruction; the raw string stays
+    // available as evidence behind a closed disclosure instead of being
+    // concatenated into the guidance sentence.
     return html`
       <div class="w3a-link-device-confirmation w3a-link-device-failure">
         <div class="w3a-link-device-failure-icon">${linkFailedIcon()}</div>
         <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>
-          ${activationFailed ? 'Device linked' : "Couldn't link device"}
+          ${activationFailed ? "Couldn't open the wallet" : "Couldn't link device"}
         </h2>
-        <p class="w3a-link-device-failure-detail" role="alert">
-          ${activationFailed
-            ? html`Unable to open the wallet. Return to sign in and try again. ${linkDevice.message}`
-            : linkDevice.message}
-        </p>
+        ${activationFailed
+          ? html`
+              <p class="w3a-link-device-confirmation-copy" role="alert">
+                Your device was linked, but the wallet couldn't be opened. Return to sign in and try
+                again.
+              </p>
+              <details class="w3a-link-device-failure-details">
+                <summary>Error details</summary>
+                <p class="w3a-link-device-failure-detail">${linkDevice.message}</p>
+              </details>
+            `
+          : html`<p class="w3a-link-device-failure-detail" role="alert">${linkDevice.message}</p>`}
         <button
           class="w3a-link-device-btn"
           type="button"
