@@ -15,6 +15,7 @@ export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';
 export * from './addAuthMethodRegistration';
 export * from './registrationIntent';
+export * from './domainIds';
 export * from './webauthnDeviceInfo';
 export * from './walletCapabilityBindings';
 export * from './walletAuthAuthority';

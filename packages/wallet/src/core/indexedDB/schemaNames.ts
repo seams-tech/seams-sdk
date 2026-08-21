@@ -1,10 +1,15 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 22 as const;
+export const SEAMS_WALLET_DB_VERSION = 23 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
   wallets: 'wallets',
+  walletAuthorities: 'wallet_authorities',
   walletAuthMethods: 'wallet_auth_methods',
+  walletAuthoritySignerMaterials: 'wallet_authority_signer_materials',
+  walletAuthorityExportRoots: 'wallet_authority_export_roots',
+  walletAuthorityInstallationReceipts: 'wallet_authority_installation_receipts',
+  walletSelections: 'wallet_selections',
   walletSigners: 'wallet_signers',
   nearAccountProjections: 'near_accounts',
   signerOpsOutbox: 'signer_ops_outbox',
@@ -87,6 +92,20 @@ export const SEAMS_WALLET_INDEXES = {
   capabilityWallet: 'capability_wallet',
   capabilityWalletAuthorityState: 'capability_wallet_authority_state',
   capabilityWalletAuthority: 'capability_wallet_authority',
+  walletAuthorityId: 'wallet_authority_id',
+  walletAuthMethodId: 'wallet_auth_method_id',
+  walletIdAuthorityId: 'wallet_id_authority_id',
+  walletIdAuthorityStatus: 'wallet_id_authority_status',
+  walletIdAuthMethodId: 'wallet_id_auth_method_id',
+  walletAuthorityAuthMethodId: 'wallet_authority_auth_method_id',
+  activationId: 'activation_id',
+  walletAuthorityActivationId: 'wallet_authority_activation_id',
+  walletIdDeviceId: 'wallet_id_device_id',
+  packageSetDigest: 'package_set_digest',
+  walletKeyId: 'wallet_key_id',
+  walletIdLockGeneration: 'wallet_id_lock_generation',
+  authorityDigest: 'authority_digest',
+  revocationEpoch: 'revocation_epoch',
 } as const;
 
 export type SeamsWalletStoreName = (typeof SEAMS_WALLET_STORES)[keyof typeof SEAMS_WALLET_STORES];
@@ -119,6 +138,30 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     ],
   },
   {
+    store: SEAMS_WALLET_STORES.walletAuthorities,
+    keyPath: 'authority_id',
+    indexes: [
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletAuthorityId, keyPath: 'authority_id', unique: true },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdAuthorityId,
+        keyPath: ['wallet_id', 'authority_id'],
+        unique: true,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdAuthorityStatus,
+        keyPath: ['wallet_id', 'state'],
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdDeviceId,
+        keyPath: ['wallet_id', 'device_id'],
+        unique: false,
+      },
+      { name: SEAMS_WALLET_INDEXES.updatedAt, keyPath: 'updated_at', unique: false },
+    ],
+  },
+  {
     store: SEAMS_WALLET_STORES.walletAuthMethods,
     keyPath: 'wallet_auth_method_id',
     indexes: [
@@ -146,7 +189,102 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         unique: true,
       },
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityId,
+        keyPath: 'wallet_authority_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdAuthMethodId,
+        keyPath: ['wallet_id', 'wallet_auth_method_id'],
+        unique: true,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdAuthorityStatus,
+        keyPath: ['wallet_id', 'wallet_authority_id', 'status'],
+        unique: false,
+      },
       { name: SEAMS_WALLET_INDEXES.updatedAt, keyPath: 'updated_at', unique: false },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
+    keyPath: ['wallet_authority_id', 'wallet_auth_method_id', 'activation_id'],
+    indexes: [
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityId,
+        keyPath: 'wallet_authority_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityAuthMethodId,
+        keyPath: ['wallet_authority_id', 'wallet_auth_method_id'],
+        unique: false,
+      },
+      { name: SEAMS_WALLET_INDEXES.activationId, keyPath: 'activation_id', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityActivationId,
+        keyPath: ['wallet_authority_id', 'activation_id'],
+        unique: true,
+      },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.walletAuthorityExportRoots,
+    keyPath: ['wallet_authority_id', 'wallet_auth_method_id', 'wallet_key_id'],
+    indexes: [
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityId,
+        keyPath: 'wallet_authority_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityAuthMethodId,
+        keyPath: ['wallet_authority_id', 'wallet_auth_method_id'],
+        unique: false,
+      },
+      { name: SEAMS_WALLET_INDEXES.walletKeyId, keyPath: 'wallet_key_id', unique: false },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+    keyPath: 'authority_id',
+    indexes: [
+      { name: SEAMS_WALLET_INDEXES.walletAuthorityId, keyPath: 'authority_id', unique: true },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthMethodId,
+        keyPath: 'wallet_auth_method_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdDeviceId,
+        keyPath: ['wallet_id', 'device_id'],
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.packageSetDigest,
+        keyPath: 'package_set_digest_b64u',
+        unique: false,
+      },
+      { name: SEAMS_WALLET_INDEXES.updatedAt, keyPath: 'installed_at_ms', unique: false },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.walletSelections,
+    keyPath: 'wallet_id',
+    indexes: [
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: true },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthMethodId,
+        keyPath: 'wallet_auth_method_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdLockGeneration,
+        keyPath: ['wallet_id', 'lock_generation'],
+        unique: true,
+      },
     ],
   },
   {
@@ -324,6 +462,26 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     keyPath: 'wallet_session_id',
     indexes: [
       { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthorityId,
+        keyPath: 'wallet_authority_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.walletAuthMethodId,
+        keyPath: 'wallet_auth_method_id',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.authorityDigest,
+        keyPath: 'authority_digest_b64u',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.revocationEpoch,
+        keyPath: 'authority_revocation_epoch',
+        unique: false,
+      },
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
       { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
     ],
