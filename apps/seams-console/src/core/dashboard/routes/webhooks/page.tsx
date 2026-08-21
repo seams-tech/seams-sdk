@@ -1,9 +1,6 @@
 import React from 'react';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
-import {
-  CONSOLE_WEBHOOK_EVENT_CATEGORIES,
-  type ConsoleWebhookEventCategory,
-} from '@seams-internal/wallet-console-shared/webhookEventCategories';
+import type { ConsoleWebhookEventCategory } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -25,10 +22,11 @@ import {
   dashboardStatusTone,
 } from '../../utils/statusTone';
 import { WebhookIcon } from '../../icons/SidebarIcons';
-import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { DashboardPageActions } from '../../components/DashboardPageActions';
-import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 import { useDashboardConsoleSession } from '../../consoleSession';
+import { useDashboardCreateIntent } from '../../utils/routeCreateIntent';
+import { CreateWebhookEndpointModal } from './CreateWebhookEndpointModal';
+import { WebhooksGetStarted } from './WebhooksGetStarted';
 import {
   createDashboardWebhookEndpoint,
   deleteDashboardWebhookEndpoint,
@@ -40,35 +38,6 @@ import {
   type DashboardConsoleWebhookEndpoint,
 } from './consoleWebhooksApi';
 
-const DEFAULT_WEBHOOK_EVENT_CATEGORIES: ConsoleWebhookEventCategory[] = ['billing'];
-const WEBHOOK_EVENT_CATEGORY_OPTIONS: readonly DashboardScopeOption<ConsoleWebhookEventCategory>[] =
-  CONSOLE_WEBHOOK_EVENT_CATEGORIES.map((value) => ({
-    value,
-    label:
-      value === 'tx'
-        ? 'Transaction lifecycle'
-        : value === 'auth'
-          ? 'Authentication'
-          : value === 'policy'
-            ? 'Policy changes'
-            : value === 'wallet'
-              ? 'Wallet activity'
-              : value === 'billing'
-                ? 'Billing'
-                : 'Session lifecycle',
-    description:
-      value === 'tx'
-        ? 'Transaction creation, signing, submission, and status transitions.'
-        : value === 'auth'
-          ? 'Authentication and identity lifecycle events.'
-          : value === 'policy'
-            ? 'Policy publish, assignment, and approval events.'
-            : value === 'wallet'
-              ? 'Wallet provisioning, configuration, and state changes.'
-              : value === 'billing'
-                ? 'Invoices, usage, and payment lifecycle events.'
-                : 'Session creation, refresh, and teardown events.',
-  }));
 const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(2.5, 0.7, 0.9, 0.95);
 const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(1.9, 0.8, 0.65, 0.6, 0.9, 0.6);
 
@@ -100,10 +69,6 @@ export function WebhooksPage(): React.JSX.Element {
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
   const [isCreateModalOpen, setIsCreateModalOpen] = React.useState<boolean>(false);
-  const [urlInput, setUrlInput] = React.useState<string>('');
-  const [eventCategories, setEventCategories] = React.useState<ConsoleWebhookEventCategory[]>(
-    DEFAULT_WEBHOOK_EVENT_CATEGORIES,
-  );
   const [creating, setCreating] = React.useState<boolean>(false);
   const [busyEndpointId, setBusyEndpointId] = React.useState<string>('');
   const [selectedEndpointId, setSelectedEndpointId] = React.useState<string>('');
@@ -272,32 +237,27 @@ export function WebhooksPage(): React.JSX.Element {
     setMutationError('');
   }, [creating]);
 
+  /* The rail's "+" deep-links into this dialog once the session can create. */
+  useDashboardCreateIntent(
+    '/dashboard/webhooks',
+    !session.loading && Boolean(session.claims),
+    onOpenCreateModal,
+  );
+
   const onCreateEndpoint = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
+    async (input: { url: string; eventCategories: ConsoleWebhookEventCategory[] }) => {
       if (!session.claims) {
         setMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      const url = String(urlInput || '').trim();
-      if (!url) {
-        setMutationError('URL is required.');
-        return;
-      }
-      if (eventCategories.length === 0) {
-        setMutationError('At least one event category is required.');
         return;
       }
       setCreating(true);
       setMutationError('');
       try {
         const endpoint = await createDashboardWebhookEndpoint({
-          url,
-          eventCategories,
+          url: input.url,
+          eventCategories: input.eventCategories,
           status: 'ACTIVE',
         });
-        setUrlInput('');
-        setEventCategories([...DEFAULT_WEBHOOK_EVENT_CATEGORIES]);
         setIsCreateModalOpen(false);
         loadEndpoints();
         setSelectedEndpointId(endpoint.id);
@@ -307,7 +267,7 @@ export function WebhooksPage(): React.JSX.Element {
         setCreating(false);
       }
     },
-    [eventCategories, loadEndpoints, session.claims, session.errorMessage, urlInput],
+    [loadEndpoints, session.claims, session.errorMessage],
   );
 
   const onToggleEndpointStatus = React.useCallback(
@@ -377,18 +337,30 @@ export function WebhooksPage(): React.JSX.Element {
     [loadDeliveries, session.claims, session.errorMessage],
   );
 
+  /* With no endpoints there is nothing to page through, so the route drops the
+     table and header action entirely and shows the walkthrough, whose own
+     button is then the single call to action on the page. */
+  const showGetStarted =
+    !session.loading &&
+    !loading &&
+    Boolean(session.claims) &&
+    !errorMessage &&
+    endpoints.length === 0;
+
   return (
     <div className="dashboard-view" aria-label="Webhooks page">
-      <DashboardPageActions>
-        <button
-          type="button"
-          className="dashboard-pagination-button dashboard-pagination-button--primary"
-          onClick={onOpenCreateModal}
-          disabled={creating || session.loading || !session.claims || Boolean(errorMessage)}
-        >
-          Create webhook
-        </button>
-      </DashboardPageActions>
+      {showGetStarted ? null : (
+        <DashboardPageActions>
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--primary"
+            onClick={onOpenCreateModal}
+            disabled={creating || session.loading || !session.claims || Boolean(errorMessage)}
+          >
+            Add endpoint
+          </button>
+        </DashboardPageActions>
+      )}
 
       {mutationError && !isCreateModalOpen ? (
         <p className="dashboard-form-alert" role="alert">
@@ -402,6 +374,8 @@ export function WebhooksPage(): React.JSX.Element {
             Webhook endpoints unavailable: {errorMessage}
           </p>
         </section>
+      ) : showGetStarted ? (
+        <WebhooksGetStarted onAddEndpoint={onOpenCreateModal} disabled={creating} />
       ) : (
       <DashboardTable
         ariaLabel="Webhook endpoints table"
@@ -489,53 +463,15 @@ export function WebhooksPage(): React.JSX.Element {
       </DashboardTable>
       )}
 
-      <DashboardInlineModal
+      <CreateWebhookEndpointModal
         isOpen={isCreateModalOpen}
-        ariaLabel="Create webhook modal"
+        submitting={creating}
+        errorMessage={mutationError}
         onRequestClose={onCloseCreateModal}
-      >
-        <h2>Create Webhook</h2>
-        <form className="dashboard-view-grid dashboard-webhook-form" onSubmit={onCreateEndpoint}>
-          <label className="dashboard-form-field dashboard-webhook-form__field">
-            <span>Endpoint URL</span>
-            <input
-              className="dashboard-input"
-              value={urlInput}
-              onChange={(event) => setUrlInput(event.target.value)}
-              placeholder="https://example.com/webhooks/seams"
-              disabled={creating}
-            />
-          </label>
-          <ScopePicker
-            label="Event categories"
-            options={WEBHOOK_EVENT_CATEGORY_OPTIONS}
-            values={eventCategories}
-            onChange={setEventCategories}
-            disabled={creating}
-            addLabel=""
-            emptyLabel="No event categories selected."
-            placeholderLabel="Select an event category"
-          />
-          {mutationError ? (
-            <p className="dashboard-form-alert" role="alert">
-              {mutationError}
-            </p>
-          ) : null}
-          <div className="dashboard-form-actions dashboard-webhook-form__actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={onCloseCreateModal}
-              disabled={creating}
-            >
-              Cancel
-            </button>
-            <button type="submit" className="dashboard-pagination-button" disabled={creating}>
-              {creating ? 'Creating...' : 'Create endpoint'}
-            </button>
-          </div>
-        </form>
-      </DashboardInlineModal>
+        onSubmit={(input) => {
+          void onCreateEndpoint(input);
+        }}
+      />
 
       {selectedEndpointId && !errorMessage ? (
       <section

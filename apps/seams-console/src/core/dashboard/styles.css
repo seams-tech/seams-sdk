@@ -3966,6 +3966,14 @@ textarea {
   color: var(--dashboard-danger);
 }
 
+/* A label with a leading glyph needs the button to be a flex line box; the
+   plain control stays inline so nothing else reflows. */
+.dashboard-pagination-button--with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .dashboard-pagination-note {
   font-size: 0.88rem;
   color: var(--dashboard-ink-soft);
@@ -4872,35 +4880,239 @@ details.dashboard-view__section[open] > summary {
 }
 
 .dashboard-webhook-form {
+  display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 18px;
-  width: min(100%, 1040px);
+  width: 100%;
 }
 
 .dashboard-webhook-form > * {
   min-width: 0;
 }
 
-.dashboard-webhook-form__field,
-.dashboard-webhook-form .dashboard-scope-picker {
+/* Event categories read as a checklist, not as a card grid: the dialog is one
+   column wide and each row is a single decision. */
+.dashboard-webhook-events {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-webhook-events__legend {
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--dashboard-ink);
+}
+
+.dashboard-webhook-events__list {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboard-webhook-event {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin-inline: -8px;
+  padding: 8px;
+  border-radius: var(--dashboard-radius-lg);
+  cursor: pointer;
+  transition: background-color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-webhook-event:hover {
+  background: var(--dashboard-alpha-50);
+}
+
+.dashboard-webhook-event--checked {
+  background: var(--dashboard-alpha-75);
+}
+
+.dashboard-webhook-event__input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--dashboard-accent);
+  cursor: inherit;
+}
+
+.dashboard-webhook-event__copy {
+  display: grid;
+  gap: 3px;
+}
+
+.dashboard-webhook-event__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--dashboard-ink);
+}
+
+.dashboard-webhook-event__hint {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-webhook-event__title code,
+.dashboard-webhooks-start code {
+  font-family: var(--console-font-mono);
+  font-size: 0.78rem;
+  border-radius: var(--dashboard-radius-sm);
+  padding: 1px 5px;
+  background: var(--dashboard-alpha-100);
+  color: var(--dashboard-graphite);
+}
+
+/* Get-started walkthrough: shown in place of the table while the org has no
+   endpoint, so the page explains the contract instead of an empty frame. */
+.dashboard-webhooks-start {
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-webhooks-start__hero {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: clamp(32px, 7vw, 56px) 24px;
+  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-2xl);
+  background: var(--dashboard-surface-soft);
+  text-align: center;
+}
+
+.dashboard-webhooks-start__glyphs {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--dashboard-alpha-400);
+}
+
+.dashboard-webhooks-start__glyph {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--dashboard-surface);
+  color: var(--dashboard-ink);
+  box-shadow: var(--dashboard-shadow-sm);
+}
+
+.dashboard-webhooks-start__title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--dashboard-ink);
+}
+
+.dashboard-webhooks-start__lede {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--dashboard-ink-soft);
+}
+
+/* Stacked rows, not a card row: the verification snippet needs a full line of
+   room, and three narrow columns would have it scrolling sideways. */
+.dashboard-webhooks-start__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
   gap: 12px;
 }
 
-.dashboard-webhook-form .dashboard-scope-picker__header {
-  min-height: 24px;
+.dashboard-webhooks-start__step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-xl);
+  background: var(--dashboard-surface);
+}
+
+.dashboard-webhooks-start__step-index {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--dashboard-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-webhooks-start__step-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-webhooks-start__step-copy h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--dashboard-ink);
+}
+
+.dashboard-webhooks-start__step-copy p {
+  margin: 0;
+  max-width: 82ch;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-webhooks-start__chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.dashboard-webhook-form .dashboard-scope-picker__chips {
-  min-height: 44px;
-  align-content: start;
+.dashboard-webhooks-start__snippet {
+  position: relative;
+  min-width: 0;
+  max-width: 560px;
 }
 
-.dashboard-webhook-form__actions {
-  justify-content: flex-start;
-  padding-top: 2px;
+.dashboard-webhooks-start__snippet .dashboard-code-block {
+  padding-right: 44px;
+  background: var(--dashboard-surface-soft);
+}
+
+.dashboard-webhooks-start__snippet code {
+  display: block;
+  padding: 0;
+  background: none;
+  font-size: 0.76rem;
+  white-space: pre;
+  color: var(--dashboard-ink);
+}
+
+.dashboard-webhooks-start__snippet .install-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
 }
 
 .dashboard-form-field {
@@ -5497,6 +5709,62 @@ select.dashboard-input {
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: -0.025em;
+}
+
+/* Title row: the dismiss control sits on the title's baseline block rather
+   than floating over the sheet's corner padding. */
+.dashboard-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-modal__close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--dashboard-radius-md);
+  background: transparent;
+  color: var(--dashboard-ink-soft);
+  cursor: pointer;
+  transition:
+    background-color var(--dashboard-motion-fast) ease,
+    color var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-modal__close:hover:not(:disabled) {
+  background: var(--dashboard-alpha-100);
+  color: var(--dashboard-ink);
+}
+
+.dashboard-modal__close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A standing fact about the feature, not a form control: it sits below the
+   commit row behind a hairline so it never reads as another field. */
+.dashboard-modal__footnote {
+  margin: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--dashboard-line);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-modal__footnote code {
+  font-family: var(--console-font-mono);
+  font-size: 0.76rem;
+  border-radius: var(--dashboard-radius-sm);
+  padding: 1px 5px;
+  background: var(--dashboard-alpha-100);
+  color: var(--dashboard-graphite);
+  overflow-wrap: anywhere;
 }
 
 .dashboard-onboarding-stepper {
