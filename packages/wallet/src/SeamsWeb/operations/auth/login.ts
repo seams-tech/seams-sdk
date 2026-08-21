@@ -6035,7 +6035,9 @@ export async function getRecentUnlocks(
 /** Lock clears authentication and volatile signing material. */
 export type LockOperationContext = {
   signingEngine: {
+    readWalletAuthenticationState(): WalletAuthenticationState;
     clearLinkedDeviceRefreshMaterial(): Promise<void>;
+    retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void>;
     clearWalletAuthentication(): void;
     getNonceCoordinator(): { clearAll(): void };
     clearThresholdEcdsaSigningQueue(): void;
@@ -6045,7 +6047,11 @@ export type LockOperationContext = {
 
 export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
+  const authentication = signingEngine.readWalletAuthenticationState();
   const linkedDeviceRefreshCleanup = signingEngine.clearLinkedDeviceRefreshMaterial();
+  if (authentication.kind === 'authenticated') {
+    await signingEngine.retireActiveWalletSessionAuthorizationForLock(authentication.walletId);
+  }
   signingEngine.clearWalletAuthentication();
   try {
     signingEngine.getNonceCoordinator().clearAll();

@@ -464,8 +464,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   }, [isOpen, highlightedIndex, highlightShouldFocus, refs.menuItemsRef]);
 
   // Handlers
-  const handleLock = () => {
-    lock();
+  const handleLock = async () => {
+    await lock();
     onLock?.();
     handleClose();
   };

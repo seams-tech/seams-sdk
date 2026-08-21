@@ -2847,7 +2847,7 @@ export class BrowserSigningSurface {
    */
   private async retireWalletSessionAuthorizationV1(input: {
     readonly active: ActiveWalletSessionAuthorizationProjection;
-    readonly reason: 'expired' | 'invalidated' | 'replaced';
+    readonly reason: 'expired' | 'invalidated' | 'replaced' | 'wallet_locked';
     readonly retiredAtMs: number;
   }): Promise<void> {
     await walletSessionAuthorizations.write(retireWalletSessionAuthorizationProjection(input));
@@ -2859,6 +2859,28 @@ export class BrowserSigningSurface {
 
   readWalletAuthenticationState(): WalletAuthenticationState {
     return this.walletAuthenticationState;
+  }
+
+  async retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void> {
+    const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
+    switch (read.kind) {
+      case 'found':
+        await this.retireWalletSessionAuthorizationV1({
+          active: read.projection,
+          reason: 'wallet_locked',
+          retiredAtMs: Date.now(),
+        });
+        return;
+      case 'missing':
+        return;
+      case 'corrupt':
+        throw new Error('Wallet Session authorization projection is corrupt');
+      case 'persistence_unavailable':
+        throw new Error('Wallet Session authorization persistence is unavailable');
+      default:
+        read satisfies never;
+        throw new Error('Wallet Session authorization read returned an unknown result');
+    }
   }
 
   /**

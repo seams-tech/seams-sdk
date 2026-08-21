@@ -624,6 +624,7 @@ export interface WalletAuthenticationSurface {
   restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean>;
   hasLinkedDeviceSigningSession(walletId: WalletId): boolean;
   clearLinkedDeviceRefreshMaterial(): Promise<void>;
+  retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void>;
   clearWalletAuthentication(): void;
 }
 
@@ -700,7 +701,10 @@ export type LockSigningSurface = NonceCoordinatorSurface &
   > &
   Pick<
     WalletAuthenticationSurface,
-    'clearLinkedDeviceRefreshMaterial' | 'clearWalletAuthentication'
+    | 'readWalletAuthenticationState'
+    | 'clearLinkedDeviceRefreshMaterial'
+    | 'retireActiveWalletSessionAuthorizationForLock'
+    | 'clearWalletAuthentication'
   >;
 
 export type LocalLoginStateSurface = WalletSessionReadSurface &
