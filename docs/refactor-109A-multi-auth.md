@@ -690,6 +690,11 @@ The browser parses the response once into `AddWalletAuthMethodResultV1` and
 switches exhaustively. Route codes, error strings, and diagnostic stages do
 not become a second lifecycle model.
 
+The revoke response has a distinct typed result. Its success branches identify
+whether the target authority was retained or retired, and its refusal branch
+is `would_remove_last_wallet_auth_method`. A message string, affected-row
+count, or authority diagnostic never decides that control flow.
+
 A disagreement discovered while parsing already-durable server state is an
 unexpected internal integrity failure and maps to `500`. It does not share the
 client-facing `409` branch or trigger repair.
@@ -712,8 +717,10 @@ columns are:
 Delete `auth_identifier_key`, factor-derived method-ID checks, and
 `registration_authority_id` after boundary cutover. Use the factor-specific
 unique indexes defined under **Canonical identities**. A direct lookup by
-opaque method ID plus an inventory index on `(scope, wallet_authority_id,
-status)` replace wallet-wide candidate scans.
+opaque method ID, an authority inventory index on
+`(scope, wallet_authority_id, status)`, and a wallet revocation-guard index on
+`(scope, wallet_id, status, wallet_authority_id)` replace candidate scans and
+support the transactional remaining-method check.
 
 IndexedDB stores the same V2 method under `(walletId, walletAuthorityId,
 walletAuthMethodId)`. Delete the current derived compound key and the separate
@@ -748,8 +755,10 @@ invalidates only sessions whose `authMethodId` matches it.
 
 Every Wallet Session admission resolves the exact `authMethodId` and requires
 that method to remain active in addition to checking the authority digest and
-revocation epoch. Method revocation deliberately leaves the shared authority
-epoch unchanged, so authority validation alone cannot admit a session.
+revocation epoch. Revoking a method while its authority retains another active
+method leaves the authority epoch unchanged, so authority validation alone
+cannot admit a session. Retiring a zero-method authority increments the epoch
+as part of the same server transaction.
 
 An explicit durable lock remains authoritative across refresh. Lock generation
 from R103E prevents stale unlock, factor-addition, or warm-session work from
@@ -1017,11 +1026,16 @@ For every applicable cell:
 8. revoke the new method using the source method and prove the source method
    still unlocks and operates;
 9. reject self-revocation and revocation of the wallet's final active method;
-10. repeat finalize after a lost response and prove the method, verifier,
+10. submit two competing revocations when only two active wallet methods
+    remain and prove exactly one succeeds and exactly one active method
+    remains;
+11. reject a revoke request that supplies `WalletAuthorityId` or attempts a
+    batch of method IDs;
+12. repeat finalize after a lost response and prove the method, verifier,
     envelope, and local record counts do not increase;
-11. interrupt at every boundary in the retry table and prove convergence or
+13. interrupt at every boundary in the retry table and prove convergence or
     complete precommit cleanup;
-12. attempt to add the same Passkey credential or Email OTP provider identity
+14. attempt to add the same Passkey credential or Email OTP provider identity
     twice and assert `already_exists` without duplicate records.
 
 External email delivery and chain RPC may be stubbed at their network
