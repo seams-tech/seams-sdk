@@ -10,7 +10,7 @@
   --navbar-primary: var(--site-action, #000000);
   --navbar-primary-hover: var(--site-action-hover, #262626);
   --navbar-text-button: var(--site-text-button, #ffffff);
-  --navbar-focus: var(--site-focus, #66a3ff);
+  --navbar-focus: var(--site-focus, #4fb894);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface3) 82%, transparent);
   --navbar-access-trigger-active: color-mix(in srgb, var(--navbar-surface2) 72%, transparent);
   --navbar-access-panel-surface: color-mix(in srgb, var(--navbar-surface) 94%, var(--navbar-bg) 6%);

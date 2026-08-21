@@ -124,11 +124,11 @@ export const ROSE_PINE_LIGHT_COLORS: Record<string, string> = {
 // "Paper" — the ElevenLabs style: eggshell paper, ink buttons, warm
 // taupe/stone neutrals, and soft blue accents for focused details.
 export const PAPER_LIGHT_COLORS: Record<string, string> = {
-  primary: '#6f9fd8',
-  primaryHover: '#5a8cc7',
+  primary: '#2f9a76',
+  primaryHover: '#157f5f',
   secondary: '#44403b',
   secondaryHover: '#000000',
-  accent: '#6f9fd8',
+  accent: '#2f9a76',
 
   textPrimary: '#000000',
   textSecondary: '#777169',
@@ -162,18 +162,18 @@ export const PAPER_LIGHT_COLORS: Record<string, string> = {
   success: '#157f5f',
   warning: '#b45309',
   error: '#ff4704',
-  info: '#6f9fd8',
+  info: '#2f9a76',
 
   borderPrimary: '#ebe8e4',
   borderSecondary: '#e5e5e5',
   borderHover: '#d6d1cb',
 
-  highlightPrimary: '#6f9fd8',
-  highlightRow: 'rgba(111, 159, 216, 0.12)',
-  highlightHalo: '#c7dcf4',
+  highlightPrimary: '#2f9a76',
+  highlightRow: 'rgba(47, 154, 118, 0.12)',
+  highlightHalo: '#c3e5d7',
   // one accent in the tx tree: the receiver/contract address. Method names
   // and amounts read in ink (ElevenLabs accent discipline).
-  highlightReceiver: '#4a6fa5',
+  highlightReceiver: '#157f5f',
   highlightMethodName: '#000000',
   highlightAmount: '#000000',
 };
