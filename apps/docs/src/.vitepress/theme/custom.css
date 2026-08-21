@@ -88,40 +88,6 @@
   --seams-accent-gradient: linear-gradient(180deg, #8ad9bb 0%, #6ec7a4 55%, #52ab89 100%);
 }
 
-/* A faint pass of the site hero's sage gradient (--h2-gradient-sage:
-   160deg, #919690 -> #c7d0cf), dropped to a tenth of its strength so it reads
-   as tinted paper. Content surfaces go transparent to let it through. */
-body {
-  background-color: var(--vp-c-bg);
-  background-image: linear-gradient(
-    160deg,
-    rgb(145 150 144 / 0.09) 0%,
-    rgb(199 208 207 / 0.16) 52%,
-    rgb(145 150 144 / 0.14) 100%
-  );
-  background-attachment: fixed;
-}
-
-.dark body {
-  background-image: linear-gradient(
-    160deg,
-    rgb(145 150 144 / 0.1) 0%,
-    rgb(199 208 207 / 0.06) 52%,
-    rgb(145 150 144 / 0.12) 100%
-  );
-}
-
-.VPContent,
-.VPDoc,
-.VPPage,
-.VPNotFound {
-  background-color: transparent;
-}
-
-.Layout .VPSidebar {
-  background-color: color-mix(in srgb, var(--vp-c-bg-alt) 80%, transparent);
-}
-
 /* The sidebar carries the brand, search, and appearance switch, so the top
    nav bar has nothing left to show. Zeroing its height collapses the offsets
    the default theme derives from it. */
