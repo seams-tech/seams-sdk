@@ -1,30 +1,7 @@
+/* Dashboard tokens live on :root, not on .dashboard-shell: surfaces that
+   portal out of the shell (the command palette escapes the top bar's
+   backdrop-filter containing block) still have to resolve them. */
 :root {
-  --console-font-sans:
-    'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    Roboto, Helvetica, Arial, sans-serif;
-  --console-font-mono:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-}
-
-html {
-  font-family: var(--console-font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  margin: 0;
-  font-family: inherit;
-}
-
-button,
-input,
-select,
-textarea {
-  font-family: inherit;
-}
-
-.dashboard-shell {
   /* Alpha overlay ladder. Every hairline, quiet fill and hover state is
      translucent ink over whatever sits behind it rather than a solid grey, so
      one value works on white, on the rail tint and on a raised card. The ink
@@ -91,6 +68,32 @@ textarea {
   --dashboard-motion-label-delay: 0ms;
   --dashboard-ease-layout: cubic-bezier(0.22, 1, 0.36, 1);
   --dashboard-ease-reveal: cubic-bezier(0.16, 1, 0.3, 1);
+  --console-font-sans:
+    'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif;
+  --console-font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+html {
+  font-family: var(--console-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+.dashboard-shell {
   min-height: 100dvh;
   height: 100dvh;
   display: grid;
@@ -366,16 +369,17 @@ textarea {
   justify-items: center;
   align-content: start;
   padding-top: 12vh;
-  background: color-mix(in srgb, #1c1917 24%, transparent);
-  backdrop-filter: blur(2px);
+  background: rgba(217, 216, 214, 0.3);
+  backdrop-filter: blur(2.5px);
+  -webkit-backdrop-filter: blur(2.5px);
 }
 
 .dashboard-command-palette {
   width: min(560px, calc(100vw - 32px));
-  border: 1px solid var(--dashboard-border);
-  border-radius: 16px;
+  border: 0;
+  border-radius: var(--dashboard-radius-2xl);
   background: var(--dashboard-surface);
-  box-shadow: 0 24px 60px color-mix(in srgb, #1c1917 30%, transparent);
+  box-shadow: var(--dashboard-shadow-md);
   overflow: hidden;
 }
 
@@ -383,18 +387,26 @@ textarea {
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--dashboard-line);
-  padding: 14px 16px;
+  padding: 16px 16px 16px 44px;
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.9375rem;
   color: var(--dashboard-ink);
-  background: transparent;
+  /* The glyph rides the input's own background so the search row needs no
+     extra element around the field. */
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='rgba(28,24,23,0.44)' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.75'/%3E%3Cpath d='M10.5 10.5 14 14'/%3E%3C/svg%3E")
+    no-repeat 16px center / 16px 16px;
   outline: none;
+}
+
+.dashboard-command-palette__input::placeholder {
+  color: var(--dashboard-ash);
 }
 
 .dashboard-command-palette__list {
   max-height: 320px;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
   display: grid;
   gap: 2px;
 }
@@ -405,23 +417,26 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--dashboard-radius-lg);
   background: transparent;
   color: var(--dashboard-ink);
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--dashboard-motion-fast) ease;
 }
 
 .dashboard-command-palette__item.is-active {
-  background: var(--dashboard-surface-soft);
+  background: var(--dashboard-alpha-50);
 }
 
 .dashboard-command-palette__group {
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
   color: var(--dashboard-ash);
 }
 
