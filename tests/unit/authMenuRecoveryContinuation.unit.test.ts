@@ -25,7 +25,7 @@ class SuccessfulRecoveryPort implements HostedRecoveryPort {
   readonly walletId = walletIdFromString('recovered-wallet.test');
 
   async prepare(input: Parameters<HostedRecoveryPort['prepare']>[0]) {
-    this.calls.push(`prepare:${input.walletId}:${input.recoveryCode}`);
+    this.calls.push(`prepare:${input.recoveryCode}`);
     return {
       kind: 'hosted_recovery_prepared' as const,
       recoveryOperationId: 'recovery-operation-1',
@@ -144,7 +144,6 @@ test.describe('hosted auth-menu recovery continuation', () => {
     const session = sessionWithRecovery({ recoveryPort, prepareRecoveredLogin });
 
     invoke(session, 'openRecovery');
-    invoke(session, 'changeRecoveryWalletId', 'recovered-wallet.test');
     invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
     invoke(session, 'prepareRecovery');
     await expect
@@ -154,16 +153,13 @@ test.describe('hosted auth-menu recovery continuation', () => {
     expect(session.state.viewModel.recoveryCode).toBe('');
 
     invoke(session, 'createRecoveryPasskey');
-    expect(recoveryPort.calls).toEqual([
-      'prepare:recovered-wallet.test:ABCD-EFGH',
-      'create:recovery-operation-1',
-    ]);
+    expect(recoveryPort.calls).toEqual(['prepare:ABCD-EFGH', 'create:recovery-operation-1']);
     await expect
       .poll(() => session.state.kind === 'recovery' && session.state.stage)
       .toBe('sign_in_ready');
 
     expect(recoveryPort.calls).toEqual([
-      'prepare:recovered-wallet.test:ABCD-EFGH',
+      'prepare:ABCD-EFGH',
       'create:recovery-operation-1',
       'finalize:recovery-operation-1',
     ]);
@@ -184,7 +180,6 @@ test.describe('hosted auth-menu recovery continuation', () => {
       prepareRecoveredLogin: rejectRecoveredLogin,
     });
     invoke(session, 'openRecovery');
-    invoke(session, 'changeRecoveryWalletId', 'recovered-wallet.test');
     invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
     invoke(session, 'prepareRecovery');
     await expect
@@ -205,7 +200,6 @@ test.describe('hosted auth-menu recovery continuation', () => {
       prepareRecoveredLogin: rejectRecoveredLogin,
     });
     invoke(session, 'openRecovery');
-    invoke(session, 'changeRecoveryWalletId', 'recovered-wallet.test');
     invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
     invoke(session, 'prepareRecovery');
     await expect
@@ -237,7 +231,6 @@ test.describe('hosted auth-menu recovery continuation', () => {
       prepareRecoveredLogin: rejectRecoveredLogin,
     });
     invoke(session, 'openRecovery');
-    invoke(session, 'changeRecoveryWalletId', 'recovered-wallet.test');
     invoke(session, 'changeRecoveryCode', 'USED-CODE');
     invoke(session, 'prepareRecovery');
 
@@ -248,7 +241,7 @@ test.describe('hosted auth-menu recovery continuation', () => {
     expect(session.state.viewModel.status).toEqual({
       kind: 'recoverable',
       reason: 'error',
-      message: 'That recovery code can’t be used. Check the wallet ID and code, then try again.',
+      message: 'That recovery code can’t be used. Check the code and try again.',
     });
     session.cleanup();
   });

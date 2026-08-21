@@ -208,7 +208,10 @@ export async function acknowledgeWalletRecoveryBackup(args: {
   const body = asRecord(await response.json().catch(() => ({})));
   const message = typeof body.message === 'string' ? body.message : '';
   if (response.status === 401 || response.status === 403) {
-    return { kind: 'unauthorized', message: message || 'recovery backup acknowledgement is unauthorized' };
+    return {
+      kind: 'unauthorized',
+      message: message || 'recovery backup acknowledgement is unauthorized',
+    };
   }
   if (response.status === 404) {
     return { kind: 'no_recovery_set', message: message || 'this wallet has no recovery set' };
@@ -258,12 +261,18 @@ export type WalletRecoverySetRotateResult =
   | { readonly kind: 'no_recovery_set'; readonly message: string }
   | { readonly kind: 'transport_failed'; readonly message: string };
 
+export type WalletRecoveryCodeLocatorPayload = {
+  readonly locatorB64u: string;
+  readonly recoveryKeyId: string;
+};
+
 export async function rotateWalletRecoverySet(args: {
   readonly relayUrl: string;
   readonly walletId: string;
   readonly factorProof: WalletCustodyFactorProof;
   readonly expectedStoreVersion: string;
   readonly replacement: WalletRecoverySetRotationWireV1;
+  readonly recoveryCodeLocators: readonly WalletRecoveryCodeLocatorPayload[];
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoverySetRotateResult> {
   const response = await postWalletRecoveryRoute({
@@ -274,6 +283,7 @@ export async function rotateWalletRecoverySet(args: {
       expectedStoreVersion: args.expectedStoreVersion,
       manifestKekWraps: args.replacement.manifestKekWraps,
       entries: [args.replacement.entry],
+      recoveryCodeLocators: args.recoveryCodeLocators,
       factorProof: args.factorProof,
     },
     fetchImpl: args.fetchImpl,
@@ -288,10 +298,15 @@ export async function rotateWalletRecoverySet(args: {
     }
     return { kind: 'rotated', issuedAtMs, storeVersion };
   }
-  if (response.status === 404) return { kind: 'no_recovery_set', message: message || 'no recovery set' };
-  if (response.status === 409) return { kind: 'conflict', message: message || 'recovery set changed' };
+  if (response.status === 404)
+    return { kind: 'no_recovery_set', message: message || 'no recovery set' };
+  if (response.status === 409)
+    return { kind: 'conflict', message: message || 'recovery set changed' };
   if (response.status === 400) return { kind: 'rejected', message: message || 'rotation rejected' };
-  return { kind: 'transport_failed', message: message || `rotation failed (HTTP ${response.status})` };
+  return {
+    kind: 'transport_failed',
+    message: message || `rotation failed (HTTP ${response.status})`,
+  };
 }
 
 async function requestWalletRecoverySet(args: {

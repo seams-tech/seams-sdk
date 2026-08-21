@@ -57,6 +57,13 @@ async function recoverySet(lifecycleState: 'active' | 'consumed' = 'active') {
   };
 }
 
+async function expectedRecoveryKeyId() {
+  return await deriveWalletRecoveryKeyIdFromBytes({
+    codeBytes: CODE,
+    walletId: WALLET_ID,
+  });
+}
+
 function storeStub(record: unknown, options: { writes: unknown[]; conflict?: boolean }) {
   return {
     readRecoveryEnvelopeSet: async () => (record ? { record, storeVersion: '4' } : null),
@@ -72,6 +79,7 @@ test('a valid code returns the wrapped payload and records only a reservation', 
   const result = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes }),
     walletId: WALLET_ID as never,
+    expectedRecoveryKeyId: await expectedRecoveryKeyId(),
     recoveryCodeBytes: CODE,
     reservationId: 'reservation-1' as never,
     nowMs: 2_000,
@@ -91,6 +99,7 @@ test('an unknown code and a spent code are indistinguishable', async () => {
   const unknown = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes: [] }),
     walletId: WALLET_ID as never,
+    expectedRecoveryKeyId: await expectedRecoveryKeyId(),
     recoveryCodeBytes: OTHER_CODE,
     reservationId: 'reservation-1' as never,
     nowMs: 2_000,
@@ -99,6 +108,7 @@ test('an unknown code and a spent code are indistinguishable', async () => {
   const spent = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet('consumed'), { writes: [] }),
     walletId: WALLET_ID as never,
+    expectedRecoveryKeyId: await expectedRecoveryKeyId(),
     recoveryCodeBytes: CODE,
     reservationId: 'reservation-1' as never,
     nowMs: 2_000,
@@ -113,6 +123,7 @@ test('a wallet with no recovery set answers like a wrong code', async () => {
   const missing = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(null, { writes: [] }),
     walletId: WALLET_ID as never,
+    expectedRecoveryKeyId: await expectedRecoveryKeyId(),
     recoveryCodeBytes: CODE,
     reservationId: 'reservation-1' as never,
     nowMs: 2_000,
@@ -126,6 +137,7 @@ test('a losing concurrent attempt is a conflict, never a silent success', async 
   const result = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes, conflict: true }),
     walletId: WALLET_ID as never,
+    expectedRecoveryKeyId: await expectedRecoveryKeyId(),
     recoveryCodeBytes: CODE,
     reservationId: 'reservation-1' as never,
     nowMs: 2_000,

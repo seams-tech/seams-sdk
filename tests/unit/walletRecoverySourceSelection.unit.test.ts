@@ -1,11 +1,18 @@
 import { expect, test } from '@playwright/test';
 import { parseRecoveryCodeReservationId } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeReservation';
+import { deriveRecoveryCodeLocatorV1FromBytes } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeLocator';
 import { createD1PasskeyCustodyRouteService } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
 
 test('recovery refuses when more than one owner auth method is active', async () => {
+  const locator = await deriveRecoveryCodeLocatorV1FromBytes(new Uint8Array(20));
   const service = createD1PasskeyCustodyRouteService({
     passkeyCustodyEnvelopes: {} as never,
     walletCustodyCommits: {
+      readRecoveryCodeLocator: async () => ({
+        locatorB64u: locator,
+        walletId: 'alice.testnet' as never,
+        recoveryKeyId: 'wallet-rkid-v1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as never,
+      }),
       listWalletAuthMethods: async () =>
         [
           {
@@ -40,10 +47,9 @@ test('recovery refuses when more than one owner auth method is active', async ()
   });
 
   const result = await service.prepareRecovery({
-    walletId: 'alice.testnet' as never,
     rpId: 'example.localhost',
     origin: 'https://example.localhost',
-    recoveryCodeBytes: new Uint8Array([1]),
+    recoveryCodeBytes: new Uint8Array(20),
     reservationId: parseRecoveryCodeReservationId('recovery-operation-1'),
   });
 

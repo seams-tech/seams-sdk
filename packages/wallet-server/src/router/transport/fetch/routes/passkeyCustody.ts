@@ -1,5 +1,6 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import type { PasskeyCustodyEnvelopeRetrievalWireRequest } from '../../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import type { WalletRecoveryCodeLocatorRecord } from '../../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import {
   findRouteDefinitionById,
   matchesRouteDefinitionRequest,
@@ -72,6 +73,8 @@ import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/ut
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWalletRecoverySetRotationWireV1 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
+import { parseRecoveryCodeLocatorV1 } from '@shared/wallet-recovery/recoveryCodeLocator';
+import { parseDerivedWalletRecoveryKeyId } from '@shared/wallet-recovery/recoveryKeyId';
 import {
   parseWalletRecoveryEcdsaPossessionProofV1,
   type WalletRecoveryEcdsaPossessionProofV1,
@@ -834,7 +837,6 @@ export async function handleWalletRecoveryPrepare(
   const body = await readJsonObject(ctx.request);
   let parsed:
     | {
-        readonly walletId: WalletId;
         readonly rpId: WebAuthnRpId;
         readonly recoveryCodeB64u: string;
         readonly reservationId: RecoveryCodeReservationId;
@@ -844,17 +846,15 @@ export async function handleWalletRecoveryPrepare(
     if (!body) throw new Error('wallet recovery preparation body is required');
     requireExactObjectFields(
       body,
-      ['walletId', 'rpId', 'recoveryCodeB64u', 'reservationId'],
+      ['rpId', 'recoveryCodeB64u', 'reservationId'],
       'wallet recovery preparation',
     );
-    const walletId = parseWalletId(body.walletId);
     const rpId = parseWebAuthnRpId(body.rpId);
     const recoveryCodeB64u = parseRequiredString(body.recoveryCodeB64u, 'recoveryCodeB64u');
-    if (!walletId.ok || !rpId.ok || !/^[A-Za-z0-9_-]+$/.test(recoveryCodeB64u)) {
+    if (!rpId.ok || !/^[A-Za-z0-9_-]+$/.test(recoveryCodeB64u)) {
       throw new Error('wallet recovery preparation is invalid');
     }
     parsed = {
-      walletId: walletId.value,
       rpId: rpId.value,
       recoveryCodeB64u,
       reservationId: parseRecoveryCodeReservationId(body.reservationId),
@@ -892,7 +892,6 @@ export async function handleWalletRecoveryPrepare(
 
   try {
     const result = await ctx.service.passkeyCustody.prepareRecovery({
-      walletId: parsed.walletId,
       rpId: parsed.rpId,
       origin,
       recoveryCodeBytes,
@@ -904,6 +903,7 @@ export async function handleWalletRecoveryPrepare(
           status: 200,
           body: {
             ok: true,
+            walletId: result.walletId,
             wrap: result.wrap,
             entries: result.entries,
             keyManifest: result.keyManifest,
@@ -1024,6 +1024,31 @@ async function readJsonObject(request: Request): Promise<Record<string, unknown>
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseRecoveryCodeLocatorRecords(
+  values: readonly Record<string, unknown>[],
+  walletId: WalletId,
+  recoveryKeyIds: readonly ReturnType<typeof parseDerivedWalletRecoveryKeyId>[],
+): readonly WalletRecoveryCodeLocatorRecord[] {
+  if (values.length !== recoveryKeyIds.length) {
+    throw new Error('recovery code locators do not match the recovery wraps');
+  }
+  const locators = values.map((value, index) => {
+    requireExactObjectFields(value, ['locatorB64u', 'recoveryKeyId'], 'recovery code locator');
+    const locatorB64u = parseRecoveryCodeLocatorV1(value.locatorB64u);
+    const recoveryKeyId = parseDerivedWalletRecoveryKeyId(value.recoveryKeyId);
+    const expectedRecoveryKeyId = recoveryKeyIds[index];
+    if (!expectedRecoveryKeyId || String(recoveryKeyId) !== String(expectedRecoveryKeyId)) {
+      throw new Error('recovery code locator does not match its recovery wrap');
+    }
+    return { locatorB64u, walletId, recoveryKeyId };
+  });
+  const uniqueLocators = new Set(locators.map((locator) => String(locator.locatorB64u)));
+  if (uniqueLocators.size !== locators.length) {
+    throw new Error('recovery code locators must be unique');
+  }
+  return locators;
 }
 
 /**
@@ -1257,7 +1282,18 @@ export async function handleWalletRecoveryRotate(
     ? body.manifestKekWraps.filter(isObject)
     : [];
   const entries = Array.isArray(body?.entries) ? body.entries.filter(isObject) : [];
-  if (!walletId || !expectedStoreVersion || manifestKekWraps.length === 0 || entries.length !== 1) {
+  const rawRecoveryCodeLocators = Array.isArray(body?.recoveryCodeLocators)
+    ? body.recoveryCodeLocators
+    : [];
+  const recoveryCodeLocators = rawRecoveryCodeLocators.filter(isObject);
+  if (
+    !walletId ||
+    !expectedStoreVersion ||
+    manifestKekWraps.length === 0 ||
+    entries.length !== 1 ||
+    recoveryCodeLocators.length !== rawRecoveryCodeLocators.length ||
+    recoveryCodeLocators.length !== manifestKekWraps.length
+  ) {
     return toFetchRouteResponse({
       status: 400,
       body: {
@@ -1276,10 +1312,16 @@ export async function handleWalletRecoveryRotate(
   }
 
   let replacement: ReturnType<typeof parseWalletRecoverySetRotationWireV1>;
+  let parsedRecoveryCodeLocators: readonly WalletRecoveryCodeLocatorRecord[];
   try {
     replacement = parseWalletRecoverySetRotationWireV1(
       { walletId, manifestKekWraps, entries },
       { expectedWalletId: parsedWalletId.value },
+    );
+    parsedRecoveryCodeLocators = parseRecoveryCodeLocatorRecords(
+      recoveryCodeLocators,
+      parsedWalletId.value,
+      replacement.manifestKekWraps.map((wrap) => wrap.recoveryKeyId),
     );
   } catch (error: unknown) {
     return toFetchRouteResponse({
@@ -1296,7 +1338,13 @@ export async function handleWalletRecoveryRotate(
     ctx,
     walletId,
     operation: 'recovery_rotate',
-    payload: { walletId, expectedStoreVersion, manifestKekWraps, entries },
+    payload: {
+      walletId,
+      expectedStoreVersion,
+      manifestKekWraps,
+      entries,
+      recoveryCodeLocators,
+    },
     factorProof: body?.factorProof,
   });
   if (!authorized.ok) return authorized.response;
@@ -1304,6 +1352,7 @@ export async function handleWalletRecoveryRotate(
   const result = await ctx.service.passkeyCustody.rotateRecoveryCodes({
     walletId,
     replacement,
+    recoveryCodeLocators: parsedRecoveryCodeLocators,
     expectedStoreVersion,
   });
 

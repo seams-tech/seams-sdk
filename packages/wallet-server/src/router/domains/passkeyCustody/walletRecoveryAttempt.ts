@@ -1,4 +1,5 @@
 import { deriveWalletRecoveryKeyIdFromBytes } from '@shared/wallet-recovery/recoveryCodes';
+import type { DerivedWalletRecoveryKeyId } from '@shared/wallet-recovery/recoveryKeyId';
 import {
   reserveRecoveryCode,
   type RecoveryCodeReservationId,
@@ -31,6 +32,7 @@ import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/p
 export type WalletRecoveryPreparationResult =
   | {
       readonly kind: 'prepared';
+      readonly walletId: WalletId;
       /** Opaque to the server: the client opens these with the code. */
       readonly wrap: {
         readonly nonceB64u: string;
@@ -50,6 +52,8 @@ export type WalletRecoveryPreparationResult =
 export async function prepareWalletRecoveryWithCodeV1(input: {
   readonly store: CloudflareD1WalletCustodyCommitStore;
   readonly walletId: WalletId;
+  /** The key id recorded beside the code-only locator. */
+  readonly expectedRecoveryKeyId: DerivedWalletRecoveryKeyId;
   /** The user's code, decoded. Never logged, never stored. */
   readonly recoveryCodeBytes: Uint8Array;
   readonly reservationId: RecoveryCodeReservationId;
@@ -63,6 +67,7 @@ export async function prepareWalletRecoveryWithCodeV1(input: {
     codeBytes: input.recoveryCodeBytes,
     walletId: String(input.walletId),
   });
+  if (String(recoveryKeyId) !== String(input.expectedRecoveryKeyId)) return refused();
   const index = stored.record.manifestKekWraps.findIndex(
     (wrap) => String(wrap.recoveryKeyId) === String(recoveryKeyId),
   );
@@ -96,6 +101,7 @@ export async function prepareWalletRecoveryWithCodeV1(input: {
 
   return {
     kind: 'prepared',
+    walletId: input.walletId,
     wrap: {
       nonceB64u: String(wrap.nonceB64u),
       wrappedManifestKekB64u: String(wrap.wrappedManifestKekB64u),

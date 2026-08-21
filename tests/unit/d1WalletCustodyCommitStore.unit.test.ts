@@ -11,9 +11,11 @@ import type {
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildWalletRecoveryBackupAcknowledgementV1 } from '../../packages/shared-ts/src/wallet-recovery/backupAcknowledgement';
+import { parseRecoveryCodeLocatorV1 } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeLocator';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
   CREDENTIAL_ID_B64U,
+  ALT_DIGEST_B64U,
   DIGEST_B64U,
   ENVELOPE_ID,
   OTHER_WALLET_ID,
@@ -23,6 +25,7 @@ import {
   rawEmailOtpFactor,
   rawWalletCustodySeedBinding,
   rawWalletRecoveryEnvelopeSet,
+  rawWalletRecoveryCodeLocators,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 /**
@@ -66,6 +69,13 @@ function registrationCommit(input: {
       issuedAtMs: input.recoverySet.issuedAtMs,
       acknowledgedAtMs: input.recoverySet.issuedAtMs + 1,
     }),
+    recoveryCodeLocators: rawWalletRecoveryCodeLocators().map((locator, index) => ({
+      locatorB64u: (String(input.recoverySet.walletId) === String(WALLET_ID)
+        ? locator.locatorB64u
+        : `${String.fromCharCode(75 + index)}${ALT_DIGEST_B64U.slice(1)}`) as never,
+      walletId: input.recoverySet.walletId,
+      recoveryKeyId: locator.recoveryKeyId as never,
+    })),
   };
 }
 
@@ -107,6 +117,15 @@ test('a registration commit stores the envelope and the recovery set together', 
     const stored = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
     expect(stored?.record.manifestKekWraps.length).toBe(10);
     expect(stored?.record.entries[0]?.custodySecretKind).toBe('wallet_custody_seed_v1');
+
+    const locator = parseRecoveryCodeLocatorV1(rawWalletRecoveryCodeLocators()[0]?.locatorB64u);
+    await expect(commit.readRecoveryCodeLocator(locator)).resolves.toMatchObject({
+      locatorB64u: locator,
+      walletId: WALLET_ID,
+    });
+    await expect(
+      commit.readRecoveryCodeLocator(parseRecoveryCodeLocatorV1(ALT_DIGEST_B64U)),
+    ).resolves.toBeNull();
   });
 });
 
@@ -201,6 +220,23 @@ test('a recovery set is readable only under the wallet it names', async () => {
   });
 });
 
+test('locator lookup is isolated to its tenant scope', async () => {
+  await withStores(async ({ commit, database }) => {
+    const initial = registrationCommit({
+      envelope: passkeyCustodyEnvelope(),
+      recoverySet: recoverySet(),
+    });
+    await commit.commitRegistration(initial);
+
+    const otherTenant = new CloudflareD1WalletCustodyCommitStore({
+      database,
+      scope: { ...TEST_SCOPE, orgId: 'org-b' },
+    });
+    const locator = parseRecoveryCodeLocatorV1(rawWalletRecoveryCodeLocators()[0]?.locatorB64u);
+    await expect(otherTenant.readRecoveryCodeLocator(locator)).resolves.toBeNull();
+  });
+});
+
 test('a backup acknowledgement round-trips through the custody record store', async () => {
   await withStores(async ({ commit }) => {
     const acknowledgement = buildWalletRecoveryBackupAcknowledgementV1({
@@ -234,5 +270,57 @@ test('two wallets keep separate custody', async () => {
     const other = await commit.readRecoveryEnvelopeSet(OTHER_WALLET_ID as WalletId);
     expect(String(first?.record.walletId)).toBe(WALLET_ID);
     expect(String(other?.record.walletId)).toBe(OTHER_WALLET_ID);
+  });
+});
+
+test('a locator collision rejects the second registration atomically', async () => {
+  await withStores(async ({ commit }) => {
+    const first = await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet(),
+      }),
+    );
+    expect(first.kind).toBe('committed');
+
+    const other = registrationCommit({
+      envelope: passkeyCustodyEnvelope({ walletId: OTHER_WALLET_ID }),
+      recoverySet: recoverySet({ walletId: OTHER_WALLET_ID }),
+    });
+    const colliding = {
+      ...other,
+      recoveryCodeLocators: other.recoveryCodeLocators.map((locator, index) => ({
+        ...locator,
+        locatorB64u: rawWalletRecoveryCodeLocators()[index]?.locatorB64u as never,
+      })),
+    };
+
+    await expect(commit.commitRegistration(colliding)).resolves.toEqual({
+      kind: 'inconsistent',
+      reason: 'recovery code locator already exists',
+    });
+    expect(await commit.readRecoveryEnvelopeSet(OTHER_WALLET_ID as WalletId)).toBeNull();
+  });
+});
+
+test('a rotation rejects reusing an existing locator before replacing the set', async () => {
+  await withStores(async ({ commit }) => {
+    const initial = registrationCommit({
+      envelope: passkeyCustodyEnvelope(),
+      recoverySet: recoverySet(),
+    });
+    expect((await commit.commitRegistration(initial)).kind).toBe('committed');
+
+    const replacement = recoverySet({ issuedAtMs: 3_000, updatedAtMs: 3_000 });
+    await expect(
+      commit.replaceRecoveryEnvelopeSetAndPreserveBackupAcknowledgement({
+        record: replacement,
+        expectedRecoverySetVersion: '1',
+        recoveryCodeLocators: initial.recoveryCodeLocators,
+      }),
+    ).resolves.toEqual({ kind: 'collision' });
+
+    const stored = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
+    expect(stored?.record.issuedAtMs).toBe(1_000);
   });
 });

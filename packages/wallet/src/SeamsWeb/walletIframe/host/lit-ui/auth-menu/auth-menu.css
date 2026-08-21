@@ -275,6 +275,10 @@ seams-auth-menu-surface {
   width: 100%;
 }
 
+.w3a-signup-menu-root[data-recovery='true'] .w3a-signin-menu {
+  padding-block-start: var(--w3a-spacing-md);
+}
+
 /* Enter recipe: opacity + blur + a small rise. No scale — scaling a text block
    re-rasterizes glyphs mid-animation and shimmers. Exits stay instant: an
    outgoing view doesn't deserve the attention an incoming one gets. */
@@ -1883,15 +1887,6 @@ seams-auth-menu-surface {
 
 .w3a-recovery-error {
   color: var(--w3a-colors-error);
-}
-
-.w3a-recovery-wallet {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--w3a-shape-control, 10px);
-  background: var(--w3a-colors-surface);
-  font-size: 0.875rem;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 320px) {

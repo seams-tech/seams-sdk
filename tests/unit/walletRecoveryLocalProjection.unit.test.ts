@@ -194,14 +194,12 @@ test.describe('wallet recovery local continuity', () => {
           } as never;
           const first = await coordinator.prepareWithCode({
             context,
-            walletId: 'alice.testnet',
             relayUrl: 'https://relay.example.test',
             recoveryCode: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789',
             signal: new AbortController().signal,
           });
           const second = await coordinator.prepareWithCode({
             context,
-            walletId: 'alice.testnet',
             relayUrl: 'https://relay.example.test',
             recoveryCode: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789',
             signal: new AbortController().signal,

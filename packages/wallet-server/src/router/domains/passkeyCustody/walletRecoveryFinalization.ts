@@ -354,6 +354,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       revokedAtMs: input.nowMs,
     },
     reservationId: input.reservationId,
+    recoveryKeyId: selected.recoveryKeyId,
     authenticatorCommit,
   });
   if (committed.kind === 'conflict') {

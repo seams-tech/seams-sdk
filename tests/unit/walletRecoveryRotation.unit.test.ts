@@ -31,6 +31,36 @@ function rotatedWraps(count: number) {
   ) as never;
 }
 
+function replacement(count = 10) {
+  const wraps = rotatedWraps(count) as Array<Record<string, unknown>>;
+  return {
+    walletId: WALLET_ID,
+    manifestKekWraps: wraps.map((wrap) => ({
+      recoveryKeyId: wrap.recoveryKeyId,
+      nonceB64u: String(wrap.nonceB64u),
+      ciphertextB64u: String(wrap.wrappedManifestKekB64u),
+      aadHashB64u: String(wrap.aadHashB64u),
+    })),
+    entry: {
+      nonceB64u: 'AQIDBAUGBwgJCgsM',
+      wrappedCustodySecretB64u: 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2',
+      aadHashB64u: 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA',
+    },
+  };
+}
+
+function recoveryCodeLocators(count = 10) {
+  return (replacement(count).manifestKekWraps as Array<{ recoveryKeyId: string }>).map(
+    (wrap, index) => ({
+      locatorB64u: `${String.fromCharCode(65 + index)}${'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA'.slice(
+        1,
+      )}`,
+      walletId: WALLET_ID as never,
+      recoveryKeyId: wrap.recoveryKeyId as never,
+    }),
+  );
+}
+
 function storeStub(options: {
   readonly writes: unknown[];
   readonly conflict?: boolean;
@@ -41,7 +71,7 @@ function storeStub(options: {
     record,
     store: {
       readRecoveryEnvelopeSet: async () => (options.missing ? null : { record, storeVersion: '4' }),
-      writeRecoveryEnvelopeSet: async (input: unknown) => {
+      replaceRecoveryEnvelopeSetAndPreserveBackupAcknowledgement: async (input: unknown) => {
         options.writes.push(input);
         return options.conflict ? { kind: 'conflict' } : { kind: 'stored', storeVersion: '5' };
       },
@@ -55,7 +85,9 @@ test('a rotation replaces the wraps and leaves the entries alone', async () => {
   const result = await rotateWalletRecoveryCodesV1({
     store,
     walletId: WALLET_ID as never,
-    manifestKekWraps: rotatedWraps(10),
+    replacement: replacement(),
+    recoveryCodeLocators: recoveryCodeLocators(),
+    expectedStoreVersion: '4',
     nowMs: 9_000,
   });
 
@@ -73,7 +105,9 @@ test('a rotation that does not advance the clock is refused', async () => {
   const result = await rotateWalletRecoveryCodesV1({
     store: storeStub({ writes }).store,
     walletId: WALLET_ID as never,
-    manifestKekWraps: rotatedWraps(10),
+    replacement: replacement(),
+    recoveryCodeLocators: recoveryCodeLocators(),
+    expectedStoreVersion: '4',
     nowMs: 1_000,
   });
 
@@ -88,7 +122,9 @@ test('a set with the wrong number of wraps never reaches the store', async () =>
   const result = await rotateWalletRecoveryCodesV1({
     store: storeStub({ writes }).store,
     walletId: WALLET_ID as never,
-    manifestKekWraps: rotatedWraps(9),
+    replacement: replacement(9),
+    recoveryCodeLocators: recoveryCodeLocators(9),
+    expectedStoreVersion: '4',
     nowMs: 9_000,
   });
 
@@ -102,19 +138,25 @@ test('the write is guarded against the version the read saw', async () => {
   await rotateWalletRecoveryCodesV1({
     store: storeStub({ writes }).store,
     walletId: WALLET_ID as never,
-    manifestKekWraps: rotatedWraps(10),
+    replacement: replacement(),
+    recoveryCodeLocators: recoveryCodeLocators(),
+    expectedStoreVersion: '4',
     nowMs: 9_000,
   });
   // A rotation and a spend both rewrite the wrap list; without this one could
   // land on the other and resurrect a consumed code.
-  expect((writes[0] as { expectedStoreVersion: string }).expectedStoreVersion).toBe('4');
+  expect((writes[0] as { expectedRecoverySetVersion: string }).expectedRecoverySetVersion).toBe(
+    '4',
+  );
 });
 
 test('a losing rotation is a conflict, not a silent no-op', async () => {
   const result = await rotateWalletRecoveryCodesV1({
     store: storeStub({ writes: [], conflict: true }).store,
     walletId: WALLET_ID as never,
-    manifestKekWraps: rotatedWraps(10),
+    replacement: replacement(),
+    recoveryCodeLocators: recoveryCodeLocators(),
+    expectedStoreVersion: '4',
     nowMs: 9_000,
   });
   // Reporting success would tell the user their old codes are dead when a
@@ -126,7 +168,9 @@ test('a wallet with no recovery set cannot rotate', async () => {
   const result = await rotateWalletRecoveryCodesV1({
     store: storeStub({ writes: [], missing: true }).store,
     walletId: WALLET_ID as never,
-    manifestKekWraps: rotatedWraps(10),
+    replacement: replacement(),
+    recoveryCodeLocators: recoveryCodeLocators(),
+    expectedStoreVersion: '4',
     nowMs: 9_000,
   });
   expect(result.kind).toBe('no_recovery_set');
