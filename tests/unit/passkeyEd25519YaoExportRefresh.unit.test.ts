@@ -88,6 +88,7 @@ class PasskeyEd25519ExportRefreshHarness {
   buildDurableContext(): PasskeyEd25519YaoExportContextV1 {
     return {
       kind: 'passkey_ed25519_yao_export_context_v1',
+      selectedLaneMaterialActivation: MATERIAL_ACTIVATION,
       relayerUrl: RELAYER_URL,
       rpId: RP_ID,
       authorization: DURABLE_EXPORT_AUTHORIZATION,
@@ -177,6 +178,7 @@ class DurablePasskeyEd25519ExportRefreshHarness extends PasskeyEd25519ExportRefr
       kind: 'ready',
       context: {
         kind: 'passkey_ed25519_yao_export_context_v1',
+        selectedLaneMaterialActivation: MATERIAL_ACTIVATION,
         relayerUrl: RELAYER_URL,
         rpId: RP_ID,
         authorization: DURABLE_EXPORT_AUTHORIZATION,
