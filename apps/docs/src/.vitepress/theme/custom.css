@@ -88,15 +88,17 @@
   --seams-accent-gradient: linear-gradient(180deg, #8ad9bb 0%, #6ec7a4 55%, #52ab89 100%);
 }
 
-/* A soft, fixed page wash: two cool washes and one warm one, all under 10%
-   alpha, so the page reads as white paper with light in it rather than as a
-   colored surface. Content surfaces go transparent to let it through. */
+/* A soft, fixed page wash: a diagonal paper base from white into a pale
+   evergreen, with three tinted pools over it. Everything stays low-alpha so
+   the page reads as tinted paper, never as a colored surface. Content
+   surfaces go transparent to let it through. */
 body {
   background-color: var(--vp-c-bg);
   background-image:
-    radial-gradient(1100px 620px at 6% -10%, rgb(63 174 134 / 0.08), transparent 62%),
-    radial-gradient(900px 540px at 98% 4%, rgb(214 200 168 / 0.1), transparent 60%),
-    radial-gradient(1250px 700px at 80% 100%, rgb(110 178 160 / 0.1), transparent 66%);
+    radial-gradient(1200px 680px at 4% -12%, rgb(63 174 134 / 0.13), transparent 60%),
+    radial-gradient(1000px 560px at 100% 2%, rgb(212 198 166 / 0.14), transparent 58%),
+    radial-gradient(1300px 760px at 84% 104%, rgb(88 166 146 / 0.16), transparent 64%),
+    linear-gradient(155deg, #ffffff 0%, #fbfdfc 44%, #eef5f1 100%);
   background-attachment: fixed;
 }
 
