@@ -88,25 +88,27 @@
   --seams-accent-gradient: linear-gradient(180deg, #8ad9bb 0%, #6ec7a4 55%, #52ab89 100%);
 }
 
-/* A soft, fixed page wash: a diagonal paper base from white into a pale
-   evergreen, with three tinted pools over it. Everything stays low-alpha so
-   the page reads as tinted paper, never as a colored surface. Content
-   surfaces go transparent to let it through. */
+/* A faint pass of the site hero's sage gradient (--h2-gradient-sage:
+   160deg, #919690 -> #c7d0cf), dropped to a tenth of its strength so it reads
+   as tinted paper. Content surfaces go transparent to let it through. */
 body {
   background-color: var(--vp-c-bg);
-  background-image:
-    radial-gradient(1200px 680px at 4% -12%, rgb(63 174 134 / 0.13), transparent 60%),
-    radial-gradient(1000px 560px at 100% 2%, rgb(212 198 166 / 0.14), transparent 58%),
-    radial-gradient(1300px 760px at 84% 104%, rgb(88 166 146 / 0.16), transparent 64%),
-    linear-gradient(155deg, #ffffff 0%, #fbfdfc 44%, #eef5f1 100%);
+  background-image: linear-gradient(
+    160deg,
+    rgb(145 150 144 / 0.09) 0%,
+    rgb(199 208 207 / 0.16) 52%,
+    rgb(145 150 144 / 0.14) 100%
+  );
   background-attachment: fixed;
 }
 
 .dark body {
-  background-image:
-    radial-gradient(1100px 620px at 6% -10%, rgb(63 174 134 / 0.14), transparent 62%),
-    radial-gradient(900px 540px at 98% 4%, rgb(224 190 104 / 0.05), transparent 60%),
-    radial-gradient(1250px 700px at 80% 100%, rgb(110 199 164 / 0.1), transparent 66%);
+  background-image: linear-gradient(
+    160deg,
+    rgb(145 150 144 / 0.1) 0%,
+    rgb(199 208 207 / 0.06) 52%,
+    rgb(145 150 144 / 0.12) 100%
+  );
 }
 
 .VPContent,
