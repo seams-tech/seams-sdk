@@ -5,27 +5,19 @@ import {
 import type {
   OrdinarySignerMaterialRecipientRequestV1,
   OrdinarySignerMaterialRecipientRequirementV1,
+  OrdinarySignerMaterialReservationPreparationV1,
   VerifiedTargetFactorV1,
 } from '@shared/device-linking/contracts';
 import {
-  parseRouterAbEd25519YaoParticipantIdsV1,
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
-  type RouterAbEd25519YaoActivationExecuteRequestV1,
-} from '@shared/utils/routerAbEd25519Yao';
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+} from '@shared/device-linking/sourceContribution';
 import {
-  parseRouterAbEcdsaRegistrationRequestV1,
-  type RouterAbEcdsaRegistrationRequestV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  parseMpcMaterialActivationRef,
   parseWalletAuthMethodId,
   parseWalletKeyId,
-  type MpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletAuthorityId,
   type WalletKeyId,
 } from '@shared/utils/domainIds';
-import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
@@ -41,16 +33,7 @@ import type { DeviceLinkingResealedEd25519ExportRootV1 } from './deviceLinkingEd
 import type { DeviceLinkingKeyMaterialHandleV1 } from './deviceLinkingPorts';
 
 export type DeviceLinkingOrdinarySignerMaterialReservationPreparationV1 =
-  | {
-      readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
-      readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-      readonly participantIds: readonly [number, number];
-    }
-  | {
-      readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';
-      readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
-      readonly materialActivation: MpcMaterialActivationRef;
-    };
+  OrdinarySignerMaterialReservationPreparationV1;
 
 export type DeviceLinkingOrdinarySignerMaterialRecipientInputV1 =
   | {
@@ -420,16 +403,12 @@ function parsePreparationTuple(
     throw new Error('ordinary signer material preparations must contain one or two entries');
   }
   const preparations = value.map(parsePreparation);
-  const kinds = new Set(preparations.map((entry) => entry.kind));
-  if (kinds.size !== preparations.length) {
+  const families = preparations.map((entry) => ('kind' in entry ? 'ed25519' : 'ecdsa_secp256k1'));
+  if (new Set(families).size !== preparations.length) {
     throw new Error('ordinary signer material preparations repeat a key family');
   }
   const activations = preparations.map((entry) =>
-    entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
-      ? routerAbMpcMaterialActivationRefFromWire(
-          entry.activationRequest.binding.material_activation,
-        )
-      : entry.materialActivation,
+    'kind' in entry ? entry.targetMaterialActivation : entry.target.activation,
   );
   if (activations.length === 2 && activations[0]!.activationId === activations[1]!.activationId) {
     throw new Error('ordinary signer material preparations repeat an activation reference');
@@ -653,28 +632,7 @@ function parseWalletKey(value: unknown): WalletKeyId {
 function parsePreparation(
   value: unknown,
 ): DeviceLinkingOrdinarySignerMaterialReservationPreparationV1 {
-  const record = requireRecord(value, 'ordinary material preparation');
-  if (record.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
-    exactRecord(record, ['kind', 'activationRequest', 'participantIds']);
-    const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-      record.activationRequest,
-    );
-    if (!parsed.ok) throw new Error(parsed.message);
-    return {
-      kind: record.kind,
-      activationRequest: parsed.value,
-      participantIds: parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds),
-    };
-  }
-  if (record.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
-    exactRecord(record, ['kind', 'registrationRequest', 'materialActivation']);
-    return {
-      kind: record.kind,
-      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
-      materialActivation: parseMaterialActivation(record.materialActivation),
-    };
-  }
-  throw new Error('ordinary material preparation kind is unsupported');
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationV1(value);
 }
 
 function parseTargetFactorBindingV1(value: unknown): DeviceLinkingOrdinaryTargetFactorBindingV1 {
@@ -725,12 +683,6 @@ function parseTargetFactorBindingV1(value: unknown): DeviceLinkingOrdinaryTarget
     };
   }
   throw new Error('ordinary material target factor kind is unsupported');
-}
-
-function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
-  const parsed = parseMpcMaterialActivationRef(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
 }
 
 function isSealedLocalAuthorityMaterialSetV1(

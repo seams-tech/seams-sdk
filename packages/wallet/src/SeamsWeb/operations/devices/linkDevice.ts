@@ -165,6 +165,7 @@ function phaseForState(state: LinkSessionStateV1): LinkDeviceEventPhase {
       return LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED;
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
     case 'authority_pending_local_install':
     case 'active':
@@ -522,7 +523,8 @@ export class LinkDeviceFlow {
             };
             break;
           case 'claimed':
-          case 'awaiting_target_factor': {
+          case 'awaiting_target_factor':
+          case 'awaiting_source_contribution': {
             const identity = await this.resolveLinkIdentityV1(session.linkSessionId);
             await authenticatedTransport.cancelSessionV1({
               request: buildLinkedDeviceSessionCancelClaimedRequestV1({
@@ -639,6 +641,8 @@ export class LinkDeviceFlow {
         return;
       case 'awaiting_target_factor':
         await this.prepareTargetCredentialActivation(event, runEpoch);
+        return;
+      case 'awaiting_source_contribution':
         return;
       case 'provisioning':
       case 'authority_pending_local_install': {
@@ -1733,6 +1737,7 @@ export class LinkDeviceFlow {
         return;
       }
       case 'displaying_qr':
+      case 'awaiting_source_contribution':
       case 'provisioning':
       case 'authority_pending_local_install':
       case 'active':
@@ -1869,6 +1874,7 @@ function isFinishedDeviceLinkFlow(flow: LinkDeviceFlow): boolean {
     case 'displaying_qr':
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
     case 'authority_pending_local_install':
       return false;
