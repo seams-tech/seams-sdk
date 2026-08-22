@@ -122,12 +122,14 @@ body:has(.h2-page) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 16px;
+  gap: 7px;
+  height: 40px;
+  padding: 0 18px;
   border-radius: 9999px;
   border: 1px solid transparent;
-  font-size: var(--h2-text-lg);
+  /* Set in px rather than off --h2-text-lg: that token sizes dense UI text
+     (12.5px), and these are the pages' primary calls to action. */
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
@@ -159,10 +161,13 @@ body:has(.h2-page) {
   background: var(--h2-taupe);
 }
 
+/* Kept 4px taller than the base button, as before: hero CTAs pair an --lg
+   primary with a plain outline, and widening the step makes the mismatched
+   pair read as a mistake. */
 .h2-btn--lg {
-  height: 40px;
-  padding: 0 20px;
-  font-size: 13.5px;
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
 }
 
 /* ---------- flat navbar (structural reskin of NavbarStatic on this page) ---------- */
