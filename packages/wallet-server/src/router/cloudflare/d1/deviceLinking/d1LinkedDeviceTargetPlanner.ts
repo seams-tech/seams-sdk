@@ -28,6 +28,7 @@ import type { LaneHolderParticipantId } from '@shared/signing-lanes/participants
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import type { KeyCreationSignerSlot } from '@shared/passkey-custody/primitives';
 import type { Ed25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
+import type { RouterAbEd25519YaoActivationBindingV1 } from '@shared/utils/routerAbEd25519Yao';
 import type {
   NearEd25519SigningKeyId,
   WalletAuthMethodRecordV2,
@@ -56,6 +57,7 @@ type LinkedDeviceOwnerEd25519SourceChildResolutionV1 =
     readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     readonly keyCreationSignerSlot: KeyCreationSignerSlot;
     readonly stableContextBindingB64u: string;
+    readonly sourceBinding: RouterAbEd25519YaoActivationBindingV1<'registration'>;
   };
 
 type LinkedDeviceOwnerEcdsaSourceChildResolutionV1 =
@@ -67,6 +69,8 @@ type LinkedDeviceOwnerEcdsaSourceChildResolutionV1 =
     readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
     readonly sourceHolderVerifyingShare33B64u: string;
     readonly sourceServerVerifyingShare33B64u: string;
+    readonly applicationBindingDigestB64u: DigestB64u;
+    readonly clientShareRetryCounter: number;
   };
 
 export type LinkedDeviceOwnerSourceChildResolutionV1 =

@@ -98,6 +98,7 @@ import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1,
 } from '@shared/device-linking/sourceContribution';
+import { linkedDeviceX25519RecipientPublicKeyB64uV1 } from './d1LinkedDeviceSourceContributionPreparationPlanner';
 
 type ExactSigner = ExactAdministeredSignerV1;
 
@@ -1279,7 +1280,8 @@ function assertPreparationMatchesContributionV1(
     preparation.target.signingWorkerRecipientPublicKeyB64u !==
       contribution.target.signingWorkerRecipientPublicKeyB64u ||
     !('clientEphemeralPublicKey' in request) ||
-    request.clientEphemeralPublicKey !== preparation.target.clientRecipientPublicKeyB64u
+    linkedDeviceX25519RecipientPublicKeyB64uV1(request.clientEphemeralPublicKey) !==
+      preparation.target.clientRecipientPublicKeyB64u
   ) {
     throw new Error('ECDSA source contribution differs from its persisted preparation');
   }

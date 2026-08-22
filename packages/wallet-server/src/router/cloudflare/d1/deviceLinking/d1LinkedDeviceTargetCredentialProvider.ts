@@ -48,6 +48,7 @@ import {
   type VerifiedLinkSourceReadV1,
   type VerifiedLinkSourceReaderV1,
 } from './d1LinkedDeviceVerifiedLinkBuilder';
+import { linkedDeviceX25519RecipientPublicKeyB64uV1 } from './d1LinkedDeviceSourceContributionPreparationPlanner';
 
 export type VerifiedLinkedDeviceWebAuthnCredentialV1 = {
   readonly credentialIdB64u: string;
@@ -1237,7 +1238,9 @@ function assertSourceContributionPreparationContextV1(input: {
       preparation.source.thresholdPublicKey33B64u !== signer.thresholdPublicKey33B64u ||
       !mpcMaterialActivationRefsEqual(preparation.source.activation, sourceLaneHint.materialActivation) ||
       preparation.target.clientRecipientPublicKeyB64u !==
-        ('clientEphemeralPublicKey' in request ? request.clientEphemeralPublicKey : '')
+        ('clientEphemeralPublicKey' in request
+          ? linkedDeviceX25519RecipientPublicKeyB64uV1(request.clientEphemeralPublicKey)
+          : '')
     ) {
       throw new Error(`linked-device ECDSA source preparation ${index} differs from its inputs`);
     }
