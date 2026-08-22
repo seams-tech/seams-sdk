@@ -1,19 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { parseWalletId } from '@shared/utils/domainIds';
-import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import { parseLinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { createWalletHostOwnerAuthoritiesV1 } from '@/SeamsWeb/operations/devices/walletHostOwnerAuthority';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
-import {
-  selectWalletHostOwnerSourceLaneCandidatesV1,
-} from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
+import { selectWalletHostOwnerSourceLaneCandidatesV1 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
-import {
-  buildR103DeviceLinkFixture,
-  buildR103OwnerEnrollmentCeremonyV1,
-} from './helpers/deviceLinkContracts.fixtures';
+import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   authorizedPasskeyEd25519AvailableLane,
   availableEd25519Inventory,
@@ -105,9 +99,6 @@ function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
       },
     },
     relayerUrl: 'https://relay.example.test',
-    startOwnerEnrollmentCeremonyV1: async () => {
-      throw new Error('owner enrollment ceremony is not exercised by this test');
-    },
     walletSessions: {
       read: async () => ({ kind: 'missing' as const }),
       readActiveForWallet: async () => ({ kind: 'missing' as const }),
@@ -212,9 +203,7 @@ test('an export_keys owner request requires a matching unexpired export-root cap
       walletSessionId: String(projection.walletSessionId),
       expiresAtMs: projection.expiresAtMs,
     });
-  const arms: Array<
-    [string, AuthorityOverrides['readUnlockedEd25519ExportRootCapabilityV1']]
-  > = [
+  const arms: Array<[string, AuthorityOverrides['readUnlockedEd25519ExportRootCapabilityV1']]> = [
     ['absent', () => undefined],
     ['another wallet', () => ({ ...aligned(), walletId: 'wallet:other' })],
     ['another session', () => ({ ...aligned(), walletSessionId: 'wallet-session:other' })],
@@ -242,37 +231,6 @@ test('an export_keys owner request requires a matching unexpired export-root cap
   }
 });
 
-test('reuses an unexpired owner enrollment ceremony and restarts an expired one', async () => {
-  let startCalls = 0;
-  const sessionId = parseLinkDeviceSessionId('link-session:retry');
-  if (!sessionId.ok) throw new Error(sessionId.error.message);
-  let expiresAtMs = Date.now() + 150;
-  const authorities = stopBeforeHttp({
-    startOwnerEnrollmentCeremonyV1: async () => {
-      startCalls += 1;
-      return { ceremony: buildR103OwnerEnrollmentCeremonyV1({ expiresAtMs }) };
-    },
-  });
-  const request = {
-    linkSessionId: sessionId.value,
-    walletId,
-    requestedAtMs: Date.now(),
-  } as const;
-
-  const first = await authorities.ownerAuthorization.startOwnerEnrollmentCeremonyV1(request);
-  const reused = await authorities.ownerAuthorization.startOwnerEnrollmentCeremonyV1(request);
-  expect(startCalls).toBe(1);
-  expect(reused.ceremony).toBe(first.ceremony);
-
-  // Zero-prompt makes retries cheap, but an expired ceremony can never be
-  // finalized, so the cache must not keep serving it once its time passes.
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  expiresAtMs = Date.now() + 60_000;
-  const third = await authorities.ownerAuthorization.startOwnerEnrollmentCeremonyV1(request);
-  expect(startCalls).toBe(2);
-  expect(third.ceremony).not.toBe(first.ceremony);
-});
-
 test('device-link owner handoff excludes historical Ed25519 candidates', async () => {
   const currentAuthorization = availableLaneEd25519Authorization({
     walletId: String(walletId),
@@ -298,10 +256,7 @@ test('device-link owner handoff excludes historical Ed25519 candidates', async (
     candidates: [historical, current],
   });
 
-  const selected = selectWalletHostOwnerSourceLaneCandidatesV1(
-    available,
-    currentAuthorization,
-  );
+  const selected = selectWalletHostOwnerSourceLaneCandidatesV1(available, currentAuthorization);
 
   expect(selected).toEqual([
     {

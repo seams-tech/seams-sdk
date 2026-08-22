@@ -1,12 +1,20 @@
+import type { OpaqueOwnerWalletSessionBinding } from '../../../packages/wallet-server/src/authorization/service';
 import {
-  parseRouterAbEd25519WalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-  type RouterAbEd25519WalletSessionClaims,
-} from '../../../packages/wallet-server/src/core/ThresholdService/validation';
-import type { RuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
-import type { RouterAbEd25519NormalSigningState } from '../../../packages/shared-ts/src/utils/signingSessionSeal';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';
-import type { WalletAuthAuthority } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseWalletId } from '@shared/utils/domainIds';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../packages/wallet-server/src/core/ThresholdService/validation';
+
+type Ed25519WalletSessionBinding = Extract<
+  OpaqueOwnerWalletSessionBinding,
+  { readonly curve: 'ed25519' }
+>;
 
 export type RouterAbEd25519WalletSessionClaimsFixtureInput = {
   readonly walletId: string;
@@ -24,28 +32,57 @@ export type RouterAbEd25519WalletSessionClaimsFixtureInput = {
   readonly thresholdSessionId?: string;
 };
 
+export type RouterAbEd25519WalletSessionClaimsFixture = Ed25519WalletSessionBinding & {
+  readonly sub: string;
+};
+
+const FIXTURE_DIGEST: DigestB64u = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
+
+function required<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (result.ok) return result.value;
+  throw new Error(result.error.message);
+}
+
 export function buildRouterAbEd25519WalletSessionClaimsFixture(
   input: RouterAbEd25519WalletSessionClaimsFixtureInput,
-): RouterAbEd25519WalletSessionClaims {
-  const claims = parseRouterAbEd25519WalletSessionClaims({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: input.walletId,
-    walletId: input.walletId,
+): RouterAbEd25519WalletSessionClaimsFixture {
+  const walletId = required(parseWalletId(input.walletId));
+  const authorizationId = required(
+    parseWalletSessionAuthorizationId(
+      input.authorizationId ?? 'authorization-grant-ed25519-fixture',
+    ),
+  );
+  const walletSessionId = required(
+    parseWalletSessionId(input.walletSessionId ?? 'wallet-session-fixture'),
+  );
+  const quotaId = required(parseMpcWalletSigningQuotaId(input.quotaId ?? 'wallet-quota-fixture'));
+  const subjectId =
+    input.authority.factor.kind === 'email_otp'
+      ? String(input.authority.factor.providerUserId)
+      : String(walletId);
+  return {
+    kind: 'opaque_owner_wallet_session_binding_v1',
+    curve: 'ed25519',
+    walletId,
+    thresholdSessionId: input.thresholdSessionId ?? 'threshold-ed25519-session-fixture',
+    authorizationId,
+    walletSessionId,
+    quotaId,
+    relayerKeyId: input.relayerKeyId,
+    participantIds: Array.from(input.participantIds),
+    thresholdExpiresAtMs: input.thresholdExpiresAtMs,
+    subjectId,
+    keyManifestDigestB64u: FIXTURE_DIGEST,
     nearAccountId: input.nearAccountId,
     nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-    thresholdSessionId: input.thresholdSessionId ?? 'threshold-ed25519-session-fixture',
-    authorizationId: input.authorizationId ?? 'authorization-grant-ed25519-fixture',
-    walletSessionId: input.walletSessionId ?? 'wallet-session-fixture',
-    quotaId: input.quotaId ?? 'wallet-quota-fixture',
-    relayerKeyId: input.relayerKeyId,
     authority: input.authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority),
     runtimePolicyScope: input.runtimePolicyScope,
-    thresholdExpiresAtMs: input.thresholdExpiresAtMs,
-    participantIds: Array.from(input.participantIds),
     routerAbNormalSigning: input.normalSigning,
-  });
-  if (!claims) throw new Error('Ed25519 Wallet Session claims fixture is invalid');
-  return claims;
+    sub: subjectId,
+  };
 }

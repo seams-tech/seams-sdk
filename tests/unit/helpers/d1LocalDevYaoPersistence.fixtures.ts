@@ -24,17 +24,12 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   registrationIntentGrantFromString,
   walletIdFromString,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
-import {
-  parseRouterAbEd25519WalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../../packages/wallet-server/src/core/ThresholdService/validation';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
 import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
 import {
@@ -53,6 +48,7 @@ import {
   UnavailableRouterAbEd25519YaoRegistrationBackend,
   UnusedSessionAdapter,
 } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import { buildRouterAbEd25519WalletSessionClaimsFixture } from './routerAbEd25519WalletSessionClaims.fixtures';
 
 const NAMESPACE = 'seams-local-yao-persistence';
 const ORG_ID = 'org_abcdefgh1234';
@@ -672,17 +668,13 @@ async function persistLocalCapability(
 async function issueLocalWalletSessionToken(
   capability: WalletEd25519YaoActiveCapabilityRecord,
 ): Promise<string> {
-  const nowSeconds = Math.floor(Date.now() / 1000);
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: localWalletId(),
     provider: 'google',
     providerUserId: EMAIL_PROVIDER_SUBJECT_ID,
     emailHashHex: 'ab'.repeat(32),
   });
-  const claims = parseRouterAbEd25519WalletSessionClaims({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: localWalletId(),
+  const claims = buildRouterAbEd25519WalletSessionClaimsFixture({
     walletId: localWalletId(),
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId:
@@ -693,18 +685,14 @@ async function issueLocalWalletSessionToken(
     quotaId: localWalletSessionQuotaId(),
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
-    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
     runtimePolicyScope: localRuntimePolicyScope(),
     thresholdExpiresAtMs: Date.now() + 120_000,
-    iat: nowSeconds,
-    exp: nowSeconds + 120,
     participantIds: [1, 2],
-    routerAbNormalSigning: {
+    normalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
       signingWorkerId: SIGNING_WORKER_ID,
     },
   });
-  if (!claims) throw new Error('Local Wallet Session claims are invalid');
   return await createEd25519SessionAdapter({
     privateJwk: LOCAL_CEREMONY_PRIVATE_JWK,
     issuer: LOCAL_CEREMONY_ISSUER,
