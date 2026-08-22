@@ -117,6 +117,14 @@ impl CloudflareEcdsaActivateReservationRequestV1 {
         self.material_activation.validate()?;
         require_reservation_id(&self.reservation_id)
     }
+
+    fn matches(
+        &self,
+        reservation_id: &str,
+        material_activation: &MpcMaterialActivationRefV1,
+    ) -> bool {
+        self.reservation_id == reservation_id && &self.material_activation == material_activation
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1341,9 +1349,7 @@ async fn activate_ecdsa_reservation_v1(
                 receipt,
                 ..
             } => {
-                if reservation_id != request.reservation_id
-                    || activation.material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &activation.material_activation) {
                     return Err(invalid_reservation(
                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1358,9 +1364,7 @@ async fn activate_ecdsa_reservation_v1(
                 reservation_id,
                 client_packages,
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1398,9 +1402,7 @@ async fn activate_ecdsa_reservation_v1(
                 reservation_id,
                 client_packages,
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1466,9 +1468,7 @@ async fn activate_ecdsa_reservation_v1(
                                 reservation_id,
                                 ..
                             } => {
-                                if reservation_id != request.reservation_id
-                                    || material_activation != request.material_activation
-                                {
+                                if !request.matches(&reservation_id, &material_activation) {
                                     return Err(invalid_reservation(
                                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                                     ));
@@ -1495,9 +1495,7 @@ async fn activate_ecdsa_reservation_v1(
                 reservation_id,
                 ..
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1511,9 +1509,7 @@ async fn activate_ecdsa_reservation_v1(
                 reservation_id,
                 ..
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1533,9 +1529,7 @@ async fn activate_ecdsa_reservation_v1(
                 encrypted_target_client_share,
                 encrypted_target_server_share,
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "source-preserving ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1567,9 +1561,7 @@ async fn activate_ecdsa_reservation_v1(
                 encrypted_target_client_share,
                 encrypted_target_server_share,
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "source-preserving ECDSA reservation activation conflicts with the exact reservation",
                     ));
@@ -1613,9 +1605,7 @@ async fn activate_ecdsa_reservation_v1(
                 encrypted_target_client_share,
                 encrypted_target_server_share,
             } => {
-                if reservation_id != request.reservation_id
-                    || material_activation != request.material_activation
-                {
+                if !request.matches(&reservation_id, &material_activation) {
                     return Err(invalid_reservation(
                         "source-preserving ECDSA reservation activation conflicts with the exact reservation",
                     ));
