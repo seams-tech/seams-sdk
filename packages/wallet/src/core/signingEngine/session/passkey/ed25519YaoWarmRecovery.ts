@@ -51,11 +51,12 @@ import {
 } from '@shared/utils/domainIds';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
-  readEd25519YaoExportEnvelopeForPasskeyV1,
+  readPasskeyCustodySessionEnvelope,
 } from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
+  readonly readPasskeyCustodySessionEnvelope: typeof readPasskeyCustodySessionEnvelope;
   readonly readActiveWalletSessionAuthorization: (
     walletId: WalletId,
   ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
@@ -498,6 +499,7 @@ export async function resolvePasskeyEd25519YaoExportContextV1(input: {
 }): Promise<PasskeyEd25519YaoExportContextResolutionV1> {
   return await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(input, {
     readExactEd25519SealedSession,
+    readPasskeyCustodySessionEnvelope,
     readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
       walletSessionAuthorizations,
     ),
@@ -560,11 +562,11 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     authorization,
     response: bootstrap.response,
   });
-  const walletCustodyEnvelope = await readEd25519YaoExportEnvelopeForPasskeyV1({
+  const walletCustodyEnvelope = await runtime.readPasskeyCustodySessionEnvelope({
     walletId: String(descriptor.walletId),
     credentialIdB64u: descriptor.credentialIdB64u,
   });
-  if (!walletCustodyEnvelope) {
+  if (!walletCustodyEnvelope || walletCustodyEnvelope.binding.kind !== 'wallet_custody_seed_v1') {
     return {
       kind: 'capability_recovery_required',
       reason: 'wallet_custody_envelope_missing',

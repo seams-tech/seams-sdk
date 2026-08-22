@@ -379,60 +379,6 @@ export async function readEd25519YaoClientRootEnvelopeForEmailScopeV1(
   return envelope;
 }
 
-export async function readUniqueEd25519YaoClientRootEnvelopeForPasskeyV1(args: {
-  readonly walletId: string;
-  readonly credentialIdB64u: string;
-}): Promise<Ed25519YaoClientRootEnvelopeRecordV1 | null> {
-  const cached = (await readEd25519YaoClientRootEnvelopeCache()).envelopes.find(
-    (envelope) =>
-      envelope.lifecycle.state === 'active' &&
-      envelope.walletId === args.walletId &&
-      envelope.factor.kind === 'passkey' &&
-      envelope.factor.credentialIdB64u === args.credentialIdB64u &&
-      envelope.binding.targetFactor.kind === 'passkey_prf',
-  );
-  const active = Array.from(activeEd25519YaoClientRootEnvelopes.values()).find(
-    (envelope) =>
-      envelope.lifecycle.state === 'active' &&
-      envelope.walletId === args.walletId &&
-      envelope.factor.kind === 'passkey' &&
-      envelope.factor.credentialIdB64u === args.credentialIdB64u &&
-      envelope.binding.targetFactor.kind === 'passkey_prf',
-  );
-  const candidates = cached && active && cached.envelopeId !== active.envelopeId
-    ? [cached, active]
-    : cached
-      ? [cached]
-      : active
-        ? [active]
-        : [];
-  if (candidates.length > 1) {
-    throw new Error('multiple active Ed25519 Yao client-root envelopes match the Passkey');
-  }
-  const envelope = candidates[0] ?? null;
-  if (envelope) {
-    activeEd25519YaoClientRootEnvelopes.set(
-      rootEnvelopeKey({
-        walletId: String(envelope.walletId),
-        linkSessionId: String(envelope.binding.linkSessionId),
-        walletKeyId: String(envelope.binding.walletKeyId),
-        enrollmentId: String(envelope.binding.enrollmentId),
-        deviceId: String(envelope.binding.deviceId),
-        applicationBindingDigestB64u: String(envelope.binding.applicationBindingDigestB64u),
-        registeredPublicKeyB64u: String(envelope.binding.registeredPublicKeyB64u),
-        revocationEpoch: envelope.binding.revocationEpoch,
-        targetFactor: {
-          kind: 'passkey_prf',
-          rpId: String(envelope.factor.rpId),
-          credentialIdB64u: String(envelope.factor.credentialIdB64u),
-        },
-      }),
-      envelope,
-    );
-  }
-  return envelope;
-}
-
 export async function readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1(args: {
   readonly walletId: string;
   readonly registeredPublicKeyB64u: string;
@@ -494,11 +440,4 @@ export async function readPasskeyCustodySessionEnvelope(args: {
     return cached;
   }
   return null;
-}
-
-export async function readEd25519YaoExportEnvelopeForPasskeyV1(args: {
-  readonly walletId: string;
-  readonly credentialIdB64u: string;
-}): Promise<PasskeyCustodyEnvelopeRecord | null> {
-  return await readUniqueEd25519YaoClientRootEnvelopeForPasskeyV1(args);
 }

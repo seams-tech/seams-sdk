@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { configureIndexedDB } from '../../packages/wallet/src/core/indexedDB';
+import { PASSKEY_PRF_KEK_VERSION_V1 } from '@shared/passkey-custody';
 import type { CurrentEd25519SealedSessionRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   requirePasskeyEd25519RestoreAuthorization,
@@ -16,6 +17,7 @@ import {
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const NOW_MS = 1_900_000_000_000;
 const WALLET_ID = 'wallet-expiry-boundary';
@@ -44,6 +46,10 @@ async function unexpectedAuthorizationRead(): Promise<never> {
   throw new Error('expired or exhausted material must not read Wallet Session authorization');
 }
 
+async function missingPasskeyCustodyEnvelope(): Promise<null> {
+  return null;
+}
+
 async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
   let recoveryBootstrapCalls = 0;
   const result = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
@@ -65,6 +71,7 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
     },
     {
       readExactEd25519SealedSession: async () => record,
+      readPasskeyCustodySessionEnvelope: missingPasskeyCustodyEnvelope,
       readActiveWalletSessionAuthorization: unexpectedAuthorizationRead,
       nowMs: () => NOW_MS,
     },
@@ -176,7 +183,7 @@ test('passkey sealed restore uses the current active authorization bearer', asyn
   expect(resolved?.walletSessionJwt).toBe(currentJwt);
 });
 
-test('warm recovery accepts a renewed Wallet Session threshold for unchanged material', async () => {
+test('warm recovery accepts a renewed Wallet Session threshold with the owner custody envelope', async () => {
   const record = buildPasskeyEd25519SealedSessionRecordFixture({
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
@@ -230,6 +237,17 @@ test('warm recovery accepts a renewed Wallet Session threshold for unchanged mat
     },
     {
       readExactEd25519SealedSession: async () => record,
+      readPasskeyCustodySessionEnvelope: async () =>
+        passkeyCustodyEnvelope({
+          walletId: record.walletId,
+          envelopeId: `passkey-envelope-${record.walletId}`,
+          factor: {
+            kind: 'passkey',
+            rpId: record.ed25519Restore.rpId,
+            credentialIdB64u: record.ed25519Restore.credentialIdB64u,
+            kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+          },
+        }),
       readActiveWalletSessionAuthorization: async () => ({
         kind: 'found',
         projection: authorization,
@@ -239,10 +257,10 @@ test('warm recovery accepts a renewed Wallet Session threshold for unchanged mat
   );
 
   expect(requestBody?.thresholdSessionId).toBe('threshold-session-renewed');
-  expect(resolved).toEqual({
-    kind: 'capability_recovery_required',
-    reason: 'wallet_custody_envelope_missing',
-  });
+  expect(resolved.kind).toBe('ready');
+  if (resolved.kind !== 'ready') throw new Error('warm recovery did not resolve');
+  expect(resolved.context.walletCustodyEnvelope.walletId).toBe(record.walletId);
+  expect(resolved.context.walletCustodyEnvelope.binding.kind).toBe('wallet_custody_seed_v1');
 });
 
 test('warm recovery rejects identity and material substitutions', async () => {
@@ -294,6 +312,7 @@ test('warm recovery rejects identity and material substitutions', async () => {
         },
         {
           readExactEd25519SealedSession: async () => record,
+          readPasskeyCustodySessionEnvelope: missingPasskeyCustodyEnvelope,
           readActiveWalletSessionAuthorization: async () => ({
             kind: 'found',
             projection: authorization,
