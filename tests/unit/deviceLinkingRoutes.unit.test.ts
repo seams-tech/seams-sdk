@@ -28,9 +28,8 @@ import {
   parseLinkedDeviceTargetCredentialRegistrationV1,
 } from '@shared/device-linking/parsers';
 import {
-  buildOrdinaryEcdsaReservationPreparationFixture,
-  buildOrdinaryMaterialActivationFixture,
-} from './helpers/ordinarySignerMaterialReservation.fixtures';
+  buildSourcePreservingEcdsaReservationRequestFixture,
+} from './helpers/ordinarySourcePreservingReservation.fixtures';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   applyD1MigrationFiles,
@@ -182,8 +181,16 @@ test('authenticates the owner before parsing a malformed claim body', async () =
 test('serializes the browser ECDSA recipient in the target credential response', async () => {
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:route-result' });
   const digest = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
-  const activation = buildOrdinaryMaterialActivationFixture('route-result');
-  const preparation = buildOrdinaryEcdsaReservationPreparationFixture('route-result', activation);
+  const reservationRequest = buildSourcePreservingEcdsaReservationRequestFixture('route-result');
+  const binding = reservationRequest.preparation.sourceContribution.binding;
+  const targetPreparation = {
+    linkSessionId: binding.linkSessionId,
+    enrollmentId: binding.enrollmentId,
+    sourceAuthorityId: binding.sourceAuthorityId,
+    source: binding.source,
+    target: binding.target,
+  };
+  const clientEphemeralPublicKey = `x25519:${'22'.repeat(32)}`;
   const targetWalletAuthMethodId = 'email_otp:wallet:r103:' + 'ab'.repeat(32);
   const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
     kind: 'linked_device_target_credential_registration_result_v1',
@@ -207,13 +214,13 @@ test('serializes the browser ECDSA recipient in the target credential response',
       verificationDigestB64u: digest,
       verifiedAtMs: 2_000,
     },
-    ordinarySignerMaterialPreparations: [preparation],
+    ordinarySignerMaterialPreparations: [targetPreparation],
     ordinarySignerMaterialRecipientRequests: [
       {
         kind: 'ordinary_ecdsa_signer_material_recipient_request_v1',
         keyFamily: 'ecdsa_secp256k1',
         walletKeyId: 'wallet-key:route-result',
-        clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
+        clientEphemeralPublicKey,
       },
     ],
     keyManifestDigestB64u: digest,
@@ -230,7 +237,7 @@ test('serializes the browser ECDSA recipient in the target credential response',
       walletAuthMethodId: targetWalletAuthMethodId,
       ordinarySignerMaterialRecipientRequests: [
         {
-          clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
+          clientEphemeralPublicKey,
         },
       ],
     },
