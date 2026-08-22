@@ -26,7 +26,11 @@ import {
   createRouterAbNormalSigningAdmissionAdapter,
 } from '@seams/wallet-server/cloud-host';
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/wallet-server/cloud-host';
-import { createCloudflareD1RouterApiAuthService } from '@seams/wallet-server/cloud-host';
+import {
+  createCloudflareD1RouterApiAuthService,
+  createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
+  type CloudflareD1RouterApiAuthServiceOptions,
+} from '@seams/wallet-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import { createSigningSessionSealOptions } from '@seams/wallet-server/cloud-host';
 import { RouterAbEcdsaPresignRuntime } from '@seams/wallet-server/cloud-host';
@@ -353,8 +357,25 @@ async function createStagingRouterApiAuthComposition(
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
+    linkedDevice: stagingLinkedDeviceManagementComposition(env),
   });
   return { service, ecdsaStrictPostRegistration };
+}
+
+function stagingLinkedDeviceManagementComposition(
+  env: CloudflareD1GatewayBaseEnv,
+): NonNullable<CloudflareD1RouterApiAuthServiceOptions['linkedDevice']> {
+  return {
+    management: {
+      deactivationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1({
+        fetch: createRouterAbServiceBindingFetch(env),
+        internalServiceAuthSecret: requireEnvString(
+          env,
+          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+        ),
+      }),
+    },
+  };
 }
 
 async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {

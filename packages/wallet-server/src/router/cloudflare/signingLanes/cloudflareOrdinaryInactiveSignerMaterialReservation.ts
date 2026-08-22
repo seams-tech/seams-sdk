@@ -21,7 +21,10 @@ import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefFromWire,
+  routerAbMpcMaterialActivationRefToWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type { OrdinaryInactiveSignerMaterialActivationPortV1 } from '../d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import type {
   OrdinaryEcdsaSignerMaterialReservationPreparationV1,
@@ -77,6 +80,96 @@ export type CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1 = {
     readonly materialActivation: OrdinaryEcdsaSignerMaterialDeactivationRequestV1['materialActivation'];
   }): Promise<unknown>;
 };
+
+export function createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1(input: {
+  readonly fetch: typeof fetch;
+  readonly internalServiceAuthSecret: string;
+}): CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1 {
+  return {
+    deactivateInactiveEd25519SignerMaterialV1: async ({ materialActivation }) =>
+      await postDeactivationRequestV1(
+        input,
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DEACTIVATE_RESERVATION_PATH_V1,
+        materialActivation,
+        'ed25519',
+      ),
+    deactivateInactiveEcdsaSignerMaterialV1: async ({ materialActivation }) =>
+      await postDeactivationRequestV1(
+        input,
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_DEACTIVATE_RESERVATION_PATH_V1,
+        materialActivation,
+        'ecdsa_secp256k1',
+      ),
+  };
+}
+
+async function postDeactivationRequestV1(
+  input: {
+    readonly fetch: typeof fetch;
+    readonly internalServiceAuthSecret: string;
+  },
+  path: string,
+  materialActivation: MpcMaterialActivationRef,
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+): Promise<unknown> {
+  const response = await input.fetch(
+    new Request(`https://signing-worker.router-ab.internal${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-router-ab-internal-service-auth': input.internalServiceAuthSecret,
+      },
+      body: JSON.stringify({
+        material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
+      }),
+    }),
+  );
+  if (!response.ok) {
+    throw new Error(`ordinary ${keyFamily} material deactivation failed with HTTP ${response.status}`);
+  }
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
+    throw new Error(`ordinary ${keyFamily} material deactivation returned invalid JSON`);
+  }
+  return parseDeactivationResponseV1(raw, keyFamily);
+}
+
+function parseDeactivationResponseV1(
+  raw: unknown,
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+): Record<string, unknown> {
+  if (
+    !isRecordV1(raw) ||
+    !hasExactKeysV1(raw, ['state', 'reservation_id', 'material_activation', 'revoked_at_ms']) ||
+    raw.state !== 'revoked' ||
+    typeof raw.reservation_id !== 'string' ||
+    typeof raw.revoked_at_ms !== 'number'
+  ) {
+    throw new Error(`ordinary ${keyFamily} material deactivation response is invalid`);
+  }
+  return {
+    kind: keyFamily === 'ed25519'
+      ? 'ordinary_ed25519_signer_material_deactivation_v1'
+      : 'ordinary_ecdsa_signer_material_deactivation_v1',
+    keyFamily,
+    state: 'revoked',
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(raw.material_activation),
+    serverMaterialReservationId: raw.reservation_id,
+    revokedAtMs: raw.revoked_at_ms,
+  };
+}
+
+function isRecordV1(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasExactKeysV1(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
 
 type CachedEd25519ReservationV1 = {
   readonly requestFingerprint: string;
