@@ -5,6 +5,8 @@ import {
   parseLinkedDeviceApprovalV1,
   parseLinkedDeviceTargetPreparationV1,
 } from '../../packages/shared-ts/src/device-linking/parsers';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { parseLinkedDeviceEcdsaSourceContributionPreparationV1 } from '../../packages/shared-ts/src/device-linking/sourceContribution';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildPasskeyTargetPreparationFixtureV1 } from './helpers/linkedDeviceTargetPreparation.fixtures';
 
@@ -46,3 +48,54 @@ test('a target preparation survives its own builder and parser', () => {
   const built = buildLinkedDeviceTargetPreparationV1(builderArgs);
   expect(parseLinkedDeviceTargetPreparationV1(JSON.parse(JSON.stringify(built)))).toEqual(built);
 });
+
+test('the ECDSA source contribution preparation keeps the Rust wire shape', () => {
+  const preparation = buildEcdsaSourceContributionPreparationFixture();
+  const parsed = parseLinkedDeviceEcdsaSourceContributionPreparationV1(
+    JSON.parse(JSON.stringify(preparation)),
+  );
+  expect(JSON.parse(JSON.stringify(parsed))).toEqual(preparation);
+
+  expect(() =>
+    parseLinkedDeviceEcdsaSourceContributionPreparationV1({
+      ...preparation,
+      target: { ...preparation.target, sourceMaterialActivation: preparation.target.activation },
+    }),
+  ).toThrow(/unknown or missing fields/);
+});
+
+function buildEcdsaSourceContributionPreparationFixture() {
+  const compressedPublicKey = base64UrlEncode(new Uint8Array([2, ...new Array(32).fill(1)]));
+  const recipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(2));
+  const secondRecipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(3));
+  const digest = base64UrlEncode(new Uint8Array(32).fill(4));
+  const activation = (suffix: string) => ({
+    kind: 'mpc_material_activation_ref' as const,
+    activationId: `activation:${suffix}`,
+    capability: 'capability:source',
+    materialOwner: 'owner:wallet',
+    keyBinding: `key-binding:${suffix}`,
+    lifecycleBinding: `lifecycle:${suffix}`,
+    signingWorker: 'worker:source',
+  });
+
+  return {
+    linkSessionId: 'link-session:r103-ecdsa',
+    enrollmentId: 'enrollment:r103-ecdsa',
+    sourceAuthorityId: 'authority:r103-ecdsa',
+    source: {
+      activation: activation('source'),
+      clientPublicKey33B64u: compressedPublicKey,
+      relayerPublicKey33B64u: compressedPublicKey,
+      thresholdPublicKey33B64u: compressedPublicKey,
+      thresholdEthereumAddress20B64u: base64UrlEncode(new Uint8Array(20).fill(5)),
+    },
+    target: {
+      activation: activation('target'),
+      targetDeviceId: 'device:r103-ecdsa',
+      targetFactorVerificationDigestB64u: digest,
+      clientRecipientPublicKeyB64u: recipientPublicKey,
+      signingWorkerRecipientPublicKeyB64u: secondRecipientPublicKey,
+    },
+  };
+}

@@ -15,6 +15,7 @@ import type {
   VerifiedSourceAuthorityV1,
   VerifiedTargetFactorV1,
   OrdinarySignerMaterialRecipientRequestV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
 } from './contracts';
 import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
 import type {
@@ -92,6 +93,7 @@ declare const ordinarySignerMaterialRecipientRequests: readonly [
   OrdinarySignerMaterialRecipientRequestV1,
   ...OrdinarySignerMaterialRecipientRequestV1[],
 ];
+declare const sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
 
 function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
   void value;
@@ -547,6 +549,7 @@ const verifiedLinkInput = {
   targetFactor: verifiedPasskeyTarget,
   permissions: permissionSet,
   signerManifest,
+  sourceContribution,
   ordinarySignerMaterialRecipientRequests,
 } satisfies VerifiedLinkInputV1;
 void verifiedLinkInput;
