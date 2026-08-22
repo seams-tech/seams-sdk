@@ -1,7 +1,6 @@
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import type { AuthenticatorPort } from '@/core/platform';
 import type { HttpTransport } from '@/core/platform/http';
-import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
 import {
   parseLinkedDeviceListRequestV1,
   parseLinkedDeviceListResultV1,
@@ -9,7 +8,6 @@ import {
   parseLinkedDeviceRevokeResultV1,
   type LinkedDeviceRevokeResultV1,
 } from '@shared/device-linking';
-import type { WalletId } from '@shared/utils/domainIds';
 import type { DeviceLinkingWorkerEndpointV1 } from './deviceLinkingWorkerChannels';
 import type { DeviceLinkingFlowPortsAssemblyV1 } from './deviceLinkingComposition';
 import { createDeviceLinkingFlowPortsV1 } from './deviceLinkingComposition';
@@ -17,9 +15,7 @@ import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
 } from './deviceLinkingOwnerTransport';
-import type {
-  DeviceLinkingOwnerAuthorizationPortV1,
-} from './deviceLinkingPorts';
+import type { DeviceLinkingOwnerAuthorizationPortV1 } from './deviceLinkingPorts';
 import type { LinkedDeviceManagementPortV1 } from '@/SeamsWeb/publicApi/devices';
 import type { WalletHostManagementRequestV1 } from './walletHostOwnerAuthority';
 
@@ -41,7 +37,6 @@ export type WalletHostCompositionDependenciesV1 = {
   /** The wallet custody worker both devices drive for the seed transfer. */
   readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
   readonly managementRequest: WalletHostManagementRequestV1;
-  readonly sourceLanePorts: LaneOperationSourcePortsV1;
   readonly workerEndpoint?: DeviceLinkingWorkerEndpointV1;
   readonly workerTimeoutMs?: number;
   readonly nowMs: () => number;

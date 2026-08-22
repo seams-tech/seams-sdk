@@ -66,52 +66,10 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
   ) => UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
-  /**
-   * Starts the owner add-auth-method ceremony a linked device will finalize.
-   *
-   * Injected rather than built here: it needs the wallet's relying party,
-   * managed-scope credentials, and the owner Wallet Session token, all of
-   * which the composition root already holds. Zero-prompt: starting collects
-   * no assertion.
-   */
-  readonly startOwnerEnrollmentCeremonyV1: DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1'];
 }): WalletHostOwnerAuthoritiesV1 {
   const context = normalizeContext(input);
-  // Approval is retried whenever the scan flow is re-entered, so one ceremony
-  // is reused while it remains startable. Nothing secret rides the cache —
-  // the ceremony is public protocol state — so the only eviction rules are
-  // expiry and failure.
-  const ownerEnrollmentCeremonies = new Map<
-    string,
-    ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
-  >();
   return {
     ownerAuthorization: {
-      startOwnerEnrollmentCeremonyV1: async (request) => {
-        const key = String(request.linkSessionId);
-        const cached = ownerEnrollmentCeremonies.get(key);
-        if (cached) {
-          try {
-            const value = await cached;
-            if (value.ceremony.expiresAtMs > Date.now()) return value;
-          } catch {
-            // A failed start is not reusable; fall through to a fresh one.
-          }
-          if (ownerEnrollmentCeremonies.get(key) === cached) {
-            ownerEnrollmentCeremonies.delete(key);
-          }
-        }
-        const started = input.startOwnerEnrollmentCeremonyV1(request);
-        ownerEnrollmentCeremonies.set(key, started);
-        try {
-          return await started;
-        } catch (error: unknown) {
-          if (ownerEnrollmentCeremonies.get(key) === started) {
-            ownerEnrollmentCeremonies.delete(key);
-          }
-          throw error;
-        }
-      },
       authenticateOwnerForLinkingV1: async (request) =>
         await authorizeOwnerForLinkingV1(context, request),
     },

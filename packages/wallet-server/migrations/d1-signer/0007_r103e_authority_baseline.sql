@@ -1,10 +1,9 @@
 -- R103E authority baseline.
 --
 -- Local and staging deployments use the reset policy from refactor-103E. The
--- historical auth-method table is retained under a boundary-only name so
--- linked-device records and their foreign keys remain inspectable; runtime
--- readers use the new table below. No historical row is reconstructed into a
--- WalletAuthorityV1 or a V2 auth method here.
+-- old auth-method table and R102 linked-device projections are retired at this
+-- boundary; no historical row is reconstructed into a WalletAuthorityV1 or a
+-- V2 auth method here. Historical migrations remain unchanged.
 
 CREATE TABLE wallet_authorities (
   namespace TEXT NOT NULL,
@@ -114,7 +113,7 @@ DROP INDEX IF EXISTS wallet_auth_methods_identifier_idx;
 DROP INDEX IF EXISTS wallet_auth_methods_passkey_uidx;
 DROP INDEX IF EXISTS wallet_auth_methods_wallet_idx;
 
-ALTER TABLE wallet_auth_methods RENAME TO wallet_auth_methods_legacy;
+DROP TABLE wallet_auth_methods;
 
 CREATE TABLE wallet_auth_methods (
   namespace TEXT NOT NULL,
@@ -225,3 +224,36 @@ CREATE UNIQUE INDEX wallet_auth_methods_v2_email_uidx
     namespace, org_id, project_id, env_id, wallet_id, email_hash_hex
   )
   WHERE kind = 'email_otp' AND email_hash_hex IS NOT NULL;
+
+-- R103E reset policy removes projections that no active reader uses. Keep the
+-- linear session and target-boundary tables created by the earlier migrations.
+DROP TRIGGER IF EXISTS authorized_operation_linked_grant_claim_atomic;
+DROP TRIGGER IF EXISTS authorized_operation_grant_shape_guard;
+DROP TRIGGER IF EXISTS linked_device_wallet_session_authorization_identity_insert;
+DROP TRIGGER IF EXISTS linked_device_wallet_session_authorization_identity_update;
+DROP TRIGGER IF EXISTS linked_device_wallet_session_authorization_revoke_atomic;
+DROP TRIGGER IF EXISTS linked_device_wallet_session_quota_revoke_guard;
+DROP INDEX IF EXISTS authorized_operation_audit_linked_device_activity_idx;
+
+CREATE TRIGGER authorized_operation_grant_shape_guard
+BEFORE INSERT ON authorized_operations
+WHEN NEW.lifecycle_kind = 'claimed'
+  AND (
+    NEW.authorization_source_kind NOT IN ('authorization_grant', 'verified_step_up')
+    OR (NEW.authorization_source_kind = 'authorization_grant'
+      AND (NEW.authorization_grant_kind IS NULL
+        OR NEW.authorization_grant_kind NOT IN ('wallet_session_authorization')))
+    OR (NEW.authorization_source_kind = 'verified_step_up'
+      AND NEW.authorization_grant_kind IS NOT NULL)
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'authorization_grant_kind_rejected');
+END;
+
+DROP TABLE IF EXISTS linked_device_wallet_session_quotas;
+DROP TABLE IF EXISTS linked_device_wallet_session_authorizations;
+DROP TABLE IF EXISTS linked_device_target_deployment_descriptors;
+DROP TABLE IF EXISTS linked_device_source_handoffs;
+DROP TABLE IF EXISTS linked_device_provisioning_records;
+DROP TABLE IF EXISTS linked_device_owner_planning_snapshots;
+DROP TABLE IF EXISTS linked_device_owner_auth_bindings;

@@ -1,9 +1,5 @@
 import type {
   LinkedDeviceApprovalV1,
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
-  LinkedDeviceEnrollmentChildReceiptV1,
-  LinkedDeviceEnrollmentReceiptV1,
-  LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceRevokeResultV1,
   LinkedDeviceSummaryV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
@@ -52,7 +48,6 @@ import type {
   WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
-  WebAuthnRpId,
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPlan';
@@ -84,11 +79,8 @@ declare const workerParticipantId: SigningWorkerParticipantId;
 declare const operationId: LaneOperationId;
 declare const idempotencyKey: LaneOperationIdempotencyKey;
 declare const digest: DigestB64u;
-declare const enrollmentReceipt: LinkedDeviceEnrollmentReceiptV1;
-declare const enrollmentChildReceipt: LinkedDeviceEnrollmentChildReceiptV1;
 declare const walletSessionId: WalletSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
-declare const rpId: WebAuthnRpId;
 declare const credentialIdB64u: WebAuthnCredentialIdB64u;
 declare const walletAuthMethodId: WalletAuthMethodId;
 declare const authenticatorDevice: WebAuthnAuthenticatorDeviceInfo;
@@ -234,34 +226,6 @@ const invalidOwnerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1 = {
   stepUpEvidenceSetId: digest,
 };
 
-/**
- * The canonical owner ceremony that Device 2's single WebAuthn creation
- * finalizes. Its registration options are the sole source of the relying
- * party, challenge, and user handle.
- */
-const ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1 = {
-  kind: 'linked_device_passkey_owner_enrollment_v1',
-  targetFactor: { kind: 'passkey_prf' },
-  addAuthMethodCeremonyId: 'add-auth-method-ceremony:typecheck',
-  registration: {
-    kind: 'webauthn_add_auth_method_registration_v1',
-    challengeId: 'challenge:typecheck',
-    challengeB64u: 'Y2hhbGxlbmdl',
-    rpId,
-    user: { idB64u: 'AQ', name: 'linked', displayName: 'linked' },
-    pubKeyCredParams: [
-      { type: 'public-key', alg: -7 },
-      { type: 'public-key', alg: -257 },
-    ],
-    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
-    timeoutMs: 120_000,
-    attestation: 'none',
-    extensions: { prf: { eval: { firstB64u: 'AQ', secondB64u: 'Ag' } } },
-    excludeCredentials: [],
-  },
-  expiresAtMs: 1_800_000_600_000,
-};
-
 const approval: LinkedDeviceApprovalV1 = {
   kind: 'linked_device_approval_v1',
   linkSessionId,
@@ -270,7 +234,6 @@ const approval: LinkedDeviceApprovalV1 = {
   deviceId,
   linkPublicKeyB64u: payload.linkPublicKeyB64u,
   devicePublicKeyB64u: payload.devicePublicKeyB64u,
-  ownerEnrollment,
   permission: payload.requestedPermission,
   targetFactor: { kind: 'passkey_prf' },
   ownerAuthorization,
@@ -355,25 +318,6 @@ const invalidPasskeySummary: LinkedDeviceSummaryV1 = {
 };
 void invalidPasskeySummary;
 
-const validReceiptAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 = {
-  kind: 'linked_device_receipt_acknowledgement_v1',
-  linkSessionId,
-  enrollmentId,
-  deviceId,
-  receipt: enrollmentReceipt,
-  acknowledgedAtMs: 3,
-};
-
-const invalidChildReceiptAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 = {
-  kind: 'linked_device_receipt_acknowledgement_v1',
-  linkSessionId,
-  enrollmentId,
-  deviceId,
-  // @ts-expect-error acknowledgements cover the full aggregate enrollment receipt
-  receipt: enrollmentChildReceipt,
-  acknowledgedAtMs: 3,
-};
-
 const invalidSummaryState: LinkedDeviceSummaryV1 = {
   ...summary,
   // @ts-expect-error management projections have an exhaustive lifecycle
@@ -401,7 +345,6 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletAuthMethodId,
   ed25519ExportRoot: null,
   targetFactor: { kind: 'passkey_prf' },
-  ownerEnrollment,
   ordinarySignerMaterialRecipientRequirements: [
     {
       kind: 'ordinary_signer_material_recipient_requirement_v1',
@@ -490,8 +433,6 @@ void invalidEmptyTargetPreparation;
 void credentialRegistration;
 void invalidIdOnlyCredentialRegistration;
 void summary;
-void validReceiptAcknowledgement;
-void invalidChildReceiptAcknowledgement;
 void invalidSummaryState;
 void invalidRevokeResult;
 void invalidUnclaimedCancel;

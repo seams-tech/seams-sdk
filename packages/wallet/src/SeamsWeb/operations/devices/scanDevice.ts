@@ -3,16 +3,15 @@ import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDev
 import {
   buildLinkedDeviceApprovalV1,
   buildLinkedDeviceSessionClaimRequestV1,
-  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type {
-  LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type { LinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-linking/ed25519ExportRoot';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
+import type { WalletId } from '@shared/utils/domainIds';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -20,16 +19,10 @@ import {
 } from '@/core/types/sdkSentEvents';
 import type {
   Device1LinkingFlowPortsV1,
-  Device1TargetReadySourceInputV1,
-  LinkedDeviceApprovalResultV1,
-  LinkedDeviceOwnerAuthorizationResultV1,
   LinkSessionOwnerTransportPortV1,
-  LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
 import { errorMessage } from '@shared/utils/errors';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
-import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
-import { alphabetizeStringify } from '@shared/utils/digests';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
 
@@ -71,8 +64,9 @@ function assertAuthorizationSourcesMatch(
   left: LinkedDeviceOwnerAuthorizationSourceV1,
   right: LinkedDeviceOwnerAuthorizationSourceV1,
 ): void {
-  if (left.kind !== right.kind)
+  if (left.kind !== right.kind) {
     throw new Error('owner authorization selected more than one source');
+  }
   switch (left.kind) {
     case 'wallet_session':
       if (
@@ -148,10 +142,9 @@ export async function scanAndLinkDevice(
 
   try {
     parsedQrData = validateQrLinkedDeviceSessionPayloadV5(qrData);
-    const now = Date.now();
     const owner = await ports.ownerAuthorization.authenticateOwnerForLinkingV1({
       payload: parsedQrData,
-      requestedAtMs: now,
+      requestedAtMs: Date.now(),
     });
     assertAuthorizationSourcesMatch(owner.ownerAuthorization, owner.authentication.source);
     const claim = await ports.transport.claimSessionV1({
@@ -165,19 +158,6 @@ export async function scanAndLinkDevice(
     ) {
       throw new Error('linked-device claim does not match the scanned QR payload');
     }
-    // Started here, under Device 1's owner authority, so the approval that
-    // authorizes this enrollment and the ceremony that will mint its owner
-    // credential are the same decision rather than two that could diverge.
-    // Zero-prompt: the start is authorized by the same owner Wallet Session
-    // that authorized the claim, and it produces no custody material to hold.
-    const ownerEnrollment = await ports.ownerAuthorization.startOwnerEnrollmentCeremonyV1({
-      linkSessionId: claim.linkSessionId,
-      walletId: claim.walletId,
-      targetFactor: parsedQrData.targetFactor,
-      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
-      requestedAtMs: Date.now(),
-    });
-    const approvedAtMs = Date.now();
     const approval = buildLinkedDeviceApprovalV1({
       linkSessionId: claim.linkSessionId,
       walletId: claim.walletId,
@@ -188,68 +168,43 @@ export async function scanAndLinkDevice(
       targetFactor: parsedQrData.targetFactor,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
-      ownerEnrollment: ownerEnrollment.ceremony,
       policyDigestB64u: owner.policyDigestB64u,
       operationId: owner.operationId,
       idempotencyKey: owner.idempotencyKey,
       orderedKeyBindings: owner.orderedKeyBindings,
       protocolVersions: owner.protocolVersions,
-      approvedAtMs,
-      expiresAtMs: Math.min(
-        owner.expiresAtMs,
-        claim.claimExpiresAtMs,
-        ownerEnrollment.ceremony.expiresAtMs,
-      ),
+      approvedAtMs: Date.now(),
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
     });
     const recorded = await ports.transport.recordOwnerApprovalV1({
       approval,
       authentication: owner.authentication,
     });
-    emitScannerEvent(options.onEvent, parsedQrData, {
-      phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
-      status: 'succeeded',
-      message: 'QR code scanned',
-      interaction: { kind: 'qr_scan', overlay: 'none' },
-    });
-    const completion = await awaitApprovalCompletionV1({
-      result: recorded,
+    assertApprovalRecordedV1(recorded);
+    await submitEd25519ExportRootIfRequiredV1({
       transport: ports.transport,
       linkSessionId: claim.linkSessionId,
-      authentication: owner.authentication,
-      // Also bounded by the ceremony: past its expiry the seed could still be
-      // sealed but the credential it is for could never be minted, so waiting
-      // on beyond that point only keeps key material alive for nothing.
-      expiresAtMs: Math.min(
-        owner.expiresAtMs,
-        claim.claimExpiresAtMs,
-        ownerEnrollment.ceremony.expiresAtMs,
-      ),
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
-      sourcePreparation: ports.sourcePreparation,
-      ed25519ExportRoot: ports.ed25519ExportRoot,
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
       exportRootRequirement: owner.exportRootRequirement,
-      ...(owner.exportRootRequirement === 'required'
-        ? { ed25519ExportRootCapability: owner.ed25519ExportRootCapability }
-        : {}),
+      ed25519ExportRootCapability:
+        owner.exportRootRequirement === 'required' ? owner.ed25519ExportRootCapability : undefined,
+      ed25519ExportRoot: ports.ed25519ExportRoot,
+      authentication: owner.authentication,
     });
-    const identity = {
+    const result: LinkDeviceResult = {
       success: true,
+      kind: 'approval_recorded',
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
-    } as const;
-    const result: LinkDeviceResult = {
-      ...identity,
-      kind: 'lane_enrollment_complete',
-      manifestDigestB64u: completion.manifestDigestB64u,
-      receipt: completion.receipt,
     };
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
-      message: 'Device linked',
+      message: 'Device-link approval recorded',
       walletId: String(claim.walletId),
       data: { enrollmentId: String(claim.enrollmentId) },
       interaction: { kind: 'qr_scan', overlay: 'none' },
@@ -275,185 +230,90 @@ export async function scanAndLinkDevice(
   }
 }
 
-/**
- * How the enrollment this scanner authorized finished.
- *
- * Device 1 completes only after the target's per-device lanes have reached the
- * aggregate receipt. The canonical owner finalize advances the session to
- * `provisioning`; it does not replace the additive lane enrollment.
- */
-type CompletedApprovalResult = {
-  readonly kind: 'lane_enrollment_complete';
-  readonly manifestDigestB64u: DigestB64u;
-  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-};
-
-function completedApprovalFromResult(
-  result: LinkedDeviceApprovalResultV1,
-): CompletedApprovalResult | null {
+function assertApprovalRecordedV1(
+  result: Awaited<ReturnType<LinkSessionOwnerTransportPortV1['recordOwnerApprovalV1']>>,
+): void {
   switch (result.outcome) {
-    case 'active':
-      return {
-        kind: 'lane_enrollment_complete',
-        manifestDigestB64u: result.receipt.manifestDigestB64u,
-        receipt: result.receipt,
-      };
     case 'pending':
-      return null;
+      return;
     case 'replayed':
-      if (result.replay.state === 'active') {
-        return {
-          kind: 'lane_enrollment_complete',
-          manifestDigestB64u: result.replay.receipt.manifestDigestB64u,
-          receipt: result.replay.receipt,
-        };
-      }
-      return null;
+      if (result.replay.state === 'pending') return;
+      throw new Error('linked-device approval replay returned an unsupported session state');
     default: {
       const exhaustive: never = result;
-      throw new Error(`unsupported approval result: ${String(exhaustive)}`);
+      throw new Error(`unsupported linked-device approval result: ${String(exhaustive)}`);
     }
   }
 }
 
-async function awaitApprovalCompletionV1(input: {
-  readonly result: LinkedDeviceApprovalResultV1;
+async function submitEd25519ExportRootIfRequiredV1(input: {
   readonly transport: LinkSessionOwnerTransportPortV1;
   readonly linkSessionId: QrLinkedDeviceSessionPayloadV5['linkSessionId'];
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly expiresAtMs: number;
+  readonly exportRootRequirement: 'required' | 'not_required';
+  readonly ed25519ExportRootCapability?: UnlockedWalletEd25519ExportRootCapabilityV1;
+  readonly ed25519ExportRoot: Device1LinkingFlowPortsV1['ed25519ExportRoot'];
   readonly authentication: Parameters<
     LinkSessionOwnerTransportPortV1['getApprovalV1']
   >[0]['authentication'];
-  readonly expiresAtMs: number;
-  readonly walletId: Device1TargetReadySourceInputV1['walletId'];
-  readonly enrollmentId: Device1TargetReadySourceInputV1['enrollmentId'];
-  readonly deviceId: Device1TargetReadySourceInputV1['deviceId'];
-  readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
-  readonly ed25519ExportRoot: Device1LinkingFlowPortsV1['ed25519ExportRoot'];
-  readonly exportRootRequirement: LinkedDeviceOwnerAuthorizationResultV1['exportRootRequirement'];
-  readonly ed25519ExportRootCapability?: UnlockedWalletEd25519ExportRootCapabilityV1;
-}): Promise<CompletedApprovalResult> {
-  const immediate = completedApprovalFromResult(input.result);
-  if (immediate && input.exportRootRequirement === 'not_required') return immediate;
-  let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
-  let sourceHandoffComplete = false;
-  let ed25519ExportRootSubmitted = false;
-  let sealedExportRootPackage: LinkedDeviceEd25519ExportRootPackageV1 | null = null;
-  let pollAttempt = 0;
-  const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
-    latestResult = result;
-  };
-  let subscription: LinkSessionSubscriptionV1 | null = null;
-  try {
-    subscription = await input.transport.subscribeApprovalV1({
-      linkSessionId: input.linkSessionId,
-      authentication: input.authentication,
-      onResult: onApprovalResult,
-    });
-    while (Date.now() < input.expiresAtMs) {
-      const subscribedResult = latestResult;
-      const observed =
-        subscribedResult ??
-        (await input.transport.getApprovalV1({
-          linkSessionId: input.linkSessionId,
-          authentication: input.authentication,
-        }));
-      latestResult = null;
-      let completed: CompletedApprovalResult | null = null;
-      if (subscribedResult) pollAttempt = 0;
-      completed = completedApprovalFromResult(observed);
-      // Device 2 cannot finish an export-enabled activation until this package
-      // lands. Send it before preparing the independent signing-lane handoff.
-      if (input.exportRootRequirement === 'required' && !ed25519ExportRootSubmitted) {
-        if (!sealedExportRootPackage) {
-          sealedExportRootPackage = await sealEd25519ExportRootForPublishedRecipientV1(input);
-        }
-        if (sealedExportRootPackage) {
-          try {
-            await submitEd25519ExportRootPackageV1(input, sealedExportRootPackage);
-            ed25519ExportRootSubmitted = true;
-          } catch (error: unknown) {
-            if (!isRetryableEd25519ExportRootSubmissionFailureV1(error)) throw error;
-          }
-        }
-      }
-      if (!completed && !sourceHandoffComplete) {
-        sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
-      }
-      if (
-        completed &&
-        (input.exportRootRequirement === 'not_required' || ed25519ExportRootSubmitted)
-      ) {
-        return completed;
-      }
-      await waitForApprovalPollV1(pollAttempt);
-      pollAttempt += 1;
-    }
-    throw approvalWaitExpired();
-  } finally {
-    await subscription?.close();
-  }
-}
-
-/**
- * Seals the Ed25519 Yao Client export root to the device that published a
- * recipient, from the worker-held unlocked capability. No prompt, envelope,
- * or factor secret crosses this flow layer.
- *
- * The recipient is read back from the session rather than taken on trust: it
- * has to name the same wallet, enrollment, device, and session the owner
- * approved. A relay that answered with someone else's recipient would otherwise
- * get the seed sealed to a key the owner never approved. The recipient key
- * itself is authenticated one step earlier — Device 2 registers it under the
- * device key whose public half was in the scanned QR.
- *
- * Returns null while no recipient has been published yet, which is the normal
- * state for as long as the target device is still preparing.
- */
-async function sealEd25519ExportRootForPublishedRecipientV1(
-  input: Parameters<typeof awaitApprovalCompletionV1>[0],
-): Promise<LinkedDeviceEd25519ExportRootPackageV1 | null> {
-  if (input.exportRootRequirement !== 'required') return null;
+}): Promise<void> {
+  if (input.exportRootRequirement === 'not_required') return;
   if (!input.ed25519ExportRootCapability) {
     throw new Error('Ed25519 export-root capability is required for this authority');
   }
-  const recipient = await input.transport.getEd25519ExportRootRecipientV1({
-    linkSessionId: input.linkSessionId,
-    authentication: input.authentication,
-  });
-  if (!recipient) return null;
-  if (
-    String(recipient.linkSessionId) !== String(input.linkSessionId) ||
-    String(recipient.walletId) !== String(input.walletId) ||
-    String(recipient.enrollmentId) !== String(input.enrollmentId) ||
-    String(recipient.deviceId) !== String(input.deviceId)
-  ) {
-    throw new Error('Ed25519 export-root recipient differs from the approved linked-device session');
+  let sealedPackage: LinkedDeviceEd25519ExportRootPackageV1 | null = null;
+  let attempt = 0;
+  while (Date.now() < input.expiresAtMs) {
+    if (!sealedPackage) {
+      const recipient = await input.transport.getEd25519ExportRootRecipientV1({
+        linkSessionId: input.linkSessionId,
+        authentication: input.authentication,
+      });
+      if (recipient) {
+        if (
+          String(recipient.linkSessionId) !== String(input.linkSessionId) ||
+          String(recipient.walletId) !== String(input.walletId) ||
+          String(recipient.enrollmentId) !== String(input.enrollmentId) ||
+          String(recipient.deviceId) !== String(input.deviceId)
+        ) {
+          throw new Error(
+            'Ed25519 export-root recipient differs from the approved linked-device session',
+          );
+        }
+        sealedPackage = await input.ed25519ExportRoot.sealForLinkedDeviceV1({
+          recipient,
+          capability: input.ed25519ExportRootCapability,
+          sealedAtMs: Date.now(),
+        });
+      }
+    }
+    if (sealedPackage) {
+      try {
+        await input.transport.submitEd25519ExportRootPackageV1({
+          submission: {
+            kind: 'linked_device_ed25519_export_root_submission_v1',
+            linkSessionId: input.linkSessionId,
+            package: sealedPackage,
+          },
+          authentication: input.authentication,
+        });
+        return;
+      } catch (error: unknown) {
+        const status = readErrorStatusV1(error);
+        if (status !== null && status !== 408 && status !== 429 && status < 500) throw error;
+      }
+    }
+    await waitForApprovalPollV1(attempt);
+    attempt += 1;
   }
-  return await input.ed25519ExportRoot.sealForLinkedDeviceV1({
-    recipient,
-    capability: input.ed25519ExportRootCapability,
-    sealedAtMs: Date.now(),
-  });
-}
-
-async function submitEd25519ExportRootPackageV1(
-  input: Parameters<typeof awaitApprovalCompletionV1>[0],
-  sealedPackage: LinkedDeviceEd25519ExportRootPackageV1,
-): Promise<void> {
-  await input.transport.submitEd25519ExportRootPackageV1({
-    submission: {
-      kind: 'linked_device_ed25519_export_root_submission_v1',
-      linkSessionId: input.linkSessionId,
-      package: sealedPackage,
-    },
-    authentication: input.authentication,
-  });
-}
-
-function isRetryableEd25519ExportRootSubmissionFailureV1(error: unknown): boolean {
-  const status = readErrorStatusV1(error);
-  if (status === null) return true;
-  return status === 408 || status === 429 || status >= 500;
+  throw new DeviceLinkingError(
+    'Device-link approval expired before the export root recipient was published',
+    DeviceLinkingErrorCode.SESSION_EXPIRED,
+    'registration',
+  );
 }
 
 function readErrorStatusV1(error: unknown): number | null {
@@ -462,67 +322,10 @@ function readErrorStatusV1(error: unknown): number | null {
   return typeof status === 'number' && Number.isSafeInteger(status) ? status : null;
 }
 
-async function preparePendingSourceHandoffV1(
-  input: Parameters<typeof awaitApprovalCompletionV1>[0],
-  result: LinkedDeviceApprovalResultV1,
-): Promise<boolean> {
-  const state = pendingApprovalStateV1(result);
-  if (!state || state === 'awaiting_target_factor') return false;
-  const targetReady = await input.transport.getTargetReadyV1({
-    linkSessionId: input.linkSessionId,
-    authentication: input.authentication,
-  });
-  if (!targetReady) return false;
-  if (
-    targetReady.linkSessionId !== input.linkSessionId ||
-    targetReady.walletId !== input.walletId ||
-    targetReady.enrollmentId !== input.enrollmentId ||
-    targetReady.deviceId !== input.deviceId
-  ) {
-    throw new Error('R102 target-ready input differs from the approved linked-device session');
-  }
-  const deliveries = await input.sourcePreparation.prepareTargetReadyDeliveriesV1(targetReady);
-  const submission = parseLinkedDeviceProvisioningDeliveriesSubmissionV1({
-    kind: 'linked_device_provisioning_deliveries_submission_v1',
-    linkSessionId: targetReady.linkSessionId,
-    walletId: targetReady.walletId,
-    enrollmentId: targetReady.enrollmentId,
-    deviceId: targetReady.deviceId,
-    manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(targetReady.manifest),
-    deliveries,
-  });
-  const persisted = await input.transport.submitPreparedProvisioningDeliveriesV1({
-    submission,
-    authentication: input.authentication,
-  });
-  if (alphabetizeStringify(persisted) !== alphabetizeStringify(submission)) {
-    throw new Error('persisted R102 deliveries differ from the prepared source handoff');
-  }
-  return true;
-}
-
-function pendingApprovalStateV1(
-  result: LinkedDeviceApprovalResultV1,
-): 'awaiting_target_factor' | 'provisioning' | 'committed_completion_required' | null {
-  if (result.outcome === 'pending') return result.state.state;
-  if (result.outcome === 'replayed' && result.replay.state === 'pending') {
-    return result.replay.session.state;
-  }
-  return null;
-}
-
 function resolveApprovalPollV1(resolve: () => void, attempt: number): void {
   setTimeout(resolve, nextLinkedDevicePollingDelayMsV1(250, attempt));
 }
 
 async function waitForApprovalPollV1(attempt: number): Promise<void> {
   await new Promise<void>((resolve) => resolveApprovalPollV1(resolve, attempt));
-}
-
-function approvalWaitExpired(): DeviceLinkingError {
-  return new DeviceLinkingError(
-    'Device-link approval expired before target provisioning completed',
-    DeviceLinkingErrorCode.SESSION_EXPIRED,
-    'registration',
-  );
 }

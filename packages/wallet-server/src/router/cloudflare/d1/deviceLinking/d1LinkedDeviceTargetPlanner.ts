@@ -33,7 +33,6 @@ import type {
   LinkedDeviceTargetPlannerV1,
   VerifiedLinkedDeviceTargetFactorEvidenceV1,
 } from './d1LinkedDeviceTargetCredentialProvider';
-import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from './d1LinkedDeviceTargetDeploymentDescriptorProvider';
 
 const DEFAULT_TARGET_PREPARATION_TTL_MS = 5 * 60 * 1_000;
 
@@ -117,7 +116,6 @@ export type LinkedDeviceOwnerSourceChildResolverV1 = {
 
 export type D1LinkedDeviceTargetPlannerOptionsV1 = {
   readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
-  readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
   readonly preparationTtlMs?: number;
 };
 
@@ -127,12 +125,10 @@ export type D1LinkedDeviceTargetPlannerOptionsV1 = {
  */
 export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV1 {
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
-  private readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
   private readonly preparationTtlMs: number;
 
   constructor(input: D1LinkedDeviceTargetPlannerOptionsV1) {
     this.resolveOwnerSourceChildV1 = input.resolveOwnerSourceChildV1;
-    this.targetDeploymentDescriptorProvider = input.targetDeploymentDescriptorProvider;
     const ttlMs = input.preparationTtlMs ?? DEFAULT_TARGET_PREPARATION_TTL_MS;
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
       throw new Error('linked-device target preparation TTL must be a positive safe integer');
@@ -146,12 +142,9 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1> {
     assertPreparationInput(input.session, input.approval, input.requestedAtMs);
-    // Clamped to the ceremony as well as the approval: a preparation that
-    // outlived its ceremony would send Device 2 to create a credential nothing
-    // could finalize.
+    // A preparation cannot outlive the approved link session.
     const expiresAtMs = Math.min(
       input.approval.expiresAtMs,
-      input.approval.ownerEnrollment.expiresAtMs,
       input.requestedAtMs + this.preparationTtlMs,
     );
     if (expiresAtMs <= input.requestedAtMs) {
@@ -213,11 +206,6 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       walletAuthMethodId: walletAuthMethodId.value,
       ed25519ExportRoot,
       targetFactor: input.approval.targetFactor,
-      // The planner no longer mints a relying party, challenge, or user handle
-      // of its own. They come from the ceremony Device 1 started during
-      // owner-authenticated approval, which is the only registration Device 2
-      // can finalize — a second set here could only ever disagree with it.
-      ownerEnrollment: input.approval.ownerEnrollment,
       ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
         ordinarySignerMaterialRecipientRequirements,
         'linked-device ordinary signer material recipient requirements',

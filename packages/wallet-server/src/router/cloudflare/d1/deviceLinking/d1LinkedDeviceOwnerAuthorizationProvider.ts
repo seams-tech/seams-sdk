@@ -116,7 +116,7 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
   readonly targetPlanner: Pick<
     D1LinkedDeviceTargetPlannerOptionsV1,
-    'preparationTtlMs' | 'targetDeploymentDescriptorProvider'
+    'preparationTtlMs'
   >;
   readonly planningWriter: D1LinkedDeviceOwnerAuthorizationPlanningWriterV1;
   readonly nowV1?: () => number;
@@ -141,7 +141,6 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
   });
   const targetPlanner = new TargetPlanner({
     preparationTtlMs: options.targetPlanner.preparationTtlMs,
-    targetDeploymentDescriptorProvider: options.targetPlanner.targetDeploymentDescriptorProvider,
     resolveOwnerSourceChildV1: ownerSourceResolver.resolveOwnerSourceChildV1,
   });
   return {

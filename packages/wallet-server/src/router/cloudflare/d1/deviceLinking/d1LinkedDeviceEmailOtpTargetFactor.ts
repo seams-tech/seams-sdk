@@ -4,7 +4,7 @@
  *
  * Everything identity-bearing is resolved server-side: the destination comes
  * from the wallet's active verified enrollment, the base factor from the
- * canonical wallet auth-method store, and the derived linked-owner authority
+ * canonical wallet auth-method store, and the target authority identity
  * from the enrollment identity. Device 2 supplies only the code it received
  * and its worker's ephemeral recipient key. Challenges reuse the Refactor 100
  * issuer, verifier, rate limits, and lockouts under the dedicated
@@ -18,7 +18,6 @@ import type {
   LinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking/contracts';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking/digests';
-import { linkedOwnerEmailOtpBaseAuthMethodIdV1 } from '@shared/device-linking/ownerAuthBinding';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256HexUtf8 } from '@shared/utils/digests';
@@ -28,7 +27,10 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
-import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
+import {
+  walletAuthMethodRecordId,
+  type WalletAuthMethodRecord,
+} from '@shared/utils/registrationIntent';
 import {
   computeLinkedDeviceEmailOtpAuthorityDigestV1,
   computeLinkedDeviceEmailOtpChallengeBindingDigestV1,
@@ -49,11 +51,7 @@ import type {
 import type { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
 import type { CloudflareD1EmailOtpEnrollmentStore } from '../emailOtp/d1EmailOtpEnrollmentStore';
 import type { CloudflareD1EmailOtpServerSealRuntime } from '../emailOtp/d1EmailOtpServerSealRuntime';
-import {
-  deriveLinkedDeviceEmailOtpOwnerAuthMethodIdV1,
-  type D1LinkedDeviceEmailOtpGrantStoreV1,
-  type LinkedDeviceEmailOtpBaseFactorResolverV1,
-} from './d1LinkedDeviceEmailOtpGrantStore';
+import { type D1LinkedDeviceEmailOtpGrantStoreV1 } from './d1LinkedDeviceEmailOtpGrantStore';
 
 const DEFAULT_GRANT_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_RESEND_COOLDOWN_MS = 30 * 1_000;
@@ -134,20 +132,6 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
     return {
       baseWalletAuthMethodId: resolved.baseWalletAuthMethodId,
       maskedEmailHint: resolved.maskedEmailHint,
-    };
-  }
-
-  /** Registration-time resolver for the linked-owner binding insert. */
-  resolveBaseEmailOtpFactorForCompletionV1(): LinkedDeviceEmailOtpBaseFactorResolverV1 {
-    return async (input) => {
-      const resolved = await this.resolveBaseFactorV1(input.walletId);
-      if (!resolved || resolved.baseWalletAuthMethodId !== input.baseWalletAuthMethodId) {
-        return null;
-      }
-      return {
-        emailHashHex: resolved.emailHashHex,
-        registrationAuthorityId: resolved.registrationAuthorityId,
-      };
     };
   }
 
@@ -273,7 +257,7 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
       targetFactor: { kind: 'email_otp' },
       targetPreparationDigestB64u: context.targetPreparationDigestB64u,
       baseWalletAuthMethodId: context.resolved.baseWalletAuthMethodId,
-      linkedOwnerAuthMethodId: context.linkedOwnerAuthMethodId,
+      walletAuthMethodId: context.walletAuthMethodId,
       authorityDigestB64u: context.authorityDigestB64u,
       challengeId: verified.challengeId,
       state: { kind: 'issued' },
@@ -326,7 +310,6 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
         emailHashHex: context.resolved.emailHashHex,
         registrationAuthorityId: context.resolved.registrationAuthorityId,
         providerUserId: context.resolved.enrollment.providerUserId,
-        linkedOwnerAuthMethodId: context.linkedOwnerAuthMethodId,
         authorityDigestB64u: context.authorityDigestB64u,
         issuedAtMs,
         expiresAtMs,
@@ -351,7 +334,7 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
         readonly kind: 'resolved';
         readonly resolved: ResolvedBaseFactorV1;
         readonly targetPreparationDigestB64u: ReturnType<typeof parseDigestB64u>;
-        readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+        readonly walletAuthMethodId: WalletAuthMethodId;
         readonly authorityDigestB64u: ReturnType<typeof parseDigestB64u>;
         readonly bindingDigestB64u: string;
       }
@@ -372,30 +355,15 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
         message: 'wallet has no active verified Email OTP factor',
       };
     }
-    // The approval sealed the base factor Device 1 approved. A wallet whose
-    // factor changed since is a new decision, not a silent substitution.
-    if (resolved.baseWalletAuthMethodId !== approval.ownerEnrollment.baseWalletAuthMethodId) {
-      return {
-        kind: 'refused',
-        code: 'base_factor_changed',
-        message: 'wallet Email OTP factor differs from the approved factor',
-      };
-    }
     const targetPreparationDigestB64u = parseDigestB64u(
       await computeLinkedDeviceTargetPreparationDigestV1(preparation),
     );
-    const linkedOwnerAuthMethodId = deriveLinkedDeviceEmailOtpOwnerAuthMethodIdV1({
-      walletId: approval.walletId,
-      enrollmentId: approval.enrollmentId,
-      deviceId: approval.deviceId,
-      emailHashHex: resolved.emailHashHex,
-      registrationAuthorityId: resolved.registrationAuthorityId,
-    });
+    const walletAuthMethodId = preparation.walletAuthMethodId;
     const authorityDigestB64u = await computeLinkedDeviceEmailOtpAuthorityDigestV1({
       walletId: approval.walletId,
       enrollmentId: approval.enrollmentId,
       deviceId: approval.deviceId,
-      linkedOwnerAuthMethodId,
+      walletAuthMethodId,
       baseWalletAuthMethodId: resolved.baseWalletAuthMethodId,
     });
     const bindingDigestB64u = await computeLinkedDeviceEmailOtpChallengeBindingDigestV1({
@@ -405,13 +373,13 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
       deviceId: approval.deviceId,
       targetPreparationDigestB64u,
       baseWalletAuthMethodId: resolved.baseWalletAuthMethodId,
-      linkedOwnerAuthMethodId,
+      walletAuthMethodId,
     });
     return {
       kind: 'resolved',
       resolved,
       targetPreparationDigestB64u,
-      linkedOwnerAuthMethodId,
+      walletAuthMethodId,
       authorityDigestB64u,
       bindingDigestB64u,
     };
@@ -434,11 +402,7 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
     if (!factor || factor.kind !== 'email_otp' || factor.emailHashHex !== emailHashHex) {
       return null;
     }
-    const baseWalletAuthMethodId = linkedOwnerEmailOtpBaseAuthMethodIdV1({
-      walletId,
-      emailHashHex,
-      registrationAuthorityId: factor.registrationAuthorityId,
-    });
+    const baseWalletAuthMethodId = walletAuthMethodRecordId(factor);
     return {
       enrollment,
       emailHashHex,

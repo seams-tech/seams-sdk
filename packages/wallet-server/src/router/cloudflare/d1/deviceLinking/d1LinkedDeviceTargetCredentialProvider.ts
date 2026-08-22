@@ -31,7 +31,6 @@ import type {
 import { d1ChangedRows } from '../../../../storage/d1Sql';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { linkedDeviceEmailOtpDescriptorCredentialIdV1 } from '../../../../core/deviceLinking/linkedDeviceEmailOtpGrant';
-import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
 import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import {
@@ -49,7 +48,6 @@ export type VerifiedLinkedDeviceWebAuthnCredentialV1 = {
 export type VerifiedLinkedDeviceEmailOtpGrantV1 = {
   readonly grantId: string;
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
-  readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly descriptorCredentialIdB64u: WebAuthnCredentialIdB64u;
 };
@@ -117,56 +115,6 @@ const FAIL_CLOSED_EMAIL_OTP_REGISTRATION_PORT_V1: LinkedDeviceEmailOtpGrantRegis
   buildCompletionStatementsV1: () =>
     Promise.reject(new Error('linked-device email OTP registration is not configured')),
 };
-
-export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceTargetCredentialVerificationPortV1 {
-  private readonly expectedOrigin: string;
-
-  constructor(input: { readonly expectedOrigin: string }) {
-    const expectedOrigin = input.expectedOrigin.trim();
-    if (!expectedOrigin) throw new Error('linked-device WebAuthn expected origin is required');
-    this.expectedOrigin = expectedOrigin;
-  }
-
-  async verifyRegistrationV1(input: {
-    readonly preparation: LinkedDeviceTargetPreparationV1;
-    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-  }): Promise<
-    | { readonly kind: 'verified'; readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1 }
-    | { readonly kind: 'rejected'; readonly message: string }
-  > {
-    const webauthn = input.registration.webauthnRegistration;
-    if (input.registration.targetFactor.kind !== 'passkey_prf' || !webauthn) {
-      return { kind: 'rejected', message: 'registration is not a Passkey registration' };
-    }
-    const ownerEnrollment = input.preparation.ownerEnrollment;
-    if (ownerEnrollment.kind !== 'linked_device_passkey_owner_enrollment_v1') {
-      return { kind: 'rejected', message: 'preparation is not a Passkey owner enrollment' };
-    }
-    const verification = await verifyWebAuthnRegistrationCredentialForIntent({
-      webauthnRegistration: {
-        id: webauthn.credentialIdB64u,
-        rawId: webauthn.credentialIdB64u,
-        type: 'public-key',
-        authenticatorAttachment: webauthn.authenticatorAttachment ?? undefined,
-        response: {
-          clientDataJSON: webauthn.clientDataJsonB64u,
-          attestationObject: webauthn.attestationObjectB64u,
-          transports: [...webauthn.transports],
-        },
-        clientExtensionResults: {},
-      },
-      // The ceremony that will finalize this credential is the only source of
-      // the challenge and relying party, so verification cannot be checking
-      // one set of parameters while Device 2 created against another.
-      expectedChallenge: ownerEnrollment.registration.challengeB64u,
-      expectedOrigin: this.expectedOrigin,
-      rpId: ownerEnrollment.registration.rpId,
-    });
-    return verification.ok
-      ? { kind: 'verified', credential: verification.credential }
-      : { kind: 'rejected', message: verification.message };
-  }
-}
 
 export type LinkedDeviceTargetPlannerV1 = {
   createTargetPreparationV1(input: {
@@ -1027,7 +975,7 @@ async function parseTargetCredentialRow(
     throw new Error('registered linked-device email OTP target is incomplete');
   }
   const descriptorCredentialIdB64u = await linkedDeviceEmailOtpDescriptorCredentialIdV1(
-    wireGrant.linkedOwnerAuthMethodId,
+    preparation.walletAuthMethodId,
   );
   if (descriptorCredentialIdB64u !== credentialId.value) {
     throw new Error('linked-device email OTP descriptor binding differs from its stored grant');
@@ -1043,7 +991,6 @@ async function parseTargetCredentialRow(
         grant: {
           grantId: wireGrant.grantId,
           baseWalletAuthMethodId: wireGrant.baseWalletAuthMethodId,
-          linkedOwnerAuthMethodId: wireGrant.linkedOwnerAuthMethodId,
           authorityDigestB64u: wireGrant.authorityDigestB64u,
           descriptorCredentialIdB64u,
         },

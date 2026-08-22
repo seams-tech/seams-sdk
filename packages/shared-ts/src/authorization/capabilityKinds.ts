@@ -99,15 +99,10 @@ export type CapabilityId = DomainId<'CapabilityId'>;
 export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
-export type LinkedDeviceWalletSessionAuthorizationId =
-  DomainId<'LinkedDeviceWalletSessionAuthorizationId'>;
-export type ReusableWalletSessionAuthorizationId =
-  | WalletSessionAuthorizationId
-  | LinkedDeviceWalletSessionAuthorizationId;
+export type ReusableWalletSessionAuthorizationId = WalletSessionAuthorizationId;
 
 export const AUTHORIZATION_GRANT_KINDS = {
   walletSession: 'wallet_session_authorization',
-  linkedDeviceWalletSession: 'linked_device_wallet_session_authorization_v1',
 } as const;
 
 export type AuthorizationGrantKind =
@@ -118,16 +113,8 @@ export type WalletSessionAuthorizationRef = {
   readonly authorizationId: WalletSessionAuthorizationId;
 };
 
-export type LinkedDeviceWalletSessionAuthorizationRefV1 = {
-  readonly kind: 'linked_device_wallet_session_authorization_v1';
-  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
-};
-export type LinkedDeviceWalletSessionAuthorizationRef = LinkedDeviceWalletSessionAuthorizationRefV1;
-
 /** Each reusable authorization branch carries exactly one authorization identity. */
-export type AuthorizationGrantRef =
-  | WalletSessionAuthorizationRef
-  | LinkedDeviceWalletSessionAuthorizationRefV1;
+export type AuthorizationGrantRef = WalletSessionAuthorizationRef;
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
@@ -317,17 +304,6 @@ export function parseAuthorizationGrantRef(
         },
       };
     }
-    case AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession: {
-      const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(record.authorizationId);
-      if (!authorizationId.ok) return authorizationId;
-      return {
-        ok: true,
-        value: {
-          kind: AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession,
-          authorizationId: authorizationId.value,
-        },
-      };
-    }
     default:
       return invalidResult('authorizationGrantRef.kind is unsupported');
   }
@@ -339,25 +315,10 @@ export function buildAuthorizationGrantRef(
   return { kind: AUTHORIZATION_GRANT_KINDS.walletSession, authorizationId };
 }
 
-export function buildLinkedDeviceWalletSessionAuthorizationRef(
-  authorizationId: LinkedDeviceWalletSessionAuthorizationId,
-): LinkedDeviceWalletSessionAuthorizationRefV1 {
-  return {
-    kind: AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession,
-    authorizationId,
-  };
-}
-
 export function parseWalletSessionAuthorizationId(
   value: unknown,
 ): AuthorizationParseResult<WalletSessionAuthorizationId> {
   return parseAuthorizationId(value, 'walletSessionAuthorizationId');
-}
-
-export function parseLinkedDeviceWalletSessionAuthorizationId(
-  value: unknown,
-): AuthorizationParseResult<LinkedDeviceWalletSessionAuthorizationId> {
-  return parseAuthorizationId(value, 'linkedDeviceWalletSessionAuthorizationId');
 }
 
 export function parseReusableWalletSessionAuthorizationId(

@@ -62,14 +62,12 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   parseMpcWalletSigningQuotaId,
-  parseLinkedDeviceWalletSessionAuthorizationId,
   parsePrincipalId,
   parseTenantId,
   parseEcdsaAuthorizationSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type LinkedDeviceWalletSessionAuthorizationId,
   type TenantId,
   type EcdsaAuthorizationSessionId,
   type WalletSessionAuthorizationId,
@@ -358,7 +356,7 @@ export type WalletSessionIssuanceResult =
       ok: true;
       authorizationKind: 'linked_device_wallet_session';
       jwt: string;
-      authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+      authorizationId: WalletSessionAuthorizationId;
       expiresAtMs: number;
     }
   | {
@@ -773,7 +771,7 @@ function doesEcdsaDerivationBindingMatchSessionInfo(
 
 type NormalizedLinkedDeviceWalletSessionSigningBase = {
   walletId: string;
-  authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   tenantId: TenantId;
@@ -815,9 +813,7 @@ function normalizeLinkedDeviceWalletSessionSigningBase(
   const deviceId = parseLinkedDeviceId(args.sessionInfo.deviceId);
   const enrollmentId = parseLinkedDeviceEnrollmentId(args.sessionInfo.enrollmentId);
   const walletKeyId = parseWalletKeyId(args.sessionInfo.walletKeyId);
-  const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
-    args.sessionInfo.authorizationId,
-  );
+  const authorizationId = parseWalletSessionAuthorizationId(args.sessionInfo.authorizationId);
   const walletSessionId = parseWalletSessionId(args.sessionInfo.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(args.sessionInfo.quotaId);
   const issuedAtMs = Number(args.sessionInfo.issuedAtMs);

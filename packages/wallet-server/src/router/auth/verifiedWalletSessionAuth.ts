@@ -20,7 +20,6 @@ import type {
   WalletKeyId,
 } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { LinkedDeviceWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 
 type BaseVerifiedWalletSessionAuth = {
   kind: 'wallet_session';
@@ -57,7 +56,7 @@ type LinkedVerifiedWalletSessionBase = {
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   userId: string;
-  authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  authorizationId: WalletSessionAuthorizationId;
   tenantId: TenantId;
   deviceId: LinkedDeviceId;
   enrollmentId: LinkedDeviceEnrollmentId;

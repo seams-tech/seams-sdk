@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  parseLinkSessionProjectionV1,
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
 } from '@shared/device-linking/parsers';
@@ -9,7 +10,9 @@ import {
 import {
   buildR103DeviceLinkFixture,
 } from './helpers/deviceLinkContracts.fixtures';
-import { buildR103UnclaimedLinkedDeviceSessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
+import {
+  buildR103ActiveLinkedDeviceSessionRecordV1,
+} from './helpers/deviceLinkingServer.fixtures';
 import {
   buildOrdinaryEcdsaReservationPreparationFixture,
   buildOrdinaryMaterialActivationFixture,
@@ -62,11 +65,19 @@ test('serializes server preparations with the browser recipient request', async 
   });
 
   const response = targetCredentialResultResponse(
-    buildR103UnclaimedLinkedDeviceSessionRecordV1(fixture),
+    await buildR103ActiveLinkedDeviceSessionRecordV1(fixture),
     'applied',
     targetCredential,
   );
   const body = await response.json();
+  const session = parseLinkSessionProjectionV1(body.session);
+  expect(session.state).toEqual({
+    state: 'active',
+    deviceId: fixture.approval.deviceId,
+    authorityId: 'authority:r103',
+    activatedAtMs: 9_000,
+  });
+  expect(body.session).not.toHaveProperty('deviceId');
   expect(body.targetCredential.ordinarySignerMaterialRecipientRequests).toEqual([
     expect.objectContaining({
       clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,

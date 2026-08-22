@@ -68,12 +68,10 @@ import { registrationPreparationIdFromString } from '../registrationContracts';
 import {
   parseMpcWalletSigningQuotaId,
   parseTenantId,
-  parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
   type TenantId,
-  type LinkedDeviceWalletSessionAuthorizationId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -1244,7 +1242,7 @@ type LinkedDeviceWalletSessionClaimBase = {
   walletId: string;
   kind: string;
   authorizationKind: 'linked_device_wallet_session';
-  authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  authorizationId: WalletSessionAuthorizationId;
   tenantId: TenantId;
   deviceId: LinkedDeviceId;
   enrollmentId: LinkedDeviceEnrollmentId;
@@ -1338,7 +1336,7 @@ export function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(
   const enrollmentIdResult = parseLinkedDeviceEnrollmentId(raw.enrollmentId);
   const walletKeyIdResult = parseWalletKeyId(raw.walletKeyId);
   const tenantIdResult = parseTenantId(raw.tenantId);
-  const authorizationIdResult = parseLinkedDeviceWalletSessionAuthorizationId(raw.authorizationId);
+  const authorizationIdResult = parseWalletSessionAuthorizationId(raw.authorizationId);
   const walletSessionIdResult = parseWalletSessionId(raw.walletSessionId);
   const quotaIdResult = parseMpcWalletSigningQuotaId(raw.quotaId);
   const keyManifestDigest = (() => {
@@ -1482,7 +1480,7 @@ export function parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(
   const enrollmentIdResult = parseLinkedDeviceEnrollmentId(raw.enrollmentId);
   const walletKeyIdResult = parseWalletKeyId(raw.walletKeyId);
   const tenantIdResult = parseTenantId(raw.tenantId);
-  const authorizationIdResult = parseLinkedDeviceWalletSessionAuthorizationId(raw.authorizationId);
+  const authorizationIdResult = parseWalletSessionAuthorizationId(raw.authorizationId);
   const walletSessionIdResult = parseWalletSessionId(raw.walletSessionId);
   const quotaIdResult = parseMpcWalletSigningQuotaId(raw.quotaId);
   const keyManifestDigest = (() => {

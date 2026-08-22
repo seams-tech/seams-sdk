@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
   buildLinkedDeviceSessionClaimV1,
-  buildDisplayingQrLinkedDeviceSessionState,
   parseLinkedDeviceSessionClaimV1,
-  parseLinkedDeviceSessionProjectionV1,
+  parseLinkSessionProjectionV1,
 } from '../../packages/shared-ts/src/device-linking';
-import type { LinkedDeviceSessionProjectionV1 } from '../../packages/shared-ts/src/device-linking';
+import type { LinkSessionProjectionV1 } from '../../packages/shared-ts/src/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
@@ -17,7 +16,7 @@ const EMAIL_OTP_RELEASE_PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(65).fil
 function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
   readonly ok: true;
   readonly outcome: 'applied';
-  readonly session: LinkedDeviceSessionProjectionV1;
+  readonly session: LinkSessionProjectionV1;
 } {
   return {
     ok: true,
@@ -29,10 +28,7 @@ function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
       revision: 1,
       createdAtMs: fixture.payload.issuedAtMs,
       updatedAtMs: fixture.payload.issuedAtMs,
-      state: buildDisplayingQrLinkedDeviceSessionState({
-        linkSessionId: fixture.payload.linkSessionId,
-        expiresAtMs: fixture.payload.expiresAtMs,
-      }),
+      state: { state: 'displaying_qr' },
     },
   };
 }
@@ -74,12 +70,6 @@ test.describe('R103 authenticated linked-device browser transport', () => {
           emailOtpReleasePublicKey65B64u: EMAIL_OTP_RELEASE_PUBLIC_KEY_B64U,
         };
       },
-      async prepareTargetHolderRegistrationsV1() {
-        throw new Error('target holder preparation is outside this transport test');
-      },
-      async openAndSealTargetHolderDeliveryV1() {
-        throw new Error('holder delivery is outside this transport test');
-      },
       async discardKeyMaterialV1() {
         return;
       },
@@ -103,10 +93,7 @@ test.describe('R103 authenticated linked-device browser transport', () => {
 
     await transport.createUnclaimedSessionV1({
       payload: fixture.payload,
-      state: buildDisplayingQrLinkedDeviceSessionState({
-        linkSessionId: fixture.payload.linkSessionId,
-        expiresAtMs: fixture.payload.expiresAtMs,
-      }),
+      state: { state: 'displaying_qr' },
     });
     await transport.getSessionV1({ linkSessionId: fixture.payload.linkSessionId });
 
@@ -125,8 +112,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
 
   test('parses strict session projections and owner response DTOs without key material crossing', async () => {
     const fixture = buildR103DeviceLinkFixture();
-    const projection = parseLinkedDeviceSessionProjectionV1(responseBody(fixture).session);
-    expect(projection.deviceId).toBeUndefined();
+    const projection = parseLinkSessionProjectionV1(responseBody(fixture).session);
+    expect(projection.state).toEqual({ state: 'displaying_qr' });
     const claim = parseLinkedDeviceSessionClaimV1(
       buildLinkedDeviceSessionClaimV1({
         linkSessionId: fixture.payload.linkSessionId,
@@ -156,12 +143,6 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
       async createBootstrapKeyMaterialV1() {
         throw new Error('bootstrap is outside this transport test');
-      },
-      async prepareTargetHolderRegistrationsV1() {
-        throw new Error('target holder preparation is outside this transport test');
-      },
-      async openAndSealTargetHolderDeliveryV1() {
-        throw new Error('holder delivery is outside this transport test');
       },
       async discardKeyMaterialV1() {},
       async signDeviceSessionRequestV1() {
@@ -224,12 +205,6 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
       async createBootstrapKeyMaterialV1() {
         throw new Error('bootstrap is outside this transport test');
-      },
-      async prepareTargetHolderRegistrationsV1() {
-        throw new Error('target holder preparation is outside this transport test');
-      },
-      async openAndSealTargetHolderDeliveryV1() {
-        throw new Error('holder delivery is outside this transport test');
       },
       async discardKeyMaterialV1() {},
       async signDeviceSessionRequestV1() {
