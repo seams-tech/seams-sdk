@@ -23,6 +23,8 @@ mod activation;
 mod export_share;
 #[cfg(feature = "hpke")]
 mod lane_resharing;
+#[cfg(feature = "hpke")]
+mod linked_device_source_contribution;
 mod material_possession;
 #[cfg(feature = "hpke")]
 mod post_registration;
@@ -56,6 +58,16 @@ pub use lane_resharing::{
 };
 #[cfg(feature = "hpke")]
 pub use lane_resharing::{open_ecdsa_lane_payload_v1, seal_ecdsa_lane_payload_v1};
+#[cfg(feature = "hpke")]
+pub use linked_device_source_contribution::{
+    open_linked_device_ecdsa_source_contribution_v1,
+    seal_linked_device_ecdsa_source_contribution_v1,
+    LinkedDeviceEcdsaEncryptedSourceContributionV1, LinkedDeviceEcdsaSourceContributionBindingV1,
+    LinkedDeviceEcdsaSourceContributionPackageV1, LinkedDeviceEcdsaSourceContributionPreparationV1,
+    LinkedDeviceEcdsaSourceSignerIdentityV1, LinkedDeviceEcdsaTargetRecipientPreparationV1,
+    LINKED_DEVICE_SOURCE_CONTRIBUTION_BINDING_DOMAIN_V1,
+    LINKED_DEVICE_SOURCE_CONTRIBUTION_ENVELOPE_DOMAIN_V1,
+};
 pub use material_possession::{
     sign_ecdsa_wallet_recovery_material_possession_proof_v1,
     verify_ecdsa_client_material_possession_proof_v1,
