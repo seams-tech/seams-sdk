@@ -100,7 +100,7 @@ test('owner execution-lane preflight authenticates the Wallet Session and serial
   const authMethod = buildWalletAuthMethodRecordV2({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId: required(
-      parseWalletAuthMethodId('passkey:router.example.test:recovery-request-scoped-credential-1'),
+      parseWalletAuthMethodId('wallet-auth-method:r101-preflight-exact'),
     ),
     walletAuthorityId: required(parseWalletAuthorityId('wallet-authority:r101-preflight')),
     kind: 'passkey',

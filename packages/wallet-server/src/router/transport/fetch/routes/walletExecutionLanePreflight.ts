@@ -229,7 +229,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
     walletIdRaw = validated.binding.walletId;
     authorization = {
       kind: 'wallet_auth_method',
-      walletAuthMethodId: validated.walletSessionAuth.authority.bindingId,
+      walletAuthMethodId: validated.walletSessionAuth.walletAuthMethodId,
     };
   } else {
     const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({

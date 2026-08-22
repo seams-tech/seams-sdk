@@ -61,6 +61,7 @@ const ed25519Auth = {
   userId: 'wallet-ed25519',
   authority: passkeyAuthority,
   authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(passkeyAuthority),
+  walletAuthMethodId: walletAuthAuthorityRef.walletAuthMethodId,
   relayerKeyId: 'ed25519-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
