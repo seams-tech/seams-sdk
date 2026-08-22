@@ -7,6 +7,11 @@ import {
 } from '@shared/device-linking';
 import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
+  LinkedDeviceApprovalV1,
+  LinkedDeviceEd25519SourceContributionPreparationV1,
+  LinkedDeviceEcdsaSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type { LinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-linking/ed25519ExportRoot';
@@ -20,6 +25,7 @@ import {
 import type {
   Device1LinkingFlowPortsV1,
   LinkSessionOwnerTransportPortV1,
+  DeviceLinkingSourceContributionPortV1,
 } from './deviceLinkingPorts';
 import { errorMessage } from '@shared/utils/errors';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -190,6 +196,13 @@ export async function scanAndLinkDevice(
       ed25519ExportRoot: ports.ed25519ExportRoot,
       authentication: owner.authentication,
     });
+    await submitSourceContributionsV1({
+      transport: ports.transport,
+      sourceContribution: ports.sourceContribution,
+      initialApproval: approval,
+      authentication: owner.authentication,
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+    });
     const result: LinkDeviceResult = {
       success: true,
       kind: 'approval_recorded',
@@ -239,6 +252,134 @@ function assertApprovalRecordedV1(
       const exhaustive: never = result;
       throw new Error(`unsupported linked-device approval result: ${String(exhaustive)}`);
     }
+  }
+}
+
+async function submitSourceContributionsV1(input: {
+  readonly transport: LinkSessionOwnerTransportPortV1;
+  readonly sourceContribution: DeviceLinkingSourceContributionPortV1;
+  readonly initialApproval: LinkedDeviceApprovalV1;
+  readonly authentication: Parameters<
+    LinkSessionOwnerTransportPortV1['getApprovalV1']
+  >[0]['authentication'];
+  readonly expiresAtMs: number;
+}): Promise<void> {
+  let preparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 | null = null;
+  let attempt = 0;
+  while (Date.now() < input.expiresAtMs) {
+    preparation = await input.transport.getSourceContributionPreparationV1({
+      linkSessionId: input.initialApproval.linkSessionId,
+      authentication: input.authentication,
+    });
+    if (preparation) break;
+    await waitForApprovalPollV1(attempt);
+    attempt += 1;
+  }
+  if (!preparation) {
+    throw new DeviceLinkingError(
+      'Device-link approval expired before target source preparation was published',
+      DeviceLinkingErrorCode.SESSION_EXPIRED,
+      'registration',
+    );
+  }
+  const sourceContribution = await produceSourceContributionTupleV1({
+    preparation,
+    ports: input.sourceContribution,
+  });
+  const finalApproval = buildFinalLinkedDeviceApprovalV1(
+    input.initialApproval,
+    sourceContribution,
+  );
+  const result = await input.transport.recordSourceContributionV1({
+    approval: finalApproval,
+    authentication: input.authentication,
+  });
+  assertSourceContributionRecordedV1(result);
+}
+
+function buildFinalLinkedDeviceApprovalV1(
+  initialApproval: LinkedDeviceApprovalV1,
+  sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
+): LinkedDeviceApprovalV1 {
+  if (initialApproval.targetFactor.kind === 'passkey_prf') {
+    return buildLinkedDeviceApprovalV1({
+      linkSessionId: initialApproval.linkSessionId,
+      walletId: initialApproval.walletId,
+      enrollmentId: initialApproval.enrollmentId,
+      deviceId: initialApproval.deviceId,
+      linkPublicKeyB64u: initialApproval.linkPublicKeyB64u,
+      devicePublicKeyB64u: initialApproval.devicePublicKeyB64u,
+      targetFactor: initialApproval.targetFactor,
+      permission: initialApproval.permission,
+      ownerAuthorization: initialApproval.ownerAuthorization,
+      orderedOwnerSourceLaneHints: initialApproval.orderedOwnerSourceLaneHints,
+      approvedAtMs: initialApproval.approvedAtMs,
+      expiresAtMs: initialApproval.expiresAtMs,
+      sourceContribution,
+    });
+  }
+  return buildLinkedDeviceApprovalV1({
+    linkSessionId: initialApproval.linkSessionId,
+    walletId: initialApproval.walletId,
+    enrollmentId: initialApproval.enrollmentId,
+    deviceId: initialApproval.deviceId,
+    linkPublicKeyB64u: initialApproval.linkPublicKeyB64u,
+    devicePublicKeyB64u: initialApproval.devicePublicKeyB64u,
+    targetFactor: initialApproval.targetFactor,
+    permission: initialApproval.permission,
+    ownerAuthorization: initialApproval.ownerAuthorization,
+    orderedOwnerSourceLaneHints: initialApproval.orderedOwnerSourceLaneHints,
+    approvedAtMs: initialApproval.approvedAtMs,
+    expiresAtMs: initialApproval.expiresAtMs,
+    sourceContribution,
+  });
+}
+
+async function produceSourceContributionTupleV1(input: {
+  readonly preparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly ports: DeviceLinkingSourceContributionPortV1;
+}): Promise<LinkedDeviceOrdinaryMaterialSourceContributionTupleV1> {
+  const first = input.preparation[0];
+  if (!first) throw new Error('source contribution preparation is empty');
+  if (isEd25519SourceContributionPreparationV1(first)) {
+    const ed25519 = await input.ports.ed25519.produceSourceContributionV1({
+      preparation: first,
+    });
+    const second = input.preparation[1];
+    if (!second) return [ed25519];
+    if (isEd25519SourceContributionPreparationV1(second)) {
+      throw new Error('source contribution preparation repeats Ed25519');
+    }
+    const ecdsa = await input.ports.ecdsa.produceSourceContributionV1({
+      preparation: second,
+    });
+    return [ed25519, ecdsa];
+  }
+  if (input.preparation.length !== 1) {
+    throw new Error('ECDSA source contribution preparation is out of order');
+  }
+  const ecdsa = await input.ports.ecdsa.produceSourceContributionV1({
+    preparation: first,
+  });
+  return [ecdsa];
+}
+
+function isEd25519SourceContributionPreparationV1(
+  preparation:
+    | LinkedDeviceEd25519SourceContributionPreparationV1
+    | LinkedDeviceEcdsaSourceContributionPreparationV1,
+): preparation is LinkedDeviceEd25519SourceContributionPreparationV1 {
+  return 'kind' in preparation;
+}
+
+function assertSourceContributionRecordedV1(
+  result: Awaited<ReturnType<LinkSessionOwnerTransportPortV1['recordSourceContributionV1']>>,
+): void {
+  if (
+    result.state.state !== 'authority_pending_local_install' &&
+    result.state.state !== 'active'
+  ) {
+    throw new Error('source contribution acknowledgement did not commit the linked device');
   }
 }
 

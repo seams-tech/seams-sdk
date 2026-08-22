@@ -11,6 +11,11 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceSessionClaimV1,
+  LinkedDeviceEd25519SourceContributionPreparationV1,
+  LinkedDeviceEcdsaSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceTargetFactorV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
@@ -26,6 +31,12 @@ import {
   parseLinkDevicePublicKeyB64u,
   parseQrLinkedDeviceSessionPayloadV5 as parseSharedQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
+import {
+  assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+} from '@shared/device-linking/sourceContribution';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   hasWhitespaceOrControlCharacters,
@@ -80,6 +91,8 @@ export type LinkedDeviceApprovalTranscriptV1 = {
   readonly sourceKeyManifestDigestB64u: DigestB64u;
 };
 
+export type LinkedDeviceSourceContributionTranscriptV1 = LinkedDeviceApprovalTranscriptV1;
+
 type LinkedDeviceEmailOtpChallengeV1 =
   | { readonly state: 'available'; readonly maskedEmailHint: string }
   | {
@@ -118,6 +131,8 @@ type LinkedDeviceSessionUnclaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly emailOtpChallenge?: never;
   readonly authorityId?: never;
   readonly packageSetDigestB64u?: never;
+  readonly sourceContributionPreparation?: never;
+  readonly sourceContributionTranscript?: never;
 };
 
 type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -128,16 +143,45 @@ type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly emailOtpChallenge?: never;
   readonly authorityId?: never;
   readonly packageSetDigestB64u?: never;
+  readonly sourceContributionPreparation?: never;
+  readonly sourceContributionTranscript?: never;
 };
 
 type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 &
   LinkedDeviceTargetFactorRecordV1 & {
     readonly state: Extract<
       LinkSessionStateV1,
-      { readonly state: 'awaiting_target_factor' | 'provisioning' }
+      { readonly state: 'awaiting_target_factor' }
     >;
     readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
+    readonly authorityId?: never;
+    readonly packageSetDigestB64u?: never;
+    readonly sourceContributionPreparation?: never;
+    readonly sourceContributionTranscript?: never;
+  };
+
+type LinkedDeviceSessionSourceContributionRecordV1 = LinkedDeviceSessionRecordBaseV1 &
+  LinkedDeviceTargetFactorRecordV1 & {
+    readonly state: Extract<
+      LinkSessionStateV1,
+      { readonly state: 'awaiting_source_contribution' }
+    >;
+    readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
+    readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
+    readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: never;
+    readonly authorityId?: never;
+    readonly packageSetDigestB64u?: never;
+  };
+
+type LinkedDeviceSessionProvisioningRecordV1 = LinkedDeviceSessionRecordBaseV1 &
+  LinkedDeviceTargetFactorRecordV1 & {
+    readonly state: Extract<LinkSessionStateV1, { readonly state: 'provisioning' }>;
+    readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
+    readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
+    readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: never;
     readonly packageSetDigestB64u?: never;
   };
@@ -150,6 +194,8 @@ type LinkedDeviceSessionPendingRecordV1 = LinkedDeviceSessionRecordBaseV1 &
     >;
     readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
+    readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId: WalletAuthorityId;
     readonly packageSetDigestB64u: DigestB64u;
   };
@@ -159,6 +205,8 @@ type LinkedDeviceSessionActiveRecordV1 = LinkedDeviceSessionRecordBaseV1 &
     readonly state: Extract<LinkSessionStateV1, { readonly state: 'active' }>;
     readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
+    readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId: WalletAuthorityId;
     readonly packageSetDigestB64u: DigestB64u;
   };
@@ -172,6 +220,8 @@ type LinkedDeviceSessionTerminalRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
   readonly targetFactor?: LinkedDeviceTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId?: never;
   readonly packageSetDigestB64u?: never;
 };
@@ -180,6 +230,8 @@ export type LinkedDeviceSessionRecordV1 =
   | LinkedDeviceSessionUnclaimedRecordV1
   | LinkedDeviceSessionClaimedRecordV1
   | LinkedDeviceSessionApprovedRecordV1
+  | LinkedDeviceSessionSourceContributionRecordV1
+  | LinkedDeviceSessionProvisioningRecordV1
   | LinkedDeviceSessionPendingRecordV1
   | LinkedDeviceSessionActiveRecordV1
   | LinkedDeviceSessionTerminalRecordV1;
@@ -259,6 +311,14 @@ export type LinkedDeviceSessionStoreV1 = {
   recordTargetCredentialV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionMutationResultV1>;
+  recordSourceContributionV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly approvalDigestB64u: DigestB64u;
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1>;
@@ -382,7 +442,14 @@ export type LinkedDeviceSessionDeleteInputV1 = {
 export type LinkedDeviceSessionTargetCredentialInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
+  readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly nowMs: number;
+};
+
+export type LinkedDeviceSessionSourceContributionInputV1 = {
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly nowMs: number;
+  readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
 };
 
 export type LinkedDeviceSessionEmailOtpChallengeInputV1 = {
@@ -570,18 +637,94 @@ export class LinkedDeviceSessionServiceV1 {
     try {
       const nowMs = requireTimestamp(input.nowMs, 'nowMs');
       const existing = await this.requireSession(input.linkSessionId);
-      if (existing.state.state === 'provisioning') return { outcome: 'replayed', record: existing };
+      if (
+        existing.state.state === 'awaiting_source_contribution' ||
+        existing.state.state === 'provisioning'
+      ) {
+        return { outcome: 'replayed', record: existing };
+      }
       if (existing.state.state !== 'awaiting_target_factor') return invalidStateResult(existing);
       if (nowMs >= awaitingTargetDeadlineMsV1(existing))
         return { outcome: 'expired', record: existing };
+      const sourceContributionPreparation =
+        parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
+          input.sourceContributionPreparation,
+        );
       const nextRecord = replaceSessionRecordV1(existing, {
-        state: provisioningStateV1(existing),
+        state: awaitingSourceContributionStateV1(existing),
+        sourceContributionPreparation,
         revision: existing.revision + 1,
         updatedAtMs: nowMs,
       });
       return await this.store.recordTargetCredentialV1({
         linkSessionId: input.linkSessionId,
         expectedRevision: input.expectedRevision,
+        nextRecord,
+        nowMs,
+      });
+    } catch (error: unknown) {
+      return invalidInputResult(error);
+    }
+  }
+
+  async recordSourceContributionV1(
+    input: LinkedDeviceSessionSourceContributionInputV1,
+  ): Promise<LinkedDeviceSessionServiceResultV1> {
+    try {
+      const approval = parseLinkedDeviceApprovalV1(input.approval);
+      if (!approval.sourceContribution) {
+        return { outcome: 'invalid_input', message: 'source contribution is required' };
+      }
+      const nowMs = requireTimestamp(input.nowMs, 'nowMs');
+      const existing = await this.requireSession(approval.linkSessionId);
+      const approvalDigestB64u = await digestTranscriptV1('approval', approval);
+      if (
+        existing.sourceContributionTranscript &&
+        existing.sourceContributionTranscript.digestB64u === approvalDigestB64u &&
+        alphabetizeStringify(existing.sourceContributionTranscript.value) ===
+          alphabetizeStringify(approval)
+      ) {
+        return { outcome: 'replayed', record: existing };
+      }
+      if (existing.state.state !== 'awaiting_source_contribution') {
+        return invalidStateResult(existing);
+      }
+      if (nowMs >= awaitingSourceContributionDeadlineMsV1(existing)) {
+        return { outcome: 'expired', record: existing };
+      }
+      validateSourceContributionApprovalMatchesSession(existing, approval, nowMs);
+      validateSourceContributionPreparationMatchesApproval(existing, approval);
+      const requestedAuthorityError = validateLinkedDeviceRequestedAuthorityV1(
+        input.owner.permission,
+        approval.permission,
+      );
+      if (requestedAuthorityError) {
+        return unauthorizedResult('unauthorized', requestedAuthorityError);
+      }
+      const authorization = await this.authorization.authorizeOwnerApprovalV1({
+        session: existing,
+        approval,
+        requestedAtMs: nowMs,
+        owner: input.owner,
+      });
+      if (authorization.kind === 'denied') {
+        return unauthorizedResult(authorization.code, authorization.message);
+      }
+      const nextRecord = replaceSessionRecordV1(existing, {
+        state: provisioningStateV1(existing),
+        sourceContributionTranscript: {
+          digestB64u: approvalDigestB64u,
+          value: approval,
+          sourceKeyManifestDigestB64u: input.owner.keyManifestDigestB64u,
+        },
+        revision: existing.revision + 1,
+        updatedAtMs: nowMs,
+      });
+      return await this.store.recordSourceContributionV1({
+        linkSessionId: approval.linkSessionId,
+        expectedRevision: existing.revision,
+        approval,
+        approvalDigestB64u,
         nextRecord,
         nowMs,
       });
@@ -919,6 +1062,8 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     'approvalTranscript',
     'targetFactor',
     'emailOtpChallenge',
+    'sourceContributionPreparation',
+    'sourceContributionTranscript',
     'authorityId',
     'packageSetDigestB64u',
     'createdAtMs',
@@ -944,6 +1089,11 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     approvalTranscript: parseOptionalApprovalTranscript(record.approvalTranscript),
     targetFactor: parseOptionalTargetFactor(record.targetFactor),
     emailOtpChallenge: parseOptionalEmailOtpChallenge(record.emailOtpChallenge),
+    sourceContributionPreparation:
+      parseOptionalSourceContributionPreparation(record.sourceContributionPreparation),
+    sourceContributionTranscript: parseOptionalSourceContributionTranscript(
+      record.sourceContributionTranscript,
+    ),
     authorityId: parseOptionalId(record.authorityId, parseWalletAuthorityId, 'authorityId'),
     packageSetDigestB64u: parseOptionalDigest(record.packageSetDigestB64u, 'packageSetDigestB64u'),
     createdAtMs,
@@ -990,6 +1140,8 @@ function buildSessionRecordV1(input: {
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
   readonly targetFactor?: LinkedDeviceTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId?: WalletAuthorityId;
   readonly packageSetDigestB64u?: DigestB64u;
   readonly createdAtMs: number;
@@ -1021,8 +1173,11 @@ function buildSessionRecordV1(input: {
         updatedAtMs: input.updatedAtMs,
       };
     case 'awaiting_target_factor':
-    case 'provisioning':
       return buildApprovedSessionRecordV1(input);
+    case 'awaiting_source_contribution':
+      return buildSourceContributionSessionRecordV1(input);
+    case 'provisioning':
+      return buildProvisioningSessionRecordV1(input);
     case 'authority_pending_local_install':
       return buildPendingSessionRecordV1(input);
     case 'active':
@@ -1040,6 +1195,12 @@ function buildSessionRecordV1(input: {
         ...(input.approvalTranscript ? { approvalTranscript: input.approvalTranscript } : {}),
         ...(input.targetFactor ? { targetFactor: input.targetFactor } : {}),
         ...(input.emailOtpChallenge ? { emailOtpChallenge: input.emailOtpChallenge } : {}),
+        ...(input.sourceContributionPreparation
+          ? { sourceContributionPreparation: input.sourceContributionPreparation }
+          : {}),
+        ...(input.sourceContributionTranscript
+          ? { sourceContributionTranscript: input.sourceContributionTranscript }
+          : {}),
         revision: input.revision,
         createdAtMs: input.createdAtMs,
         updatedAtMs: input.updatedAtMs,
@@ -1058,15 +1219,20 @@ function buildApprovedSessionRecordV1(input: {
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
   readonly targetFactor?: LinkedDeviceTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId?: WalletAuthorityId;
   readonly packageSetDigestB64u?: DigestB64u;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 }): LinkedDeviceSessionApprovedRecordV1 {
-  if (input.state.state !== 'awaiting_target_factor' && input.state.state !== 'provisioning') {
+  if (input.state.state !== 'awaiting_target_factor') {
     throw new Error('approved session state is invalid');
   }
   requireApprovedRecordFacts(input, input.state.state);
+  if (input.sourceContributionPreparation || input.sourceContributionTranscript) {
+    throw new Error('awaiting target-factor session contains source-contribution facts');
+  }
   if (input.targetFactor.kind === 'passkey_prf') {
     return {
       version: 'linked_device_session_v1',
@@ -1096,6 +1262,123 @@ function buildApprovedSessionRecordV1(input: {
   };
 }
 
+function buildSourceContributionSessionRecordV1(input: {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
+  readonly state: LinkSessionStateV1;
+  readonly revision: number;
+  readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
+  readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
+  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
+  readonly authorityId?: WalletAuthorityId;
+  readonly packageSetDigestB64u?: DigestB64u;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}): LinkedDeviceSessionSourceContributionRecordV1 {
+  if (input.state.state !== 'awaiting_source_contribution') {
+    throw new Error('source-contribution session state is invalid');
+  }
+  requireApprovedRecordFacts(input, input.state.state);
+  if (!input.sourceContributionPreparation || input.sourceContributionTranscript) {
+    throw new Error('source-contribution session facts are incomplete');
+  }
+  const sourceContributionPreparation = input.sourceContributionPreparation;
+  if (input.targetFactor.kind === 'passkey_prf') {
+    return {
+      version: 'linked_device_session_v1',
+      linkSessionId: input.linkSessionId,
+      qrPayload: input.qrPayload,
+      state: input.state,
+      claimTranscript: input.claimTranscript,
+      approvalTranscript: input.approvalTranscript,
+      targetFactor: input.targetFactor,
+      sourceContributionPreparation,
+      revision: input.revision,
+      createdAtMs: input.createdAtMs,
+      updatedAtMs: input.updatedAtMs,
+    };
+  }
+  return {
+    version: 'linked_device_session_v1',
+    linkSessionId: input.linkSessionId,
+    qrPayload: input.qrPayload,
+    state: input.state,
+    claimTranscript: input.claimTranscript,
+    approvalTranscript: input.approvalTranscript,
+    targetFactor: input.targetFactor,
+    ...(input.targetFactor.kind === 'email_otp' && input.emailOtpChallenge
+      ? { emailOtpChallenge: input.emailOtpChallenge }
+      : {}),
+    sourceContributionPreparation,
+    revision: input.revision,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+  };
+}
+
+function buildProvisioningSessionRecordV1(input: {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
+  readonly state: LinkSessionStateV1;
+  readonly revision: number;
+  readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
+  readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
+  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
+  readonly authorityId?: WalletAuthorityId;
+  readonly packageSetDigestB64u?: DigestB64u;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+}): LinkedDeviceSessionProvisioningRecordV1 {
+  if (input.state.state !== 'provisioning') {
+    throw new Error('provisioning session state is invalid');
+  }
+  requireApprovedRecordFacts(input, input.state.state);
+  if (!input.sourceContributionPreparation || !input.sourceContributionTranscript) {
+    throw new Error('provisioning session facts are incomplete');
+  }
+  const sourceContributionPreparation = input.sourceContributionPreparation;
+  const sourceContributionTranscript = input.sourceContributionTranscript;
+  if (input.targetFactor.kind === 'passkey_prf') {
+    return {
+      version: 'linked_device_session_v1',
+      linkSessionId: input.linkSessionId,
+      qrPayload: input.qrPayload,
+      state: input.state,
+      claimTranscript: input.claimTranscript,
+      approvalTranscript: input.approvalTranscript,
+      targetFactor: input.targetFactor,
+      sourceContributionPreparation,
+      sourceContributionTranscript,
+      revision: input.revision,
+      createdAtMs: input.createdAtMs,
+      updatedAtMs: input.updatedAtMs,
+    };
+  }
+  return {
+    version: 'linked_device_session_v1',
+    linkSessionId: input.linkSessionId,
+    qrPayload: input.qrPayload,
+    state: input.state,
+    claimTranscript: input.claimTranscript,
+    approvalTranscript: input.approvalTranscript,
+    targetFactor: input.targetFactor,
+    ...(input.targetFactor.kind === 'email_otp' && input.emailOtpChallenge
+      ? { emailOtpChallenge: input.emailOtpChallenge }
+      : {}),
+    sourceContributionPreparation,
+    sourceContributionTranscript,
+    revision: input.revision,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+  };
+}
+
 function buildPendingSessionRecordV1(input: {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
@@ -1105,6 +1388,8 @@ function buildPendingSessionRecordV1(input: {
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
   readonly targetFactor?: LinkedDeviceTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId?: WalletAuthorityId;
   readonly packageSetDigestB64u?: DigestB64u;
   readonly createdAtMs: number;
@@ -1127,6 +1412,8 @@ function buildPendingSessionRecordV1(input: {
       claimTranscript: input.claimTranscript,
       approvalTranscript: input.approvalTranscript,
       targetFactor: input.targetFactor,
+      sourceContributionPreparation: input.sourceContributionPreparation,
+      sourceContributionTranscript: input.sourceContributionTranscript,
       authorityId: input.authorityId,
       packageSetDigestB64u: input.packageSetDigestB64u,
       revision: input.revision,
@@ -1143,6 +1430,8 @@ function buildPendingSessionRecordV1(input: {
     approvalTranscript: input.approvalTranscript,
     targetFactor: input.targetFactor,
     ...(input.emailOtpChallenge ? { emailOtpChallenge: input.emailOtpChallenge } : {}),
+    sourceContributionPreparation: input.sourceContributionPreparation,
+    sourceContributionTranscript: input.sourceContributionTranscript,
     authorityId: input.authorityId,
     packageSetDigestB64u: input.packageSetDigestB64u,
     revision: input.revision,
@@ -1160,6 +1449,8 @@ function buildActiveSessionRecordV1(input: {
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
   readonly targetFactor?: LinkedDeviceTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+  readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId?: WalletAuthorityId;
   readonly packageSetDigestB64u?: DigestB64u;
   readonly createdAtMs: number;
@@ -1178,6 +1469,8 @@ function buildActiveSessionRecordV1(input: {
       claimTranscript: input.claimTranscript,
       approvalTranscript: input.approvalTranscript,
       targetFactor: input.targetFactor,
+      sourceContributionPreparation: input.sourceContributionPreparation,
+      sourceContributionTranscript: input.sourceContributionTranscript,
       authorityId: input.authorityId,
       packageSetDigestB64u: input.packageSetDigestB64u,
       revision: input.revision,
@@ -1194,6 +1487,8 @@ function buildActiveSessionRecordV1(input: {
     approvalTranscript: input.approvalTranscript,
     targetFactor: input.targetFactor,
     ...(input.emailOtpChallenge ? { emailOtpChallenge: input.emailOtpChallenge } : {}),
+    sourceContributionPreparation: input.sourceContributionPreparation,
+    sourceContributionTranscript: input.sourceContributionTranscript,
     authorityId: input.authorityId,
     packageSetDigestB64u: input.packageSetDigestB64u,
     revision: input.revision,
@@ -1210,6 +1505,8 @@ function replaceSessionRecordV1(
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+    readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: WalletAuthorityId;
     readonly packageSetDigestB64u?: DigestB64u;
     readonly revision: number;
@@ -1225,6 +1522,10 @@ function replaceSessionRecordV1(
     approvalTranscript: patch.approvalTranscript ?? record.approvalTranscript,
     targetFactor: patch.targetFactor ?? record.targetFactor,
     emailOtpChallenge: patch.emailOtpChallenge ?? record.emailOtpChallenge,
+    sourceContributionPreparation:
+      patch.sourceContributionPreparation ?? record.sourceContributionPreparation,
+    sourceContributionTranscript:
+      patch.sourceContributionTranscript ?? record.sourceContributionTranscript,
     authorityId: patch.authorityId ?? record.authorityId,
     packageSetDigestB64u: patch.packageSetDigestB64u ?? record.packageSetDigestB64u,
     createdAtMs: record.createdAtMs,
@@ -1290,9 +1591,18 @@ function awaitingTargetFactorStateV1(
 function provisioningStateV1(
   record: LinkedDeviceSessionRecordV1,
 ): Extract<LinkSessionStateV1, { readonly state: 'provisioning' }> {
-  if (record.state.state !== 'awaiting_target_factor')
-    throw new Error('link session is not awaiting target credential');
+  if (record.state.state !== 'awaiting_source_contribution')
+    throw new Error('link session is not awaiting source contribution');
   return { state: 'provisioning', deviceId: record.state.deviceId };
+}
+
+function awaitingSourceContributionStateV1(
+  record: LinkedDeviceSessionRecordV1,
+): Extract<LinkSessionStateV1, { readonly state: 'awaiting_source_contribution' }> {
+  if (record.state.state !== 'awaiting_target_factor') {
+    throw new Error('link session is not awaiting target credential');
+  }
+  return { state: 'awaiting_source_contribution', deviceId: record.state.deviceId };
 }
 
 function authorityPendingStateV1(
@@ -1354,6 +1664,159 @@ function validateApprovalMatchesSession(
     throw new Error('approval owner source projection is empty');
 }
 
+function validateSourceContributionApprovalMatchesSession(
+  record: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+  nowMs: number,
+): void {
+  if (record.state.state !== 'awaiting_source_contribution' || !record.approvalTranscript) {
+    throw new Error('link session is not awaiting source contribution');
+  }
+  if (!approval.sourceContribution) {
+    throw new Error('source contribution is required');
+  }
+  const initial = record.approvalTranscript.value;
+  if (
+    approval.linkSessionId !== initial.linkSessionId ||
+    approval.walletId !== initial.walletId ||
+    approval.enrollmentId !== initial.enrollmentId ||
+    approval.deviceId !== initial.deviceId ||
+    approval.linkPublicKeyB64u !== initial.linkPublicKeyB64u ||
+    approval.devicePublicKeyB64u !== initial.devicePublicKeyB64u ||
+    approval.targetFactor.kind !== initial.targetFactor.kind ||
+    approval.approvedAtMs !== initial.approvedAtMs ||
+    approval.expiresAtMs !== initial.expiresAtMs ||
+    alphabetizeStringify(approval.permission) !== alphabetizeStringify(initial.permission) ||
+    alphabetizeStringify(approval.ownerAuthorization) !==
+      alphabetizeStringify(initial.ownerAuthorization) ||
+    alphabetizeStringify(approval.orderedOwnerSourceLaneHints) !==
+      alphabetizeStringify(initial.orderedOwnerSourceLaneHints)
+  ) {
+    throw new Error('source contribution approval changes the owner approval transcript');
+  }
+  if (approval.expiresAtMs <= nowMs || approval.approvedAtMs > nowMs) {
+    throw new Error('source contribution approval is outside its validity window');
+  }
+}
+
+function validateSourceContributionPreparationMatchesApproval(
+  record: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (record.state.state !== 'awaiting_source_contribution') {
+    throw new Error('link session is not awaiting source contribution');
+  }
+  const preparations = record.sourceContributionPreparation;
+  const contributions = approval.sourceContribution;
+  if (!preparations || !contributions || preparations.length !== contributions.length) {
+    throw new Error('source contribution families do not match target preparation');
+  }
+  preparations.forEach((preparation, index) => {
+    const contribution = contributions[index];
+    if (!contribution) throw new Error('source contribution tuple is incomplete');
+    if (preparation.linkSessionId !== approval.linkSessionId) {
+      throw new Error('source contribution preparation session differs from approval');
+    }
+    if (preparation.enrollmentId !== approval.enrollmentId) {
+      throw new Error('source contribution preparation enrollment differs from approval');
+    }
+    if ('kind' in preparation) {
+      if (contribution.keyFamily !== 'ed25519') {
+        throw new Error('source contribution family order differs from preparation');
+      }
+      assertEd25519ContributionMatchesPreparation(preparation, contribution, approval);
+      return;
+    }
+    if (contribution.keyFamily !== 'ecdsa_secp256k1') {
+      throw new Error('source contribution family order differs from preparation');
+    }
+    assertEcdsaContributionMatchesPreparation(preparation, contribution, approval);
+  });
+}
+
+function assertEd25519ContributionMatchesPreparation(
+  preparation: LinkedDeviceEd25519SourceContributionPreparationV1,
+  contribution: LinkedDeviceOrdinaryMaterialSourceContributionV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (contribution.keyFamily !== 'ed25519') {
+    throw new Error('source contribution is not Ed25519');
+  }
+  assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1({
+    contribution,
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    walletKeyId: preparation.walletKeyId,
+    targetDeviceId: preparation.targetDeviceId,
+    targetFactorVerificationDigestB64u: preparation.targetFactorVerificationDigestB64u,
+    sourceMaterialActivation: routerAbMpcMaterialActivationRefFromWire(
+      preparation.sourceBinding.material_activation,
+    ),
+    targetMaterialActivation: preparation.targetMaterialActivation,
+    sourceSigner: {
+      keyFamily: 'ed25519',
+      walletKeyId: preparation.walletKeyId,
+      registeredPublicKeyB64u: preparation.sourceRegisteredPublicKeyB64u,
+    },
+  });
+  if (
+    contribution.targetDeviceId !== parseDeviceIdValue(approval.deviceId) ||
+    contribution.targetMaterialActivation.activationId !==
+      preparation.targetMaterialActivation.activationId ||
+    contribution.targetClientRecipientPublicKeyB64u !==
+      preparation.targetClientRecipientPublicKeyB64u ||
+    contribution.targetSigningWorkerRecipientPublicKeyB64u !==
+      preparation.targetSigningWorkerRecipientPublicKeyB64u ||
+    contribution.sourceRegisteredPublicKeyB64u !== preparation.sourceRegisteredPublicKeyB64u ||
+    alphabetizeStringify(contribution.sourceBinding) !==
+      alphabetizeStringify(preparation.sourceBinding) ||
+    contribution.participantIds[0] !== preparation.participantIds[0] ||
+    contribution.participantIds[1] !== preparation.participantIds[1]
+  ) {
+    throw new Error('Ed25519 source contribution does not match target preparation');
+  }
+}
+
+function assertEcdsaContributionMatchesPreparation(
+  preparation: LinkedDeviceEcdsaSourceContributionPreparationV1,
+  contribution: LinkedDeviceOrdinaryMaterialSourceContributionV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (contribution.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('source contribution is not ECDSA');
+  }
+  assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1({
+    contribution,
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    walletKeyId: contribution.walletKeyId,
+    targetDeviceId: preparation.target.targetDeviceId,
+    targetFactorVerificationDigestB64u: preparation.target.targetFactorVerificationDigestB64u,
+    sourceMaterialActivation: preparation.source.activation,
+    targetMaterialActivation: preparation.target.activation,
+    sourceSigner: {
+      keyFamily: 'ecdsa_secp256k1',
+      walletKeyId: contribution.walletKeyId,
+      thresholdPublicKey33B64u: preparation.source.thresholdPublicKey33B64u,
+    },
+  });
+  if (
+    contribution.targetDeviceId !== parseDeviceIdValue(approval.deviceId) ||
+    !mpcMaterialActivationRefsEqual(contribution.target.activation, preparation.target.activation) ||
+    contribution.target.targetFactorVerificationDigestB64u !==
+      preparation.target.targetFactorVerificationDigestB64u ||
+    contribution.target.clientRecipientPublicKeyB64u !==
+      preparation.target.clientRecipientPublicKeyB64u ||
+    contribution.target.signingWorkerRecipientPublicKeyB64u !==
+      preparation.target.signingWorkerRecipientPublicKeyB64u ||
+    !mpcMaterialActivationRefsEqual(contribution.sourceSigner.activation, preparation.source.activation)
+  ) {
+    throw new Error('ECDSA source contribution does not match target preparation');
+  }
+}
+
 function validateLinkedDeviceRequestedAuthorityV1(
   sourceAuthority: DelegatedWalletAuthorityV1,
   authority: DelegatedWalletAuthorityV1,
@@ -1405,12 +1868,20 @@ function isPrecommitState(
   state: LinkSessionStateV1,
 ): state is Extract<
   LinkSessionStateV1,
-  { readonly state: 'displaying_qr' | 'claimed' | 'awaiting_target_factor' | 'provisioning' }
+  {
+    readonly state:
+      | 'displaying_qr'
+      | 'claimed'
+      | 'awaiting_target_factor'
+      | 'awaiting_source_contribution'
+      | 'provisioning';
+  }
 > {
   switch (state.state) {
     case 'displaying_qr':
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       return true;
     case 'authority_pending_local_install':
@@ -1431,6 +1902,7 @@ function sessionExpiryMsV1(record: LinkedDeviceSessionRecordV1): number {
     case 'claimed':
       return record.claimTranscript?.value.claimExpiresAtMs ?? record.qrPayload.expiresAtMs;
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       return record.approvalTranscript?.value.expiresAtMs ?? record.qrPayload.expiresAtMs;
     case 'authority_pending_local_install':
@@ -1447,6 +1919,13 @@ function sessionExpiryMsV1(record: LinkedDeviceSessionRecordV1): number {
 function awaitingTargetDeadlineMsV1(record: LinkedDeviceSessionRecordV1): number {
   if (record.state.state !== 'awaiting_target_factor')
     throw new Error('link session is not awaiting target factor');
+  return record.approvalTranscript?.value.expiresAtMs ?? record.qrPayload.expiresAtMs;
+}
+
+function awaitingSourceContributionDeadlineMsV1(record: LinkedDeviceSessionRecordV1): number {
+  if (record.state.state !== 'awaiting_source_contribution') {
+    throw new Error('link session is not awaiting source contribution');
+  }
   return record.approvalTranscript?.value.expiresAtMs ?? record.qrPayload.expiresAtMs;
 }
 
@@ -1510,6 +1989,7 @@ function parseLinkSessionStateV1(raw: unknown): LinkSessionStateV1 {
       return { state };
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       requireExactKeys(record, ['state', 'deviceId']);
       return { state, deviceId: parseDeviceIdValue(record.deviceId) };
@@ -1592,6 +2072,33 @@ function parseOptionalApprovalTranscript(
     sourceKeyManifestDigestB64u: requireDigest(
       record.sourceKeyManifestDigestB64u,
       'approvalTranscript.sourceKeyManifestDigestB64u',
+    ),
+  };
+}
+
+function parseOptionalSourceContributionPreparation(
+  raw: unknown,
+): LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 | undefined {
+  if (raw === undefined) return undefined;
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(raw);
+}
+
+function parseOptionalSourceContributionTranscript(
+  raw: unknown,
+): LinkedDeviceSourceContributionTranscriptV1 | undefined {
+  if (raw === undefined) return undefined;
+  const record = requireRecord(raw, 'sourceContributionTranscript');
+  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestB64u']);
+  const value = parseLinkedDeviceApprovalV1(record.value);
+  if (!value.sourceContribution) {
+    throw new Error('sourceContributionTranscript.value has no source contribution');
+  }
+  return {
+    digestB64u: requireDigest(record.digestB64u, 'sourceContributionTranscript.digestB64u'),
+    value,
+    sourceKeyManifestDigestB64u: requireDigest(
+      record.sourceKeyManifestDigestB64u,
+      'sourceContributionTranscript.sourceKeyManifestDigestB64u',
     ),
   };
 }
@@ -1713,6 +2220,8 @@ function requireNoRecordFacts(
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+    readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: WalletAuthorityId;
     readonly packageSetDigestB64u?: DigestB64u;
   },
@@ -1723,6 +2232,8 @@ function requireNoRecordFacts(
     input.approvalTranscript ||
     input.targetFactor ||
     input.emailOtpChallenge ||
+    input.sourceContributionPreparation ||
+    input.sourceContributionTranscript ||
     input.authorityId ||
     input.packageSetDigestB64u
   )
@@ -1735,6 +2246,8 @@ function requireClaimRecordFacts(
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+    readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: WalletAuthorityId;
     readonly packageSetDigestB64u?: DigestB64u;
   },
@@ -1745,6 +2258,8 @@ function requireClaimRecordFacts(
     input.approvalTranscript ||
     input.targetFactor ||
     input.emailOtpChallenge ||
+    input.sourceContributionPreparation ||
+    input.sourceContributionTranscript ||
     input.authorityId ||
     input.packageSetDigestB64u
   )
@@ -1757,6 +2272,8 @@ function requireApprovedRecordFacts(
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+    readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: WalletAuthorityId;
     readonly packageSetDigestB64u?: DigestB64u;
   },
@@ -1780,6 +2297,8 @@ function requireCommittedRecordFacts(
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+    readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: WalletAuthorityId;
     readonly packageSetDigestB64u?: DigestB64u;
   },
@@ -1788,6 +2307,8 @@ function requireCommittedRecordFacts(
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
   readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly sourceContributionTranscript: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId: WalletAuthorityId;
   readonly packageSetDigestB64u: DigestB64u;
 } {
@@ -1799,6 +2320,8 @@ function requireCommittedRecordFacts(
     !input.packageSetDigestB64u
   )
     throw new Error(`${state} session facts are incomplete`);
+  if (!input.sourceContributionPreparation || !input.sourceContributionTranscript)
+    throw new Error(`${state} session source-contribution facts are incomplete`);
   if (input.targetFactor.kind === 'passkey_prf' && input.emailOtpChallenge)
     throw new Error(`${state} passkey session contains email challenge state`);
 }
@@ -1858,6 +2381,7 @@ function requireRecordIdentityFacts(input: {
       return;
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       if (!claim || input.state.deviceId !== parseDeviceIdValue(claim.deviceId)) {
         throw new Error(`${input.state.state} device identity does not match claim transcript`);
@@ -1885,6 +2409,8 @@ function requireTerminalRecordFacts(
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
+    readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+    readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
     readonly authorityId?: WalletAuthorityId;
     readonly packageSetDigestB64u?: DigestB64u;
   },
@@ -1899,6 +2425,18 @@ function requireTerminalRecordFacts(
   }
   if (!input.approvalTranscript && input.emailOtpChallenge) {
     throw new Error(`${state} session email challenge has no approval`);
+  }
+  if (
+    input.sourceContributionTranscript &&
+    !input.sourceContributionPreparation
+  ) {
+    throw new Error(`${state} source contribution transcript has no preparation`);
+  }
+  if (
+    input.sourceContributionPreparation &&
+    (!input.approvalTranscript || !input.targetFactor)
+  ) {
+    throw new Error(`${state} source contribution preparation has no approval`);
   }
   if (input.approvalTranscript && !input.targetFactor) {
     throw new Error(`${state} session approval has no target factor`);

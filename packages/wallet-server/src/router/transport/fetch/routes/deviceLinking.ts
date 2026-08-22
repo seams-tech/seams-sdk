@@ -12,6 +12,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
   QrLinkedDeviceSessionPayloadV5,
@@ -33,7 +34,6 @@ import {
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
-  parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
@@ -127,10 +127,15 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     | {
         readonly outcome: 'applied' | 'replayed';
         readonly keyManifestDigestB64u: DigestB64u;
-        readonly verifiedLinkInput: VerifiedLinkInputV1;
+        readonly targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1;
       }
     | { readonly outcome: 'invalid_input'; readonly message: string }
   >;
+  buildVerifiedLinkInputV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly requestedAtMs: number;
+  }): Promise<VerifiedLinkInputV1>;
 };
 
 export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
@@ -205,6 +210,7 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'claimSessionV1'
     | 'recordOwnerApprovalV1'
     | 'recordTargetCredentialV1'
+    | 'recordSourceContributionV1'
     | 'recordEmailOtpChallengeStateV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
@@ -255,6 +261,8 @@ type RouteAction =
         | 'approval'
         | 'target-preparation'
         | 'credential'
+        | 'source-contribution-preparation'
+        | 'source-contribution'
         | 'email-otp-challenge'
         | 'email-otp-resend'
         | 'email-otp-verify'
@@ -286,6 +294,10 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
         return await handleTargetPreparation(ctx, service, action.linkSessionId, nowMs);
       case 'credential':
         return await handleCredential(ctx, service, action.linkSessionId, nowMs);
+      case 'source-contribution-preparation':
+        return await handleSourceContributionPreparation(ctx, service, action.linkSessionId, nowMs);
+      case 'source-contribution':
+        return await handleSourceContribution(ctx, service, action.linkSessionId, nowMs);
       case 'email-otp-challenge':
         return await handleEmailOtpChallenge(ctx, service, action.linkSessionId, nowMs, false);
       case 'email-otp-resend':
@@ -414,53 +426,105 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, requestedAtMs: nowMs });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
   let sessionOutcome: 'applied' | 'replayed' = result.outcome;
+  let recordedSession = session;
   if (session.state.state === 'awaiting_target_factor') {
     const recorded = await service.sessionService.recordTargetCredentialV1({
       linkSessionId: session.linkSessionId,
       expectedRevision: session.revision,
+      sourceContributionPreparation: result.targetCredential.ordinarySignerMaterialPreparations,
       nowMs,
     });
     if (recorded.outcome !== 'applied' && recorded.outcome !== 'replayed') {
       return sessionResultResponse(recorded);
     }
     sessionOutcome = recorded.outcome;
+    recordedSession = recorded.record;
   } else if (
+    session.state.state !== 'awaiting_source_contribution' &&
     session.state.state !== 'provisioning' &&
     session.state.state !== 'authority_pending_local_install' &&
     session.state.state !== 'active'
   ) {
     return invalidStateResponse(session);
   }
+  return targetCredentialResultResponse(
+    recordedSession,
+    sessionOutcome,
+    result.targetCredential,
+  );
+}
+
+async function handleSourceContributionPreparation(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  const owner = await authenticateOwnerForSession(ctx, service, linkSessionId, nowMs);
+  if (owner.kind !== 'authorized') return ownerSessionResponse(owner);
+  if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  const preparation = owner.session.sourceContributionPreparation;
+  if (!preparation) return new Response(null, { status: 204 });
+  return json(preparation, { status: 200 });
+}
+
+async function handleSourceContribution(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
+  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
+  const rawBody = await readJsonBody(ctx.request);
+  const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(rawBody));
+  if (approval.linkSessionId !== linkSessionId) {
+    return invalidInputResponse('link session id does not match route');
+  }
+  validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
+  const recorded = await service.sessionService.recordSourceContributionV1({
+    approval,
+    nowMs,
+    owner: authentication.owner,
+  });
+  if (recorded.outcome !== 'applied' && recorded.outcome !== 'replayed') {
+    return sessionResultResponse(recorded);
+  }
+  if (
+    recorded.record.state.state !== 'provisioning' &&
+    recorded.record.state.state !== 'authority_pending_local_install' &&
+    recorded.record.state.state !== 'active'
+  ) {
+    return sessionResultResponse(recorded);
+  }
+  if (recorded.record.state.state !== 'provisioning') {
+    return sessionProjectionResponse(recorded.record, recorded.outcome);
+  }
   const installationReceipt = service.installationReceipt;
   if (!installationReceipt) {
     return invalidInputResponse('verified authority installation is not configured');
   }
+  const finalApproval = requireSourceContributionApproval(recorded.record);
+  const verifiedLinkInput = await service.targetCredential.buildVerifiedLinkInputV1({
+    session: recorded.record,
+    approval: finalApproval,
+    requestedAtMs: nowMs,
+  });
   const committed = await installationReceipt.commitPendingAuthorityV1({
-    input: result.verifiedLinkInput,
+    input: verifiedLinkInput,
     nowMs,
   });
   if (committed.kind === 'invalid_input') return invalidInputResponse(committed.message);
   if (committed.kind === 'conflict') {
     return json({ ok: false, outcome: 'conflict', message: committed.message }, { status: 409 });
   }
-  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
-    kind: 'linked_device_target_credential_registration_result_v1',
-    outcome: committed.kind === 'replayed' ? 'replayed' : sessionOutcome,
-    linkSessionId: registration.linkSessionId,
-    walletId: registration.walletId,
-    enrollmentId: registration.enrollmentId,
-    deviceId: registration.deviceId,
-    walletAuthMethodId: registration.walletAuthMethodId,
-    targetPreparationDigestB64u: registration.targetPreparationDigestB64u,
-    targetFactor: result.verifiedLinkInput.targetFactor,
-    ordinarySignerMaterialPreparations: committed.ordinarySignerMaterialPreparations,
-    ordinarySignerMaterialRecipientRequests: registration.ordinarySignerMaterialRecipientRequests,
-    keyManifestDigestB64u: result.keyManifestDigestB64u,
-  });
-  return targetCredentialResultResponse(
+  return sessionProjectionResponse(
     committed.session,
-    committed.kind === 'replayed' ? 'replayed' : sessionOutcome,
-    targetCredential,
+    committed.kind === 'replayed' ? 'replayed' : recorded.outcome,
   );
 }
 
@@ -719,6 +783,8 @@ function parseRoutePath(pathname: string): RouteAction | null {
     case 'approval':
     case 'target-preparation':
     case 'credential':
+    case 'source-contribution-preparation':
+    case 'source-contribution':
     case 'ed25519-export-root':
     case 'ed25519-export-root-recipient':
     case 'receipt':
@@ -732,6 +798,19 @@ function parseRoutePath(pathname: string): RouteAction | null {
 function requireApproval(session: LinkedDeviceSessionRecordV1): LinkedDeviceApprovalV1 {
   const approval = session.approvalTranscript?.value;
   if (!approval) throw new DeviceLinkingInputError('link session has no owner approval');
+  return approval;
+}
+
+function requireSourceContributionApproval(
+  session: LinkedDeviceSessionRecordV1,
+): Extract<
+  LinkedDeviceApprovalV1,
+  { readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1 }
+> {
+  const approval = session.sourceContributionTranscript?.value;
+  if (!approval?.sourceContribution) {
+    throw new DeviceLinkingInputError('link session has no source contribution approval');
+  }
   return approval;
 }
 
@@ -755,6 +834,7 @@ function projectLinkSessionStateV1(state: LinkSessionStateV1): LinkSessionStateV
       return { state: 'displaying_qr' };
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       return { state: state.state, deviceId: state.deviceId };
     case 'authority_pending_local_install':
@@ -816,7 +896,7 @@ function approvalResultResponse(result: LinkedDeviceSessionServiceResultV1): Res
   if (result.outcome !== 'applied' && result.outcome !== 'replayed') return sessionResultResponse(result);
   const record = result.record;
   if (record.state.state === 'active') return json({ ok: true, outcome: result.outcome, state: record.state, authorityId: record.authorityId }, { status: 200 });
-  if (record.state.state === 'awaiting_target_factor' || record.state.state === 'provisioning' || record.state.state === 'authority_pending_local_install') return result.outcome === 'replayed' ? json({ outcome: 'replayed', replay: { state: 'pending', session: record.state } }, { status: 200 }) : json({ outcome: 'pending', state: record.state }, { status: 200 });
+  if (record.state.state === 'awaiting_target_factor' || record.state.state === 'awaiting_source_contribution' || record.state.state === 'provisioning' || record.state.state === 'authority_pending_local_install') return result.outcome === 'replayed' ? json({ outcome: 'replayed', replay: { state: 'pending', session: record.state } }, { status: 200 }) : json({ outcome: 'pending', state: record.state }, { status: 200 });
   return invalidStateResponse(record);
 }
 

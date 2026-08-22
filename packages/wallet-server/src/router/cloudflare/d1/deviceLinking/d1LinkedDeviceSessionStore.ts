@@ -260,8 +260,37 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
       expectedStates: ['awaiting_target_factor'],
+      nextStates: ['awaiting_source_contribution'],
+      replay: isAwaitingSourceContributionRecord,
+    });
+  }
+
+  async recordSourceContributionV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly approvalDigestB64u: DigestB64u;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionMutationResultV1> {
+    const current = await this.getSessionV1(input.linkSessionId);
+    if (!current) return conflictResult(input.expectedRevision, null);
+    if (sameSourceContribution(current, input.approvalDigestB64u, input.approval)) {
+      return { outcome: 'replayed', record: current };
+    }
+    if (current.state.state !== 'awaiting_source_contribution') {
+      return invalidStateResult(current);
+    }
+    return this.applyTranscriptCas({
+      kind: 'source_contribution',
+      linkSessionId: input.linkSessionId,
+      expectedRevision: input.expectedRevision,
+      digestB64u: input.approvalDigestB64u,
+      transcript: input.approval,
+      nextRecord: input.nextRecord,
+      nowMs: input.nowMs,
       nextStates: ['provisioning'],
-      replay: isProvisioningRecord,
+      current,
     });
   }
 
@@ -405,7 +434,13 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['displaying_qr', 'claimed', 'awaiting_target_factor', 'provisioning'],
+      expectedStates: [
+        'displaying_qr',
+        'claimed',
+        'awaiting_target_factor',
+        'awaiting_source_contribution',
+        'provisioning',
+      ],
       nextStates: ['failed_before_commit'],
       replay: isFailedRecord,
     });
@@ -422,7 +457,13 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['displaying_qr', 'claimed', 'awaiting_target_factor', 'provisioning'],
+      expectedStates: [
+        'displaying_qr',
+        'claimed',
+        'awaiting_target_factor',
+        'awaiting_source_contribution',
+        'provisioning',
+      ],
       nextStates: ['cancelled'],
       replay: isCancelledRecord,
     });
@@ -444,7 +485,13 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['displaying_qr', 'claimed', 'awaiting_target_factor', 'provisioning'],
+      expectedStates: [
+        'displaying_qr',
+        'claimed',
+        'awaiting_target_factor',
+        'awaiting_source_contribution',
+        'provisioning',
+      ],
       nextStates: ['expired'],
       replay: isExpiredRecord,
     });
@@ -493,7 +540,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
   }
 
   private async applyTranscriptCas(input: {
-    readonly kind: 'claim' | 'approval';
+    readonly kind: 'claim' | 'approval' | 'source_contribution';
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
     readonly digestB64u: DigestB64u;
@@ -511,7 +558,11 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       throw new Error('linked-device transcript transition is invalid');
     }
     const transcript =
-      input.kind === 'claim' ? nextRecord.claimTranscript : nextRecord.approvalTranscript;
+      input.kind === 'claim'
+        ? nextRecord.claimTranscript
+        : input.kind === 'approval'
+          ? nextRecord.approvalTranscript
+          : nextRecord.sourceContributionTranscript;
     if (
       !transcript ||
       transcript.digestB64u !== input.digestB64u ||
@@ -552,7 +603,9 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       if (
         input.kind === 'claim'
           ? sameClaim(raced, input.digestB64u, input.transcript)
-          : sameApproval(raced, input.digestB64u, input.transcript)
+          : input.kind === 'approval'
+            ? sameApproval(raced, input.digestB64u, input.transcript)
+            : sameSourceContribution(raced, input.digestB64u, input.transcript)
       ) {
         return { outcome: 'replayed', record: raced };
       }
@@ -684,6 +737,18 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
         json: alphabetizeStringify(record.approvalTranscript.value),
       });
     }
+    if (record.sourceContributionTranscript) {
+      const digest = await computeLinkedDeviceApprovalDigestV1(
+        record.sourceContributionTranscript.value,
+      );
+      if (digest !== record.sourceContributionTranscript.digestB64u) {
+        throw new Error('source contribution transcript digest is invalid');
+      }
+      expected.set('source_contribution', {
+        digestB64u: record.sourceContributionTranscript.digestB64u,
+        json: alphabetizeStringify(record.sourceContributionTranscript.value),
+      });
+    }
     const actual = new Map<string, { readonly digestB64u: DigestB64u; readonly json: string }>();
     for (const row of rows) {
       const parsed = parseD1LinkedDeviceSessionTranscriptRowV1(row);
@@ -813,13 +878,26 @@ function sameApproval(
   );
 }
 
-function isProvisioningRecord(
+function isAwaitingSourceContributionRecord(
   record: LinkedDeviceSessionRecordV1,
   nextRecord: LinkedDeviceSessionRecordV1,
 ): boolean {
   return (
-    record.state.state === 'provisioning' &&
+    record.state.state === 'awaiting_source_contribution' &&
     alphabetizeStringify(record) === alphabetizeStringify(nextRecord)
+  );
+}
+
+function sameSourceContribution(
+  record: LinkedDeviceSessionRecordV1,
+  digest: DigestB64u,
+  value: unknown,
+): boolean {
+  return Boolean(
+    record.sourceContributionTranscript &&
+      record.sourceContributionTranscript.digestB64u === digest &&
+      alphabetizeStringify(record.sourceContributionTranscript.value) ===
+        alphabetizeStringify(value),
   );
 }
 
@@ -856,6 +934,7 @@ function isExpirableState(state: LinkSessionStateV1): boolean {
     case 'displaying_qr':
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       return true;
     case 'authority_pending_local_install':
@@ -876,6 +955,7 @@ function expiryMs(record: LinkedDeviceSessionRecordV1): number {
     case 'claimed':
       return record.claimTranscript?.value.claimExpiresAtMs ?? record.qrPayload.expiresAtMs;
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       return record.approvalTranscript?.value.expiresAtMs ?? record.qrPayload.expiresAtMs;
     case 'authority_pending_local_install':

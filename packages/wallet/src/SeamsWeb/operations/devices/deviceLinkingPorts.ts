@@ -14,6 +14,11 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  LinkedDeviceEd25519SourceContributionPreparationV1,
+  LinkedDeviceEd25519SourceContributionV1,
+  LinkedDeviceEcdsaSourceContributionPreparationV1,
+  LinkedDeviceEcdsaSourceContributionV1,
   LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceWebAuthnRegistrationV1,
   LinkDevicePublicKeyB64u,
@@ -168,6 +173,14 @@ export type LinkSessionOwnerTransportPortV1 = {
     readonly approval: LinkedDeviceApprovalV1;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceApprovalResultV1>;
+  getSourceContributionPreparationV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 | null>;
+  recordSourceContributionV1(input: {
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkSessionSnapshotV1>;
   getApprovalV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly authentication: LinkSessionAuthenticationV1;
@@ -296,6 +309,24 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
   }): Promise<LinkedDeviceOwnerAuthorizationResultV1>;
 };
 
+/** Family-specific source-preserving producers. Private source material stays behind each port. */
+export type DeviceLinkingEd25519SourceContributionPortV1 = {
+  produceSourceContributionV1(input: {
+    readonly preparation: LinkedDeviceEd25519SourceContributionPreparationV1;
+  }): Promise<LinkedDeviceEd25519SourceContributionV1>;
+};
+
+export type DeviceLinkingEcdsaSourceContributionPortV1 = {
+  produceSourceContributionV1(input: {
+    readonly preparation: LinkedDeviceEcdsaSourceContributionPreparationV1;
+  }): Promise<LinkedDeviceEcdsaSourceContributionV1>;
+};
+
+export type DeviceLinkingSourceContributionPortV1 = {
+  readonly ed25519: DeviceLinkingEd25519SourceContributionPortV1;
+  readonly ecdsa: DeviceLinkingEcdsaSourceContributionPortV1;
+};
+
 export type DeviceLinkingTargetCredentialPortV1 = {
   createTargetCredentialV1(input: {
     readonly preparation: Extract<
@@ -328,6 +359,7 @@ export type Device2LinkingFlowPortsV1 = {
 export type Device1LinkingFlowPortsV1 = {
   readonly transport: LinkSessionOwnerTransportPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  readonly sourceContribution: DeviceLinkingSourceContributionPortV1;
   /** Device 1's encrypted Ed25519 export-root handoff. */
   readonly ed25519ExportRoot: DeviceLinkingEd25519ExportRootPortV1;
 };

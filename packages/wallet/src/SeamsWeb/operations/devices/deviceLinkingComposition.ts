@@ -18,6 +18,7 @@ import { createDeviceLinkingAuthorityInstallationPortV1 } from './deviceLinkingA
 import type {
   DeviceLinkingFlowPortsV1,
   DeviceLinkingOwnerAuthorizationPortV1,
+  DeviceLinkingSourceContributionPortV1,
 } from './deviceLinkingPorts';
 
 export type DeviceLinkingFlowPortsAssemblyV1 = DeviceLinkingFlowPortsV1 & {
@@ -31,6 +32,7 @@ export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
   readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  readonly sourceContribution: DeviceLinkingSourceContributionPortV1;
   /** The wallet custody worker both devices drive for the export-root handoff. */
   readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
   readonly workerEndpoint?: DeviceLinkingWorkerEndpointV1;
@@ -79,6 +81,7 @@ export function createDeviceLinkingFlowPortsV1(
   return {
     transport,
     ownerAuthorization: args.ownerAuthorization,
+    sourceContribution: args.sourceContribution,
     keyMaterial,
     targetCredential,
     authorityInstallation,

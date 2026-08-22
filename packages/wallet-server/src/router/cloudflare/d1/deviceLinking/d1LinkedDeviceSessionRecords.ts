@@ -91,13 +91,15 @@ export function parseD1LinkedDeviceSessionRowV1(
 export function parseD1LinkedDeviceSessionTranscriptRowV1(
   row: D1LinkedDeviceSessionTranscriptRowV1,
 ): {
-  readonly kind: 'claim' | 'approval';
+  readonly kind: 'claim' | 'approval' | 'source_contribution';
   readonly digestB64u: DigestB64u;
   readonly transcriptJson: unknown;
   readonly createdAtMs: number;
 } {
   const kind = requiredString(row.transcript_kind, 'transcript_kind');
-  if (kind !== 'claim' && kind !== 'approval') throw new Error('transcript_kind is invalid');
+  if (kind !== 'claim' && kind !== 'approval' && kind !== 'source_contribution') {
+    throw new Error('transcript_kind is invalid');
+  }
   return {
     kind,
     digestB64u: requiredDigest(row.digest_b64u, 'digest_b64u'),

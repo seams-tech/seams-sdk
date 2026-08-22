@@ -55,6 +55,7 @@ export function createD1LinkedDeviceRouteServiceV1(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
+    recordSourceContributionV1: sessionService.recordSourceContributionV1.bind(sessionService),
     recordEmailOtpChallengeStateV1:
       sessionService.recordEmailOtpChallengeStateV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
