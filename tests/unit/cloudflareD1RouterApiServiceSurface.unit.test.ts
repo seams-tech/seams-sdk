@@ -570,3 +570,83 @@ test('Cloudflare D1 Router API auth service has no Gateway-owned signing runtime
     cleanupTemporaryD1Database(tempDir);
   }
 });
+
+test('Cloudflare D1 full linked-device session composition exposes session and management routes', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      relayerAccount: 'relay.local',
+      relayerPublicKey: 'relay-public-key',
+      linkedDevice: {
+        session: {
+          readOwnerSourceChildV1: async () => null,
+          targetCredential: () => ({
+            getTargetPreparationV1: async () => {
+              throw new Error('target preparation is outside this surface test');
+            },
+            registerTargetCredentialV1: async () => {
+              throw new Error('target credential is outside this surface test');
+            },
+            buildVerifiedLinkInputV1: async () => {
+              throw new Error('verified link input is outside this surface test');
+            },
+          }),
+          authorityInstallation: {
+            reservationEndpoint: {
+              reserveInactiveEd25519SignerMaterialV1: async () => {
+                throw new Error('reservation is outside this surface test');
+              },
+              reserveInactiveEcdsaSignerMaterialV1: async () => {
+                throw new Error('reservation is outside this surface test');
+              },
+            },
+            activationEndpoint: {
+              activateInactiveEd25519SignerMaterialV1: async () => {
+                throw new Error('activation is outside this surface test');
+              },
+              activateInactiveEcdsaSignerMaterialV1: async () => {
+                throw new Error('activation is outside this surface test');
+              },
+            },
+            deactivationEndpoint: {
+              deactivateInactiveEd25519SignerMaterialV1: async () => {
+                throw new Error('deactivation is outside this surface test');
+              },
+              deactivateInactiveEcdsaSignerMaterialV1: async () => {
+                throw new Error('deactivation is outside this surface test');
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(service.deviceLinking).toBeDefined();
+    expect(service.deviceManagement).toBeDefined();
+
+    const router = createCloudflareRouter(service);
+    const sessionResponse = await router(
+      new Request('https://example.test/wallet/device-linking/v1/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      }),
+    );
+    expect(sessionResponse.status).toBe(400);
+
+    const managementResponse = await router(
+      new Request(
+        'https://example.test/wallet/device-linking/v1/devices?walletId=wallet:r103&limit=10&cursor=',
+        { method: 'GET' },
+      ),
+    );
+    expect(managementResponse.status).toBe(401);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
