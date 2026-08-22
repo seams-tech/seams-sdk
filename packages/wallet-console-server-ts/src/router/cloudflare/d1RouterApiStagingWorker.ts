@@ -7,8 +7,6 @@ import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/wallet-
 import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { createCloudflareRouter } from '@seams/wallet-server/cloud-host';
 import { withCors } from '@seams/wallet-server/cloud-host';
-import type { ConsoleOrganizationAccessService } from '@seams-internal/console-server/teamRbac/index';
-import type { ConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv/index';
 import {
   consoleCoreServicesFromBundle,
   createCloudflareD1ConsoleServiceBundle,
@@ -41,11 +39,9 @@ import type {
 } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoGatewaySpanV1,
 } from '@seams/wallet-server/cloud-host';
 import { type RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '@seams/wallet-server/cloud-host';
-import type { SessionAdapter } from '@seams/wallet-server/cloud-host';
 import { D1WalletStore } from '@seams/wallet-server/cloud-host';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/wallet-server/cloud-host';
 import {
@@ -71,7 +67,6 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams/wallet-server/cloud-host';
 import { parseWalletId } from '@seams/wallet-server/cloud-host';
-import { normalizeLogger, parseWebAuthnRpId } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -83,16 +78,6 @@ import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
 import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/wallet-server/cloud-host';
-import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/wallet-server/cloud-host';
-import {
-  base64UrlEncode,
-  sha256Bytes,
-  buildSigningWorkerParticipantRecordWithDigestV1,
-  parseHpkePublicKeyB64u,
-  parseSigningWorkerParticipantId,
-  parseSigningWorkerRecipientKeyDigestB64u,
-  parseSigningWorkerRecipientKeyId,
-} from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import {
@@ -144,9 +129,6 @@ export interface CloudflareD1GatewayBaseEnv
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
-  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
-  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
-  readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
   readonly SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
   readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
@@ -254,20 +236,14 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'lane_effect_journal',
   'lane_locks',
   'lane_cas_guard',
-  'linked_device_wallet_session_authorizations',
-  'linked_device_wallet_session_quotas',
   'linked_device_sessions',
   'linked_device_session_cas_guard',
   'linked_device_session_transcripts',
   'linked_device_request_proof_nonces',
   'linked_device_target_credentials',
   'linked_device_target_commit_reservations',
-  'linked_device_provisioning_records',
-  'linked_device_source_handoffs',
-  'linked_device_owner_planning_snapshots',
-  'linked_device_owner_auth_bindings',
+  'linked_device_email_otp_grants',
   'linked_device_ed25519_export_root_transfers',
-  'linked_device_target_deployment_descriptors',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -308,7 +284,6 @@ function stagingTenantScope(env: CloudflareD1GatewayBaseEnv): RouterApiTenantSco
 async function createStagingRouterApiAuthComposition(
   env: CloudflareD1GatewayBaseEnv,
   scope: RouterApiTenantScope,
-  session: SessionAdapter,
   yaoRuntime: RouterAbEd25519YaoProductRegistrationRuntimeV1,
 ) {
   const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
@@ -378,7 +353,6 @@ async function createStagingRouterApiAuthComposition(
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
-    linkedDevice: await stagingLinkedDeviceComposition(env, session),
   });
   return { service, ecdsaStrictPostRegistration };
 }
@@ -416,7 +390,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
   const { service, ecdsaStrictPostRegistration } = await createStagingRouterApiAuthComposition(
     env,
     scope,
-    session,
     yaoRuntime,
   );
   const routerApiHandler = createCloudflareRouter(service, {
@@ -501,7 +474,6 @@ export async function createSplitGatewayRouterHandler(
   const { service, ecdsaStrictPostRegistration } = await createStagingRouterApiAuthComposition(
     env,
     scope,
-    session,
     yaoRuntime,
   );
   const ops = createWalletConsoleOpsClient(env.WALLET_CONSOLE);
@@ -545,14 +517,8 @@ export async function handleSplitGatewayWalletRuntimeRequest(
 ): Promise<Response | null> {
   const handler = createWalletRuntimeOpsHandler(async () => {
     const scope = stagingTenantScope(env);
-    const session = stagingSessionAdapter(env);
     const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-    const { service } = await createStagingRouterApiAuthComposition(
-      env,
-      scope,
-      session,
-      yaoRuntime,
-    );
+    const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
     return {
       executeSignedDelegate: service.executeSignedDelegate.bind(service),
       getRelayerAccount: service.router.getRelayerAccount.bind(service.router),
@@ -577,94 +543,6 @@ export async function handleSplitGatewayRequest(
   }
   const handler = await createSplitGatewayRouterHandler(env);
   return await handler(request, env, ctx);
-}
-
-function stagingLinkedDeviceExecution(env: CloudflareD1GatewayBaseEnv) {
-  const rpId = parseWebAuthnRpId(requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_RP_ID'));
-  if (!rpId.ok) throw new Error(rpId.error.message);
-  return {
-    nowV1: Date.now,
-    rpId: rpId.value,
-    expectedOrigin: requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_ORIGIN'),
-    logger: normalizeLogger(),
-  };
-}
-
-async function stagingLinkedDeviceComposition(
-  env: CloudflareD1GatewayBaseEnv,
-  session: SessionAdapter,
-) {
-  const internalServiceAuth = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
-  const scope = stagingTenantScope(env);
-  const descriptorHmacSecret = requireEnvString(env, 'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET');
-  if (descriptorHmacSecret === internalServiceAuth) {
-    throw new Error(
-      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth',
-    );
-  }
-  const targetRuntime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
-    database: env.SIGNER_DB,
-    scope,
-    targetSigningWorker: await stagingLinkedDeviceTargetSigningWorker(env),
-    descriptorHmacSecret,
-    ed25519: {
-      yaoSuiteId: 'ed25519-yao-suite:A',
-      circuitDigestB64u: 'uojcq1xwowjW5QC2ZkQk0aevJmiiHYdJh41CtSpIaRk',
-    },
-  });
-  return {
-    execution: stagingLinkedDeviceExecution(env),
-    session: {
-      session,
-      laneRuntime: {
-        router: env.MPC_ROUTER,
-        signingWorker: env.SIGNING_WORKER,
-        internalServiceAuth,
-        ed25519YaoKeyset: stagingEd25519YaoActivationKeyset(env),
-      },
-      targetDeploymentDescriptorProvider: targetRuntime.provider,
-    },
-    management: {},
-  };
-}
-
-async function stagingLinkedDeviceTargetSigningWorker(env: CloudflareD1GatewayBaseEnv) {
-  const participantId = requireEnvString(env, 'SIGNING_WORKER_ID');
-  const keyset = stagingEd25519YaoActivationKeyset(env);
-  const hpkePublicKey = new Uint8Array(keyset.signing_worker_recipient_public_key);
-  const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
-  const parsedParticipantId = parseSigningWorkerParticipantId(participantId);
-  if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
-  const recipientKeyId =
-    requireStagingRouterAbPublicKeyset(env).signing_worker_server_output_hpke.key_epoch;
-  const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
-  if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
-  const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);
-  if (!parsedHpkePublicKeyB64u.ok) {
-    throw new Error(parsedHpkePublicKeyB64u.error.message);
-  }
-  const hpkePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(hpkePublicKey));
-  const parsedHpkePublicKeyDigestB64u =
-    parseSigningWorkerRecipientKeyDigestB64u(hpkePublicKeyDigestB64u);
-  if (!parsedHpkePublicKeyDigestB64u.ok) {
-    throw new Error(parsedHpkePublicKeyDigestB64u.error.message);
-  }
-  const participant = await buildSigningWorkerParticipantRecordWithDigestV1({
-    participantId: parsedParticipantId.value,
-    recipient: {
-      kind: 'signing_worker_recipient_identity_v1',
-      recipientKeyId: parsedRecipientKeyId.value,
-      hpkePublicKeyB64u: parsedHpkePublicKeyB64u.value,
-      hpkePublicKeyDigestB64u: parsedHpkePublicKeyDigestB64u.value,
-    },
-  });
-  return {
-    participantId: participant.participantId,
-    participantBindingDigestB64u: participant.participantBindingDigestB64u,
-    recipientKeyId: participant.recipientKeyId,
-    hpkePublicKeyB64u: participant.hpkePublicKeyB64u,
-    hpkePublicKeyDigestB64u: participant.hpkePublicKeyDigestB64u,
-  };
 }
 
 export async function dispatchHostedGatewayRequest(
@@ -701,10 +579,6 @@ function stagingEd25519YaoKeyEnvironment(env: CloudflareD1GatewayBaseEnv) {
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
       keyset.signing_worker_server_output_hpke.public_key,
   };
-}
-
-function stagingEd25519YaoActivationKeyset(env: CloudflareD1GatewayBaseEnv) {
-  return parseRouterAbEd25519YaoActivationKeysetFromEnvV1(stagingEd25519YaoKeyEnvironment(env));
 }
 
 function createStagingEcdsaCeremonyTokenIssuer(
@@ -912,10 +786,6 @@ function d1StringLiteral(value: string): string {
   return `'${value}'`;
 }
 
-function normalizeString(input: unknown): string {
-  return String(input || '').trim();
-}
-
 async function handlePartitionedRouterApiRequest(
   env: CloudflareD1RouterApiStagingEnv,
   request: Request,
@@ -1073,14 +943,8 @@ async function handlePartitionedD1Operation(
     case 'export_admission':
     case 'export_execute': {
       const scope = stagingTenantScope(env);
-      const session = stagingSessionAdapter(env);
       const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-      const { service } = await createStagingRouterApiAuthComposition(
-        env,
-        scope,
-        session,
-        yaoRuntime,
-      );
+      const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
       return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
         request,
         ...createStagingExportRequestScopedDependencies(env, service),
@@ -1147,12 +1011,7 @@ export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1
     backend: createStagingEd25519YaoBackend(env),
     authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(async () => {
       const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
-      const { service } = await createStagingRouterApiAuthComposition(
-        env,
-        scope,
-        session,
-        yaoRuntime,
-      );
+      const { service } = await createStagingRouterApiAuthComposition(env, scope, yaoRuntime);
       return {
         authorizationSessions: service.authorizationSessions,
         preparedRecoveryAdmission: service.passkeyCustody,

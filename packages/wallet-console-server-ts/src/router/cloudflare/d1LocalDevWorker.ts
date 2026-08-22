@@ -45,11 +45,9 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams/wallet-server/cloud-host';
 import { parseWalletId, parseWebAuthnRpId } from '@seams/wallet-server/cloud-host';
-import { normalizeLogger } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
-  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '@seams/wallet-server/cloud-host';
 import type { SessionAdapter } from '@seams/wallet-server/cloud-host';
@@ -73,20 +71,6 @@ import {
 import { withCors } from '@seams/wallet-server/cloud-host';
 import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/wallet-server/cloud-host';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/wallet-server/cloud-host';
-import type {
-  CloudflareD1LinkedDeviceCompositionOptionsV1,
-  CloudflareD1LinkedDeviceSessionOptionsV1,
-} from '@seams/wallet-server/cloud-host';
-import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/wallet-server/cloud-host';
-import {
-  base64UrlEncode,
-  sha256Bytes,
-  buildSigningWorkerParticipantRecordWithDigestV1,
-  parseHpkePublicKeyB64u,
-  parseSigningWorkerParticipantId,
-  parseSigningWorkerRecipientKeyDigestB64u,
-  parseSigningWorkerRecipientKeyId,
-} from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
@@ -135,9 +119,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
-  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
-  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
-  readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
@@ -209,8 +190,6 @@ const DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
 const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:9444/console';
 const DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
-const DEFAULT_LOCAL_LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET =
-  'dev-linked-device-target-descriptor-hmac-secret-v1-32-bytes';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 // Local D1 handlers are rebuilt per request, so synthetic provider state must outlive one handler.
 const LOCAL_SYNTHETIC_BILLING_PROVIDERS = createDefaultBillingProviderAdapters();
@@ -657,20 +636,14 @@ const SIGNER_READY_TABLES = Object.freeze([
   'lane_effect_journal',
   'lane_locks',
   'lane_cas_guard',
-  'linked_device_wallet_session_authorizations',
-  'linked_device_wallet_session_quotas',
   'linked_device_sessions',
   'linked_device_session_cas_guard',
   'linked_device_session_transcripts',
   'linked_device_request_proof_nonces',
   'linked_device_target_credentials',
   'linked_device_target_commit_reservations',
-  'linked_device_provisioning_records',
-  'linked_device_source_handoffs',
-  'linked_device_owner_planning_snapshots',
-  'linked_device_owner_auth_bindings',
+  'linked_device_email_otp_grants',
   'linked_device_ed25519_export_root_transfers',
-  'linked_device_target_deployment_descriptors',
 ]);
 
 function jsonResponse(body: Record<string, unknown>, init?: ResponseInit): Response {
@@ -688,12 +661,6 @@ function localRouterAbInternalServiceAuthSecret(env: LocalD1DevEnv): string {
     normalizeLocalString(env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET) ||
     DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
   );
-}
-
-function hasLocalRouterAbInternalServiceAuth(request: Request, env: LocalD1DevEnv): boolean {
-  const expected = localRouterAbInternalServiceAuthSecret(env);
-  const actual = normalizeLocalString(request.headers.get('x-router-ab-internal-service-auth'));
-  return actual !== '' && actual === expected;
 }
 
 function parseReadyTableCount(row: TableCountRow | null): number {
@@ -1115,14 +1082,7 @@ async function createLocalRouterApiHandler(
     },
   );
   const ecdsaStrictPorts = localEcdsaStrictPorts(env, orgId);
-  const linkedDevice = await localLinkedDeviceComposition(env, session, orgId);
-  routerApiService = createLocalD1RouterApiAuthService(
-    env,
-    orgId,
-    ed25519YaoComposition,
-    session,
-    linkedDevice,
-  );
+  routerApiService = createLocalD1RouterApiAuthService(env, orgId, ed25519YaoComposition);
   const ed25519Yao =
     ed25519YaoComposition.kind === 'enabled'
       ? {
@@ -1269,8 +1229,6 @@ function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
   orgId: string,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
-  session?: SessionAdapter,
-  linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1,
 ): CloudflareD1RouterApiAuthServiceOptions {
   const relayerPrivateKey = env.RELAYER_PRIVATE_KEY || env.SEAMS_LOCAL_RELAYER_PRIVATE_KEY;
   const relayerPublicKey =
@@ -1310,134 +1268,7 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env, orgId).registration,
-    linkedDevice:
-      linkedDevice ?? (session ? { execution: localLinkedDeviceExecution(env) } : undefined),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
-  };
-}
-
-async function localLinkedDeviceComposition(
-  env: LocalD1DevEnv,
-  session: SessionAdapter | undefined,
-  orgId: string,
-): Promise<CloudflareD1LinkedDeviceCompositionOptionsV1> {
-  const execution = localLinkedDeviceExecution(env);
-  if (!session) return { execution };
-  const internalServiceAuth = localRouterAbInternalServiceAuthSecret(env);
-  const descriptorHmacSecret = localLinkedDeviceTargetDescriptorHmacSecret(env);
-  if (descriptorHmacSecret === internalServiceAuth) {
-    throw new Error(
-      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth',
-    );
-  }
-  const runtime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
-    database: env.SIGNER_DB,
-    scope: {
-      namespace: localTenantStorageNamespace(env),
-      orgId,
-      projectId: localConsoleProjectId(env),
-      envId: localConsoleEnvironmentId(env),
-    },
-    targetSigningWorker: await localLinkedDeviceTargetSigningWorker(env),
-    descriptorHmacSecret,
-    ed25519: {
-      yaoSuiteId: 'ed25519-yao-suite:A',
-      circuitDigestB64u: 'uojcq1xwowjW5QC2ZkQk0aevJmiiHYdJh41CtSpIaRk',
-    },
-  });
-  return {
-    execution,
-    session: {
-      session,
-      laneRuntime: {
-        router: env.MPC_ROUTER,
-        signingWorker: env.SIGNING_WORKER,
-        internalServiceAuth,
-        ed25519YaoKeyset: localLinkedDeviceYaoKeyset(env),
-      },
-      targetDeploymentDescriptorProvider: runtime.provider,
-    } satisfies CloudflareD1LinkedDeviceSessionOptionsV1,
-    management: {},
-  };
-}
-
-async function localLinkedDeviceTargetSigningWorker(env: LocalD1DevEnv) {
-  const signingWorkerId =
-    normalizeLocalString(env.SIGNING_WORKER_ID) ||
-    normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
-  if (!signingWorkerId) throw new Error('SIGNING_WORKER_ID is required for linked-device targets');
-  const keyset = localLinkedDeviceYaoKeyset(env);
-  const hpkePublicKey = new Uint8Array(keyset.signing_worker_recipient_public_key);
-  const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
-  const parsedParticipantId = parseSigningWorkerParticipantId(signingWorkerId);
-  if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
-  const recipientKeyId = requireLocalEnvString(
-    env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH,
-    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH',
-  );
-  const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
-  if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
-  const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);
-  if (!parsedHpkePublicKeyB64u.ok) {
-    throw new Error(parsedHpkePublicKeyB64u.error.message);
-  }
-  const hpkePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(hpkePublicKey));
-  const parsedHpkePublicKeyDigestB64u =
-    parseSigningWorkerRecipientKeyDigestB64u(hpkePublicKeyDigestB64u);
-  if (!parsedHpkePublicKeyDigestB64u.ok) {
-    throw new Error(parsedHpkePublicKeyDigestB64u.error.message);
-  }
-  const participant = await buildSigningWorkerParticipantRecordWithDigestV1({
-    participantId: parsedParticipantId.value,
-    recipient: {
-      kind: 'signing_worker_recipient_identity_v1',
-      recipientKeyId: parsedRecipientKeyId.value,
-      hpkePublicKeyB64u: parsedHpkePublicKeyB64u.value,
-      hpkePublicKeyDigestB64u: parsedHpkePublicKeyDigestB64u.value,
-    },
-  });
-  return {
-    participantId: participant.participantId,
-    participantBindingDigestB64u: participant.participantBindingDigestB64u,
-    recipientKeyId: participant.recipientKeyId,
-    hpkePublicKeyB64u: participant.hpkePublicKeyB64u,
-    hpkePublicKeyDigestB64u: participant.hpkePublicKeyDigestB64u,
-  };
-}
-
-function localLinkedDeviceTargetDescriptorHmacSecret(env: LocalD1DevEnv): string {
-  return (
-    normalizeLocalString(env.LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET) ||
-    DEFAULT_LOCAL_LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET
-  );
-}
-
-function localLinkedDeviceYaoKeyset(env: LocalD1DevEnv) {
-  return parseRouterAbEd25519YaoActivationKeysetFromEnvV1({
-    DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
-      env.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY,
-    ),
-    DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
-      env.DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY,
-    ),
-    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: normalizeLocalString(
-      env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
-    ),
-  });
-}
-
-function localLinkedDeviceExecution(env: LocalD1DevEnv) {
-  const rpId = parseWebAuthnRpId(
-    normalizeLocalString(env.LINKED_DEVICE_WEBAUTHN_RP_ID) || 'localhost',
-  );
-  if (!rpId.ok) throw new Error(rpId.error.message);
-  const expectedOrigin =
-    normalizeLocalString(env.LINKED_DEVICE_WEBAUTHN_ORIGIN) || 'https://localhost';
-  return {
-    nowV1: Date.now,
-    rpId: rpId.value,
-    expectedOrigin,
-    logger: normalizeLogger(),
   };
 }
 
@@ -1544,11 +1375,9 @@ function createLocalD1RouterApiAuthService(
   env: LocalD1DevEnv,
   orgId: string,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
-  session?: SessionAdapter,
-  linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1,
 ) {
   return createCloudflareD1RouterApiAuthService({
-    ...localD1RouterApiAuthServiceOptions(env, orgId, ed25519Yao, session, linkedDevice),
+    ...localD1RouterApiAuthServiceOptions(env, orgId, ed25519Yao),
     signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
   });
 }
@@ -1613,30 +1442,12 @@ async function runD1AdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionRe
   return { database: 'SIGNER_DB', policy: 'allowed' };
 }
 
-function parseJsonObject(text: string): Record<string, unknown> | null {
-  let parsed: unknown;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    return null;
-  }
-  return isRecord(parsed) ? parsed : null;
-}
-
-function requireOptionalString(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
-}
-
 function requireLocalEnvString(value: unknown, field: string): string {
   const normalized = normalizeLocalString(value);
   if (!normalized) {
     throw new Error(`${field} is required when local Router A/B public keyset is configured`);
   }
   return normalized;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function allLocalStringsEmpty(values: readonly unknown[]): boolean {

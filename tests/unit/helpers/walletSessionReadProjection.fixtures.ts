@@ -13,10 +13,10 @@ import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMateri
 import type { EvmFamilyEcdsaWalletUnlockSubject } from '@/core/signingEngine/session/identity/walletUnlockSubject';
 import {
   parseCapabilityInstanceRef,
+  parseWalletAuthMethodId,
   parseWalletAuthorityBindingDigest,
 } from '@shared/utils/domainIds';
 import {
-  parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type WalletSessionAuthorizationId,
@@ -105,36 +105,6 @@ export function activeWalletSessionFixture(
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: input.remainingUses ?? 3,
-      expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
-export function activeLinkedDeviceWalletSessionFixture(
-  input: Omit<ReusableWalletSessionFixtureInput, 'authMethod'> = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture({
-    ...input,
-    authMethods: [],
-  });
-  const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
-    input.authorizationId ?? 'linked-device-wallet-session-authorization-fixture',
-  );
-  if (!authorizationId.ok) throw new Error(authorizationId.error.message);
-  return {
-    appIdentity,
-    authentication: {
-      kind: 'linked_device_session',
-      walletId: appIdentity.walletId,
-    },
-    reusableWalletSession: {
-      kind: 'linked_device_active',
-      walletId: appIdentity.walletId,
-      authorizationId: authorizationId.value,
-      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
-      authMethod: 'linked_device',
       expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
     },
     capabilityProjection: { kind: 'not_requested' },
@@ -333,6 +303,8 @@ function ecdsaWalletSessionFixture(
   );
   if (!capability.ok) throw new Error('ECDSA capability fixture ID must be valid');
   if (!authorityDigest.ok) throw new Error('ECDSA authority fixture digest must be valid');
+  const walletAuthMethodId = parseWalletAuthMethodId('auth-method:ecdsa-wallet-session-fixture');
+  if (!walletAuthMethodId.ok) throw new Error('ECDSA auth method fixture ID must be valid');
   const subject: EvmFamilyEcdsaWalletUnlockSubject = {
     kind: 'evm_family_ecdsa_wallet',
     walletId,
@@ -341,6 +313,7 @@ function ecdsaWalletSessionFixture(
       kind: 'wallet_auth_authority_ref',
       walletId,
       authorityDigest: authorityDigest.value,
+      walletAuthMethodId: walletAuthMethodId.value,
     },
     ecdsaThresholdKeyId,
   };

@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,
-  buildR103OwnerEnrollmentCeremonyReaderV1,
 } from './helpers/deviceLinkContracts.fixtures';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -112,7 +111,7 @@ test('commits one authority/package identity, rejects mismatches, and resumes to
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: provisioning.revision,
     authorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
     nowMs: nowMs + 4,
   });
   expect(pending.outcome).toBe('applied');
@@ -121,14 +120,14 @@ test('commits one authority/package identity, rejects mismatches, and resumes to
     state: 'authority_pending_local_install',
     deviceId: pending.record.state.deviceId,
     authorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
   });
 
   const pendingReplay = await service.markAuthorityPendingLocalInstallV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: pending.record.revision,
     authorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
     nowMs: nowMs + 4,
   });
   expect(pendingReplay.outcome).toBe('replayed');
@@ -137,7 +136,7 @@ test('commits one authority/package identity, rejects mismatches, and resumes to
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: pending.record.revision,
     authorityId: alternateAuthorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
     nowMs: nowMs + 4,
   });
   expect(authorityMismatch).toMatchObject({
@@ -175,20 +174,20 @@ test('commits one authority/package identity, rejects mismatches, and resumes to
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: pending.record.revision,
     authorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
     activatedAtMs: nowMs + 5,
     nowMs: nowMs + 5,
   });
   expect(active.outcome).toBe('applied');
   if (active.outcome !== 'applied') throw new Error('expected active');
   expect(active.record.state.state).toBe('active');
-  expect(active.record.packageSetDigestB64u).toBe(fixture.receipt.manifestDigestB64u);
+  expect(active.record.packageSetDigestB64u).toBe(fixture.packageSetDigestB64u);
 
   const activeReplay = await service.activateSessionV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: active.record.revision,
     authorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
     activatedAtMs: nowMs + 5,
     nowMs: nowMs + 5,
   });
@@ -211,7 +210,7 @@ test('commits one authority/package identity, rejects mismatches, and resumes to
     .first<{ authority_id?: unknown; package_set_digest_b64u?: unknown; state?: unknown }>();
   expect(row).toEqual({
     authority_id: String(authorityId),
-    package_set_digest_b64u: fixture.receipt.manifestDigestB64u,
+    package_set_digest_b64u: fixture.packageSetDigestB64u,
     state: 'active',
   });
 
@@ -219,7 +218,7 @@ test('commits one authority/package identity, rejects mismatches, and resumes to
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: active.record.revision,
     authorityId,
-    packageSetDigestB64u: fixture.receipt.manifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
     nowMs: nowMs + 6,
   });
   expect(deleted).toEqual({ outcome: 'deleted', record: null });
@@ -274,7 +273,6 @@ function buildService(
   fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
 ): LinkedDeviceSessionServiceV1 {
   return new LinkedDeviceSessionServiceV1({
-    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store: new D1LinkedDeviceSessionStoreV1({ database: temporary!.database, scope }),
     authorization: ownerAuthorization(fixture),
   });
