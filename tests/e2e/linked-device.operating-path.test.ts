@@ -14,9 +14,13 @@ import {
 } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import {
-  parseLinkedDeviceApprovalResultV1,
+  parseActivateInstalledAuthorityResultV1,
+  parseCommittedAuthorityPackagesV1,
   parseLinkedDeviceEmailOtpVerificationResultV1,
-  parseLinkedDeviceSessionProjectionV1,
+  parseLocalAuthorityActivationFinalAckV1,
+  parseLinkedDeviceTargetCredentialRegistrationResultV1,
+  parseLinkSessionProjectionV1,
+  parseLinkSessionStateV1,
   parseLinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking';
 import { parseTransaction, type Hex } from 'viem';
@@ -908,11 +912,7 @@ function credentialIdB64uFromAddedEvent(raw: unknown): string {
   const event = requireRecord(raw, 'WebAuthn credential-added event');
   const credential = requireRecord(event.credential, 'WebAuthn credential-added event.credential');
   return Buffer.from(
-    requireStringField(
-      credential,
-      'credentialId',
-      'WebAuthn credential-added event.credential',
-    ),
+    requireStringField(credential, 'credentialId', 'WebAuthn credential-added event.credential'),
     'base64',
   ).toString('base64url');
 }
@@ -1494,10 +1494,7 @@ async function openLinkedDevicesDialog(page: Page): Promise<Locator> {
   await menu.getByRole('button', { name: /^Linked Devices\b/ }).click();
   const inventory = await inventoryResponse;
   const inventoryBody = await inventory.text();
-  expect(
-    inventory.status(),
-    `Linked-devices inventory GET failed: ${inventoryBody}`,
-  ).toBe(200);
+  expect(inventory.status(), `Linked-devices inventory GET failed: ${inventoryBody}`).toBe(200);
   const dialog = page.getByRole('dialog', { name: 'Your devices', exact: true });
   await dialog.waitFor({ state: 'visible', timeout: 30_000 });
   return dialog;
@@ -1574,10 +1571,6 @@ function isLinkedDeviceEmailOtpVerificationResponse(response: Response): boolean
   return isLinkedDeviceActionResponse(response, 'email-otp/challenge/verify', 'POST');
 }
 
-function isLinkedDevicePreparedDeliveriesResponse(response: Response): boolean {
-  return isLinkedDeviceActionResponse(response, 'prepared-deliveries', 'POST');
-}
-
 function isLinkedDeviceSessionProjectionResponse(response: Response): boolean {
   const pathname = new URL(response.url()).pathname;
   const prefix = '/wallet/device-linking/v1/sessions/';
@@ -1594,12 +1587,38 @@ async function isActiveLinkedDeviceSessionResponse(response: Response): Promise<
   if (!isLinkedDeviceSessionProjectionResponse(response)) return false;
   try {
     const envelope = requireRecord(await response.json(), 'linked-device session response');
-    return (
-      parseLinkedDeviceSessionProjectionV1(envelope.session).state.state === 'active'
-    );
+    return parseLinkSessionProjectionV1(envelope.session).state.state === 'active';
   } catch {
     return false;
   }
+}
+
+async function isCommittedAuthorityPackagesResponse(response: Response): Promise<boolean> {
+  if (
+    response.request().method() !== 'GET' ||
+    response.status() !== 200 ||
+    !new URL(response.url()).pathname.endsWith('/approval')
+  ) {
+    return false;
+  }
+  try {
+    parseCommittedAuthorityPackagesV1(await response.json());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isAuthorityActivationResponse(response: Response): boolean {
+  return isLinkedDeviceActionResponse(response, 'receipt', 'POST');
+}
+
+function isAuthorityActivationAcknowledgementResponse(response: Response): boolean {
+  return (
+    response.request().method() === 'POST' &&
+    response.status() === 204 &&
+    new URL(response.url()).pathname.endsWith('/receipt')
+  );
 }
 
 /** The QR v5 create request carries the factor choice; find its discriminator. */
@@ -1675,7 +1694,7 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
       return;
     }
     if (pathname.endsWith('/email-otp/challenge')) emailChallengeStarts += 1;
-    if (pathname.endsWith('/email-otp/resend')) emailChallengeResends += 1;
+    if (pathname.endsWith('/email-otp/challenge/resend')) emailChallengeResends += 1;
   });
   device2Page.on('response', (response) => {
     let pathname: string;
@@ -1744,9 +1763,15 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
       isLinkedDeviceEmailOtpVerificationResponse,
       { timeout: 180_000 },
     );
-    const preparedDeliveries = ownerPage.waitForResponse(
-      isLinkedDevicePreparedDeliveriesResponse,
-      { timeout: 180_000 },
+    const committedPackages = device2Page.waitForResponse(isCommittedAuthorityPackagesResponse, {
+      timeout: 240_000,
+    });
+    const authorityActivation = device2Page.waitForResponse(isAuthorityActivationResponse, {
+      timeout: 240_000,
+    });
+    const activationAcknowledgement = device2Page.waitForResponse(
+      isAuthorityActivationAcknowledgementResponse,
+      { timeout: 240_000 },
     );
     const activeSession = device2Page.waitForResponse(isActiveLinkedDeviceSessionResponse, {
       timeout: 240_000,
@@ -1786,13 +1811,16 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
       );
     }
     const approvalResponse = await ownerApproval;
-    const approval = parseLinkedDeviceApprovalResultV1(await approvalResponse.json());
+    expect(approvalResponse.ok()).toBe(true);
+    const approval = requireRecord(
+      await approvalResponse.json(),
+      'Email linked-device approval response',
+    );
     expect(approval.outcome).toBe('pending');
-    if (approval.outcome !== 'pending' || approval.state.state !== 'awaiting_target_factor') {
+    const approvalState = parseLinkSessionStateV1(approval.state);
+    if (approvalState.state !== 'awaiting_target_factor') {
       throw new Error('Email linked-device approval did not persist an awaiting target factor');
     }
-    expect(approval.state.walletId).toBe(publicIdentity.walletId);
-    expect(approval.state.targetFactor.kind).toBe('email_otp');
 
     const challengeResponse = await emailChallenge;
     emailLinkedDeviceStage('Device 2 received Email OTP challenge');
@@ -1813,15 +1841,10 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     /* The challenge names the base enrollment it protects. */
     requireStringField(challenge, 'maskedEmailHint', 'Email linked-device challenge response');
     const preparationResponse = await targetPreparation;
-    const preparation = parseLinkedDeviceTargetPreparationV1(
-      await preparationResponse.json(),
-    );
+    const preparation = parseLinkedDeviceTargetPreparationV1(await preparationResponse.json());
     expect(preparation.walletId).toBe(publicIdentity.walletId);
     expect(preparation.targetFactor.kind).toBe('email_otp');
-    expect(preparation.ownerEnrollment.kind).toBe(
-      'linked_device_email_otp_owner_enrollment_v1',
-    );
-    expect(preparation.orderedChildren.length).toBeGreaterThan(0);
+    expect(preparation.ordinarySignerMaterialRecipientRequirements.length).toBeGreaterThan(0);
     const device2Wallet = await walletFrame(device2Page);
     const otpInput = device2Wallet.getByRole('textbox', { name: 'Email verification code' });
     await otpInput.waitFor({ state: 'visible', timeout: 120_000 });
@@ -1850,13 +1873,40 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
         `Email linked-device credential commit failed (${credentialCommitted.status()}): ${await credentialCommitted.text()}`,
       );
     }
+    const credentialResponse = requireRecord(
+      await credentialCommitted.json(),
+      'Email linked-device credential response',
+    );
+    const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1(
+      credentialResponse.targetCredential,
+    );
+    expect(targetCredential.walletId).toBe(publicIdentity.walletId);
+    expect(targetCredential.targetFactor.kind).toBe('verified_email_otp_target_v1');
+    expect(targetCredential.ordinarySignerMaterialPreparations.length).toBeGreaterThan(0);
+    expect(targetCredential.ordinarySignerMaterialRecipientRequests.length).toBe(
+      preparation.ordinarySignerMaterialRecipientRequirements.length,
+    );
     /* The emailed code is the only target-factor proof: linking sent exactly
        one challenge, never a resend, and neither device touched WebAuthn. */
     expect(emailChallengeStarts).toBe(1);
     expect(emailChallengeResends).toBe(0);
     expect(webauthnOperations).toEqual([]);
-    const preparedDeliveriesResponse = await preparedDeliveries;
-    expect(preparedDeliveriesResponse.ok()).toBe(true);
+    const committed = parseCommittedAuthorityPackagesV1(await (await committedPackages).json());
+    expect(committed.authority.walletId).toBe(publicIdentity.walletId);
+    const activated = parseActivateInstalledAuthorityResultV1(
+      await (await authorityActivation).json(),
+    );
+    expect(activated.kind).toBe('active');
+    expect(activated.walletSession.walletId).toBe(publicIdentity.walletId);
+    const acknowledgementResponse = await activationAcknowledgement;
+    expect(acknowledgementResponse.status()).toBe(204);
+    const acknowledgement = parseLocalAuthorityActivationFinalAckV1(
+      acknowledgementResponse.request().postDataJSON(),
+    );
+    expect(acknowledgement.linkSessionId).toBe(preparation.linkSessionId);
+    expect(acknowledgement.authorityId).toBe(activated.walletSession.authorityId);
+    expect(acknowledgement.packageSetDigestB64u).toBe(committed.packageSetDigestB64u);
+    expect(acknowledgement.authorizationId).toBe(activated.walletSession.authorizationId);
     await activeSession;
     await waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics);
     await device2Page.goto(`${appOrigin}/wallet`, { waitUntil: 'domcontentloaded' });
@@ -1946,18 +1996,29 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
     );
     const qrDataUrl = await openDevice2Qr(device2Page, 'Passkey');
     await created;
-    const ownerFinalize = device2Page
-      .waitForResponse(
-        (response) =>
-          response.url().includes('/wallet/device-linking/v1/sessions/') &&
-          response.url().endsWith('/owner-finalize') &&
-          response.status() === 200,
-        { timeout: 90_000 },
-      )
-      .then(
-        (response) => ({ kind: 'finalized' as const, response }),
-        (error: unknown) => ({ error, kind: 'timeout' as const }),
-      );
+    const targetPreparation = device2Page.waitForResponse(isLinkedDeviceTargetPreparationResponse, {
+      timeout: 180_000,
+    });
+    const targetCredentialCommit = device2Page.waitForResponse(
+      (response) =>
+        response.status() === 200 &&
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/credential'),
+      { timeout: 180_000 },
+    );
+    const committedPackages = device2Page.waitForResponse(isCommittedAuthorityPackagesResponse, {
+      timeout: 240_000,
+    });
+    const authorityActivation = device2Page.waitForResponse(isAuthorityActivationResponse, {
+      timeout: 240_000,
+    });
+    const activationAcknowledgement = device2Page.waitForResponse(
+      isAuthorityActivationAcknowledgementResponse,
+      { timeout: 240_000 },
+    );
+    const activeSession = device2Page.waitForResponse(isActiveLinkedDeviceSessionResponse, {
+      timeout: 240_000,
+    });
     const claimed = ownerPage
       .waitForResponse(
         (response) =>
@@ -1989,27 +2050,59 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
     await createTargetPasskey.waitFor({ state: 'visible', timeout: 120_000 });
     await createTargetPasskey.focus();
     await createTargetPasskey.press('Enter');
-    const finalizeResult = await ownerFinalize;
-    if (finalizeResult.kind === 'timeout') {
-      const walletState = (await device2Wallet.locator('body').innerText()).trim();
+    const preparationResponse = await targetPreparation;
+    const preparation = parseLinkedDeviceTargetPreparationV1(await preparationResponse.json());
+    expect(preparation.walletId).toBe(owner.publicIdentity.walletId);
+    expect(preparation.targetFactor.kind).toBe('passkey_prf');
+    expect(preparation.passkeyCreationOptions.walletAuthMethodId).toBe(
+      preparation.walletAuthMethodId,
+    );
+    expect(preparation.ordinarySignerMaterialRecipientRequirements.length).toBeGreaterThan(0);
+    const credentialCommitted = await targetCredentialCommit;
+    if (!credentialCommitted.ok()) {
       throw new Error(
-        `Device 2 owner credential did not finalize. Page: ${device2Page.url()} Wallet state: ${walletState}\n${device2Diagnostics.join('\n')}\n${ownerDiagnostics.join('\n')}`,
-        { cause: finalizeResult.error },
+        `Passkey linked-device credential commit failed (${credentialCommitted.status()}): ${await credentialCommitted.text()}`,
       );
     }
+    const credentialResponse = requireRecord(
+      await credentialCommitted.json(),
+      'Passkey linked-device credential response',
+    );
+    const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1(
+      credentialResponse.targetCredential,
+    );
+    expect(targetCredential.walletId).toBe(owner.publicIdentity.walletId);
+    expect(targetCredential.targetFactor.kind).toBe('verified_passkey_target_v1');
+    expect(targetCredential.ordinarySignerMaterialPreparations.length).toBeGreaterThan(0);
+    expect(targetCredential.ordinarySignerMaterialRecipientRequests.length).toBe(
+      preparation.ordinarySignerMaterialRecipientRequirements.length,
+    );
     await expect(device2Wallet.getByText('Generating QR code', { exact: false })).toBeHidden();
     expect(ownerCredentialAddedEvents.length).toBeGreaterThan(0);
-    /* R103 zero-prompt handoff, asserted with real prompt counters: from the
-       moment Device 1 opened the scanner through Device 2 finalizing its
-       owner credential, Device 1's authenticator performed zero
-       assertions and zero creations — the scan itself was the approval —
-       while Device 2 created exactly one passkey, the credential it is
-       enrolling. */
+    /* The owner scanner is the sole approval action. Device 2 creates exactly
+       one target passkey, and Device 1 performs no WebAuthn operation. */
     expect(
       ownerCredentialAssertedEvents.slice(ownerCredentialAssertionsBeforeLinking),
     ).toHaveLength(0);
     expect(ownerCredentialAddedEvents.slice(ownerCredentialCreationsBeforeLinking)).toHaveLength(0);
     expect(device2CredentialAddedEvents).toHaveLength(1);
+    const committed = parseCommittedAuthorityPackagesV1(await (await committedPackages).json());
+    expect(committed.authority.walletId).toBe(owner.publicIdentity.walletId);
+    const activated = parseActivateInstalledAuthorityResultV1(
+      await (await authorityActivation).json(),
+    );
+    expect(activated.kind).toBe('active');
+    expect(activated.walletSession.walletId).toBe(owner.publicIdentity.walletId);
+    const acknowledgementResponse = await activationAcknowledgement;
+    expect(acknowledgementResponse.status()).toBe(204);
+    const acknowledgement = parseLocalAuthorityActivationFinalAckV1(
+      acknowledgementResponse.request().postDataJSON(),
+    );
+    expect(acknowledgement.linkSessionId).toBe(preparation.linkSessionId);
+    expect(acknowledgement.authorityId).toBe(activated.walletSession.authorityId);
+    expect(acknowledgement.packageSetDigestB64u).toBe(committed.packageSetDigestB64u);
+    expect(acknowledgement.authorizationId).toBe(activated.walletSession.authorizationId);
+    await activeSession;
     await waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics);
     const expectedDevice2: AuthenticatedOwnerSnapshot = {
       credentialIdB64u: credentialIdB64uFromAddedEvent(device2CredentialAddedEvents[0]),

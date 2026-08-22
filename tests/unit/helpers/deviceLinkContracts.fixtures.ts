@@ -1,18 +1,23 @@
 import {
   buildLinkedDeviceApprovalV1,
   buildStepUpLinkedDeviceOwnerAuthorizationV1,
-  parseLinkedDeviceOwnerEnrollmentCeremonyV1,
   parseLinkedDeviceSessionClaimRequestV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   LinkedDeviceApprovalV1,
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceTargetFactorV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
-import { parseAuthorizationEvidenceSetId, parseWalletSessionAuthorizationId, parseWalletSessionId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
-import { buildFullOwnerDelegatedWalletAuthorityV1, buildSigningOnlyDelegatedWalletAuthorityV1 } from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
+import {
+  parseAuthorizationEvidenceSetId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '../../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  buildFullOwnerDelegatedWalletAuthorityV1,
+  buildSigningOnlyDelegatedWalletAuthorityV1,
+} from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
 import {
   parseLaneOperationId,
   parseLaneOperationIdempotencyKey,
@@ -23,13 +28,19 @@ import {
   parseSigningLaneId,
   parseWalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
-import { buildOwnerLaneParticipantContinuityV1, parseWalletSignerId } from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
+import {
+  buildOwnerLaneParticipantContinuityV1,
+  parseWalletSignerId,
+} from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
 import {
   parseMpcSigningWorkerRef,
   parseWalletId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
-import { parseDigestB64u, type DigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  parseDigestB64u,
+  type DigestB64u,
+} from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 
 function required<T>(
   result:
@@ -49,81 +60,6 @@ export type R103DeviceLinkFixture = {
   readonly approval: LinkedDeviceApprovalV1;
   readonly packageSetDigestB64u: DigestB64u;
 };
-
-/** Builds the owner ceremony that the current approval boundary requires. */
-export function buildR103OwnerEnrollmentCeremonyV1(
-  overrides: {
-    readonly addAuthMethodCeremonyId?: string;
-    readonly rpId?: string;
-    readonly expiresAtMs?: number;
-  } = {},
-): Extract<
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
-  { readonly kind: 'linked_device_passkey_owner_enrollment_v1' }
-> {
-  const ceremony = parseLinkedDeviceOwnerEnrollmentCeremonyV1({
-    kind: 'linked_device_passkey_owner_enrollment_v1',
-    targetFactor: { kind: 'passkey_prf' },
-    addAuthMethodCeremonyId: overrides.addAuthMethodCeremonyId ?? 'add-auth-method-ceremony:r103',
-    registration: {
-      kind: 'webauthn_add_auth_method_registration_v1',
-      challengeId: 'add-auth-method-challenge:r103',
-      challengeB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
-      rpId: overrides.rpId ?? 'wallet.example.test',
-      user: {
-        idB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
-        name: 'linked-device',
-        displayName: 'linked-device',
-      },
-      pubKeyCredParams: [
-        { type: 'public-key', alg: -7 },
-        { type: 'public-key', alg: -257 },
-      ],
-      authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
-      timeoutMs: 120_000,
-      attestation: 'none',
-      extensions: {
-        prf: {
-          eval: {
-            firstB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
-            secondB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
-          },
-        },
-      },
-      excludeCredentials: [],
-    },
-    expiresAtMs: overrides.expiresAtMs ?? 20_000,
-  });
-  if (ceremony.kind !== 'linked_device_passkey_owner_enrollment_v1') {
-    throw new Error('R103 Passkey owner ceremony fixture has the wrong factor');
-  }
-  return ceremony;
-}
-
-export function buildR103EmailOtpOwnerEnrollmentCeremonyV1(
-  overrides: {
-    readonly walletId?: string;
-    readonly emailHashHex?: string;
-    readonly maskedEmailHint?: string;
-    readonly expiresAtMs?: number;
-  } = {},
-): Extract<
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
-  { readonly kind: 'linked_device_email_otp_owner_enrollment_v1' }
-> {
-  const walletId = overrides.walletId ?? 'wallet:r103';
-  const ceremony = parseLinkedDeviceOwnerEnrollmentCeremonyV1({
-    kind: 'linked_device_email_otp_owner_enrollment_v1',
-    targetFactor: { kind: 'email_otp' },
-    baseWalletAuthMethodId: `email_otp:${walletId}:${overrides.emailHashHex ?? 'ab'.repeat(32)}`,
-    maskedEmailHint: overrides.maskedEmailHint ?? 'device@example.test',
-    expiresAtMs: overrides.expiresAtMs ?? 20_000,
-  });
-  if (ceremony.kind !== 'linked_device_email_otp_owner_enrollment_v1') {
-    throw new Error('R103 Email OTP owner ceremony fixture has the wrong factor');
-  }
-  return ceremony;
-}
 
 export function buildR103DeviceLinkFixture(
   input: {
@@ -169,13 +105,6 @@ export function buildR103DeviceLinkFixture(
     issuedAtMs: input.issuedAtMs ?? 1_000,
     expiresAtMs: input.expiresAtMs ?? 10_000,
   });
-  const ownerEnrollment =
-    targetFactor.kind === 'passkey_prf'
-      ? buildR103OwnerEnrollmentCeremonyV1()
-      : buildR103EmailOtpOwnerEnrollmentCeremonyV1({
-          walletId: String(walletId),
-          expiresAtMs: 20_000,
-        });
   const approval = buildLinkedDeviceApprovalV1({
     linkSessionId,
     walletId,
@@ -188,7 +117,6 @@ export function buildR103DeviceLinkFixture(
     ownerAuthorization: buildStepUpLinkedDeviceOwnerAuthorizationV1({
       evidenceSetId: required(parseAuthorizationEvidenceSetId('evidence:r103')),
     }),
-    ownerEnrollment,
     policyDigestB64u: FIXTURE_DIGEST,
     operationId,
     idempotencyKey,
@@ -206,9 +134,7 @@ export function buildR103DeviceLinkFixture(
         targetLaneShareEpoch,
       },
     ],
-    protocolVersions: [
-      { keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' },
-    ],
+    protocolVersions: [{ keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' }],
     approvedAtMs: 2_000,
     expiresAtMs: 9_000,
   });
