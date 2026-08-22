@@ -190,6 +190,72 @@ pub fn combine_ed25519_yao_signing_worker_packages_v1(
     deriver_b: Ed25519YaoSigningWorkerPackageDeliveryV1,
     active: Option<&Ed25519YaoActiveSigningMaterialV1>,
 ) -> RouterAbProtocolResult<Ed25519YaoSigningWorkerActivationCandidateV1> {
+    combine_ed25519_yao_signing_worker_packages_with_transition_v1(
+        private_key,
+        deriver_a,
+        deriver_b,
+        active,
+        SigningWorkerActivationTransitionV1::Lifecycle,
+    )
+}
+
+/// Combines a fresh ordinary activation while preserving an exact source key.
+///
+/// Device linking creates a new Registration binding and fresh shares. The
+/// source material is used only to authenticate public-key continuity and to
+/// advance the Signing Worker state epoch; no recovery lifecycle state is
+/// involved.
+pub fn combine_ed25519_yao_signing_worker_packages_source_preserving_v1(
+    private_key: &Ed25519YaoRecipientPrivateKeyV1,
+    deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
+    deriver_b: Ed25519YaoSigningWorkerPackageDeliveryV1,
+    source: &Ed25519YaoActiveSigningMaterialV1,
+) -> RouterAbProtocolResult<Ed25519YaoSigningWorkerActivationCandidateV1> {
+    source.validate()?;
+    if source.binding().operation != Ed25519YaoOperationV1::Registration {
+        return Err(invalid_activation(
+            "source-preserving ordinary activation requires registered source material",
+        ));
+    }
+    deriver_a.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
+    deriver_b.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverB)?;
+    if deriver_a.binding.operation != Ed25519YaoOperationV1::Registration {
+        return Err(invalid_activation(
+            "source-preserving ordinary activation requires a registration binding",
+        ));
+    }
+    if deriver_a.binding.material_activation == source.binding().material_activation {
+        return Err(invalid_activation(
+            "source-preserving ordinary activation requires a fresh material activation",
+        ));
+    }
+    if !same_signing_identity(source.binding(), &deriver_a.binding) {
+        return Err(invalid_activation(
+            "source-preserving ordinary activation changed the stable signing identity",
+        ));
+    }
+    combine_ed25519_yao_signing_worker_packages_with_transition_v1(
+        private_key,
+        deriver_a,
+        deriver_b,
+        Some(source),
+        SigningWorkerActivationTransitionV1::SourcePreservingRegistration,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SigningWorkerActivationTransitionV1 {
+    Lifecycle,
+    SourcePreservingRegistration,
+}
+
+fn combine_ed25519_yao_signing_worker_packages_with_transition_v1(
+    private_key: &Ed25519YaoRecipientPrivateKeyV1,
+    deriver_a: Ed25519YaoSigningWorkerPackageDeliveryV1,
+    deriver_b: Ed25519YaoSigningWorkerPackageDeliveryV1,
+    active: Option<&Ed25519YaoActiveSigningMaterialV1>,
+    transition: SigningWorkerActivationTransitionV1,
+) -> RouterAbProtocolResult<Ed25519YaoSigningWorkerActivationCandidateV1> {
     deriver_a.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverA)?;
     deriver_b.validate_for_deriver(Ed25519YaoDeriverRoleV1::DeriverB)?;
     if deriver_a.binding != deriver_b.binding
@@ -199,7 +265,7 @@ pub fn combine_ed25519_yao_signing_worker_packages_v1(
             "Signing Worker activation package bindings do not match",
         ));
     }
-    let state_epoch = activation_state_epoch(&deriver_a.binding, active)?;
+    let state_epoch = activation_state_epoch(&deriver_a.binding, active, transition)?;
     let mut a_plaintext =
         open_ed25519_yao_signing_worker_package_v1(&deriver_a.package, private_key)?;
     let mut b_plaintext =
@@ -244,7 +310,7 @@ fn build_candidate(
     if let Some(active) = active {
         if registered_public_key != active.registered_public_key {
             return Err(invalid_activation(
-                "recovery candidate changed the registered public key",
+                "activation candidate changed the registered public key",
             ));
         }
     }
@@ -272,7 +338,24 @@ fn build_candidate(
 fn activation_state_epoch(
     binding: &Ed25519YaoCeremonyBindingV1,
     active: Option<&Ed25519YaoActiveSigningMaterialV1>,
+    transition: SigningWorkerActivationTransitionV1,
 ) -> RouterAbProtocolResult<Ed25519YaoStateEpochV1> {
+    if transition == SigningWorkerActivationTransitionV1::SourcePreservingRegistration {
+        return match (binding.operation, active) {
+            (Ed25519YaoOperationV1::Registration, Some(active))
+                if same_signing_identity(active.binding(), binding) =>
+            {
+                let next =
+                    active.state_epoch().get().checked_add(1).ok_or_else(|| {
+                        invalid_activation("Signing Worker state epoch is exhausted")
+                    })?;
+                Ed25519YaoStateEpochV1::new(next)
+            }
+            _ => Err(invalid_activation(
+                "source-preserving ordinary activation transition is invalid",
+            )),
+        };
+    }
     match (binding.operation, active) {
         (Ed25519YaoOperationV1::Registration, None) => Ed25519YaoStateEpochV1::new(1),
         (Ed25519YaoOperationV1::Recovery, Some(active))
@@ -314,4 +397,97 @@ fn map_role_error(_: BenchmarkRoleError) -> RouterAbProtocolError {
 
 fn invalid_activation(message: &'static str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::InvalidLifecycleState, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use router_ab_core::{
+        Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1,
+        LifecycleScopeV1, MpcMaterialActivationRefV1, RootShareEpoch,
+    };
+
+    fn test_binding(
+        operation: Ed25519YaoOperationV1,
+        session: u8,
+        activation_id: &str,
+    ) -> Ed25519YaoCeremonyBindingV1 {
+        let work_kind = match operation {
+            Ed25519YaoOperationV1::Registration => ExpensiveWorkKindV1::RegistrationPrepare,
+            Ed25519YaoOperationV1::Recovery => ExpensiveWorkKindV1::Recovery,
+            _ => panic!("test binding only covers activation operations"),
+        };
+        Ed25519YaoCeremonyBindingV1::new(
+            LifecycleScopeV1::new(
+                "test-lifecycle",
+                work_kind,
+                RootShareEpoch::new("test-epoch").expect("root epoch"),
+                "test-account",
+                "test-wallet",
+                "test-signer-set",
+                "test-worker",
+            )
+            .expect("lifecycle"),
+            operation,
+            Ed25519YaoSessionIdV1::new([session; 32]).expect("session"),
+            Ed25519YaoStableKeyContextBindingV1::new([0x42; 32]),
+            MpcMaterialActivationRefV1::new(
+                activation_id,
+                "test-capability",
+                "test-account",
+                "test-key",
+                "test-lifecycle",
+                "test-worker",
+            )
+            .expect("material activation"),
+        )
+        .expect("binding")
+    }
+
+    fn test_active_material(
+        binding: Ed25519YaoCeremonyBindingV1,
+    ) -> Ed25519YaoActiveSigningMaterialV1 {
+        Ed25519YaoActiveSigningMaterialV1 {
+            scalar: [1; 32],
+            binding,
+            state_epoch: Ed25519YaoStateEpochV1::new(7).expect("state epoch"),
+            transcript: [2; 32],
+            registered_public_key: [3; 32],
+        }
+    }
+
+    #[test]
+    fn source_preserving_registration_advances_the_source_epoch() {
+        let source = test_active_material(test_binding(
+            Ed25519YaoOperationV1::Registration,
+            1,
+            "source-activation",
+        ));
+        let target = test_binding(Ed25519YaoOperationV1::Registration, 2, "target-activation");
+
+        let next = activation_state_epoch(
+            &target,
+            Some(&source),
+            SigningWorkerActivationTransitionV1::SourcePreservingRegistration,
+        )
+        .expect("source-preserving transition");
+        assert_eq!(next.get(), 8);
+    }
+
+    #[test]
+    fn source_preserving_transition_rejects_recovery_bindings() {
+        let source = test_active_material(test_binding(
+            Ed25519YaoOperationV1::Registration,
+            1,
+            "source-activation",
+        ));
+        let recovery = test_binding(Ed25519YaoOperationV1::Recovery, 2, "target-activation");
+
+        assert!(activation_state_epoch(
+            &recovery,
+            Some(&source),
+            SigningWorkerActivationTransitionV1::SourcePreservingRegistration,
+        )
+        .is_err());
+    }
 }
