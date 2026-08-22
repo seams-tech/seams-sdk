@@ -1,11 +1,13 @@
 mod derivation;
 mod errors;
 mod lane_resharing;
+mod linked_device_source_contribution;
 mod presign;
 
 use wasm_bindgen::prelude::*;
 
 pub use lane_resharing::EcdsaLaneSigningWorkerSessionV1;
+pub use linked_device_source_contribution::LinkedDeviceEcdsaSourceContributionWorkerSessionV1;
 pub use presign::SigningWorkerPresignSession;
 
 #[wasm_bindgen]
