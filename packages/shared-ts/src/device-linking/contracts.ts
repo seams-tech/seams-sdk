@@ -64,6 +64,15 @@ import type {
   PasskeyWalletAuthMethodDraftV1,
 } from '../utils/registrationIntent';
 
+export type {
+  CommittedAuthorityPackagesV1,
+  CommittedEd25519SignerPackageV1,
+  CommittedEcdsaSignerPackageV1,
+  PendingWalletAuthMethodRecordV1,
+  CommittedSignerPackageSetDigestInputV1,
+  CommittedSignerPackageSetV1,
+} from './committedSignerPackages';
+
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
   readonly __linkDevicePublicKeyB64uBrand: 'LinkDevicePublicKeyB64u';

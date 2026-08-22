@@ -6,3 +6,4 @@ export * from './parsers';
 export * from './digests';
 export * from './requestProof';
 export * from './targetDeploymentDescriptor';
+export * from './committedSignerPackages';

@@ -151,6 +151,11 @@ import {
 
 type UnknownRecord = Record<string, unknown>;
 
+export {
+  parseCommittedSignerPackageSetDigestB64u,
+  parseCommittedSignerPackageSetV1,
+} from './committedSignerPackages';
+
 const QR_FIELDS = [
   'version',
   'purpose',

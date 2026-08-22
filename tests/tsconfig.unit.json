@@ -10,6 +10,7 @@
     "unit/authorizationOperationFingerprint.unit.test.ts",
     "unit/browserCapabilitySelection.unit.test.ts",
     "unit/capabilityPolicy.unit.test.ts",
+    "unit/committedSignerPackages.unit.test.ts",
     "unit/d1AuthorizationCore.unit.test.ts",
     "unit/d1EvmFamilyEcdsaRegistrationBranch.unit.test.ts",
     "unit/d1WalletRegistrationCommitStore.unit.test.ts",
