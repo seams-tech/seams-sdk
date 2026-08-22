@@ -104,6 +104,7 @@ import {
 } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
   AccountSignerRecord,
+  LocalWalletAuthMethodRecordV2,
   ProfileAuthenticatorRecord,
 } from '@/core/indexedDB/passkeyClientDB.types';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
@@ -187,11 +188,7 @@ import {
   DEFAULT_UNLOCK_REMAINING_USES,
   resolveWalletUnlockSessionUsesFromRequestedUses,
 } from '@/core/signingEngine/threshold/sessionPolicy';
-import {
-  SIGNER_AUTH_METHODS,
-  SIGNER_KINDS,
-  SIGNER_SOURCES,
-} from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
   buildEmailOtpWalletAuthMethodBinding,
@@ -528,7 +525,7 @@ function reportNonSettledEcdsaActivationReconciliation(
 }
 
 function walletAuthMethodBindingFromRecord(
-  record: Awaited<ReturnType<typeof IndexedDBManager.listWalletAuthMethodsForWallet>>[number],
+  record: LocalWalletAuthMethodRecordV2,
 ): WalletAuthMethodBinding | null {
   const wallet = buildWalletIdentity({ walletId: record.walletId });
   switch (record.kind) {
@@ -572,8 +569,8 @@ async function readWalletAuthMethodBindingsForSession(
   walletId: WalletId | null,
 ): Promise<readonly WalletAuthMethodBinding[]> {
   if (!walletId) return [];
-  const records = await IndexedDBManager.listWalletAuthMethodsForWallet(String(walletId)).catch(
-    () => [],
+  const records = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(String(walletId)).catch(
+    () => [] as LocalWalletAuthMethodRecordV2[],
   );
   return records
     .filter((record) => record.status === 'active')
@@ -645,7 +642,9 @@ async function readActiveWalletPasskeyAuthenticators(
 ): Promise<LoginPasskeyAuthenticator[]> {
   const [authenticators, authMethods] = await Promise.all([
     IndexedDBManager.listWalletPasskeyAuthenticators(String(walletId)),
-    IndexedDBManager.listWalletAuthMethodsForWallet(String(walletId)),
+    IndexedDBManager.listWalletAuthMethodsV2ForWallet(String(walletId)).catch(
+      () => [] as LocalWalletAuthMethodRecordV2[],
+    ),
   ]);
   const activeCredentialIds = new Set<string>();
   for (const method of authMethods) {

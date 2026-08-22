@@ -36,7 +36,7 @@ import {
 } from '@shared/authorization/walletAuthority';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
-  buildEmailOtpWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
 } from '@shared/utils/walletAuthAuthority';
 import type { KeyMaterialKind, KeyMaterialRecord } from '../keyMaterial.types';
@@ -348,6 +348,13 @@ export type ResolveSelectedWalletAuthorityResultV1 =
       readonly kind: 'integrity_error';
       readonly reason: string;
     };
+
+export type PersistFoundingWalletAuthorityInputV1 = {
+  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+};
+
+type ValidatedFoundingWalletAuthorityInputV1 = PersistFoundingWalletAuthorityInputV1;
 
 type ValidatedLocalAuthorityInstallationInput = {
   readonly authority: PendingWalletAuthorityV1;
@@ -763,13 +770,9 @@ function walletAuthMethodFields(record: LocalWalletAuthMethodRecord): WalletAuth
     if (!record.authority) {
       throw new Error('[SeamsWalletDB] Email OTP auth-method binding requires authority');
     }
-    const authority = buildEmailOtpWalletAuthAuthority({
-      walletId: record.authority.walletId,
-      provider: record.authority.factor.provider,
-      providerUserId: record.authority.factor.providerUserId,
-      emailHashHex: record.authority.verifier.emailHashHex,
-    });
+    const authority = parseEmailOtpWalletAuthAuthority(record.authority);
     if (
+      !authority ||
       authority.walletId !== record.walletId ||
       authority.verifier.emailHashHex !== record.emailHashHex ||
       !walletAuthAuthoritiesMatch(authority, record.authority)
@@ -1042,7 +1045,9 @@ function hasExactKeys(record: Record<string, unknown>, keys: readonly string[]):
 }
 
 function requireBoundaryParsed<T>(
-  result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
   label: string,
 ): T {
   if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
@@ -1160,7 +1165,10 @@ function parseWalletAuthoritySignerMaterialRecord(
   if (value.kind !== 'wallet_authority_signer_material_v1') {
     throw new Error('signer material record kind is invalid');
   }
-  const authorityId = requireBoundaryParsed(parseWalletAuthorityId(value.authorityId), 'authorityId');
+  const authorityId = requireBoundaryParsed(
+    parseWalletAuthorityId(value.authorityId),
+    'authorityId',
+  );
   const walletAuthMethodId = requireBoundaryParsed(
     parseWalletAuthMethodId(value.walletAuthMethodId),
     'walletAuthMethodId',
@@ -1366,7 +1374,8 @@ function parseWalletSelectionRecord(value: unknown): WalletSelectionRecordV1 {
   ) {
     throw new Error('wallet selection record fields are invalid');
   }
-  if (value.kind !== 'wallet_selection_v1') throw new Error('wallet selection record kind is invalid');
+  if (value.kind !== 'wallet_selection_v1')
+    throw new Error('wallet selection record kind is invalid');
   if (value.lockState !== 'locked' && value.lockState !== 'unlocked') {
     throw new Error('wallet selection lockState is invalid');
   }
@@ -1470,10 +1479,16 @@ function walletSignerActivationSetsMatch(
   left: WalletSignerActivationSetV1,
   right: WalletSignerActivationSetV1,
 ): boolean {
-  return canonicalBytesMatch(encodeWalletSignerActivationSetV1(left), encodeWalletSignerActivationSetV1(right));
+  return canonicalBytesMatch(
+    encodeWalletSignerActivationSetV1(left),
+    encodeWalletSignerActivationSetV1(right),
+  );
 }
 
-function walletAuthorityPermissionsMatch(left: WalletAuthorityV1, right: WalletAuthorityV1): boolean {
+function walletAuthorityPermissionsMatch(
+  left: WalletAuthorityV1,
+  right: WalletAuthorityV1,
+): boolean {
   return sameDelegatedWalletAuthorityV1(
     { kind: 'delegated_wallet_authority_v1', permissions: left.permissions },
     { kind: 'delegated_wallet_authority_v1', permissions: right.permissions },
@@ -1754,7 +1769,9 @@ function parseLocalAuthorityInstallationInput(
     ) {
       throw new Error('authority, authMethod, and receipt identities do not match');
     }
-    if (!walletSignerActivationSetsMatch(receipt.installedActivationRefs, authority.signerActivations)) {
+    if (
+      !walletSignerActivationSetsMatch(receipt.installedActivationRefs, authority.signerActivations)
+    ) {
       throw new Error('receipt signer activations do not match authority');
     }
     const expectations = signerMaterialExpectations(authority.signerActivations);
@@ -2515,7 +2532,10 @@ export class SeamsWalletRepositories {
     const parsed = parseLocalAuthorityInstallationInput(input);
     if (!parsed.ok) return { kind: 'integrity_error', reason: parsed.error };
     if (!(await walletAuthorityDigestsMatchV1(parsed.value.authority))) {
-      return { kind: 'integrity_error', reason: 'authority digest does not match canonical encoding' };
+      return {
+        kind: 'integrity_error',
+        reason: 'authority digest does not match canonical encoding',
+      };
     }
     return this.manager.runTransaction(
       [
@@ -2599,7 +2619,10 @@ export class SeamsWalletRepositories {
     const db = await this.manager.getDB();
     return (
       parseLocalAuthorityInstallationReceiptStorageRow(
-        await db.get(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts, parsedAuthorityId.value),
+        await db.get(
+          SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+          parsedAuthorityId.value,
+        ),
       )?.record || null
     );
   }
@@ -2622,7 +2645,9 @@ export class SeamsWalletRepositories {
     const existingAuthMethod =
       authMethodRaw === undefined ? null : parseWalletAuthMethodV2StorageRow(authMethodRaw);
     const receipt =
-      receiptRaw === undefined ? null : parseLocalAuthorityInstallationReceiptStorageRow(receiptRaw);
+      receiptRaw === undefined
+        ? null
+        : parseLocalAuthorityInstallationReceiptStorageRow(receiptRaw);
     const existingSession =
       sessionRaw === undefined ? null : parseStoredExactWalletSessionAuthorizationRow(sessionRaw);
     if (!receipt) throw new Error('local authority installation receipt is missing or corrupt');
@@ -2737,7 +2762,10 @@ export class SeamsWalletRepositories {
     const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
     const selectionRaw = await selectionStore.get(input.authority.walletId);
     if (selectionRaw === undefined) {
-      return { kind: 'integrity_error', reason: 'wallet selection is required for installation CAS' };
+      return {
+        kind: 'integrity_error',
+        reason: 'wallet selection is required for installation CAS',
+      };
     }
     const selection = parseWalletSelectionStorageRow(selectionRaw);
     if (!selection || selection.wallet_id !== input.authority.walletId) {
@@ -2811,7 +2839,10 @@ export class SeamsWalletRepositories {
       receiptRaw !== undefined;
     if (anyExisting) {
       if (!allExisting || !existingAuthority || !existingAuthMethod || !existingReceipt) {
-        return { kind: 'integrity_error', reason: 'local authority replay is incomplete or malformed' };
+        return {
+          kind: 'integrity_error',
+          reason: 'local authority replay is incomplete or malformed',
+        };
       }
       if (!(await walletAuthorityDigestsMatchV1(existingAuthority.record))) {
         return { kind: 'integrity_error', reason: 'stored authority digest is invalid' };
@@ -2821,7 +2852,10 @@ export class SeamsWalletRepositories {
         !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
         !localAuthorityInstallationReceiptsMatch(existingReceipt, input.receipt)
       ) {
-        return { kind: 'integrity_error', reason: 'local authority replay conflicts with stored records' };
+        return {
+          kind: 'integrity_error',
+          reason: 'local authority replay conflicts with stored records',
+        };
       }
       for (let index = 0; index < input.signerMaterials.length; index += 1) {
         const existingMaterial = existingSignerMaterials[index];
@@ -2829,11 +2863,17 @@ export class SeamsWalletRepositories {
           !existingMaterial ||
           !walletAuthoritySignerMaterialRecordsMatch(existingMaterial, input.signerMaterials[index])
         ) {
-          return { kind: 'integrity_error', reason: 'stored signer material conflicts with replay' };
+          return {
+            kind: 'integrity_error',
+            reason: 'stored signer material conflicts with replay',
+          };
         }
       }
       if (input.exportRoot) {
-        if (!existingExportRoot || !walletAuthorityExportRootsMatch(existingExportRoot, input.exportRoot)) {
+        if (
+          !existingExportRoot ||
+          !walletAuthorityExportRootsMatch(existingExportRoot, input.exportRoot)
+        ) {
           return { kind: 'integrity_error', reason: 'stored export root conflicts with replay' };
         }
       }
@@ -2863,6 +2903,58 @@ export class SeamsWalletRepositories {
     return row.record;
   }
 
+  async persistFoundingWalletAuthority(
+    input: PersistFoundingWalletAuthorityInputV1,
+  ): Promise<void> {
+    const authority = parseWalletAuthorityV1(input.authority);
+    const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
+    if (
+      !authority.ok ||
+      authority.value.state !== 'active' ||
+      !authMethod ||
+      authMethod.status !== 'active' ||
+      authority.value.provenance.kind !== 'wallet_registration' ||
+      authMethod.walletId !== authority.value.walletId ||
+      authMethod.walletAuthorityId !== authority.value.authorityId
+    ) {
+      throw new Error('founding wallet authority records are invalid');
+    }
+    await this.manager.runTransaction(
+      [
+        SEAMS_WALLET_STORES.walletAuthorities,
+        SEAMS_WALLET_STORES.walletAuthMethods,
+        SEAMS_WALLET_STORES.walletSelections,
+      ],
+      'readwrite',
+      this.persistFoundingWalletAuthorityInTransaction.bind(this, {
+        authority: authority.value,
+        authMethod,
+      }),
+    );
+  }
+
+  private async persistFoundingWalletAuthorityInTransaction(
+    input: ValidatedFoundingWalletAuthorityInputV1,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<void> {
+    await ctx
+      .store(SEAMS_WALLET_STORES.walletAuthorities)
+      .put(walletAuthorityStorageRow(input.authority));
+    await ctx
+      .store(SEAMS_WALLET_STORES.walletAuthMethods)
+      .put(walletAuthMethodV2StorageRow(input.authMethod));
+    await ctx.store(SEAMS_WALLET_STORES.walletSelections).put(
+      walletSelectionStorageRow({
+        kind: 'wallet_selection_v1',
+        walletId: input.authority.walletId,
+        walletAuthMethodId: input.authMethod.walletAuthMethodId,
+        lockGeneration: 0,
+        lockState: 'unlocked',
+        updatedAtMs: input.authMethod.activatedAtMs,
+      }),
+    );
+  }
+
   async getWalletAuthMethodV2(
     walletAuthMethodId: string,
   ): Promise<WalletAuthMethodRecordV2 | null> {
@@ -2874,6 +2966,20 @@ export class SeamsWalletRepositories {
         await db.get(SEAMS_WALLET_STORES.walletAuthMethods, parsedId.value),
       )?.record || null
     );
+  }
+
+  async listWalletAuthMethodsV2ForWallet(walletId: string): Promise<WalletAuthMethodRecordV2[]> {
+    const normalizedWalletId = toTrimmedString(walletId || '');
+    if (!normalizedWalletId) return [];
+    const db = await this.manager.getDB();
+    const rows = (await db
+      .transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly')
+      .store.index(SEAMS_WALLET_INDEXES.walletId)
+      .getAll(normalizedWalletId)) as unknown[];
+    return rows.flatMap((row) => {
+      const parsed = parseWalletAuthMethodV2StorageRow(row);
+      return parsed ? [parsed.record] : [];
+    });
   }
 
   async resolveSelectedWalletAuthority(
@@ -2932,7 +3038,10 @@ export class SeamsWalletRepositories {
       return { kind: 'integrity_error', reason: 'selected wallet authority digest is invalid' };
     }
     if (authority.authority_id !== authMethod.wallet_authority_id) {
-      return { kind: 'integrity_error', reason: 'auth method authority reference does not resolve exactly' };
+      return {
+        kind: 'integrity_error',
+        reason: 'auth method authority reference does not resolve exactly',
+      };
     }
     return {
       kind: 'resolved',

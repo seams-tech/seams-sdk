@@ -182,6 +182,8 @@ export type LocalWalletAuthMethodRecord =
       authority: EmailOtpWalletAuthAuthority;
     });
 
+export type LocalWalletAuthMethodRecordV2 = WalletAuthMethodRecordV2;
+
 export type WalletAuthoritySignerMaterialRecordV1 = {
   readonly kind: 'wallet_authority_signer_material_v1';
   readonly authorityId: WalletAuthorityId;

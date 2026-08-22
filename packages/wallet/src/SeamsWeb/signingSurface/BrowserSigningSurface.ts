@@ -1663,7 +1663,14 @@ export class BrowserSigningSurface {
           },
           input,
         ),
-      ownerLaneScopeStores: deps.signingEngineStores.walletProfileAndSignerRecords.accountStore,
+      ownerLaneScopeStores: {
+        getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
+        listWalletAuthMethodsForWallet: (id) => IndexedDBManager.listWalletAuthMethodsForWallet(id),
+        getWalletPasskeyAuthenticator: (input) =>
+          deps.signingEngineStores.walletProfileAndSignerRecords.accountStore.getWalletPasskeyAuthenticator(
+            input,
+          ),
+      },
     });
 
     this.enginePorts = createBrowserSigningSurfaceEnginePorts({
@@ -2225,6 +2232,7 @@ export class BrowserSigningSurface {
     return await resolveOwnerLaneScope({
       authorityRef: read.projection.authority,
       stores: {
+        getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
         listWalletAuthMethodsForWallet: (id) => IndexedDBManager.listWalletAuthMethodsForWallet(id),
         getWalletPasskeyAuthenticator: (input) =>
           IndexedDBManager.getWalletPasskeyAuthenticator(input),
