@@ -981,7 +981,7 @@ export class CloudflareD1WalletAuthMethodService {
   async verifyActivePasskeyAuthority(
     authority: PasskeyWalletAuthAuthority,
   ): Promise<{ readonly ok: true } | WalletAuthMethodError> {
-    const record = await this.getWalletAuthMethodStore().getPasskey({
+    const record = await this.getWalletAuthMethodStore().getPasskeyV2({
       rpId: authority.verifier.rpId,
       credentialIdB64u: authority.factor.credentialIdB64u,
     });
@@ -1005,7 +1005,7 @@ export class CloudflareD1WalletAuthMethodService {
   async verifyActiveEmailOtpAuthority(
     authority: EmailOtpWalletAuthAuthority,
   ): Promise<{ readonly ok: true } | WalletAuthMethodError> {
-    const record = await this.getWalletAuthMethodStore().getEmailOtp({
+    const record = await this.getWalletAuthMethodStore().getEmailOtpV2({
       walletId: authority.walletId,
       emailHashHex: authority.verifier.emailHashHex,
     });

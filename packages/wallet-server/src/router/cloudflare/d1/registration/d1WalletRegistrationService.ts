@@ -514,9 +514,8 @@ async function buildActiveFoundingAuthority(input: {
   readonly now: number;
 }): Promise<ActiveWalletAuthorityV1> {
   const signerActivations = foundingSignerActivations(input.walletId, input.signerFacts);
-  const signerActivationSetDigestB64u = await computeWalletSignerActivationSetDigestB64u(
-    signerActivations,
-  );
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
   const permissions = buildFullOwnerPermissionsV1();
   const draft: ActiveWalletAuthorityV1 = {
     kind: 'wallet_authority_v1',
@@ -560,38 +559,42 @@ function buildActiveFoundingAuthMethod(input: {
 }): Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
   switch (input.authority.kind) {
     case 'passkey':
-      return requireActiveFoundingAuthMethod(buildWalletAuthMethodRecordV2({
-        version: 'wallet_auth_method_v2',
-        walletAuthMethodId: input.prepared.walletAuthMethodId,
-        walletId: input.authority.walletId,
-        walletAuthorityId: input.prepared.walletAuthorityId,
-        kind: 'passkey',
-        status: 'active',
-        rpId: input.authority.rpId,
-        credentialIdB64u: requirePreparedRegistrationId(
-          parseWebAuthnCredentialIdB64u(input.authority.credentialIdB64u),
-          'registration credentialIdB64u',
-        ),
-        credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
-        counter: input.authority.counter,
-        createdAtMs: input.now,
-        updatedAtMs: input.now,
-        activatedAtMs: input.now,
-      }));
+      return requireActiveFoundingAuthMethod(
+        buildWalletAuthMethodRecordV2({
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.prepared.walletAuthMethodId,
+          walletId: input.authority.walletId,
+          walletAuthorityId: input.prepared.walletAuthorityId,
+          kind: 'passkey',
+          status: 'active',
+          rpId: input.authority.rpId,
+          credentialIdB64u: requirePreparedRegistrationId(
+            parseWebAuthnCredentialIdB64u(input.authority.credentialIdB64u),
+            'registration credentialIdB64u',
+          ),
+          credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
+          counter: input.authority.counter,
+          createdAtMs: input.now,
+          updatedAtMs: input.now,
+          activatedAtMs: input.now,
+        }),
+      );
     case 'email_otp':
-      return requireActiveFoundingAuthMethod(buildWalletAuthMethodRecordV2({
-        version: 'wallet_auth_method_v2',
-        walletAuthMethodId: input.prepared.walletAuthMethodId,
-        walletId: input.authority.walletId,
-        walletAuthorityId: input.prepared.walletAuthorityId,
-        kind: 'email_otp',
-        status: 'active',
-        emailHashHex: input.authority.emailHashHex,
-        registrationAuthorityId: input.authority.registrationAuthorityId,
-        createdAtMs: input.now,
-        updatedAtMs: input.now,
-        activatedAtMs: input.now,
-      }));
+      return requireActiveFoundingAuthMethod(
+        buildWalletAuthMethodRecordV2({
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.prepared.walletAuthMethodId,
+          walletId: input.authority.walletId,
+          walletAuthorityId: input.prepared.walletAuthorityId,
+          kind: 'email_otp',
+          status: 'active',
+          emailHashHex: input.authority.emailHashHex,
+          registrationAuthorityId: input.authority.registrationAuthorityId,
+          createdAtMs: input.now,
+          updatedAtMs: input.now,
+          activatedAtMs: input.now,
+        }),
+      );
   }
 }
 
@@ -724,13 +727,33 @@ async function walletSessionPolicyMintId(
 
 async function registrationWalletAuthAuthorityRef(input: {
   readonly authority: WalletAuthAuthority;
-  readonly walletAuthMethodId: WalletAuthMethodId;
 }): Promise<WalletAuthAuthorityRef> {
-  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
-  return {
-    ...authorityRef,
-    walletAuthMethodId: input.walletAuthMethodId,
-  };
+  return await walletAuthAuthorityRef({ authority: input.authority });
+}
+
+function registrationWalletAuthAuthority(input: {
+  readonly authority: StoredRegistrationAuthority;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): WalletAuthAuthority {
+  const authority = walletAuthAuthorityFromRegistrationAuthority(input.authority);
+  if (isPasskeyWalletAuthAuthority(authority)) {
+    return {
+      walletId: authority.walletId,
+      factor: authority.factor,
+      verifier: authority.verifier,
+      bindingId: input.walletAuthMethodId,
+    };
+  }
+  if (isEmailOtpWalletAuthAuthority(authority)) {
+    return {
+      walletId: authority.walletId,
+      factor: authority.factor,
+      verifier: authority.verifier,
+      bindingId: input.walletAuthMethodId,
+    };
+  }
+  authority satisfies never;
+  throw new Error('Registration wallet authority kind is invalid');
 }
 
 function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): PrincipalId {
@@ -1600,7 +1623,6 @@ export class CloudflareD1WalletRegistrationService {
     const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, input.remainingUses);
     const authorityRef = await registrationWalletAuthAuthorityRef({
       authority: input.authority,
-      walletAuthMethodId: input.walletAuthMethodId,
     });
     return await this.authorizationService.issueReusableWalletSession({
       tenantId: this.authorizationTenantId,
@@ -1621,7 +1643,6 @@ export class CloudflareD1WalletRegistrationService {
   }): Promise<IssuedReusableWalletSession | null> {
     const authorityRef = await registrationWalletAuthAuthorityRef({
       authority: input.authority,
-      walletAuthMethodId: input.walletAuthMethodId,
     });
     return await this.authorizationService.readWalletSessionAuthorizationByMint({
       tenantId: this.authorizationTenantId,
@@ -1677,7 +1698,6 @@ export class CloudflareD1WalletRegistrationService {
       proof: input.proof,
       walletAuthAuthorityRef: await registrationWalletAuthAuthorityRef({
         authority: input.authority,
-        walletAuthMethodId: input.walletAuthMethodId,
       }),
       authSource: walletSessionAuthSourceFromAuthority(input.authority),
       userId: bootstrap.walletId,
@@ -2968,9 +2988,8 @@ export class CloudflareD1WalletRegistrationService {
     registrationCeremonyId: string,
     allocated: D1WalletRegistrationOperationPreparedV1 = allocateWalletRegistrationOperationPrepared(),
   ): Promise<D1WalletRegistrationOperationPreparedV1> {
-    const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
-      registrationCeremonyId,
-    );
+    const ceremony =
+      await this.getRegistrationCeremonyIntentStore().getCeremony(registrationCeremonyId);
     if (!ceremony) return allocated;
     const authority = verifiedRegistrationCeremonyAuthority(ceremony);
     if (!authority) return allocated;
@@ -3002,14 +3021,17 @@ export class CloudflareD1WalletRegistrationService {
       args.input.registrationCeremonyId,
       prepared,
     );
-    const committed = await this.executeWalletRegistrationFinalize({
-      kind: 'near_ed25519',
-      registrationCeremonyId: args.input.registrationCeremonyId,
-      idempotencyKey: args.input.idempotencyKey,
-      ed25519: args.input.ed25519,
-      emailOtpEnrollment: args.input.emailOtpEnrollment,
-      walletCustodyCommit: args.input.walletCustodyCommit,
-    } as FinalizeWalletRegistrationInput, effectivePrepared);
+    const committed = await this.executeWalletRegistrationFinalize(
+      {
+        kind: 'near_ed25519',
+        registrationCeremonyId: args.input.registrationCeremonyId,
+        idempotencyKey: args.input.idempotencyKey,
+        ed25519: args.input.ed25519,
+        emailOtpEnrollment: args.input.emailOtpEnrollment,
+        walletCustodyCommit: args.input.walletCustodyCommit,
+      } as FinalizeWalletRegistrationInput,
+      effectivePrepared,
+    );
     const finalized = committed.ok
       ? committed
       : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
@@ -3168,13 +3190,17 @@ export class CloudflareD1WalletRegistrationService {
   private async commitEd25519PendingWallet(input: {
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly authority: StoredRegistrationAuthority;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly enrollment: Pick<FinalizeWalletRegistrationInput, 'emailOtpEnrollment'>;
   }): Promise<WalletRegistrationActivateResponseV2> {
     const now = Date.now();
     const ceremony = input.ceremony;
     const authority = input.authority;
     const wallet = buildD1WalletRecord({ walletId: ceremony.intent.walletId, now });
-    const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(authority);
+    const walletAuthAuthority = registrationWalletAuthAuthority({
+      authority,
+      walletAuthMethodId: input.walletAuthMethodId,
+    });
     switch (authority.kind) {
       case 'passkey':
         await this.walletRegistrationCommitStore.commit({
@@ -3600,6 +3626,7 @@ export class CloudflareD1WalletRegistrationService {
       return await this.commitEd25519PendingWallet({
         ceremony,
         authority: ceremonyAuthority,
+        walletAuthMethodId: prepared.walletAuthMethodId,
         enrollment: {
           ...(context.input.emailOtpEnrollment
             ? { emailOtpEnrollment: context.input.emailOtpEnrollment as never }
@@ -3644,18 +3671,21 @@ export class CloudflareD1WalletRegistrationService {
         message: 'ECDSA activation completed without a key handle to commit',
       };
     }
-    const commit = await this.executeWalletRegistrationFinalize({
-      kind: 'evm_family_ecdsa',
-      registrationCeremonyId: context.registrationCeremonyId,
-      idempotencyKey: context.idempotencyKey,
-      ecdsa: { expectedKeyHandles: [keyHandle] as const },
-      ...(context.input.emailOtpEnrollment
-        ? { emailOtpEnrollment: context.input.emailOtpEnrollment }
-        : {}),
-      ...(context.input.walletCustodyCommit !== undefined
-        ? { walletCustodyCommit: context.input.walletCustodyCommit }
-        : {}),
-    } as FinalizeWalletRegistrationInput, prepared);
+    const commit = await this.executeWalletRegistrationFinalize(
+      {
+        kind: 'evm_family_ecdsa',
+        registrationCeremonyId: context.registrationCeremonyId,
+        idempotencyKey: context.idempotencyKey,
+        ecdsa: { expectedKeyHandles: [keyHandle] as const },
+        ...(context.input.emailOtpEnrollment
+          ? { emailOtpEnrollment: context.input.emailOtpEnrollment }
+          : {}),
+        ...(context.input.walletCustodyCommit !== undefined
+          ? { walletCustodyCommit: context.input.walletCustodyCommit }
+          : {}),
+      } as FinalizeWalletRegistrationInput,
+      prepared,
+    );
     if (!commit.ok) return throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(commit);
     /* The terminal response is both legs merged. Activation produced the
        receipt and the derivation bootstrap; the commit produced the wallet
@@ -4236,7 +4266,10 @@ export class CloudflareD1WalletRegistrationService {
       }
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
 
-      const walletAuthAuthority = walletAuthAuthorityFromRegistrationAuthority(ceremonyAuthority);
+      const walletAuthAuthority = registrationWalletAuthAuthority({
+        authority: ceremonyAuthority,
+        walletAuthMethodId: prepared.walletAuthMethodId,
+      });
       let ed25519PublicResult: WalletRegistrationEd25519YaoPublicResult | null = null;
       let resolvedNearAccount: ResolvedRegistrationNearAccount | null = null;
       let ed25519SignerRecord: WalletEd25519SignerRecord | null = null;
@@ -4320,10 +4353,7 @@ export class CloudflareD1WalletRegistrationService {
         const participantIds: readonly [number, number] = [firstParticipantId, secondParticipantId];
         const publicKeyBytes = consumed.activation.result.public_receipt.registered_public_key;
         ed25519RegisteredPublicKeyB64u = base64UrlEncode(Uint8Array.from(publicKeyBytes));
-        if (
-          walletCustodyCommitPayload.registeredPublicKeyB64u !==
-          ed25519RegisteredPublicKeyB64u
-        ) {
+        if (walletCustodyCommitPayload.registeredPublicKeyB64u !== ed25519RegisteredPublicKeyB64u) {
           return {
             ok: false,
             code: 'scope_mismatch',
