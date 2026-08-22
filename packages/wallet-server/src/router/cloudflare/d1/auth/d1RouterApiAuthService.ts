@@ -144,6 +144,7 @@ import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/route
 import { D1LinkedDeviceEmailOtpGrantStoreV1 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
 import { D1LinkedDeviceAuthorityInstallServiceV1 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import { createD1LinkedDeviceSessionServiceV1 } from '../deviceLinking/d1LinkedDeviceSessionService';
+import { D1LinkedDeviceSessionStoreV1 } from '../deviceLinking/d1LinkedDeviceSessionStore';
 import { createD1LinkedDeviceManagementServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementService';
 import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
 import { verifyD1LinkedDeviceFreshRevokeProofV1 } from '../wallet/d1WalletAuthMethodBoundary';
@@ -159,6 +160,10 @@ import {
   linkedDeviceEmailOtpBaseFactorReaderV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpTargetFactor';
 import { createDeviceLinkingOwnerRequestAuthenticatorV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
+import {
+  createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1,
+  createD1LinkedDeviceOwnerAuthorizationProviderV1,
+} from '../deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,
@@ -301,7 +306,12 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationService: AuthorizationService;
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
-    'prepareWalletSessionAuthorizationV2Statements'
+    | 'prepareWalletSessionAuthorizationV2Statements'
+    | 'readOpaqueWalletSessionTokenByIdentity'
+  >;
+  readonly walletRegistration: Pick<
+    RouterApiServiceBag['walletRegistration'],
+    'resolveActiveOwnerWalletExecutionLane'
   >;
   readonly walletAuthMethodStore: D1WalletAuthMethodStore;
   readonly resolveEmailOtpAuthority: CloudflareD1WalletAuthMethodService['resolveActiveEmailOtpAuthorityForVerifiedSubject'];
@@ -341,7 +351,6 @@ function createD1LinkedDeviceComposition(input: {
     authorizationSessions: input.authorizationSessions,
     nowV1,
   });
-  if (sessionConfig) ownerAuthorizationRoute = sessionConfig.ownerAuthorizationRoute;
   const tenantId = parseTenantId(input.options.orgId);
   if (!tenantId.ok)
     throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
@@ -444,14 +453,30 @@ function createD1LinkedDeviceComposition(input: {
         grants: linkedEmailOtpGrants,
       });
     }
-    const sessionComposition = createD1LinkedDeviceSessionServiceV1({
+    const sessionStore = new D1LinkedDeviceSessionStoreV1({
       database: input.options.database,
       scope,
-      ownerAuthorization: sessionConfig.ownerAuthorization,
+      now: nowV1,
+    });
+    const ownerAuthorizationProvider = createD1LinkedDeviceOwnerAuthorizationProviderV1({
+      walletRegistration: input.walletRegistration,
+      metadata: createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1({
+        tenantId: tenantId.value,
+        sessionStore,
+        authorizationStore: input.authorizationStore,
+        readOwnerSourceChildV1: sessionConfig.readOwnerSourceChildV1,
+        nowV1,
+      }),
+      targetPlanner: {},
+      nowV1,
+    });
+    ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
+    const sessionComposition = createD1LinkedDeviceSessionServiceV1({
+      sessionStore,
+      ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
       ...(emailOtpTargetFactor === undefined
         ? {}
         : { emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor) }),
-      nowV1,
     });
     const verifiedLinkBuilder = {
       source: createD1LinkedDeviceVerifiedLinkSourceReaderV1({
@@ -498,7 +523,7 @@ function createD1LinkedDeviceComposition(input: {
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
       scope,
-      ownerAuthorization: sessionConfig.ownerAuthorization,
+      ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
       ...(emailOtpTargetFactor === undefined
         ? {}
         : {
@@ -509,6 +534,7 @@ function createD1LinkedDeviceComposition(input: {
       targetCredential: sessionConfig.targetCredential({
         verifiedLinkBuilder,
         targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(),
+        targetPlanner: ownerAuthorizationProvider.targetPlanner,
       }),
       installationReceipt,
       nowV1,
@@ -1730,6 +1756,13 @@ function createCloudflareD1RouterApiAuthAssembly(
     options,
     authorizationService,
     authorizationStore,
+    walletRegistration: createD1WalletRegistrationRouteService({
+      emailOtpRecoveryService,
+      registrationIntents,
+      walletAuthMethodStore,
+      walletRegistrations,
+      walletStore,
+    }),
     walletAuthMethodStore,
     resolveEmailOtpAuthority:
       walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(walletAuthMethods),

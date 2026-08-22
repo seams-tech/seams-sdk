@@ -13,7 +13,10 @@ import { readJson } from '../../../../router/framework/http';
 import { D1LinkedDeviceEd25519ExportRootStoreV1 } from './d1LinkedDeviceEd25519ExportRootStore';
 import { D1LinkedDeviceRequestProofNonceStoreV1 } from './d1LinkedDeviceRequestProofNonceStore';
 import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
-import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import {
+  D1LinkedDeviceSessionStoreV1,
+  type D1LinkedDeviceSessionScopeV1,
+} from './d1LinkedDeviceSessionStore';
 
 export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
@@ -40,14 +43,17 @@ export function createD1LinkedDeviceRouteServiceV1(
     scope: options.scope,
   });
   const proofVerifier = new LinkedDeviceRequestProofVerifierV1({ nonceStore: proofNonceStore });
-  const { sessionService } = createD1LinkedDeviceSessionServiceV1({
+  const sessionStore = new D1LinkedDeviceSessionStoreV1({
     database: options.database,
     scope: options.scope,
+    now: nowV1,
+  });
+  const { sessionService } = createD1LinkedDeviceSessionServiceV1({
+    sessionStore,
     ownerAuthorization: options.ownerAuthorization,
     ...(options.emailOtpBaseFactors === undefined
       ? {}
       : { emailOtpBaseFactors: options.emailOtpBaseFactors }),
-    nowV1,
   });
 
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
