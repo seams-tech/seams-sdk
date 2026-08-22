@@ -3,6 +3,7 @@ import type { CanonicalDelegatedWalletPermissionSetV1 } from '../authorization/d
 import type { PendingWalletAuthorityV1 } from '../authorization/walletAuthority';
 import {
   parseMpcMaterialActivationRef,
+  mpcMaterialActivationRefsEqual,
   type LinkDeviceSessionId,
   type LinkedDeviceEnrollmentId,
   type MpcMaterialActivationRef,
@@ -13,8 +14,15 @@ import {
 import { base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '../utils/digests';
-import type { WalletAuthMethodRecordV2 } from '../utils/registrationIntent';
-import type { LinkedDeviceEd25519ExportRootPackageV1 } from './ed25519ExportRoot';
+import {
+  parseWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '../utils/registrationIntent';
+import { parseWalletAuthorityV1 } from '../authorization/walletAuthority';
+import {
+  parseLinkedDeviceEd25519ExportRootPackageV1,
+  type LinkedDeviceEd25519ExportRootPackageV1,
+} from './ed25519ExportRoot';
 import {
   parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
   type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
@@ -75,6 +83,98 @@ export type CommittedAuthorityPackagesV1 = {
   readonly ed25519ExportRootPackage: LinkedDeviceEd25519ExportRootPackageV1 | null;
   readonly packageSetDigestB64u: DigestB64u;
 };
+
+export function parseCommittedAuthorityPackagesV1(raw: unknown): CommittedAuthorityPackagesV1 {
+  const record = exactRecord(
+    raw,
+    ['kind', 'authority', 'authMethod', 'signerPackages', 'ed25519ExportRootPackage', 'packageSetDigestB64u'],
+    'CommittedAuthorityPackagesV1',
+  );
+  if (record.kind !== 'committed_authority_packages_v1') {
+    throw new Error('CommittedAuthorityPackagesV1.kind is invalid');
+  }
+  const authority = parseWalletAuthorityV1(record.authority);
+  if (!authority.ok || authority.value.state !== 'pending_local_install') {
+    throw new Error('CommittedAuthorityPackagesV1.authority is not pending');
+  }
+  const authMethod = parseWalletAuthMethodRecordV2(record.authMethod);
+  if (!authMethod || authMethod.status !== 'pending_local_install') {
+    throw new Error('CommittedAuthorityPackagesV1.authMethod is not pending');
+  }
+  if (
+    authMethod.walletId !== authority.value.walletId ||
+    authMethod.walletAuthorityId !== authority.value.authorityId
+  ) {
+    throw new Error('CommittedAuthorityPackagesV1 authority and auth method identities differ');
+  }
+  const signerPackages = parseCommittedSignerPackageSetV1(record.signerPackages);
+  assertSignerPackagesMatchAuthority(signerPackages, authority.value.signerActivations);
+  const ed25519ExportRootPackage =
+    record.ed25519ExportRootPackage === null
+      ? null
+      : parseLinkedDeviceEd25519ExportRootPackageV1(record.ed25519ExportRootPackage);
+  if (ed25519ExportRootPackage) {
+    if (
+      ed25519ExportRootPackage.walletId !== authority.value.walletId ||
+      ed25519ExportRootPackage.revocationEpoch !== authority.value.revocationEpoch ||
+      authority.value.provenance.kind !== 'device_link' ||
+      ed25519ExportRootPackage.enrollmentId !== authority.value.provenance.enrollmentId ||
+      ed25519ExportRootPackage.linkSessionId !== authority.value.provenance.linkSessionId ||
+      String(ed25519ExportRootPackage.deviceId) !== String(authority.value.principal.deviceId)
+    ) {
+      throw new Error('CommittedAuthorityPackagesV1 export root identity does not match authority');
+    }
+  }
+  return {
+    kind: 'committed_authority_packages_v1',
+    authority: authority.value,
+    authMethod,
+    signerPackages,
+    ed25519ExportRootPackage,
+    packageSetDigestB64u: parseCommittedSignerPackageSetDigestB64u(record.packageSetDigestB64u),
+  };
+}
+
+function assertSignerPackagesMatchAuthority(
+  packages: CommittedSignerPackageSetV1,
+  activations: PendingWalletAuthorityV1['signerActivations'],
+): void {
+  if (packages.keyFamilies.length !== activations.keyFamilies.length) {
+    throw new Error('CommittedAuthorityPackagesV1 signer families do not match authority');
+  }
+  for (let index = 0; index < packages.keyFamilies.length; index += 1) {
+    if (packages.keyFamilies[index] !== activations.keyFamilies[index]) {
+      throw new Error('CommittedAuthorityPackagesV1 signer family order does not match authority');
+    }
+  }
+  if (packages.keyFamilies.length === 1 && packages.keyFamilies[0] === 'ed25519') {
+    if (!activations.ed25519 || !packages.ed25519) {
+      throw new Error('CommittedAuthorityPackagesV1 Ed25519 activation is missing');
+    }
+    if (!mpcMaterialActivationRefsEqual(packages.ed25519.materialActivation, activations.ed25519.materialActivation)) {
+      throw new Error('CommittedAuthorityPackagesV1 Ed25519 activation does not match authority');
+    }
+    return;
+  }
+  if (packages.keyFamilies.length === 1 && packages.keyFamilies[0] === 'ecdsa_secp256k1') {
+    if (!activations.ecdsa || !packages.ecdsa) {
+      throw new Error('CommittedAuthorityPackagesV1 ECDSA activation is missing');
+    }
+    if (!mpcMaterialActivationRefsEqual(packages.ecdsa.materialActivation, activations.ecdsa.materialActivation)) {
+      throw new Error('CommittedAuthorityPackagesV1 ECDSA activation does not match authority');
+    }
+    return;
+  }
+  if (!activations.ed25519 || !activations.ecdsa || !packages.ed25519 || !packages.ecdsa) {
+    throw new Error('CommittedAuthorityPackagesV1 combined activations are incomplete');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(packages.ed25519.materialActivation, activations.ed25519.materialActivation) ||
+    !mpcMaterialActivationRefsEqual(packages.ecdsa.materialActivation, activations.ecdsa.materialActivation)
+  ) {
+    throw new Error('CommittedAuthorityPackagesV1 activation references do not match authority');
+  }
+}
 
 export type CommittedSignerPackageSetDigestInputV1 = {
   readonly authorityId: WalletAuthorityId;

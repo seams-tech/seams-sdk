@@ -52,6 +52,8 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly ownerAuthorizationRoute: DeviceLinkingOwnerAuthorizationRouteServiceV1;
   readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
+  /** Pending-authority commit/installation activation, supplied by the deployment adapter. */
+  readonly installationReceipt?: DeviceLinkingRouteServiceV1['installationReceipt'];
   readonly nowV1?: () => number;
   readonly management?: DeviceManagementRouteServiceV1;
 };

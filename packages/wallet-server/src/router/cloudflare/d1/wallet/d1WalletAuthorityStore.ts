@@ -739,6 +739,21 @@ export class D1WalletAuthorityStore {
     readonly authority: PendingWalletAuthorityV1;
     readonly authMethod: WalletAuthMethodRecordV2;
   }): Promise<WalletAuthorityCommitResultV1> {
+    return await this.commitPendingAuthorityWithStatements(input, []);
+  }
+
+  /**
+   * Commits the authority records together with caller-owned D1 statements.
+   * Device linking uses this narrow extension for its package row and linear
+   * link-session CAS, keeping the pending transition one atomic batch.
+   */
+  async commitPendingAuthorityWithStatements(
+    input: {
+      readonly authority: PendingWalletAuthorityV1;
+      readonly authMethod: WalletAuthMethodRecordV2;
+    },
+    additionalStatements: readonly D1PreparedStatementLike[],
+  ): Promise<WalletAuthorityCommitResultV1> {
     await this.ensureSchema();
     assertPendingCommitInput(input);
     if (!(await walletAuthorityDigestsMatchV1(input.authority))) {
@@ -769,6 +784,7 @@ export class D1WalletAuthorityStore {
         record: input.authMethod,
         insertOnly: true,
       }),
+      ...additionalStatements,
     ];
     try {
       const results = await this.database.batch<D1ResultLike>(statements);
@@ -802,6 +818,23 @@ export class D1WalletAuthorityStore {
     readonly pendingAuthMethod: WalletAuthMethodRecordV2;
     readonly activeAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   }): Promise<WalletAuthorityActivationResultV1> {
+    return await this.activatePendingAuthorityWithStatements(input, []);
+  }
+
+  /**
+   * Activates authority records together with caller-owned D1 statements.
+   * The linked-device activation path uses this to keep the session CAS in the
+   * same transaction as authority and auth-method visibility.
+   */
+  async activatePendingAuthorityWithStatements(
+    input: {
+      readonly pendingAuthority: PendingWalletAuthorityV1;
+      readonly activeAuthority: ActiveWalletAuthorityV1;
+      readonly pendingAuthMethod: WalletAuthMethodRecordV2;
+      readonly activeAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+    },
+    additionalStatements: readonly D1PreparedStatementLike[],
+  ): Promise<WalletAuthorityActivationResultV1> {
     await this.ensureSchema();
     assertActivationInput(input);
     if (!(await walletAuthorityDigestsMatchV1(input.pendingAuthority))) {
@@ -851,6 +884,7 @@ export class D1WalletAuthorityStore {
         next: input.activeAuthMethod,
       }),
       prepareAuthorityCasGuard(this.database),
+      ...additionalStatements,
     ];
     let results: readonly D1ResultLike[];
     try {

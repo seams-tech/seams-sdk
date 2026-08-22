@@ -54,7 +54,11 @@ import type {
   EcdsaCapabilityManifestRevision,
 } from '../utils/ecdsaCapabilityActivation';
 import type { NearAccountId } from '../utils/near';
-import type { ActiveWalletAuthorityV1 } from '../authorization/walletAuthority';
+import type {
+  ActiveWalletAuthorityV1,
+  WalletAuthorityV1,
+  WalletSignerActivationSetV1,
+} from '../authorization/walletAuthority';
 import type {
   CanonicalDelegatedWalletPermissionSetV1,
 } from '../authorization/delegatedAuthority';
@@ -62,6 +66,7 @@ import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPla
 import type {
   EmailOtpWalletAuthMethodDraftV1,
   PasskeyWalletAuthMethodDraftV1,
+  WalletAuthMethodRecordV2,
 } from '../utils/registrationIntent';
 
 export type {
@@ -1173,6 +1178,118 @@ export type VerifiedLinkInputV1 = {
   readonly targetFactor: VerifiedTargetFactorV1;
   readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
   readonly signerManifest: ExactAdministeredSignerManifestV1;
+};
+
+/** The ordinary session issued by activation and persisted by the browser. */
+export type WalletCapabilitySubjectV1 =
+  | {
+      readonly kind: 'sign';
+      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'export_keys';
+      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly kind: 'link_devices' | 'revoke_devices';
+      readonly keyFamily?: never;
+      readonly materialActivation?: never;
+    };
+
+export type ActiveWalletSessionV1 = {
+  readonly kind: 'active_wallet_session_v1';
+  readonly walletId: WalletId;
+  readonly authorityId: WalletAuthorityId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly authorityRevocationEpoch: number;
+  readonly capabilitySubjects: readonly [WalletCapabilitySubjectV1, ...WalletCapabilitySubjectV1[]];
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export type LocalAuthorityInstallationReceiptV1 = {
+  readonly kind: 'local_authority_installation_receipt_v1';
+  readonly authorityId: WalletAuthorityId;
+  readonly walletId: WalletId;
+  readonly authMethodId: WalletAuthMethodId;
+  readonly deviceId: DeviceId;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly installedActivationRefs: WalletSignerActivationSetV1;
+  readonly installedRecordSetDigestB64u: DigestB64u;
+  readonly targetFactorVerificationDigestB64u: DigestB64u;
+  readonly installedAtMs: number;
+};
+
+export type RelinkRequiredReasonV1 =
+  | { readonly kind: 'incomplete_migrated_enrollment' }
+  | {
+      readonly kind: 'missing_canonical_local_material';
+      readonly activation: MpcMaterialActivationRef;
+    };
+
+export type LinkIntegrityFailureV1 =
+  | {
+      readonly kind: 'authority_id_mismatch';
+      readonly expectedAuthorityId: WalletAuthorityId;
+      readonly actualAuthorityId: WalletAuthorityId;
+    }
+  | {
+      readonly kind: 'package_set_digest_mismatch';
+      readonly expectedPackageSetDigestB64u: DigestB64u;
+      readonly actualPackageSetDigestB64u: DigestB64u;
+    }
+  | {
+      readonly kind: 'installation_receipt_mismatch';
+      readonly field:
+        | 'walletId'
+        | 'authMethodId'
+        | 'deviceId'
+        | 'targetFactorVerificationDigestB64u'
+        | 'installedActivationRefs';
+    };
+
+export type ActivationRetryReasonV1 =
+  | { readonly kind: 'installation_receipt_not_found' }
+  | { readonly kind: 'server_worker_activation_pending' }
+  | { readonly kind: 'wallet_session_issuance_pending' };
+
+export type ActivateInstalledAuthorityResultV1 =
+  | {
+      readonly kind: 'active';
+      readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+      readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+      readonly walletSession: ActiveWalletSessionV1;
+    }
+  | {
+      readonly kind: 'pending_local_install';
+      readonly authorityId: WalletAuthorityId;
+      readonly reason: ActivationRetryReasonV1;
+    }
+  | { readonly kind: 'integrity_error'; readonly reason: LinkIntegrityFailureV1 };
+
+export type LinkedAuthorityActivationResultV1 =
+  | { readonly kind: 'active'; readonly session: ActiveWalletSessionV1 }
+  | {
+      readonly kind: 'pending_local_install';
+      readonly authorityId: WalletAuthorityId;
+      readonly packageSetDigestB64u: DigestB64u;
+    }
+  | { readonly kind: 'failed_before_commit'; readonly reason: LinkPrecommitFailureV1 }
+  | { readonly kind: 'relink_required'; readonly reason: RelinkRequiredReasonV1 }
+  | { readonly kind: 'integrity_error'; readonly reason: LinkIntegrityFailureV1 };
+
+/** Final wire acknowledgement after the active authority/session transaction. */
+export type LocalAuthorityActivationFinalAckV1 = {
+  readonly kind: 'local_authority_activation_final_ack_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly authorityId: WalletAuthorityId;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly acknowledgedAtMs: number;
 };
 
 export function assertNeverLinkSessionStateV1(value: never): never {

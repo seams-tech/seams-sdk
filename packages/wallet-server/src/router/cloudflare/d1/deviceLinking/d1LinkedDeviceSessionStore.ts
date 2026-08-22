@@ -295,6 +295,41 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     return [this.updateStatement(input), this.database.prepare(SESSION_CAS_GUARD_SQL)];
   }
 
+  /**
+   * Builds the session half of the pending-authority transaction. The caller
+   * supplies the already validated next record; the CAS guard keeps the
+   * authority and session writes in one D1 batch.
+   */
+  buildAuthorityPendingLocalInstallCasStatementsV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    const nextRecord = normalizeMutationRecordV1(input);
+    if (
+      nextRecord.revision !== input.expectedRevision + 1 ||
+      nextRecord.state.state !== 'authority_pending_local_install'
+    ) {
+      throw new Error('linked-device pending-authority session CAS input is invalid');
+    }
+    return [this.updateStatement(input), this.database.prepare(SESSION_CAS_GUARD_SQL)];
+  }
+
+  /** Builds the session half of the pending-to-active authority transaction. */
+  buildAuthorityActivationCasStatementsV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    const nextRecord = normalizeMutationRecordV1(input);
+    if (nextRecord.revision !== input.expectedRevision + 1 || nextRecord.state.state !== 'active') {
+      throw new Error('linked-device active-authority session CAS input is invalid');
+    }
+    return [this.updateStatement(input), this.database.prepare(SESSION_CAS_GUARD_SQL)];
+  }
+
   async markAuthorityPendingLocalInstallV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;

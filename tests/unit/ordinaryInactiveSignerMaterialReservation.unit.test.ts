@@ -14,6 +14,8 @@ import {
   buildOrdinaryEcdsaSignerFixture,
   buildOrdinaryEd25519ClientMaterialFixture,
   buildOrdinaryEd25519SignerFixture,
+  buildOrdinaryEd25519ReservationPreparationFixture,
+  buildOrdinaryEcdsaReservationPreparationFixture,
   buildOrdinaryMaterialActivationFixture,
 } from './helpers/ordinarySignerMaterialReservation.fixtures';
 
@@ -83,6 +85,10 @@ test('reserves inactive Ed25519 material and reuses the exact activation reserva
     keyFamily: 'ed25519',
     signer: buildOrdinaryEd25519SignerFixture('ed25519'),
     plannedActivationRef: buildOrdinaryMaterialActivationFixture('ed25519'),
+    preparation: buildOrdinaryEd25519ReservationPreparationFixture(
+      'ed25519',
+      buildOrdinaryMaterialActivationFixture('ed25519'),
+    ),
   };
 
   const first = await service.reserveOrdinaryInactiveSignerMaterialV1(request);
@@ -105,6 +111,10 @@ test('reserves inactive ECDSA material in the committed role-envelope shape', as
     keyFamily: 'ecdsa_secp256k1',
     signer: buildOrdinaryEcdsaSignerFixture('ecdsa'),
     plannedActivationRef: buildOrdinaryMaterialActivationFixture('ecdsa'),
+    preparation: buildOrdinaryEcdsaReservationPreparationFixture(
+      'ecdsa',
+      buildOrdinaryMaterialActivationFixture('ecdsa'),
+    ),
   };
 
   const result = await service.reserveOrdinaryInactiveSignerMaterialV1(request);
@@ -133,6 +143,10 @@ test('rejects a worker response for a different planned activation reference', a
     keyFamily: 'ed25519',
     signer: buildOrdinaryEd25519SignerFixture('ed25519-mismatch'),
     plannedActivationRef: buildOrdinaryMaterialActivationFixture('ed25519-mismatch'),
+    preparation: buildOrdinaryEd25519ReservationPreparationFixture(
+      'ed25519-mismatch',
+      buildOrdinaryMaterialActivationFixture('ed25519-mismatch'),
+    ),
   };
 
   await expect(service.reserveOrdinaryInactiveSignerMaterialV1(request)).rejects.toThrow(

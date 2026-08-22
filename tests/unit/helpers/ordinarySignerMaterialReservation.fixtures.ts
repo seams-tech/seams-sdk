@@ -5,7 +5,20 @@ import {
 } from '@shared/device-linking/delegatedActivationPlan';
 import { base64UrlEncode } from '@shared/utils/base64';
 import type { RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEd25519YaoActivationClientPackageV1 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseRouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaRegistrationRequestV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  type RouterAbEd25519YaoActivationClientPackageV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import type {
+  OrdinaryEcdsaSignerMaterialReservationPreparationV1,
+  OrdinaryEd25519SignerMaterialReservationPreparationV1,
+} from '../../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
 export function buildOrdinaryEd25519SignerFixture(label: string): ExactAdministeredEd25519SignerV1 {
@@ -77,6 +90,122 @@ export function buildOrdinaryMaterialActivationFixture(label: string) {
     `wallet:ordinary-reservation:${label}`,
     `worker:ordinary-reservation:${label}`,
   );
+}
+
+export function buildOrdinaryEd25519ReservationPreparationFixture(
+  label: string,
+  materialActivation: MpcMaterialActivationRef,
+): OrdinaryEd25519SignerMaterialReservationPreparationV1 {
+  const binding = {
+    lifecycle: {
+      lifecycle_id: `ordinary-reservation:${label}`,
+      work_kind: 'registration_prepare' as const,
+      primitive_request_kind: 'registration' as const,
+      root_share_epoch: `epoch:ordinary-reservation:${label}`,
+      account_id: materialActivation.materialOwner,
+      session_id: `session:ordinary-reservation:${label}`,
+      signer_set_id: `signer-set:ordinary-reservation:${label}`,
+      selected_server_id: materialActivation.signingWorker,
+    },
+    operation: 'registration' as const,
+    session_id: bytes(32, label.length + 43),
+    stable_key_context_binding: bytes(32, label.length + 47),
+    material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
+  };
+  const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1({
+    binding,
+    deriver_a_input: activationInput('deriver_a', binding, label.length + 51),
+    deriver_b_input: activationInput('deriver_b', binding, label.length + 53),
+  });
+  if (!parsed.ok) throw new Error(parsed.message);
+  return {
+    kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
+    activationRequest: parsed.value,
+  };
+}
+
+export function buildOrdinaryEcdsaReservationPreparationFixture(
+  label: string,
+  materialActivation: MpcMaterialActivationRef,
+): OrdinaryEcdsaSignerMaterialReservationPreparationV1 {
+  const digest = { bytes: bytes(32, label.length + 61) };
+  const registrationRequest: RouterAbEcdsaRegistrationRequestV1 =
+    parseRouterAbEcdsaRegistrationRequestV1({
+      registration_purpose: 'wallet_add_signer',
+      context: { application_binding_digest_b64u: encodedBytes(32, label.length + 63) },
+      lifecycle: {
+        lifecycle_id: `ordinary-reservation:${label}`,
+        work_kind: 'registration_prepare',
+        primitive_request_kind: 'registration',
+        root_share_epoch: `epoch:ordinary-reservation:${label}`,
+        account_id: materialActivation.materialOwner,
+        session_id: `session:ordinary-reservation:${label}`,
+        signer_set_id: `signer-set:ordinary-reservation:${label}`,
+        selected_server_id: materialActivation.signingWorker,
+      },
+      signer_set: {
+        signer_set_id: `signer-set:ordinary-reservation:${label}`,
+        policy: 'all_2',
+        signer_a: {
+          role: 'signer_a',
+          signer_id: `signer-a:ordinary-reservation:${label}`,
+          key_epoch: `epoch:ordinary-reservation:${label}`,
+        },
+        signer_b: {
+          role: 'signer_b',
+          signer_id: `signer-b:ordinary-reservation:${label}`,
+          key_epoch: `epoch:ordinary-reservation:${label}`,
+        },
+        selected_server: {
+          server_id: materialActivation.signingWorker,
+          key_epoch: `epoch:ordinary-reservation:${label}`,
+          recipient_encryption_key: `x25519:${'11'.repeat(32)}`,
+        },
+      },
+      router_id: `router:ordinary-reservation:${label}`,
+      client_id: `client:ordinary-reservation:${label}`,
+      client_ephemeral_public_key: `x25519:${'22'.repeat(32)}`,
+      replay_nonce: `nonce:ordinary-reservation:${label}`,
+      expires_at_ms: 4_000_000_000,
+      deriver_a_envelope: {
+        recipient_role: 'signer_a',
+        header_digest: digest,
+        aad_digest: { bytes: bytes(32, label.length + 65) },
+        ciphertext: { bytes: bytes(16, label.length + 67) },
+      },
+      deriver_b_envelope: {
+        recipient_role: 'signer_b',
+        header_digest: { bytes: bytes(32, label.length + 69) },
+        aad_digest: { bytes: bytes(32, label.length + 71) },
+        ciphertext: { bytes: bytes(16, label.length + 73) },
+      },
+    });
+  return {
+    kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
+    registrationRequest,
+    materialActivation,
+  };
+}
+
+function activationInput(
+  deriver: 'deriver_a' | 'deriver_b',
+  binding: {
+    readonly lifecycle: { readonly lifecycle_id: string };
+    readonly operation: 'registration';
+    readonly session_id: readonly number[];
+    readonly stable_key_context_binding: readonly number[];
+  },
+  seed: number,
+) {
+  return {
+    kind: 'activation' as const,
+    deriver,
+    operation: 'registration' as const,
+    session: binding.session_id,
+    stable_context_binding: binding.stable_key_context_binding,
+    encapsulated_key: bytes(32, seed),
+    ciphertext: bytes(32, seed + 1),
+  };
 }
 
 function buildEd25519ClientPackage(

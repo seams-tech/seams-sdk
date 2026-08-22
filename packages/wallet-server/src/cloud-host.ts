@@ -48,6 +48,7 @@ export * from './router/cloudflare/d1/deviceLinking';
 export * from './router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
 export * from './router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 export * from './router/cloudflare/signingLanes/linkedDeviceEd25519CeremonyBinding';
+export * from './router/cloudflare/signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnStore';
 export * from './router/cloudflare/durableObjects/thresholdStore';

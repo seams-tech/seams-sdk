@@ -267,5 +267,6 @@ export type {
   RouterAbEd25519YaoRegistrationAdmissionCommitInputV1,
   RouterAbEd25519YaoRegistrationAdmissionPreparationV1,
 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+export * from './cloudflare/signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 export { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
 export type { RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
