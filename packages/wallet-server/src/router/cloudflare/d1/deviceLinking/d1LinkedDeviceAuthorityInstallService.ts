@@ -53,6 +53,7 @@ import type {
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
   OrdinarySignerMaterialRecipientRequestV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionV1,
   OrdinarySignerMaterialReservationPreparationV1 as SharedOrdinarySignerMaterialReservationPreparationV1,
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
@@ -94,6 +95,9 @@ import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import {
+  assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1,
+} from '@shared/device-linking/sourceContribution';
 
 type ExactSigner = ExactAdministeredSignerV1;
 
@@ -111,6 +115,7 @@ export type OrdinarySignerMaterialReservationPreparationPlannerV1 = {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly signer: ExactSigner;
     readonly recipientRequest: OrdinarySignerMaterialRecipientRequestV1;
+    readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionV1;
   }):
     | {
         readonly keyFamily: 'ed25519';
@@ -665,16 +670,42 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     let ecdsaPreparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1 | undefined;
     for (const signer of input.signerManifest.signers) {
       const recipientRequest = recipientRequestForSigner(input, signer);
+      const sourceContribution = sourceContributionForSigner(input, signer);
+      const sourceMaterialActivation = sourceMaterialActivationForSigner(input, signer);
       const plannedActivationRef = this.options.materialPlanner.planOrdinaryMaterialActivationRefV1({
         authorityId,
         linkSessionId: input.linkSessionId,
         signer,
+      });
+      assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1({
+        contribution: sourceContribution,
+        linkSessionId: input.linkSessionId,
+        enrollmentId: input.enrollmentId,
+        sourceAuthorityId: input.sourceAuthority.authority.authorityId,
+        walletKeyId: signer.walletKeyId,
+        targetDeviceId: input.targetDeviceId,
+        targetFactorVerificationDigestB64u: input.targetFactor.verificationDigestB64u,
+        sourceMaterialActivation,
+        targetMaterialActivation: plannedActivationRef,
+        sourceSigner:
+          signer.keyFamily === 'ed25519'
+            ? {
+                keyFamily: 'ed25519',
+                walletKeyId: signer.walletKeyId,
+                registeredPublicKeyB64u: signer.registeredPublicKeyB64u,
+              }
+            : {
+                keyFamily: 'ecdsa_secp256k1',
+                walletKeyId: signer.walletKeyId,
+                thresholdPublicKey33B64u: signer.thresholdPublicKey33B64u,
+              },
       });
       const preparation = this.options.reservationPreparationPlanner.planOrdinaryMaterialReservationPreparationV1({
         authorityId,
         linkSessionId: input.linkSessionId,
         signer,
         recipientRequest,
+        sourceContribution,
       });
       if (signer.keyFamily === 'ed25519') {
         if (preparation.keyFamily !== 'ed25519') {
@@ -1024,8 +1055,12 @@ function assertRecipientRequestsMatchManifest(input: VerifiedLinkInputV1): void 
   if (input.ordinarySignerMaterialRecipientRequests.length !== input.signerManifest.signers.length) {
     throw new Error('ordinary signer material recipient requests do not match the signer manifest');
   }
+  if (input.sourceContribution.length !== input.signerManifest.signers.length) {
+    throw new Error('ordinary source contributions do not match the signer manifest');
+  }
   for (const signer of input.signerManifest.signers) {
     recipientRequestForSigner(input, signer);
+    sourceContributionForSigner(input, signer);
   }
 }
 
@@ -1044,6 +1079,38 @@ function recipientRequestForSigner(
   const request = matches[0];
   if (!request) throw new Error('ordinary signer material recipient request is missing');
   return request;
+}
+
+function sourceContributionForSigner(
+  input: VerifiedLinkInputV1,
+  signer: ExactSigner,
+): LinkedDeviceOrdinaryMaterialSourceContributionV1 {
+  const matches = input.sourceContribution.filter(
+    (contribution) =>
+      contribution.walletKeyId === signer.walletKeyId &&
+      contribution.keyFamily === signer.keyFamily,
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `ordinary source contribution for ${String(signer.walletKeyId)} is missing or duplicated`,
+    );
+  }
+  const contribution = matches[0];
+  if (!contribution) throw new Error('ordinary source contribution is missing');
+  return contribution;
+}
+
+function sourceMaterialActivationForSigner(
+  input: VerifiedLinkInputV1,
+  signer: ExactSigner,
+): MpcMaterialActivationRef {
+  const activation = signer.keyFamily === 'ed25519'
+    ? input.sourceAuthority.authority.signerActivations.ed25519?.materialActivation
+    : input.sourceAuthority.authority.signerActivations.ecdsa?.materialActivation;
+  if (!activation) {
+    throw new Error(`ordinary source activation for ${String(signer.walletKeyId)} is missing`);
+  }
+  return activation;
 }
 
 function sharedEd25519Preparation(

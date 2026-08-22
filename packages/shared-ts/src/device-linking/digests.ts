@@ -237,6 +237,14 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     lp32(rawPublicKey(value.devicePublicKeyB64u, 'devicePublicKeyB64u'), 'devicePublicKeyB64u'),
     lp32(encodeDelegatedWalletAuthority(value.permission), 'permission'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
+    ...('sourceContribution' in value
+      ? [
+          lp32(
+            TEXT_ENCODER.encode(alphabetizeStringify(value.sourceContribution)),
+            'sourceContribution',
+          ),
+        ]
+      : []),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
     u32(orderedOwnerSourceLaneHints.length, 'orderedOwnerSourceLaneHints'),
     ...orderedOwnerSourceLaneHints.map((entry) =>

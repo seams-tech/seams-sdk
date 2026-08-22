@@ -44,6 +44,21 @@ import type {
 } from '../utils/registrationIntent';
 import type { RouterAbEd25519YaoActivationExecuteRequestV1 } from '../utils/routerAbEd25519Yao';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '../utils/routerAbEcdsaDerivation';
+import type { LinkedDeviceOrdinaryMaterialSourceContributionTupleV1 } from './sourceContribution';
+
+export type {
+  LinkedDeviceEcdsaSourceContributionBindingV1,
+  LinkedDeviceEcdsaSourceContributionPackageV1,
+  LinkedDeviceEcdsaSourceContributionPreparationV1,
+  LinkedDeviceEcdsaSourceContributionV1,
+  LinkedDeviceEcdsaSourceSignerIdentityV1,
+  LinkedDeviceEcdsaTargetRecipientPreparationV1,
+  LinkedDeviceEd25519SigningWorkerPackageDeliveryV1,
+  LinkedDeviceEd25519SourceContributionV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionV1,
+} from './sourceContribution';
 
 export type {
   CommittedAuthorityPackagesV1,
@@ -277,9 +292,17 @@ type LinkedDeviceApprovalBaseV1 = {
   readonly expiresAtMs: number;
 };
 
-export type LinkedDeviceApprovalV1 = LinkedDeviceApprovalBaseV1 & {
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
-};
+export type LinkedDeviceApprovalV1 =
+  | (LinkedDeviceApprovalBaseV1 & {
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+      /** The first owner approval precedes Device 2 recipient preparation. */
+      readonly sourceContribution?: never;
+    })
+  | (LinkedDeviceApprovalBaseV1 & {
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+      /** Final owner relay after Device 2 has registered recipient bindings. */
+      readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
+    });
 
 export type LinkedDeviceApprovalDeliveryV1 = {
   readonly kind: 'linked_device_approval_delivery_v1';
@@ -769,6 +792,8 @@ export type VerifiedLinkInputV1 = {
   readonly targetFactor: VerifiedTargetFactorV1;
   readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
   readonly signerManifest: ExactAdministeredSignerManifestV1;
+  /** One encrypted/publicly-bound contribution per source signer family. */
+  readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
   readonly ordinarySignerMaterialRecipientRequests: readonly [
     OrdinarySignerMaterialRecipientRequestV1,
     ...OrdinarySignerMaterialRecipientRequestV1[],

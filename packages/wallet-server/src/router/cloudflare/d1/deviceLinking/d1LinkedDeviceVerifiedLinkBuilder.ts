@@ -70,6 +70,10 @@ export async function buildVerifiedLinkInputV1(
   input: BuildVerifiedLinkInputV1,
 ): Promise<VerifiedLinkInputV1> {
   assertRegistrationIdentity(input);
+  const sourceContribution = input.approval.sourceContribution;
+  if (!sourceContribution) {
+    throw new Error('linked-device source contribution has not been relayed by Device 1');
+  }
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('verified device linking requires an ordinary Wallet Session');
   }
@@ -102,6 +106,7 @@ export async function buildVerifiedLinkInputV1(
     targetFactor,
     permissions: input.approval.permission.permissions,
     signerManifest: source.signerManifest,
+    sourceContribution,
     ordinarySignerMaterialRecipientRequests:
       input.registration.ordinarySignerMaterialRecipientRequests,
   };

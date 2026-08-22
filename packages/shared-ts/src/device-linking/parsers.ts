@@ -108,6 +108,7 @@ import {
   type LinkedDeviceTargetPreparationV1,
   type LinkedDevicePasskeyCreationOptionsV1,
   type LinkedDeviceWebAuthnRegistrationV1,
+  type LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
   type LinkDevicePublicKeyB64u,
   type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceTargetFactorV1,
@@ -119,6 +120,9 @@ import {
   type LocalAuthorityInstallationReceiptV1,
   type WalletCapabilitySubjectV1,
 } from './contracts';
+import {
+  parseLinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
+} from './sourceContribution';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -180,6 +184,10 @@ const ENROLLMENT_FIELDS = [
   'orderedOwnerSourceLaneHints',
   'approvedAtMs',
   'expiresAtMs',
+] as const;
+const ENROLLMENT_FIELDS_WITH_SOURCE_CONTRIBUTION = [
+  ...ENROLLMENT_FIELDS,
+  'sourceContribution',
 ] as const;
 const APPROVAL_DELIVERY_FIELDS = ['kind', 'approval'] as const;
 const CREDENTIAL_BASE_FIELDS = [
@@ -1523,7 +1531,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
   const approvedAtMs = parseUnixTime(record.approvedAtMs, `${label}.approvedAtMs`);
   const expiresAtMs = parseUnixTime(record.expiresAtMs, `${label}.expiresAtMs`);
   assertExpiryAfterIssued(approvedAtMs, expiresAtMs, label);
-  return {
+  const core = {
     linkSessionId: parseSessionId(record.linkSessionId, `${label}.linkSessionId`),
     walletId: parseWallet(record.walletId, `${label}.walletId`),
     enrollmentId: parseEnrollmentId(record.enrollmentId, `${label}.enrollmentId`),
@@ -1543,10 +1551,26 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
     approvedAtMs,
     expiresAtMs,
   };
+  if (record.sourceContribution === undefined) {
+    return core;
+  }
+  return {
+    ...core,
+    sourceContribution: parseLinkedDeviceOrdinaryMaterialSourceContributionTupleV1(
+      record.sourceContribution,
+    ),
+  };
 }
 
 export function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
-  const record = exactRecord(raw, ENROLLMENT_FIELDS, 'LinkedDeviceApprovalV1');
+  const candidate = requireRecord(raw, 'LinkedDeviceApprovalV1');
+  const record = exactRecord(
+    candidate,
+    candidate.sourceContribution === undefined
+      ? ENROLLMENT_FIELDS
+      : ENROLLMENT_FIELDS_WITH_SOURCE_CONTRIBUTION,
+    'LinkedDeviceApprovalV1',
+  );
   if (record.kind !== 'linked_device_approval_v1')
     throw new Error('LinkedDeviceApprovalV1.kind is invalid');
   const core = parseEnrollmentCore(record, 'LinkedDeviceApprovalV1');
