@@ -7,20 +7,24 @@ import {
   type ExactAdministeredSignerManifestV1,
 } from '@shared/device-linking/delegatedActivationPlan';
 import {
-  parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
-  parseRouterAbEcdsaRegistrationRequestV1,
-  type RouterAbEcdsaRegistrationRequestV1,
-  type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import { requireRouterAbX25519PublicKey } from '@shared/utils/routerAbPublicKeyset';
+  parseLinkedDeviceEcdsaEncryptedSourceContributionV1,
+  parseLinkedDeviceEcdsaSourceContributionPackageV1,
+  parseLinkedDeviceEcdsaSourceDerivationV1,
+  parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+  type LinkedDeviceEd25519SourceContributionV1,
+  type LinkedDeviceEcdsaEncryptedSourceContributionV1,
+  type LinkedDeviceEcdsaSourceContributionPackageV1,
+  type LinkedDeviceEcdsaSourceDerivationV1,
+  type LinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+} from '@shared/device-linking/sourceContribution';
 import {
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
   parseRouterAbEd25519YaoActivationPublicReceiptV1,
   parseRouterAbEd25519YaoParticipantIdsV1,
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationPublicReceiptV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
-  type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
+  type RouterAbEd25519YaoActivationExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
@@ -44,13 +48,22 @@ export type OrdinaryEd25519ClientMaterialV1 = {
 
 export type OrdinaryEcdsaClientMaterialV1 = {
   readonly kind: 'ordinary_ecdsa_client_material_v1';
-  readonly deriver_a_client_package: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
-  readonly deriver_b_client_package: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
+  readonly encryptedTargetClientShare: LinkedDeviceEcdsaEncryptedSourceContributionV1;
+};
+
+export type OrdinaryEcdsaInactiveServerMaterialV1 = {
+  readonly kind: 'ordinary_ecdsa_inactive_server_material_v1';
+  readonly reservationId: OrdinaryInactiveServerMaterialReservationIdV1;
+  readonly encryptedTargetServerShare: LinkedDeviceEcdsaEncryptedSourceContributionV1;
 };
 
 type OrdinaryClientMaterialByFamilyV1 = {
   readonly ed25519: OrdinaryEd25519ClientMaterialV1;
   readonly ecdsa_secp256k1: OrdinaryEcdsaClientMaterialV1;
+};
+type OrdinaryServerMaterialByFamilyV1 = {
+  readonly ed25519: OrdinaryInactiveServerMaterialV1;
+  readonly ecdsa_secp256k1: OrdinaryEcdsaInactiveServerMaterialV1;
 };
 type OrdinaryRequestKindByFamilyV1 = {
   readonly ed25519: 'ordinary_ed25519_signer_material_reservation_request_v1';
@@ -76,7 +89,10 @@ type OrdinaryReservationFieldsV1<F extends OrdinarySignerFamilyV1> = {
       readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
       readonly participantIds: readonly [number, number];
     }
-  : { readonly activationReceipt?: never; readonly participantIds?: never });
+  : {
+      readonly activationReceipt: LinkedDeviceEcdsaSourcePreservingActivationReceiptV1;
+      readonly participantIds?: never;
+    });
 
 export type OrdinaryInactiveServerMaterialReservationIdV1 = string & {
   readonly __ordinaryInactiveServerMaterialReservationIdBrand: unique symbol;
@@ -89,14 +105,14 @@ export type OrdinaryInactiveServerMaterialV1 = {
 
 export type OrdinaryEd25519SignerMaterialReservationPreparationV1 = {
   readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
-  readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-  readonly participantIds: readonly [number, number];
+  readonly sourceContribution: LinkedDeviceEd25519SourceContributionV1;
+  readonly targetRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
 };
 
 export type OrdinaryEcdsaSignerMaterialReservationPreparationV1 = {
   readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';
-  readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
-  readonly materialActivation: MpcMaterialActivationRef;
+  readonly sourceDerivation: LinkedDeviceEcdsaSourceDerivationV1;
+  readonly sourceContribution: LinkedDeviceEcdsaSourceContributionPackageV1;
 };
 
 export type OrdinaryEd25519SignerMaterialReservationRequestV1 =
@@ -125,7 +141,7 @@ export type OrdinaryEcdsaSignerMaterialWorkerReservationV1 =
 type OrdinarySignerMaterialWorkerReservationV1<F extends OrdinarySignerFamilyV1> =
   OrdinaryReservationFieldsV1<F> & {
     readonly kind: OrdinaryWorkerKindByFamilyV1[F];
-    readonly serverMaterialReservationId: string;
+    readonly serverMaterial: OrdinaryServerMaterialByFamilyV1[F];
     readonly activatedAtMs?: never;
   };
 
@@ -140,7 +156,7 @@ export type OrdinaryInactiveSignerMaterialReservationV1 =
 type OrdinarySignerMaterialReservationV1<F extends OrdinarySignerFamilyV1> =
   OrdinaryReservationFieldsV1<F> & {
     readonly kind: OrdinaryReservationKindByFamilyV1[F];
-    readonly serverMaterial: OrdinaryInactiveServerMaterialV1;
+    readonly serverMaterial: OrdinaryServerMaterialByFamilyV1[F];
     readonly activatedAtMs?: never;
   };
 
@@ -321,7 +337,7 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
       activationReceipt: reservation.activationReceipt,
       participantIds: reservation.participantIds,
       clientMaterial: reservation.clientMaterial,
-      serverMaterial: buildServerMaterialV1(reservation.serverMaterialReservationId),
+      serverMaterial: reservation.serverMaterial,
     };
   }
 
@@ -338,8 +354,9 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
       state: 'inactive',
       signer: request.signer,
       materialActivation: request.plannedActivationRef,
+      activationReceipt: reservation.activationReceipt,
       clientMaterial: reservation.clientMaterial,
-      serverMaterial: buildServerMaterialV1(reservation.serverMaterialReservationId),
+      serverMaterial: reservation.serverMaterial,
     };
   }
 }
@@ -354,17 +371,24 @@ export function validateOrdinaryInactiveSignerMaterialReservationRequestV1(
       ) {
         throw new Error('ordinary Ed25519 reservation preparation kind is invalid');
       }
-      const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-        request.preparation.activationRequest,
+      assertMaterialActivationMatchesV1(
+        request.plannedActivationRef,
+        request.preparation.sourceContribution.targetMaterialActivation,
       );
-      if (!parsed.ok) {
-        throw new Error(`ordinary Ed25519 reservation preparation: ${parsed.message}`);
+      const targetRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+        request.preparation.targetRequest,
+      );
+      if (!targetRequest.ok) {
+        throw new Error(`ordinary Ed25519 target request: ${targetRequest.message}`);
       }
       assertMaterialActivationMatchesV1(
         request.plannedActivationRef,
-        routerAbMpcMaterialActivationRefFromWire(parsed.value.binding.material_activation),
+        routerAbMpcMaterialActivationRefFromWire(targetRequest.value.binding.material_activation),
       );
-      parseRouterAbEd25519YaoParticipantIdsV1(request.preparation.participantIds);
+      if (request.preparation.sourceContribution.sourceBinding.operation !== 'registration') {
+        throw new Error('ordinary Ed25519 source contribution must use registration');
+      }
+      parseRouterAbEd25519YaoParticipantIdsV1(request.preparation.sourceContribution.participantIds);
       return;
     }
     case 'ordinary_ecdsa_signer_material_reservation_request_v1':
@@ -373,11 +397,12 @@ export function validateOrdinaryInactiveSignerMaterialReservationRequestV1(
       ) {
         throw new Error('ordinary ECDSA reservation preparation kind is invalid');
       }
-      parseRouterAbEcdsaRegistrationRequestV1(request.preparation.registrationRequest);
       assertMaterialActivationMatchesV1(
         request.plannedActivationRef,
-        request.preparation.materialActivation,
+        request.preparation.sourceContribution.binding.target.activation,
       );
+      parseLinkedDeviceEcdsaSourceDerivationV1(request.preparation.sourceDerivation);
+      parseLinkedDeviceEcdsaSourceContributionPackageV1(request.preparation.sourceContribution);
       return;
     default:
       return assertNever(request);
@@ -422,8 +447,8 @@ export function parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
   assertMaterialActivationMatchesV1(request.plannedActivationRef, materialActivation);
   const participantIds = parseRouterAbEd25519YaoParticipantIdsV1(reservation.participantIds);
   if (
-    participantIds[0] !== request.preparation.participantIds[0] ||
-    participantIds[1] !== request.preparation.participantIds[1]
+    participantIds[0] !== request.preparation.sourceContribution.participantIds[0] ||
+    participantIds[1] !== request.preparation.sourceContribution.participantIds[1]
   ) {
     throw new Error('ordinary Ed25519 worker reservation participant ids do not match the request');
   }
@@ -450,9 +475,7 @@ export function parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
     activationReceipt,
     participantIds,
     clientMaterial,
-    serverMaterialReservationId: parseServerMaterialReservationIdV1(
-      reservation.serverMaterialReservationId,
-    ),
+    serverMaterial: buildServerMaterialV1(reservation.serverMaterialReservationId),
   };
 }
 
@@ -468,8 +491,9 @@ export function parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
       'state',
       'signer',
       'materialActivation',
+      'activationReceipt',
       'clientMaterial',
-      'serverMaterialReservationId',
+      'serverMaterial',
     ],
     'ordinary ECDSA worker reservation',
   );
@@ -484,19 +508,52 @@ export function parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
   const materialActivation = parseWorkerMaterialActivationV1(reservation.materialActivation);
   assertEcdsaSignerMatchesV1(request.signer, signer);
   assertMaterialActivationMatchesV1(request.plannedActivationRef, materialActivation);
+  const activationReceipt = parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1(
+    reservation.activationReceipt,
+  );
+  assertMaterialActivationMatchesV1(
+    request.plannedActivationRef,
+    activationReceipt.binding.target.activation,
+  );
+  if (
+    activationReceipt.sourceDerivation.applicationBindingDigestB64u !==
+      request.preparation.sourceDerivation.applicationBindingDigestB64u ||
+    activationReceipt.sourceDerivation.clientShareRetryCounter !==
+      request.preparation.sourceDerivation.clientShareRetryCounter
+  ) {
+    throw new Error('ordinary ECDSA worker source derivation does not match the request');
+  }
+  if (!sameEcdsaSourceContributionBinding(activationReceipt.binding, request.preparation.sourceContribution.binding)) {
+    throw new Error('ordinary ECDSA worker source binding does not match the request');
+  }
+  if (
+    activationReceipt.thresholdPublicKey33B64u !== request.signer.thresholdPublicKey33B64u
+  ) {
+    throw new Error('ordinary ECDSA worker target threshold public key does not match the signer');
+  }
+  const clientMaterial = parseEcdsaClientMaterialV1(reservation.clientMaterial);
+  if (
+    clientMaterial.encryptedTargetClientShare.recipientPublicKeyB64u !==
+    activationReceipt.binding.target.clientRecipientPublicKeyB64u
+  ) {
+    throw new Error('ordinary ECDSA client share recipient does not match the receipt');
+  }
+  const serverMaterial = parseEcdsaServerMaterialV1(reservation.serverMaterial);
+  if (
+    serverMaterial.encryptedTargetServerShare.recipientPublicKeyB64u !==
+    activationReceipt.binding.target.signingWorkerRecipientPublicKeyB64u
+  ) {
+    throw new Error('ordinary ECDSA server share recipient does not match the receipt');
+  }
   return {
     kind: 'ordinary_ecdsa_signer_material_worker_reservation_v1',
     keyFamily: 'ecdsa_secp256k1',
     state: 'inactive',
     signer,
     materialActivation,
-    clientMaterial: parseEcdsaClientMaterialV1(
-      reservation.clientMaterial,
-      request.preparation.registrationRequest,
-    ),
-    serverMaterialReservationId: parseServerMaterialReservationIdV1(
-      reservation.serverMaterialReservationId,
-    ),
+    activationReceipt,
+    clientMaterial,
+    serverMaterial,
   };
 }
 
@@ -562,13 +619,10 @@ function parseEd25519ClientMaterialV1(raw: unknown): OrdinaryEd25519ClientMateri
   };
 }
 
-function parseEcdsaClientMaterialV1(
-  raw: unknown,
-  registration: RouterAbEcdsaRegistrationRequestV1,
-): OrdinaryEcdsaClientMaterialV1 {
+function parseEcdsaClientMaterialV1(raw: unknown): OrdinaryEcdsaClientMaterialV1 {
   const record = exactRecord(
     raw,
-    ['kind', 'deriver_a_client_package', 'deriver_b_client_package'],
+    ['kind', 'encryptedTargetClientShare'],
     'ordinary ECDSA client material',
   );
   if (record.kind !== 'ordinary_ecdsa_client_material_v1') {
@@ -576,137 +630,70 @@ function parseEcdsaClientMaterialV1(
   }
   return {
     kind: 'ordinary_ecdsa_client_material_v1',
-    deriver_a_client_package: parseEcdsaClientPackageV1(
-      record.deriver_a_client_package,
-      'deriver_a_client_package',
-      'signer_a',
-      registration.signer_set.signer_a.key_epoch,
-      registration.client_ephemeral_public_key,
-    ),
-    deriver_b_client_package: parseEcdsaClientPackageV1(
-      record.deriver_b_client_package,
-      'deriver_b_client_package',
-      'signer_b',
-      registration.signer_set.signer_b.key_epoch,
-      registration.client_ephemeral_public_key,
+    encryptedTargetClientShare: parseLinkedDeviceEcdsaEncryptedSourceContributionV1(
+      record.encryptedTargetClientShare,
+      'ordinary ECDSA encrypted target client share',
     ),
   };
 }
 
-function parseEcdsaClientPackageV1<Role extends 'signer_a' | 'signer_b'>(
-  raw: unknown,
-  label: string,
-  expectedRole: Role,
-  expectedKeyEpoch: string,
-  expectedRecipientPublicKey: string,
-): RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role> {
-  const packageValue = parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1(
+function parseEcdsaServerMaterialV1(raw: unknown): OrdinaryEcdsaInactiveServerMaterialV1 {
+  const record = exactRecord(
     raw,
-    label,
-    expectedRole,
+    ['kind', 'reservationId', 'encryptedTargetServerShare'],
+    'ordinary ECDSA server material',
   );
-  const payload = parseEcdsaSignerEnvelopePayloadV1(packageValue.ciphertext.bytes, label);
-  if (
-    payload.recipientRole !== expectedRole ||
-    payload.keyEpoch !== expectedKeyEpoch ||
-    payload.recipientPublicKey !==
-      requireRouterAbX25519PublicKey(
-        expectedRecipientPublicKey,
-        `${label}.expectedRecipientPublicKey`,
-      )
-  ) {
-    throw new Error(`${label} is not sealed for the browser client recipient`);
+  if (record.kind !== 'ordinary_ecdsa_inactive_server_material_v1') {
+    throw new Error('ordinary ECDSA server material kind is invalid');
   }
-  if (!sameBytes(payload.aadDigest, packageValue.aad_digest.bytes)) {
-    throw new Error(`${label} payload AAD digest differs from its envelope`);
-  }
-  return packageValue;
+  return {
+    kind: 'ordinary_ecdsa_inactive_server_material_v1',
+    reservationId: parseServerMaterialReservationIdV1(record.reservationId),
+    encryptedTargetServerShare: parseLinkedDeviceEcdsaEncryptedSourceContributionV1(
+      record.encryptedTargetServerShare,
+      'ordinary ECDSA encrypted target server share',
+    ),
+  };
 }
 
-type EcdsaSignerEnvelopePayloadV1 = {
-  readonly recipientRole: 'signer_a' | 'signer_b';
-  readonly keyEpoch: string;
-  readonly recipientPublicKey: string;
-  readonly aadDigest: readonly number[];
-};
-
-type EcdsaPayloadCursorV1 = {
-  readonly bytes: readonly number[];
-  offset: number;
-};
-
-function parseEcdsaSignerEnvelopePayloadV1(
-  bytes: readonly number[],
-  label: string,
-): EcdsaSignerEnvelopePayloadV1 {
-  const cursor: EcdsaPayloadCursorV1 = { bytes, offset: 0 };
-  const version = readEcdsaPayloadTextV1(cursor, label, 'version');
-  if (version !== 'router-ab-protocol/signer-envelope-hpke/v1') {
-    throw new Error(`${label} payload version is invalid`);
-  }
-  const algorithm = readEcdsaPayloadTextV1(cursor, label, 'algorithm');
-  if (algorithm !== 'hpke-x25519-hkdf-sha256-aes256gcm/v1') {
-    throw new Error(`${label} payload algorithm is invalid`);
-  }
-  const recipientRole = readEcdsaPayloadTextV1(cursor, label, 'recipientRole');
-  if (recipientRole !== 'signer_a' && recipientRole !== 'signer_b') {
-    throw new Error(`${label} payload recipient role is invalid`);
-  }
-  const keyEpoch = readEcdsaPayloadTextV1(cursor, label, 'keyEpoch');
-  const recipientPublicKey = readEcdsaPayloadTextV1(cursor, label, 'recipientPublicKey');
-  requireRouterAbX25519PublicKey(recipientPublicKey, `${label}.payload.recipientPublicKey`);
-  const aadDigest = readEcdsaPayloadBytesV1(cursor, label, 'aadDigest');
-  if (aadDigest.length !== 32) throw new Error(`${label} payload AAD digest is invalid`);
-  const encappedKey = readEcdsaPayloadBytesV1(cursor, label, 'encappedKey');
-  if (encappedKey.length !== 32) throw new Error(`${label} payload encapsulated key is invalid`);
-  if (readEcdsaPayloadU32V1(cursor, label, 'tagLength') !== 16) {
-    throw new Error(`${label} payload tag length is invalid`);
-  }
-  const ciphertext = readEcdsaPayloadBytesV1(cursor, label, 'ciphertext');
-  if (ciphertext.length <= 16 || cursor.offset !== bytes.length) {
-    throw new Error(`${label} payload ciphertext is invalid`);
-  }
-  return { recipientRole, keyEpoch, recipientPublicKey, aadDigest };
+function sameEcdsaSourceContributionBinding(
+  left: LinkedDeviceEcdsaSourceContributionPackageV1['binding'],
+  right: LinkedDeviceEcdsaSourceContributionPackageV1['binding'],
+): boolean {
+  return (
+    left.linkSessionId === right.linkSessionId &&
+    left.enrollmentId === right.enrollmentId &&
+    left.sourceAuthorityId === right.sourceAuthorityId &&
+    sameEcdsaSourceSigner(left.source, right.source) &&
+    sameEcdsaTarget(left.target, right.target) &&
+    left.targetClientPublicKey33B64u === right.targetClientPublicKey33B64u
+  );
 }
 
-function readEcdsaPayloadTextV1(
-  cursor: EcdsaPayloadCursorV1,
-  label: string,
-  field: string,
-): string {
-  const bytes = readEcdsaPayloadBytesV1(cursor, label, field);
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
-  } catch {
-    throw new Error(`${label} payload ${field} is not valid UTF-8`);
-  }
+function sameEcdsaSourceSigner(
+  left: LinkedDeviceEcdsaSourceContributionPackageV1['binding']['source'],
+  right: LinkedDeviceEcdsaSourceContributionPackageV1['binding']['source'],
+): boolean {
+  return (
+    mpcMaterialActivationRefsEqual(left.activation, right.activation) &&
+    left.clientPublicKey33B64u === right.clientPublicKey33B64u &&
+    left.relayerPublicKey33B64u === right.relayerPublicKey33B64u &&
+    left.thresholdPublicKey33B64u === right.thresholdPublicKey33B64u &&
+    left.thresholdEthereumAddress20B64u === right.thresholdEthereumAddress20B64u
+  );
 }
 
-function readEcdsaPayloadBytesV1(
-  cursor: EcdsaPayloadCursorV1,
-  label: string,
-  field: string,
-): readonly number[] {
-  const length = readEcdsaPayloadU32V1(cursor, label, `${field}.length`);
-  const end = cursor.offset + length;
-  if (!Number.isSafeInteger(end) || end > cursor.bytes.length) {
-    throw new Error(`${label} payload ${field} is truncated`);
-  }
-  const value = cursor.bytes.slice(cursor.offset, end);
-  cursor.offset = end;
-  return value;
-}
-
-function readEcdsaPayloadU32V1(cursor: EcdsaPayloadCursorV1, label: string, field: string): number {
-  const end = cursor.offset + 4;
-  if (end > cursor.bytes.length) throw new Error(`${label} payload ${field} is truncated`);
-  const value =
-    cursor.bytes[cursor.offset]! * 0x1000000 +
-    cursor.bytes[cursor.offset + 1]! * 0x10000 +
-    cursor.bytes[cursor.offset + 2]! * 0x100 +
-    cursor.bytes[cursor.offset + 3]!;
-  cursor.offset = end;
-  return value;
+function sameEcdsaTarget(
+  left: LinkedDeviceEcdsaSourceContributionPackageV1['binding']['target'],
+  right: LinkedDeviceEcdsaSourceContributionPackageV1['binding']['target'],
+): boolean {
+  return (
+    mpcMaterialActivationRefsEqual(left.activation, right.activation) &&
+    String(left.targetDeviceId) === String(right.targetDeviceId) &&
+    left.targetFactorVerificationDigestB64u === right.targetFactorVerificationDigestB64u &&
+    left.clientRecipientPublicKeyB64u === right.clientRecipientPublicKeyB64u &&
+    left.signingWorkerRecipientPublicKeyB64u === right.signingWorkerRecipientPublicKeyB64u
+  );
 }
 
 function sameBytes(left: readonly number[], right: readonly number[]): boolean {
@@ -813,7 +800,7 @@ function assertMaterialActivationMatchesV1(
 }
 
 function buildServerMaterialV1(
-  serverMaterialReservationId: string,
+  serverMaterialReservationId: unknown,
 ): OrdinaryInactiveServerMaterialV1 {
   return {
     kind: 'ordinary_inactive_server_material_v1',

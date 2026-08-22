@@ -1,13 +1,18 @@
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  VerifiedTargetFactorV1,
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
 import {
   parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking/parsers';
+import { parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 } from '@shared/device-linking/sourceContribution';
 import {
   assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1,
   computeLinkedDeviceTargetPreparationDigestV1,
@@ -15,8 +20,10 @@ import {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   hasControlCharacter,
+  mpcMaterialActivationRefsEqual,
   parseWebAuthnCredentialIdB64u,
   type WalletAuthMethodId,
   type WebAuthnCredentialIdB64u,
@@ -35,7 +42,9 @@ import { linkedDeviceEmailOtpDescriptorCredentialIdV1 } from '../../../../core/d
 import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import {
+  buildVerifiedTargetFactorV1,
   buildVerifiedLinkInputV1,
+  type VerifiedLinkSourceReadV1,
   type VerifiedLinkSourceReaderV1,
 } from './d1LinkedDeviceVerifiedLinkBuilder';
 
@@ -126,6 +135,24 @@ export type LinkedDeviceTargetPlannerV1 = {
   }): Promise<LinkedDeviceTargetPreparationV1>;
 };
 
+/**
+ * Allocates the target-side material identities after the target factor has
+ * been verified. The returned tuple is the only source-preparation input that
+ * Device 1 and the authority installer may consume.
+ */
+export type LinkedDeviceSourceContributionPreparationPlannerV1 = {
+  planSourceContributionPreparationV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
+    readonly targetFactor: VerifiedTargetFactorV1;
+    readonly source: VerifiedLinkSourceReadV1;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1>;
+};
+
 export type LinkedDeviceVerifiedLinkBuilderV1 = {
   readonly source: VerifiedLinkSourceReaderV1;
 };
@@ -165,8 +192,43 @@ type PersistedTargetCredentialV1 = {
 type TargetCredentialRegistrationSuccessV1 = {
   readonly outcome: 'applied' | 'replayed';
   readonly keyManifestDigestB64u: DigestB64u;
-  readonly verifiedLinkInput: VerifiedLinkInputV1;
+  readonly targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1;
 };
+
+function buildTargetCredentialRegistrationSuccessV1(input: {
+  readonly outcome: 'applied' | 'replayed';
+  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+  readonly targetFactor: VerifiedTargetFactorV1;
+  readonly ordinarySignerMaterialPreparations: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly keyManifestDigestB64u: DigestB64u;
+}): TargetCredentialRegistrationSuccessV1 {
+  if (
+    input.targetFactor.authMethod.walletAuthMethodId !== input.registration.walletAuthMethodId ||
+    input.targetFactor.authMethod.walletId !== input.registration.walletId
+  ) {
+    throw new Error('verified target factor identity differs from its registration');
+  }
+  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
+    kind: 'linked_device_target_credential_registration_result_v1',
+    outcome: input.outcome,
+    linkSessionId: input.registration.linkSessionId,
+    walletId: input.registration.walletId,
+    enrollmentId: input.registration.enrollmentId,
+    deviceId: input.registration.deviceId,
+    walletAuthMethodId: input.registration.walletAuthMethodId,
+    targetPreparationDigestB64u: input.registration.targetPreparationDigestB64u,
+    targetFactor: input.targetFactor,
+    ordinarySignerMaterialPreparations: input.ordinarySignerMaterialPreparations,
+    ordinarySignerMaterialRecipientRequests:
+      input.registration.ordinarySignerMaterialRecipientRequests,
+    keyManifestDigestB64u: input.keyManifestDigestB64u,
+  });
+  return {
+    outcome: input.outcome,
+    keyManifestDigestB64u: input.keyManifestDigestB64u,
+    targetCredential,
+  };
+}
 
 type PersistedTargetCommitReservationV1 =
   | {
@@ -193,6 +255,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
   private readonly emailOtpGrants: LinkedDeviceEmailOtpGrantRegistrationPortV1;
   private readonly planner: LinkedDeviceTargetPlannerV1;
+  private readonly sourceContributionPreparationPlanner: LinkedDeviceSourceContributionPreparationPlannerV1;
   private readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
   private readonly inFlightCommits = new Map<
     string,
@@ -205,6 +268,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
     readonly emailOtpGrants?: LinkedDeviceEmailOtpGrantRegistrationPortV1;
     readonly planner: LinkedDeviceTargetPlannerV1;
+    readonly sourceContributionPreparationPlanner: LinkedDeviceSourceContributionPreparationPlannerV1;
     readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
   }) {
     this.database = input.database;
@@ -212,6 +276,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     this.verifier = input.verifier;
     this.emailOtpGrants = input.emailOtpGrants ?? FAIL_CLOSED_EMAIL_OTP_REGISTRATION_PORT_V1;
     this.planner = input.planner;
+    this.sourceContributionPreparationPlanner = input.sourceContributionPreparationPlanner;
     this.verifiedLinkBuilder = input.verifiedLinkBuilder;
   }
 
@@ -298,10 +363,11 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         ) {
           throw new Error('linked-device target credential conflicts with its durable replay');
         }
-        const verifiedLinkInput = await this.buildVerifiedLinkInputForPersistedV1({
+        const replay = await this.buildTargetCredentialRegistrationReplayV1({
           persisted,
           session: input.session,
           approval: input.approval,
+          registration,
           requestedAtMs: input.requestedAtMs,
         });
         await this.finalizeReservationIfPresentV1({
@@ -310,11 +376,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
           committedAtMs: input.requestedAtMs,
         });
-        return {
-          outcome: 'replayed',
-          keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
-          verifiedLinkInput,
-        };
+        return replay;
       }
       if (input.requestedAtMs >= persisted.preparation.expiresAtMs) {
         throw new Error('linked-device target credential registration is expired');
@@ -340,17 +402,14 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         if (reservation.keyManifestDigestB64u !== stored.registration.keyManifestDigestB64u) {
           throw new Error('linked-device target commit reservation manifest digest changed');
         }
-        const verifiedLinkInput = await this.buildVerifiedLinkInputForPersistedV1({
+        const replay = await this.buildTargetCredentialRegistrationReplayV1({
           persisted: stored,
           session: input.session,
           approval: input.approval,
+          registration,
           requestedAtMs: input.requestedAtMs,
         });
-        return {
-          outcome: 'replayed',
-          keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
-          verifiedLinkInput,
-        };
+        return replay;
       }
       if (reservation.outcome === 'waiting') {
         const completed = await this.waitForCommitV1({
@@ -400,7 +459,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         registration: input.registration,
         requestedAtMs: input.input.requestedAtMs,
       });
-      const verifiedLinkInput = await this.buildVerifiedLinkInputV1({
+      const planned = await this.planSourceContributionPreparationV1({
         session: input.input.session,
         approval: input.input.approval,
         preparation: input.persisted.preparation,
@@ -408,7 +467,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         evidence,
         requestedAtMs: input.input.requestedAtMs,
       });
-      const keyManifestDigestB64u = await digestJsonV1(verifiedLinkInput.signerManifest);
+      const keyManifestDigestB64u = await digestJsonV1(planned.source.signerManifest);
       const result = await this.persistRegisteredTargetV1({
         session: input.input.session,
         persisted: input.persisted,
@@ -427,9 +486,13 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         committedAtMs: input.input.requestedAtMs,
       });
       return {
-        outcome: result.applied ? 'applied' : 'replayed',
-        keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
-        verifiedLinkInput,
+        ...buildTargetCredentialRegistrationSuccessV1({
+          outcome: result.applied ? 'applied' : 'replayed',
+          registration: input.registration,
+          targetFactor: planned.targetFactor,
+          ordinarySignerMaterialPreparations: planned.preparations,
+          keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
+        }),
       };
     } catch (error: unknown) {
       await this.releaseCommitReservationV1({
@@ -567,31 +630,130 @@ SELECT 1
     return { applied: d1ChangedRows(flipResult) === 1 };
   }
 
-  private async buildVerifiedLinkInputForPersistedV1(input: {
+  private async planSourceContributionPreparationV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
+    readonly requestedAtMs: number;
+  }): Promise<{
+    readonly source: VerifiedLinkSourceReadV1;
+    readonly targetFactor: VerifiedTargetFactorV1;
+    readonly preparations: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  }> {
+    const source = await readVerifiedSourceForTargetCredentialV1({
+      source: this.verifiedLinkBuilder.source,
+      registration: input.registration,
+      approval: input.approval,
+      requestedAtMs: input.requestedAtMs,
+    });
+    const targetFactor = await buildVerifiedTargetFactorV1({
+      registration: input.registration,
+      evidence: input.evidence,
+      sourceAuthMethod: source.authMethod,
+      requestedAtMs: input.requestedAtMs,
+    });
+    const preparations = parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
+      await this.sourceContributionPreparationPlanner.planSourceContributionPreparationV1({
+        ...input,
+        targetFactor,
+        source,
+      }),
+    );
+    assertSourceContributionPreparationContextV1({
+      preparations,
+      session: input.session,
+      approval: input.approval,
+      preparation: input.preparation,
+      registration: input.registration,
+      targetFactor,
+      source,
+    });
+    return { source, targetFactor, preparations };
+  }
+
+  private async buildTargetCredentialRegistrationReplayV1(input: {
     readonly persisted: PersistedTargetCredentialV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly requestedAtMs: number;
+  }): Promise<TargetCredentialRegistrationSuccessV1> {
+    if (!input.persisted.registration) {
+      throw new Error('linked-device target credential replay is not registered');
+    }
+    const preparations = input.session.sourceContributionPreparation;
+    if (!preparations) {
+      throw new Error('linked-device source contribution preparation is missing from the session');
+    }
+    const source = await readVerifiedSourceForTargetCredentialV1({
+      source: this.verifiedLinkBuilder.source,
+      registration: input.registration,
+      approval: input.approval,
+      requestedAtMs: input.requestedAtMs,
+    });
+    const targetFactor = await buildVerifiedTargetFactorV1({
+      registration: input.registration,
+      evidence: input.persisted.registration.evidence,
+      sourceAuthMethod: source.authMethod,
+      requestedAtMs: input.requestedAtMs,
+    });
+    const parsedPreparations = parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
+      preparations,
+    );
+    assertSourceContributionPreparationContextV1({
+      preparations: parsedPreparations,
+      session: input.session,
+      approval: input.approval,
+      preparation: input.persisted.preparation,
+      registration: input.registration,
+      targetFactor,
+      source,
+    });
+    const keyManifestDigestB64u = await digestJsonV1(source.signerManifest);
+    if (keyManifestDigestB64u !== input.persisted.registration.keyManifestDigestB64u) {
+      throw new Error('linked-device source manifest replay digest changed');
+    }
+    return buildTargetCredentialRegistrationSuccessV1({
+      outcome: 'replayed',
+      registration: input.registration,
+      targetFactor,
+      ordinarySignerMaterialPreparations: parsedPreparations,
+      keyManifestDigestB64u,
+    });
+  }
+
+  async buildVerifiedLinkInputV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkInputV1> {
-    if (!input.persisted.registration) {
-      throw new Error('linked-device target credential replay is not registered');
+    const persisted = await this.readV1(input.session.linkSessionId);
+    if (!persisted?.registration) {
+      throw new Error('linked-device target credential is not registered');
     }
-    const verifiedLinkInput = await this.buildVerifiedLinkInputV1({
+    if (!input.session.sourceContributionPreparation) {
+      throw new Error('linked-device source contribution preparation is missing from the session');
+    }
+    const verifiedLinkInput = await this.buildVerifiedLinkInputWithRegistrationV1({
       session: input.session,
       approval: input.approval,
-      preparation: input.persisted.preparation,
-      registration: input.persisted.registration.value,
-      evidence: input.persisted.registration.evidence,
+      preparation: persisted.preparation,
+      registration: persisted.registration.value,
+      evidence: persisted.registration.evidence,
       requestedAtMs: input.requestedAtMs,
     });
-    const keyManifestDigestB64u = await digestJsonV1(verifiedLinkInput.signerManifest);
-    if (keyManifestDigestB64u !== input.persisted.registration.keyManifestDigestB64u) {
+    if (
+      (await digestJsonV1(verifiedLinkInput.signerManifest)) !==
+      persisted.registration.keyManifestDigestB64u
+    ) {
       throw new Error('linked-device source manifest replay digest changed');
     }
     return verifiedLinkInput;
   }
 
-  private async buildVerifiedLinkInputV1(input: {
+  private async buildVerifiedLinkInputWithRegistrationV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -693,17 +855,14 @@ SELECT 1
           input.registration,
           stored.registration.keyManifestDigestB64u,
         );
-        const verifiedLinkInput = await this.buildVerifiedLinkInputForPersistedV1({
+        const replay = await this.buildTargetCredentialRegistrationReplayV1({
           persisted: stored,
           session: input.session,
           approval: input.approval,
+          registration: input.registration,
           requestedAtMs: input.requestedAtMs,
         });
-        return {
-          outcome: 'replayed',
-          keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
-          verifiedLinkInput,
-        };
+        return replay;
       }
       const reservation = await this.readCommitReservationV1(input.linkSessionId);
       if (!reservation || reservation.registrationDigestB64u !== input.registrationDigestB64u) {
@@ -900,6 +1059,133 @@ function assertPreparationMatchesSession(
       requirement.keyFamily !== approved.keyFamily
     ) {
       throw new Error(`linked-device target preparation recipient requirement ${index} is not approved`);
+    }
+  }
+}
+
+async function readVerifiedSourceForTargetCredentialV1(input: {
+  readonly source: VerifiedLinkSourceReaderV1;
+  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly requestedAtMs: number;
+}): Promise<VerifiedLinkSourceReadV1> {
+  if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
+    throw new Error('verified device linking requires an ordinary Wallet Session');
+  }
+  return await input.source.readVerifiedSourceV1({
+    walletId: input.registration.walletId,
+    walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
+    authorizationId: String(input.approval.ownerAuthorization.authorizationId),
+    requestedAtMs: input.requestedAtMs,
+  });
+}
+
+function assertSourceContributionPreparationContextV1(input: {
+  readonly preparations: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
+  readonly session: LinkedDeviceSessionRecordV1;
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+  readonly targetFactor: VerifiedTargetFactorV1;
+  readonly source: VerifiedLinkSourceReadV1;
+}): void {
+  if (
+    input.session.linkSessionId !== input.registration.linkSessionId ||
+    input.approval.linkSessionId !== input.registration.linkSessionId ||
+    input.preparation.linkSessionId !== input.registration.linkSessionId ||
+    input.session.state.state !== 'awaiting_target_factor' &&
+      input.session.state.state !== 'awaiting_source_contribution' &&
+      input.session.state.state !== 'provisioning' &&
+      input.session.state.state !== 'authority_pending_local_install' &&
+      input.session.state.state !== 'active'
+  ) {
+    throw new Error('linked-device source contribution preparation session is invalid');
+  }
+  if (
+    input.targetFactor.authMethod.walletId !== input.registration.walletId ||
+    input.targetFactor.authMethod.walletAuthMethodId !== input.registration.walletAuthMethodId ||
+    input.targetFactor.verificationDigestB64u.length === 0
+  ) {
+    throw new Error('linked-device source contribution preparation target factor is invalid');
+  }
+  const signers = input.source.signerManifest.signers;
+  if (
+    input.preparations.length !== signers.length ||
+    input.registration.ordinarySignerMaterialRecipientRequests.length !== signers.length ||
+    input.preparation.ordinarySignerMaterialRecipientRequirements.length !== signers.length
+  ) {
+    throw new Error('linked-device source contribution preparations do not cover the signer manifest');
+  }
+  const targetActivations = input.preparations.map((value) =>
+    'kind' in value ? value.targetMaterialActivation : value.target.activation,
+  );
+  for (let index = 0; index < targetActivations.length; index += 1) {
+    const current = targetActivations[index];
+    if (!current) throw new Error(`linked-device source preparation ${index} is missing`);
+    for (let prior = 0; prior < index; prior += 1) {
+      const previous = targetActivations[prior];
+      if (previous && mpcMaterialActivationRefsEqual(previous, current)) {
+        throw new Error('linked-device source preparations repeat a target activation');
+      }
+    }
+  }
+  for (let index = 0; index < signers.length; index += 1) {
+    const signer = signers[index];
+    const preparation = input.preparations[index];
+    const request = input.registration.ordinarySignerMaterialRecipientRequests[index];
+    const requirement = input.preparation.ordinarySignerMaterialRecipientRequirements[index];
+    if (!signer || !preparation || !request || !requirement) {
+      throw new Error(`linked-device source preparation ${index} is incomplete`);
+    }
+    if (
+      preparation.linkSessionId !== input.registration.linkSessionId ||
+      preparation.enrollmentId !== input.registration.enrollmentId ||
+      preparation.sourceAuthorityId !== input.source.authority.authorityId ||
+      requirement.walletKeyId !== signer.walletKeyId ||
+      requirement.keyFamily !== signer.keyFamily ||
+      request.walletKeyId !== signer.walletKeyId ||
+      request.keyFamily !== signer.keyFamily
+    ) {
+      throw new Error(`linked-device source preparation ${index} identity differs from the manifest`);
+    }
+    const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints.find(
+      (candidate) => candidate.walletKey.walletKeyId === signer.walletKeyId,
+    );
+    if (!sourceLaneHint) {
+      throw new Error(`linked-device source preparation ${index} has no approved source lane`);
+    }
+    if ('kind' in preparation) {
+      if (
+        signer.keyFamily !== 'ed25519' ||
+        preparation.walletKeyId !== signer.walletKeyId ||
+        String(preparation.targetDeviceId) !== String(input.registration.deviceId) ||
+        preparation.targetFactorVerificationDigestB64u !== input.targetFactor.verificationDigestB64u ||
+        preparation.sourceRegisteredPublicKeyB64u !== signer.registeredPublicKeyB64u ||
+        !mpcMaterialActivationRefsEqual(
+          routerAbMpcMaterialActivationRefFromWire(preparation.sourceBinding.material_activation),
+          sourceLaneHint.materialActivation,
+        ) ||
+        !mpcMaterialActivationRefsEqual(
+          routerAbMpcMaterialActivationRefFromWire(preparation.targetRequest.binding.material_activation),
+          preparation.targetMaterialActivation,
+        ) ||
+        preparation.targetClientRecipientPublicKeyB64u !==
+          ('recipientPublicKeyB64u' in request ? request.recipientPublicKeyB64u : '')
+      ) {
+        throw new Error(`linked-device Ed25519 source preparation ${index} differs from its inputs`);
+      }
+      continue;
+    }
+    if (
+      signer.keyFamily !== 'ecdsa_secp256k1' ||
+      String(preparation.target.targetDeviceId) !== String(input.registration.deviceId) ||
+      preparation.target.targetFactorVerificationDigestB64u !== input.targetFactor.verificationDigestB64u ||
+      preparation.source.thresholdPublicKey33B64u !== signer.thresholdPublicKey33B64u ||
+      !mpcMaterialActivationRefsEqual(preparation.source.activation, sourceLaneHint.materialActivation) ||
+      preparation.target.clientRecipientPublicKeyB64u !==
+        ('clientEphemeralPublicKey' in request ? request.clientEphemeralPublicKey : '')
+    ) {
+      throw new Error(`linked-device ECDSA source preparation ${index} differs from its inputs`);
     }
   }
 }

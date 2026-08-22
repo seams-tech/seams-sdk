@@ -24,9 +24,11 @@ import {
   type LinkedDeviceEd25519ExportRootPackageV1,
 } from './ed25519ExportRoot';
 import {
-  parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
-  type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
-} from '../utils/routerAbEcdsaDerivation';
+  parseLinkedDeviceEcdsaEncryptedSourceContributionV1,
+  parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+  type LinkedDeviceEcdsaEncryptedSourceContributionV1,
+  type LinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+} from './sourceContribution';
 import {
   parseRouterAbEd25519YaoEncryptedPackageV1,
   parseRouterAbEd25519YaoActivationPublicReceiptV1,
@@ -52,8 +54,8 @@ export type CommittedEd25519SignerPackageV1 = {
 export type CommittedEcdsaSignerPackageV1 = {
   readonly kind: 'committed_ecdsa_signer_package_v1';
   readonly materialActivation: MpcMaterialActivationRef;
-  readonly deriver_a_client_package: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
-  readonly deriver_b_client_package: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
+  readonly encryptedTargetClientShare: LinkedDeviceEcdsaEncryptedSourceContributionV1;
+  readonly activationReceipt: LinkedDeviceEcdsaSourcePreservingActivationReceiptV1;
 };
 
 export type CommittedSignerPackageSetV1 =
@@ -326,25 +328,35 @@ function parseEd25519Package(raw: unknown): CommittedEd25519SignerPackageV1 {
 function parseEcdsaPackage(raw: unknown): CommittedEcdsaSignerPackageV1 {
   const record = exactRecord(
     raw,
-    ['kind', 'materialActivation', 'deriver_a_client_package', 'deriver_b_client_package'],
+    ['kind', 'materialActivation', 'encryptedTargetClientShare', 'activationReceipt'],
     'CommittedEcdsaSignerPackageV1',
   );
   if (record.kind !== 'committed_ecdsa_signer_package_v1') {
     throw new Error('CommittedEcdsaSignerPackageV1.kind is invalid');
   }
+  const materialActivation = parseActivation(record.materialActivation, 'materialActivation');
+  const activationReceipt = parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1(
+    record.activationReceipt,
+  );
+  const targetActivation = activationReceipt.binding.target.activation;
+  if (!mpcMaterialActivationRefsEqual(materialActivation, targetActivation)) {
+    throw new Error('CommittedEcdsaSignerPackageV1 receipt activation does not match material');
+  }
+  const encryptedTargetClientShare = parseLinkedDeviceEcdsaEncryptedSourceContributionV1(
+    record.encryptedTargetClientShare,
+    'encryptedTargetClientShare',
+  );
+  if (
+    encryptedTargetClientShare.recipientPublicKeyB64u !==
+      activationReceipt.binding.target.clientRecipientPublicKeyB64u
+  ) {
+    throw new Error('CommittedEcdsaSignerPackageV1 client share recipient does not match receipt');
+  }
   return {
     kind: 'committed_ecdsa_signer_package_v1',
-    materialActivation: parseActivation(record.materialActivation, 'materialActivation'),
-    deriver_a_client_package: parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1(
-      record.deriver_a_client_package,
-      'deriver_a_client_package',
-      'signer_a',
-    ),
-    deriver_b_client_package: parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1(
-      record.deriver_b_client_package,
-      'deriver_b_client_package',
-      'signer_b',
-    ),
+    materialActivation,
+    encryptedTargetClientShare,
+    activationReceipt,
   };
 }
 

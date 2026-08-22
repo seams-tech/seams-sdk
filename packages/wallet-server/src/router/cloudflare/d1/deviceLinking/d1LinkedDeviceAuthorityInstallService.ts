@@ -72,12 +72,13 @@ import {
   type OrdinaryEcdsaSignerMaterialReservationV1,
   type OrdinaryEd25519SignerMaterialReservationV1,
 } from '../../../../core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
-import { parseRouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  parseRouterAbEd25519YaoParticipantIdsV1,
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
-} from '@shared/utils/routerAbEd25519Yao';
+  parseLinkedDeviceEcdsaSourceContributionPackageV1,
+  parseLinkedDeviceEcdsaSourceDerivationV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
+} from '@shared/device-linking/sourceContribution';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import { d1ChangedRows, formatD1ExecStatement, parseD1JsonColumn } from '../../../../storage/d1Sql';
 import {
   D1WalletAuthorityStore,
@@ -321,13 +322,19 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     try {
       await this.ensureSchema();
       const nowMs = requireTime(input.nowMs, 'nowMs');
-      await validateVerifiedLinkInput(input, nowMs, this.options.authMethodStore);
-      const existing = await this.readInstallation(input.linkSessionId);
       const session = await this.options.sessionService.getSessionV1({
         linkSessionId: input.linkSessionId,
         nowMs,
       });
       if (!session) return { kind: 'conflict', message: 'linked-device session was not found' };
+      const sourceContributionPreparation = requireSourceContributionPreparations(session);
+      await validateVerifiedLinkInput(
+        input,
+        nowMs,
+        this.options.authMethodStore,
+        sourceContributionPreparation,
+      );
+      const existing = await this.readInstallation(input.linkSessionId);
       const allocation = await this.prepareAuthorityAllocation(input, existing);
       const expectedAuthorityId = allocation.authorityId;
       if (existing) {
@@ -342,10 +349,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         return {
           kind: 'replayed',
           packages: existing.packages,
-          ordinarySignerMaterialPreparations: sharedPreparationsFromStoredReservations(
-            input.signerManifest,
-            existing.serverReservationIds,
-          ),
+          ordinarySignerMaterialPreparations: sourceContributionPreparation,
           session,
         };
       }
@@ -354,7 +358,11 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       }
 
       const authorityId = expectedAuthorityId;
-      const reservations = await this.reserveSignerMaterial(input, authorityId);
+      const reservations = await this.reserveSignerMaterial(
+        input,
+        authorityId,
+        sourceContributionPreparation,
+      );
       const activationSet = buildActivationSet(input.signerManifest, reservations);
       const pendingAuthMethod = buildPendingAuthMethod(input, authorityId, nowMs);
       const sourceManifestDigestB64u = await digestJson(input.signerManifest);
@@ -426,10 +434,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
             return {
               kind: 'replayed',
               packages: replay.packages,
-              ordinarySignerMaterialPreparations: sharedPreparationsFromStoredReservations(
-                input.signerManifest,
-                replay.serverReservationIds,
-              ),
+              ordinarySignerMaterialPreparations: sourceContributionPreparation,
               session: replaySession,
             };
           }
@@ -448,10 +453,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         return {
           kind: 'replayed',
           packages: replay.packages,
-          ordinarySignerMaterialPreparations: sharedPreparationsFromStoredReservations(
-            input.signerManifest,
-            replay.serverReservationIds,
-          ),
+          ordinarySignerMaterialPreparations: sourceContributionPreparation,
           session: replaySession,
         };
       }
@@ -652,7 +654,14 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     }
   }
 
-  private async reserveSignerMaterial(input: VerifiedLinkInputV1, authorityId: WalletAuthorityId): Promise<{
+  private async reserveSignerMaterial(
+    input: VerifiedLinkInputV1,
+    authorityId: WalletAuthorityId,
+    sourceContributionPreparation: readonly [
+      SharedOrdinarySignerMaterialReservationPreparationV1,
+      ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+    ],
+  ): Promise<{
     readonly packages: CommittedSignerPackageSetV1;
     readonly serverReservationIds: Readonly<{
       readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
@@ -671,12 +680,12 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     for (const signer of input.signerManifest.signers) {
       const recipientRequest = recipientRequestForSigner(input, signer);
       const sourceContribution = sourceContributionForSigner(input, signer);
-      const sourceMaterialActivation = sourceMaterialActivationForSigner(input, signer);
-      const plannedActivationRef = this.options.materialPlanner.planOrdinaryMaterialActivationRefV1({
-        authorityId,
-        linkSessionId: input.linkSessionId,
+      const prepared = sourceContributionPreparationForSigner(
+        sourceContributionPreparation,
         signer,
-      });
+      );
+      const targetMaterialActivation = targetMaterialActivationForPreparation(prepared);
+      const sourceMaterialActivation = sourceMaterialActivationForSigner(input, signer);
       assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1({
         contribution: sourceContribution,
         linkSessionId: input.linkSessionId,
@@ -686,7 +695,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         targetDeviceId: input.targetDeviceId,
         targetFactorVerificationDigestB64u: input.targetFactor.verificationDigestB64u,
         sourceMaterialActivation,
-        targetMaterialActivation: plannedActivationRef,
+        targetMaterialActivation,
         sourceSigner:
           signer.keyFamily === 'ed25519'
             ? {
@@ -713,16 +722,14 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         }
         const workerPreparation = preparation.preparation;
         assertPreparationActivationMatches(
-          plannedActivationRef,
-          routerAbMpcMaterialActivationRefFromWire(
-            workerPreparation.activationRequest.binding.material_activation,
-          ),
+          targetMaterialActivation,
+          workerPreparation.sourceContribution.targetMaterialActivation,
         );
         const reservation = await this.options.reservationService.reserveOrdinaryInactiveSignerMaterialV1({
           kind: 'ordinary_ed25519_signer_material_reservation_request_v1',
           keyFamily: 'ed25519',
           signer,
-          plannedActivationRef,
+          plannedActivationRef: targetMaterialActivation,
           preparation: workerPreparation,
         });
         if (reservation.keyFamily !== 'ed25519') {
@@ -736,12 +743,15 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         throw new Error('ordinary material reservation preparation family does not match signer');
       }
       const workerPreparation = preparation.preparation;
-      assertPreparationActivationMatches(plannedActivationRef, workerPreparation.materialActivation);
+      assertPreparationActivationMatches(
+        targetMaterialActivation,
+        workerPreparation.sourceContribution.binding.target.activation,
+      );
       const reservation = await this.options.reservationService.reserveOrdinaryInactiveSignerMaterialV1({
         kind: 'ordinary_ecdsa_signer_material_reservation_request_v1',
         keyFamily: 'ecdsa_secp256k1',
         signer,
-        plannedActivationRef,
+        plannedActivationRef: targetMaterialActivation,
         preparation: workerPreparation,
       });
       if (reservation.keyFamily !== 'ecdsa_secp256k1') {
@@ -762,10 +772,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           ed25519: committedEd25519Package(ed25519),
           ecdsa: committedEcdsaPackage(ecdsa),
         },
-        ordinarySignerMaterialPreparations: [
-          sharedEd25519Preparation(ed25519Preparation),
-          sharedEcdsaPreparation(ecdsaPreparation),
-        ],
+        ordinarySignerMaterialPreparations: sourceContributionPreparation,
         serverReservationIds: {
           ed25519: {
             reservationId: ed25519.serverMaterial.reservationId,
@@ -786,7 +793,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           keyFamilies: ['ed25519'],
           ed25519: committedEd25519Package(ed25519),
         },
-        ordinarySignerMaterialPreparations: [sharedEd25519Preparation(ed25519Preparation)],
+        ordinarySignerMaterialPreparations: sourceContributionPreparation,
         serverReservationIds: {
           ed25519: {
             reservationId: ed25519.serverMaterial.reservationId,
@@ -803,7 +810,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         keyFamilies: ['ecdsa_secp256k1'],
         ecdsa: committedEcdsaPackage(ecdsa),
       },
-      ordinarySignerMaterialPreparations: [sharedEcdsaPreparation(ecdsaPreparation)],
+      ordinarySignerMaterialPreparations: sourceContributionPreparation,
       serverReservationIds: {
         ecdsa_secp256k1: {
           reservationId: ecdsa.serverMaterial.reservationId,
@@ -1113,61 +1120,38 @@ function sourceMaterialActivationForSigner(
   return activation;
 }
 
-function sharedEd25519Preparation(
-  preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1,
-): Extract<
-  SharedOrdinarySignerMaterialReservationPreparationV1,
-  { readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1' }
-> {
-  return {
-    kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
-    activationRequest: preparation.activationRequest,
-    participantIds: preparation.participantIds,
-  };
+function sourceContributionPreparationForSigner(
+  preparations: readonly [
+    SharedOrdinarySignerMaterialReservationPreparationV1,
+    ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+  ],
+  signer: ExactSigner,
+): SharedOrdinarySignerMaterialReservationPreparationV1 {
+  const preparation = preparations.find((candidate) =>
+    signer.keyFamily === 'ed25519' ? 'kind' in candidate : !('kind' in candidate),
+  );
+  if (!preparation) {
+    throw new Error(`source contribution preparation for ${signer.keyFamily} is missing`);
+  }
+  return preparation;
 }
 
-function sharedEcdsaPreparation(
-  preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1,
-): Extract<
-  SharedOrdinarySignerMaterialReservationPreparationV1,
-  { readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1' }
-> {
-  return {
-    kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
-    registrationRequest: preparation.registrationRequest,
-    materialActivation: preparation.materialActivation,
-  };
-}
-
-function sharedPreparationsFromStoredReservations(
-  manifest: VerifiedLinkInputV1['signerManifest'],
-  reservations: Readonly<{
-    readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
-    readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
-  }>,
-): readonly [
-  SharedOrdinarySignerMaterialReservationPreparationV1,
-  ...SharedOrdinarySignerMaterialReservationPreparationV1[],
-] {
-  const preparations = manifest.signers.map((signer) => {
-    if (signer.keyFamily === 'ed25519') {
-      const reservation = reservations.ed25519;
-      if (!reservation) throw new Error('stored Ed25519 reservation preparation is missing');
-      return sharedEd25519Preparation(reservation.preparation);
-    }
-    const reservation = reservations.ecdsa_secp256k1;
-    if (!reservation) throw new Error('stored ECDSA reservation preparation is missing');
-    return sharedEcdsaPreparation(reservation.preparation);
-  });
-  const [first, ...rest] = preparations;
-  if (!first) throw new Error('stored signer reservations are empty');
-  return [first, ...rest];
+function targetMaterialActivationForPreparation(
+  preparation: SharedOrdinarySignerMaterialReservationPreparationV1,
+): MpcMaterialActivationRef {
+  return 'kind' in preparation
+    ? preparation.targetMaterialActivation
+    : preparation.target.activation;
 }
 
 async function validateVerifiedLinkInput(
   input: VerifiedLinkInputV1,
   nowMs: number,
   authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'>,
+  sourceContributionPreparation: readonly [
+    SharedOrdinarySignerMaterialReservationPreparationV1,
+    ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+  ],
 ): Promise<void> {
   if (input.sourceAuthority.authority.state !== 'active') throw new Error('source authority must be active');
   if (input.sourceAuthority.authority.walletId !== input.walletId) throw new Error('source authority wallet does not match link wallet');
@@ -1193,6 +1177,117 @@ async function validateVerifiedLinkInput(
   if (!attenuation.ok) throw new Error(attenuation.error.message);
   if (!input.sourceAuthority.authority.permissions.includes('link_devices')) throw new Error('source authority cannot link devices');
   if (!Number.isSafeInteger(input.sourceAuthority.authority.revocationEpoch) || input.sourceAuthority.authority.revocationEpoch < 0) throw new Error('source authority revocation epoch is invalid');
+  assertSourceContributionPreparationsMatchInputV1(input, sourceContributionPreparation);
+}
+
+function requireSourceContributionPreparations(
+  session: LinkedDeviceSessionRecordV1,
+): readonly [
+  SharedOrdinarySignerMaterialReservationPreparationV1,
+  ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+] {
+  const preparations = session.sourceContributionPreparation;
+  if (!preparations) {
+    throw new Error('linked-device source contribution preparations are missing from the session');
+  }
+  return preparations;
+}
+
+function assertSourceContributionPreparationsMatchInputV1(
+  input: VerifiedLinkInputV1,
+  preparations: readonly [
+    SharedOrdinarySignerMaterialReservationPreparationV1,
+    ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+  ],
+): void {
+  if (
+    input.sourceContribution.length !== input.signerManifest.signers.length ||
+    preparations.length !== input.signerManifest.signers.length ||
+    input.ordinarySignerMaterialRecipientRequests.length !== input.signerManifest.signers.length
+  ) {
+    throw new Error('linked-device source contributions do not match the signer manifest');
+  }
+  for (let index = 0; index < input.signerManifest.signers.length; index += 1) {
+    const signer = input.signerManifest.signers[index];
+    const contribution = input.sourceContribution[index];
+    const preparation = preparations[index];
+    const request = input.ordinarySignerMaterialRecipientRequests[index];
+    if (!signer || !contribution || !preparation || !request) {
+      throw new Error(`linked-device source contribution ${index} is incomplete`);
+    }
+    if (
+      signer.keyFamily !== contribution.keyFamily ||
+      signer.keyFamily !== request.keyFamily ||
+      signer.walletKeyId !== request.walletKeyId
+    ) {
+      throw new Error(`linked-device source contribution ${index} family differs from the manifest`);
+    }
+    const targetMaterialActivation = targetMaterialActivationForPreparation(preparation);
+    assertLinkedDeviceOrdinaryMaterialSourceContributionMatchesContextV1({
+      contribution,
+      linkSessionId: input.linkSessionId,
+      enrollmentId: input.enrollmentId,
+      sourceAuthorityId: input.sourceAuthority.authority.authorityId,
+      walletKeyId: signer.walletKeyId,
+      targetDeviceId: input.targetDeviceId,
+      targetFactorVerificationDigestB64u: input.targetFactor.verificationDigestB64u,
+      sourceMaterialActivation: sourceMaterialActivationForSigner(input, signer),
+      targetMaterialActivation,
+      sourceSigner:
+        signer.keyFamily === 'ed25519'
+          ? {
+              keyFamily: 'ed25519',
+              walletKeyId: signer.walletKeyId,
+              registeredPublicKeyB64u: signer.registeredPublicKeyB64u,
+            }
+          : {
+              keyFamily: 'ecdsa_secp256k1',
+              walletKeyId: signer.walletKeyId,
+              thresholdPublicKey33B64u: signer.thresholdPublicKey33B64u,
+            },
+    });
+    assertPreparationMatchesContributionV1(preparation, contribution, request);
+  }
+}
+
+function assertPreparationMatchesContributionV1(
+  preparation: SharedOrdinarySignerMaterialReservationPreparationV1,
+  contribution: LinkedDeviceOrdinaryMaterialSourceContributionV1,
+  request: OrdinarySignerMaterialRecipientRequestV1,
+): void {
+  if ('kind' in preparation) {
+    if (
+      contribution.keyFamily !== 'ed25519' ||
+      preparation.sourceRegisteredPublicKeyB64u !== contribution.sourceRegisteredPublicKeyB64u ||
+      !mpcMaterialActivationRefsEqual(
+        preparation.targetMaterialActivation,
+        contribution.targetMaterialActivation,
+      ) ||
+      preparation.targetClientRecipientPublicKeyB64u !== contribution.targetClientRecipientPublicKeyB64u ||
+      preparation.targetSigningWorkerRecipientPublicKeyB64u !==
+        contribution.targetSigningWorkerRecipientPublicKeyB64u ||
+      alphabetizeStringify(preparation.sourceBinding) !==
+        alphabetizeStringify(contribution.sourceBinding) ||
+      !('recipientPublicKeyB64u' in request) ||
+      request.recipientPublicKeyB64u !== preparation.targetClientRecipientPublicKeyB64u
+    ) {
+      throw new Error('Ed25519 source contribution differs from its persisted preparation');
+    }
+    return;
+  }
+  if (
+    contribution.keyFamily !== 'ecdsa_secp256k1' ||
+    !mpcMaterialActivationRefsEqual(preparation.source.activation, contribution.sourceSigner.activation) ||
+    !mpcMaterialActivationRefsEqual(preparation.target.activation, contribution.target.activation) ||
+    preparation.source.thresholdPublicKey33B64u !== contribution.sourceSigner.thresholdPublicKey33B64u ||
+    preparation.target.clientRecipientPublicKeyB64u !== contribution.target.clientRecipientPublicKeyB64u ||
+    preparation.target.signingWorkerRecipientPublicKeyB64u !==
+      contribution.target.signingWorkerRecipientPublicKeyB64u ||
+    !('clientEphemeralPublicKey' in request) ||
+    request.clientEphemeralPublicKey !== preparation.target.clientRecipientPublicKeyB64u
+  ) {
+    throw new Error('ECDSA source contribution differs from its persisted preparation');
+  }
 }
 
 function assertPreparationActivationMatches(
@@ -1334,8 +1429,8 @@ function committedEcdsaPackage(
   return {
     kind: 'committed_ecdsa_signer_package_v1',
     materialActivation: reservation.materialActivation,
-    deriver_a_client_package: reservation.clientMaterial.deriver_a_client_package,
-    deriver_b_client_package: reservation.clientMaterial.deriver_b_client_package,
+    encryptedTargetClientShare: reservation.clientMaterial.encryptedTargetClientShare,
+    activationReceipt: reservation.activationReceipt,
   };
 }
 
@@ -1498,22 +1593,28 @@ function parseEd25519ServerReservationRecord(raw: unknown): ServerReservationRec
   const preparationRecord = requireRecord(record.preparation, 'Ed25519 reservation preparation');
   requireExactKeys(
     preparationRecord,
-    ['kind', 'activationRequest', 'participantIds'],
+    ['kind', 'sourceContribution', 'targetRequest'],
     'Ed25519 reservation preparation',
   );
   if (preparationRecord.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
     throw new Error('Ed25519 reservation preparation kind is invalid');
   }
-  const parsedRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-    preparationRecord.activationRequest,
+  const sourceContribution = parseLinkedDeviceOrdinaryMaterialSourceContributionV1(
+    preparationRecord.sourceContribution,
   );
-  if (!parsedRequest.ok) throw new Error(`Ed25519 reservation activation request: ${parsedRequest.message}`);
+  if (sourceContribution.keyFamily !== 'ed25519') {
+    throw new Error('Ed25519 reservation source contribution family is invalid');
+  }
+  const targetRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+    preparationRecord.targetRequest,
+  );
+  if (!targetRequest.ok) throw new Error(`Ed25519 target request: ${targetRequest.message}`);
   return {
     reservationId: requireReservationId(record.reservationId, 'Ed25519 server reservation id'),
     preparation: {
       kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
-      activationRequest: parsedRequest.value,
-      participantIds: parseRouterAbEd25519YaoParticipantIdsV1(preparationRecord.participantIds),
+      sourceContribution,
+      targetRequest: targetRequest.value,
     },
   };
 }
@@ -1524,7 +1625,7 @@ function parseEcdsaServerReservationRecord(raw: unknown): ServerReservationRecor
   const preparationRecord = requireRecord(record.preparation, 'ECDSA reservation preparation');
   requireExactKeys(
     preparationRecord,
-    ['kind', 'registrationRequest', 'materialActivation'],
+    ['kind', 'sourceDerivation', 'sourceContribution'],
     'ECDSA reservation preparation',
   );
   if (preparationRecord.kind !== 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
@@ -1534,10 +1635,11 @@ function parseEcdsaServerReservationRecord(raw: unknown): ServerReservationRecor
     reservationId: requireReservationId(record.reservationId, 'ECDSA server reservation id'),
     preparation: {
       kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
-      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(preparationRecord.registrationRequest),
-      materialActivation: requireParsed(
-        parseMpcMaterialActivationRef(preparationRecord.materialActivation),
-        'ECDSA reservation material activation',
+      sourceDerivation: parseLinkedDeviceEcdsaSourceDerivationV1(
+        preparationRecord.sourceDerivation,
+      ),
+      sourceContribution: parseLinkedDeviceEcdsaSourceContributionPackageV1(
+        preparationRecord.sourceContribution,
       ),
     },
   };
