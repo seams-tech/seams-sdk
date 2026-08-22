@@ -20,6 +20,7 @@ import {
   parseWebAuthnRpId,
 } from './domainIds';
 import { base64UrlEncode } from './encoders';
+import { parseDigestB64u, type DigestB64u } from './canonicalPrimitives';
 import type { EmailOtpProvider } from './walletAuthAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from './webauthnDeviceInfo';
 import {
@@ -120,19 +121,38 @@ export type AddAuthMethodInput =
       authenticatorOptions?: never;
     };
 
-export type WalletAuthMethodTarget =
+export type WalletAuthMethodRevocationProof =
   | {
-      kind: 'passkey';
+      readonly kind: 'webauthn_assertion';
       rpId: WebAuthnRpId;
-      credentialIdB64u: string;
-      email?: never;
+      credential: unknown;
+      expectedChallengeDigestB64u: string;
     }
   | {
-      kind: 'email_otp';
-      email: string;
-      rpId?: never;
-      credentialIdB64u?: never;
+      readonly kind: 'email_otp';
+      readonly challengeId: string;
+      readonly otpCode: string;
+      readonly ownerProofBindingDigest: string;
     };
+
+export async function computeWalletAuthMethodRevokeOperationFingerprintV1(input: {
+  readonly walletId: WalletId;
+  readonly targetWalletAuthMethodId: WalletAuthMethodId;
+  readonly requestedAtMs: number;
+}): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        alphabetizeStringify({
+          version: 'wallet_auth_method_revoke_operation_v1',
+          walletId: String(input.walletId),
+          targetWalletAuthMethodId: String(input.targetWalletAuthMethodId),
+          requestedAtMs: input.requestedAtMs,
+        }),
+      ),
+    ),
+  );
+}
 
 export type RegistrationAuthority =
   | {
@@ -551,9 +571,7 @@ function validateWalletAuthMethodRecordV2(value: WalletAuthMethodRecordV2): void
   }
 }
 
-function parseWalletAuthMethodLifecycle(
-  raw: Record<string, unknown>,
-): WalletAuthMethodLifecycleV1 {
+function parseWalletAuthMethodLifecycle(raw: Record<string, unknown>): WalletAuthMethodLifecycleV1 {
   switch (raw.status) {
     case 'pending_local_install':
       return { status: 'pending_local_install' };
@@ -600,7 +618,8 @@ function exactWalletAuthMethodV2Fields(
   }
   const expected = new Set(fields);
   const actual = Object.keys(raw);
-  if (actual.length !== fields.length) throw new Error('wallet auth method record has invalid fields');
+  if (actual.length !== fields.length)
+    throw new Error('wallet auth method record has invalid fields');
   for (const field of actual) {
     if (!expected.has(field)) throw new Error(`wallet auth method field ${field} is invalid`);
   }
@@ -2063,38 +2082,6 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
       Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
       Object.prototype.hasOwnProperty.call(raw, 'challengeId') ||
       Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')
-    ) {
-      return null;
-    }
-    return {
-      kind: 'email_otp',
-      email,
-    };
-  }
-  return null;
-}
-
-export function normalizeWalletAuthMethodTarget(raw: unknown): WalletAuthMethodTarget | null {
-  if (!isRecord(raw)) return null;
-  const kind = trimString(raw.kind);
-  if (kind === 'passkey') {
-    const rpId = parseWebAuthnRpId(raw.rpId);
-    const credentialIdB64u = trimString(raw.credentialIdB64u);
-    if (!rpId.ok || !credentialIdB64u || Object.prototype.hasOwnProperty.call(raw, 'email')) {
-      return null;
-    }
-    return {
-      kind: 'passkey',
-      rpId: rpId.value,
-      credentialIdB64u,
-    };
-  }
-  if (kind === 'email_otp') {
-    const email = trimString(raw.email).toLowerCase();
-    if (
-      !email ||
-      Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
-      Object.prototype.hasOwnProperty.call(raw, 'credentialIdB64u')
     ) {
       return null;
     }

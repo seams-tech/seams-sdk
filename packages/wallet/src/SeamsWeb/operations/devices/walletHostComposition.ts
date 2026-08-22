@@ -86,7 +86,7 @@ function createWalletHostLinkedDeviceManagementPortV1(args: {
       assertManagementSuccess(response, 'list linked devices');
       return parseLinkedDeviceListResultV1(stripOkField(response.body));
     },
-    revokeLinkedDevice: async ({ walletId, walletAuthMethodId, requestedAtMs }) => {
+    revokeLinkedDevice: async ({ walletId, walletAuthMethodId, requestedAtMs, sourceProof }) => {
       const request = parseLinkedDeviceRevokeRequestV1({
         kind: 'linked_device_revoke_request_v1',
         walletId,
@@ -98,7 +98,7 @@ function createWalletHostLinkedDeviceManagementPortV1(args: {
         canonicalPath: `${LINKED_DEVICE_MANAGEMENT_HTTP_BASE_PATH_V1}/${encodeURIComponent(
           String(walletAuthMethodId),
         )}/revoke`,
-        body: request,
+        body: { ...request, sourceProof },
         walletId,
       });
       return parseManagementRevokeResult(response);
@@ -141,7 +141,8 @@ function managementFailureDetail(raw: unknown): string | null {
 
 function stripOkField(raw: unknown): unknown {
   if (!isRecord(raw)) return raw;
-  const { ok: _ok, ...withoutOk } = raw;
+  const withoutOk = { ...raw };
+  delete withoutOk.ok;
   return withoutOk;
 }
 

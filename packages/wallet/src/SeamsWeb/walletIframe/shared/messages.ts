@@ -24,6 +24,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletCustodyAdminOperation } from '@shared/authorization/walletCustodyOperation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
@@ -52,6 +53,7 @@ import type {
   RegisterWalletInput,
   RegistrationSignerSetSelection,
   WalletId,
+  WalletAuthMethodRevocationProof,
 } from '@shared/utils/registrationIntent';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { PMUnlockPayload } from '@/core/types/login.types';
@@ -1278,6 +1280,7 @@ export interface PMEmailOtpChallengePayload {
   walletId: string;
   relayUrl?: string;
   operation?: WalletEmailOtpLoginOperation;
+  operationFingerprintDigest?: DigestB64u;
 }
 
 export interface PMEmailOtpSigningSessionChallengePayload {
@@ -1359,6 +1362,7 @@ export interface PMRevokeLinkedDevicePayload {
   walletId: string;
   walletAuthMethodId: string;
   requestedAtMs: number;
+  sourceProof: WalletAuthMethodRevocationProof;
 }
 
 export type DeviceLinkTargetFactorActivationProgressV1 =

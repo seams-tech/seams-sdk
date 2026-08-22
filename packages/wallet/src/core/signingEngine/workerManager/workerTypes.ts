@@ -46,6 +46,7 @@ import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type {
@@ -626,6 +627,7 @@ export interface EmailOtpWorkerOperationMap {
       walletId: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
+      operationFingerprintDigest?: DigestB64u;
     };
     result: {
       challengeId: string;
@@ -633,6 +635,7 @@ export interface EmailOtpWorkerOperationMap {
       delivery: EmailOtpChallengeDelivery;
       emailHint?: string;
       expiresAtMs?: number;
+      ownerProofBindingDigest: string;
     };
   };
   requestEmailOtpEnrollmentChallenge: {

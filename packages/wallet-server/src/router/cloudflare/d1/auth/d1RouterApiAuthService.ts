@@ -21,7 +21,10 @@ import {
   parseWalletAuthorityId,
 } from '@shared/utils/domainIds';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
-import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import {
+  computeWalletAuthMethodRevokeOperationFingerprintV1,
+  parseNearEd25519SigningKeyId,
+} from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
@@ -59,9 +62,7 @@ import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from '../../../../core/types';
-import type {
-  RouterApiServiceBag,
-} from '../../../framework/authServicePort';
+import type { RouterApiServiceBag } from '../../../framework/authServicePort';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
@@ -140,17 +141,12 @@ import {
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
-import {
-  D1LinkedDeviceEmailOtpGrantStoreV1,
-} from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
+import { D1LinkedDeviceEmailOtpGrantStoreV1 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
 import { D1LinkedDeviceAuthorityInstallServiceV1 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import { createD1LinkedDeviceSessionServiceV1 } from '../deviceLinking/d1LinkedDeviceSessionService';
 import { createD1LinkedDeviceManagementServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementService';
 import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
-import {
-  computeWalletAuthMethodRevokeOperationFingerprintV1,
-  verifyD1LinkedDeviceFreshRevokeProofV1,
-} from '../wallet/d1WalletAuthMethodBoundary';
+import { verifyD1LinkedDeviceFreshRevokeProofV1 } from '../wallet/d1WalletAuthMethodBoundary';
 import { createD1LinkedDeviceVerifiedLinkSourceReaderV1 } from '../deviceLinking/d1LinkedDeviceVerifiedLinkSourceReader';
 import {
   createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1,
@@ -294,9 +290,7 @@ type D1RouterAccountRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembl
 
 type D1LinkedDeviceCompositionAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  | 'deviceLinking'
-  | 'deviceManagement'
-  | 'deviceLinkingOwnerAuthorization'
+  'deviceLinking' | 'deviceManagement' | 'deviceLinkingOwnerAuthorization'
 >;
 
 function createD1LinkedDeviceComposition(input: {
@@ -370,7 +364,8 @@ function createD1LinkedDeviceComposition(input: {
       nowV1,
     });
     const tenantId = parseTenantId(input.options.orgId);
-    if (!tenantId.ok) throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
+    if (!tenantId.ok)
+      throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
     const authorityStore = new D1WalletAuthorityStore({
       database: input.options.database,
       scope,
@@ -406,12 +401,11 @@ function createD1LinkedDeviceComposition(input: {
           proof: proofInput.proof,
           expectedOrigin,
           verifiedAtMs: proofInput.requestedAtMs,
-          operationFingerprintDigest:
-            await computeWalletAuthMethodRevokeOperationFingerprintV1({
-              walletId: proofInput.walletId,
-              targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
-              requestedAtMs: proofInput.requestedAtMs,
-            }),
+          operationFingerprintDigest: await computeWalletAuthMethodRevokeOperationFingerprintV1({
+            walletId: proofInput.walletId,
+            targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
+            requestedAtMs: proofInput.requestedAtMs,
+          }),
           walletAuthMethodStore: input.walletAuthMethodStore,
           verifyWebAuthnAuthenticationLite: async (verifyInput) => {
             const credential = parseWebAuthnAuthenticationCredential(
@@ -433,14 +427,12 @@ function createD1LinkedDeviceComposition(input: {
           ...(input.emailOtpLinkedDevice === undefined
             ? {}
             : {
-                verifyEmailOtpExisting:
-                  input.emailOtpLinkedDevice.verifier.verifyExisting.bind(
-                    input.emailOtpLinkedDevice.verifier,
-                  ),
-                readEmailOtpEnrollment:
-                  input.emailOtpLinkedDevice.enrollments.readEnrollment.bind(
-                    input.emailOtpLinkedDevice.enrollments,
-                  ),
+                verifyEmailOtpExisting: input.emailOtpLinkedDevice.verifier.verifyExisting.bind(
+                  input.emailOtpLinkedDevice.verifier,
+                ),
+                readEmailOtpEnrollment: input.emailOtpLinkedDevice.enrollments.readEnrollment.bind(
+                  input.emailOtpLinkedDevice.enrollments,
+                ),
                 resolveEmailOtpAuthority: input.resolveEmailOtpAuthority,
               }),
         });
@@ -465,7 +457,8 @@ function createD1LinkedDeviceComposition(input: {
         endpoint: config.session.authorityInstallation.reservationEndpoint,
       }),
       materialPlanner: config.session.authorityInstallation.materialPlanner,
-      reservationPreparationPlanner: config.session.authorityInstallation.reservationPreparationPlanner,
+      reservationPreparationPlanner:
+        config.session.authorityInstallation.reservationPreparationPlanner,
       materialActivation: createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1({
         endpoint: config.session.authorityInstallation.activationEndpoint,
       }),
@@ -480,14 +473,12 @@ function createD1LinkedDeviceComposition(input: {
           ...verifiedLinkInput,
           nowMs,
         }),
-      readCommittedAuthorityPackagesV1: authorityInstall.readCommittedAuthorityPackagesV1.bind(
-        authorityInstall,
-      ),
+      readCommittedAuthorityPackagesV1:
+        authorityInstall.readCommittedAuthorityPackagesV1.bind(authorityInstall),
       activateInstalledAuthorityV1: async ({ receipt, requestedAtMs }) =>
         await authorityInstall.activateInstalledAuthorityV1({ receipt, nowMs: requestedAtMs }),
-      acknowledgeLocalAuthorityActivationV1: authorityInstall.acknowledgeLocalAuthorityActivationV1.bind(
-        authorityInstall,
-      ),
+      acknowledgeLocalAuthorityActivationV1:
+        authorityInstall.acknowledgeLocalAuthorityActivationV1.bind(authorityInstall),
     };
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
@@ -1617,9 +1608,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletAuthorityStore,
     orgId: options.orgId,
     verifyWebAuthnAuthenticationLite: async (verifyInput) => {
-      const credential = parseWebAuthnAuthenticationCredential(
-        verifyInput.webauthn_authentication,
-      );
+      const credential = parseWebAuthnAuthenticationCredential(verifyInput.webauthn_authentication);
       if (!credential) {
         return {
           success: false,
@@ -1724,9 +1713,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     authorizationService,
     authorizationStore,
     walletAuthMethodStore,
-    resolveEmailOtpAuthority: walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(
-      walletAuthMethods,
-    ),
+    resolveEmailOtpAuthority:
+      walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(walletAuthMethods),
     webAuthnStore,
     webAuthnAuthService,
     authorizationSessions: createD1AuthorizationSessionRouteService({
@@ -1883,9 +1871,7 @@ function createD1WalletAuthMethodRouteService(
 ): RouterApiServiceBag['walletAuthMethods'] {
   return {
     verifyWalletAuthMethodRevokeProof:
-      assembly.walletAuthMethods.verifyWalletAuthMethodRevokeProof.bind(
-        assembly.walletAuthMethods,
-      ),
+      assembly.walletAuthMethods.verifyWalletAuthMethodRevokeProof.bind(assembly.walletAuthMethods),
     verifyActivePasskeyAuthority: assembly.walletAuthMethods.verifyActivePasskeyAuthority.bind(
       assembly.walletAuthMethods,
     ),

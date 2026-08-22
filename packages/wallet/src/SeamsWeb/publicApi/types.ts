@@ -68,6 +68,8 @@ import type {
 import type { AwaitNearReadyResult } from '@/SeamsWeb/publicApi/awaitNearReady';
 export type { AwaitNearReadyResult } from '@/SeamsWeb/publicApi/awaitNearReady';
 import type { EmailOtpProvider } from '@shared/utils/walletAuthAuthority';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 import type {
   ConfirmationBehavior,
   ConfirmationConfig,
@@ -526,6 +528,10 @@ export type EmailOtpChallengeResult = {
   expiresAtMs?: number;
 };
 
+export type EmailOtpOperationChallengeResult = EmailOtpChallengeResult & {
+  ownerProofBindingDigest: string;
+};
+
 export type { EmailOtpEnrollmentResult };
 
 export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
@@ -757,8 +763,9 @@ export interface AuthCapability {
     walletId: string;
     relayUrl?: string;
     operation?: WalletEmailOtpLoginOperation;
+    operationFingerprintDigest?: DigestB64u;
     onEvent?: (event: UnlockFlowEvent) => void;
-  }): Promise<EmailOtpChallengeResult>;
+  }): Promise<EmailOtpOperationChallengeResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -1077,6 +1084,7 @@ export interface DevicesCapability {
     walletId: string;
     walletAuthMethodId: string;
     requestedAtMs: number;
+    sourceProof: WalletAuthMethodRevocationProof;
   }): Promise<LinkedDeviceRevokeResultV1>;
 }
 

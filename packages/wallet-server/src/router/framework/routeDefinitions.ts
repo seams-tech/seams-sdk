@@ -468,7 +468,11 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/:walletId/custody/credentials',
       'List wallet passkey credentials and descriptive activity history',
-      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale: 'Fresh operation-bound owner proof is required.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -476,7 +480,11 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/custody/email-otp/challenge',
       'Issue one operation-bound Email OTP challenge for wallet custody administration',
-      { plane: 'public', rationale: 'The challenge is bound to the exact operation and Origin; verification supplies the fresh factor proof.' },
+      {
+        plane: 'public',
+        rationale:
+          'The challenge is bound to the exact operation and Origin; verification supplies the fresh factor proof.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -484,7 +492,11 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/:walletId/custody/credentials/label',
       'Rename one wallet passkey credential without changing custody',
-      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale: 'Fresh operation-bound owner proof is required.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     apiCredentialRoute(
@@ -536,7 +548,11 @@ export function createRouterApiRouteDefinitions(
       'GET',
       '/wallets/:walletId/recovery/status',
       'Report how many recovery codes remain and whether the owner saved them',
-      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale: 'Fresh operation-bound owner proof is required.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -544,7 +560,11 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/recovery/rotate',
       'Replace a wallet recovery code set with freshly wrapped codes',
-      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale: 'Fresh operation-bound owner proof is required.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -552,7 +572,11 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/recovery/read',
       'Read the opaque wallet recovery envelope set for client-side rotation',
-      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale: 'Fresh operation-bound owner proof is required.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -560,7 +584,11 @@ export function createRouterApiRouteDefinitions(
       'POST',
       '/wallets/recovery/acknowledge-backup',
       'Record that the owner saved their recovery codes',
-      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale: 'Fresh operation-bound owner proof is required.',
+      },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -728,7 +756,7 @@ export function createRouterApiRouteDefinitions(
     publicRoute(
       'wallet_revoke_auth_method',
       'POST',
-      '/wallets/:walletId/auth-methods/revoke',
+      '/wallets/:walletId/auth-methods/:walletAuthMethodId/revoke',
       'Revoke an active wallet auth method',
       {
         plane: 'public',
@@ -970,7 +998,8 @@ export function createRouterApiRouteDefinitions(
       {
         plane: 'public',
         proof: 'challenge_exchange',
-        rationale: 'The server binds challenge delivery to the active wallet owner authority and request Origin.',
+        rationale:
+          'The server binds challenge delivery to the active wallet owner authority and request Origin.',
       },
       ROUTER_API_EMAIL_OTP_CHALLENGE_SERVICES,
     ),

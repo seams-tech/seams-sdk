@@ -1,6 +1,5 @@
 import {
   implicitNearAccountProvisioning,
-  normalizeWalletAuthMethodTarget,
   sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type AddAuthMethodIntentV1,
@@ -13,7 +12,7 @@ import {
   type RegistrationSignerSetSelection,
   type WalletAuthMethodRecord,
   type WalletAuthMethodRecordV2,
-  type WalletAuthMethodTarget,
+  type WalletAuthMethodRevocationProof,
 } from './registrationIntent';
 import {
   parseChallengeSubjectId,
@@ -495,15 +494,18 @@ const emailOtpAuthMethodWithRpId = {
 void emailOtpAuthMethodWithRpId;
 
 void ({
-  kind: 'passkey',
+  kind: 'webauthn_assertion',
   rpId: webAuthnRpId,
-  credentialIdB64u: 'credential',
-} satisfies WalletAuthMethodTarget);
+  credential: { id: 'credential' },
+  expectedChallengeDigestB64u: 'challenge-digest',
+} satisfies WalletAuthMethodRevocationProof);
 
 void ({
   kind: 'email_otp',
-  email: 'alice@example.test',
-} satisfies WalletAuthMethodTarget);
+  challengeId: 'challenge-id',
+  otpCode: '123456',
+  ownerProofBindingDigest: 'owner-proof-digest',
+} satisfies WalletAuthMethodRevocationProof);
 
 const pendingPasskeyMethodV2 = {
   version: 'wallet_auth_method_v2',
@@ -578,36 +580,5 @@ const emailOtpWithPasskeyFields: WalletAuthMethodRecordV2 = {
   rpId: webAuthnRpId,
 };
 void emailOtpWithPasskeyFields;
-
-// @ts-expect-error passkey revoke target cannot carry Email OTP fields.
-const passkeyTargetWithEmail: WalletAuthMethodTarget = {
-  kind: 'passkey',
-  rpId: webAuthnRpId,
-  credentialIdB64u: 'credential',
-  email: 'alice@example.test',
-};
-void passkeyTargetWithEmail;
-
-// @ts-expect-error Email OTP revoke target cannot carry passkey credential ids.
-const emailOtpTargetWithCredential: WalletAuthMethodTarget = {
-  kind: 'email_otp',
-  email: 'alice@example.test',
-  credentialIdB64u: 'credential',
-};
-void emailOtpTargetWithCredential;
-
-// @ts-expect-error Email OTP revoke target cannot carry passkey RP scope.
-const emailOtpTargetWithRpId: WalletAuthMethodTarget = {
-  kind: 'email_otp',
-  email: 'alice@example.test',
-  rpId: webAuthnRpId,
-};
-void emailOtpTargetWithRpId;
-
-void normalizeWalletAuthMethodTarget({
-  kind: 'passkey',
-  rpId: webAuthnRpId,
-  credentialIdB64u: 'credential',
-});
 
 export {};

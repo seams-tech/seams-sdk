@@ -65,6 +65,7 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
   walletAuthAuthoritiesMatch,
@@ -128,6 +129,7 @@ import type {
   AuthCapability,
   DevicesCapability,
   EmailOtpChallengeResult,
+  EmailOtpOperationChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
   EvmSignerCapability,
@@ -1739,8 +1741,9 @@ export class SeamsWeb {
     walletId: string;
     relayUrl?: string;
     operation?: WalletEmailOtpLoginOperation;
+    operationFingerprintDigest?: DigestB64u;
     onEvent?: (event: UnlockFlowEvent) => void;
-  }): Promise<EmailOtpChallengeResult> {
+  }): Promise<EmailOtpOperationChallengeResult> {
     const flowId = this.emailOtpUnlockFlowId(args.walletId);
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
@@ -1767,6 +1770,9 @@ export class SeamsWeb {
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
         ...(args.operation ? { operation: args.operation } : {}),
+        ...(args.operationFingerprintDigest
+          ? { operationFingerprintDigest: args.operationFingerprintDigest }
+          : {}),
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId: this.emailOtpUnlockFlowId(args.walletId, result.challengeId),

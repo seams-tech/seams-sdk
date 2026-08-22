@@ -236,6 +236,32 @@
   flex: 1 1 0;
 }
 
+.w3a-linked-devices-modal-otp-form {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.w3a-linked-devices-modal-otp-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.6rem;
+  background: var(--w3a-colors-colorBackground);
+  color: var(--w3a-colors-textPrimary);
+  font: inherit;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.w3a-linked-devices-modal-otp-input:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 2px;
+}
+
 .w3a-linked-devices-modal-secondary,
 .w3a-linked-devices-modal-danger {
   justify-self: start;
@@ -270,6 +296,11 @@
 }
 
 .w3a-linked-devices-modal-secondary:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.w3a-linked-devices-modal-danger:disabled {
   cursor: default;
   opacity: 0.6;
 }

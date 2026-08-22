@@ -218,6 +218,7 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
         walletId: String(request.walletId),
         walletAuthMethodId: String(request.walletAuthMethodId),
         requestedAtMs: request.requestedAtMs,
+        sourceProof: payload.sourceProof,
       });
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, parseLinkedDeviceRevokeResultV1(result));

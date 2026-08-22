@@ -58,6 +58,7 @@ import {
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { OnEventsProgressBus } from './progress/on-events-progress-bus';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   ActionHooksOptions,
   AfterCall,
@@ -159,6 +160,7 @@ import type {
 import type {
   BootstrapThresholdEcdsaSessionArgs,
   EmailOtpChallengeResult,
+  EmailOtpOperationChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEnrollmentResult,
@@ -176,7 +178,6 @@ import type {
   WalletRecoveryCodeStatusResult,
   WalletCustodyEmailOtpChallengeResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
-import type { WalletRevokeAuthMethodResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   buildHostedAuthMenuCancelPayload,
   parseHostedAuthMenuOpenRequest,
@@ -254,6 +255,7 @@ import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import {
   walletIdFromString,
   type RegistrationAuthMethodInput,
+  type WalletAuthMethodRevocationProof,
 } from '@shared/utils/registrationIntent';
 import {
   requireOpaqueWalletSessionToken,
@@ -2701,10 +2703,11 @@ export class WalletIframeRouter {
     walletId: string;
     relayUrl?: string;
     operation?: WalletEmailOtpLoginOperation;
+    operationFingerprintDigest?: DigestB64u;
     onEvent?: (ev: UnlockFlowEvent) => void;
-  }): Promise<EmailOtpChallengeResult> {
+  }): Promise<EmailOtpOperationChallengeResult> {
     const { onEvent, ...wirePayload } = payload;
-    const res = await this.post<EmailOtpChallengeResult>({
+    const res = await this.post<EmailOtpOperationChallengeResult>({
       type: 'PM_REQUEST_EMAIL_OTP_CHALLENGE',
       payload: wirePayload,
       options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
@@ -3580,6 +3583,7 @@ export class WalletIframeRouter {
     walletId: string;
     walletAuthMethodId: string;
     requestedAtMs: number;
+    sourceProof: WalletAuthMethodRevocationProof;
   }): Promise<LinkedDeviceRevokeResultV1> {
     const request = parseLinkedDeviceRevokeRequestV1({
       kind: 'linked_device_revoke_request_v1',
@@ -3593,6 +3597,7 @@ export class WalletIframeRouter {
         walletId: String(request.walletId),
         walletAuthMethodId: String(request.walletAuthMethodId),
         requestedAtMs: request.requestedAtMs,
+        sourceProof: payload.sourceProof,
       },
     });
     return parseLinkedDeviceRevokeResultV1(res.result);

@@ -9,6 +9,7 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import type { LinkedDeviceListResultV1, LinkedDeviceRevokeResultV1 } from '@shared/device-linking';
+import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 import {
   parseLinkedDeviceListRequestV1,
   parseLinkedDeviceListResultV1,
@@ -42,6 +43,7 @@ export type LinkedDeviceManagementPortV1 = {
     readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly requestedAtMs: number;
+    readonly sourceProof: WalletAuthMethodRevocationProof;
   }): Promise<LinkedDeviceRevokeResultV1>;
 };
 
@@ -64,12 +66,13 @@ export function createWalletIframeLinkedDeviceManagementPortV1(deps: {
       const router = await deps.walletIframe.requireRouter(walletId);
       return await router.listLinkedDevices({ walletId: String(walletId), limit, cursor });
     },
-    revokeLinkedDevice: async ({ walletId, walletAuthMethodId, requestedAtMs }) => {
+    revokeLinkedDevice: async ({ walletId, walletAuthMethodId, requestedAtMs, sourceProof }) => {
       const router = await deps.walletIframe.requireRouter(walletId);
       return await router.revokeLinkedDevice({
         walletId: String(walletId),
         walletAuthMethodId: String(walletAuthMethodId),
         requestedAtMs,
+        sourceProof,
       });
     },
   };
@@ -123,6 +126,7 @@ export function createDevicesCapability(deps: {
         walletId: request.walletId,
         walletAuthMethodId: request.walletAuthMethodId,
         requestedAtMs: request.requestedAtMs,
+        sourceProof: args.sourceProof,
       });
       const result = parseLinkedDeviceRevokeResultV1(rawResult);
       return result;
