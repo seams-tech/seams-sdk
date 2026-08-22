@@ -496,9 +496,6 @@ function createD1LinkedDeviceComposition(input: {
       reservationService: createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({
         endpoint: sessionConfig.authorityInstallation.reservationEndpoint,
       }),
-      materialPlanner: sessionConfig.authorityInstallation.materialPlanner,
-      reservationPreparationPlanner:
-        sessionConfig.authorityInstallation.reservationPreparationPlanner,
       materialActivation: createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1({
         endpoint: sessionConfig.authorityInstallation.activationEndpoint,
       }),
