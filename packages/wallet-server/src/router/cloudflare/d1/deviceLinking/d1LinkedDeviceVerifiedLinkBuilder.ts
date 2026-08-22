@@ -149,10 +149,15 @@ export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
   );
 }
 
-async function buildVerifiedTargetFactorV1(
-  input: BuildVerifiedLinkInputV1 & {
-    readonly sourceAuthMethod: VerifiedLinkSourceReadV1['authMethod'];
-  },
+export type BuildVerifiedTargetFactorV1Input = Pick<
+  BuildVerifiedLinkInputV1,
+  'registration' | 'evidence' | 'requestedAtMs'
+> & {
+  readonly sourceAuthMethod: VerifiedLinkSourceReadV1['authMethod'];
+};
+
+export async function buildVerifiedTargetFactorV1(
+  input: BuildVerifiedTargetFactorV1Input,
 ): Promise<VerifiedTargetFactorV1> {
   const verifiedAtMs = input.registration.registeredAtMs;
   if (!Number.isSafeInteger(verifiedAtMs) || verifiedAtMs < 0 || verifiedAtMs > input.requestedAtMs) {
