@@ -6,21 +6,12 @@ import type {
   WalletSessionId,
 } from '../authorization/capabilityKinds';
 import type {
-  LaneHolderParticipantId,
-  SigningWorkerParticipantId,
-} from '../signing-lanes/participants';
-import type {
-  LaneOperationId,
-  LaneOperationIdempotencyKey,
-  LaneShareEpoch,
   LinkedDeviceEnrollmentId,
   LinkedDeviceId,
   LinkDeviceSessionId,
-  SigningLaneId,
   WalletKeyId,
 } from '../signing-lanes/ids';
-import type { SigningLaneKind } from '../signing-lanes/records';
-import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
+import type { WalletKeyRecord } from '../signing-lanes/records';
 import type {
   MpcMaterialActivationRef,
   WalletAuthorityId,
@@ -32,10 +23,7 @@ import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInf
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import type { Ed25519PublicKeyB64u } from '../passkey-custody/primitives';
-import type {
-  ActiveLaneProtocolSourceV1,
-} from '../signing-lanes/rotation';
-import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
+import type { SigningLaneRecord } from '../signing-lanes/records';
 import type {
   EcdsaCapabilityManifestId,
   EcdsaCapabilityManifestRevision,
@@ -267,80 +255,6 @@ export type LinkedDeviceOwnerAuthorizationSourceV1 =
       readonly authorizationId?: never;
     };
 
-type LinkedDeviceEnrollmentKeyBindingBaseV1 = {
-  readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly sourceLaneId: SigningLaneId;
-  readonly sourceLaneKind: SigningLaneKind;
-  readonly sourceKind: 'owner_registration' | 'provisioned_lane';
-  readonly sourceLaneShareEpoch: LaneShareEpoch;
-  readonly sourceRevocationEpoch: number;
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
-};
-
-export type LinkedDeviceOwnerEnrollmentKeyBindingV1 = LinkedDeviceEnrollmentKeyBindingBaseV1 & {
-  readonly sourceKind: 'owner_registration';
-  readonly sourceLaneKind: 'owner_passkey' | 'owner_email_otp';
-  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
-  readonly sourceHolderParticipantId?: never;
-  readonly sourceSigningWorkerParticipantId?: never;
-};
-
-export type LinkedDeviceProvisionedEnrollmentKeyBindingV1 =
-  LinkedDeviceEnrollmentKeyBindingBaseV1 & {
-    readonly sourceKind: 'provisioned_lane';
-    readonly sourceLaneKind: Exclude<SigningLaneKind, 'owner_passkey' | 'owner_email_otp'>;
-    readonly sourceHolderParticipantId: LaneHolderParticipantId;
-    readonly sourceSigningWorkerParticipantId: SigningWorkerParticipantId;
-    readonly ownerParticipantContinuity?: never;
-  };
-
-export type LinkedDeviceEnrollmentKeyBindingV1 =
-  | LinkedDeviceOwnerEnrollmentKeyBindingV1
-  | LinkedDeviceProvisionedEnrollmentKeyBindingV1;
-
-export function linkedDeviceEnrollmentBindingMatchesSourceV1(
-  binding: LinkedDeviceEnrollmentKeyBindingV1,
-  source: ActiveLaneProtocolSourceV1,
-): boolean {
-  if (
-    binding.sourceKind !== source.sourceKind ||
-    binding.sourceLaneKind !== source.laneKind ||
-    binding.sourceLaneId !== source.laneId ||
-    binding.sourceLaneShareEpoch !== source.laneShareEpoch ||
-    binding.sourceRevocationEpoch !== source.revocationEpoch
-  ) {
-    return false;
-  }
-  if (source.sourceKind === 'owner_registration') {
-    if (binding.sourceKind !== 'owner_registration') return false;
-    return (
-      binding.ownerParticipantContinuity.signerId === source.ownerParticipantContinuity.signerId &&
-      binding.ownerParticipantContinuity.signingWorkerId ===
-        source.ownerParticipantContinuity.signingWorkerId &&
-      binding.ownerParticipantContinuity.custodyKeyManifestDigestB64u ===
-        source.ownerParticipantContinuity.custodyKeyManifestDigestB64u &&
-      binding.ownerParticipantContinuity.sourceIdentityDigestB64u ===
-        source.ownerParticipantContinuity.sourceIdentityDigestB64u &&
-      binding.ownerParticipantContinuity.participantIds[0] ===
-        source.ownerParticipantContinuity.participantIds[0] &&
-      binding.ownerParticipantContinuity.participantIds[1] ===
-        source.ownerParticipantContinuity.participantIds[1]
-    );
-  }
-  if (binding.sourceKind !== 'provisioned_lane') return false;
-  return (
-    binding.sourceHolderParticipantId === source.holderParticipantId &&
-    binding.sourceSigningWorkerParticipantId === source.signingWorkerParticipantId
-  );
-}
-
-export type LinkedDeviceProtocolVersionV1 = {
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly version: string;
-};
-
 type LinkedDeviceApprovalBaseV1 = {
   readonly kind: 'linked_device_approval_v1';
   readonly linkSessionId: LinkDeviceSessionId;
@@ -351,16 +265,13 @@ type LinkedDeviceApprovalBaseV1 = {
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly permission: DelegatedWalletAuthorityV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly policyDigestB64u: DigestB64u;
-  readonly operationId: LaneOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly orderedKeyBindings: readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-  readonly protocolVersions: readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
+  /**
+   * Source projections authenticated by the owner Wallet Session. The server
+   * re-resolves each lane against the active authority before preparation.
+   */
+  readonly orderedOwnerSourceLaneHints: readonly [
+    LinkedDeviceOwnerSourceLaneV1,
+    ...LinkedDeviceOwnerSourceLaneV1[],
   ];
   readonly approvedAtMs: number;
   readonly expiresAtMs: number;

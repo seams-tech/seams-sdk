@@ -882,7 +882,7 @@ function assertPreparationMatchesSession(
     preparation.deviceId !== approval.deviceId ||
     preparation.targetFactor.kind !== approval.targetFactor.kind ||
     preparation.ordinarySignerMaterialRecipientRequirements.length !==
-      approval.orderedKeyBindings.length
+      approval.orderedOwnerSourceLaneHints.length
   ) {
     throw new Error('linked-device target preparation differs from its approved session');
   }
@@ -892,11 +892,11 @@ function assertPreparationMatchesSession(
     index += 1
   ) {
     const requirement = preparation.ordinarySignerMaterialRecipientRequirements[index];
-    const approved = approval.orderedKeyBindings[index];
+    const approved = approval.orderedOwnerSourceLaneHints[index];
     if (
       !requirement ||
       !approved ||
-      requirement.walletKeyId !== approved.walletKeyId ||
+      requirement.walletKeyId !== approved.walletKey.walletKeyId ||
       requirement.keyFamily !== approved.keyFamily
     ) {
       throw new Error(`linked-device target preparation recipient requirement ${index} is not approved`);

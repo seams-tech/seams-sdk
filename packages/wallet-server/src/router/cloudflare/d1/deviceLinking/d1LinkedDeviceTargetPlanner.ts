@@ -1,11 +1,8 @@
-import type { AuthorizedOperationId } from '@shared/authorization/capabilityKinds';
 import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
-import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   LinkedDeviceApprovalV1,
-  LinkedDeviceEnrollmentKeyBindingV1,
+  LinkedDeviceOwnerSourceLaneV1,
   LinkedDevicePasskeyCreationOptionsV1,
-  LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
   OrdinarySignerMaterialRecipientRequirementV1,
 } from '@shared/device-linking/contracts';
@@ -18,10 +15,8 @@ import {
   PASSKEY_PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
 import {
-  type LaneOperationIdempotencyKey,
-} from '@shared/signing-lanes/ids';
-import {
   parseWalletAuthMethodId,
+  mpcMaterialActivationRefsEqual,
 } from '@shared/utils/domainIds';
 import type {
   ActiveLaneProtocolSourceV1,
@@ -37,24 +32,17 @@ import type {
   NearEd25519SigningKeyId,
   WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
+import type { WalletKeyId } from '@shared/signing-lanes/ids';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type {
   LinkedDeviceTargetPlannerV1,
-  VerifiedLinkedDeviceTargetFactorEvidenceV1,
 } from './d1LinkedDeviceTargetCredentialProvider';
 
 const DEFAULT_TARGET_PREPARATION_TTL_MS = 5 * 60 * 1_000;
 
-export type LinkedDeviceTargetAuthorizationFactsV1 = {
-  readonly authorizedOperationId: AuthorizedOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly linkedDevicePermissionDigestB64u: DigestB64u;
-};
-
 type LinkedDeviceOwnerSourceChildResolutionBaseV1 = {
-  readonly walletKeyId: LinkedDeviceEnrollmentKeyBindingV1['walletKeyId'];
+  readonly walletKeyId: WalletKeyId;
   readonly source: ActiveLaneProtocolSourceV1;
-  readonly authorization: LinkedDeviceTargetAuthorizationFactsV1;
 };
 
 /** Facts authenticated from Device 1's owner lane projection. Target
@@ -106,14 +94,7 @@ export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
       readonly kind: 'preparation';
       readonly session: LinkedDeviceSessionRecordV1;
       readonly approval: LinkedDeviceApprovalV1;
-      readonly binding: LinkedDeviceEnrollmentKeyBindingV1;
-      readonly childIndex: number;
-    }
-  | {
-      readonly kind: 'commit';
-      readonly preparation: LinkedDeviceTargetPreparationV1;
-      readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-      readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
+      readonly sourceLaneHint: LinkedDeviceOwnerSourceLaneV1;
       readonly childIndex: number;
     };
 
@@ -165,20 +146,19 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     let ed25519ExportRoot: LinkedDeviceTargetPreparationV1['ed25519ExportRoot'] = null;
     for (
       let childIndex = 0;
-      childIndex < input.approval.orderedKeyBindings.length;
+      childIndex < input.approval.orderedOwnerSourceLaneHints.length;
       childIndex += 1
     ) {
-      const binding = input.approval.orderedKeyBindings[childIndex];
-      if (!binding) throw new Error(`linked-device approval child ${childIndex} is missing`);
+      const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[childIndex];
+      if (!sourceLaneHint) throw new Error(`linked-device approval child ${childIndex} is missing`);
       const resolution = await this.resolveOwnerSourceChildV1({
         kind: 'preparation',
         session: input.session,
         approval: input.approval,
-        binding,
+        sourceLaneHint,
         childIndex,
       });
-      assertResolutionMatchesBinding(resolution, binding, childIndex);
-      assertResolutionAuthorizationMatchesApproval(resolution.authorization, input.approval);
+      assertResolutionMatchesSourceLaneHint(resolution, sourceLaneHint, childIndex);
       if (
         resolution.keyFamily === 'ed25519' &&
         hasDelegatedWalletPermissionV1(input.approval.permission, 'export_keys')
@@ -196,8 +176,8 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       }
       ordinarySignerMaterialRecipientRequirements.push({
         kind: 'ordinary_signer_material_recipient_requirement_v1',
-        walletKeyId: binding.walletKeyId,
-        keyFamily: binding.keyFamily,
+        walletKeyId: sourceLaneHint.walletKey.walletKeyId,
+        keyFamily: sourceLaneHint.keyFamily,
       });
     }
 
@@ -315,33 +295,26 @@ function assertPreparationInput(
   }
 }
 
-function assertResolutionMatchesBinding(
+function assertResolutionMatchesSourceLaneHint(
   resolution: LinkedDeviceOwnerSourceChildResolutionV1,
-  binding: LinkedDeviceEnrollmentKeyBindingV1,
+  sourceLaneHint: LinkedDeviceOwnerSourceLaneV1,
   childIndex: number,
 ): void {
   if (
-    resolution.walletKeyId !== binding.walletKeyId ||
-    resolution.keyFamily !== binding.keyFamily ||
-    resolution.source.laneId !== binding.sourceLaneId ||
-    resolution.source.laneShareEpoch !== binding.sourceLaneShareEpoch ||
-    resolution.source.revocationEpoch !== binding.sourceRevocationEpoch ||
-    !linkedDeviceEnrollmentBindingMatchesSourceV1(binding, resolution.source)
+    resolution.walletKeyId !== sourceLaneHint.walletKey.walletKeyId ||
+    resolution.keyFamily !== sourceLaneHint.keyFamily ||
+    resolution.source.laneId !== sourceLaneHint.lane.laneId ||
+    resolution.source.laneKind !== sourceLaneHint.lane.laneKind ||
+    resolution.source.laneShareEpoch !== sourceLaneHint.lane.laneShareEpoch ||
+    resolution.source.revocationEpoch !== sourceLaneHint.lane.lifecycle.revocationEpoch ||
+    resolution.source.participantBindingDigestB64u !==
+      sourceLaneHint.lane.participantBindingDigestB64u ||
+    !mpcMaterialActivationRefsEqual(
+      resolution.source.materialActivation,
+      sourceLaneHint.materialActivation,
+    )
   ) {
     throw new Error(`linked-device source resolution ${childIndex} differs from approval`);
-  }
-}
-
-function assertResolutionAuthorizationMatchesApproval(
-  authorization: LinkedDeviceTargetAuthorizationFactsV1,
-  approval: LinkedDeviceApprovalV1,
-): void {
-  if (
-    String(authorization.authorizedOperationId) !== String(approval.operationId) ||
-    authorization.idempotencyKey !== approval.idempotencyKey ||
-    authorization.linkedDevicePermissionDigestB64u !== approval.policyDigestB64u
-  ) {
-    throw new Error('linked-device source resolution authorization differs from approval');
   }
 }
 

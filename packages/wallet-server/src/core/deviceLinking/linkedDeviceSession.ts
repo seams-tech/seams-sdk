@@ -1350,8 +1350,8 @@ function validateApprovalMatchesSession(
   if (approval.expiresAtMs <= nowMs || approval.expiresAtMs > claim.claimExpiresAtMs)
     throw new Error('approval expiry is outside the claim lifetime');
   if (approval.approvedAtMs > nowMs) throw new Error('approval is from the future');
-  if (approval.orderedKeyBindings.length === 0 || approval.protocolVersions.length === 0)
-    throw new Error('approval manifest is empty');
+  if (approval.orderedOwnerSourceLaneHints.length === 0)
+    throw new Error('approval owner source projection is empty');
 }
 
 function validateLinkedDeviceRequestedAuthorityV1(

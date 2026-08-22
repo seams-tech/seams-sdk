@@ -14,27 +14,13 @@ import {
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
 import {
-  parseLaneHolderParticipantId,
-  parseSigningWorkerParticipantId,
-  type LaneHolderParticipantId,
-  type SigningWorkerParticipantId,
-} from '../signing-lanes/participants';
-import {
-  parseLaneOperationId,
-  parseLaneOperationIdempotencyKey,
-  parseLaneShareEpoch,
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
   parseLinkDeviceSessionId,
-  parseSigningLaneId,
   parseWalletKeyId,
-  type LaneOperationId,
-  type LaneOperationIdempotencyKey,
-  type LaneShareEpoch,
   type LinkedDeviceEnrollmentId,
   type LinkedDeviceId,
   type LinkDeviceSessionId,
-  type SigningLaneId,
   type WalletKeyId,
 } from '../signing-lanes/ids';
 import {
@@ -55,7 +41,6 @@ import {
   parseEcdsaCapabilityManifestId,
   parseEcdsaCapabilityManifestRevision,
 } from '../utils/ecdsaCapabilityActivation';
-import { parseOwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import {
   parseEd25519PublicKeyB64u,
@@ -85,7 +70,6 @@ import {
   type LinkedDeviceApprovalDeliveryV1,
   type LinkedDeviceApprovalResultV1,
   type LinkedDevicePendingSessionStateV1,
-  type LinkedDeviceEnrollmentKeyBindingV1,
   type LinkedDeviceListRequestV1,
   type LinkedDeviceListResultV1,
   type OwnerDeviceSummaryV1,
@@ -96,7 +80,6 @@ import {
   type LinkedDeviceOwnerAuthorizationSourceV1,
   type LinkedDeviceOwnerAuthorizationRequestV1,
   type LinkedDeviceOwnerSourceLaneV1,
-  type LinkedDeviceProtocolVersionV1,
   type LinkedDeviceSessionClaimRequestV1,
   type LinkedDeviceSessionClaimV1,
   type LinkedDeviceSessionProjectionV1,
@@ -183,27 +166,6 @@ const CLAIM_FIELDS = [
 ] as const;
 const OWNER_AUTH_WALLET_SESSION_FIELDS = ['kind', 'walletSessionId', 'authorizationId'] as const;
 const OWNER_AUTH_STEP_UP_FIELDS = ['kind', 'evidenceSetId'] as const;
-const KEY_BINDING_BASE_FIELDS = [
-  'walletKeyId',
-  'keyFamily',
-  'sourceLaneId',
-  'sourceLaneKind',
-  'sourceKind',
-  'sourceLaneShareEpoch',
-  'sourceRevocationEpoch',
-  'targetLaneId',
-  'targetLaneShareEpoch',
-] as const;
-const OWNER_KEY_BINDING_FIELDS = [
-  ...KEY_BINDING_BASE_FIELDS,
-  'ownerParticipantContinuity',
-] as const;
-const PROVISIONED_KEY_BINDING_FIELDS = [
-  ...KEY_BINDING_BASE_FIELDS,
-  'sourceHolderParticipantId',
-  'sourceSigningWorkerParticipantId',
-] as const;
-const PROTOCOL_VERSION_FIELDS = ['keyFamily', 'version'] as const;
 const ENROLLMENT_FIELDS = [
   'kind',
   'linkSessionId',
@@ -215,11 +177,7 @@ const ENROLLMENT_FIELDS = [
   'permission',
   'targetFactor',
   'ownerAuthorization',
-  'policyDigestB64u',
-  'operationId',
-  'idempotencyKey',
-  'orderedKeyBindings',
-  'protocolVersions',
+  'orderedOwnerSourceLaneHints',
   'approvedAtMs',
   'expiresAtMs',
 ] as const;
@@ -442,6 +400,13 @@ function parseUnixTime(raw: unknown, label: string): number {
   }
 }
 
+function parseEmailHashHex(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || !/^[0-9a-f]{64}$/.test(raw)) {
+    throw new Error(`${label} must be 32 canonical lowercase hex bytes`);
+  }
+  return raw;
+}
+
 function parseNonEmptyToken(raw: unknown, label: string): string {
   if (typeof raw !== 'string' || raw.length === 0 || raw.trim() !== raw) {
     throw new Error(`${label} must be a non-empty canonical string`);
@@ -451,13 +416,6 @@ function parseNonEmptyToken(raw: unknown, label: string): string {
     if (/\s/.test(character) || code <= 31 || code === 127) {
       throw new Error(`${label} must not contain whitespace or control characters`);
     }
-  }
-  return raw;
-}
-
-function parseEmailHashHex(raw: unknown, label: string): string {
-  if (typeof raw !== 'string' || !/^[0-9a-f]{64}$/.test(raw)) {
-    throw new Error(`${label} must be 32 canonical lowercase hex bytes`);
   }
   return raw;
 }
@@ -539,29 +497,6 @@ function parseKeyFamily(raw: unknown, label: string): 'ed25519' | 'ecdsa_secp256
   return raw;
 }
 
-function parseSigningLaneKind(
-  raw: unknown,
-  label: string,
-):
-  | 'owner_passkey'
-  | 'owner_email_otp'
-  | 'linked_device'
-  | 'delegated_execution'
-  | 'recovery'
-  | 'break_glass' {
-  switch (raw) {
-    case 'owner_passkey':
-    case 'owner_email_otp':
-    case 'linked_device':
-    case 'delegated_execution':
-    case 'recovery':
-    case 'break_glass':
-      return raw;
-    default:
-      throw new Error(`${label} must identify a supported signing lane kind`);
-  }
-}
-
 function parseNonNegativeSafeInteger(raw: unknown, label: string): number {
   if (!Number.isSafeInteger(raw) || Number(raw) < 0) {
     throw new Error(`${label} must be a non-negative safe integer`);
@@ -582,12 +517,6 @@ function parseNullableCursor(raw: unknown, label: string): string | null {
 
 function assertExpiryAfterIssued(issuedAtMs: number, expiresAtMs: number, label: string): void {
   if (expiresAtMs <= issuedAtMs) throw new Error(`${label}.expiresAtMs must be after issuedAtMs`);
-}
-
-function nonEmptyTuple<T>(values: readonly T[], label: string): [T, ...T[]] {
-  if (values.length === 0) throw new Error(`${label} must be non-empty`);
-  const [first, ...rest] = values;
-  return [first, ...rest];
 }
 
 function parseDelegatedWalletAuthority(raw: unknown, label: string): DelegatedWalletAuthorityV1 {
@@ -646,24 +575,6 @@ function parseDeviceId(raw: unknown, label: string): LinkedDeviceId {
 }
 function parseWalletKey(raw: unknown, label: string): WalletKeyId {
   return parseId(parseWalletKeyId, raw, label);
-}
-function parseLaneId(raw: unknown, label: string): SigningLaneId {
-  return parseId(parseSigningLaneId, raw, label);
-}
-function parseLaneEpoch(raw: unknown, label: string): LaneShareEpoch {
-  return parseId(parseLaneShareEpoch, raw, label);
-}
-function parseOperation(raw: unknown, label: string): LaneOperationId {
-  return parseId(parseLaneOperationId, raw, label);
-}
-function parseIdempotencyKey(raw: unknown, label: string): LaneOperationIdempotencyKey {
-  return parseId(parseLaneOperationIdempotencyKey, raw, label);
-}
-function parseHolderParticipant(raw: unknown, label: string): LaneHolderParticipantId {
-  return parseId(parseLaneHolderParticipantId, raw, label);
-}
-function parseSigningWorkerParticipant(raw: unknown, label: string): SigningWorkerParticipantId {
-  return parseId(parseSigningWorkerParticipantId, raw, label);
 }
 function parseWalletSession(raw: unknown, label: string): WalletSessionId {
   return parseId(parseWalletSessionId, raw, label);
@@ -1019,31 +930,13 @@ export function parseLinkedDeviceOwnerAuthorizationRequestV1(
     'LinkedDeviceOwnerAuthorizationRequestV1.requestedAtMs',
   );
   const payload = parseQrLinkedDeviceSessionPayloadV5(record.payload);
-  if (!Array.isArray(record.orderedOwnerSourceLaneHints)) {
-    throw new Error(
-      'LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints must be an array',
-    );
-  }
-  if (record.orderedOwnerSourceLaneHints.length === 0) {
-    throw new Error(
-      'LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints must not be empty',
-    );
-  }
-  const hints = record.orderedOwnerSourceLaneHints.map((value, index) =>
-    parseLinkedDeviceOwnerSourceLaneV1(
-      value,
-      `LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints[${index}]`,
-    ),
-  );
-  const walletId = hints[0]?.walletKey.walletId;
-  if (!walletId) throw new Error('owner source lane hint wallet identity is missing');
-  if (hints.some((hint) => hint.walletKey.walletId !== walletId)) {
-    throw new Error('owner source lane hints must use one wallet identity');
-  }
   return {
     payload,
     requestedAtMs,
-    orderedOwnerSourceLaneHints: [hints[0]!, ...hints.slice(1)],
+    orderedOwnerSourceLaneHints: parseOwnerSourceLaneHints(
+      record.orderedOwnerSourceLaneHints,
+      'LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints',
+    ),
   };
 }
 
@@ -1076,6 +969,12 @@ export function parseLinkedDeviceOwnerSourceLaneV1(
   const verifiedActivationReceiptDigestB64u = parseDigestB64u(
     exact.verifiedActivationReceiptDigestB64u,
   );
+  if (
+    lane.lifecycle.state !== 'active' ||
+    lane.lifecycle.activationReceiptDigestB64u !== verifiedActivationReceiptDigestB64u
+  ) {
+    throw new Error(`${label} activation receipt does not match the active owner lane`);
+  }
   if (keyFamily === 'ed25519') {
     if (walletKey.keyFamily !== 'ed25519') throw new Error(`${label}.keyFamily is inconsistent`);
     return {
@@ -1107,6 +1006,36 @@ export function parseLinkedDeviceOwnerSourceLaneV1(
       manifestRevision: parseEcdsaCapabilityManifestRevision(manifest.manifestRevision),
     },
   };
+}
+
+function parseOwnerSourceLaneHints(
+  raw: unknown,
+  label: string,
+): readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(`${label} must be a non-empty array`);
+  }
+  const values = raw.map((value, index) =>
+    parseLinkedDeviceOwnerSourceLaneV1(value, `${label}[${index}]`),
+  );
+  const walletId = values[0]?.walletKey.walletId;
+  if (!walletId) throw new Error(`${label} wallet identity is missing`);
+  const walletKeys = new Set<string>();
+  const families = new Set<string>();
+  for (const value of values) {
+    if (value.walletKey.walletId !== walletId) {
+      throw new Error(`${label} must use one wallet identity`);
+    }
+    if (walletKeys.has(value.walletKey.walletKeyId)) {
+      throw new Error(`${label} contains duplicate walletKeyId`);
+    }
+    if (families.has(value.keyFamily)) {
+      throw new Error(`${label} contains duplicate keyFamily`);
+    }
+    walletKeys.add(value.walletKey.walletKeyId);
+    families.add(value.keyFamily);
+  }
+  return [values[0]!, ...values.slice(1)];
 }
 
 function parseEmailOtpChallengeState(raw: unknown): Extract<
@@ -1588,132 +1517,6 @@ export function parseLinkedDeviceOwnerAuthorizationSourceV1(
   throw new Error(`${label}.kind is unsupported`);
 }
 
-export function parseLinkedDeviceEnrollmentKeyBindingV1(
-  raw: unknown,
-  label: string,
-): LinkedDeviceEnrollmentKeyBindingV1 {
-  const baseRecord = requireRecord(raw, label);
-  const sourceLaneKind = parseSigningLaneKind(baseRecord.sourceLaneKind, `${label}.sourceLaneKind`);
-  const sourceKind = baseRecord.sourceKind;
-  if (sourceKind !== 'owner_registration' && sourceKind !== 'provisioned_lane') {
-    throw new Error(`${label}.sourceKind must identify a supported source branch`);
-  }
-  const record = exactRecord(
-    baseRecord,
-    sourceKind === 'owner_registration' ? OWNER_KEY_BINDING_FIELDS : PROVISIONED_KEY_BINDING_FIELDS,
-    label,
-  );
-  if (sourceKind === 'owner_registration') {
-    if (sourceLaneKind !== 'owner_passkey' && sourceLaneKind !== 'owner_email_otp') {
-      throw new Error(`${label}.sourceLaneKind must be an owner lane for owner_registration`);
-    }
-    return {
-      walletKeyId: parseWalletKey(record.walletKeyId, `${label}.walletKeyId`),
-      keyFamily: parseKeyFamily(record.keyFamily, `${label}.keyFamily`),
-      sourceLaneId: parseLaneId(record.sourceLaneId, `${label}.sourceLaneId`),
-      sourceLaneKind,
-      sourceKind,
-      sourceLaneShareEpoch: parseLaneEpoch(
-        record.sourceLaneShareEpoch,
-        `${label}.sourceLaneShareEpoch`,
-      ),
-      sourceRevocationEpoch: parseNonNegativeSafeInteger(
-        record.sourceRevocationEpoch,
-        `${label}.sourceRevocationEpoch`,
-      ),
-      ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
-        record.ownerParticipantContinuity,
-        `${label}.ownerParticipantContinuity`,
-      ),
-      targetLaneId: parseLaneId(record.targetLaneId, `${label}.targetLaneId`),
-      targetLaneShareEpoch: parseLaneEpoch(
-        record.targetLaneShareEpoch,
-        `${label}.targetLaneShareEpoch`,
-      ),
-    };
-  }
-  if (sourceLaneKind === 'owner_passkey' || sourceLaneKind === 'owner_email_otp') {
-    throw new Error(`${label}.sourceLaneKind must be provisioned for provisioned_lane`);
-  }
-  return {
-    walletKeyId: parseWalletKey(record.walletKeyId, `${label}.walletKeyId`),
-    keyFamily: parseKeyFamily(record.keyFamily, `${label}.keyFamily`),
-    sourceLaneId: parseLaneId(record.sourceLaneId, `${label}.sourceLaneId`),
-    sourceLaneKind,
-    sourceKind,
-    sourceLaneShareEpoch: parseLaneEpoch(
-      record.sourceLaneShareEpoch,
-      `${label}.sourceLaneShareEpoch`,
-    ),
-    sourceRevocationEpoch: parseNonNegativeSafeInteger(
-      record.sourceRevocationEpoch,
-      `${label}.sourceRevocationEpoch`,
-    ),
-    sourceHolderParticipantId: parseHolderParticipant(
-      record.sourceHolderParticipantId,
-      `${label}.sourceHolderParticipantId`,
-    ),
-    sourceSigningWorkerParticipantId: parseSigningWorkerParticipant(
-      record.sourceSigningWorkerParticipantId,
-      `${label}.sourceSigningWorkerParticipantId`,
-    ),
-    targetLaneId: parseLaneId(record.targetLaneId, `${label}.targetLaneId`),
-    targetLaneShareEpoch: parseLaneEpoch(
-      record.targetLaneShareEpoch,
-      `${label}.targetLaneShareEpoch`,
-    ),
-  };
-}
-
-function parseKeyBindings(
-  raw: unknown,
-  label: string,
-): readonly [LinkedDeviceEnrollmentKeyBindingV1, ...LinkedDeviceEnrollmentKeyBindingV1[]] {
-  if (!Array.isArray(raw)) throw new Error(`${label} must be an array`);
-  const values = raw.map((entry, index) =>
-    parseLinkedDeviceEnrollmentKeyBindingV1(entry, `${label}[${index}]`),
-  );
-  const walletKeys = new Set<string>();
-  const targetLanes = new Set<string>();
-  for (const value of values) {
-    if (walletKeys.has(value.walletKeyId))
-      throw new Error(`${label} contains duplicate walletKeyId`);
-    if (targetLanes.has(value.targetLaneId))
-      throw new Error(`${label} contains duplicate targetLaneId`);
-    walletKeys.add(value.walletKeyId);
-    targetLanes.add(value.targetLaneId);
-  }
-  return nonEmptyTuple(values, label);
-}
-
-export function parseLinkedDeviceProtocolVersionV1(
-  raw: unknown,
-  label: string,
-): LinkedDeviceProtocolVersionV1 {
-  const record = exactRecord(raw, PROTOCOL_VERSION_FIELDS, label);
-  const version = parseNonEmptyToken(record.version, `${label}.version`);
-  return {
-    keyFamily: parseKeyFamily(record.keyFamily, `${label}.keyFamily`),
-    version,
-  };
-}
-
-function parseProtocolVersions(
-  raw: unknown,
-  label: string,
-): readonly [LinkedDeviceProtocolVersionV1, ...LinkedDeviceProtocolVersionV1[]] {
-  if (!Array.isArray(raw)) throw new Error(`${label} must be an array`);
-  const values = raw.map((entry, index) =>
-    parseLinkedDeviceProtocolVersionV1(entry, `${label}[${index}]`),
-  );
-  const families = new Set<string>();
-  for (const value of values) {
-    if (families.has(value.keyFamily)) throw new Error(`${label} contains duplicate keyFamily`);
-    families.add(value.keyFamily);
-  }
-  return nonEmptyTuple(values, label);
-}
-
 type EnrollmentCore = Omit<LinkedDeviceApprovalV1, 'kind'>;
 
 function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCore {
@@ -1733,11 +1536,10 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
       record.ownerAuthorization,
       `${label}.ownerAuthorization`,
     ),
-    policyDigestB64u: parseDigest(record.policyDigestB64u, `${label}.policyDigestB64u`),
-    operationId: parseOperation(record.operationId, `${label}.operationId`),
-    idempotencyKey: parseIdempotencyKey(record.idempotencyKey, `${label}.idempotencyKey`),
-    orderedKeyBindings: parseKeyBindings(record.orderedKeyBindings, `${label}.orderedKeyBindings`),
-    protocolVersions: parseProtocolVersions(record.protocolVersions, `${label}.protocolVersions`),
+    orderedOwnerSourceLaneHints: parseOwnerSourceLaneHints(
+      record.orderedOwnerSourceLaneHints,
+      `${label}.orderedOwnerSourceLaneHints`,
+    ),
     approvedAtMs,
     expiresAtMs,
   };

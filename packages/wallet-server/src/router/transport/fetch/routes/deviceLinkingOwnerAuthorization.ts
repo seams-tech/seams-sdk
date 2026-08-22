@@ -1,14 +1,10 @@
 import type {
   LinkedDeviceOwnerAuthorizationRequestV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceEnrollmentKeyBindingV1,
-  LinkedDeviceProtocolVersionV1,
+  LinkedDeviceOwnerSourceLaneV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
-import {
-  parseQrLinkedDeviceSessionPayloadV5,
-  parseLinkedDeviceOwnerAuthorizationRequestV1,
-} from '@shared/device-linking/parsers';
+import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
 import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
@@ -29,7 +25,6 @@ import {
   type DelegatedWalletAuthorityV1,
 } from '@shared/authorization/delegatedAuthority';
 import type { WalletExecutionLaneAuthSource } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
-import type { LaneOperationId, LaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
@@ -55,16 +50,9 @@ export type DeviceLinkingOwnerAuthorizationResponseV1 = {
   readonly authentication: DeviceLinkingOwnerAuthorizationAuthenticationV1;
   readonly walletId: WalletId;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly policyDigestB64u: DigestB64u;
-  readonly operationId: LaneOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly orderedKeyBindings: readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-  readonly protocolVersions: readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
+  readonly orderedOwnerSourceLaneHints: readonly [
+    LinkedDeviceOwnerSourceLaneV1,
+    ...LinkedDeviceOwnerSourceLaneV1[],
   ];
   readonly expiresAtMs: number;
 };

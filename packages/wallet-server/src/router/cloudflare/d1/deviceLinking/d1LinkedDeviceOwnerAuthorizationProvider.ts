@@ -1,14 +1,11 @@
 import type {
-  LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceOwnerSourceLaneV1,
-  LinkedDeviceProtocolVersionV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
   buildWalletSessionLinkedDeviceOwnerAuthorizationV1,
-  parseLinkedDeviceEnrollmentKeyBindingV1,
-  parseLinkedDeviceProtocolVersionV1,
+  parseLinkedDeviceOwnerSourceLaneV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import {
@@ -20,18 +17,15 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
-  parseLaneOperationId,
-  parseLaneOperationIdempotencyKey,
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
 } from '@shared/signing-lanes/ids';
-import type { LaneOperationId, LaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type {
   ActiveOwnerWalletExecutionLaneProjection,
   WalletExecutionLaneProjectionResult,
@@ -61,24 +55,18 @@ const ENROLLMENT_ID_DOMAIN_V1 = 'seams/linked-device/enrollment-identity/v1';
 
 export type D1LinkedDeviceOwnerAuthorizationMetadataV1 = {
   readonly walletId: WalletId;
-  readonly policyDigestB64u: DigestB64u;
-  readonly operationId: LaneOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly orderedKeyBindings: readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-  readonly protocolVersions: readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
+  readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
+  readonly orderedOwnerSourceLaneHints: readonly [
+    LinkedDeviceOwnerSourceLaneV1,
+    ...LinkedDeviceOwnerSourceLaneV1[],
   ];
   readonly expiresAtMs: number;
 };
 
 /**
- * Durable owner metadata and source facts are supplied by D1/registration
- * authority. This provider validates and binds those facts; it never invents
- * lane participants, protocol keys, or owner authorization metadata.
+ * D1 supplies the authenticated session and exact source-lane projection. The
+ * provider validates those facts against the active V2 authority and signers;
+ * no link-specific planning record is created.
  */
 export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
   readApprovedOwnerContextV1(input: {
@@ -91,23 +79,6 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
   }): Promise<LinkedDeviceOwnerSourceChildResolutionV1 | null>;
 };
 
-type D1LinkedDeviceOwnerAuthorizationPlanningWriterV1 = {
-  writeV1(input: {
-    readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV5;
-    readonly orderedOwnerSourceLaneHints: readonly [
-      LinkedDeviceOwnerSourceLaneV1,
-      ...LinkedDeviceOwnerSourceLaneV1[],
-    ];
-  }): Promise<
-    | {
-        readonly outcome: 'applied' | 'replayed';
-        readonly snapshot: { readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataV1 };
-      }
-    | { readonly outcome: 'conflict' }
-  >;
-};
-
 export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
   readonly walletRegistration: Pick<
     RouterApiWalletRegistrationService,
@@ -118,7 +89,6 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
     D1LinkedDeviceTargetPlannerOptionsV1,
     'preparationTtlMs'
   >;
-  readonly planningWriter: D1LinkedDeviceOwnerAuthorizationPlanningWriterV1;
   readonly nowV1?: () => number;
 };
 
@@ -146,7 +116,6 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
   return {
     ownerAuthorization,
     ownerAuthorizationRoute: createOwnerAuthorizationRouteV1({
-      planningWriter: options.planningWriter,
       nowV1,
     }),
     ownerSourceResolver,
@@ -239,7 +208,6 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
 }
 
 function createOwnerAuthorizationRouteV1(input: {
-  readonly planningWriter: D1LinkedDeviceOwnerAuthorizationPlanningWriterV1;
   readonly nowV1: () => number;
 }): DeviceLinkingOwnerAuthorizationRouteServiceV1 {
   return {
@@ -252,16 +220,13 @@ function createOwnerAuthorizationRouteV1(input: {
         payload.requestedPermission,
       );
       if (attenuationError) throw new Error(attenuationError);
-      const planning = await input.planningWriter.writeV1({
-        owner: request.owner,
-        payload,
-        orderedOwnerSourceLaneHints: request.orderedOwnerSourceLaneHints,
-      });
-      if (planning.outcome === 'conflict') {
-        throw new Error('owner authorization planning snapshot conflicts with this link request');
-      }
-      const normalized = normalizeOwnerAuthorizationMetadataV1(
-        planning.snapshot.metadata,
+      const metadata = normalizeOwnerAuthorizationMetadataV1(
+        {
+          walletId: request.owner.walletId,
+          ownerAuthorization: ownerAuthorizationSourceForContext(request.owner),
+          orderedOwnerSourceLaneHints: request.orderedOwnerSourceLaneHints,
+          expiresAtMs: Math.min(payload.expiresAtMs, request.owner.expiresAtMs),
+        },
         request.owner,
         payload,
       );
@@ -271,14 +236,10 @@ function createOwnerAuthorizationRouteV1(input: {
           source: ownerAuthorizationSourceForContext(request.owner),
           proofDigestB64u: request.bodyDigestB64u,
         },
-        walletId: normalized.walletId,
-        ownerAuthorization: ownerAuthorizationSourceForContext(request.owner),
-        policyDigestB64u: normalized.policyDigestB64u,
-        operationId: normalized.operationId,
-        idempotencyKey: normalized.idempotencyKey,
-        orderedKeyBindings: normalized.orderedKeyBindings,
-        protocolVersions: normalized.protocolVersions,
-        expiresAtMs: normalized.expiresAtMs,
+        walletId: metadata.walletId,
+        ownerAuthorization: metadata.ownerAuthorization,
+        orderedOwnerSourceLaneHints: metadata.orderedOwnerSourceLaneHints,
+        expiresAtMs: metadata.expiresAtMs,
       } satisfies DeviceLinkingOwnerAuthorizationResponseV1;
     },
   };
@@ -300,6 +261,23 @@ function createD1LinkedDeviceOwnerSourceResolverV1(input: {
       if (!resolution) throw new Error('authoritative linked-device source facts are unavailable');
       const projection = await projectOwnerLaneV1(input.walletRegistration, owner, resolution);
       assertResolutionMatchesOwnerProjectionV1(resolution, projection);
+      if (
+        request.sourceLaneHint.walletKey.walletKeyId !== resolution.walletKeyId ||
+        request.sourceLaneHint.keyFamily !== resolution.keyFamily ||
+        request.sourceLaneHint.lane.laneId !== resolution.source.laneId ||
+        request.sourceLaneHint.lane.laneShareEpoch !== resolution.source.laneShareEpoch ||
+        request.sourceLaneHint.lane.lifecycle.revocationEpoch !== resolution.source.revocationEpoch ||
+        request.sourceLaneHint.lane.participantBindingDigestB64u !==
+          resolution.source.participantBindingDigestB64u ||
+        !mpcMaterialActivationRefsEqual(
+          request.sourceLaneHint.materialActivation,
+          resolution.source.materialActivation,
+        ) ||
+        request.sourceLaneHint.verifiedActivationReceiptDigestB64u !==
+          projection.verifiedActivationReceiptDigestB64u
+      ) {
+        throw new Error('linked-device source hint does not match the active owner projection');
+      }
       return resolution;
     },
   };
@@ -319,15 +297,9 @@ function sourceRequestIdentity(request: LinkedDeviceOwnerSourceChildResolutionRe
   readonly walletId: WalletId;
   readonly linkSessionId: string;
 } {
-  if (request.kind === 'preparation') {
-    return {
-      walletId: request.approval.walletId,
-      linkSessionId: String(request.approval.linkSessionId),
-    };
-  }
   return {
-    walletId: request.preparation.walletId,
-    linkSessionId: String(request.preparation.linkSessionId),
+    walletId: request.approval.walletId,
+    linkSessionId: String(request.approval.linkSessionId),
   };
 }
 
@@ -401,7 +373,8 @@ function assertResolutionMatchesOwnerProjectionV1(
     resolution.source.laneKind !== lane.laneKind ||
     resolution.source.laneShareEpoch !== lane.laneShareEpoch ||
     resolution.source.revocationEpoch !== lane.lifecycle.revocationEpoch ||
-    resolution.source.participantBindingDigestB64u !== lane.participantBindingDigestB64u
+    resolution.source.participantBindingDigestB64u !== lane.participantBindingDigestB64u ||
+    !mpcMaterialActivationRefsEqual(resolution.source.materialActivation, projection.materialActivation)
   ) {
     throw new Error('linked-device source facts do not match the active owner projection');
   }
@@ -428,21 +401,30 @@ function normalizeOwnerAuthorizationMetadataV1(
   if (metadata.walletId !== owner.walletId) {
     throw new Error('owner authorization metadata walletId does not match the Wallet Session');
   }
-  const policyDigestB64u = parseDigestB64u(metadata.policyDigestB64u);
-  const operationId = parseRequired(parseLaneOperationId(metadata.operationId), 'operationId');
-  const idempotencyKey = parseRequired(
-    parseLaneOperationIdempotencyKey(metadata.idempotencyKey),
-    'idempotencyKey',
+  const ownerAuthorization = metadata.ownerAuthorization;
+  if (!ownerAuthorizationSourceMatchesContext(ownerAuthorization, owner)) {
+    throw new Error('owner authorization metadata source does not match the Wallet Session');
+  }
+  const orderedOwnerSourceLaneHints = metadata.orderedOwnerSourceLaneHints.map((value, index) =>
+    parseLinkedDeviceOwnerSourceLaneV1(value, `orderedOwnerSourceLaneHints[${index}]`),
   );
-  const orderedKeyBindings = metadata.orderedKeyBindings.map((value, index) =>
-    parseLinkedDeviceEnrollmentKeyBindingV1(value, `orderedKeyBindings[${index}]`),
-  );
-  const protocolVersions = metadata.protocolVersions.map((value, index) =>
-    parseLinkedDeviceProtocolVersionV1(value, `protocolVersions[${index}]`),
-  );
+  const walletKeys = new Set<string>();
+  const families = new Set<string>();
+  for (const hint of orderedOwnerSourceLaneHints) {
+    if (hint.walletKey.walletId !== owner.walletId) {
+      throw new Error('owner source lane hint wallet identity does not match the Wallet Session');
+    }
+    if (walletKeys.has(hint.walletKey.walletKeyId)) {
+      throw new Error('owner source lane hints contain duplicate walletKeyId');
+    }
+    if (families.has(hint.keyFamily)) {
+      throw new Error('owner source lane hints contain duplicate keyFamily');
+    }
+    walletKeys.add(hint.walletKey.walletKeyId);
+    families.add(hint.keyFamily);
+  }
   if (
-    orderedKeyBindings.length === 0 ||
-    protocolVersions.length === 0 ||
+    orderedOwnerSourceLaneHints.length === 0 ||
     !Number.isSafeInteger(metadata.expiresAtMs) ||
     metadata.expiresAtMs <= 0 ||
     metadata.expiresAtMs > payload.expiresAtMs ||
@@ -452,11 +434,11 @@ function normalizeOwnerAuthorizationMetadataV1(
   }
   return {
     walletId: owner.walletId,
-    policyDigestB64u,
-    operationId,
-    idempotencyKey,
-    orderedKeyBindings: requireNonEmpty(orderedKeyBindings, 'orderedKeyBindings'),
-    protocolVersions: requireNonEmpty(protocolVersions, 'protocolVersions'),
+    ownerAuthorization,
+    orderedOwnerSourceLaneHints: requireNonEmpty(
+      orderedOwnerSourceLaneHints,
+      'orderedOwnerSourceLaneHints',
+    ),
     expiresAtMs: metadata.expiresAtMs,
   };
 }

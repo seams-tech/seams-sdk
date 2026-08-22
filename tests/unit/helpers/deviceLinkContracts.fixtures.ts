@@ -19,8 +19,6 @@ import {
   buildSigningOnlyDelegatedWalletAuthorityV1,
 } from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
 import {
-  parseLaneOperationId,
-  parseLaneOperationIdempotencyKey,
   parseLaneShareEpoch,
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
@@ -33,9 +31,26 @@ import {
   parseWalletSignerId,
 } from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
 import {
+  buildActiveSigningLaneLifecycle,
+  buildActiveWalletKeyLifecycle,
+  buildEd25519WalletKeyRecord,
+  buildOwnerPasskeySigningLaneRecord,
+  parseWalletKeyVersion,
+} from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
+import {
+  buildMpcMaterialActivationRef,
+  parseCapabilityInstanceRef,
+  parseMpcKeyBindingRef,
+  parseMpcLifecycleBindingRef,
+  parseMpcMaterialActivationId,
+  parseMpcMaterialOwnerRef,
   parseMpcSigningWorkerRef,
+  parseWalletAuthMethodId,
   parseWalletId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
+import { parseEd25519PublicKeyB64u, parseKeyCreationSignerSlot } from '../../../packages/shared-ts/src/passkey-custody/primitives';
+import { parseLaneParticipantBindingDigestB64u } from '../../../packages/shared-ts/src/signing-lanes/participants';
+import { parseNearEd25519SigningKeyId } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import {
   parseDigestB64u,
@@ -82,11 +97,7 @@ export function buildR103DeviceLinkFixture(
   const deviceId = required(parseLinkedDeviceId(input.deviceId ?? 'device:r103'));
   const walletKeyId = required(parseWalletKeyId('wallet-key:r103'));
   const sourceLaneId = required(parseSigningLaneId('lane:owner:r103'));
-  const targetLaneId = required(parseSigningLaneId('lane:device:r103'));
   const sourceLaneShareEpoch = required(parseLaneShareEpoch('epoch:owner:r103'));
-  const targetLaneShareEpoch = required(parseLaneShareEpoch('epoch:device:r103'));
-  const operationId = required(parseLaneOperationId('operation:r103'));
-  const idempotencyKey = required(parseLaneOperationIdempotencyKey('idempotency:r103'));
   const ownerParticipantContinuity = buildOwnerLaneParticipantContinuityV1({
     signerId: parseWalletSignerId('owner-signer:r103'),
     participantIds: [1, 2],
@@ -105,6 +116,38 @@ export function buildR103DeviceLinkFixture(
     issuedAtMs: input.issuedAtMs ?? 1_000,
     expiresAtMs: input.expiresAtMs ?? 10_000,
   });
+  const materialActivation = buildMpcMaterialActivationRef({
+    activationId: required(parseMpcMaterialActivationId('activation:r103')),
+    capability: required(parseCapabilityInstanceRef('capability:r103')),
+    materialOwner: required(parseMpcMaterialOwnerRef('owner:r103')),
+    keyBinding: required(parseMpcKeyBindingRef('key-binding:r103')),
+    lifecycleBinding: required(parseMpcLifecycleBindingRef('lifecycle:r103')),
+    signingWorker: required(parseMpcSigningWorkerRef('worker:r103')),
+  });
+  const walletAuthMethodId = required(parseWalletAuthMethodId('passkey:wallet:r103'));
+  const ownerWalletKey = buildEd25519WalletKeyRecord({
+    walletId,
+    walletKeyId,
+    walletKeyVersion: parseWalletKeyVersion('version:r103'),
+    nearEd25519SigningKeyId: parseNearEd25519SigningKeyId('near-key:r103'),
+    keyCreationSignerSlot: parseKeyCreationSignerSlot(1),
+    registeredPublicKeyB64u: parseEd25519PublicKeyB64u(PUBLIC_KEY_B64U),
+    lifecycle: buildActiveWalletKeyLifecycle({ activatedAtMs: 1 }),
+  });
+  const ownerLaneRecord = buildOwnerPasskeySigningLaneRecord({
+    walletId,
+    walletKeyId,
+    laneId: sourceLaneId,
+    laneShareEpoch: sourceLaneShareEpoch,
+    participantBindingDigestB64u: required(parseLaneParticipantBindingDigestB64u(FIXTURE_DIGEST)),
+    walletAuthMethodId,
+    ownerParticipantContinuity,
+    lifecycle: buildActiveSigningLaneLifecycle({
+      revocationEpoch: 0,
+      activatedAtMs: 1,
+      activationReceiptDigestB64u: FIXTURE_DIGEST,
+    }),
+  });
   const approval = buildLinkedDeviceApprovalV1({
     linkSessionId,
     walletId,
@@ -117,24 +160,16 @@ export function buildR103DeviceLinkFixture(
     ownerAuthorization: buildStepUpLinkedDeviceOwnerAuthorizationV1({
       evidenceSetId: required(parseAuthorizationEvidenceSetId('evidence:r103')),
     }),
-    policyDigestB64u: FIXTURE_DIGEST,
-    operationId,
-    idempotencyKey,
-    orderedKeyBindings: [
+    orderedOwnerSourceLaneHints: [
       {
-        walletKeyId,
+        kind: 'linked_device_owner_source_lane_v1',
         keyFamily: 'ed25519',
-        sourceLaneId,
-        sourceLaneKind: 'owner_passkey',
-        sourceKind: 'owner_registration',
-        sourceLaneShareEpoch,
-        sourceRevocationEpoch: 0,
-        ownerParticipantContinuity,
-        targetLaneId,
-        targetLaneShareEpoch,
+        walletKey: ownerWalletKey,
+        lane: ownerLaneRecord,
+        materialActivation,
+        verifiedActivationReceiptDigestB64u: FIXTURE_DIGEST,
       },
     ],
-    protocolVersions: [{ keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' }],
     approvedAtMs: 2_000,
     expiresAtMs: 9_000,
   });
