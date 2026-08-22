@@ -26,15 +26,19 @@ mod ed25519_yao_signing_worker;
 #[cfg(feature = "workers-rs")]
 pub use ed25519_yao_signing_worker::{
     handle_cloudflare_signing_worker_ed25519_yao_activate_reservation_v1,
+    handle_cloudflare_signing_worker_ed25519_yao_deactivate_reservation_v1,
     handle_cloudflare_signing_worker_ed25519_yao_packages_v1,
     handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1,
     handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_v1,
     CloudflareEd25519YaoActivateReservationRequestV1,
+    CloudflareEd25519YaoDeactivateReservationRequestV1,
     CloudflareEd25519YaoInactiveReservationRequestV1,
     CloudflareEd25519YaoInactiveReservationResponseV1, CloudflareEd25519YaoPackagePairDeliveryV1,
     CloudflareEd25519YaoRecoveryPromotionRequestV1,
     CloudflareEd25519YaoReservationActivationResponseV1,
+    CloudflareEd25519YaoReservationDeactivationResponseV1,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DEACTIVATE_RESERVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_PATH,
@@ -44,12 +48,15 @@ mod ordinary_inactive_signer_material;
 #[cfg(feature = "workers-rs")]
 pub use ordinary_inactive_signer_material::{
     handle_cloudflare_signing_worker_ecdsa_activate_reservation_v1,
+    handle_cloudflare_signing_worker_ecdsa_deactivate_reservation_v1,
     handle_cloudflare_signing_worker_ecdsa_reserve_inactive_v1,
-    CloudflareEcdsaActivateReservationRequestV1,
+    CloudflareEcdsaActivateReservationRequestV1, CloudflareEcdsaDeactivateReservationRequestV1,
     CloudflareEcdsaInactiveMaterialReservationRequestV1,
     CloudflareEcdsaInactiveMaterialReservationResponseV1,
     CloudflareEcdsaReservationActivationResponseV1,
+    CloudflareEcdsaReservationDeactivationResponseV1,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_ACTIVATE_RESERVATION_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ECDSA_DEACTIVATE_RESERVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH,
 };
 mod router;

@@ -1,14 +1,19 @@
 import { expect, test } from '@playwright/test';
 import {
   createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1,
+  createUnavailableOrdinaryInactiveSignerMaterialDeactivationPortV1,
   createUnavailableOrdinaryInactiveSignerMaterialReservationWorkerV1,
+  CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1,
   type CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+  type CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
   CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1,
 } from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 import type {
+  OrdinaryInactiveSignerMaterialDeactivationRequestV1,
   OrdinaryEcdsaSignerMaterialReservationRequestV1,
   OrdinaryEd25519SignerMaterialReservationRequestV1,
 } from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   buildOrdinaryEcdsaClientMaterialFixture,
   buildOrdinaryEcdsaSignerFixture,
@@ -19,11 +24,20 @@ import {
   buildOrdinaryMaterialActivationFixture,
 } from './helpers/ordinarySignerMaterialReservation.fixtures';
 
-class ReservationEndpointFixture implements CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1 {
+class ReservationEndpointFixture
+  implements
+    CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+    CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1
+{
   readonly ed25519Calls: OrdinaryEd25519SignerMaterialReservationRequestV1[] = [];
   readonly ecdsaCalls: OrdinaryEcdsaSignerMaterialReservationRequestV1[] = [];
+  readonly ed25519DeactivationCalls: MpcMaterialActivationRef[] = [];
+  readonly ecdsaDeactivationCalls: MpcMaterialActivationRef[] = [];
 
-  constructor(private readonly ecdsaRecipientPublicKey?: string) {}
+  constructor(
+    private readonly ecdsaRecipientPublicKey?: string,
+    private readonly deactivationMaterialActivation?: MpcMaterialActivationRef,
+  ) {}
 
   async reserveInactiveEd25519SignerMaterialV1(
     input: OrdinaryEd25519SignerMaterialReservationRequestV1,
@@ -52,10 +66,39 @@ class ReservationEndpointFixture implements CloudflareOrdinaryInactiveSignerMate
       materialActivation: input.plannedActivationRef,
       clientMaterial: buildOrdinaryEcdsaClientMaterialFixture(
         'worker-ecdsa',
-        this.ecdsaRecipientPublicKey ?? input.preparation.registrationRequest.client_ephemeral_public_key,
+        this.ecdsaRecipientPublicKey ??
+          input.preparation.registrationRequest.client_ephemeral_public_key,
         input.preparation.registrationRequest.signer_set.signer_a.key_epoch,
       ),
       serverMaterialReservationId: 'server-reservation-ecdsa',
+    };
+  }
+
+  async deactivateInactiveEd25519SignerMaterialV1(input: {
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<unknown> {
+    this.ed25519DeactivationCalls.push(input.materialActivation);
+    return {
+      kind: 'ordinary_ed25519_signer_material_deactivation_v1',
+      keyFamily: 'ed25519',
+      state: 'revoked',
+      materialActivation: this.deactivationMaterialActivation ?? input.materialActivation,
+      serverMaterialReservationId: 'server-reservation-ed25519',
+      revokedAtMs: 1_700_000_000_000,
+    };
+  }
+
+  async deactivateInactiveEcdsaSignerMaterialV1(input: {
+    readonly materialActivation: MpcMaterialActivationRef;
+  }): Promise<unknown> {
+    this.ecdsaDeactivationCalls.push(input.materialActivation);
+    return {
+      kind: 'ordinary_ecdsa_signer_material_deactivation_v1',
+      keyFamily: 'ecdsa_secp256k1',
+      state: 'revoked',
+      materialActivation: this.deactivationMaterialActivation ?? input.materialActivation,
+      serverMaterialReservationId: 'server-reservation-ecdsa',
+      revokedAtMs: 1_700_000_000_000,
     };
   }
 }
@@ -138,6 +181,54 @@ test('unavailable ordinary reservation worker fails closed without an activation
   ).rejects.toThrow('refusing activation fallback');
 });
 
+test('ordinary deactivation replays the exact terminal ref without a second worker call', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1(endpoint);
+  const request = deactivationRequest('ed25519', 'revoked-activation');
+
+  await worker.deactivateOrdinarySignerMaterialV1(request);
+  await worker.deactivateOrdinarySignerMaterialV1(request);
+
+  expect(endpoint.ed25519DeactivationCalls).toHaveLength(1);
+  expect(endpoint.ed25519DeactivationCalls[0]).toEqual(request.materialActivation);
+});
+
+test('ordinary ECDSA deactivation selects the exact family endpoint', async () => {
+  const endpoint = new ReservationEndpointFixture();
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1(endpoint);
+
+  await worker.deactivateOrdinarySignerMaterialV1(
+    deactivationRequest('ecdsa_secp256k1', 'ecdsa-revoked-activation'),
+  );
+
+  expect(endpoint.ed25519DeactivationCalls).toHaveLength(0);
+  expect(endpoint.ecdsaDeactivationCalls).toHaveLength(1);
+});
+
+test('ordinary deactivation rejects a terminal response bound to another activation ref', async () => {
+  const endpoint = new ReservationEndpointFixture(
+    undefined,
+    buildOrdinaryMaterialActivationFixture('other'),
+  );
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialDeactivationWorkerV1(endpoint);
+
+  await expect(
+    worker.deactivateOrdinarySignerMaterialV1(
+      deactivationRequest('ed25519', 'expected-activation'),
+    ),
+  ).rejects.toThrow('activation ref does not match');
+});
+
+test('unavailable ordinary deactivation worker fails closed', async () => {
+  const worker = createUnavailableOrdinaryInactiveSignerMaterialDeactivationPortV1();
+
+  await expect(
+    worker.deactivateOrdinarySignerMaterialV1(
+      deactivationRequest('ecdsa_secp256k1', 'unavailable-revocation'),
+    ),
+  ).rejects.toThrow('refusing activation fallback');
+});
+
 function ed25519Request(
   signerLabel: string,
   activationLabel: string,
@@ -167,5 +258,16 @@ function ecdsaRequest(
       activationLabel,
       buildOrdinaryMaterialActivationFixture(activationLabel),
     ),
+  };
+}
+
+function deactivationRequest(
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+  activationLabel: string,
+): OrdinaryInactiveSignerMaterialDeactivationRequestV1 {
+  return {
+    keyFamily,
+    materialActivation: buildOrdinaryMaterialActivationFixture(activationLabel),
+    requestedAtMs: 1_700_000_000_000,
   };
 }
