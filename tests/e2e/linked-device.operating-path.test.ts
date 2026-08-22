@@ -17,6 +17,7 @@ import {
   parseActivateInstalledAuthorityResultV1,
   parseCommittedAuthorityPackagesV1,
   parseLinkedDeviceEmailOtpVerificationResultV1,
+  parseLinkedDeviceListResultV1,
   parseLocalAuthorityActivationFinalAckV1,
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkSessionProjectionV1,
@@ -1103,6 +1104,7 @@ type LinkedOwnerPair = {
   readonly device2Diagnostics: readonly string[];
   readonly owner: AuthenticatedOwnerSnapshot;
   readonly device2: OwnerCredentialSnapshot;
+  readonly activation: LinkedActivationSnapshot;
 };
 
 type EmailLinkedOwnerPair = {
@@ -1125,6 +1127,24 @@ type BrowserPasskeyRevocationInput = {
 type BrowserPasskeyRevocationResult = {
   readonly body: unknown;
   readonly status: number;
+};
+
+type LinkedActivationSnapshot = {
+  readonly linkSessionId: string;
+  readonly authorityId: string;
+  readonly authMethodId: string;
+  readonly deviceId: string;
+  readonly packageSetDigestB64u: string;
+  readonly authorizationId: string;
+};
+
+type LinkedInventorySnapshot = {
+  readonly deviceId: string;
+  readonly enrollmentId: string;
+  readonly authMethodId: string;
+  readonly keyManifestDigestB64u: string;
+  readonly state: string;
+  readonly revocationEpoch: number;
 };
 
 function isRevokedWalletUnlockResponse(response: Response): boolean {
@@ -1427,6 +1447,18 @@ async function revokeOwner(
   actor: OwnerCredentialSnapshot,
   target: OwnerCredentialSnapshot,
 ): Promise<void> {
+  const result = await attemptRevokeOwner(page, actor, target);
+  const body = requireRecord(result.body, 'auth-method revoke response');
+  if (result.status !== 200 || body.ok !== true) {
+    throw new Error(`Owner revocation failed (${result.status}): ${JSON.stringify(result.body)}`);
+  }
+}
+
+async function attemptRevokeOwner(
+  page: Page,
+  actor: OwnerCredentialSnapshot,
+  target: OwnerCredentialSnapshot,
+): Promise<BrowserPasskeyRevocationResult> {
   if (
     actor.walletId !== target.walletId ||
     actor.rpId !== target.rpId ||
@@ -1441,10 +1473,16 @@ async function revokeOwner(
     rpId: actor.rpId,
     targetCredentialIdB64u: target.credentialIdB64u,
   });
+  return result;
+}
+
+function isSuccessfulRevocation(result: BrowserPasskeyRevocationResult): boolean {
   const body = requireRecord(result.body, 'auth-method revoke response');
-  if (result.status !== 200 || body.ok !== true) {
-    throw new Error(`Owner revocation failed (${result.status}): ${JSON.stringify(result.body)}`);
-  }
+  return result.status === 200 && body.ok === true;
+}
+
+function isFailedRevocation(result: BrowserPasskeyRevocationResult): boolean {
+  return result.status !== 200;
 }
 
 function ownerCredentialSnapshot(owner: AuthenticatedOwnerSnapshot): OwnerCredentialSnapshot {
@@ -1500,12 +1538,56 @@ async function openLinkedDevicesDialog(page: Page): Promise<Locator> {
   return dialog;
 }
 
+async function readActiveLinkedDeviceInventory(page: Page): Promise<LinkedInventorySnapshot> {
+  const menu = await openProfileMenu(page);
+  const inventoryResponse = page.waitForResponse(isLinkedDeviceInventoryResponse, {
+    timeout: 60_000,
+  });
+  await menu.getByRole('button', { name: /^Linked Devices\b/ }).click();
+  const inventory = await inventoryResponse;
+  const body = await inventory.json();
+  const parsed = parseLinkedDeviceListResultV1(body);
+  const activeDevices = parsed.devices.filter(isActiveLinkedDevice);
+  if (activeDevices.length !== 1) {
+    throw new Error(`Expected one active linked device, received ${activeDevices.length}`);
+  }
+  const device = activeDevices[0];
+  const snapshot: LinkedInventorySnapshot = {
+    authMethodId: String(device.credential.walletAuthMethodId),
+    deviceId: String(device.deviceId),
+    enrollmentId: String(device.enrollmentId),
+    keyManifestDigestB64u: String(device.keyManifestDigestB64u),
+    revocationEpoch: device.revocationEpoch,
+    state: device.state,
+  };
+  const dialog = page.getByRole('dialog', { name: 'Your devices', exact: true });
+  await dialog.waitFor({ state: 'visible', timeout: 30_000 });
+  await dialog.locator('.w3a-linked-devices-modal-close').click();
+  await expect(dialog).toBeHidden({ timeout: 10_000 });
+  return snapshot;
+}
+
+function isActiveLinkedDevice(device: { readonly state: string }): boolean {
+  return device.state === 'active';
+}
+
 async function assertLinkedDeviceInventoryLoaded(page: Page): Promise<void> {
   const dialog = await openLinkedDevicesDialog(page);
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(1, { timeout: 60_000 });
   await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(1);
   await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
+  await dialog.locator('.w3a-linked-devices-modal-close').click();
+  await expect(dialog).toBeHidden({ timeout: 10_000 });
+}
+
+async function assertPasskeyInventoryLoaded(page: Page, expectedCardCount: number): Promise<void> {
+  const dialog = await openLinkedDevicesDialog(page);
+  const cards = dialog.locator('.w3a-linked-devices-modal-item');
+  await expect(cards).toHaveCount(expectedCardCount, { timeout: 60_000 });
+  await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(
+    expectedCardCount,
+  );
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
 }
@@ -1619,6 +1701,26 @@ function isAuthorityActivationAcknowledgementResponse(response: Response): boole
     response.status() === 204 &&
     new URL(response.url()).pathname.endsWith('/receipt')
   );
+}
+
+function parseActiveLinkedSessionSnapshot(
+  raw: unknown,
+  label: string,
+): {
+  readonly linkSessionId: string;
+  readonly authorityId: string;
+  readonly deviceId: string;
+} {
+  const envelope = requireRecord(raw, label);
+  const projection = parseLinkSessionProjectionV1(envelope.session);
+  if (projection.state.state !== 'active') {
+    throw new Error(`${label}.session.state must be active`);
+  }
+  return {
+    linkSessionId: String(projection.linkSessionId),
+    authorityId: String(projection.state.authorityId),
+    deviceId: String(projection.state.deviceId),
+  };
 }
 
 /** The QR v5 create request carries the factor choice; find its discriminator. */
@@ -1907,7 +2009,14 @@ async function setupEmailLinkedOwnerPair(browser: Browser): Promise<EmailLinkedO
     expect(acknowledgement.authorityId).toBe(activated.walletSession.authorityId);
     expect(acknowledgement.packageSetDigestB64u).toBe(committed.packageSetDigestB64u);
     expect(acknowledgement.authorizationId).toBe(activated.walletSession.authorizationId);
-    await activeSession;
+    const activeSessionResponse = await activeSession;
+    const activeSessionSnapshot = parseActiveLinkedSessionSnapshot(
+      await activeSessionResponse.json(),
+      'active linked-device session response',
+    );
+    expect(activeSessionSnapshot.linkSessionId).toBe(String(preparation.linkSessionId));
+    expect(activeSessionSnapshot.authorityId).toBe(String(activated.authority.authorityId));
+    expect(activeSessionSnapshot.deviceId).toBe(String(committed.authority.principal.deviceId));
     await waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics);
     await device2Page.goto(`${appOrigin}/wallet`, { waitUntil: 'domcontentloaded' });
     await device2Page
@@ -2104,6 +2213,19 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
     expect(acknowledgement.authorizationId).toBe(activated.walletSession.authorizationId);
     await activeSession;
     await waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics);
+    const activation: LinkedActivationSnapshot = {
+      authMethodId: String(committed.authMethod.walletAuthMethodId),
+      authorizationId: String(activated.walletSession.authorizationId),
+      authorityId: String(activated.authority.authorityId),
+      deviceId: String(committed.authority.principal.deviceId),
+      linkSessionId: String(preparation.linkSessionId),
+      packageSetDigestB64u: String(committed.packageSetDigestB64u),
+    };
+    expect(activation.authorityId).toBe(String(acknowledgement.authorityId));
+    expect(activation.packageSetDigestB64u).toBe(String(acknowledgement.packageSetDigestB64u));
+    const inventoryBeforeReload = await readActiveLinkedDeviceInventory(ownerPage);
+    expect(inventoryBeforeReload.deviceId).toBe(activation.deviceId);
+    expect(inventoryBeforeReload.authMethodId).toBe(activation.authMethodId);
     const expectedDevice2: AuthenticatedOwnerSnapshot = {
       credentialIdB64u: credentialIdB64uFromAddedEvent(device2CredentialAddedEvents[0]),
       publicIdentity: owner.publicIdentity,
@@ -2117,6 +2239,13 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
     await assertOwnerProfileRows(device2Page);
     const device2WalletId = await readActiveWalletId(device2Page);
     expect(device2WalletId).toBe(owner.publicIdentity.walletId);
+    const inventoryAfterReload = await readActiveLinkedDeviceInventory(ownerPage);
+    expect(inventoryAfterReload).toEqual(inventoryBeforeReload);
+    expect(inventoryAfterReload.deviceId).toBe(activation.deviceId);
+    expect(inventoryAfterReload.authMethodId).toBe(activation.authMethodId);
+    expect(inventoryAfterReload.keyManifestDigestB64u).toBe(
+      inventoryBeforeReload.keyManifestDigestB64u,
+    );
     const device2 = ownerCredentialSnapshot(expectedDevice2);
     return {
       ownerContext,
@@ -2127,6 +2256,7 @@ async function setupLinkedOwnerPair(browser: Browser): Promise<LinkedOwnerPair> 
       device2Diagnostics,
       owner,
       device2,
+      activation,
     };
   } catch (error) {
     await closeBrowserContexts(ownerContext, device2Context);
@@ -2164,6 +2294,89 @@ test('Device 2 revokes Device 1 while preserving Device 2 operation', async ({ b
     await lockWallet(pair.ownerPage);
     await revokeOwner(pair.device2Page, pair.device2, ownerCredentialSnapshot(pair.owner));
     await assertRevokedOwnerCannotUnlock(pair.ownerPage);
+    await linkedSigning(pair.device2Page, pair.device2Diagnostics);
+  } finally {
+    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
+  }
+});
+
+test('final active auth method refuses self-revocation without changing the owner', async ({
+  browser,
+}) => {
+  const pair = await setupLinkedOwnerPair(browser);
+  try {
+    await revokeOwner(pair.ownerPage, ownerCredentialSnapshot(pair.owner), pair.device2);
+    await assertPasskeyInventoryLoaded(pair.ownerPage, 1);
+
+    const finalMethodAttempt = await attemptRevokeOwner(
+      pair.ownerPage,
+      ownerCredentialSnapshot(pair.owner),
+      ownerCredentialSnapshot(pair.owner),
+    );
+    const failure = requireRecord(finalMethodAttempt.body, 'final-method revoke response');
+    expect(finalMethodAttempt.status).toBe(401);
+    expect(failure).toMatchObject({
+      ok: false,
+      code: 'unauthorized',
+    });
+    expect(String(failure.message)).toMatch(/different active|different.*method/i);
+
+    await lockWallet(pair.device2Page);
+    await assertRevokedOwnerCannotUnlock(pair.device2Page);
+    await linkedSigning(pair.ownerPage, pair.ownerDiagnostics);
+    await assertPasskeyInventoryLoaded(pair.ownerPage, 1);
+  } finally {
+    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
+  }
+});
+
+test('competing revocations of the final two methods serialize to one survivor', async ({
+  browser,
+}) => {
+  const pair = await setupLinkedOwnerPair(browser);
+  try {
+    const [ownerRevocation, device2Revocation] = await Promise.all([
+      attemptRevokeOwner(pair.ownerPage, ownerCredentialSnapshot(pair.owner), pair.device2),
+      attemptRevokeOwner(pair.device2Page, pair.device2, ownerCredentialSnapshot(pair.owner)),
+    ]);
+    const results = [ownerRevocation, device2Revocation];
+    const successful = results.filter(isSuccessfulRevocation);
+    expect(successful).toHaveLength(1);
+    const failed = results.filter(isFailedRevocation);
+    expect(failed).toHaveLength(1);
+    const failedBody = requireRecord(failed[0].body, 'concurrent revoke failure response');
+    expect(failedBody.ok).toBe(false);
+    expect(['conflict', 'invalid_state', 'unauthorized']).toContain(failedBody.code);
+
+    const ownerWon = ownerRevocation.status === 200;
+    const survivorPage = ownerWon ? pair.ownerPage : pair.device2Page;
+    const revokedPage = ownerWon ? pair.device2Page : pair.ownerPage;
+    const survivorCredential = ownerWon ? ownerCredentialSnapshot(pair.owner) : pair.device2;
+    const survivorDiagnostics = ownerWon ? pair.ownerDiagnostics : pair.device2Diagnostics;
+    await lockWallet(revokedPage);
+    await assertRevokedOwnerCannotUnlock(revokedPage);
+    await lockWallet(survivorPage);
+    await unlockLinkedPasskeyWallet(survivorPage, survivorDiagnostics);
+    await linkedSigning(survivorPage, survivorDiagnostics);
+    await assertPasskeyInventoryLoaded(survivorPage, 1);
+    expect(survivorCredential.walletId).toBe(pair.owner.publicIdentity.walletId);
+  } finally {
+    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
+  }
+});
+
+test('linked authority IDs and digests remain exact across the browser reload retry', async ({
+  browser,
+}) => {
+  const pair = await setupLinkedOwnerPair(browser);
+  try {
+    expect(pair.activation.linkSessionId).toBeTruthy();
+    expect(pair.activation.authorityId).toBeTruthy();
+    expect(pair.activation.authMethodId).toBeTruthy();
+    expect(pair.activation.deviceId).toBeTruthy();
+    expect(pair.activation.packageSetDigestB64u).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(pair.activation.authorizationId).toBeTruthy();
+    await assertPasskeyInventoryLoaded(pair.ownerPage, 2);
     await linkedSigning(pair.device2Page, pair.device2Diagnostics);
   } finally {
     await closeBrowserContexts(pair.ownerContext, pair.device2Context);
