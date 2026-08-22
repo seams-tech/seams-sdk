@@ -1,8 +1,10 @@
 import type {
   CommittedEd25519SignerPackageV1,
   CommittedEcdsaSignerPackageV1,
+  CommittedAuthorityPackagesV1,
   CommittedSignerPackageSetV1,
 } from '../../packages/shared-ts/src/device-linking/committedSignerPackages';
+import type { LocalAuthorityInstallationReceiptV1 } from '../../packages/shared-ts/src/device-linking/contracts';
 
 declare const ed25519Package: CommittedEd25519SignerPackageV1;
 declare const ecdsaPackage: CommittedEcdsaSignerPackageV1;
@@ -61,3 +63,19 @@ const invalidEcdsaOnly: Extract<
   ed25519: ed25519Package,
 };
 void invalidEcdsaOnly;
+
+declare const committedAuthorityPackages: CommittedAuthorityPackagesV1;
+// @ts-expect-error A committed package delivery requires its auth-method identity.
+const missingCommittedAuthMethod: CommittedAuthorityPackagesV1 = {
+  ...committedAuthorityPackages,
+  authMethod: undefined,
+};
+void missingCommittedAuthMethod;
+
+declare const installationReceipt: LocalAuthorityInstallationReceiptV1;
+// @ts-expect-error An installation receipt requires the target device identity.
+const missingInstallationDevice: LocalAuthorityInstallationReceiptV1 = {
+  ...installationReceipt,
+  deviceId: undefined,
+};
+void missingInstallationDevice;

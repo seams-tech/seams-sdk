@@ -8,6 +8,7 @@ import {
 } from '../authorization/delegatedAuthority';
 import {
   parseAuthorizationEvidenceSetId,
+  parseDeviceId as parseAuthorizationDeviceId,
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
   parseTenantId,
@@ -50,6 +51,7 @@ import {
   parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
   parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
@@ -90,6 +92,11 @@ import {
   requireRecord,
   rejectUnknownFields,
 } from '../passkey-custody/primitives';
+import {
+  parseWalletAuthorityV1,
+  parseWalletSignerActivationSetV1,
+} from '../authorization/walletAuthority';
+import { parseWalletAuthMethodRecordV2 } from '../utils/registrationIntent';
 import { parseNearAccountId } from '../utils/near';
 import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import {
@@ -147,6 +154,13 @@ import {
   type LinkedDeviceTargetFactorV1,
   type LinkedDeviceLocalAccountProjectionV1,
   type LinkedDeviceOwnerFinalizeRequestV1,
+  type ActiveWalletSessionV1,
+  type ActivateInstalledAuthorityResultV1,
+  type ActivationRetryReasonV1,
+  type LinkIntegrityFailureV1,
+  type LocalAuthorityActivationFinalAckV1,
+  type LocalAuthorityInstallationReceiptV1,
+  type WalletCapabilitySubjectV1,
 } from './contracts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -4000,4 +4014,293 @@ export function parseLinkedDeviceLocalAccountProjectionV1(
     nearAccountId,
     signerSlot: Number(record.signerSlot),
   };
+}
+
+const LOCAL_AUTHORITY_INSTALLATION_RECEIPT_FIELDS = [
+  'kind',
+  'authorityId',
+  'walletId',
+  'authMethodId',
+  'deviceId',
+  'packageSetDigestB64u',
+  'installedActivationRefs',
+  'installedRecordSetDigestB64u',
+  'targetFactorVerificationDigestB64u',
+  'installedAtMs',
+] as const;
+
+export function parseLocalAuthorityInstallationReceiptV1(
+  raw: unknown,
+): LocalAuthorityInstallationReceiptV1 {
+  const record = exactRecord(
+    raw,
+    LOCAL_AUTHORITY_INSTALLATION_RECEIPT_FIELDS,
+    'LocalAuthorityInstallationReceiptV1',
+  );
+  if (record.kind !== 'local_authority_installation_receipt_v1') {
+    throw new Error('LocalAuthorityInstallationReceiptV1.kind is invalid');
+  }
+  const installedActivationResult = parseWalletSignerActivationSetV1(
+    record.installedActivationRefs,
+  );
+  if (!installedActivationResult.ok) {
+    throw new Error(
+      `LocalAuthorityInstallationReceiptV1.installedActivationRefs ${installedActivationResult.error}`,
+    );
+  }
+  return {
+    kind: 'local_authority_installation_receipt_v1',
+    authorityId: parseId(parseWalletAuthorityId, record.authorityId, 'authorityId'),
+    walletId: parseId(parseWalletId, record.walletId, 'walletId'),
+    authMethodId: parseId(parseWalletAuthMethodId, record.authMethodId, 'authMethodId'),
+    deviceId: parseId(parseAuthorizationDeviceId, record.deviceId, 'deviceId'),
+    packageSetDigestB64u: parseDigest(record.packageSetDigestB64u, 'packageSetDigestB64u'),
+    installedActivationRefs: installedActivationResult.value,
+    installedRecordSetDigestB64u: parseDigest(
+      record.installedRecordSetDigestB64u,
+      'installedRecordSetDigestB64u',
+    ),
+    targetFactorVerificationDigestB64u: parseDigest(
+      record.targetFactorVerificationDigestB64u,
+      'targetFactorVerificationDigestB64u',
+    ),
+    installedAtMs: parseUnixTime(record.installedAtMs, 'installedAtMs'),
+  };
+}
+
+const ACTIVE_WALLET_SESSION_FIELDS = [
+  'kind',
+  'walletId',
+  'authorityId',
+  'authMethodId',
+  'authorizationId',
+  'authorityDigestB64u',
+  'authorityRevocationEpoch',
+  'capabilitySubjects',
+  'issuedAtMs',
+  'expiresAtMs',
+] as const;
+
+export function parseActiveWalletSessionV1(raw: unknown): ActiveWalletSessionV1 {
+  const record = exactRecord(raw, ACTIVE_WALLET_SESSION_FIELDS, 'ActiveWalletSessionV1');
+  if (record.kind !== 'active_wallet_session_v1') {
+    throw new Error('ActiveWalletSessionV1.kind is invalid');
+  }
+  if (!Array.isArray(record.capabilitySubjects) || record.capabilitySubjects.length === 0) {
+    throw new Error('ActiveWalletSessionV1.capabilitySubjects must be non-empty');
+  }
+  const capabilitySubjects: WalletCapabilitySubjectV1[] = [];
+  const subjectKeys = new Set<string>();
+  for (const [index, rawSubject] of record.capabilitySubjects.entries()) {
+    const subject = parseWalletCapabilitySubjectV1(rawSubject, `capabilitySubjects[${index}]`);
+    const key =
+      subject.kind === 'sign' || subject.kind === 'export_keys'
+        ? `${subject.kind}:${subject.keyFamily}:${subject.materialActivation.activationId}`
+        : subject.kind;
+    if (subjectKeys.has(key)) throw new Error('ActiveWalletSessionV1 capability subjects repeat');
+    subjectKeys.add(key);
+    capabilitySubjects.push(subject);
+  }
+  const first = capabilitySubjects[0];
+  if (!first) throw new Error('ActiveWalletSessionV1.capabilitySubjects must be non-empty');
+  return {
+    kind: 'active_wallet_session_v1',
+    walletId: parseId(parseWalletId, record.walletId, 'walletId'),
+    authorityId: parseId(parseWalletAuthorityId, record.authorityId, 'authorityId'),
+    authMethodId: parseId(parseWalletAuthMethodId, record.authMethodId, 'authMethodId'),
+    authorizationId: parseId(
+      parseWalletSessionAuthorizationId,
+      record.authorizationId,
+      'authorizationId',
+    ),
+    authorityDigestB64u: parseDigest(record.authorityDigestB64u, 'authorityDigestB64u'),
+    authorityRevocationEpoch: parseNonNegativeInteger(
+      record.authorityRevocationEpoch,
+      'authorityRevocationEpoch',
+    ),
+    capabilitySubjects: [first, ...capabilitySubjects.slice(1)],
+    issuedAtMs: parseUnixTime(record.issuedAtMs, 'issuedAtMs'),
+    expiresAtMs: parseUnixTime(record.expiresAtMs, 'expiresAtMs'),
+  };
+}
+
+function parseWalletCapabilitySubjectV1(
+  raw: unknown,
+  label: string,
+): WalletCapabilitySubjectV1 {
+  const record = requireRecord(raw, label);
+  if (record.kind === 'link_devices' || record.kind === 'revoke_devices') {
+    rejectUnknownFields(record, ['kind'], label);
+    return { kind: record.kind };
+  }
+  if (record.kind !== 'sign' && record.kind !== 'export_keys') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  rejectUnknownFields(record, ['kind', 'keyFamily', 'materialActivation'], label);
+  if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error(`${label}.keyFamily is invalid`);
+  }
+  return {
+    kind: record.kind,
+    keyFamily: record.keyFamily,
+    materialActivation: parseId(parseMpcMaterialActivationRef, record.materialActivation, `${label}.materialActivation`),
+  };
+}
+
+function parseNonNegativeInteger(raw: unknown, label: string): number {
+  if (!Number.isSafeInteger(raw) || Number(raw) < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return Number(raw);
+}
+
+const LOCAL_AUTHORITY_ACTIVATION_FINAL_ACK_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'authorityId',
+  'packageSetDigestB64u',
+  'authorizationId',
+  'acknowledgedAtMs',
+] as const;
+
+export function parseLocalAuthorityActivationFinalAckV1(
+  raw: unknown,
+): LocalAuthorityActivationFinalAckV1 {
+  const record = exactRecord(
+    raw,
+    LOCAL_AUTHORITY_ACTIVATION_FINAL_ACK_FIELDS,
+    'LocalAuthorityActivationFinalAckV1',
+  );
+  if (record.kind !== 'local_authority_activation_final_ack_v1') {
+    throw new Error('LocalAuthorityActivationFinalAckV1.kind is invalid');
+  }
+  return {
+    kind: 'local_authority_activation_final_ack_v1',
+    linkSessionId: parseId(parseLinkDeviceSessionId, record.linkSessionId, 'linkSessionId'),
+    authorityId: parseId(parseWalletAuthorityId, record.authorityId, 'authorityId'),
+    packageSetDigestB64u: parseDigest(record.packageSetDigestB64u, 'packageSetDigestB64u'),
+    authorizationId: parseId(
+      parseWalletSessionAuthorizationId,
+      record.authorizationId,
+      'authorizationId',
+    ),
+    acknowledgedAtMs: parseUnixTime(record.acknowledgedAtMs, 'acknowledgedAtMs'),
+  };
+}
+
+export function parseActivateInstalledAuthorityResultV1(
+  raw: unknown,
+): ActivateInstalledAuthorityResultV1 {
+  const record = requireRecord(raw, 'ActivateInstalledAuthorityResultV1');
+  switch (record.kind) {
+    case 'active': {
+      rejectUnknownFields(record, ['kind', 'authority', 'authMethod', 'walletSession'], 'ActivateInstalledAuthorityResultV1');
+      const authorityResult = parseWalletAuthorityV1(record.authority);
+      if (!authorityResult.ok || authorityResult.value.state !== 'active') {
+        throw new Error('ActivateInstalledAuthorityResultV1.authority must be active');
+      }
+      const authMethod = parseWalletAuthMethodRecordV2(record.authMethod);
+      if (!authMethod || authMethod.status !== 'active') {
+        throw new Error('ActivateInstalledAuthorityResultV1.authMethod must be active');
+      }
+      const walletSession = parseActiveWalletSessionV1(record.walletSession);
+      if (
+        authorityResult.value.walletId !== authMethod.walletId ||
+        authorityResult.value.authorityId !== authMethod.walletAuthorityId ||
+        walletSession.walletId !== authorityResult.value.walletId ||
+        walletSession.authorityId !== authorityResult.value.authorityId ||
+        walletSession.authMethodId !== authMethod.walletAuthMethodId ||
+        walletSession.authorityDigestB64u !== authorityResult.value.authorityDigestB64u ||
+        walletSession.authorityRevocationEpoch !== authorityResult.value.revocationEpoch
+      ) {
+        throw new Error('ActivateInstalledAuthorityResultV1 identities do not match');
+      }
+      return {
+        kind: 'active',
+        authority: authorityResult.value,
+        authMethod,
+        walletSession,
+      };
+    }
+    case 'pending_local_install':
+      rejectUnknownFields(
+        record,
+        ['kind', 'authorityId', 'reason'],
+        'ActivateInstalledAuthorityResultV1',
+      );
+      return {
+        kind: 'pending_local_install',
+        authorityId: parseId(parseWalletAuthorityId, record.authorityId, 'authorityId'),
+        reason: parseActivationRetryReasonV1(record.reason),
+      };
+    case 'integrity_error':
+      rejectUnknownFields(record, ['kind', 'reason'], 'ActivateInstalledAuthorityResultV1');
+      return {
+        kind: 'integrity_error',
+        reason: parseLinkIntegrityFailureV1(record.reason),
+      };
+    default:
+      throw new Error('ActivateInstalledAuthorityResultV1.kind is invalid');
+  }
+}
+
+function parseActivationRetryReasonV1(raw: unknown): ActivationRetryReasonV1 {
+  const record = requireRecord(raw, 'ActivationRetryReasonV1');
+  switch (record.kind) {
+    case 'installation_receipt_not_found':
+    case 'server_worker_activation_pending':
+    case 'wallet_session_issuance_pending':
+      rejectUnknownFields(record, ['kind'], 'ActivationRetryReasonV1');
+      return { kind: record.kind };
+    default:
+      throw new Error('ActivationRetryReasonV1.kind is invalid');
+  }
+}
+
+function parseLinkIntegrityFailureV1(raw: unknown): LinkIntegrityFailureV1 {
+  const record = requireRecord(raw, 'LinkIntegrityFailureV1');
+  switch (record.kind) {
+    case 'authority_id_mismatch':
+      rejectUnknownFields(record, ['kind', 'expectedAuthorityId', 'actualAuthorityId'], 'LinkIntegrityFailureV1');
+      return {
+        kind: 'authority_id_mismatch',
+        expectedAuthorityId: parseId(
+          parseWalletAuthorityId,
+          record.expectedAuthorityId,
+          'expectedAuthorityId',
+        ),
+        actualAuthorityId: parseId(
+          parseWalletAuthorityId,
+          record.actualAuthorityId,
+          'actualAuthorityId',
+        ),
+      };
+    case 'package_set_digest_mismatch':
+      rejectUnknownFields(record, ['kind', 'expectedPackageSetDigestB64u', 'actualPackageSetDigestB64u'], 'LinkIntegrityFailureV1');
+      return {
+        kind: 'package_set_digest_mismatch',
+        expectedPackageSetDigestB64u: parseDigest(
+          record.expectedPackageSetDigestB64u,
+          'expectedPackageSetDigestB64u',
+        ),
+        actualPackageSetDigestB64u: parseDigest(
+          record.actualPackageSetDigestB64u,
+          'actualPackageSetDigestB64u',
+        ),
+      };
+    case 'installation_receipt_mismatch':
+      rejectUnknownFields(record, ['kind', 'field'], 'LinkIntegrityFailureV1');
+      if (
+        record.field !== 'walletId' &&
+        record.field !== 'authMethodId' &&
+        record.field !== 'deviceId' &&
+        record.field !== 'targetFactorVerificationDigestB64u' &&
+        record.field !== 'installedActivationRefs'
+      ) {
+        throw new Error('LinkIntegrityFailureV1.field is invalid');
+      }
+      return { kind: 'installation_receipt_mismatch', field: record.field };
+    default:
+      throw new Error('LinkIntegrityFailureV1.kind is invalid');
+  }
 }

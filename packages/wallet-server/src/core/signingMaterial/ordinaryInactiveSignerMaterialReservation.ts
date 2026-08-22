@@ -8,12 +8,17 @@ import {
 } from '@shared/device-linking/delegatedActivationPlan';
 import {
   parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
+  parseRouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
+  type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   hasWhitespaceOrControlCharacters,
   mpcMaterialActivationRefsEqual,
@@ -73,6 +78,17 @@ export type OrdinaryInactiveServerMaterialV1 = {
   readonly reservationId: OrdinaryInactiveServerMaterialReservationIdV1;
 };
 
+export type OrdinaryEd25519SignerMaterialReservationPreparationV1 = {
+  readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
+  readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+};
+
+export type OrdinaryEcdsaSignerMaterialReservationPreparationV1 = {
+  readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';
+  readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
+
 export type OrdinaryEd25519SignerMaterialReservationRequestV1 =
   OrdinarySignerMaterialReservationRequestV1<'ed25519'>;
 export type OrdinaryEcdsaSignerMaterialReservationRequestV1 =
@@ -86,6 +102,9 @@ type OrdinarySignerMaterialReservationRequestV1<F extends OrdinarySignerFamilyV1
   readonly keyFamily: F;
   readonly signer: OrdinarySignerByFamilyV1[F];
   readonly plannedActivationRef: MpcMaterialActivationRef;
+  readonly preparation: F extends 'ed25519'
+    ? OrdinaryEd25519SignerMaterialReservationPreparationV1
+    : OrdinaryEcdsaSignerMaterialReservationPreparationV1;
 };
 
 export type OrdinaryEd25519SignerMaterialWorkerReservationV1 =
@@ -133,6 +152,7 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   async reserveOrdinaryInactiveSignerMaterialV1(
     request: OrdinaryInactiveSignerMaterialReservationRequestV1,
   ): Promise<OrdinaryInactiveSignerMaterialReservationV1> {
+    validateOrdinaryInactiveSignerMaterialReservationRequestV1(request);
     switch (request.kind) {
       case 'ordinary_ed25519_signer_material_reservation_request_v1':
         return this.reserveEd25519V1(request);
@@ -146,7 +166,7 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   private async reserveEd25519V1(
     request: OrdinaryEd25519SignerMaterialReservationRequestV1,
   ): Promise<OrdinaryEd25519SignerMaterialReservationV1> {
-    const reservation = parseEd25519WorkerReservationV1(
+    const reservation = parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
       request,
       await this.worker.reserveInactiveEd25519SignerMaterialV1(request),
     );
@@ -164,7 +184,7 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   private async reserveEcdsaV1(
     request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
   ): Promise<OrdinaryEcdsaSignerMaterialReservationV1> {
-    const reservation = parseEcdsaWorkerReservationV1(
+    const reservation = parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
       request,
       await this.worker.reserveInactiveEcdsaSignerMaterialV1(request),
     );
@@ -180,13 +200,52 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   }
 }
 
+export function validateOrdinaryInactiveSignerMaterialReservationRequestV1(
+  request: OrdinaryInactiveSignerMaterialReservationRequestV1,
+): void {
+  switch (request.kind) {
+    case 'ordinary_ed25519_signer_material_reservation_request_v1': {
+      if (
+        request.preparation.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1'
+      ) {
+        throw new Error('ordinary Ed25519 reservation preparation kind is invalid');
+      }
+      const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+        request.preparation.activationRequest,
+      );
+      if (!parsed.ok) {
+        throw new Error(`ordinary Ed25519 reservation preparation: ${parsed.message}`);
+      }
+      assertMaterialActivationMatchesV1(
+        request.plannedActivationRef,
+        routerAbMpcMaterialActivationRefFromWire(parsed.value.binding.material_activation),
+      );
+      return;
+    }
+    case 'ordinary_ecdsa_signer_material_reservation_request_v1':
+      if (
+        request.preparation.kind !== 'ordinary_ecdsa_signer_material_reservation_preparation_v1'
+      ) {
+        throw new Error('ordinary ECDSA reservation preparation kind is invalid');
+      }
+      parseRouterAbEcdsaRegistrationRequestV1(request.preparation.registrationRequest);
+      assertMaterialActivationMatchesV1(
+        request.plannedActivationRef,
+        request.preparation.materialActivation,
+      );
+      return;
+    default:
+      return assertNever(request);
+  }
+}
+
 export function createOrdinaryInactiveSignerMaterialReservationServiceV1(input: {
   readonly worker: OrdinaryInactiveSignerMaterialReservationWorkerPortV1;
 }): OrdinaryInactiveSignerMaterialReservationServiceV1 {
   return new OrdinaryInactiveSignerMaterialReservationServiceV1(input.worker);
 }
 
-function parseEd25519WorkerReservationV1(
+export function parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
   request: OrdinaryEd25519SignerMaterialReservationRequestV1,
   raw: unknown,
 ): OrdinaryEd25519SignerMaterialWorkerReservationV1 {
@@ -227,7 +286,7 @@ function parseEd25519WorkerReservationV1(
   };
 }
 
-function parseEcdsaWorkerReservationV1(
+export function parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
   request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
   raw: unknown,
 ): OrdinaryEcdsaSignerMaterialWorkerReservationV1 {
@@ -397,7 +456,10 @@ function exactRecord(
 
 function isEd25519Manifest(
   manifest: ExactAdministeredSignerManifestV1,
-): manifest is Extract<ExactAdministeredSignerManifestV1, { readonly keyFamilies: readonly ['ed25519'] }> {
+): manifest is Extract<
+  ExactAdministeredSignerManifestV1,
+  { readonly keyFamilies: readonly ['ed25519'] }
+> {
   return manifest.keyFamilies.length === 1 && manifest.keyFamilies[0] === 'ed25519';
 }
 

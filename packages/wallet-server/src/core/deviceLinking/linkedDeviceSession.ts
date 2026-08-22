@@ -1250,6 +1250,45 @@ function replaceSessionRecordV1(
   });
 }
 
+/** Builds the next linear session record for the authority commit transaction. */
+export function buildAuthorityPendingLocalInstallSessionRecordV1(input: {
+  readonly record: LinkedDeviceSessionRecordV1;
+  readonly authorityId: WalletAuthorityId;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly nowMs: number;
+}): LinkedDeviceSessionRecordV1 {
+  const nowMs = requireTimestamp(input.nowMs, 'nowMs');
+  if (input.record.state.state !== 'provisioning') {
+    throw new Error('linked-device session is not ready for authority commit');
+  }
+  return replaceSessionRecordV1(input.record, {
+    state: authorityPendingStateV1(input.record, input.authorityId, input.packageSetDigestB64u),
+    authorityId: input.authorityId,
+    packageSetDigestB64u: input.packageSetDigestB64u,
+    revision: input.record.revision + 1,
+    updatedAtMs: nowMs,
+  });
+}
+
+/** Builds the next linear session record for the authority activation transaction. */
+export function buildAuthorityActiveSessionRecordV1(input: {
+  readonly record: LinkedDeviceSessionRecordV1;
+  readonly activatedAtMs: number;
+  readonly nowMs: number;
+}): LinkedDeviceSessionRecordV1 {
+  const nowMs = requireTimestamp(input.nowMs, 'nowMs');
+  const activatedAtMs = requireTimestamp(input.activatedAtMs, 'activatedAtMs');
+  if (activatedAtMs > nowMs) throw new Error('activatedAtMs cannot be in the future');
+  if (input.record.state.state !== 'authority_pending_local_install') {
+    throw new Error('linked-device session has no pending authority installation');
+  }
+  return replaceSessionRecordV1(input.record, {
+    state: activeStateV1(input.record, activatedAtMs),
+    revision: input.record.revision + 1,
+    updatedAtMs: nowMs,
+  });
+}
+
 function claimedStateV1(
   record: LinkedDeviceSessionRecordV1,
   claim: LinkedDeviceClaimV1,

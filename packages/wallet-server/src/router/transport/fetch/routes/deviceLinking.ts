@@ -1,15 +1,19 @@
 import type {
+  ActiveWalletSessionV1,
+  ActivateInstalledAuthorityResultV1 as WireActivateInstalledAuthorityResultV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceEmailOtpChallengeResendRequestV1,
   LinkedDeviceEmailOtpChallengeStartRequestV1,
   LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceEmailOtpVerificationResultV1,
-  LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
+  LocalAuthorityActivationFinalAckV1,
+  LocalAuthorityInstallationReceiptV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
+import type { CommittedAuthorityPackagesV1 } from '@shared/device-linking/committedSignerPackages';
 import {
   parseLinkedDeviceApprovalDeliveryV1,
   parseLinkedDeviceApprovalV1,
@@ -18,7 +22,9 @@ import {
   parseLinkedDeviceEmailOtpChallengeStartRequestV1,
   parseLinkedDeviceEmailOtpChallengeVerifyRequestV1,
   parseLinkedDeviceEmailOtpVerificationResultV1,
-  parseLinkedDeviceReceiptAcknowledgementV1,
+  parseActiveWalletSessionV1,
+  parseLocalAuthorityActivationFinalAckV1,
+  parseLocalAuthorityInstallationReceiptV1,
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
@@ -30,6 +36,7 @@ import {
   parseLinkedDeviceEd25519ExportRootSubmissionV1,
 } from '@shared/device-linking/ed25519ExportRoot';
 import type { LinkedDeviceEd25519ExportRootPortV1 } from '../../../../core/deviceLinking/linkedDeviceEd25519ExportRoot';
+import type { ActivateInstalledAuthorityResultV1 as D1ActivateInstalledAuthorityResultV1 } from '../../../../router/cloudflare/d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import {
   computeLinkedDevicePublicKeyDigestV1,
   LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
@@ -158,11 +165,20 @@ export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
 };
 
 export type DeviceLinkingInstallationReceiptPortV1 = {
-  acknowledgeReceiptV1(input: {
-    readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
+  readCommittedAuthorityPackagesV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
-  }): Promise<DeviceLinkingRouteMutationResultV1>;
+  }): Promise<CommittedAuthorityPackagesV1>;
+  activateInstalledAuthorityV1(input: {
+    readonly receipt: LocalAuthorityInstallationReceiptV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<D1ActivateInstalledAuthorityResultV1>;
+  acknowledgeLocalAuthorityActivationV1(input: {
+    readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<void>;
 };
 
 export type DeviceLinkingRouteServiceV1 = {
@@ -311,6 +327,20 @@ async function handleApproval(ctx: FetchRouterApiContext, service: DeviceLinking
     const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
     if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
     if (authenticated.kind === 'not_found') return notFoundResponse();
+    if (
+      service.installationReceipt &&
+      (authenticated.session.state.state === 'provisioning' ||
+        authenticated.session.state.state === 'authority_pending_local_install' ||
+        authenticated.session.state.state === 'active')
+    ) {
+      return json(
+        await service.installationReceipt.readCommittedAuthorityPackagesV1({
+          session: authenticated.session,
+          requestedAtMs: nowMs,
+        }),
+        { status: 200 },
+      );
+    }
     const approval = authenticated.session.approvalTranscript?.value;
     if (!approval) return invalidStateResponse(authenticated.session);
     return json(parseLinkedDeviceApprovalDeliveryV1({ kind: 'linked_device_approval_delivery_v1', approval }), { status: 200 });
@@ -431,9 +461,109 @@ async function handleReceipt(ctx: FetchRouterApiContext, service: DeviceLinkingR
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const rawBody = await readJsonBody(ctx.request);
-  const acknowledgement = parseBoundary(() => parseLinkedDeviceReceiptAcknowledgementV1(rawBody));
-  if (acknowledgement.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
-  return sessionResultResponse(await service.installationReceipt.acknowledgeReceiptV1({ acknowledgement, session: authenticated.session, requestedAtMs: nowMs }));
+  if (isFinalActivationAcknowledgement(rawBody)) {
+    const acknowledgement = parseBoundary(() => parseLocalAuthorityActivationFinalAckV1(rawBody));
+    if (acknowledgement.linkSessionId !== authenticated.session.linkSessionId) {
+      return invalidInputResponse('activation acknowledgement session does not match this session');
+    }
+    await service.installationReceipt.acknowledgeLocalAuthorityActivationV1({
+      acknowledgement,
+      session: authenticated.session,
+      requestedAtMs: nowMs,
+    });
+    return new Response(null, { status: 204 });
+  }
+  const receipt = parseBoundary(() => parseLocalAuthorityInstallationReceiptV1(rawBody));
+  if (receipt.deviceId !== authenticated.session.state.deviceId) return invalidInputResponse('installation receipt device does not match this session');
+  const result = await service.installationReceipt.activateInstalledAuthorityV1({
+    receipt,
+    session: authenticated.session,
+    requestedAtMs: nowMs,
+  });
+  return installationResultResponse(result);
+}
+
+function isFinalActivationAcknowledgement(raw: unknown): boolean {
+  return (
+    raw !== null &&
+    typeof raw === 'object' &&
+    !Array.isArray(raw) &&
+    'kind' in raw &&
+    raw.kind === 'local_authority_activation_final_ack_v1'
+  );
+}
+
+function installationResultResponse(result: D1ActivateInstalledAuthorityResultV1): Response {
+  switch (result.kind) {
+    case 'active':
+      return json(
+        {
+          kind: 'active',
+          authority: result.authority,
+          authMethod: result.authMethod,
+          walletSession: activeWalletSessionWireV1(result.walletSession),
+        } satisfies WireActivateInstalledAuthorityResultV1,
+        { status: 200 },
+      );
+    case 'pending_local_install':
+      return json(
+        {
+          kind: 'pending_local_install',
+          authorityId: result.authorityId,
+          reason: { kind: 'server_worker_activation_pending' },
+        } satisfies WireActivateInstalledAuthorityResultV1,
+        { status: 202 },
+      );
+    case 'integrity_error':
+      return json(
+        {
+          kind: 'integrity_error',
+          reason: { kind: 'installation_receipt_mismatch', field: 'installedActivationRefs' },
+        } satisfies WireActivateInstalledAuthorityResultV1,
+        { status: 409 },
+      );
+  }
+}
+
+type D1IssuedWalletSessionV1 = Extract<
+  D1ActivateInstalledAuthorityResultV1,
+  { readonly kind: 'active' }
+>['walletSession'];
+
+function activeWalletSessionWireV1(
+  issued: D1IssuedWalletSessionV1,
+): ActiveWalletSessionV1 {
+  const session = issued.session;
+  const capabilitySubjects = session.capabilitySubjects.map((subject) => {
+    switch (subject.kind) {
+      case 'sign':
+      case 'export_keys':
+        return {
+          kind: subject.kind,
+          keyFamily: subject.keyFamily,
+          materialActivation: subject.materialActivation,
+        };
+      case 'link_devices':
+      case 'revoke_devices':
+        return { kind: subject.kind };
+      default:
+        return assertNever(subject);
+    }
+  });
+  const first = capabilitySubjects[0];
+  if (!first) throw new Error('issued Wallet Session has no capability subjects');
+  return parseActiveWalletSessionV1({
+    kind: 'active_wallet_session_v1',
+    walletId: session.walletId,
+    authorityId: session.authorityId,
+    authMethodId: session.walletAuthMethodId,
+    authorizationId: session.authorizationId,
+    authorityDigestB64u: session.authorityDigestB64u,
+    authorityRevocationEpoch: session.authorityRevocationEpoch,
+    capabilitySubjects: [first, ...capabilitySubjects.slice(1)],
+    issuedAtMs: session.createdAtMs,
+    expiresAtMs: session.expiresAtMs,
+  });
 }
 
 async function handleCancel(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {

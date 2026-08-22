@@ -346,6 +346,9 @@ function createD1LinkedDeviceComposition(input: {
           }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
       targetCredential: config.session.targetCredential,
+      ...(config.session.installationReceipt === undefined
+        ? {}
+        : { installationReceipt: config.session.installationReceipt }),
       nowV1,
     });
     deviceManagement = config.session.management;
