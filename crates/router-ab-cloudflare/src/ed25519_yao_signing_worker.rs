@@ -15,6 +15,7 @@ use worker::{Env, Request, Response};
 
 use crate::{
     cloudflare_now_unix_ms_v1, compare_and_set_cloudflare_signing_worker_private_d1_secret_v1,
+    delete_cloudflare_signing_worker_output_activation_by_active_key_v1,
     load_cloudflare_server_output_hpke_private_key_bytes_v1,
     load_cloudflare_signing_worker_private_d1_secret_v1,
     put_cloudflare_signing_worker_output_activation_record_v1, CloudflareSecretMaterial32V1,
@@ -30,6 +31,8 @@ pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_PATH: &str =
     "/router-ab/signing-worker/ed25519-yao/reserve-inactive";
 pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH: &str =
     "/router-ab/signing-worker/ed25519-yao/activate-reservation";
+pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DEACTIVATE_RESERVATION_PATH: &str =
+    "/router-ab/signing-worker/ed25519-yao/deactivate-reservation";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,6 +147,18 @@ impl CloudflareEd25519YaoActivateReservationRequestV1 {
             ));
         }
         require_non_empty_reservation_id(&self.reservation_id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEd25519YaoDeactivateReservationRequestV1 {
+    pub material_activation: router_ab_core::MpcMaterialActivationRefV1,
+}
+
+impl CloudflareEd25519YaoDeactivateReservationRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.material_activation.validate()
     }
 }
 
@@ -295,6 +310,11 @@ enum SigningWorkerYaoReservationStateV1 {
         receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
         reservation_id: String,
     },
+    Revoked {
+        binding: Ed25519YaoCeremonyBindingV1,
+        reservation_id: String,
+        revoked_at_ms: u64,
+    },
 }
 
 impl SigningWorkerYaoReservationStateV1 {
@@ -314,6 +334,25 @@ impl SigningWorkerYaoReservationStateV1 {
                 reservation_id,
                 ..
             } => (delivery, candidate, receipt, reservation_id),
+            Self::Revoked {
+                binding,
+                reservation_id,
+                revoked_at_ms,
+            } => {
+                binding.validate()?;
+                if binding.operation != Ed25519YaoOperationV1::Registration {
+                    return Err(invalid_lifecycle(
+                        "ordinary Ed25519 revoked reservation requires a registration binding",
+                    ));
+                }
+                require_non_empty_reservation_id(reservation_id)?;
+                if *revoked_at_ms == 0 {
+                    return Err(invalid_lifecycle(
+                        "ordinary Ed25519 revoked reservation timestamp is invalid",
+                    ));
+                }
+                return Ok(());
+            }
         };
         let (deriver_a_client_package, deriver_b_client_package) = match self {
             Self::Inactive {
@@ -326,6 +365,11 @@ impl SigningWorkerYaoReservationStateV1 {
                 deriver_b_client_package,
                 ..
             } => (deriver_a_client_package, deriver_b_client_package),
+            Self::Revoked { .. } => {
+                return Err(invalid_lifecycle(
+                    "ordinary Ed25519 revoked reservation cannot contain client packages",
+                ))
+            }
         };
         CloudflareEd25519YaoInactiveReservationRequestV1 {
             delivery: delivery.clone(),
@@ -419,6 +463,17 @@ pub async fn handle_cloudflare_signing_worker_ed25519_yao_activate_reservation_v
     json_response(&CloudflareEd25519YaoReservationActivationResponseV1 { receipt })
 }
 
+pub async fn handle_cloudflare_signing_worker_ed25519_yao_deactivate_reservation_v1(
+    mut request: Request,
+    env: &Env,
+) -> RouterAbProtocolResult<Response> {
+    let deactivation =
+        parse_request::<CloudflareEd25519YaoDeactivateReservationRequestV1>(&mut request).await?;
+    deactivation.validate()?;
+    let response = deactivate_ed25519_yao_reservation_v1(env, &deactivation).await?;
+    json_response(&response)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEd25519YaoInactiveReservationResponseV1 {
@@ -433,6 +488,15 @@ pub struct CloudflareEd25519YaoInactiveReservationResponseV1 {
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEd25519YaoReservationActivationResponseV1 {
     pub receipt: Ed25519YaoSigningWorkerActivationReceiptV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEd25519YaoReservationDeactivationResponseV1 {
+    pub state: &'static str,
+    pub reservation_id: String,
+    pub material_activation: router_ab_core::MpcMaterialActivationRefV1,
+    pub revoked_at_ms: u64,
 }
 
 async fn reserve_inactive_ed25519_yao_v1(
@@ -481,6 +545,18 @@ async fn reserve_inactive_ed25519_yao_v1(
                 } if stored_delivery == delivery && stored_id == &reservation_id => {
                     return Err(invalid_lifecycle(
                         "ordinary Ed25519 material reservation is already active",
+                    ));
+                }
+                SigningWorkerYaoReservationStateV1::Revoked {
+                    binding: stored_binding,
+                    reservation_id: stored_id,
+                    ..
+                } if stored_binding.material_activation
+                    == delivery.deriver_a.binding.material_activation
+                    && stored_id == &reservation_id =>
+                {
+                    return Err(invalid_lifecycle(
+                        "ordinary Ed25519 material reservation is revoked",
                     ));
                 }
                 _ => {
@@ -534,11 +610,29 @@ async fn activate_ed25519_yao_reservation_v1(
     request.validate()?;
     let record_key = reservation_record_key_from_binding_v1(&request.binding)?;
     for _ in 0..3 {
-        let current = load_cloudflare_signing_worker_private_d1_secret_v1::<
+        let Some(current) = load_cloudflare_signing_worker_private_d1_secret_v1::<
             SigningWorkerYaoReservationStateV1,
         >(env, "ed25519_yao_reservations", &record_key)
         .await?
-        .ok_or_else(|| invalid_lifecycle("ordinary Ed25519 material reservation is missing"))?;
+        else {
+            let ecdsa_record_key = format!("ecdsa/{}", record_key.trim_start_matches("ed25519/"));
+            if load_cloudflare_signing_worker_private_d1_secret_v1::<serde_json::Value>(
+                env,
+                "ecdsa_inactive_reservations",
+                &ecdsa_record_key,
+            )
+            .await?
+            .is_some()
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ConflictingPair,
+                    "ordinary Ed25519 deactivation conflicts with an ECDSA activation",
+                ));
+            }
+            return Err(invalid_lifecycle(
+                "ordinary Ed25519 material reservation is missing",
+            ));
+        };
         current.value.validate()?;
         match current.value {
             SigningWorkerYaoReservationStateV1::Active {
@@ -597,10 +691,124 @@ async fn activate_ed25519_yao_reservation_v1(
                     Err(error) => return Err(error),
                 }
             }
+            SigningWorkerYaoReservationStateV1::Revoked {
+                binding,
+                reservation_id,
+                ..
+            } => {
+                if reservation_id != request.reservation_id || binding != request.binding {
+                    return Err(invalid_lifecycle(
+                        "ordinary Ed25519 reservation activation conflicts with the exact reservation",
+                    ));
+                }
+                return Err(invalid_lifecycle(
+                    "ordinary Ed25519 material reservation is revoked",
+                ));
+            }
         }
     }
     Err(invalid_lifecycle(
         "ordinary Ed25519 reservation activation changed concurrently",
+    ))
+}
+
+async fn deactivate_ed25519_yao_reservation_v1(
+    env: &Env,
+    request: &CloudflareEd25519YaoDeactivateReservationRequestV1,
+) -> RouterAbProtocolResult<CloudflareEd25519YaoReservationDeactivationResponseV1> {
+    request.validate()?;
+    let record_key =
+        reservation_record_key_from_material_activation_v1(&request.material_activation)?;
+    let reservation_id = format!(
+        "ordinary-ed25519-inactive-v1:{}",
+        record_key.trim_start_matches("ed25519/")
+    );
+    let active_key = active_output_key_v1(&request.material_activation);
+    for _ in 0..3 {
+        let current = load_cloudflare_signing_worker_private_d1_secret_v1::<
+            SigningWorkerYaoReservationStateV1,
+        >(env, "ed25519_yao_reservations", &record_key)
+        .await?
+        .ok_or_else(|| invalid_lifecycle("ordinary Ed25519 material reservation is missing"))?;
+        current.value.validate()?;
+        let (binding, revoked_at_ms) = match current.value {
+            SigningWorkerYaoReservationStateV1::Revoked {
+                binding,
+                reservation_id: stored_id,
+                revoked_at_ms,
+            } => {
+                if stored_id != reservation_id
+                    || binding.material_activation != request.material_activation
+                {
+                    return Err(invalid_lifecycle(
+                        "ordinary Ed25519 deactivation conflicts with the exact activation ref",
+                    ));
+                }
+                delete_cloudflare_signing_worker_output_activation_by_active_key_v1(
+                    env,
+                    &active_key,
+                    &request.material_activation,
+                )
+                .await?;
+                (binding, revoked_at_ms)
+            }
+            SigningWorkerYaoReservationStateV1::Inactive {
+                delivery,
+                reservation_id: stored_id,
+                ..
+            }
+            | SigningWorkerYaoReservationStateV1::Active {
+                delivery,
+                reservation_id: stored_id,
+                ..
+            } => {
+                if stored_id != reservation_id
+                    || delivery.deriver_a.binding.material_activation != request.material_activation
+                {
+                    return Err(invalid_lifecycle(
+                        "ordinary Ed25519 deactivation conflicts with the exact activation ref",
+                    ));
+                }
+                let binding = delivery.deriver_a.binding.clone();
+                delete_cloudflare_signing_worker_output_activation_by_active_key_v1(
+                    env,
+                    &active_key,
+                    &request.material_activation,
+                )
+                .await?;
+                let revoked_at_ms = cloudflare_now_unix_ms_v1()?;
+                let revoked = SigningWorkerYaoReservationStateV1::Revoked {
+                    binding: binding.clone(),
+                    reservation_id: reservation_id.clone(),
+                    revoked_at_ms,
+                };
+                match compare_and_set_cloudflare_signing_worker_private_d1_secret_v1(
+                    env,
+                    "ed25519_yao_reservations",
+                    &record_key,
+                    Some(current.version),
+                    &revoked,
+                    revoked_at_ms,
+                )
+                .await
+                {
+                    Err(error) if error.code() == RouterAbProtocolErrorCode::ConflictingPair => {
+                        continue
+                    }
+                    Ok(()) => (binding, revoked_at_ms),
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+        return Ok(CloudflareEd25519YaoReservationDeactivationResponseV1 {
+            state: "revoked",
+            reservation_id,
+            material_activation: binding.material_activation,
+            revoked_at_ms,
+        });
+    }
+    Err(invalid_lifecycle(
+        "ordinary Ed25519 material deactivation changed concurrently",
     ))
 }
 
@@ -613,11 +821,28 @@ fn reservation_record_key_v1(
 fn reservation_record_key_from_binding_v1(
     binding: &Ed25519YaoCeremonyBindingV1,
 ) -> RouterAbProtocolResult<String> {
-    let canonical = serde_json::to_vec(binding.material_activation()).map_err(|_| {
+    reservation_record_key_from_material_activation_v1(binding.material_activation())
+}
+
+fn reservation_record_key_from_material_activation_v1(
+    material_activation: &router_ab_core::MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<String> {
+    let canonical = serde_json::to_vec(material_activation).map_err(|_| {
         invalid_lifecycle("ordinary Ed25519 reservation identity could not be encoded")
     })?;
     let digest = Sha256::digest(canonical);
     Ok(format!("ed25519/{}", encode_hex_slice(&digest)))
+}
+
+fn active_output_key_v1(
+    material_activation: &router_ab_core::MpcMaterialActivationRefV1,
+) -> String {
+    format!(
+        "active-signing-worker/{}/{}/{}",
+        material_activation.material_owner,
+        material_activation.activation_id,
+        material_activation.signing_worker,
+    )
 }
 
 fn validate_client_package_v1(
@@ -1161,6 +1386,47 @@ fn invalid_lifecycle(message: impl Into<String>) -> RouterAbProtocolError {
         RouterAbProtocolErrorCode::InvalidLifecycleState,
         message.into(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deactivation_uses_the_same_active_output_identity_as_activation() {
+        let material_activation = router_ab_core::MpcMaterialActivationRefV1::new(
+            "activation",
+            "capability",
+            "wallet",
+            "key-binding",
+            "lifecycle-binding",
+            "signing-worker",
+        )
+        .expect("valid material activation");
+
+        assert_eq!(
+            active_output_key_v1(&material_activation),
+            "active-signing-worker/wallet/activation/signing-worker"
+        );
+    }
+
+    #[test]
+    fn deactivation_reservation_key_is_family_scoped() {
+        let material_activation = router_ab_core::MpcMaterialActivationRefV1::new(
+            "activation",
+            "capability",
+            "wallet",
+            "key-binding",
+            "lifecycle-binding",
+            "signing-worker",
+        )
+        .expect("valid material activation");
+
+        let key = reservation_record_key_from_material_activation_v1(&material_activation)
+            .expect("record key");
+        assert!(key.starts_with("ed25519/"));
+        assert_eq!(key.len(), "ed25519/".len() + 64);
+    }
 }
 
 fn encode_hex(bytes: [u8; 32]) -> String {

@@ -699,6 +699,42 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
     Ok(false)
 }
 
+/// Deletes one exact active output row for a lifecycle deactivation. Missing
+/// rows are an idempotent replay; callers validate the durable lifecycle fence.
+pub(crate) async fn delete_cloudflare_signing_worker_output_activation_by_active_key_v1(
+    env: &Env,
+    active_key: &str,
+    expected_material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<bool> {
+    require_non_empty("SigningWorker activation active_key", active_key)?;
+    expected_material_activation.validate()?;
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let session = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker activation primary session failed", error))?;
+    let Some(row) = activation_row_by_active_key_v1(&session, active_key).await? else {
+        return Ok(false);
+    };
+    let active_state = decode_json::<ActiveSigningWorkerStateV1>(
+        "SigningWorker active state",
+        &row.active_state_json,
+    )?;
+    if active_state.material_activation != *expected_material_activation {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ConflictingPair,
+            "SigningWorker activation identity conflicts with the exact material activation",
+        ));
+    }
+    let result = session
+        .prepare("DELETE FROM signing_worker_activations WHERE active_key = ?1")
+        .bind(&[js_string(active_key)])
+        .map_err(|error| map_d1_error("SigningWorker activation delete bind failed", error))?
+        .run()
+        .await
+        .map_err(|error| map_d1_error("SigningWorker activation delete failed", error))?;
+    Ok(d1_changes(&result)? == 1)
+}
+
 pub(crate) async fn load_cloudflare_signing_worker_private_d1_secret_v1<T>(
     env: &Env,
     purpose: &'static str,

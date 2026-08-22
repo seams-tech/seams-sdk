@@ -45,6 +45,16 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Err(err) => cloudflare_protocol_error_response_v1(err),
             }
         }
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DEACTIVATE_RESERVATION_PATH => {
+            match handle_cloudflare_signing_worker_ed25519_yao_deactivate_reservation_v1(
+                request, &env,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
         CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH => {
             match handle_cloudflare_signing_worker_ecdsa_reserve_inactive_v1(request, &env).await {
                 Ok(response) => Ok(response),
@@ -56,6 +66,14 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 request, &env, &runtime,
             )
             .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_DEACTIVATE_RESERVATION_PATH => {
+            match handle_cloudflare_signing_worker_ecdsa_deactivate_reservation_v1(request, &env)
+                .await
             {
                 Ok(response) => Ok(response),
                 Err(err) => cloudflare_protocol_error_response_v1(err),

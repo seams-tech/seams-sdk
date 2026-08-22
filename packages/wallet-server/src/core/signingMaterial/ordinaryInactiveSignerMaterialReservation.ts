@@ -27,7 +27,7 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 
-type OrdinarySignerFamilyV1 = 'ed25519' | 'ecdsa_secp256k1';
+export type OrdinarySignerFamilyV1 = 'ed25519' | 'ecdsa_secp256k1';
 type OrdinarySignerByFamilyV1 = {
   readonly ed25519: ExactAdministeredEd25519SignerV1;
   readonly ecdsa_secp256k1: ExactAdministeredEcdsaSignerV1;
@@ -146,6 +146,140 @@ export type OrdinaryInactiveSignerMaterialReservationWorkerPortV1 = {
     input: OrdinaryEcdsaSignerMaterialReservationRequestV1,
   ): Promise<OrdinaryEcdsaSignerMaterialWorkerReservationV1>;
 };
+
+type OrdinarySignerMaterialDeactivationKindByFamilyV1 = {
+  readonly ed25519: 'ordinary_ed25519_signer_material_deactivation_v1';
+  readonly ecdsa_secp256k1: 'ordinary_ecdsa_signer_material_deactivation_v1';
+};
+
+type OrdinarySignerMaterialDeactivationRequestV1<F extends OrdinarySignerFamilyV1> = {
+  readonly keyFamily: F;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly requestedAtMs: number;
+};
+
+export type OrdinaryEd25519SignerMaterialDeactivationRequestV1 =
+  OrdinarySignerMaterialDeactivationRequestV1<'ed25519'>;
+export type OrdinaryEcdsaSignerMaterialDeactivationRequestV1 =
+  OrdinarySignerMaterialDeactivationRequestV1<'ecdsa_secp256k1'>;
+export type OrdinaryInactiveSignerMaterialDeactivationRequestV1 =
+  | OrdinaryEd25519SignerMaterialDeactivationRequestV1
+  | OrdinaryEcdsaSignerMaterialDeactivationRequestV1;
+
+type OrdinarySignerMaterialDeactivationResultV1<F extends OrdinarySignerFamilyV1> = {
+  readonly kind: OrdinarySignerMaterialDeactivationKindByFamilyV1[F];
+  readonly keyFamily: F;
+  readonly state: 'revoked';
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly serverMaterialReservationId: OrdinaryInactiveServerMaterialReservationIdV1;
+  readonly revokedAtMs: number;
+};
+
+export type OrdinaryEd25519SignerMaterialDeactivationResultV1 =
+  OrdinarySignerMaterialDeactivationResultV1<'ed25519'>;
+export type OrdinaryEcdsaSignerMaterialDeactivationResultV1 =
+  OrdinarySignerMaterialDeactivationResultV1<'ecdsa_secp256k1'>;
+export type OrdinaryInactiveSignerMaterialDeactivationResultV1 =
+  | OrdinaryEd25519SignerMaterialDeactivationResultV1
+  | OrdinaryEcdsaSignerMaterialDeactivationResultV1;
+
+/** Deactivation is a terminal exact-family/ref operation; it never activates material. */
+export type OrdinaryInactiveSignerMaterialDeactivationPortV1 = {
+  deactivateOrdinarySignerMaterialV1(
+    input: OrdinaryInactiveSignerMaterialDeactivationRequestV1,
+  ): Promise<void>;
+};
+
+export function validateOrdinaryInactiveSignerMaterialDeactivationRequestV1(
+  request: OrdinaryInactiveSignerMaterialDeactivationRequestV1,
+): void {
+  if (!Number.isSafeInteger(request.requestedAtMs) || request.requestedAtMs < 0) {
+    throw new Error('ordinary signer material deactivation time is invalid');
+  }
+  const materialActivation = parseMpcMaterialActivationRef(request.materialActivation);
+  if (!materialActivation.ok) {
+    throw new Error(
+      `ordinary signer material deactivation ref: ${materialActivation.error.message}`,
+    );
+  }
+  switch (request.keyFamily) {
+    case 'ed25519':
+    case 'ecdsa_secp256k1':
+      return;
+    default:
+      return assertNever(request);
+  }
+}
+
+export function parseOrdinaryEd25519SignerMaterialDeactivationResultV1(
+  request: OrdinaryEd25519SignerMaterialDeactivationRequestV1,
+  raw: unknown,
+): OrdinaryEd25519SignerMaterialDeactivationResultV1 {
+  return parseOrdinarySignerMaterialDeactivationResultV1(
+    request,
+    raw,
+    'ed25519',
+    'ordinary_ed25519_signer_material_deactivation_v1',
+  );
+}
+
+export function parseOrdinaryEcdsaSignerMaterialDeactivationResultV1(
+  request: OrdinaryEcdsaSignerMaterialDeactivationRequestV1,
+  raw: unknown,
+): OrdinaryEcdsaSignerMaterialDeactivationResultV1 {
+  return parseOrdinarySignerMaterialDeactivationResultV1(
+    request,
+    raw,
+    'ecdsa_secp256k1',
+    'ordinary_ecdsa_signer_material_deactivation_v1',
+  );
+}
+
+function parseOrdinarySignerMaterialDeactivationResultV1<F extends OrdinarySignerFamilyV1>(
+  request: OrdinarySignerMaterialDeactivationRequestV1<F>,
+  raw: unknown,
+  expectedFamily: F,
+  expectedKind: OrdinarySignerMaterialDeactivationKindByFamilyV1[F],
+): OrdinarySignerMaterialDeactivationResultV1<F> {
+  const result = exactRecord(
+    raw,
+    [
+      'kind',
+      'keyFamily',
+      'state',
+      'materialActivation',
+      'serverMaterialReservationId',
+      'revokedAtMs',
+    ],
+    `ordinary ${expectedFamily} signer material deactivation`,
+  );
+  if (
+    result.kind !== expectedKind ||
+    result.keyFamily !== expectedFamily ||
+    result.state !== 'revoked'
+  ) {
+    throw new Error(`ordinary ${expectedFamily} deactivation returned the wrong terminal state`);
+  }
+  const materialActivation = parseWorkerMaterialActivationV1(result.materialActivation);
+  assertMaterialActivationMatchesV1(request.materialActivation, materialActivation);
+  if (
+    typeof result.revokedAtMs !== 'number' ||
+    !Number.isSafeInteger(result.revokedAtMs) ||
+    result.revokedAtMs < 0
+  ) {
+    throw new Error(`ordinary ${expectedFamily} deactivation timestamp is invalid`);
+  }
+  return {
+    kind: expectedKind,
+    keyFamily: expectedFamily,
+    state: 'revoked',
+    materialActivation,
+    serverMaterialReservationId: parseServerMaterialReservationIdV1(
+      result.serverMaterialReservationId,
+    ),
+    revokedAtMs: result.revokedAtMs,
+  };
+}
 
 export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   constructor(private readonly worker: OrdinaryInactiveSignerMaterialReservationWorkerPortV1) {}
@@ -440,10 +574,11 @@ function parseEcdsaClientPackageV1<Role extends 'signer_a' | 'signer_b'>(
   if (
     payload.recipientRole !== expectedRole ||
     payload.keyEpoch !== expectedKeyEpoch ||
-    payload.recipientPublicKey !== requireRouterAbX25519PublicKey(
-      expectedRecipientPublicKey,
-      `${label}.expectedRecipientPublicKey`,
-    )
+    payload.recipientPublicKey !==
+      requireRouterAbX25519PublicKey(
+        expectedRecipientPublicKey,
+        `${label}.expectedRecipientPublicKey`,
+      )
   ) {
     throw new Error(`${label} is not sealed for the browser client recipient`);
   }
@@ -527,11 +662,7 @@ function readEcdsaPayloadBytesV1(
   return value;
 }
 
-function readEcdsaPayloadU32V1(
-  cursor: EcdsaPayloadCursorV1,
-  label: string,
-  field: string,
-): number {
+function readEcdsaPayloadU32V1(cursor: EcdsaPayloadCursorV1, label: string, field: string): number {
   const end = cursor.offset + 4;
   if (end > cursor.bytes.length) throw new Error(`${label} payload ${field} is truncated`);
   const value =
