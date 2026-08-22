@@ -31,6 +31,12 @@ import type {
   EcdsaAdditiveLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import { parseRotatableSigningLaneJobV1 } from '@shared/signing-lanes/rotationParsers';
+import {
+  parseLinkedDeviceEcdsaSourceContributionPackageV1,
+  parseLinkedDeviceEcdsaSourceContributionPreparationV1,
+  type LinkedDeviceEcdsaSourceContributionPackageV1,
+  type LinkedDeviceEcdsaSourceContributionPreparationV1,
+} from '@shared/device-linking/sourceContribution';
 
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
@@ -211,6 +217,16 @@ export type PrepareEcdsaAdditiveLaneHolderRequestV1 = {
 
 export type PrepareEcdsaAdditiveLaneHolderResultV1 = EcdsaAdditiveLaneHolderPreparationV1;
 
+export type PrepareLinkedDeviceEcdsaSourceContributionRequestV1 = {
+  readonly kind: 'prepare_linked_device_ecdsa_source_contribution_v1';
+  readonly preparation: LinkedDeviceEcdsaSourceContributionPreparationV1;
+};
+
+export type PrepareLinkedDeviceEcdsaSourceContributionResultV1 = {
+  readonly kind: 'linked_device_ecdsa_source_contribution_package_v1';
+  readonly package: LinkedDeviceEcdsaSourceContributionPackageV1;
+};
+
 export function parsePrepareEcdsaAdditiveLaneHolderRequestV1(
   raw: unknown,
 ): PrepareEcdsaAdditiveLaneHolderRequestV1 {
@@ -245,6 +261,44 @@ export function parsePrepareEcdsaAdditiveLaneHolderRequestV1(
     kind: 'prepare_ecdsa_additive_lane_holder_v1',
     job,
     holderCommittedAtMs,
+  };
+}
+
+export function parsePrepareLinkedDeviceEcdsaSourceContributionRequestV1(
+  raw: unknown,
+): PrepareLinkedDeviceEcdsaSourceContributionRequestV1 {
+  if (!isObject(raw) || Array.isArray(raw)) {
+    throw new Error('linked-device ECDSA source contribution request must be an object');
+  }
+  const fields = Object.keys(raw);
+  if (fields.length !== 2 || !fields.includes('kind') || !fields.includes('preparation')) {
+    throw new Error('linked-device ECDSA source contribution request has invalid fields');
+  }
+  if (raw.kind !== 'prepare_linked_device_ecdsa_source_contribution_v1') {
+    throw new Error('linked-device ECDSA source contribution request kind is invalid');
+  }
+  return {
+    kind: 'prepare_linked_device_ecdsa_source_contribution_v1',
+    preparation: parseLinkedDeviceEcdsaSourceContributionPreparationV1(raw.preparation),
+  };
+}
+
+export function parsePrepareLinkedDeviceEcdsaSourceContributionResultV1(
+  raw: unknown,
+): PrepareLinkedDeviceEcdsaSourceContributionResultV1 {
+  if (!isObject(raw) || Array.isArray(raw)) {
+    throw new Error('linked-device ECDSA source contribution result must be an object');
+  }
+  const fields = Object.keys(raw);
+  if (fields.length !== 2 || !fields.includes('kind') || !fields.includes('package')) {
+    throw new Error('linked-device ECDSA source contribution result has invalid fields');
+  }
+  if (raw.kind !== 'linked_device_ecdsa_source_contribution_package_v1') {
+    throw new Error('linked-device ECDSA source contribution result kind is invalid');
+  }
+  return {
+    kind: 'linked_device_ecdsa_source_contribution_package_v1',
+    package: parseLinkedDeviceEcdsaSourceContributionPackageV1(raw.package),
   };
 }
 

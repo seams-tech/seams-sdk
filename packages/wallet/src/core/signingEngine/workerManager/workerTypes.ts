@@ -64,6 +64,8 @@ import type {
   SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
   PrepareEcdsaAdditiveLaneHolderRequestV1,
   PrepareEcdsaAdditiveLaneHolderResultV1,
+  PrepareLinkedDeviceEcdsaSourceContributionRequestV1,
+  PrepareLinkedDeviceEcdsaSourceContributionResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
   Ed25519OperationStepUpCredential,
@@ -1172,6 +1174,7 @@ export const EcdsaDerivationClientCustomRequestType = {
   VerifyRouterAbEcdsaPostRegistrationProofs: 70_019,
   SignWalletRecoveryEcdsaMaterialPossessionProof: 70_020,
   PrepareEcdsaAdditiveLaneHolder: 70_021,
+  PrepareLinkedDeviceEcdsaSourceContribution: 70_022,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1195,6 +1198,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   VerifyRouterAbEcdsaPostRegistrationProofsSuccess: 70_119,
   SignWalletRecoveryEcdsaMaterialPossessionProofSuccess: 70_120,
   PrepareEcdsaAdditiveLaneHolderSuccess: 70_121,
+  PrepareLinkedDeviceEcdsaSourceContributionSuccess: 70_122,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1529,6 +1533,14 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
+  [EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution]: {
+    payload: PrepareLinkedDeviceEcdsaSourceContributionRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.PrepareLinkedDeviceEcdsaSourceContributionSuccess;
+      payload: PrepareLinkedDeviceEcdsaSourceContributionResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
 };
 
 export const EcdsaPresignClientRequestType = {
@@ -1647,7 +1659,8 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
   | typeof EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial
   | typeof EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof
-  | typeof EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder;
+  | typeof EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder
+  | typeof EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution;
 
 export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,

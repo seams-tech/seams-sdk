@@ -5,6 +5,7 @@ import initEcdsaDerivationClient, {
   prepare_ecdsa_client_bootstrap_v1,
   sign_ecdsa_wallet_recovery_material_possession_proof_v1,
   EcdsaLaneHolderSessionV1,
+  LinkedDeviceEcdsaSourceContributionSessionV1,
   RouterAbEcdsaClientCeremonyV1,
 } from '../../../../../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -53,6 +54,10 @@ import {
   type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
   parsePrepareEcdsaAdditiveLaneHolderRequestV1,
   type PrepareEcdsaAdditiveLaneHolderResultV1,
+  parsePrepareLinkedDeviceEcdsaSourceContributionRequestV1,
+  parsePrepareLinkedDeviceEcdsaSourceContributionResultV1,
+  type PrepareLinkedDeviceEcdsaSourceContributionRequestV1,
+  type PrepareLinkedDeviceEcdsaSourceContributionResultV1,
   type OpaqueEcdsaPresignAuthorityRequestV1,
   type OpaqueEcdsaPresignAuthorityResponseV1,
 } from '../ecdsaClientWorkerChannels';
@@ -1347,6 +1352,53 @@ function prepareEcdsaAdditiveLaneHolder(raw: unknown): PrepareEcdsaAdditiveLaneH
   });
 }
 
+function resolveLinkedDeviceEcdsaSourceMaterial(
+  preparation: PrepareLinkedDeviceEcdsaSourceContributionRequestV1['preparation'],
+): StoredEcdsaRoleLocalSigningMaterial {
+  const matches: StoredEcdsaRoleLocalSigningMaterial[] = [];
+  for (const material of ecdsaRoleLocalSigningMaterialStore.values()) {
+    if (!material.materialActivation) continue;
+    if (
+      !mpcMaterialActivationRefsEqual(material.materialActivation, preparation.source.activation)
+    ) {
+      continue;
+    }
+    matches.push(material);
+  }
+  if (matches.length === 0) {
+    throw new Error('ECDSA source contribution source activation is not loaded');
+  }
+  if (matches.length > 1) {
+    throw new Error('ECDSA source contribution source activation resolves to multiple materials');
+  }
+  const sourceMaterial = matches[0];
+  if (!sourceMaterial) {
+    throw new Error('ECDSA source contribution source material is missing');
+  }
+  return sourceMaterial;
+}
+
+function prepareLinkedDeviceEcdsaSourceContribution(
+  raw: unknown,
+): PrepareLinkedDeviceEcdsaSourceContributionResultV1 {
+  const request = parsePrepareLinkedDeviceEcdsaSourceContributionRequestV1(raw);
+  const sourceMaterial = resolveLinkedDeviceEcdsaSourceMaterial(request.preparation);
+  const session = new LinkedDeviceEcdsaSourceContributionSessionV1(sourceMaterial.stateBlobB64u);
+  try {
+    const output = JSON.parse(
+      session.prepare(
+        JSON.stringify({
+          kind: 'linked_device_ecdsa_source_contribution_preparation_input_v1',
+          preparation: request.preparation,
+        }),
+      ),
+    );
+    return parsePrepareLinkedDeviceEcdsaSourceContributionResultV1(output);
+  } finally {
+    session.free();
+  }
+}
+
 function requireEcdsaRoleLocalPresignMaterial(
   materialHandle: string,
   expectedBindingDigest: string,
@@ -1709,6 +1761,7 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
+    case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
       await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
@@ -1837,6 +1890,11 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.PrepareEcdsaAdditiveLaneHolderSuccess,
         payload: prepareEcdsaAdditiveLaneHolder(payload),
       };
+    case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.PrepareLinkedDeviceEcdsaSourceContributionSuccess,
+        payload: prepareLinkedDeviceEcdsaSourceContribution(payload),
+      };
     case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
       throw new Error('ECDSA registration crypto prewarm does not execute an operation');
   }
@@ -1862,6 +1920,7 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
+    case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
       return value;
     default:
       throw new Error(`Unsupported DERIVATION client request type: ${String(value)}`);
