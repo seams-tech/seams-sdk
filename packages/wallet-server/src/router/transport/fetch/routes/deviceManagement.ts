@@ -5,7 +5,6 @@ import {
   parseLinkedDeviceListRequestV1,
   parseLinkedDeviceRevokeRequestV1,
 } from '@shared/device-linking/parsers';
-import { parseLinkedDeviceId } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
@@ -18,11 +17,9 @@ import type {
 import {
   LinkedDeviceListCursorError,
   MAX_LINKED_DEVICE_LIST_LIMIT_V1,
-  type LinkedDeviceManagementOwnerV1,
-  type LinkedDeviceManagementListPrincipalV1,
+  type LinkedDeviceManagementSourceV1,
   type LinkedDeviceManagementServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
-import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 
@@ -86,15 +83,16 @@ async function handleList(
     nowMs,
   );
   if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
-  const principal: LinkedDeviceManagementListPrincipalV1 = {
+  const source: LinkedDeviceManagementSourceV1 = {
     walletId: authentication.owner.walletId,
+    walletSessionId: authentication.owner.walletSessionId,
+    authorizationId: authentication.owner.authorizationId,
     expiresAtMs: authentication.owner.expiresAtMs,
-    permission: buildFullOwnerDelegatedWalletAuthorityV1(),
   };
   if (body.bytes.byteLength !== 0) {
     throw new DeviceManagementInputError('linked-device list request must have an empty body');
   }
-  const result = await service.management.listLinkedDevicesV1(request, principal, nowMs);
+  const result = await service.management.listLinkedDevicesV1(request, source, nowMs);
   if ('kind' in result) return unauthorizedResponse();
   return json(
     {
@@ -113,6 +111,7 @@ async function handleRevoke(
   nowMs: number,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  parseBoundary(() => parseRevokePath(ctx.pathname));
   const body = await readRequestBodyDigest(ctx.request);
   const authentication = await authenticateOwner(
     service,
@@ -125,22 +124,18 @@ async function handleRevoke(
   validateOwnerBinding(authentication.binding, ctx.method, ctx.pathname, body.digestB64u, nowMs);
   const request = parseBoundary(() => parseLinkedDeviceRevokeRequestV1(authentication.body));
   if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
-  const owner: LinkedDeviceManagementOwnerV1 = {
+  const source: LinkedDeviceManagementSourceV1 = {
     walletId: authentication.owner.walletId,
+    walletSessionId: authentication.owner.walletSessionId,
+    authorizationId: authentication.owner.authorizationId,
     expiresAtMs: authentication.owner.expiresAtMs,
-    permission: buildFullOwnerDelegatedWalletAuthorityV1(),
   };
-  const pathDeviceId = parseBoundary(() => parsePathDeviceId(ctx.pathname));
-  if (request.deviceId !== pathDeviceId) {
-    throw new DeviceManagementInputError('device id does not match the route');
-  }
   if (request.requestedAtMs > nowMs) {
     throw new DeviceManagementInputError('revoke request is from the future');
   }
-  const result = await service.management.revokeLinkedDeviceV1(request, owner);
+  const result = await service.management.revokeLinkedDeviceV1(request, source);
   switch (result.kind) {
     case 'revoked':
-    case 'replayed':
       return json({ ok: true, ...result }, { status: 200 });
     case 'not_found':
       return json({ ok: false, kind: result.kind }, { status: 404 });
@@ -204,16 +199,14 @@ function canonicalListPath(
   return `${pathname}?${search.toString()}`;
 }
 
-function parsePathDeviceId(pathname: string) {
+function parseRevokePath(pathname: string): void {
   const prefix = `${LINKED_DEVICE_MANAGEMENT_BASE_V1}/`;
   const suffix = pathname.slice(prefix.length);
   const parts = suffix.split('/');
   if (parts.length !== 2 || parts[1] !== 'revoke' || !parts[0]) {
     throw new Error('linked-device revoke path is invalid');
   }
-  const parsed = parseLinkedDeviceId(decodePathComponent(parts[0]));
-  if (!parsed.ok) throw new Error('linked-device revoke device id is invalid');
-  return parsed.value;
+  decodePathComponent(parts[0]);
 }
 
 function parseManagementPath(pathname: string): { readonly kind: 'list' | 'revoke' } | null {

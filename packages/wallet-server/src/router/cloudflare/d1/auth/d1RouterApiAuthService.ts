@@ -144,10 +144,12 @@ import {
 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
 import { D1LinkedDeviceAuthorityInstallServiceV1 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import { createD1LinkedDeviceSessionServiceV1 } from '../deviceLinking/d1LinkedDeviceSessionService';
+import { createD1LinkedDeviceManagementServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementService';
 import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
 import { createD1LinkedDeviceVerifiedLinkSourceReaderV1 } from '../deviceLinking/d1LinkedDeviceVerifiedLinkSourceReader';
 import {
   createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1,
+  createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1,
   createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1,
 } from '../../signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 import {
@@ -297,6 +299,7 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationSessions: RouterApiServiceBag['authorizationSessions'];
   readonly authorizationService: AuthorizationService;
   readonly walletAuthMethodStore: D1WalletAuthMethodStore;
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
   /**
    * Refactor 103 Phase 6: the R100 Email OTP pieces the linked-device Email
    * OTP target factor composes. Left absent, `email_otp` linking fails closed
@@ -361,6 +364,22 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
     });
+    const deviceManagementService = createD1LinkedDeviceManagementServiceV1({
+      scope,
+      tenantId: tenantId.value,
+      authorityStore,
+      authMethodStore: input.walletAuthMethodStore,
+      authorizationService: input.authorizationService,
+      webAuthnStore: input.webAuthnStore,
+      materialDeactivation: createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1({
+        endpoint: config.session.authorityInstallation.deactivationEndpoint,
+      }),
+    });
+    deviceManagement = {
+      management: deviceManagementService,
+      nowV1,
+      authenticateOwnerRequestV1: ownerRequestAuthenticator,
+    };
     const verifiedLinkBuilder = {
       source: createD1LinkedDeviceVerifiedLinkSourceReaderV1({
         authorizationService: input.authorizationService,
@@ -418,7 +437,6 @@ function createD1LinkedDeviceComposition(input: {
       installationReceipt,
       nowV1,
     });
-    deviceManagement = config.session.management;
   }
 
   return {
@@ -1610,6 +1628,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     options,
     authorizationService,
     walletAuthMethodStore,
+    webAuthnStore,
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,
       options,

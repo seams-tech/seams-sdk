@@ -702,16 +702,17 @@ export type LinkedDeviceListResultV1 = {
 export type LinkedDeviceRevokeRequestV1 = {
   readonly kind: 'linked_device_revoke_request_v1';
   readonly walletId: WalletId;
-  readonly deviceId: LinkedDeviceId;
+  /** Exact persisted method selected from the authority inventory. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly requestedAtMs: number;
 };
 
 export type LinkedDeviceRevokeResultV1 =
   | {
-      readonly kind: 'revoked' | 'replayed';
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly kind: 'revoked';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly authorityId: WalletAuthorityId;
       readonly revocationEpoch: number;
-      readonly aggregateReceiptDigestB64u: DigestB64u;
     }
   | {
       readonly kind: 'not_found' | 'conflict' | 'unauthorized';

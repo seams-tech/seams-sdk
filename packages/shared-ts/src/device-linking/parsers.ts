@@ -336,14 +336,14 @@ const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices', 'ownerDevices', 'nextCursor
 const LINKED_DEVICE_REVOKE_REQUEST_FIELDS = [
   'kind',
   'walletId',
-  'deviceId',
+  'walletAuthMethodId',
   'requestedAtMs',
 ] as const;
 const LINKED_DEVICE_REVOKE_SUCCESS_FIELDS = [
   'kind',
-  'enrollmentId',
+  'walletAuthMethodId',
+  'authorityId',
   'revocationEpoch',
-  'aggregateReceiptDigestB64u',
 ] as const;
 const LINKED_DEVICE_REVOKE_FAILURE_FIELDS = ['kind'] as const;
 
@@ -420,6 +420,17 @@ function parseId<T>(
   const result = parser(raw);
   if (result.ok) return result.value;
   throw new Error(`${label} ${result.error.message}`);
+}
+
+function parseLinkedDeviceRevokeWalletAuthMethodId(
+  raw: unknown,
+  label: string,
+): WalletAuthMethodId {
+  const value = parseId(parseWalletAuthMethodId, raw, label);
+  if (value.startsWith('wallet-authority:') || value.startsWith('authority:')) {
+    throw new Error(`${label} must identify a WalletAuthMethodId`);
+  }
+  return value;
 }
 
 function parseUnixTime(raw: unknown, label: string): number {
@@ -836,14 +847,17 @@ export function parseLinkedDeviceRevokeRequestV1(raw: unknown): LinkedDeviceRevo
   return {
     kind: 'linked_device_revoke_request_v1',
     walletId: parseWallet(record.walletId, 'LinkedDeviceRevokeRequestV1.walletId'),
-    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceRevokeRequestV1.deviceId'),
+    walletAuthMethodId: parseLinkedDeviceRevokeWalletAuthMethodId(
+      record.walletAuthMethodId,
+      'LinkedDeviceRevokeRequestV1.walletAuthMethodId',
+    ),
     requestedAtMs: parseUnixTime(record.requestedAtMs, 'LinkedDeviceRevokeRequestV1.requestedAtMs'),
   };
 }
 
 export function buildLinkedDeviceRevokeRequestV1(args: {
   readonly walletId: WalletId;
-  readonly deviceId: LinkedDeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly requestedAtMs: number;
 }): LinkedDeviceRevokeRequestV1 {
   return parseLinkedDeviceRevokeRequestV1({
@@ -880,19 +894,23 @@ export function parseLinkedDeviceRevokeResultV1(raw: unknown): LinkedDeviceRevok
     LINKED_DEVICE_REVOKE_SUCCESS_FIELDS,
     'LinkedDeviceRevokeResultV1',
   );
-  if (record.kind !== 'revoked' && record.kind !== 'replayed') {
+  if (record.kind !== 'revoked') {
     throw new Error('LinkedDeviceRevokeResultV1.kind is invalid');
   }
   return {
     kind: record.kind,
-    enrollmentId: parseEnrollmentId(record.enrollmentId, 'LinkedDeviceRevokeResultV1.enrollmentId'),
+    walletAuthMethodId: parseLinkedDeviceRevokeWalletAuthMethodId(
+      record.walletAuthMethodId,
+      'LinkedDeviceRevokeResultV1.walletAuthMethodId',
+    ),
+    authorityId: parseId(
+      parseWalletAuthorityId,
+      record.authorityId,
+      'LinkedDeviceRevokeResultV1.authorityId',
+    ),
     revocationEpoch: parseNonNegativeSafeInteger(
       record.revocationEpoch,
       'LinkedDeviceRevokeResultV1.revocationEpoch',
-    ),
-    aggregateReceiptDigestB64u: parseDigest(
-      record.aggregateReceiptDigestB64u,
-      'LinkedDeviceRevokeResultV1.aggregateReceiptDigestB64u',
     ),
   };
 }
