@@ -1,25 +1,11 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
-  parseProviderSubject,
-  parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
-  parseLinkedDeviceEnrollmentId,
-  parseLinkedDeviceId,
-  parseWalletKeyId,
-  type ProviderSubject,
-  type WebAuthnCredentialIdB64u,
-  type LinkedDeviceEnrollmentId,
-  type LinkedDeviceId,
-  type WalletKeyId,
 } from '@shared/utils/domainIds';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
-  parseWalletAuthAuthorityRef,
-  parseWalletAuthAuthority,
   type WalletAuthAuthority,
-  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {
@@ -40,23 +26,12 @@ import {
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
-import {
   parseEvmFamilySigningKeySlotIdOrNull,
-  type EvmFamilySigningKeySlotId,
 } from '@shared/signing-lanes';
 import {
-  parseRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaDerivationNormalSigningScopeV1,
-  type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import {
-  parseRouterAbEd25519NormalSigningState,
-  type RouterAbEd25519NormalSigningState,
-} from '@shared/utils/signingSessionSeal';
 import type {
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationPasskeyBootstrapAuthorization,
@@ -65,21 +40,7 @@ import type {
   WebAuthnAuthenticationCredential,
 } from '../types';
 import { registrationPreparationIdFromString } from '../registrationContracts';
-import {
-  parseMpcWalletSigningQuotaId,
-  parseTenantId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-  type MpcWalletSigningQuotaId,
-  type TenantId,
-  type WalletSessionAuthorizationId,
-  type WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
 import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../keyMaterialBrands';
-import {
-  parseDelegatedWalletAuthorityV1,
-  type DelegatedWalletAuthorityV1,
-} from '@shared/authorization/delegatedAuthority';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -438,12 +399,6 @@ const ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS = [
   'keyVersion',
   'key_version',
 ] as const;
-
-function hasExactFields(raw: Record<string, unknown>, fields: readonly string[]): boolean {
-  const allowed = new Set(fields);
-  const actual = Object.keys(raw);
-  return actual.length === fields.length && actual.every((field) => allowed.has(field));
-}
 
 const ECDSA_DERIVATION_BOOTSTRAP_FORBIDDEN_FIELDS = [
   ...ECDSA_DERIVATION_V1_CONTEXT_FORBIDDEN_FIELDS,
@@ -1235,323 +1190,12 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   };
 }
 
-export type LinkedDeviceWalletSessionPermissionClaimsV1 = DelegatedWalletAuthorityV1;
-
-type LinkedDeviceWalletSessionClaimBase = {
-  sub: string;
-  walletId: string;
-  kind: string;
-  authorizationKind: 'linked_device_wallet_session';
-  authorizationId: WalletSessionAuthorizationId;
-  tenantId: TenantId;
-  deviceId: LinkedDeviceId;
-  enrollmentId: LinkedDeviceEnrollmentId;
-  walletKeyId: WalletKeyId;
-  keyManifestDigestB64u: DigestB64u;
-  revocationEpoch: number;
-  permission: LinkedDeviceWalletSessionPermissionClaimsV1;
-  issuedAtMs: number;
-  expiresAtMs: number;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  iat: number;
-  exp: number;
-  nbf?: number;
-};
-
-export type RouterAbEd25519LinkedDeviceWalletSessionClaims = LinkedDeviceWalletSessionClaimBase & {
-  readonly kind: typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
-  readonly authorizationKind: 'linked_device_wallet_session';
-  readonly nearAccountId?: never;
-  readonly nearEd25519SigningKeyId?: never;
-  readonly sid?: never;
-  readonly authority?: never;
-  readonly authorityScope?: never;
-  readonly thresholdSessionId?: never;
-  readonly relayerKeyId?: never;
-  readonly participantIds?: never;
-  readonly thresholdExpiresAtMs?: never;
-  readonly runtimePolicyScope?: never;
-  readonly routerAbNormalSigning?: never;
-};
-
 function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   try {
     return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
   } catch {
     return null;
   }
-}
-
-function parseLinkedDeviceWalletSessionPermissionClaims(
-  raw: unknown,
-): LinkedDeviceWalletSessionPermissionClaimsV1 | null {
-  const parsed = parseDelegatedWalletAuthorityV1(raw);
-  return parsed.ok ? parsed.value : null;
-}
-
-export function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(
-  raw: unknown,
-): RouterAbEd25519LinkedDeviceWalletSessionClaims | null {
-  if (!isObject(raw)) return null;
-  if (toOptionalString(raw.kind) !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND) return null;
-  if (toOptionalString(raw.authorizationKind) !== 'linked_device_wallet_session') return null;
-  if (
-    hasForbiddenFields(raw, [
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'sid',
-      'authority',
-      'authorityScope',
-      'thresholdSessionId',
-      'relayerKeyId',
-      'participantIds',
-      'thresholdExpiresAtMs',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-      'authorizationSessionId',
-      'walletAuthAuthorityRef',
-      'authSource',
-      'keyScope',
-      'keyHandle',
-      'evmFamilySigningKeySlotId',
-      'ecdsaThresholdKeyId',
-      'signingRootId',
-      'signingRootVersion',
-      'walletKeyVersion',
-      'derivationVersion',
-      'stableKeyContext',
-      'publicIdentity',
-      'activationEpoch',
-      'materialActivation',
-      'routerMaterial',
-      'signingWorkerId',
-      'routerAbEcdsaDerivationNormalSigning',
-      'routerAbEcdsaDerivationIssuerBinding',
-    ])
-  ) {
-    return null;
-  }
-  const deviceIdResult = parseLinkedDeviceId(raw.deviceId);
-  const enrollmentIdResult = parseLinkedDeviceEnrollmentId(raw.enrollmentId);
-  const walletKeyIdResult = parseWalletKeyId(raw.walletKeyId);
-  const tenantIdResult = parseTenantId(raw.tenantId);
-  const authorizationIdResult = parseWalletSessionAuthorizationId(raw.authorizationId);
-  const walletSessionIdResult = parseWalletSessionId(raw.walletSessionId);
-  const quotaIdResult = parseMpcWalletSigningQuotaId(raw.quotaId);
-  const keyManifestDigest = (() => {
-    try {
-      return parseDigestB64u(raw.keyManifestDigestB64u);
-    } catch {
-      return null;
-    }
-  })();
-  const walletId = toOptionalString(raw.walletId);
-  const sub = toOptionalString(raw.sub);
-  const issuedAtMs = raw.issuedAtMs;
-  const expiresAtMs = raw.expiresAtMs;
-  const revocationEpoch = raw.revocationEpoch;
-  const permission = parseLinkedDeviceWalletSessionPermissionClaims(raw.permission);
-  const iat = raw.iat;
-  const exp = raw.exp;
-  if (
-    !deviceIdResult.ok ||
-    !enrollmentIdResult.ok ||
-    !walletKeyIdResult.ok ||
-    !tenantIdResult.ok ||
-    !authorizationIdResult.ok ||
-    !walletSessionIdResult.ok ||
-    !quotaIdResult.ok ||
-    !keyManifestDigest ||
-    !walletId ||
-    !sub ||
-    sub !== `linked-device:${String(deviceIdResult.value)}` ||
-    !isNonNegativeInteger(issuedAtMs) ||
-    !isNonNegativeInteger(expiresAtMs) ||
-    !isNonNegativeInteger(revocationEpoch) ||
-    !permission ||
-    !isNonNegativeInteger(iat) ||
-    !isNonNegativeInteger(exp) ||
-    issuedAtMs >= expiresAtMs ||
-    exp <= 0 ||
-    issuedAtMs < iat * 1000 ||
-    issuedAtMs >= (iat + 1) * 1000 ||
-    expiresAtMs < exp * 1000 ||
-    expiresAtMs >= (exp + 1) * 1000
-  ) {
-    return null;
-  }
-  const out: RouterAbEd25519LinkedDeviceWalletSessionClaims = {
-    sub,
-    walletId,
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    authorizationId: authorizationIdResult.value,
-    walletSessionId: walletSessionIdResult.value,
-    quotaId: quotaIdResult.value,
-    tenantId: tenantIdResult.value,
-    deviceId: deviceIdResult.value,
-    enrollmentId: enrollmentIdResult.value,
-    walletKeyId: walletKeyIdResult.value,
-    keyManifestDigestB64u: keyManifestDigest,
-    revocationEpoch,
-    permission,
-    issuedAtMs,
-    expiresAtMs,
-    iat,
-    exp,
-  };
-  const nbf = raw.nbf;
-  if (nbf !== undefined) {
-    const value = Number(nbf);
-    if (!isNonNegativeInteger(value)) return null;
-    out.nbf = value;
-  }
-  return out;
-}
-
-export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims =
-  LinkedDeviceWalletSessionClaimBase & {
-    readonly kind: typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
-    readonly authorizationKind: 'linked_device_wallet_session';
-    readonly sid?: never;
-    readonly authorizationSessionId?: never;
-    readonly walletAuthAuthorityRef?: never;
-    readonly authSource?: never;
-    readonly nearAccountId?: never;
-    readonly nearEd25519SigningKeyId?: never;
-    readonly authority?: never;
-    readonly authorityScope?: never;
-    readonly thresholdSessionId?: never;
-    readonly relayerKeyId?: never;
-    readonly participantIds?: never;
-    readonly thresholdExpiresAtMs?: never;
-    readonly runtimePolicyScope?: never;
-    readonly routerAbEcdsaDerivationNormalSigning?: never;
-    readonly keyScope?: never;
-    readonly keyHandle?: never;
-  };
-
-export function parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(
-  raw: unknown,
-): RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims | null {
-  if (!isObject(raw)) return null;
-  if (toOptionalString(raw.kind) !== ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
-    return null;
-  }
-  if (toOptionalString(raw.authorizationKind) !== 'linked_device_wallet_session') return null;
-  if (
-    hasForbiddenFields(raw, [
-      'sid',
-      'authorizationSessionId',
-      'walletAuthAuthorityRef',
-      'authSource',
-      'runtimePolicyScope',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'authority',
-      'authorityScope',
-      'thresholdSessionId',
-      'relayerKeyId',
-      'participantIds',
-      'thresholdExpiresAtMs',
-      'routerAbEcdsaDerivationNormalSigning',
-      'routerAbEcdsaDerivationIssuerBinding',
-      'routerAbNormalSigning',
-      'keyScope',
-      'keyHandle',
-      'evmFamilySigningKeySlotId',
-      'ecdsaThresholdKeyId',
-      'signingRootId',
-      'signingRootVersion',
-      'walletKeyVersion',
-      'derivationVersion',
-      'stableKeyContext',
-      'publicIdentity',
-      'activationEpoch',
-      'materialActivation',
-      'routerMaterial',
-      'signingWorkerId',
-    ])
-  ) {
-    return null;
-  }
-  const deviceIdResult = parseLinkedDeviceId(raw.deviceId);
-  const enrollmentIdResult = parseLinkedDeviceEnrollmentId(raw.enrollmentId);
-  const walletKeyIdResult = parseWalletKeyId(raw.walletKeyId);
-  const tenantIdResult = parseTenantId(raw.tenantId);
-  const authorizationIdResult = parseWalletSessionAuthorizationId(raw.authorizationId);
-  const walletSessionIdResult = parseWalletSessionId(raw.walletSessionId);
-  const quotaIdResult = parseMpcWalletSigningQuotaId(raw.quotaId);
-  const keyManifestDigest = (() => {
-    try {
-      return parseDigestB64u(raw.keyManifestDigestB64u);
-    } catch {
-      return null;
-    }
-  })();
-  const walletId = toOptionalString(raw.walletId);
-  const sub = toOptionalString(raw.sub);
-  const issuedAtMs = raw.issuedAtMs;
-  const expiresAtMs = raw.expiresAtMs;
-  const revocationEpoch = raw.revocationEpoch;
-  const permission = parseLinkedDeviceWalletSessionPermissionClaims(raw.permission);
-  const iat = raw.iat;
-  const exp = raw.exp;
-  if (
-    !deviceIdResult.ok ||
-    !enrollmentIdResult.ok ||
-    !walletKeyIdResult.ok ||
-    !tenantIdResult.ok ||
-    !authorizationIdResult.ok ||
-    !walletSessionIdResult.ok ||
-    !quotaIdResult.ok ||
-    !keyManifestDigest ||
-    !walletId ||
-    !sub ||
-    sub !== `linked-device:${String(deviceIdResult.value)}` ||
-    !isNonNegativeInteger(issuedAtMs) ||
-    !isNonNegativeInteger(expiresAtMs) ||
-    !isNonNegativeInteger(revocationEpoch) ||
-    !permission ||
-    issuedAtMs >= expiresAtMs ||
-    !isNonNegativeInteger(iat) ||
-    !isNonNegativeInteger(exp) ||
-    exp <= 0 ||
-    issuedAtMs < iat * 1000 ||
-    issuedAtMs >= (iat + 1) * 1000 ||
-    expiresAtMs < exp * 1000 ||
-    expiresAtMs >= (exp + 1) * 1000
-  ) {
-    return null;
-  }
-  const out: RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims = {
-    sub,
-    walletId,
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    authorizationId: authorizationIdResult.value,
-    walletSessionId: walletSessionIdResult.value,
-    quotaId: quotaIdResult.value,
-    tenantId: tenantIdResult.value,
-    deviceId: deviceIdResult.value,
-    enrollmentId: enrollmentIdResult.value,
-    walletKeyId: walletKeyIdResult.value,
-    keyManifestDigestB64u: keyManifestDigest,
-    revocationEpoch,
-    permission,
-    issuedAtMs,
-    expiresAtMs,
-    iat,
-    exp,
-  };
-  const nbf = raw.nbf;
-  if (nbf !== undefined) {
-    const value = Number(nbf);
-    if (!isNonNegativeInteger(value)) return null;
-    out.nbf = value;
-  }
-  return out;
 }
 
 export function normalizeByteArray32(input: unknown): Uint8Array | null {

@@ -45,8 +45,7 @@ type SigningSessionSealRouteSuccessBase = {
 };
 
 export type SigningSessionSealRouteResult =
-  | (SigningSessionSealRouteSuccessBase & { remainingUses?: never })
-  | (SigningSessionSealRouteSuccessBase & { remainingUses: number })
+  SigningSessionSealRouteSuccessBase
   | {
       ok: false;
       code: string;
@@ -135,30 +134,11 @@ export type SigningSessionSealEd25519ThresholdSessionRecord =
     keyHandle?: never;
   };
 
-export type SigningSessionSealLinkedDeviceWalletSessionRecord =
-  SigningSessionSealAuthorizationSessionRecordBase & {
-    kind: 'linked_device_wallet_session';
-    walletSessionId: string;
-    deviceId: string;
-    enrollmentId: string;
-    remainingUses: number;
-    thresholdSessionId?: never;
-    curve?: never;
-    relayerKeyId?: never;
-    participantIds?: never;
-    signingRootId?: never;
-    signingRootVersion?: never;
-    keyHandle?: never;
-    authorityScope?: never;
-  };
-
 export type SigningSessionSealThresholdSessionRecord =
   | SigningSessionSealEcdsaThresholdSessionRecord
   | SigningSessionSealEd25519ThresholdSessionRecord;
 
-export type SigningSessionSealAuthorizationSessionRecord =
-  | SigningSessionSealThresholdSessionRecord
-  | SigningSessionSealLinkedDeviceWalletSessionRecord;
+export type SigningSessionSealAuthorizationSessionRecord = SigningSessionSealThresholdSessionRecord;
 
 export interface SigningSessionSealCipherOperationInput {
   operation: SigningSessionSealOperation;

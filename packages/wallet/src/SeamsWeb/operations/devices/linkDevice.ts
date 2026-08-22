@@ -23,6 +23,7 @@ import type {
   LinkSessionStateV1,
   LinkSessionTransportEventV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceEmailOtpChallengeResultV1,
   ActiveWalletSessionV1,
   QrLinkedDeviceSessionPayloadV5,
@@ -78,9 +79,13 @@ type AwaitingTargetEmailOtpStateV1 = Extract<
   AwaitingTargetFactorStateV1,
   { readonly state: 'awaiting_target_factor' }
 >;
-type PasskeyTargetPreparationV1 = LinkedDeviceTargetPreparationV1 & {
-  readonly targetFactor: { readonly kind: 'passkey_prf' };
-};
+type PasskeyTargetPreparationV1 = Extract<
+  LinkedDeviceTargetPreparationV1,
+  {
+    readonly targetFactor: { readonly kind: 'passkey_prf' };
+    readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
+  }
+>;
 type EmailOtpTargetPreparationV1 = LinkedDeviceTargetPreparationV1 & {
   readonly targetFactor: { readonly kind: 'email_otp' };
 };
@@ -302,11 +307,8 @@ function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
 }
 
-/** The canonical preparation currently lacks passkey WebAuthn ceremony options. */
-function requireTargetRpIdV1(_preparation: PasskeyTargetPreparationV1): WebAuthnRpId {
-  throw new Error(
-    'linked-device passkey registration cannot start: target preparation has no WebAuthn RP id',
-  );
+function requireTargetRpIdV1(preparation: PasskeyTargetPreparationV1): WebAuthnRpId {
+  return preparation.passkeyCreationOptions.rpId;
 }
 
 function createExportRootEnvelopeIdV1(): PasskeyEnvelopeId {
@@ -1346,6 +1348,9 @@ export class LinkDeviceFlow {
         preparation,
         keyMaterial: this.keyMaterialHandle,
       });
+      if (credential.walletAuthMethodId !== preparation.walletAuthMethodId) {
+        throw new Error('linked-device target credential returned a different auth method');
+      }
       logDevice2LinkingStageV1({
         flowId: this.flowId,
         linkSessionId: preparation.linkSessionId,
@@ -1418,7 +1423,7 @@ export class LinkDeviceFlow {
         walletId: preparation.walletId,
         enrollmentId: preparation.enrollmentId,
         deviceId: preparation.deviceId,
-        walletAuthMethodId: preparation.walletAuthMethodId,
+        walletAuthMethodId: credential.walletAuthMethodId,
         targetFactor: { kind: 'passkey_prf' },
         targetPreparationDigestB64u,
         webauthnRegistration: credential.webauthnRegistration,

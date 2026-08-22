@@ -181,21 +181,6 @@ function createPorts(
       async signDeviceSessionRequestV1() {
         return { signatureB64u: 'test-signature' };
       },
-      async openPersistedHolderSigningMaterialV1() {
-        return unsupportedPort('openPersistedHolderSigningMaterialV1');
-      },
-      async createEd25519HolderSigningShareV1() {
-        return unsupportedPort('createEd25519HolderSigningShareV1');
-      },
-      async prepareEcdsaExportRecipientV1() {
-        return unsupportedPort('prepareEcdsaExportRecipientV1');
-      },
-      async finalizeEcdsaExportV1() {
-        return unsupportedPort('finalizeEcdsaExportV1');
-      },
-      async discardHolderSigningMaterialV1() {
-        calls.push('holder-material-discard');
-      },
       async createOrdinarySignerMaterialRecipientRequestsV1() {
         return unsupportedPort('createOrdinarySignerMaterialRecipientRequestsV1');
       },

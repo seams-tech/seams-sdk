@@ -253,6 +253,7 @@ type RouteAction =
       readonly kind:
         | 'claim'
         | 'approval'
+        | 'target-preparation'
         | 'credential'
         | 'email-otp-challenge'
         | 'email-otp-resend'
@@ -281,6 +282,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
         return await handleClaim(ctx, service, action.linkSessionId, nowMs);
       case 'approval':
         return await handleApproval(ctx, service, action.linkSessionId, nowMs);
+      case 'target-preparation':
+        return await handleTargetPreparation(ctx, service, action.linkSessionId, nowMs);
       case 'credential':
         return await handleCredential(ctx, service, action.linkSessionId, nowMs);
       case 'email-otp-challenge':
@@ -373,6 +376,29 @@ async function handleApproval(ctx: FetchRouterApiContext, service: DeviceLinking
   return approvalResultResponse(await service.sessionService.recordOwnerApprovalV1({ approval, nowMs, owner: authentication.owner }));
 }
 
+async function handleTargetPreparation(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  const approval = requireApproval(authenticated.session);
+  const rawPreparation = await readTargetPreparation(
+    service,
+    authenticated.session,
+    approval,
+    nowMs,
+  );
+  const preparation = parseBoundary(() =>
+    parseLinkedDeviceTargetPreparationV1(rawPreparation),
+  );
+  return json(preparation, { status: 200 });
+}
+
 async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
@@ -383,7 +409,8 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   if (registration.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
   const session = authenticated.session;
   const approval = requireApproval(session);
-  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(readTargetPreparation(service, session, approval, nowMs)));
+  const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, requestedAtMs: nowMs });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
   let sessionOutcome: 'applied' | 'replayed' = result.outcome;
@@ -449,7 +476,8 @@ async function handleEmailOtpChallenge(ctx: FetchRouterApiContext, service: Devi
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const session = authenticated.session;
   const approval = requireApproval(session);
-  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(readTargetPreparation(service, session, approval, nowMs)));
+  const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const started = await provider.startChallengeV1({ session, approval, preparation, resend, requestedAtMs: nowMs });
   if (started.kind === 'refused') return json({ ok: false, code: started.code, message: started.message }, { status: 403 });
   const workerEphemeralPublicKey65B64u = request.kind === 'linked_device_email_otp_challenge_start_request_v1'
@@ -472,7 +500,8 @@ async function handleEmailOtpVerify(ctx: FetchRouterApiContext, service: DeviceL
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const session = authenticated.session;
   const approval = requireApproval(session);
-  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(readTargetPreparation(service, session, approval, nowMs)));
+  const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const challenge = requireSentEmailOtpChallenge(session);
   if (challenge.challengeId !== request.challengeId) return invalidInputResponse('email OTP challenge does not match this session');
   const verified = await provider.verifyChallengeV1({ session, approval, preparation, challengeId: request.challengeId, otpCode: request.otpCode, requestedAtMs: nowMs });
@@ -688,6 +717,7 @@ function parseRoutePath(pathname: string): RouteAction | null {
   switch (parts[1]) {
     case 'claim':
     case 'approval':
+    case 'target-preparation':
     case 'credential':
     case 'ed25519-export-root':
     case 'ed25519-export-root-recipient':

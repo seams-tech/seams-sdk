@@ -62,15 +62,6 @@ import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
-import {
-  ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-  type RouterAbEd25519NormalSigningState,
-} from '@shared/utils/signingSessionSeal';
-import type { RouterAbEd25519LinkedDeviceWalletSessionClaims } from '../../../../core/ThresholdService/validation';
-import type {
-  MpcWalletSigningQuotaId,
-  WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
 
 type RecoveryAdmissionReceipt = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
@@ -337,10 +328,6 @@ export type RouterAbEd25519YaoRecoveryAuthorizationResult =
         | {
             readonly kind: 'wallet_recovery';
             readonly walletId: string;
-          }
-        | {
-            readonly kind: 'linked_device_wallet_session';
-            readonly claims: RouterAbEd25519LinkedDeviceWalletSessionClaims;
           };
     }
   | {
@@ -494,24 +481,6 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly authorityScope: OpaqueOwnerEd25519WalletSessionBinding['authorityScope'];
   readonly runtimePolicyScope: OpaqueOwnerEd25519WalletSessionBinding['runtimePolicyScope'];
   readonly routerAbNormalSigning: OpaqueOwnerEd25519WalletSessionBinding['routerAbNormalSigning'];
-  readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
-};
-
-/** Public bootstrap facts for a delegated Device 2 export. */
-export type RouterAbEd25519YaoLinkedDeviceExportBootstrapV1 = {
-  readonly kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1';
-  readonly walletId: string;
-  readonly nearAccountId: string;
-  readonly nearEd25519SigningKeyId: string;
-  readonly signerSlot: number;
-  readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-  readonly signingWorkerId: string;
-  readonly thresholdExpiresAtMs: number;
-  readonly participantIds: readonly [number, number];
-  readonly runtimePolicyScope: RuntimePolicyScope;
-  readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
@@ -760,61 +729,6 @@ export function warmBootstrapCapabilityMatchesStableIdentity(input: {
     capability.participantIds[1] === request.participantIds[1] &&
     exactRuntimePolicyScope(capability.runtimePolicyScope, binding.runtimePolicyScope)
   );
-}
-
-export function warmBootstrapCapabilityMatchesLinkedDeviceIdentity(input: {
-  readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
-  readonly claims: RouterAbEd25519LinkedDeviceWalletSessionClaims;
-  readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
-}): boolean {
-  const request = input.request;
-  const claims = input.claims;
-  const capability = input.capability;
-  const expectedWalletKeyId = `wallet-key:ed25519:${request.walletId}:${request.nearEd25519SigningKeyId}`;
-  return (
-    claims.walletId === request.walletId &&
-    String(claims.walletKeyId) === expectedWalletKeyId &&
-    capability.applicationBinding.wallet_id === request.walletId &&
-    capability.nearAccountId === request.nearAccountId &&
-    capability.applicationBinding.near_ed25519_signing_key_id === request.nearEd25519SigningKeyId &&
-    capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
-    capability.lifecycle.accountId === request.walletId &&
-    capability.lifecycle.signingWorkerId === request.signingWorkerId &&
-    capability.participantIds[0] === request.participantIds[0] &&
-    capability.participantIds[1] === request.participantIds[1]
-  );
-}
-
-export function buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1(input: {
-  readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
-  readonly claims: RouterAbEd25519LinkedDeviceWalletSessionClaims;
-  readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
-}): RouterAbEd25519YaoLinkedDeviceExportBootstrapV1 {
-  if (!warmBootstrapCapabilityMatchesLinkedDeviceIdentity(input)) {
-    throw new Error(
-      'linked Device 2 export bootstrap identity does not match the active capability',
-    );
-  }
-  const { capability, claims } = input;
-  return {
-    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
-    walletId: capability.applicationBinding.wallet_id,
-    nearAccountId: capability.nearAccountId,
-    nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
-    signerSlot: capability.applicationBinding.key_creation_signer_slot,
-    thresholdSessionId: capability.lifecycle.thresholdSessionId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
-    signingWorkerId: capability.lifecycle.signingWorkerId,
-    thresholdExpiresAtMs: claims.expiresAtMs,
-    participantIds: [capability.participantIds[0], capability.participantIds[1]],
-    runtimePolicyScope: capability.runtimePolicyScope,
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: capability.lifecycle.signingWorkerId,
-    },
-    capability,
-  };
 }
 
 function parseCapabilityBinding(
@@ -2480,10 +2394,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    if (
-      authorization.authorization.kind !== 'wallet_session' &&
-      authorization.authorization.kind !== 'linked_device_wallet_session'
-    ) {
+    if (authorization.authorization.kind !== 'wallet_session') {
       return json(
         {
           ok: false,
@@ -2509,32 +2420,6 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
           message: activeCapability.message,
         },
         { status: activeCapability.code === 'unknown_capability' ? 404 : 409 },
-      );
-    }
-    if (authorization.authorization.kind === 'linked_device_wallet_session') {
-      if (
-        !warmBootstrapCapabilityMatchesLinkedDeviceIdentity({
-          request: parsed.value,
-          claims: authorization.authorization.claims,
-          capability: activeCapability.capability,
-        })
-      ) {
-        return json(
-          {
-            ok: false,
-            code: 'continuity_mismatch',
-            message: 'active Ed25519 Yao capability does not match the linked Wallet Session',
-          },
-          { status: 409 },
-        );
-      }
-      return json(
-        buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1({
-          request: parsed.value,
-          claims: authorization.authorization.claims,
-          capability: activeCapability.capability,
-        }),
-        { status: 200 },
       );
     }
     const walletSessionBinding = authorization.authorization.binding;

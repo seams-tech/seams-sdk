@@ -30,6 +30,7 @@ import type {
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import type { Ed25519PublicKeyB64u } from '../passkey-custody/primitives';
 import type {
   ActiveLaneProtocolSourceV1,
@@ -402,8 +403,24 @@ type LinkedDeviceTargetPreparationBaseV1 = {
   readonly expiresAtMs: number;
 };
 
-export type LinkedDeviceTargetPreparationV1 = LinkedDeviceTargetPreparationBaseV1 &
-  { readonly targetFactor: LinkedDeviceTargetFactorV1 };
+/**
+ * The server-owned passkey ceremony carried by a target preparation. The
+ * auth-method identity is duplicated here intentionally: the parser binds it
+ * to the preparation identity before this value can enter the domain.
+ */
+export type LinkedDevicePasskeyCreationOptionsV1 = WalletAddAuthMethodRegistrationOptions & {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+};
+
+export type LinkedDeviceTargetPreparationV1 =
+  | (LinkedDeviceTargetPreparationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
+    })
+  | (LinkedDeviceTargetPreparationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly passkeyCreationOptions?: never;
+    });
 
 /** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
 export type LinkedDeviceWebAuthnRegistrationV1 = {

@@ -44,10 +44,12 @@ import {
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
   type WalletId,
   type WebAuthnCredentialIdB64u,
 } from '../utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
+import { parseWalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import { parseSigningLaneRecord, parseWalletKeyRecord } from '../signing-lanes/recordParsers';
 import {
   parseEcdsaCapabilityManifestId,
@@ -120,6 +122,7 @@ import {
   type LinkedDeviceEmailOtpChallengeResultV1,
   type LinkedDeviceEmailOtpVerificationResultV1,
   type LinkedDeviceTargetPreparationV1,
+  type LinkedDevicePasskeyCreationOptionsV1,
   type LinkedDeviceWebAuthnRegistrationV1,
   type LinkDevicePublicKeyB64u,
   type QrLinkedDeviceSessionPayloadV5,
@@ -237,7 +240,7 @@ const EMAIL_OTP_CREDENTIAL_FIELDS = [
   ...CREDENTIAL_BASE_FIELDS,
   'emailOtpVerificationGrant',
 ] as const;
-const TARGET_PREPARATION_FIELDS = [
+const TARGET_PREPARATION_BASE_FIELDS = [
   'kind',
   'linkSessionId',
   'walletId',
@@ -249,6 +252,10 @@ const TARGET_PREPARATION_FIELDS = [
   'ordinarySignerMaterialRecipientRequirements',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+const TARGET_PREPARATION_PASSKEY_FIELDS = [
+  ...TARGET_PREPARATION_BASE_FIELDS,
+  'passkeyCreationOptions',
 ] as const;
 const EMAIL_OTP_VERIFICATION_GRANT_FIELDS = [
   'kind',
@@ -1739,7 +1746,18 @@ export function parseLinkedDeviceApprovalDeliveryV1(raw: unknown): LinkedDeviceA
 export function parseLinkedDeviceTargetPreparationV1(
   raw: unknown,
 ): LinkedDeviceTargetPreparationV1 {
-  const record = exactRecord(raw, TARGET_PREPARATION_FIELDS, 'LinkedDeviceTargetPreparationV1');
+  const candidate = requireRecord(raw, 'LinkedDeviceTargetPreparationV1');
+  const targetFactor = parseTargetFactor(
+    candidate.targetFactor,
+    'LinkedDeviceTargetPreparationV1.targetFactor',
+  );
+  const record = exactRecord(
+    candidate,
+    targetFactor.kind === 'passkey_prf'
+      ? TARGET_PREPARATION_PASSKEY_FIELDS
+      : TARGET_PREPARATION_BASE_FIELDS,
+    'LinkedDeviceTargetPreparationV1',
+  );
   if (record.kind !== 'linked_device_target_preparation_v1') {
     throw new Error('LinkedDeviceTargetPreparationV1.kind is invalid');
   }
@@ -1762,10 +1780,6 @@ export function parseLinkedDeviceTargetPreparationV1(
   const ed25519ExportRoot = parseLinkedDeviceEd25519ExportRootPreparationV1(
     record.ed25519ExportRoot,
   );
-  const targetFactor = parseTargetFactor(
-    record.targetFactor,
-    'LinkedDeviceTargetPreparationV1.targetFactor',
-  );
   const base = {
     kind: 'linked_device_target_preparation_v1' as const,
     linkSessionId: parseSessionId(
@@ -1784,7 +1798,87 @@ export function parseLinkedDeviceTargetPreparationV1(
     issuedAtMs,
     expiresAtMs,
   };
+  if (targetFactor.kind === 'passkey_prf') {
+    const passkeyCreationOptions = parseLinkedDevicePasskeyCreationOptionsV1(
+      record.passkeyCreationOptions,
+      walletAuthMethodId,
+    );
+    return { ...base, targetFactor, passkeyCreationOptions };
+  }
   return { ...base, targetFactor };
+}
+
+function parseLinkedDevicePasskeyCreationOptionsV1(
+  raw: unknown,
+  expectedWalletAuthMethodId: WalletAuthMethodId,
+): LinkedDevicePasskeyCreationOptionsV1 {
+  const label = 'LinkedDeviceTargetPreparationV1.passkeyCreationOptions';
+  const record = exactRecord(
+    raw,
+    [
+      'kind',
+      'walletAuthMethodId',
+      'challengeId',
+      'challengeB64u',
+      'rpId',
+      'user',
+      'pubKeyCredParams',
+      'authenticatorSelection',
+      'timeoutMs',
+      'attestation',
+      'extensions',
+      'excludeCredentials',
+    ],
+    label,
+  );
+  const walletAuthMethodId = parseId(
+    parseWalletAuthMethodId,
+    record.walletAuthMethodId,
+    `${label}.walletAuthMethodId`,
+  );
+  if (walletAuthMethodId !== expectedWalletAuthMethodId) {
+    throw new Error(`${label}.walletAuthMethodId must match the preparation`);
+  }
+  exactRecord(record.user, ['idB64u', 'name', 'displayName'], `${label}.user`);
+  exactRecord(
+    record.authenticatorSelection,
+    ['residentKey', 'userVerification'],
+    `${label}.authenticatorSelection`,
+  );
+  const extensions = exactRecord(record.extensions, ['prf'], `${label}.extensions`);
+  const prf = exactRecord(extensions.prf, ['eval'], `${label}.extensions.prf`);
+  exactRecord(
+    prf.eval,
+    ['firstB64u', 'secondB64u'],
+    `${label}.extensions.prf.eval`,
+  );
+  if (!Array.isArray(record.pubKeyCredParams)) {
+    throw new Error(`${label}.pubKeyCredParams must be an array`);
+  }
+  record.pubKeyCredParams.forEach((entry, index) => {
+    exactRecord(entry, ['type', 'alg'], `${label}.pubKeyCredParams[${index}]`);
+  });
+  if (!Array.isArray(record.excludeCredentials)) {
+    throw new Error(`${label}.excludeCredentials must be an array`);
+  }
+  record.excludeCredentials.forEach((entry, index) => {
+    exactRecord(entry, ['type', 'id'], `${label}.excludeCredentials[${index}]`);
+  });
+  const options = parseWalletAddAuthMethodRegistrationOptions(record);
+  return {
+    kind: options.kind,
+    walletAuthMethodId,
+    challengeId: options.challengeId,
+    challengeB64u: options.challengeB64u,
+    rpId: options.rpId,
+    user: options.user,
+    pubKeyCredParams: options.pubKeyCredParams,
+    authenticatorSelection: options.authenticatorSelection,
+    timeoutMs: options.timeoutMs,
+    attestation: options.attestation,
+    extensions: options.extensions,
+    excludeCredentials: options.excludeCredentials,
+  };
 }
 
 function parseLinkedDeviceEd25519ExportRootPreparationV1(

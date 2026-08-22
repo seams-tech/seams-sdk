@@ -27,9 +27,6 @@ export interface RoutePolicyResolvers<TServices extends object = RouteServices> 
   apiCredentials?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
-  capabilityGrant?: (
-    input: RoutePolicyResolverInput<TServices>,
-  ) => Promise<RoutePolicyResolutionResult>;
   sessionPrincipal?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
@@ -106,16 +103,6 @@ export async function enforceRoutePolicy<TServices extends object = RouteService
             status: 500,
             code: 'route_auth_not_configured',
             message: 'API credential auth resolver is not configured',
-          };
-      break;
-    case 'capability_grant':
-      authResult = input.resolvers?.capabilityGrant
-        ? await input.resolvers.capabilityGrant(resolveInput)
-        : {
-            ok: false,
-            status: 500,
-            code: 'route_auth_not_configured',
-            message: 'Capability-grant auth resolver is not configured',
           };
       break;
     case 'session_principal':

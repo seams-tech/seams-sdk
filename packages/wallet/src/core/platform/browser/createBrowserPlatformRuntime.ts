@@ -1,5 +1,6 @@
 import { IndexedDBManager } from '../../indexedDB';
 import { base64UrlDecode } from '@shared/utils/base64';
+import type { WalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
 import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
@@ -72,6 +73,7 @@ import type {
   StoreEcdsaRoleLocalSigningMaterialOutput,
 } from '../types';
 import type { EcdsaDerivationRelayerPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 type BrowserRuntimePortsDeps = {
   indexedDB?: typeof IndexedDBManager;
@@ -167,6 +169,39 @@ function decodeBase64UrlArrayBuffer(value: string): ArrayBuffer {
   const out = new ArrayBuffer(decoded.byteLength);
   new Uint8Array(out).set(decoded);
   return out;
+}
+
+function browserPasskeyCreationOptions(
+  options: WalletAddAuthMethodRegistrationOptions,
+): PublicKeyCredentialCreationOptions {
+  return {
+    challenge: decodeBase64UrlArrayBuffer(options.challengeB64u),
+    rp: { id: options.rpId, name: options.rpId },
+    user: {
+      id: decodeBase64UrlArrayBuffer(options.user.idB64u),
+      name: options.user.name,
+      displayName: options.user.displayName,
+    },
+    pubKeyCredParams: options.pubKeyCredParams.map((parameter) => ({
+      type: parameter.type,
+      alg: parameter.alg,
+    })),
+    authenticatorSelection: options.authenticatorSelection,
+    timeout: options.timeoutMs,
+    attestation: options.attestation,
+    excludeCredentials: options.excludeCredentials.map((credential) => ({
+      type: credential.type,
+      id: decodeBase64UrlArrayBuffer(credential.id),
+    })),
+    extensions: {
+      prf: {
+        eval: {
+          first: base64UrlDecode(options.extensions.prf.eval.firstB64u),
+          second: base64UrlDecode(options.extensions.prf.eval.secondB64u),
+        },
+      },
+    } as AuthenticationExtensionsClientInputs,
+  };
 }
 
 function parsePublicKey33B64u(value: string, field: string): string {
@@ -468,27 +503,10 @@ function createBrowserAuthenticatorPort(
       try {
         switch (operation.kind) {
           case 'create_passkey': {
+            const registrationOptions = operation.registrationOptions;
             const credential = await runBrowserCredentialOperation(
               'create',
-              {
-                rp: { id: operation.rpId, name: operation.rpId },
-                user: {
-                  id: decodeBase64UrlArrayBuffer(operation.userHandleB64u),
-                  name: operation.userName,
-                  displayName: operation.userDisplayName,
-                },
-                challenge: decodeBase64UrlArrayBuffer(operation.challengeB64u),
-                pubKeyCredParams: [
-                  { type: 'public-key', alg: -7 },
-                  { type: 'public-key', alg: -257 },
-                ],
-                authenticatorSelection: {
-                  residentKey: 'required',
-                  userVerification: operation.authenticatorOptions?.userVerification || 'preferred',
-                },
-                timeout: operation.authenticatorOptions?.timeoutMs,
-                extensions: prfExtensionInput(),
-              },
+              browserPasskeyCreationOptions(registrationOptions),
               credentials,
             );
             if (
@@ -526,7 +544,7 @@ function createBrowserAuthenticatorPort(
                 credential: serialized,
                 credentialIdB64u: serialized.rawId,
                 rawIdB64u: serialized.rawId,
-                rpId: operation.rpId,
+                rpId: toRpId(registrationOptions.rpId),
                 prf: { kind: 'required', prfFirstB64u: requiredPrfFirstB64u },
               };
             }
@@ -537,7 +555,7 @@ function createBrowserAuthenticatorPort(
               credential: serialized,
               credentialIdB64u: serialized.rawId,
               rawIdB64u: serialized.rawId,
-              rpId: operation.rpId,
+              rpId: toRpId(registrationOptions.rpId),
               prf: prfFirstB64u
                 ? { kind: 'available_without_requirement', prfFirstB64u }
                 : { kind: 'not_requested_or_unavailable' },

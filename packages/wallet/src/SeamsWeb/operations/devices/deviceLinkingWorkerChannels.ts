@@ -1,9 +1,4 @@
 import {
-  parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
-  type RouterAbEcdsaSigningWorkerExportShareBindingV1,
-  type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
-import {
   encodeLinkedDeviceRequestProofV1,
   parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   parseLinkedDeviceEmailOtpVerificationGrantV1,
@@ -12,14 +7,6 @@ import {
   type LinkedDeviceEmailOtpVerificationGrantV1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
-import type {
-  LaneProtocolCommitReceiptV1,
-  RotatableSigningLaneJobV1,
-} from '@shared/signing-lanes/rotation';
-import {
-  parseLaneProtocolCommitReceiptV1,
-  parseRotatableSigningLaneJobV1,
-} from '@shared/signing-lanes/rotationParsers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
@@ -31,18 +18,12 @@ import {
   type LinkedDeviceId,
 } from '@shared/signing-lanes/ids';
 import {
-  parseMpcMaterialActivationRef,
   parseWalletAuthMethodId,
   parseWalletId,
-  type MpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
-import {
-  parseLaneSealedHolderRecordV1,
-  type LaneSealedHolderRecordV1,
-} from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import {
   createDeviceLinkingOrdinaryMaterialWorkerPortV1,
   type DeviceLinkingOrdinaryMaterialWorkerPortV1,
@@ -50,20 +31,12 @@ import {
   type DeviceLinkingOrdinaryMaterialWorkerRequestV1,
 } from './deviceLinkingOrdinaryMaterialWorker';
 import type {
-  DeviceLinkingEd25519SigningShareV1,
-  DeviceLinkingEcdsaExportArtifactV1,
-  DeviceLinkingEcdsaExportPublicFactsV1,
-  DeviceLinkingEcdsaExportRecipientV1,
   DeviceLinkingEmailOtpFactorReleasePortV1,
   DeviceLinkingEmailOtpFactorReleaseResultV1,
-  DeviceLinkingHolderSigningMaterialHandleV1,
-  DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingKeyMaterialBundleV1,
 } from './deviceLinkingPorts';
-import { EcdsaClientWorkerControlKind } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
-import { getWorkerTransport } from '@/core/signingEngine/workerManager/workerTransport';
 
 export type DeviceLinkingWorkerEndpointV1 = {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -74,10 +47,9 @@ export type DeviceLinkingWorkerEndpointV1 = {
   terminate(): void;
 };
 
-export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 &
-  DeviceLinkingHolderSigningMaterialPortV1 & {
-    close(): void;
-  } & DeviceLinkingEmailOtpFactorReleasePortV1 &
+export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 & {
+  close(): void;
+} & DeviceLinkingEmailOtpFactorReleasePortV1 &
   DeviceLinkingOrdinaryMaterialWorkerPortV1;
 
 type DeviceLinkingWorkerRequestV1 =
@@ -87,14 +59,6 @@ type DeviceLinkingWorkerRequestV1 =
   | {
       readonly kind: 'device_linking_email_otp_export_root_recipient_create_v1';
       readonly handleId: string;
-    }
-  | {
-      readonly kind: 'device_linking_holder_signing_material_open_v1';
-      readonly factorSecret: ArrayBuffer;
-      readonly job: RotatableSigningLaneJobV1;
-      readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
-      readonly materialActivation: MpcMaterialActivationRef;
-      readonly holderRecord: LaneSealedHolderRecordV1;
     }
   | {
       readonly kind: 'device_linking_email_otp_factor_release_open_v1';
@@ -109,33 +73,6 @@ type DeviceLinkingWorkerRequestV1 =
       readonly expectedChallengeId: string;
       readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
       readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
-    }
-  | {
-      readonly kind: 'device_linking_holder_signing_material_discard_v1';
-      readonly handleId: string;
-    }
-  | {
-      readonly kind: 'device_linking_holder_ed25519_sign_v1';
-      readonly handleId: string;
-      readonly admittedDigestB64u: DigestB64u;
-      readonly signingWorkerCommitments: {
-        readonly hiding: string;
-        readonly binding: string;
-      };
-      readonly signingWorkerVerifyingShareB64u: string;
-    }
-  | {
-      readonly kind: 'device_linking_holder_ecdsa_export_recipient_prepare_v1';
-      readonly handleId: string;
-      readonly operationId: string;
-    }
-  | {
-      readonly kind: 'device_linking_holder_ecdsa_export_finalize_v1';
-      readonly handleId: string;
-      readonly recipientHandleId: string;
-      readonly signingWorkerExport: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1;
-      readonly expectedBinding: RouterAbEcdsaSigningWorkerExportShareBindingV1;
-      readonly expectedPublicFacts: DeviceLinkingEcdsaExportPublicFactsV1;
     }
   | {
       readonly kind: 'device_linking_request_sign_v1';
@@ -251,41 +188,6 @@ function parseCreateResult(value: unknown): DeviceLinkingKeyMaterialBundleV1 {
   };
 }
 
-function parseHolderSigningMaterialHandle(
-  value: unknown,
-): DeviceLinkingHolderSigningMaterialHandleV1 {
-  const record = exactRecord(
-    value,
-    ['handleId', 'keyFamily'],
-    'device-linking holder signing material response',
-  );
-  if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1') {
-    throw new Error('device-linking holder signing material keyFamily is invalid');
-  }
-  return {
-    kind: 'device_linking_holder_signing_material_handle_v1',
-    handleId: nonEmpty(record.handleId, 'device-linking holder signing material handleId'),
-    keyFamily: record.keyFamily,
-  };
-}
-
-function parseHolderSigningMaterialHandleInput(
-  value: unknown,
-): DeviceLinkingHolderSigningMaterialHandleV1 {
-  const record = exactRecord(
-    value,
-    ['kind', 'handleId', 'keyFamily'],
-    'device-linking holder signing material handle',
-  );
-  if (record.kind !== 'device_linking_holder_signing_material_handle_v1') {
-    throw new Error('device-linking holder signing material handle kind is invalid');
-  }
-  return parseHolderSigningMaterialHandle({
-    handleId: record.handleId,
-    keyFamily: record.keyFamily,
-  });
-}
-
 function parseEmailOtpFactorReleaseResult(
   value: unknown,
 ): DeviceLinkingEmailOtpFactorReleaseResultV1 {
@@ -305,79 +207,6 @@ function parseEmailOtpFactorReleaseResult(
     verificationGrant: parseLinkedDeviceEmailOtpVerificationGrantV1(record.verificationGrant),
     factorSecret: record.factorSecret,
   };
-}
-
-function parseCommitments(value: unknown): {
-  readonly hiding: string;
-  readonly binding: string;
-} {
-  const record = exactRecord(value, ['hiding', 'binding'], 'Ed25519 commitments');
-  return {
-    hiding: nonEmpty(record.hiding, 'Ed25519 commitments.hiding'),
-    binding: nonEmpty(record.binding, 'Ed25519 commitments.binding'),
-  };
-}
-
-function parseEd25519SigningShare(value: unknown): DeviceLinkingEd25519SigningShareV1 {
-  const record = exactRecord(
-    value,
-    ['clientCommitments', 'clientVerifyingShareB64u', 'clientSignatureShareB64u'],
-    'device-linking Ed25519 signing share',
-  );
-  return {
-    clientCommitments: parseCommitments(record.clientCommitments),
-    clientVerifyingShareB64u: parseFixedB64u(
-      record.clientVerifyingShareB64u,
-      32,
-      'clientVerifyingShareB64u',
-    ),
-    clientSignatureShareB64u: parseFixedB64u(
-      record.clientSignatureShareB64u,
-      32,
-      'clientSignatureShareB64u',
-    ),
-  };
-}
-
-function parseEcdsaExportRecipient(value: unknown): DeviceLinkingEcdsaExportRecipientV1 {
-  const record = exactRecord(
-    value,
-    ['recipientHandleId', 'recipientIdentity', 'recipientPublicKeyB64u'],
-    'device-linking ECDSA export recipient',
-  );
-  return {
-    kind: 'device_linking_ecdsa_export_recipient_v1',
-    recipientHandleId: nonEmpty(record.recipientHandleId, 'recipientHandleId'),
-    recipientIdentity: nonEmpty(record.recipientIdentity, 'recipientIdentity'),
-    recipientPublicKeyB64u: parseFixedB64u(
-      record.recipientPublicKeyB64u,
-      32,
-      'recipientPublicKeyB64u',
-    ),
-  };
-}
-
-function parseEcdsaExportArtifact(value: unknown): DeviceLinkingEcdsaExportArtifactV1 {
-  const record = exactRecord(
-    value,
-    ['publicKeyHex', 'privateKeyHex', 'ethereumAddress'],
-    'device-linking ECDSA export artifact',
-  );
-  const publicKeyHex = nonEmpty(record.publicKeyHex, 'publicKeyHex');
-  const privateKeyHex = nonEmpty(record.privateKeyHex, 'privateKeyHex');
-  const ethereumAddress = nonEmpty(record.ethereumAddress, 'ethereumAddress');
-  if (!/^0x[0-9a-f]{66}$/.test(publicKeyHex)) throw new Error('publicKeyHex is invalid');
-  if (!/^0x[0-9a-f]{64}$/.test(privateKeyHex)) throw new Error('privateKeyHex is invalid');
-  if (!/^0x[0-9a-f]{40}$/.test(ethereumAddress)) {
-    throw new Error('ethereumAddress is invalid');
-  }
-  return { publicKeyHex, privateKeyHex, ethereumAddress };
-}
-
-function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
-  const parsed = parseMpcMaterialActivationRef(value);
-  if (parsed.ok) return parsed.value;
-  throw new Error(parsed.error.message);
 }
 
 function parseSignatureResult(value: unknown): { readonly signatureB64u: string } {
@@ -516,15 +345,6 @@ export function createDeviceLinkingKeyMaterialPortV1(
   const bindEndpoint = (nextEndpoint: DeviceLinkingWorkerEndpointV1): void => {
     nextEndpoint.addEventListener('message', onMessage);
     nextEndpoint.addEventListener('error', onError);
-    if (args.endpoint) return;
-    const presignPort = getWorkerTransport().createLinkedHolderPresignAuthorityPortV1();
-    nextEndpoint.postMessage(
-      {
-        kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
-        port: presignPort,
-      },
-      [presignPort],
-    );
   };
 
   if (args.endpoint) {
@@ -601,32 +421,6 @@ export function createDeviceLinkingKeyMaterialPortV1(
       const handle = parseHandle(input.handle);
       await request({ kind: 'device_linking_key_material_discard_v1', handleId: handle.handleId });
     },
-    async openPersistedHolderSigningMaterialV1(input) {
-      if (!(input.factorSecret instanceof ArrayBuffer) || input.factorSecret.byteLength !== 32) {
-        throw new Error('device-linking holder signing factorSecret must be 32 bytes');
-      }
-      const job = parseRotatableSigningLaneJobV1(
-        input.job,
-        'device-linking holder signing material job',
-      );
-      const protocolCommitReceipt = parseLaneProtocolCommitReceiptV1(
-        input.protocolCommitReceipt,
-        'device-linking holder signing material protocol receipt',
-      );
-      return parseHolderSigningMaterialHandle(
-        await request(
-          {
-            kind: 'device_linking_holder_signing_material_open_v1',
-            factorSecret: input.factorSecret,
-            job,
-            protocolCommitReceipt,
-            materialActivation: parseMaterialActivation(input.materialActivation),
-            holderRecord: parseLaneSealedHolderRecordV1(input.holderRecord),
-          },
-          [input.factorSecret],
-        ),
-      );
-    },
     async openEmailOtpFactorReleaseV1(input) {
       const handle = parseHandle(input.keyMaterial);
       const walletId = parseWalletId(input.walletId);
@@ -664,64 +458,6 @@ export function createDeviceLinkingKeyMaterialPortV1(
           expectedChallengeId,
           verificationGrant,
           factorRelease,
-        }),
-      );
-    },
-    async discardHolderSigningMaterialV1(input) {
-      const handle = parseHolderSigningMaterialHandleInput(input.handle);
-      await request({
-        kind: 'device_linking_holder_signing_material_discard_v1',
-        handleId: handle.handleId,
-      });
-    },
-    async createEd25519HolderSigningShareV1(input) {
-      const handle = parseHolderSigningMaterialHandleInput(input.handle);
-      if (handle.keyFamily !== 'ed25519') {
-        throw new Error('Ed25519 signing requires an Ed25519 holder handle');
-      }
-      return parseEd25519SigningShare(
-        await request({
-          kind: 'device_linking_holder_ed25519_sign_v1',
-          handleId: handle.handleId,
-          admittedDigestB64u: parseDigest(input.admittedDigestB64u, 'admittedDigestB64u'),
-          signingWorkerCommitments: parseCommitments(input.signingWorkerCommitments),
-          signingWorkerVerifyingShareB64u: parseFixedB64u(
-            input.signingWorkerVerifyingShareB64u,
-            32,
-            'signingWorkerVerifyingShareB64u',
-          ),
-        }),
-      );
-    },
-    async prepareEcdsaExportRecipientV1(input) {
-      const handle = parseHolderSigningMaterialHandleInput(input.handle);
-      if (handle.keyFamily !== 'ecdsa_secp256k1') {
-        throw new Error('ECDSA export requires an ECDSA holder handle');
-      }
-      return parseEcdsaExportRecipient(
-        await request({
-          kind: 'device_linking_holder_ecdsa_export_recipient_prepare_v1',
-          handleId: handle.handleId,
-          operationId: nonEmpty(input.operationId, 'operationId'),
-        }),
-      );
-    },
-    async finalizeEcdsaExportV1(input) {
-      const handle = parseHolderSigningMaterialHandleInput(input.handle);
-      if (handle.keyFamily !== 'ecdsa_secp256k1') {
-        throw new Error('ECDSA export requires an ECDSA holder handle');
-      }
-      const signingWorkerExport = parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
-        input.signingWorkerExport,
-      );
-      return parseEcdsaExportArtifact(
-        await request({
-          kind: 'device_linking_holder_ecdsa_export_finalize_v1',
-          handleId: handle.handleId,
-          recipientHandleId: nonEmpty(input.recipientHandleId, 'recipientHandleId'),
-          signingWorkerExport,
-          expectedBinding: input.expectedBinding,
-          expectedPublicFacts: input.expectedPublicFacts,
         }),
       );
     },

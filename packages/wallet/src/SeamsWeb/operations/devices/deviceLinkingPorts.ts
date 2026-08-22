@@ -15,6 +15,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceWebAuthnRegistrationV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
@@ -44,7 +45,6 @@ import type {
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
-import type { DeviceLinkingHolderSigningMaterialPortV1 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 import type { DeviceLinkingOrdinaryMaterialWorkerPortV1 } from './deviceLinkingOrdinaryMaterialWorker';
 import type {
   PasskeyCustodyEnvelopeRecord,
@@ -58,15 +58,6 @@ export type {
   DeviceLinkingSealedAuthorityRecordsV1,
 } from './deviceLinkingAuthorityInstallation';
 import type { DeviceLinkingAuthorityInstallationPortV1 } from './deviceLinkingAuthorityInstallation';
-
-export type {
-  DeviceLinkingEd25519SigningShareV1,
-  DeviceLinkingEcdsaExportArtifactV1,
-  DeviceLinkingEcdsaExportPublicFactsV1,
-  DeviceLinkingEcdsaExportRecipientV1,
-  DeviceLinkingHolderSigningMaterialHandleV1,
-  DeviceLinkingHolderSigningMaterialPortV1,
-} from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 
 /** Authenticated owner request proof produced by the one owner auth source. */
 export type LinkSessionAuthenticationV1 = {
@@ -273,7 +264,6 @@ export type DeviceLinkingKeyMaterialPortV1 = {
 };
 
 export type DeviceLinkingLiveKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 &
-  DeviceLinkingHolderSigningMaterialPortV1 &
   DeviceLinkingEmailOtpFactorReleasePortV1 &
   DeviceLinkingOrdinaryMaterialWorkerPortV1;
 
@@ -318,11 +308,17 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
 
 export type DeviceLinkingTargetCredentialPortV1 = {
   createTargetCredentialV1(input: {
-    readonly preparation: LinkedDeviceTargetPreparationV1 & {
-      readonly targetFactor: { readonly kind: 'passkey_prf' };
-    };
+    readonly preparation: Extract<
+      LinkedDeviceTargetPreparationV1,
+      {
+        readonly targetFactor: { readonly kind: 'passkey_prf' };
+        readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
+      }
+    >;
     readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
   }): Promise<{
+    /** The auth-method identity bound into the server-provided creation options. */
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
     /** Ephemeral PRF output from the user-verified creation ceremony. */
     readonly factorSecret: Uint8Array;

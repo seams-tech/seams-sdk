@@ -109,7 +109,6 @@ export type {
   SigningSessionSealService,
   SigningSessionSealServiceIdempotencyOptions,
   SigningSessionSealStartupCapabilities,
-  SigningSessionSealLinkedDeviceWalletSessionRecord,
   SigningSessionSealThresholdSessionRecord,
 } from './threshold/session/signingSessionSeal/signingSessionSeal.types';
 export {
