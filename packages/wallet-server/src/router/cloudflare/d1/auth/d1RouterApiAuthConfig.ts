@@ -12,17 +12,17 @@ import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa
 import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
 import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
-import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
-import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type {
   OrdinarySignerMaterialActivationPlannerV1,
   OrdinarySignerMaterialReservationPreparationPlannerV1,
 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import type {
   LinkedDeviceTargetCredentialVerificationPortV1,
+  LinkedDeviceTargetPlannerV1,
   LinkedDeviceVerifiedLinkBuilderV1,
 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type { D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
 import type {
   CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
@@ -73,12 +73,12 @@ export type CloudflareD1EmailOtpServerSealConfig = {
 };
 
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
-  /** Owner Wallet Session authority after its boundary parser has run. */
-  readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
-  readonly ownerAuthorizationRoute: DeviceLinkingOwnerAuthorizationRouteServiceV1;
+  /** Resolves authoritative source-lane facts after the owner context is rebuilt from D1. */
+  readonly readOwnerSourceChildV1: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1['readOwnerSourceChildV1'];
   readonly targetCredential: (input: {
     readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
     readonly targetCredentialVerification: LinkedDeviceTargetCredentialVerificationPortV1;
+    readonly targetPlanner: LinkedDeviceTargetPlannerV1;
   }) => DeviceLinkingRouteServiceV1['targetCredential'];
   /** Worker endpoints and exact preparation planners for ordinary authority installation. */
   readonly authorityInstallation: CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1;

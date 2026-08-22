@@ -9,6 +9,7 @@ import {
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import {
+  buildFullOwnerDelegatedWalletAuthorityV1,
   hasDelegatedWalletPermissionV1,
   validateDelegatedWalletAuthorityAttenuationV1,
   type DelegatedWalletAuthorityV1,
@@ -16,13 +17,19 @@ import {
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
+  type TenantId,
 } from '@shared/authorization/capabilityKinds';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import type {
+  OpaqueWalletSessionCurve,
+  ResolvedOpaqueWalletSessionToken,
+} from '../../../../authorization/service';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
+  parseLinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
@@ -48,6 +55,8 @@ import type {
   D1LinkedDeviceTargetPlannerOptionsV1,
   D1LinkedDeviceTargetPlannerV1,
 } from './d1LinkedDeviceTargetPlanner';
+import type { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
+import type { D1LinkedDeviceSessionStoreV1 } from './d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceTargetPlannerV1 as TargetPlanner } from './d1LinkedDeviceTargetPlanner';
 import { computeLinkedDevicePublicKeyDigestV1 } from '../../../../core/deviceLinking/requestProof';
 
@@ -78,6 +87,139 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
     readonly request: LinkedDeviceOwnerSourceChildResolutionRequestV1;
   }): Promise<LinkedDeviceOwnerSourceChildResolutionV1 | null>;
 };
+
+export type D1LinkedDeviceOwnerAuthorizationMetadataSourceOptionsV1 = {
+  readonly tenantId: TenantId;
+  readonly sessionStore: Pick<D1LinkedDeviceSessionStoreV1, 'getSessionV1'>;
+  readonly authorizationStore: Pick<
+    CloudflareD1AuthorizationStore,
+    'readOpaqueWalletSessionTokenByIdentity'
+  >;
+  readonly readOwnerSourceChildV1: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1['readOwnerSourceChildV1'];
+  readonly nowV1?: () => number;
+};
+
+/** Rehydrates the request-scoped owner context from link approval and D1. */
+export function createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1(
+  options: D1LinkedDeviceOwnerAuthorizationMetadataSourceOptionsV1,
+): D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 {
+  const nowV1 = options.nowV1 ?? Date.now;
+  return {
+    readApprovedOwnerContextV1: async (input) => {
+      const linkSessionId = parseLinkDeviceSessionId(input.linkSessionId);
+      if (!linkSessionId.ok) return null;
+      const session = await options.sessionStore.getSessionV1(linkSessionId.value);
+      if (!session?.approvalTranscript || !session.claimTranscript) return null;
+      const approval = session.approvalTranscript.value;
+      if (
+        session.linkSessionId !== linkSessionId.value ||
+        approval.linkSessionId !== linkSessionId.value ||
+        session.claimTranscript.value.walletId !== input.walletId ||
+        approval.walletId !== input.walletId ||
+        approval.ownerAuthorization.kind !== 'wallet_session'
+      ) {
+        return null;
+      }
+      for (const hint of approval.orderedOwnerSourceLaneHints) {
+        if (hint.walletKey.walletId !== input.walletId) return null;
+      }
+      const curves = ownerAuthorizationCurvesForHints(approval.orderedOwnerSourceLaneHints);
+      if (curves.length === 0) return null;
+      const matches: ResolvedOpaqueWalletSessionToken[] = [];
+      for (const curve of curves) {
+        const resolved = await options.authorizationStore.readOpaqueWalletSessionTokenByIdentity({
+          tenantId: options.tenantId,
+          walletSessionId: approval.ownerAuthorization.walletSessionId,
+          curve,
+          nowMs: nowV1(),
+        });
+        if (resolved) matches.push(resolved);
+      }
+      const matchingAuthorization: ResolvedOpaqueWalletSessionToken[] = [];
+      for (const match of matches) {
+        if (match.binding.authorizationId === approval.ownerAuthorization.authorizationId) {
+          matchingAuthorization.push(match);
+        }
+      }
+      if (matchingAuthorization.length !== 1) return null;
+      return ownerContextFromOpaqueBindingV1({
+        resolved: matchingAuthorization[0],
+        walletId: input.walletId,
+        ownerAuthorization: approval.ownerAuthorization,
+        sourceKeyManifestDigestB64u: session.approvalTranscript.sourceKeyManifestDigestB64u,
+        nowMs: nowV1(),
+      });
+    },
+    readOwnerSourceChildV1: options.readOwnerSourceChildV1,
+  };
+}
+
+function ownerAuthorizationCurvesForHints(
+  hints: readonly LinkedDeviceOwnerSourceLaneV1[],
+): OpaqueWalletSessionCurve[] {
+  const curves: OpaqueWalletSessionCurve[] = [];
+  for (const hint of hints) {
+    const curve: OpaqueWalletSessionCurve =
+      hint.keyFamily === 'ecdsa_secp256k1' ? 'ecdsa' : 'ed25519';
+    if (!curves.includes(curve)) curves.push(curve);
+  }
+  return curves;
+}
+
+function ownerContextFromOpaqueBindingV1(input: {
+  readonly resolved: ResolvedOpaqueWalletSessionToken;
+  readonly walletId: WalletId;
+  readonly ownerAuthorization: Extract<
+    LinkedDeviceOwnerAuthorizationSourceV1,
+    { readonly kind: 'wallet_session' }
+  >;
+  readonly sourceKeyManifestDigestB64u: DigestB64u;
+  readonly nowMs: number;
+}): DeviceLinkingOwnerWalletSessionContextV1 | null {
+  const { resolved } = input;
+  if (
+    !Number.isSafeInteger(input.nowMs) ||
+    input.nowMs < 0 ||
+    resolved.authorization.expiresAtMs <= input.nowMs ||
+    resolved.binding.walletId !== input.walletId ||
+    resolved.authorization.walletId !== input.walletId ||
+    resolved.authorization.walletSessionId !== resolved.binding.walletSessionId ||
+    resolved.authorization.authorizationId !== resolved.binding.authorizationId ||
+    resolved.binding.walletSessionId !== input.ownerAuthorization.walletSessionId ||
+    resolved.binding.authorizationId !== input.ownerAuthorization.authorizationId ||
+    resolved.binding.keyManifestDigestB64u !== input.sourceKeyManifestDigestB64u ||
+    resolved.binding.thresholdExpiresAtMs !== resolved.authorization.expiresAtMs ||
+    resolved.binding.curve !== resolved.curve
+  ) {
+    return null;
+  }
+  switch (resolved.binding.curve) {
+    case 'ed25519':
+      return {
+        walletId: input.walletId,
+        walletSessionId: resolved.binding.walletSessionId,
+        authorizationId: resolved.binding.authorizationId,
+        expiresAtMs: resolved.authorization.expiresAtMs,
+        permission: buildFullOwnerDelegatedWalletAuthorityV1(),
+        keyManifestDigestB64u: resolved.binding.keyManifestDigestB64u,
+        curve: 'ed25519',
+        authority: resolved.binding.authority,
+        authorityScope: resolved.binding.authorityScope,
+      };
+    case 'ecdsa':
+      return {
+        walletId: input.walletId,
+        walletSessionId: resolved.binding.walletSessionId,
+        authorizationId: resolved.binding.authorizationId,
+        expiresAtMs: resolved.authorization.expiresAtMs,
+        permission: buildFullOwnerDelegatedWalletAuthorityV1(),
+        keyManifestDigestB64u: resolved.binding.keyManifestDigestB64u,
+        curve: 'ecdsa',
+        walletAuthAuthorityRef: resolved.binding.walletAuthAuthorityRef,
+        authSource: resolved.binding.authSource,
+      };
+  }
+}
 
 export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
   readonly walletRegistration: Pick<
