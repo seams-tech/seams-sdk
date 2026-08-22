@@ -65,7 +65,7 @@ pub use wasm::{
     WasmActivatedClientV1, WasmClientSigningShareV1, WasmEd25519YaoClientRootExportSessionV1,
     WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1, WasmExportedEd25519SeedV1,
     WasmLaneCustodySealV1, WasmLaneHolderEcdsaPresignSessionV1, WasmLaneHolderRecipientV1,
-    WasmLaneHolderSigningMaterialV1,
+    WasmLaneHolderSigningMaterialV1, WasmOrdinaryEd25519ActivationClientMaterialV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
@@ -505,6 +505,78 @@ pub fn complete_client_activation_v1(
         registered_public_key: result.public_receipt().registered_public_key(),
         state_epoch: result.public_receipt().state_epoch().get(),
     })
+}
+
+/// Completes the two Client-recipient packages when the surrounding authority
+/// commit already carried the public activation evidence.
+///
+/// The package pair is still checked against the admitted activation binding
+/// and its exact transcript before either plaintext is combined. Public-key
+/// continuity remains the responsibility of the terminal activation result;
+/// this worker-only seam deliberately returns the scalar share for the local
+/// factor-sealing boundary.
+pub fn complete_client_activation_packages_v1(
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    recipient_private_key: &[u8; 32],
+    deriver_a_client_package: &Ed25519YaoEncryptedPackageV1,
+    deriver_b_client_package: &Ed25519YaoEncryptedPackageV1,
+) -> Result<(Zeroizing<[u8; 32]>, [u8; 32]), ClientActivationError> {
+    binding
+        .validate()
+        .map_err(|_| ClientActivationError::BindingMismatch)?;
+    if binding.operation != Ed25519YaoOperationV1::Registration {
+        return Err(ClientActivationError::InvalidProtocolShape);
+    }
+    validate_worker_client_package(
+        binding,
+        deriver_a_client_package,
+        Ed25519YaoDeriverRoleV1::DeriverA,
+    )?;
+    validate_worker_client_package(
+        binding,
+        deriver_b_client_package,
+        Ed25519YaoDeriverRoleV1::DeriverB,
+    )?;
+    if deriver_a_client_package.transcript() != deriver_b_client_package.transcript() {
+        return Err(ClientActivationError::InvalidRecipientPackage);
+    }
+    let transcript = deriver_a_client_package.transcript();
+    let mut deriver_a_plaintext =
+        open_client_package(deriver_a_client_package, recipient_private_key)?;
+    let mut deriver_b_plaintext =
+        open_client_package(deriver_b_client_package, recipient_private_key)?;
+    let deriver_a =
+        ActivationDeriverAClientPackage::from_bytes(core::mem::take(&mut *deriver_a_plaintext))
+            .map_err(|_| ClientActivationError::InvalidRecipientPackage)?;
+    let deriver_b =
+        ActivationDeriverBClientPackage::from_bytes(core::mem::take(&mut *deriver_b_plaintext))
+            .map_err(|_| ClientActivationError::InvalidRecipientPackage)?;
+    let scalar = combine_client_activation_packages(
+        binding.session_id.into_bytes(),
+        transcript,
+        deriver_a,
+        deriver_b,
+    )
+    .map_err(|_| ClientActivationError::InvalidRecipientPackage)?
+    .into_bytes();
+    Ok((Zeroizing::new(scalar), transcript))
+}
+
+fn validate_worker_client_package(
+    binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    package: &Ed25519YaoEncryptedPackageV1,
+    deriver: Ed25519YaoDeriverRoleV1,
+) -> Result<(), ClientActivationError> {
+    package
+        .validate()
+        .map_err(|_| ClientActivationError::InvalidProtocolShape)?;
+    if package.kind() != router_ab_core::Ed25519YaoPackageKindV1::ActivationClient
+        || package.deriver() != deriver
+        || package.session() != binding.session_id.into_bytes()
+    {
+        return Err(ClientActivationError::InvalidRecipientPackage);
+    }
+    Ok(())
 }
 
 /// Prepares the explicit export protocol from an admitted Ed25519 Yao Client

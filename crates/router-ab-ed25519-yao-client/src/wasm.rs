@@ -19,6 +19,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::complete_client_activation_packages_v1;
 use crate::lane_holder::{
     verify_holder_package, EcdsaLaneExportArtifactV1, LaneCustodySealV1, LaneHolderRecipientV1,
     LaneHolderSigningMaterialV1,
@@ -36,6 +37,7 @@ use crate::{
     open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
     LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1,
 };
+use router_ab_core::{Ed25519YaoEncryptedPackageV1, RouterAbEd25519YaoActivationExecuteRequestV1};
 use signer_core::ed25519_yao_client_root_transfer::open_ed25519_yao_client_root_under_factor_v1;
 use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
@@ -578,6 +580,84 @@ pub struct WasmActivatedClientV1 {
     client_scalar_share: Zeroizing<[u8; 32]>,
     registered_public_key: [u8; 32],
     state_epoch: u64,
+}
+
+/// Worker-owned Client material completed from one exact ordinary activation.
+///
+/// The scalar share remains in Rust until the worker explicitly consumes it
+/// for its local factor-sealing operation. Package metadata is retained so a
+/// caller cannot accidentally seal material under another transcript.
+#[wasm_bindgen]
+pub struct WasmOrdinaryEd25519ActivationClientMaterialV1 {
+    client_scalar_share: Option<Zeroizing<[u8; 32]>>,
+    session: [u8; 32],
+    transcript: [u8; 32],
+}
+
+#[wasm_bindgen]
+impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
+    /// Opens and combines the two Client packages for one registration
+    /// activation. The recipient private key is consumed only in Rust/WASM.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        activation_request_json: &str,
+        deriver_a_client_package_json: &str,
+        deriver_b_client_package_json: &str,
+        recipient_private_key: &[u8],
+    ) -> Result<Self, JsValue> {
+        let request = serde_json::from_str::<RouterAbEd25519YaoActivationExecuteRequestV1>(
+            activation_request_json,
+        )
+        .map_err(js_error)?;
+        let deriver_a =
+            serde_json::from_str::<Ed25519YaoEncryptedPackageV1>(deriver_a_client_package_json)
+                .map_err(js_error)?;
+        let deriver_b =
+            serde_json::from_str::<Ed25519YaoEncryptedPackageV1>(deriver_b_client_package_json)
+                .map_err(js_error)?;
+        let recipient_private_key = Zeroizing::new(parse_32(
+            recipient_private_key,
+            "Ed25519 activation recipient private key",
+        )?);
+        let (client_scalar_share, transcript) = complete_client_activation_packages_v1(
+            &request.binding(),
+            &recipient_private_key,
+            &deriver_a,
+            &deriver_b,
+        )
+        .map_err(js_error)?;
+        Ok(Self {
+            client_scalar_share: Some(client_scalar_share),
+            session: request.binding().session_id.into_bytes(),
+            transcript,
+        })
+    }
+
+    /// Returns the exact activation session bound to the opened packages.
+    pub fn session(&self) -> Vec<u8> {
+        self.session.to_vec()
+    }
+
+    /// Returns the exact Router transcript bound to the opened packages.
+    pub fn transcript(&self) -> Vec<u8> {
+        self.transcript.to_vec()
+    }
+
+    /// Consumes the local scalar for the worker's factor-sealing primitive.
+    pub fn take_client_material(&mut self) -> Result<Vec<u8>, JsValue> {
+        let material = self
+            .client_scalar_share
+            .take()
+            .ok_or_else(|| JsValue::from_str("Ed25519 activation material was consumed"))?;
+        Ok(material.to_vec())
+    }
+
+    /// Zeroizes the retained Client share before normal object collection.
+    pub fn destroy(&mut self) {
+        if let Some(mut material) = self.client_scalar_share.take() {
+            material.zeroize();
+        }
+    }
 }
 
 #[wasm_bindgen]
