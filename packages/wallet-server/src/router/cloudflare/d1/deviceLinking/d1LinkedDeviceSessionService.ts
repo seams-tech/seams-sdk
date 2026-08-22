@@ -1,12 +1,13 @@
-import type { LinkedDeviceAggregateActivationVerifierV1, LinkedDeviceOwnerAuthorizationPortV1, LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type {
+  LinkedDeviceOwnerAuthorizationPortV1,
+  LinkedDeviceSessionServiceV1,
+} from '../../../../core/deviceLinking/linkedDeviceSession';
 import { LinkedDeviceSessionServiceV1 as CoreLinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type {
   LinkedOwnerEmailOtpBaseFactorReaderV1,
   LinkedOwnerEnrollmentCeremonyReaderV1,
 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
-import type { LaneLifecycleStore } from '../../../../core/signingLanes/LaneLifecycleStore';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
-import { D1LinkedDeviceAggregateActivationVerifierV1 } from './d1LinkedDeviceAggregateActivationVerifier';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
@@ -27,10 +28,6 @@ export type D1LinkedDeviceSessionServiceOptionsV1 = {
    * time. Left unwired, `email_otp` approvals are refused fail-closed.
    */
   readonly emailOtpBaseFactors?: LinkedOwnerEmailOtpBaseFactorReaderV1;
-  readonly laneLifecycle: Pick<
-    LaneLifecycleStore,
-    'getEnrollment' | 'getProtocol' | 'listEnrollmentProductEpochs'
-  >;
   readonly nowV1: () => number;
 };
 
@@ -47,12 +44,9 @@ export function createD1LinkedDeviceSessionServiceV1(
     scope: options.scope,
     now: options.nowV1,
   });
-  const aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1 =
-    new D1LinkedDeviceAggregateActivationVerifierV1({ lifecycleStore: options.laneLifecycle });
   const sessionService = new CoreLinkedDeviceSessionServiceV1({
     store: sessionStore,
     authorization: options.ownerAuthorization,
-    aggregateActivationVerifier,
     ownerEnrollmentCeremonies: options.ownerEnrollmentCeremonies,
     ...(options.emailOtpBaseFactors === undefined
       ? {}

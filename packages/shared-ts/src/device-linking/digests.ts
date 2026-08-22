@@ -31,6 +31,11 @@ import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '../signing-lanes/
 import type { WebAuthnCredentialIdB64u } from '../utils/domainIds';
 import { ownerLaneParticipantContinuityCanonicalBytesV1 } from '../signing-lanes/ownerContinuity';
 
+export {
+  computeCommittedSignerPackageDigestB64u,
+  computeCommittedSignerPackageSetDigestB64u,
+} from './committedSignerPackages';
+
 const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';

@@ -1283,6 +1283,16 @@ function parsePostRegistrationRoleEnvelope<Role extends 'signer_a' | 'signer_b'>
   };
 }
 
+export function parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<
+  Role extends 'signer_a' | 'signer_b',
+>(
+  value: unknown,
+  label: string,
+  expectedRole: Role,
+): RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role> {
+  return parsePostRegistrationRoleEnvelope(value, label, expectedRole);
+}
+
 function parseRegistrationLifecycle(value: unknown): RouterAbEcdsaRegistrationLifecycleV1 {
   const label = 'registration.lifecycle';
   const record = requireRecord(value, label);
