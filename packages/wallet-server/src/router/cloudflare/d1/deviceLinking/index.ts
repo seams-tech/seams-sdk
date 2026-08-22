@@ -11,3 +11,4 @@ export * from './d1LinkedDeviceTargetCredentialProvider';
 export * from './d1LinkedDeviceTargetAuthenticatorStore';
 export * from './d1LinkedDeviceOwnerAuthorizationProvider';
 export * from './d1LinkedDeviceTargetPlanner';
+export * from './d1LinkedDeviceSourceContributionPreparationPlanner';
