@@ -8,6 +8,7 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 type BaseVerifiedWalletSessionAuth = {
@@ -46,6 +47,7 @@ export type VerifiedEcdsaWalletSessionAuth = VerifiedOwnerEcdsaWalletSessionAuth
 
 export type VerifiedOwnerEd25519WalletSessionAuth = OwnerVerifiedWalletSessionAuth & {
   curve: 'ed25519';
+  walletAuthMethodId: WalletAuthMethodId;
   authority: WalletAuthAuthority;
   authorityScope: Extract<
     OpaqueOwnerWalletSessionBinding,
@@ -88,6 +90,7 @@ export function buildVerifiedEcdsaWalletSessionAuth(
 
 export function buildVerifiedEd25519WalletSessionAuth(
   session: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>,
+  walletAuthMethodId: WalletAuthMethodId,
 ): VerifiedEd25519WalletSessionAuth {
   return {
     kind: 'wallet_session',
@@ -95,6 +98,7 @@ export function buildVerifiedEd25519WalletSessionAuth(
     authorizationKind: 'owner_wallet_session',
     thresholdSessionId: session.thresholdSessionId,
     walletId: session.walletId,
+    walletAuthMethodId,
     authorizationId: session.authorizationId,
     walletSessionId: session.walletSessionId,
     quotaId: session.quotaId,

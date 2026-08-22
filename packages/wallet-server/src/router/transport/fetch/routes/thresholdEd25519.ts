@@ -1783,7 +1783,7 @@ async function proxyEd25519OwnerLaneExecution(input: {
         }
       : {
           kind: 'wallet_auth_method' as const,
-          walletAuthMethodId: input.authorization.validated.walletSessionAuth.authority.bindingId,
+          walletAuthMethodId: input.authorization.validated.walletSessionAuth.walletAuthMethodId,
         };
   return await proxyOwnerLaneAdmittedNormalSigningRequest({
     request: input.ctx.request,

@@ -102,11 +102,13 @@ export function buildOpaqueOwnerWalletSessionAdmission(
     case 'ed25519': {
       const binding = resolved.binding;
       if (binding.curve !== 'ed25519') return null;
+      const walletAuthMethodId = resolved.authorization.walletAuthMethodId;
+      if (walletAuthMethodId === null) return null;
       return {
         kind: 'owner_wallet_session',
         curve: 'ed25519',
         binding,
-        walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(binding),
+        walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(binding, walletAuthMethodId),
         resolved,
       };
     }
