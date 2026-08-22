@@ -3702,8 +3702,11 @@ body:has(.h2-page) {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
   margin-top: -4px;
-  /* the rows carry their own padding, so pull them back out to the shell edge */
-  margin-inline: -14px;
+  /* The row's fill is the widest thing in the band, so it sets the reader's
+     sense of the left edge. Pulling it out past the shell to align the label
+     text instead left the panel hanging to the left of the heading it belongs
+     to; align the fill and let the labels indent. */
+  margin-inline: 0;
 }
 
 /* The legend rows are the stage's control surface, styled as the pillar tabs
@@ -3724,30 +3727,15 @@ body:has(.h2-page) {
     color 150ms ease;
 }
 
+/* The selected row is carried mostly by its ink stepping up to full weight;
+   the fill is only a hint behind it, well short of the pillar tabs' solid
+   taupe, which reads as a block at this row's width. */
 .h2-consoleband__tab:hover {
-  background: color-mix(in srgb, var(--h2-taupe) 55%, transparent);
+  background: color-mix(in srgb, var(--h2-taupe) 30%, transparent);
 }
 
 .h2-consoleband__tab.is-active {
-  background: var(--h2-taupe);
-}
-
-.h2-consoleband__tab-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  background: var(--h2-bg);
-  border: 1px solid var(--h2-stone);
-  color: var(--h2-graphite);
-  flex: none;
-}
-
-.h2-consoleband__tab-icon svg {
-  width: 19px;
-  height: 19px;
+  background: color-mix(in srgb, var(--h2-taupe) 60%, transparent);
 }
 
 .h2-consoleband__tab-copy {
@@ -3814,7 +3802,10 @@ body:has(.h2-page) {
    focused one reveals fully. Rest state = audit focused. */
 .h2-consoleband__screen--overview {
   inset-inline-start: 3.5%;
-  inset-block-start: 6%;
+  /* 3.5% of the stage's width, restated against its height: block insets
+     resolve on the other axis, so matching the side gap means scaling by the
+     14/5 ratio (3.5 × 2.8 = 9.8) and then staggering this card 2 below. */
+  inset-block-start: 11.8%;
   z-index: 0;
   width: 62%;
   mask-image: linear-gradient(to right, white 65%, transparent 70%);
@@ -3828,7 +3819,7 @@ body:has(.h2-page) {
 
 .h2-consoleband__screen--audit {
   inset-inline-end: 3.5%;
-  inset-block-start: 4%;
+  inset-block-start: 9.8%;
   z-index: 1;
   width: 62%;
   mask-image: linear-gradient(to left, white 55%, transparent 60.5%);
@@ -3894,7 +3885,8 @@ body:has(.h2-page) {
     width: 90%;
     inset-inline-start: 5%;
     inset-inline-end: auto;
-    inset-block-start: 6%;
+    /* 5% of width against a 15/8 stage: 5 × 1.875 = 9.375 */
+    inset-block-start: 9.4%;
     mask-image: none;
     opacity: 0;
     visibility: hidden;
@@ -4099,14 +4091,6 @@ body:has(.h2-page) {
   width: fit-content;
 }
 
-.h2-footer__legal {
-  margin: 0;
-  max-width: 24ch;
-  font-size: var(--h2-text-sm);
-  line-height: 1.6;
-  color: var(--h2-ash);
-}
-
 .h2-footer__links {
   display: grid;
   grid-template-columns: repeat(3, minmax(140px, 1fr));
@@ -4149,10 +4133,6 @@ body:has(.h2-page) {
   .h2-footer__grid {
     grid-template-columns: 1fr;
     gap: 36px;
-  }
-
-  .h2-footer__legal {
-    max-width: none;
   }
 
   .h2-footer__links {
