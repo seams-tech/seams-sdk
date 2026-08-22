@@ -148,6 +148,7 @@ import { createD1LinkedDeviceManagementServiceV1 } from '../deviceLinking/d1Link
 import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
 import { verifyD1LinkedDeviceFreshRevokeProofV1 } from '../wallet/d1WalletAuthMethodBoundary';
 import { createD1LinkedDeviceVerifiedLinkSourceReaderV1 } from '../deviceLinking/d1LinkedDeviceVerifiedLinkSourceReader';
+import { LinkedDeviceWebAuthnRegistrationVerifierV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import {
   createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1,
   createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1,
@@ -505,7 +506,10 @@ function createD1LinkedDeviceComposition(input: {
             emailOtpTargetFactor,
           }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
-      targetCredential: sessionConfig.targetCredential({ verifiedLinkBuilder }),
+      targetCredential: sessionConfig.targetCredential({
+        verifiedLinkBuilder,
+        targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(),
+      }),
       installationReceipt,
       nowV1,
     });

@@ -18,8 +18,15 @@ import {
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,
 } from './helpers/deviceLinkContracts.fixtures';
-import { buildR103UnclaimedLinkedDeviceSessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
-import { parseLinkedDeviceTargetCredentialRegistrationResultV1 } from '@shared/device-linking/parsers';
+import {
+  buildR103AwaitingTargetPasskeySessionRecordV1,
+  buildR103UnclaimedLinkedDeviceSessionRecordV1,
+} from './helpers/deviceLinkingServer.fixtures';
+import { buildPasskeyTargetPreparationFixtureV1 } from './helpers/linkedDeviceTargetPreparation.fixtures';
+import {
+  parseLinkedDeviceTargetCredentialRegistrationResultV1,
+  parseLinkedDeviceTargetCredentialRegistrationV1,
+} from '@shared/device-linking/parsers';
 import {
   buildOrdinaryEcdsaReservationPreparationFixture,
   buildOrdinaryMaterialActivationFixture,
@@ -230,6 +237,71 @@ test('serializes the browser ECDSA recipient in the target credential response',
   });
 });
 
+test('forwards the exact request Origin to target credential verification', async () => {
+  temporary = await openDatabase();
+  const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:route-origin' });
+  const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
+  const sessionService = buildSessionService(fixture);
+  const baseRouteService = routeServiceFor(sessionService, fixture, 3_000);
+  const digest = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
+  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
+  if (!walletKeyId) throw new Error('fixture signer binding is missing');
+  const registration = parseLinkedDeviceTargetCredentialRegistrationV1({
+    kind: 'linked_device_target_credential_registration_v1',
+    linkSessionId: fixture.payload.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    walletAuthMethodId: 'passkey:wallet.example.test:target-preparation-test',
+    targetFactor: { kind: 'passkey_prf' },
+    targetPreparationDigestB64u: digest,
+    ordinarySignerMaterialRecipientRequests: [
+      {
+        kind: 'ordinary_ed25519_signer_material_recipient_request_v1',
+        keyFamily: 'ed25519',
+        walletKeyId,
+        recipientPublicKeyB64u: base64UrlEncode(new Uint8Array(32)),
+      },
+    ],
+    webauthnRegistration: {
+      kind: 'linked_device_webauthn_registration_v1',
+      credentialIdB64u: 'dGFyZ2V0LWNyZWRlbnRpYWw',
+      authenticatorAttachment: 'platform',
+      clientDataJsonB64u: 'AQ',
+      attestationObjectB64u: 'Ag',
+      transports: ['internal'],
+    },
+    registeredAtMs: 2_500,
+  });
+  let observedOrigin: string | undefined;
+  const routeService: DeviceLinkingRouteServiceV1 = {
+    ...baseRouteService,
+    sessionService: {
+      ...baseRouteService.sessionService,
+      getSessionV1: async () => session,
+    },
+    targetCredential: {
+      ...baseRouteService.targetCredential,
+      getTargetPreparationV1: async () => buildPasskeyTargetPreparationFixtureV1(),
+      registerTargetCredentialV1: async (input) => {
+        observedOrigin = input.origin;
+        return { outcome: 'invalid_input', message: 'verification probe' };
+      },
+      buildVerifiedLinkInputV1: async () => {
+        throw new Error('verified-link input is not reached by this probe');
+      },
+    },
+  };
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/credential`,
+    body: registration,
+    origin: 'https://target.example.test',
+  });
+  expect(response.status).toBe(400);
+  expect(observedOrigin).toBe('https://target.example.test');
+});
+
 async function openDatabase(): Promise<TemporaryD1Database> {
   const database = createTemporaryD1Database();
   await applyD1MigrationFiles(database.database, listD1MigrationFiles('d1-signer'));
@@ -326,6 +398,7 @@ async function invoke(
     readonly method: string;
     readonly pathname: string;
     readonly body?: unknown;
+    readonly origin?: string;
   },
 ): Promise<Response> {
   const bodyText = input.body === undefined ? undefined : JSON.stringify(input.body);
@@ -334,6 +407,7 @@ async function invoke(
     DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
     await requestProofHeader(input.method, input.pathname, bodyText),
   );
+  if (input.origin) headers.set('origin', input.origin);
   if (bodyText !== undefined) headers.set('content-type', 'application/json');
   const request = new Request(`https://example.test${input.pathname}`, {
     method: input.method,

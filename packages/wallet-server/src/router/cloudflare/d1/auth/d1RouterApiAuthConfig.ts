@@ -19,7 +19,10 @@ import type {
   OrdinarySignerMaterialActivationPlannerV1,
   OrdinarySignerMaterialReservationPreparationPlannerV1,
 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
-import type { LinkedDeviceVerifiedLinkBuilderV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type {
+  LinkedDeviceTargetCredentialVerificationPortV1,
+  LinkedDeviceVerifiedLinkBuilderV1,
+} from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import type {
   CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
@@ -75,6 +78,7 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly ownerAuthorizationRoute: DeviceLinkingOwnerAuthorizationRouteServiceV1;
   readonly targetCredential: (input: {
     readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
+    readonly targetCredentialVerification: LinkedDeviceTargetCredentialVerificationPortV1;
   }) => DeviceLinkingRouteServiceV1['targetCredential'];
   /** Worker endpoints and exact preparation planners for ordinary authority installation. */
   readonly authorityInstallation: CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1;

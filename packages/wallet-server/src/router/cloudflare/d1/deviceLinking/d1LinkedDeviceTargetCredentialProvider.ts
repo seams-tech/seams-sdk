@@ -31,6 +31,7 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -83,11 +84,59 @@ export type LinkedDeviceTargetCredentialVerificationPortV1 = {
   verifyRegistrationV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly origin: string;
   }): Promise<
     | { readonly kind: 'verified'; readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1 }
     | { readonly kind: 'rejected'; readonly message: string }
   >;
 };
+
+/** Uses the canonical D1 WebAuthn registration verifier with the request origin. */
+export class LinkedDeviceWebAuthnRegistrationVerifierV1
+  implements LinkedDeviceTargetCredentialVerificationPortV1
+{
+  async verifyRegistrationV1(input: {
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly origin: string;
+  }): Promise<
+    | { readonly kind: 'verified'; readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1 }
+    | { readonly kind: 'rejected'; readonly message: string }
+  > {
+    if (
+      input.preparation.targetFactor.kind !== 'passkey_prf' ||
+      input.registration.targetFactor.kind !== 'passkey_prf' ||
+      !input.registration.webauthnRegistration
+    ) {
+      return { kind: 'rejected', message: 'registration is not a Passkey registration' };
+    }
+    const registration = input.registration.webauthnRegistration;
+    const options = input.preparation.passkeyCreationOptions;
+    if (!options) {
+      return { kind: 'rejected', message: 'Passkey preparation options are missing' };
+    }
+    const verification = await verifyWebAuthnRegistrationCredentialForIntent({
+      webauthnRegistration: {
+        id: registration.credentialIdB64u,
+        rawId: registration.credentialIdB64u,
+        type: 'public-key',
+        authenticatorAttachment: registration.authenticatorAttachment ?? undefined,
+        response: {
+          clientDataJSON: registration.clientDataJsonB64u,
+          attestationObject: registration.attestationObjectB64u,
+          transports: [...registration.transports],
+        },
+        clientExtensionResults: {},
+      },
+      expectedChallenge: options.challengeB64u,
+      expectedOrigin: input.origin,
+      rpId: options.rpId,
+    });
+    return verification.ok
+      ? { kind: 'verified', credential: verification.credential }
+      : { kind: 'rejected', message: verification.message };
+  }
+}
 
 /**
  * Registration-time port for the Email OTP branch: validates the one-time
@@ -343,6 +392,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly origin: string;
     readonly requestedAtMs: number;
   }): Promise<
     | TargetCredentialRegistrationSuccessV1
@@ -444,6 +494,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly input: {
       readonly session: LinkedDeviceSessionRecordV1;
       readonly approval: LinkedDeviceApprovalV1;
+      readonly origin: string;
       readonly requestedAtMs: number;
     };
     readonly persisted: PersistedTargetCredentialV1;
@@ -457,6 +508,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       const evidence = await this.verifyTargetFactorEvidenceV1({
         preparation: input.persisted.preparation,
         registration: input.registration,
+        origin: input.input.origin,
         requestedAtMs: input.input.requestedAtMs,
       });
       const planned = await this.planSourceContributionPreparationV1({
@@ -507,6 +559,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private async verifyTargetFactorEvidenceV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly origin: string;
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkedDeviceTargetFactorEvidenceV1> {
     switch (input.registration.targetFactor.kind) {
@@ -514,6 +567,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         const verification = await this.verifier.verifyRegistrationV1({
           preparation: input.preparation,
           registration: input.registration,
+          origin: input.origin,
         });
         if (verification.kind === 'rejected') throw new Error(verification.message);
         const credentialId = parseWebAuthnCredentialIdB64u(
