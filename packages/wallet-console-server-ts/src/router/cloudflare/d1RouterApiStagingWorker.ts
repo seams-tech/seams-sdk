@@ -28,6 +28,7 @@ import {
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/wallet-server/cloud-host';
 import {
   createCloudflareD1RouterApiAuthService,
+  createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
@@ -388,8 +389,15 @@ function stagingLinkedDeviceSessionComposition(
   });
   const serviceFetch = createRouterAbServiceBindingFetch(env);
   const internalServiceAuthSecret = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
+  const keyEnvironment = stagingEd25519YaoKeyEnvironment(env);
+  const deriverAInputPublicKeyB64u = x25519PublicKeyB64u(
+    keyEnvironment.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY,
+  );
+  const deriverBInputPublicKeyB64u = x25519PublicKeyB64u(
+    keyEnvironment.DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY,
+  );
   const signingWorkerRecipientPublicKeyB64u = x25519PublicKeyB64u(
-    stagingEd25519YaoKeyEnvironment(env).SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
+    keyEnvironment.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
   );
   return {
     session: {
@@ -408,6 +416,8 @@ function stagingLinkedDeviceSessionComposition(
           sourceContributionPreparationPlanner:
             createD1LinkedDeviceSourceContributionPreparationPlannerV1({
               resolveOwnerSourceChildV1,
+              deriverAInputPublicKeyB64u,
+              deriverBInputPublicKeyB64u,
               signingWorkerRecipientPublicKeyB64u,
             }),
           verifiedLinkBuilder,
@@ -426,6 +436,11 @@ function stagingLinkedDeviceSessionComposition(
           internalServiceAuthSecret,
         }),
       },
+      sourceContributionRouter:
+        createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
     },
   };
 }

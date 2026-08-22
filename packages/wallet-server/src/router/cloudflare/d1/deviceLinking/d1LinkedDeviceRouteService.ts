@@ -31,6 +31,7 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   ) => Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
   readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
   readonly installationReceipt?: DeviceLinkingRouteServiceV1['installationReceipt'];
+  readonly sourceContributionRouter?: DeviceLinkingRouteServiceV1['sourceContributionRouter'];
   readonly nowV1?: () => number;
 };
 
@@ -117,6 +118,9 @@ export function createD1LinkedDeviceRouteServiceV1(
     ...(options.installationReceipt === undefined
       ? {}
       : { installationReceipt: options.installationReceipt }),
+    ...(options.sourceContributionRouter === undefined
+      ? {}
+      : { sourceContributionRouter: options.sourceContributionRouter }),
   };
 }
 
