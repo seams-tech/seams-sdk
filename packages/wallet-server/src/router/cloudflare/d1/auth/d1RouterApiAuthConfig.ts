@@ -15,7 +15,6 @@ import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
-import type { DeviceManagementRouteServiceV1 } from '../../../transport/fetch/routes/deviceManagement';
 import type {
   OrdinarySignerMaterialActivationPlannerV1,
   OrdinarySignerMaterialReservationPreparationPlannerV1,
@@ -23,12 +22,14 @@ import type {
 import type { LinkedDeviceVerifiedLinkBuilderV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import type {
   CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
+  CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
   CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
 } from '../../signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 
 export type CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1 = {
   readonly reservationEndpoint: CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1;
   readonly activationEndpoint: CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1;
+  readonly deactivationEndpoint: CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1;
   readonly materialPlanner: OrdinarySignerMaterialActivationPlannerV1;
   readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
 };
@@ -73,7 +74,6 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   /** Worker endpoints and exact preparation planners for ordinary authority installation. */
   readonly authorityInstallation: CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1;
   readonly nowV1?: () => number;
-  readonly management?: DeviceManagementRouteServiceV1;
 };
 
 type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
