@@ -9,6 +9,7 @@ import { buildRestorableMpcMaterialRefInternal } from '@/core/signingEngine/sess
 import {
   parseMpcReauthorizationPolicyRef,
   parseMpcRegisteredPublicKeyBindingRef,
+  parseWalletAuthMethodId,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
@@ -27,6 +28,7 @@ function authorityFixture(): WalletAuthAuthorityRef {
     kind: 'wallet_auth_authority_ref',
     walletId: 'wallet-near-hydration',
     authorityDigest: 'authority-near-hydration',
+    walletAuthMethodId: unwrap(parseWalletAuthMethodId('wallet-auth-method:near-hydration')),
   });
   if (!authority) throw new Error('Near hydration authority fixture is invalid');
   return authority;
