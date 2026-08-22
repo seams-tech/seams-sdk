@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Fingerprint,
   KeyRound,
-  LayoutDashboard,
   ListChecks,
   Lock,
   ScrollText,
@@ -1319,14 +1318,12 @@ const CONSOLE_SCREENS = [
     id: 'overview' as const,
     label: 'Overview',
     blurb: 'Wallets, approvals, and team activity at a glance',
-    icon: LayoutDashboard,
     src: '/wallet-preview/wallet-console-dashboard.png',
   },
   {
     id: 'audit' as const,
     label: 'Audit logs',
     blurb: 'Every action attributed, timestamped, and exportable',
-    icon: ScrollText,
     src: '/wallet-preview/wallet-console-audit.png',
   },
 ];
@@ -1505,7 +1502,6 @@ export function H2Start(): React.JSX.Element {
             aria-label="Bring a console screen to the front"
           >
             {CONSOLE_SCREENS.map((screen) => {
-              const Icon = screen.icon;
               const selected = consoleFocus === screen.id;
               return (
                 <button
@@ -1515,9 +1511,6 @@ export function H2Start(): React.JSX.Element {
                   aria-pressed={selected}
                   onClick={() => setConsoleFocus(screen.id)}
                 >
-                  <span className="h2-consoleband__tab-icon" aria-hidden>
-                    <Icon />
-                  </span>
                   <span className="h2-consoleband__tab-copy">
                     <strong>{screen.label}</strong>
                     <span>{screen.blurb}</span>
@@ -1686,9 +1679,6 @@ export function H2Footer(): React.JSX.Element {
             <a href={homeProps.href} onClick={homeProps.onClick} aria-label="Seams home">
               <SeamsWordmark height={20} />
             </a>
-            <p className="h2-footer__legal">
-              Copyright © {new Date().getFullYear()} Seams Technologies KK. Tokyo.
-            </p>
           </div>
 
           <div className="h2-footer__links">
