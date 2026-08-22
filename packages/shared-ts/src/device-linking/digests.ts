@@ -15,10 +15,10 @@ import type {
   LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceTargetCredentialRegistrationV1,
-  LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceEd25519ExportRootPreparationV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetFactorV1,
+  OrdinarySignerMaterialRecipientRequirementV1,
 } from './contracts';
 import {
   parseAuthorizedOperationId,
@@ -246,16 +246,11 @@ function encodeProtocolVersion(value: LinkedDeviceProtocolVersionV1): Uint8Array
   ]);
 }
 
-function encodeTargetPreparationChild(value: LinkedDeviceTargetPreparationChildV1): Uint8Array {
+function encodeRecipientRequirement(value: OrdinarySignerMaterialRecipientRequirementV1): Uint8Array {
   return concat([
-    text(value.kind, 'targetPreparationChild.kind'),
-    text(value.operationId, 'targetPreparationChild.operationId'),
-    text(value.walletKeyId, 'targetPreparationChild.walletKeyId'),
-    text(value.keyFamily, 'targetPreparationChild.keyFamily'),
-    text(value.targetLaneId, 'targetPreparationChild.targetLaneId'),
-    text(value.targetLaneShareEpoch, 'targetPreparationChild.targetLaneShareEpoch'),
-    text(value.targetMaterialActivationId, 'targetPreparationChild.targetMaterialActivationId'),
-    text(value.targetHolderParticipantId, 'targetPreparationChild.targetHolderParticipantId'),
+    text(value.kind, 'recipientRequirement.kind'),
+    text(value.keyFamily, 'recipientRequirement.keyFamily'),
+    text(value.walletKeyId, 'recipientRequirement.walletKeyId'),
   ]);
 }
 
@@ -332,7 +327,7 @@ export async function computeLinkedDeviceApprovalDigestV1(
 export function encodeLinkedDeviceTargetPreparationV1(
   value: LinkedDeviceTargetPreparationV1,
 ): Uint8Array {
-  const children = value.orderedChildren.map(encodeTargetPreparationChild);
+  const requirements = value.ordinarySignerMaterialRecipientRequirements.map(encodeRecipientRequirement);
   return concat([
     text(TARGET_PREPARATION_DOMAIN, 'domain'),
     text(value.kind, 'kind'),
@@ -340,11 +335,14 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletId, 'walletId'),
     text(value.enrollmentId, 'enrollmentId'),
     text(value.deviceId, 'deviceId'),
+    text(value.walletAuthMethodId, 'walletAuthMethodId'),
     lp32(encodeEd25519ExportRootPreparation(value.ed25519ExportRoot), 'ed25519ExportRoot'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
-    u32(children.length, 'orderedChildren'),
-    ...children.map((entry) => lp32(entry, 'orderedChildren.item')),
+    u32(requirements.length, 'ordinarySignerMaterialRecipientRequirements'),
+    ...requirements.map((entry) =>
+      lp32(entry, 'ordinarySignerMaterialRecipientRequirements.item'),
+    ),
     u64(value.issuedAtMs, 'issuedAtMs'),
     u64(value.expiresAtMs, 'expiresAtMs'),
   ]);
@@ -433,28 +431,29 @@ export async function assertLinkedDeviceTargetCredentialRegistrationMatchesPrepa
     registration.walletId !== preparation.walletId ||
     registration.enrollmentId !== preparation.enrollmentId ||
     registration.deviceId !== preparation.deviceId ||
+    registration.walletAuthMethodId !== preparation.walletAuthMethodId ||
     registration.targetFactor.kind !== preparation.targetFactor.kind ||
     registration.targetPreparationDigestB64u !==
       (await computeLinkedDeviceTargetPreparationDigestV1(preparation)) ||
-    registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length
+    registration.ordinarySignerMaterialRecipientRequests.length !==
+      preparation.ordinarySignerMaterialRecipientRequirements.length
   ) {
     throw new Error('linked-device target registration differs from its preparation');
   }
-  for (let index = 0; index < preparation.orderedChildren.length; index += 1) {
-    const expected = preparation.orderedChildren[index];
-    const actual = registration.orderedHolderRegistrations[index];
+  for (
+    let index = 0;
+    index < preparation.ordinarySignerMaterialRecipientRequirements.length;
+    index += 1
+  ) {
+    const expected = preparation.ordinarySignerMaterialRecipientRequirements[index];
+    const actual = registration.ordinarySignerMaterialRecipientRequests[index];
     if (
       !expected ||
       !actual ||
-      actual.operationId !== expected.operationId ||
       actual.walletKeyId !== expected.walletKeyId ||
-      actual.keyFamily !== expected.keyFamily ||
-      actual.targetLaneId !== expected.targetLaneId ||
-      actual.targetLaneShareEpoch !== expected.targetLaneShareEpoch ||
-      actual.targetMaterialActivationId !== expected.targetMaterialActivationId ||
-      actual.holderParticipant.participantId !== expected.targetHolderParticipantId
+      actual.keyFamily !== expected.keyFamily
     ) {
-      throw new Error(`linked-device holder registration ${index} differs from its R102 child`);
+      throw new Error(`linked-device recipient request ${index} differs from its preparation`);
     }
   }
 }

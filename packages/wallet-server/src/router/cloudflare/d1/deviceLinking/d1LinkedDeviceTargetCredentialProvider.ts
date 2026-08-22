@@ -1,13 +1,11 @@
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceTargetCredentialRegistrationV1,
-  LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
 import {
   parseLinkedDeviceTargetCredentialRegistrationV1,
-  parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking/parsers';
 import {
@@ -85,7 +83,7 @@ export type LinkedDeviceTargetCredentialVerificationPortV1 = {
 
 /**
  * Registration-time port for the Email OTP branch: validates the one-time
- * verification grant a registration carries and, after the external R102
+ * verification grant a registration carries and, after the authority install
  * commit, supplies the statements that consume the grant and persist the
  * derived linked-owner binding atomically with the credential row.
  */
@@ -218,43 +216,7 @@ type TargetCredentialRegistrationSuccessV1 = {
   readonly outcome: 'applied' | 'replayed';
   readonly keyManifestDigestB64u: DigestB64u;
   readonly verifiedLinkInput: VerifiedLinkInputV1;
-  readonly targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1;
 };
-
-function buildTargetCredentialRegistrationSuccessV1(input: {
-  readonly outcome: 'applied' | 'replayed';
-  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-  readonly keyManifestDigestB64u: DigestB64u;
-  readonly verifiedLinkInput: VerifiedLinkInputV1;
-}): TargetCredentialRegistrationSuccessV1 {
-  const targetFactor = input.verifiedLinkInput.targetFactor;
-  if (
-    targetFactor.authMethod.walletAuthMethodId !== input.registration.walletAuthMethodId ||
-    targetFactor.authMethod.walletId !== input.registration.walletId
-  ) {
-    throw new Error('verified target factor identity differs from its registration');
-  }
-  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
-    kind: 'linked_device_target_credential_registration_result_v1',
-    outcome: input.outcome,
-    linkSessionId: input.registration.linkSessionId,
-    walletId: input.registration.walletId,
-    enrollmentId: input.registration.enrollmentId,
-    deviceId: input.registration.deviceId,
-    walletAuthMethodId: input.registration.walletAuthMethodId,
-    targetPreparationDigestB64u: input.registration.targetPreparationDigestB64u,
-    targetFactor,
-    ordinarySignerMaterialPreparations: input.registration.ordinarySignerMaterialPreparations,
-    ordinarySignerMaterialRecipientInputs: input.registration.ordinarySignerMaterialRecipientInputs,
-    keyManifestDigestB64u: input.keyManifestDigestB64u,
-  });
-  return {
-    outcome: input.outcome,
-    keyManifestDigestB64u: input.keyManifestDigestB64u,
-    verifiedLinkInput: input.verifiedLinkInput,
-    targetCredential,
-  };
-}
 
 type PersistedTargetCommitReservationV1 =
   | {
@@ -393,12 +355,11 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
           committedAtMs: input.requestedAtMs,
         });
-        return buildTargetCredentialRegistrationSuccessV1({
+        return {
           outcome: 'replayed',
-          registration,
           keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
           verifiedLinkInput,
-        });
+        };
       }
       if (input.requestedAtMs >= persisted.preparation.expiresAtMs) {
         throw new Error('linked-device target credential registration is expired');
@@ -430,12 +391,11 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           approval: input.approval,
           requestedAtMs: input.requestedAtMs,
         });
-        return buildTargetCredentialRegistrationSuccessV1({
+        return {
           outcome: 'replayed',
-          registration,
           keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
           verifiedLinkInput,
-        });
+        };
       }
       if (reservation.outcome === 'waiting') {
         const completed = await this.waitForCommitV1({
@@ -511,12 +471,11 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         keyManifestDigestB64u,
         committedAtMs: input.input.requestedAtMs,
       });
-      return buildTargetCredentialRegistrationSuccessV1({
+      return {
         outcome: result.applied ? 'applied' : 'replayed',
-        registration: input.registration,
         keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
         verifiedLinkInput,
-      });
+      };
     } catch (error: unknown) {
       await this.releaseCommitReservationV1({
         linkSessionId: input.input.session.linkSessionId,
@@ -785,12 +744,11 @@ SELECT 1
           approval: input.approval,
           requestedAtMs: input.requestedAtMs,
         });
-        return buildTargetCredentialRegistrationSuccessV1({
+        return {
           outcome: 'replayed',
-          registration: input.registration,
           keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
           verifiedLinkInput,
-        });
+        };
       }
       const reservation = await this.readCommitReservationV1(input.linkSessionId);
       if (!reservation || reservation.registrationDigestB64u !== input.registrationDigestB64u) {
@@ -967,22 +925,25 @@ function assertPreparationMatchesSession(
     preparation.walletId !== approval.walletId ||
     preparation.enrollmentId !== approval.enrollmentId ||
     preparation.deviceId !== approval.deviceId ||
-    preparation.orderedChildren.length !== approval.orderedKeyBindings.length
+    preparation.ordinarySignerMaterialRecipientRequirements.length !==
+      approval.orderedKeyBindings.length
   ) {
     throw new Error('linked-device target preparation differs from its approved session');
   }
-  for (let index = 0; index < preparation.orderedChildren.length; index += 1) {
-    const child = preparation.orderedChildren[index];
+  for (
+    let index = 0;
+    index < preparation.ordinarySignerMaterialRecipientRequirements.length;
+    index += 1
+  ) {
+    const requirement = preparation.ordinarySignerMaterialRecipientRequirements[index];
     const approved = approval.orderedKeyBindings[index];
     if (
-      !child ||
+      !requirement ||
       !approved ||
-      child.walletKeyId !== approved.walletKeyId ||
-      child.keyFamily !== approved.keyFamily ||
-      child.targetLaneId !== approved.targetLaneId ||
-      child.targetLaneShareEpoch !== approved.targetLaneShareEpoch
+      requirement.walletKeyId !== approved.walletKeyId ||
+      requirement.keyFamily !== approved.keyFamily
     ) {
-      throw new Error(`linked-device target preparation child ${index} is not approved`);
+      throw new Error(`linked-device target preparation recipient requirement ${index} is not approved`);
     }
   }
 }

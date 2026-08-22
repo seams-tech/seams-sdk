@@ -18,8 +18,7 @@ import type {
   VerifiedLinkInputV1,
   VerifiedSourceAuthorityV1,
   VerifiedTargetFactorV1,
-  OrdinarySignerMaterialRecipientInputV1,
-  OrdinarySignerMaterialReservationPreparationV1,
+  OrdinarySignerMaterialRecipientRequestV1,
 } from './contracts';
 import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
 import type {
@@ -42,14 +41,12 @@ import type {
   WalletKeyId,
 } from '../signing-lanes/ids';
 import type {
-  LaneHolderParticipantRecordV1,
   LaneHolderParticipantId,
   SigningWorkerParticipantId,
 } from '../signing-lanes/participants';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import type {
-  MpcMaterialActivationId,
   MpcMaterialActivationRef,
   WalletAuthorityId,
   WalletAuthMethodId,
@@ -91,8 +88,6 @@ declare const enrollmentReceipt: LinkedDeviceEnrollmentReceiptV1;
 declare const enrollmentChildReceipt: LinkedDeviceEnrollmentChildReceiptV1;
 declare const walletSessionId: WalletSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
-declare const materialActivationId: MpcMaterialActivationId;
-declare const holderParticipant: LaneHolderParticipantRecordV1;
 declare const rpId: WebAuthnRpId;
 declare const credentialIdB64u: WebAuthnCredentialIdB64u;
 declare const walletAuthMethodId: WalletAuthMethodId;
@@ -117,13 +112,9 @@ declare const permissionSet: CanonicalDelegatedWalletPermissionSetV1;
 declare const signerManifest: ExactAdministeredSignerManifestV1;
 declare const passkeyAuthMethod: PasskeyWalletAuthMethodDraftV1;
 declare const emailOtpAuthMethod: EmailOtpWalletAuthMethodDraftV1;
-declare const ordinarySignerMaterialPreparations: readonly [
-  OrdinarySignerMaterialReservationPreparationV1,
-  ...OrdinarySignerMaterialReservationPreparationV1[],
-];
-declare const ordinarySignerMaterialRecipientInputs: readonly [
-  OrdinarySignerMaterialRecipientInputV1,
-  ...OrdinarySignerMaterialRecipientInputV1[],
+declare const ordinarySignerMaterialRecipientRequests: readonly [
+  OrdinarySignerMaterialRecipientRequestV1,
+  ...OrdinarySignerMaterialRecipientRequestV1[],
 ];
 
 function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
@@ -324,6 +315,7 @@ const invalidMixedOwnerApprovalBinding: LinkedDeviceApprovalV1['orderedKeyBindin
   ...ownerApprovalBinding,
   sourceHolderParticipantId: holderParticipantId,
 };
+void invalidMixedOwnerApprovalBinding;
 
 const summary: LinkedDeviceSummaryV1 = {
   deviceId,
@@ -354,12 +346,14 @@ const invalidEmailOtpSummary: LinkedDeviceSummaryV1 = {
   // @ts-expect-error Email OTP summaries cannot carry WebAuthn metadata.
   credential: { kind: 'email_otp', walletAuthMethodId, device: authenticatorDevice },
 };
+void invalidEmailOtpSummary;
 
 const invalidPasskeySummary: LinkedDeviceSummaryV1 = {
   ...summary,
   // @ts-expect-error Passkey summaries require canonical authenticator metadata.
   credential: { kind: 'passkey', walletAuthMethodId, credentialIdB64u },
 };
+void invalidPasskeySummary;
 
 const validReceiptAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 = {
   kind: 'linked_device_receipt_acknowledgement_v1',
@@ -404,19 +398,15 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletId,
   enrollmentId,
   deviceId,
+  walletAuthMethodId,
   ed25519ExportRoot: null,
   targetFactor: { kind: 'passkey_prf' },
   ownerEnrollment,
-  orderedChildren: [
+  ordinarySignerMaterialRecipientRequirements: [
     {
-      kind: 'linked_device_target_preparation_child_v1',
-      operationId,
+      kind: 'ordinary_signer_material_recipient_requirement_v1',
       walletKeyId,
       keyFamily: 'ed25519',
-      targetLaneId,
-      targetLaneShareEpoch: targetEpoch,
-      targetMaterialActivationId: materialActivationId,
-      targetHolderParticipantId: holderParticipantId,
     },
   ],
   issuedAtMs: 1,
@@ -425,8 +415,8 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
 
 const invalidEmptyTargetPreparation: LinkedDeviceTargetPreparationV1 = {
   ...targetPreparation,
-  // @ts-expect-error a target preparation requires at least one R102 child
-  orderedChildren: [],
+  // @ts-expect-error a target preparation requires at least one recipient requirement
+  ordinarySignerMaterialRecipientRequirements: [],
 };
 
 const credentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
@@ -438,8 +428,7 @@ const credentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
   walletAuthMethodId,
   targetFactor: { kind: 'passkey_prf' },
   targetPreparationDigestB64u: digest,
-  ordinarySignerMaterialPreparations,
-  ordinarySignerMaterialRecipientInputs,
+  ordinarySignerMaterialRecipientRequests,
   webauthnRegistration: {
     kind: 'linked_device_webauthn_registration_v1',
     credentialIdB64u,
@@ -448,20 +437,17 @@ const credentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
     attestationObjectB64u: 'Ag',
     transports: ['internal'],
   },
-  orderedHolderRegistrations: [
-    {
-      kind: 'linked_device_target_holder_registration_v1',
-      operationId,
-      walletKeyId,
-      keyFamily: 'ed25519',
-      targetLaneId,
-      targetLaneShareEpoch: targetEpoch,
-      targetMaterialActivationId: materialActivationId,
-      holderParticipant,
-    },
-  ],
   registeredAtMs: 3,
 };
+
+const invalidPrivateRecipientRequest = {
+  kind: 'ordinary_ed25519_signer_material_recipient_request_v1',
+  keyFamily: 'ed25519',
+  walletKeyId,
+  // @ts-expect-error recipient private keys never cross the registration boundary
+  recipientPrivateKey: 'private-key-must-stay-in-browser',
+} satisfies OrdinarySignerMaterialRecipientRequestV1;
+void invalidPrivateRecipientRequest;
 
 const invalidIdOnlyCredentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
   kind: 'linked_device_target_credential_registration_v1',
@@ -647,7 +633,7 @@ const verifiedLinkInput = {
   targetFactor: verifiedPasskeyTarget,
   permissions: permissionSet,
   signerManifest,
-  ordinarySignerMaterialPreparations,
+  ordinarySignerMaterialRecipientRequests,
 } satisfies VerifiedLinkInputV1;
 void verifiedLinkInput;
 void verifiedEmailOtpTarget;

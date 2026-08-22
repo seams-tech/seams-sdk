@@ -52,6 +52,7 @@ import {
 import type {
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
+  OrdinarySignerMaterialRecipientRequestV1,
   OrdinarySignerMaterialReservationPreparationV1 as SharedOrdinarySignerMaterialReservationPreparationV1,
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
@@ -101,6 +102,7 @@ export type OrdinarySignerMaterialReservationPreparationPlannerV1 = {
     readonly authorityId: WalletAuthorityId;
     readonly linkSessionId: LinkDeviceSessionId;
     readonly signer: ExactSigner;
+    readonly recipientRequest: OrdinarySignerMaterialRecipientRequestV1;
   }):
     | {
         readonly keyFamily: 'ed25519';
@@ -176,6 +178,10 @@ export type CommitPendingAuthorityResultV1 =
   | {
       readonly kind: 'committed' | 'replayed';
       readonly packages: CommittedAuthorityPackagesV1;
+      readonly ordinarySignerMaterialPreparations: readonly [
+        SharedOrdinarySignerMaterialReservationPreparationV1,
+        ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+      ];
       readonly session: LinkedDeviceSessionRecordV1;
     }
   | { readonly kind: 'conflict'; readonly message: string }
@@ -277,7 +283,15 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         if (session.state.state !== 'authority_pending_local_install' && session.state.state !== 'active') {
           return { kind: 'conflict', message: 'stored authority installation has no pending session' };
         }
-        return { kind: 'replayed', packages: existing.packages, session };
+        return {
+          kind: 'replayed',
+          packages: existing.packages,
+          ordinarySignerMaterialPreparations: sharedPreparationsFromStoredReservations(
+            input.signerManifest,
+            existing.serverReservationIds,
+          ),
+          session,
+        };
       }
       if (session.state.state !== 'provisioning') {
         return { kind: 'conflict', message: `linked-device session is ${session.state.state}` };
@@ -348,7 +362,17 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
             linkSessionId: input.linkSessionId,
             nowMs,
           });
-          if (replaySession) return { kind: 'replayed', packages: replay.packages, session: replaySession };
+          if (replaySession) {
+            return {
+              kind: 'replayed',
+              packages: replay.packages,
+              ordinarySignerMaterialPreparations: sharedPreparationsFromStoredReservations(
+                input.signerManifest,
+                replay.serverReservationIds,
+              ),
+              session: replaySession,
+            };
+          }
         }
         return { kind: 'conflict', message: 'wallet authority commit conflicts with an existing record' };
       }
@@ -361,9 +385,22 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           nowMs,
         });
         if (!replaySession) return { kind: 'conflict', message: 'authority replay session is missing' };
-        return { kind: 'replayed', packages: replay.packages, session: replaySession };
+        return {
+          kind: 'replayed',
+          packages: replay.packages,
+          ordinarySignerMaterialPreparations: sharedPreparationsFromStoredReservations(
+            input.signerManifest,
+            replay.serverReservationIds,
+          ),
+          session: replaySession,
+        };
       }
-      return { kind: 'committed', packages, session: nextSession };
+      return {
+        kind: 'committed',
+        packages,
+        ordinarySignerMaterialPreparations: reservations.ordinarySignerMaterialPreparations,
+        session: nextSession,
+      };
     } catch (error: unknown) {
       return { kind: 'invalid_input', message: errorMessage(error) };
     }
@@ -554,12 +591,18 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
       readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
     }>;
+    readonly ordinarySignerMaterialPreparations: readonly [
+      SharedOrdinarySignerMaterialReservationPreparationV1,
+      ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+    ];
   }> {
+    assertRecipientRequestsMatchManifest(input);
     let ed25519: OrdinaryEd25519SignerMaterialReservationV1 | undefined;
     let ecdsa: OrdinaryEcdsaSignerMaterialReservationV1 | undefined;
     let ed25519Preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1 | undefined;
     let ecdsaPreparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1 | undefined;
     for (const signer of input.signerManifest.signers) {
+      const recipientRequest = recipientRequestForSigner(input, signer);
       const plannedActivationRef = this.options.materialPlanner.planOrdinaryMaterialActivationRefV1({
         authorityId,
         linkSessionId: input.linkSessionId,
@@ -569,14 +612,13 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         authorityId,
         linkSessionId: input.linkSessionId,
         signer,
+        recipientRequest,
       });
       if (signer.keyFamily === 'ed25519') {
         if (preparation.keyFamily !== 'ed25519') {
           throw new Error('ordinary material reservation preparation family does not match signer');
         }
-        const workerPreparation = ordinaryPreparationForEd25519(
-          input.ordinarySignerMaterialPreparations,
-        );
+        const workerPreparation = preparation.preparation;
         assertPreparationActivationMatches(
           plannedActivationRef,
           routerAbMpcMaterialActivationRefFromWire(
@@ -600,9 +642,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       if (preparation.keyFamily !== 'ecdsa_secp256k1') {
         throw new Error('ordinary material reservation preparation family does not match signer');
       }
-      const workerPreparation = ordinaryPreparationForEcdsa(
-        input.ordinarySignerMaterialPreparations,
-      );
+      const workerPreparation = preparation.preparation;
       assertPreparationActivationMatches(plannedActivationRef, workerPreparation.materialActivation);
       const reservation = await this.options.reservationService.reserveOrdinaryInactiveSignerMaterialV1({
         kind: 'ordinary_ecdsa_signer_material_reservation_request_v1',
@@ -629,6 +669,10 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           ed25519: committedEd25519Package(ed25519),
           ecdsa: committedEcdsaPackage(ecdsa),
         },
+        ordinarySignerMaterialPreparations: [
+          sharedEd25519Preparation(ed25519Preparation),
+          sharedEcdsaPreparation(ecdsaPreparation),
+        ],
         serverReservationIds: {
           ed25519: {
             reservationId: ed25519.serverMaterial.reservationId,
@@ -649,6 +693,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           keyFamilies: ['ed25519'],
           ed25519: committedEd25519Package(ed25519),
         },
+        ordinarySignerMaterialPreparations: [sharedEd25519Preparation(ed25519Preparation)],
         serverReservationIds: {
           ed25519: {
             reservationId: ed25519.serverMaterial.reservationId,
@@ -665,6 +710,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         keyFamilies: ['ecdsa_secp256k1'],
         ecdsa: committedEcdsaPackage(ecdsa),
       },
+      ordinarySignerMaterialPreparations: [sharedEcdsaPreparation(ecdsaPreparation)],
       serverReservationIds: {
         ecdsa_secp256k1: {
           reservationId: ecdsa.serverMaterial.reservationId,
@@ -840,6 +886,82 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
   }
 }
 
+function assertRecipientRequestsMatchManifest(input: VerifiedLinkInputV1): void {
+  if (input.ordinarySignerMaterialRecipientRequests.length !== input.signerManifest.signers.length) {
+    throw new Error('ordinary signer material recipient requests do not match the signer manifest');
+  }
+  for (const signer of input.signerManifest.signers) {
+    recipientRequestForSigner(input, signer);
+  }
+}
+
+function recipientRequestForSigner(
+  input: VerifiedLinkInputV1,
+  signer: ExactSigner,
+): OrdinarySignerMaterialRecipientRequestV1 {
+  const matches = input.ordinarySignerMaterialRecipientRequests.filter(
+    (request) => request.walletKeyId === signer.walletKeyId && request.keyFamily === signer.keyFamily,
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `ordinary signer material recipient request for ${String(signer.walletKeyId)} is missing or duplicated`,
+    );
+  }
+  const request = matches[0];
+  if (!request) throw new Error('ordinary signer material recipient request is missing');
+  return request;
+}
+
+function sharedEd25519Preparation(
+  preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1,
+): Extract<
+  SharedOrdinarySignerMaterialReservationPreparationV1,
+  { readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1' }
+> {
+  return {
+    kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
+    activationRequest: preparation.activationRequest,
+  };
+}
+
+function sharedEcdsaPreparation(
+  preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1,
+): Extract<
+  SharedOrdinarySignerMaterialReservationPreparationV1,
+  { readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1' }
+> {
+  return {
+    kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
+    registrationRequest: preparation.registrationRequest,
+    materialActivation: preparation.materialActivation,
+  };
+}
+
+function sharedPreparationsFromStoredReservations(
+  manifest: VerifiedLinkInputV1['signerManifest'],
+  reservations: Readonly<{
+    readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
+    readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
+  }>,
+): readonly [
+  SharedOrdinarySignerMaterialReservationPreparationV1,
+  ...SharedOrdinarySignerMaterialReservationPreparationV1[],
+] {
+  const preparations = manifest.signers.map((signer) => {
+    if (signer.keyFamily === 'ed25519') {
+      const reservation = reservations.ed25519;
+      if (!reservation) throw new Error('stored Ed25519 reservation preparation is missing');
+      return sharedEd25519Preparation(reservation.preparation);
+    }
+    const reservation = reservations.ecdsa_secp256k1;
+    if (!reservation) throw new Error('stored ECDSA reservation preparation is missing');
+    return sharedEcdsaPreparation(reservation.preparation);
+  });
+  const [first, ...rest] = preparations;
+  if (!first) throw new Error('stored signer reservations are empty');
+  return [first, ...rest];
+}
+
 async function validateVerifiedLinkInput(
   input: VerifiedLinkInputV1,
   nowMs: number,
@@ -859,6 +981,7 @@ async function validateVerifiedLinkInput(
   if (input.sourceAuthority.verifiedAtMs > nowMs || input.targetFactor.verifiedAtMs > nowMs) throw new Error('link verification is from the future');
   if (input.targetFactor.authMethod.walletId !== input.walletId) throw new Error('target auth method wallet does not match link wallet');
   if (input.signerManifest.signers.some((signer) => signer.walletId !== input.walletId)) throw new Error('signer manifest wallet does not match link wallet');
+  assertRecipientRequestsMatchManifest(input);
   const permissions = parseDelegatedWalletPermissionSetV1(input.permissions);
   if (!permissions.ok) throw new Error(permissions.error.message);
   const attenuation = validateDelegatedWalletAuthorityAttenuationV1({
@@ -868,32 +991,6 @@ async function validateVerifiedLinkInput(
   if (!attenuation.ok) throw new Error(attenuation.error.message);
   if (!input.sourceAuthority.authority.permissions.includes('link_devices')) throw new Error('source authority cannot link devices');
   if (!Number.isSafeInteger(input.sourceAuthority.authority.revocationEpoch) || input.sourceAuthority.authority.revocationEpoch < 0) throw new Error('source authority revocation epoch is invalid');
-}
-
-function ordinaryPreparationForEd25519(
-  preparations: readonly SharedOrdinarySignerMaterialReservationPreparationV1[],
-): OrdinaryEd25519SignerMaterialReservationPreparationV1 {
-  const preparation = preparations.find(
-    (entry): entry is Extract<
-      SharedOrdinarySignerMaterialReservationPreparationV1,
-      { readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1' }
-    > => entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1',
-  );
-  if (!preparation) throw new Error('Ed25519 ordinary material preparation is missing');
-  return preparation;
-}
-
-function ordinaryPreparationForEcdsa(
-  preparations: readonly SharedOrdinarySignerMaterialReservationPreparationV1[],
-): OrdinaryEcdsaSignerMaterialReservationPreparationV1 {
-  const preparation = preparations.find(
-    (entry): entry is Extract<
-      SharedOrdinarySignerMaterialReservationPreparationV1,
-      { readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1' }
-    > => entry.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
-  );
-  if (!preparation) throw new Error('ECDSA ordinary material preparation is missing');
-  return preparation;
 }
 
 function assertPreparationActivationMatches(

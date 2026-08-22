@@ -6,7 +6,6 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
-  OrdinarySignerMaterialReservationPreparationV1,
   VerifiedLinkInputV1,
   VerifiedSourceAuthorityV1,
   VerifiedTargetFactorV1,
@@ -84,10 +83,6 @@ export async function buildVerifiedLinkInputV1(
   const targetFactor = await buildVerifiedTargetFactorV1(input);
   assertPermissionAttenuation(source.authority, input.approval.permission);
   assertSourceManifestMatchesAuthority(source.authority, source.signerManifest);
-  assertPreparationFamiliesMatchManifest(
-    input.registration.ordinarySignerMaterialPreparations,
-    source.signerManifest,
-  );
   const sourceAuthority: VerifiedSourceAuthorityV1 = {
     authority: source.authority,
     authMethodId: source.authMethod.walletAuthMethodId,
@@ -104,7 +99,8 @@ export async function buildVerifiedLinkInputV1(
     targetFactor,
     permissions: input.approval.permission.permissions,
     signerManifest: source.signerManifest,
-    ordinarySignerMaterialPreparations: input.registration.ordinarySignerMaterialPreparations,
+    ordinarySignerMaterialRecipientRequests:
+      input.registration.ordinarySignerMaterialRecipientRequests,
   };
 }
 
@@ -259,6 +255,7 @@ function assertRegistrationIdentity(input: BuildVerifiedLinkInputV1): void {
     registration.enrollmentId !== preparation.enrollmentId ||
     registration.deviceId !== approval.deviceId ||
     registration.deviceId !== preparation.deviceId ||
+    registration.walletAuthMethodId !== preparation.walletAuthMethodId ||
     registration.targetPreparationDigestB64u.length === 0
   ) {
     throw new Error('verified link identities do not match the approved session');
@@ -268,6 +265,24 @@ function assertRegistrationIdentity(input: BuildVerifiedLinkInputV1): void {
     session.state.state !== 'provisioning'
   ) {
     throw new Error(`verified link cannot commit from ${session.state.state}`);
+  }
+  if (
+    registration.ordinarySignerMaterialRecipientRequests.length !==
+    preparation.ordinarySignerMaterialRecipientRequirements.length
+  ) {
+    throw new Error('verified link recipient requests do not match target preparation');
+  }
+  for (let index = 0; index < preparation.ordinarySignerMaterialRecipientRequirements.length; index += 1) {
+    const requirement = preparation.ordinarySignerMaterialRecipientRequirements[index];
+    const request = registration.ordinarySignerMaterialRecipientRequests[index];
+    if (
+      !requirement ||
+      !request ||
+      requirement.keyFamily !== request.keyFamily ||
+      requirement.walletKeyId !== request.walletKeyId
+    ) {
+      throw new Error(`verified link recipient request ${index} differs from target preparation`);
+    }
   }
 }
 
@@ -326,23 +341,6 @@ function manifestFromAuthority(authority: ActiveWalletAuthorityV1): ExactAdminis
     return authority.signerActivations.ecdsa.signer;
   });
   return buildExactAdministeredSignerManifestV1(signers);
-}
-
-function assertPreparationFamiliesMatchManifest(
-  preparations: readonly OrdinarySignerMaterialReservationPreparationV1[],
-  manifest: ExactAdministeredSignerManifestV1,
-): void {
-  const families = preparations.map((entry) =>
-    entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
-      ? 'ed25519'
-      : 'ecdsa_secp256k1',
-  );
-  if (
-    families.length !== manifest.keyFamilies.length ||
-    families.some((family, index) => family !== manifest.keyFamilies[index])
-  ) {
-    throw new Error('ordinary material preparation families do not match the source manifest');
-  }
 }
 
 function canonicalBase64Url(value: string, label: string): string {

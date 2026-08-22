@@ -1,4 +1,3 @@
-import type { PasskeyCustodyEnvelopeRecord } from '../passkey-custody';
 import type { DelegatedWalletAuthorityV1 } from '../authorization/delegatedAuthority';
 import type {
   AuthorizationEvidenceSetId,
@@ -11,7 +10,6 @@ import type {
   WalletSessionId,
 } from '../authorization/capabilityKinds';
 import type {
-  LaneHolderParticipantRecordV1,
   LaneHolderParticipantId,
   SigningWorkerParticipantId,
 } from '../signing-lanes/participants';
@@ -28,13 +26,11 @@ import type {
 import type { SigningLaneKind } from '../signing-lanes/records';
 import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import type {
-  MpcMaterialActivationId,
   MpcMaterialActivationRef,
   WalletAuthorityId,
   WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
-  WebAuthnRpId,
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
@@ -552,17 +548,6 @@ export type LinkedDeviceEnrollmentReceiptV1 = {
   readonly activatedAtMs: number;
 };
 
-export type LinkedDeviceTargetPreparationChildV1 = {
-  readonly kind: 'linked_device_target_preparation_child_v1';
-  readonly operationId: LaneOperationId;
-  readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
-  readonly targetMaterialActivationId: MpcMaterialActivationId;
-  readonly targetHolderParticipantId: LaneHolderParticipantId;
-};
-
 /** Public source facts needed to bind an Ed25519 export-root handoff. */
 export type LinkedDeviceEd25519ExportRootPreparationV1 = {
   readonly kind: 'linked_device_ed25519_export_root_preparation_v1';
@@ -609,8 +594,8 @@ export type LinkedDeviceOwnerEnrollmentCeremonyV1 =
       readonly expiresAtMs: number;
     };
 /**
- * The owner ceremony and exact R102 child identities required before Device 2
- * creates keys.
+ * The owner ceremony and server-allocated recipient requirements needed before
+ * Device 2 creates its local recipient keypairs.
  *
  * `ownerEnrollment` is required, not optional: a preparation exists only once
  * Device 1 has started the ceremony during owner-authenticated approval, so a
@@ -628,11 +613,14 @@ type LinkedDeviceTargetPreparationBaseV1 = {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  /** Allocated by the server before target-factor verification. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
   /** `null` is the explicit ECDSA-only/no-export-root branch. */
   readonly ed25519ExportRoot: LinkedDeviceEd25519ExportRootPreparationV1 | null;
-  readonly orderedChildren: readonly [
-    LinkedDeviceTargetPreparationChildV1,
-    ...LinkedDeviceTargetPreparationChildV1[],
+  /** Public requirements from which the browser creates local recipients. */
+  readonly ordinarySignerMaterialRecipientRequirements: readonly [
+    OrdinarySignerMaterialRecipientRequirementV1,
+    ...OrdinarySignerMaterialRecipientRequirementV1[],
   ];
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -674,20 +662,9 @@ export type LinkedDeviceWebAuthnRegistrationV1 = {
   )[];
 };
 
-export type LinkedDeviceTargetHolderRegistrationV1 = {
-  readonly kind: 'linked_device_target_holder_registration_v1';
-  readonly operationId: LaneOperationId;
-  readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly targetLaneId: SigningLaneId;
-  readonly targetLaneShareEpoch: LaneShareEpoch;
-  readonly targetMaterialActivationId: MpcMaterialActivationId;
-  readonly holderParticipant: LaneHolderParticipantRecordV1;
-};
-
 /**
- * Worker-produced ordinary material inputs. Activation identities are
- * checked against the server's planned refs before a reservation is made.
+ * Server-derived ordinary material inputs returned after factor verification.
+ * Activation identities are never accepted from a credential registration.
  */
 export type OrdinarySignerMaterialReservationPreparationV1 =
   | {
@@ -701,18 +678,28 @@ export type OrdinarySignerMaterialReservationPreparationV1 =
     };
 
 /**
- * Public recipient inputs paired with the worker-produced reservation
- * preparations. Private recipient keys remain in the browser worker.
+ * Public recipient requirements allocated by the server during target
+ * preparation. The browser uses the family and wallet key identity to create
+ * a local recipient keypair.
  */
-export type OrdinarySignerMaterialRecipientInputV1 =
+export type OrdinarySignerMaterialRecipientRequirementV1 = {
+  readonly kind: 'ordinary_signer_material_recipient_requirement_v1';
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly walletKeyId: WalletKeyId;
+};
+
+/** Public recipient requests returned by the browser after local key creation. */
+export type OrdinarySignerMaterialRecipientRequestV1 =
   | {
-      readonly kind: 'ordinary_ed25519_signer_material_recipient_input_v1';
+      readonly kind: 'ordinary_ed25519_signer_material_recipient_request_v1';
       readonly keyFamily: 'ed25519';
+      readonly walletKeyId: WalletKeyId;
       readonly recipientPublicKeyB64u: string;
     }
   | {
-      readonly kind: 'ordinary_ecdsa_signer_material_recipient_input_v1';
+      readonly kind: 'ordinary_ecdsa_signer_material_recipient_request_v1';
       readonly keyFamily: 'ecdsa_secp256k1';
+      readonly walletKeyId: WalletKeyId;
       readonly clientEphemeralPublicKey: string;
     };
 
@@ -724,17 +711,9 @@ type LinkedDeviceTargetCredentialRegistrationBaseV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly ordinarySignerMaterialPreparations: readonly [
-    OrdinarySignerMaterialReservationPreparationV1,
-    ...OrdinarySignerMaterialReservationPreparationV1[],
-  ];
-  readonly ordinarySignerMaterialRecipientInputs: readonly [
-    OrdinarySignerMaterialRecipientInputV1,
-    ...OrdinarySignerMaterialRecipientInputV1[],
-  ];
-  readonly orderedHolderRegistrations: readonly [
-    LinkedDeviceTargetHolderRegistrationV1,
-    ...LinkedDeviceTargetHolderRegistrationV1[],
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
   ];
   readonly registeredAtMs: number;
 };
@@ -1220,9 +1199,9 @@ export type VerifiedLinkInputV1 = {
   readonly targetFactor: VerifiedTargetFactorV1;
   readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
   readonly signerManifest: ExactAdministeredSignerManifestV1;
-  readonly ordinarySignerMaterialPreparations: readonly [
-    OrdinarySignerMaterialReservationPreparationV1,
-    ...OrdinarySignerMaterialReservationPreparationV1[],
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
   ];
 };
 
@@ -1244,9 +1223,9 @@ export type LinkedDeviceTargetCredentialRegistrationResultV1 = {
     OrdinarySignerMaterialReservationPreparationV1,
     ...OrdinarySignerMaterialReservationPreparationV1[],
   ];
-  readonly ordinarySignerMaterialRecipientInputs: readonly [
-    OrdinarySignerMaterialRecipientInputV1,
-    ...OrdinarySignerMaterialRecipientInputV1[],
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
   ];
   readonly keyManifestDigestB64u: DigestB64u;
 };
