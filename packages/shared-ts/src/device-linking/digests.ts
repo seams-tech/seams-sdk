@@ -1,6 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
-import { sha256Bytes } from '../utils/digests';
+import { alphabetizeStringify, sha256Bytes } from '../utils/digests';
 import {
   delegatedWalletPermissionNamesV1,
   type DelegatedWalletAuthorityV1,
@@ -8,9 +8,8 @@ import {
 } from '../authorization/delegatedAuthority';
 import type {
   LinkedDeviceApprovalV1,
-  LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceProtocolVersionV1,
+  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceEd25519ExportRootPreparationV1,
@@ -19,7 +18,6 @@ import type {
   LinkedDeviceTargetFactorV1,
   OrdinarySignerMaterialRecipientRequirementV1,
 } from './contracts';
-import { ownerLaneParticipantContinuityCanonicalBytesV1 } from '../signing-lanes/ownerContinuity';
 
 export {
   computeCommittedSignerPackageDigestB64u,
@@ -132,29 +130,8 @@ function lengthPrefixedPermission(permission: Uint8Array): Uint8Array {
   return lp32(permission, 'permission.permissions.item');
 }
 
-function encodeKeyBinding(value: LinkedDeviceEnrollmentKeyBindingV1): Uint8Array {
-  const common = [
-    text(value.walletKeyId, 'keyBinding.walletKeyId'),
-    text(value.keyFamily, 'keyBinding.keyFamily'),
-    text(value.sourceLaneId, 'keyBinding.sourceLaneId'),
-    text(value.sourceLaneKind, 'keyBinding.sourceLaneKind'),
-    text(value.sourceKind, 'keyBinding.sourceKind'),
-    text(value.sourceLaneShareEpoch, 'keyBinding.sourceLaneShareEpoch'),
-    u64(value.sourceRevocationEpoch, 'keyBinding.sourceRevocationEpoch'),
-    text(value.targetLaneId, 'keyBinding.targetLaneId'),
-    text(value.targetLaneShareEpoch, 'keyBinding.targetLaneShareEpoch'),
-  ] as const;
-  if (value.ownerParticipantContinuity !== undefined) {
-    return concat([
-      ...common,
-      ownerLaneParticipantContinuityCanonicalBytesV1(value.ownerParticipantContinuity),
-    ]);
-  }
-  return concat([
-    ...common,
-    text(value.sourceHolderParticipantId, 'keyBinding.sourceHolderParticipantId'),
-    text(value.sourceSigningWorkerParticipantId, 'keyBinding.sourceSigningWorkerParticipantId'),
-  ]);
+function encodeOwnerSourceLane(value: LinkedDeviceOwnerSourceLaneV1): Uint8Array {
+  return text(alphabetizeStringify(value), 'ownerSourceLane');
 }
 
 function encodeTargetFactor(value: LinkedDeviceTargetFactorV1): Uint8Array {
@@ -203,13 +180,6 @@ function encodeLinkedDevicePasskeyCreationOptionsV1(
   ]);
 }
 
-function encodeProtocolVersion(value: LinkedDeviceProtocolVersionV1): Uint8Array {
-  return concat([
-    text(value.keyFamily, 'protocolVersion.keyFamily'),
-    text(value.version, 'protocolVersion.version'),
-  ]);
-}
-
 function encodeRecipientRequirement(value: OrdinarySignerMaterialRecipientRequirementV1): Uint8Array {
   return concat([
     text(value.kind, 'recipientRequirement.kind'),
@@ -255,8 +225,7 @@ export async function computeLinkedDeviceSessionClaimDigestV1(
 }
 
 export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uint8Array {
-  const orderedKeyBindings = value.orderedKeyBindings.map(encodeKeyBinding);
-  const protocolVersions = value.protocolVersions.map(encodeProtocolVersion);
+  const orderedOwnerSourceLaneHints = value.orderedOwnerSourceLaneHints.map(encodeOwnerSourceLane);
   return concat([
     text(APPROVAL_DOMAIN, 'domain'),
     text(value.kind, 'kind'),
@@ -269,13 +238,10 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     lp32(encodeDelegatedWalletAuthority(value.permission), 'permission'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
-    rawDigest(value.policyDigestB64u, 'policyDigestB64u'),
-    text(value.operationId, 'operationId'),
-    text(value.idempotencyKey, 'idempotencyKey'),
-    u32(orderedKeyBindings.length, 'orderedKeyBindings'),
-    ...orderedKeyBindings.map((entry) => lp32(entry, 'orderedKeyBindings.item')),
-    u32(protocolVersions.length, 'protocolVersions'),
-    ...protocolVersions.map((entry) => lp32(entry, 'protocolVersions.item')),
+    u32(orderedOwnerSourceLaneHints.length, 'orderedOwnerSourceLaneHints'),
+    ...orderedOwnerSourceLaneHints.map((entry) =>
+      lp32(entry, 'orderedOwnerSourceLaneHints.item'),
+    ),
     u64(value.approvedAtMs, 'approvedAtMs'),
     u64(value.expiresAtMs, 'expiresAtMs'),
   ]);

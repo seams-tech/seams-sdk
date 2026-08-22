@@ -27,21 +27,12 @@ import type {
   WalletSessionId,
 } from '../authorization/capabilityKinds';
 import type {
-  LaneOperationId,
-  LaneOperationIdempotencyKey,
-  LaneShareEpoch,
   LinkedDeviceEnrollmentId,
   LinkedDeviceId,
   LinkDeviceSessionId,
-  SigningLaneId,
   WalletKeyId,
 } from '../signing-lanes/ids';
-import type {
-  LaneHolderParticipantId,
-  SigningWorkerParticipantId,
-} from '../signing-lanes/participants';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
-import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import type {
   MpcMaterialActivationRef,
   WalletAuthorityId,
@@ -71,14 +62,6 @@ declare const walletId: WalletId;
 declare const enrollmentId: LinkedDeviceEnrollmentId;
 declare const deviceId: LinkedDeviceId;
 declare const walletKeyId: WalletKeyId;
-declare const sourceLaneId: SigningLaneId;
-declare const targetLaneId: SigningLaneId;
-declare const sourceEpoch: LaneShareEpoch;
-declare const targetEpoch: LaneShareEpoch;
-declare const holderParticipantId: LaneHolderParticipantId;
-declare const workerParticipantId: SigningWorkerParticipantId;
-declare const operationId: LaneOperationId;
-declare const idempotencyKey: LaneOperationIdempotencyKey;
 declare const digest: DigestB64u;
 declare const walletSessionId: WalletSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
@@ -93,7 +76,6 @@ declare const ownerLane: Extract<
   { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
 >;
 declare const materialActivation: MpcMaterialActivationRef;
-declare const ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
 declare const manifestId: EcdsaCapabilityManifestId;
 declare const manifestRevision: EcdsaCapabilityManifestRevision;
 declare const targetDeviceId: DeviceId;
@@ -239,48 +221,10 @@ const approval: LinkedDeviceApprovalV1 = {
   permission: payload.requestedPermission,
   targetFactor: { kind: 'passkey_prf' },
   ownerAuthorization,
-  policyDigestB64u: digest,
-  operationId,
-  idempotencyKey,
-  orderedKeyBindings: [
-    {
-      walletKeyId,
-      keyFamily: 'ed25519',
-      sourceLaneId,
-      sourceLaneKind: 'linked_device',
-      sourceKind: 'provisioned_lane',
-      sourceLaneShareEpoch: sourceEpoch,
-      sourceRevocationEpoch: 0,
-      sourceHolderParticipantId: holderParticipantId,
-      sourceSigningWorkerParticipantId: workerParticipantId,
-      targetLaneId,
-      targetLaneShareEpoch: targetEpoch,
-    },
-  ],
-  protocolVersions: [{ keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' }],
+  orderedOwnerSourceLaneHints: [ed25519OwnerSource],
   approvedAtMs: 1,
   expiresAtMs: 2,
 };
-
-const ownerApprovalBinding: LinkedDeviceApprovalV1['orderedKeyBindings'][number] = {
-  walletKeyId,
-  keyFamily: 'ed25519',
-  sourceLaneId,
-  sourceLaneKind: 'owner_passkey',
-  sourceKind: 'owner_registration',
-  sourceLaneShareEpoch: sourceEpoch,
-  sourceRevocationEpoch: 0,
-  ownerParticipantContinuity,
-  targetLaneId,
-  targetLaneShareEpoch: targetEpoch,
-};
-
-// @ts-expect-error owner bindings cannot carry provisioned holder identity.
-const invalidMixedOwnerApprovalBinding: LinkedDeviceApprovalV1['orderedKeyBindings'][number] = {
-  ...ownerApprovalBinding,
-  sourceHolderParticipantId: holderParticipantId,
-};
-void invalidMixedOwnerApprovalBinding;
 
 const summary: LinkedDeviceSummaryV1 = {
   deviceId,
@@ -331,11 +275,11 @@ const invalidRevokeResult: LinkedDeviceRevokeResultV1 = {
   kind: 'revoked',
 };
 
-// Approval always contains a non-empty ordered manifest.
+// Approval always contains a non-empty ordered owner-source projection.
 const invalidEmptyApprovalManifest: LinkedDeviceApprovalV1 = {
   ...approval,
-  // @ts-expect-error empty manifests cannot activate an enrollment
-  orderedKeyBindings: [],
+  // @ts-expect-error empty source projections cannot activate an enrollment
+  orderedOwnerSourceLaneHints: [],
 };
 
 const targetPreparation: LinkedDeviceTargetPreparationV1 = {

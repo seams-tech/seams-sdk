@@ -27,7 +27,7 @@ test('serializes server preparations with the browser recipient request', async 
     'target-boundary',
     activation,
   );
-  const walletKeyId = fixture.approval.orderedKeyBindings[0]?.walletKeyId;
+  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
   if (!walletKeyId) throw new Error('fixture signer binding is missing');
   const walletAuthMethodId = 'email_otp:wallet:r103:' + 'ab'.repeat(32);
   const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
@@ -88,7 +88,7 @@ test('serializes server preparations with the browser recipient request', async 
 
 test('registration rejects private recipient material and activation choices', () => {
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:target-boundary-reject' });
-  const walletKeyId = fixture.approval.orderedKeyBindings[0]?.walletKeyId;
+  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
   if (!walletKeyId) throw new Error('fixture signer binding is missing');
   const base = {
     kind: 'linked_device_target_credential_registration_v1',

@@ -32,11 +32,7 @@ test('an approval survives its own parser', () => {
     permission: fixture.approval.permission,
     targetFactor: fixture.approval.targetFactor,
     ownerAuthorization: fixture.approval.ownerAuthorization,
-    policyDigestB64u: fixture.approval.policyDigestB64u,
-    operationId: fixture.approval.operationId,
-    idempotencyKey: fixture.approval.idempotencyKey,
-    orderedKeyBindings: fixture.approval.orderedKeyBindings,
-    protocolVersions: fixture.approval.protocolVersions,
+    orderedOwnerSourceLaneHints: fixture.approval.orderedOwnerSourceLaneHints,
     approvedAtMs: fixture.approval.approvedAtMs,
     expiresAtMs: fixture.approval.expiresAtMs,
   });
@@ -46,6 +42,7 @@ test('an approval survives its own parser', () => {
 test('a target preparation survives its own builder and parser', () => {
   const preparation = buildPasskeyTargetPreparationFixtureV1();
   const { kind: _kind, ...builderArgs } = preparation;
+  void _kind;
   const built = buildLinkedDeviceTargetPreparationV1(builderArgs);
   expect(parseLinkedDeviceTargetPreparationV1(JSON.parse(JSON.stringify(built)))).toEqual(built);
 });
