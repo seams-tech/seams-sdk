@@ -25,8 +25,9 @@ use crate::lane_holder::{
     LaneHolderSigningMaterialV1,
 };
 use crate::{
-    complete_client_export_v1, create_client_signing_share_v1, prepare_client_export_with_root_v1,
-    ClientActivationEntropyV1, ClientExportStateV1, ClientSigningRequestV1,
+    complete_client_export_v1, create_client_signing_share_v1,
+    prepare_client_export_with_root_v1, ClientActivationEntropyV1, ClientExportStateV1,
+    ClientSigningRequestV1,
 };
 use crate::{
     complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
@@ -436,6 +437,106 @@ fn ecdsa_presign_progress_to_js(progress: PresignSessionProgress) -> Result<JsVa
 
 fn js_ecdsa_presign_error(error: PresignSessionError) -> JsValue {
     JsValue::from_str(&error.to_string())
+}
+
+/// One-use owner export session opened from a factor-sealed wallet custody
+/// seed. Linked-device export uses the dedicated Client-root session below.
+#[wasm_bindgen]
+pub struct WasmWalletCustodySeedExportSessionV1 {
+    execute_request_json: String,
+    state: Option<ClientExportStateV1>,
+}
+
+#[wasm_bindgen]
+impl WasmWalletCustodySeedExportSessionV1 {
+    /// Opens the wallet custody seed and prepares a one-use export request.
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        admission_json: &str,
+        application_json: &str,
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        factor_secret: &[u8],
+        envelope_binding_json: &str,
+        envelope_nonce: &[u8],
+        envelope_ciphertext: &[u8],
+        envelope_aad_hash: &[u8],
+        envelope_ciphertext_digest: &[u8],
+        recipient_key_material: &[u8],
+        deriver_a_seal_seed: &[u8],
+        deriver_b_seal_seed: &[u8],
+    ) -> Result<WasmWalletCustodySeedExportSessionV1, JsValue> {
+        let admission =
+            serde_json::from_str::<RouterAbEd25519YaoExportAdmissionReceiptV1>(admission_json)
+                .map_err(js_error)?;
+        let application =
+            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
+                .map_err(js_error)?;
+        let envelope_binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+                .map_err(js_error)?;
+        let factor_secret = Zeroizing::new(parse_32(factor_secret, "custody factor secret")?);
+        let (seed, _) = open_wallet_custody_seed_envelope_v1(
+            &*factor_secret,
+            &envelope_binding,
+            envelope_nonce,
+            envelope_ciphertext,
+            envelope_aad_hash,
+            envelope_ciphertext_digest,
+        )
+        .map_err(js_error)?;
+        let custody_seed = Zeroizing::new(
+            seed.as_slice()
+                .try_into()
+                .map_err(|_| JsValue::from_str("wallet custody seed must contain 32 bytes"))?,
+        );
+        let recipient_key_material =
+            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
+        let deriver_a_seal_seed =
+            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
+        let deriver_b_seal_seed =
+            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
+        let entropy = ClientActivationEntropyV1::new(
+            *recipient_key_material,
+            *deriver_a_seal_seed,
+            *deriver_b_seal_seed,
+        )
+        .map_err(js_error)?;
+        let prepared = crate::prepare_client_export_from_custody_seed_v1(
+            &admission,
+            &application,
+            [client_participant_id, signing_worker_participant_id],
+            &*custody_seed,
+            entropy,
+        )
+        .map_err(js_error)?;
+        let (execute_request, state) = prepared.into_parts();
+        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
+        Ok(Self {
+            execute_request_json,
+            state: Some(state),
+        })
+    }
+
+    /// Returns the serialized request to execute through the Router A/B export protocol.
+    pub fn execute_request_json(&self) -> String {
+        self.execute_request_json.clone()
+    }
+
+    /// Consumes the session and returns the verified exported seed.
+    pub fn complete(&mut self, result_json: &str) -> Result<WasmExportedEd25519SeedV1, JsValue> {
+        let result = serde_json::from_str::<RouterAbEd25519YaoExportResultV1>(result_json)
+            .map_err(js_error)?;
+        let state = self
+            .state
+            .take()
+            .ok_or_else(|| JsValue::from_str("Ed25519 Yao export session was consumed"))?;
+        let seed = complete_client_export_v1(state, &result).map_err(js_error)?;
+        Ok(WasmExportedEd25519SeedV1 {
+            seed: Some(Zeroizing::new(seed.into_bytes())),
+        })
+    }
 }
 
 /// One-use explicit export session opened from a factor-sealed Ed25519 Yao
