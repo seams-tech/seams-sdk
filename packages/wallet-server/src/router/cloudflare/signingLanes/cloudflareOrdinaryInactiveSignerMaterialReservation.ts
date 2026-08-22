@@ -25,17 +25,27 @@ import {
   routerAbMpcMaterialActivationRefFromWire,
   routerAbMpcMaterialActivationRefToWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  parseRouterAbEd25519YaoEncryptedPackageV1,
+  parseRouterAbEd25519YaoParticipantIdsV1,
+  parseRouterAbEd25519YaoActivationPublicReceiptV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+} from '@shared/device-linking/sourceContribution';
 import type { OrdinaryInactiveSignerMaterialActivationPortV1 } from '../d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import type {
   OrdinaryEcdsaSignerMaterialReservationPreparationV1,
   OrdinaryEd25519SignerMaterialReservationPreparationV1,
 } from '../../../core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 
-/** Dedicated SigningWorker paths implemented by the Cloudflare worker. */
-export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_PATH_V1 =
-  '/router-ab/signing-worker/ed25519-yao/reserve-inactive' as const;
-export const CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH_V1 =
-  '/router-ab/signing-worker/ecdsa-derivation/reserve-inactive' as const;
+/** Source-preserving ordinary material paths implemented by the Cloudflare workers. */
+export const CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PATH_V1 =
+  '/router-ab/router/ed25519-yao/execute-source-preserving' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1 =
+  '/router-ab/signing-worker/ed25519-yao/reserve-inactive-source-preserving' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1 =
+  '/router-ab/signing-worker/ecdsa-derivation/reserve-inactive-source-preserving' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH_V1 =
   '/router-ab/signing-worker/ed25519-yao/activate-reservation' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_ACTIVATE_RESERVATION_PATH_V1 =
@@ -63,7 +73,7 @@ export type CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1 = {
 
 export type CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1 = {
   activateInactiveEd25519SignerMaterialV1(input: {
-    readonly activationRequest: OrdinaryEd25519SignerMaterialReservationPreparationV1['activationRequest'];
+    readonly sourceContribution: OrdinaryEd25519SignerMaterialReservationPreparationV1['sourceContribution'];
     readonly reservationId: string;
   }): Promise<unknown>;
   activateInactiveEcdsaSignerMaterialV1(input: {
@@ -80,6 +90,306 @@ export type CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1 = {
     readonly materialActivation: OrdinaryEcdsaSignerMaterialDeactivationRequestV1['materialActivation'];
   }): Promise<unknown>;
 };
+
+export function createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1(input: {
+  readonly fetch: typeof fetch;
+  readonly internalServiceAuthSecret: string;
+}): CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1 {
+  return {
+    reserveInactiveEd25519SignerMaterialV1: async (request) => {
+      const raw = await postReservationRequestV1(
+        input,
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1,
+        ed25519ReservationRequestToWireV1(request),
+        'ed25519',
+      );
+      return parseEd25519ReservationResponseV1(request, raw);
+    },
+    reserveInactiveEcdsaSignerMaterialV1: async (request) => {
+      const raw = await postReservationRequestV1(
+        input,
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1,
+        ecdsaReservationRequestToWireV1(request),
+        'ecdsa_secp256k1',
+      );
+      return parseEcdsaReservationResponseV1(request, raw);
+    },
+  };
+}
+
+export function createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1(input: {
+  readonly fetch: typeof fetch;
+  readonly internalServiceAuthSecret: string;
+}): CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1 {
+  return {
+    activateInactiveEd25519SignerMaterialV1: async (request) =>
+      await postActivationRequestV1(
+        input,
+        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH_V1,
+        ed25519ActivationRequestToWireV1(request),
+        'ed25519',
+      ),
+    activateInactiveEcdsaSignerMaterialV1: async (request) =>
+      await postActivationRequestV1(
+        input,
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_ACTIVATE_RESERVATION_PATH_V1,
+        ecdsaActivationRequestToWireV1(request),
+        'ecdsa_secp256k1',
+      ),
+  };
+}
+
+function ed25519ReservationRequestToWireV1(
+  request: OrdinaryEd25519SignerMaterialReservationRequestV1,
+): Record<string, unknown> {
+  const sourceContribution = request.preparation.sourceContribution;
+  return {
+    source_binding: sourceContribution.sourceBinding,
+    delivery: sourceContribution.delivery,
+    participant_ids: sourceContribution.participantIds,
+    deriver_a_client_package: sourceContribution.deriver_a_client_package,
+    deriver_b_client_package: sourceContribution.deriver_b_client_package,
+  };
+}
+
+function ecdsaReservationRequestToWireV1(
+  request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
+): Record<string, unknown> {
+  return {
+    source_derivation: {
+      application_binding_digest_b64u:
+        request.preparation.sourceDerivation.applicationBindingDigestB64u,
+      client_share_retry_counter: request.preparation.sourceDerivation.clientShareRetryCounter,
+    },
+    source_contribution: request.preparation.sourceContribution,
+  };
+}
+
+function ed25519ActivationRequestToWireV1(input: {
+  readonly sourceContribution: OrdinaryEd25519SignerMaterialReservationPreparationV1['sourceContribution'];
+  readonly reservationId: string;
+}): Record<string, unknown> {
+  return {
+    binding: input.sourceContribution.delivery.deriver_a.binding,
+    reservation_id: input.reservationId,
+  };
+}
+
+function ecdsaActivationRequestToWireV1(input: {
+  readonly preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1;
+  readonly reservationId: string;
+}): Record<string, unknown> {
+  return {
+    material_activation: routerAbMpcMaterialActivationRefToWire(
+      input.preparation.sourceContribution.binding.target.activation,
+    ),
+    reservation_id: input.reservationId,
+  };
+}
+
+function parseEd25519ReservationResponseV1(
+  request: OrdinaryEd25519SignerMaterialReservationRequestV1,
+  raw: unknown,
+): Record<string, unknown> {
+  const reservation = exactResponseRecordV1(
+    raw,
+    [
+      'state',
+      'reservation_id',
+      'participant_ids',
+      'activation_receipt',
+      'deriver_a_client_package',
+      'deriver_b_client_package',
+    ],
+    'ordinary Ed25519 material reservation',
+  );
+  if (reservation.state !== 'inactive' || typeof reservation.reservation_id !== 'string') {
+    throw new Error('ordinary Ed25519 material reservation response is invalid');
+  }
+  const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
+    reservation.activation_receipt,
+  );
+  const participantIds = parseRouterAbEd25519YaoParticipantIdsV1(reservation.participant_ids);
+  const deriverAClientPackage = parseRouterAbEd25519YaoEncryptedPackageV1(
+    reservation.deriver_a_client_package,
+  );
+  const deriverBClientPackage = parseRouterAbEd25519YaoEncryptedPackageV1(
+    reservation.deriver_b_client_package,
+  );
+  if (!deriverAClientPackage.ok || !deriverBClientPackage.ok) {
+    throw new Error('ordinary Ed25519 material reservation client package is invalid');
+  }
+  return {
+    kind: 'ordinary_ed25519_signer_material_worker_reservation_v1',
+    keyFamily: 'ed25519',
+    state: 'inactive',
+    signer: request.signer,
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(
+      activationReceipt.material_activation,
+    ),
+    participantIds,
+    activationReceipt,
+    clientMaterial: {
+      kind: 'ordinary_ed25519_client_material_v1',
+      deriver_a_client_package: deriverAClientPackage.value,
+      deriver_b_client_package: deriverBClientPackage.value,
+    },
+    serverMaterialReservationId: reservation.reservation_id,
+  };
+}
+
+function parseEcdsaReservationResponseV1(
+  request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
+  raw: unknown,
+): Record<string, unknown> {
+  const reservation = exactResponseRecordV1(
+    raw,
+    [
+      'state',
+      'reservation_id',
+      'material_activation',
+      'binding',
+      'source_derivation',
+      'target_relayer_public_key33_b64u',
+      'threshold_public_key33_b64u',
+      'threshold_ethereum_address20_b64u',
+      'encrypted_target_client_share',
+      'encrypted_target_server_share',
+    ],
+    'ordinary ECDSA material reservation',
+  );
+  if (reservation.state !== 'inactive' || typeof reservation.reservation_id !== 'string') {
+    throw new Error('ordinary ECDSA material reservation response is invalid');
+  }
+  const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+    reservation.material_activation,
+  );
+  const sourceDerivation = parseEcdsaSourceDerivationResponseV1(
+    reservation.source_derivation,
+  );
+  const activationReceipt = parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1({
+    state: 'inactive',
+    binding: reservation.binding,
+    sourceDerivation,
+    targetRelayerPublicKey33B64u: reservation.target_relayer_public_key33_b64u,
+    thresholdPublicKey33B64u: reservation.threshold_public_key33_b64u,
+    thresholdEthereumAddress20B64u: reservation.threshold_ethereum_address20_b64u,
+  });
+  return {
+    kind: 'ordinary_ecdsa_signer_material_worker_reservation_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    state: 'inactive',
+    signer: request.signer,
+    materialActivation,
+    activationReceipt,
+    clientMaterial: {
+      kind: 'ordinary_ecdsa_client_material_v1',
+      encryptedTargetClientShare: reservation.encrypted_target_client_share,
+    },
+    serverMaterial: {
+      kind: 'ordinary_ecdsa_inactive_server_material_v1',
+      reservationId: reservation.reservation_id,
+      encryptedTargetServerShare: reservation.encrypted_target_server_share,
+    },
+  };
+}
+
+function parseEcdsaSourceDerivationResponseV1(raw: unknown): {
+  readonly applicationBindingDigestB64u: string;
+  readonly clientShareRetryCounter: number;
+} {
+  const derivation = exactResponseRecordV1(
+    raw,
+    ['application_binding_digest_b64u', 'client_share_retry_counter'],
+    'ordinary ECDSA source derivation',
+  );
+  if (
+    typeof derivation.application_binding_digest_b64u !== 'string' ||
+    typeof derivation.client_share_retry_counter !== 'number' ||
+    !Number.isSafeInteger(derivation.client_share_retry_counter) ||
+    derivation.client_share_retry_counter < 0
+  ) {
+    throw new Error('ordinary ECDSA source derivation response is invalid');
+  }
+  return {
+    applicationBindingDigestB64u: derivation.application_binding_digest_b64u,
+    clientShareRetryCounter: derivation.client_share_retry_counter,
+  };
+}
+
+function exactResponseRecordV1(
+  raw: unknown,
+  keys: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  if (!isRecordV1(raw) || !hasExactKeysV1(raw, keys)) {
+    throw new Error(`${label} response is invalid`);
+  }
+  return raw;
+}
+
+async function postReservationRequestV1(
+  input: {
+    readonly fetch: typeof fetch;
+    readonly internalServiceAuthSecret: string;
+  },
+  path: string,
+  body: Record<string, unknown>,
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+): Promise<unknown> {
+  return await postSigningWorkerJsonRequestV1(
+    input,
+    path,
+    body,
+    `ordinary ${keyFamily} material reservation`,
+  );
+}
+
+async function postActivationRequestV1(
+  input: {
+    readonly fetch: typeof fetch;
+    readonly internalServiceAuthSecret: string;
+  },
+  path: string,
+  body: Record<string, unknown>,
+  keyFamily: 'ed25519' | 'ecdsa_secp256k1',
+): Promise<unknown> {
+  return await postSigningWorkerJsonRequestV1(
+    input,
+    path,
+    body,
+    `ordinary ${keyFamily} material activation`,
+  );
+}
+
+async function postSigningWorkerJsonRequestV1(
+  input: {
+    readonly fetch: typeof fetch;
+    readonly internalServiceAuthSecret: string;
+  },
+  path: string,
+  body: Record<string, unknown>,
+  operation: string,
+): Promise<unknown> {
+  const response = await input.fetch(
+    new Request(`https://signing-worker.router-ab.internal${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-router-ab-internal-service-auth': input.internalServiceAuthSecret,
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+  if (!response.ok) {
+    throw new Error(`${operation} failed with HTTP ${response.status}`);
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`${operation} returned invalid JSON`);
+  }
+}
 
 export function createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1(input: {
   readonly fetch: typeof fetch;
@@ -420,21 +730,24 @@ class CloudflareOrdinaryInactiveSignerMaterialActivationWorkerV1 implements Ordi
       if (
         !mpcMaterialActivationRefsEqual(
           input.materialActivation,
-          routerAbMpcMaterialActivationRefFromWire(
-            prepared.activationRequest.binding.material_activation,
-          ),
+          prepared.sourceContribution.targetMaterialActivation,
         )
       ) {
         throw new Error('ordinary Ed25519 activation reference does not match preparation');
       }
       await this.endpoint.activateInactiveEd25519SignerMaterialV1({
-        activationRequest: prepared.activationRequest,
+        sourceContribution: prepared.sourceContribution,
         reservationId: input.reservationId,
       });
       return;
     }
     const prepared = input.preparation.preparation;
-    if (!mpcMaterialActivationRefsEqual(input.materialActivation, prepared.materialActivation)) {
+    if (
+      !mpcMaterialActivationRefsEqual(
+        input.materialActivation,
+        prepared.sourceContribution.binding.target.activation,
+      )
+    ) {
       throw new Error('ordinary ECDSA activation reference does not match preparation');
     }
     await this.endpoint.activateInactiveEcdsaSignerMaterialV1({
