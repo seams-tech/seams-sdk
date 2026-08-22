@@ -3,10 +3,7 @@ import type { LinkedDeviceWebAuthnRegistrationV1 } from '@shared/device-linking'
 import { base64UrlDecode } from '@shared/utils/base64';
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import type {
-  DeviceLinkingKeyMaterialPortV1,
-  DeviceLinkingTargetCredentialPortV1,
-} from './deviceLinkingPorts';
+import type { DeviceLinkingTargetCredentialPortV1 } from './deviceLinkingPorts';
 
 function requiredCredentialId(
   value: unknown,
@@ -62,7 +59,6 @@ function registrationProjection(
 
 export function createDeviceLinkingTargetCredentialPortV1(args: {
   readonly authenticator: AuthenticatorPort;
-  readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
 }): DeviceLinkingTargetCredentialPortV1 {
   return {
     async createTargetCredentialV1(input) {
@@ -99,25 +95,10 @@ export function createDeviceLinkingTargetCredentialPortV1(args: {
         zeroizeLiveBytes(factorSecret);
         throw new Error('linked-device passkey PRF output must be 32 bytes');
       }
-      const workerFactorSecret = factorSecret.slice();
-      try {
-        const prepared = await args.keyMaterial.prepareTargetHolderRegistrationsV1({
-          handle: input.keyMaterial,
-          preparation: input.preparation,
-          credentialIdB64u: webauthnRegistration.credentialIdB64u,
-          // The worker port transfers this buffer. Keep the ceremony result in
-          // its own live buffer for the session-activation consumer below.
-          factorSecret: workerFactorSecret.buffer,
-        });
-        return {
-          webauthnRegistration,
-          orderedHolderRegistrations: prepared.orderedHolderRegistrations,
-          factorSecret: factorSecret.slice(),
-        };
-      } finally {
-        zeroizeLiveBytes(factorSecret);
-        zeroizeLiveBytes(workerFactorSecret);
-      }
+      return {
+        webauthnRegistration,
+        factorSecret,
+      };
     },
   };
 }

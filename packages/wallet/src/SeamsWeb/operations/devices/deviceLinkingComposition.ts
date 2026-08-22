@@ -1,4 +1,5 @@
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { createDeviceLinkingEd25519ExportRootPortV1 } from './deviceLinkingEd25519ExportRoot';
 import type { AuthenticatorPort } from '@/core/platform';
 import type { HttpTransport } from '@/core/platform/http';
@@ -8,14 +9,10 @@ import {
   parseLinkedDeviceProvisioningDeliveriesV1,
   type LinkedDeviceProvisioningDeliveriesV1,
 } from '@shared/device-linking';
-import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
-import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import {
   createDeviceLinkingKeyMaterialPortV1,
   type DeviceLinkingWorkerEndpointV1,
 } from './deviceLinkingWorkerChannels';
-import { createDeviceLinkingLaneProvisioningPortV1 } from './deviceLinkingLaneProvisioning';
 import {
   createDeviceLinkingOwnerTransportV1,
   type LinkSessionOwnerApprovalUpdatesPortV1,
@@ -23,10 +20,10 @@ import {
 } from './deviceLinkingOwnerTransport';
 import { createDeviceLinkingSessionTransportPortV1 } from './deviceLinkingHttpTransport';
 import { createDeviceLinkingTargetCredentialPortV1 } from './deviceLinkingTargetCredential';
+import { createDeviceLinkingAuthorityInstallationPortV1 } from './deviceLinkingAuthorityInstallation';
 import type {
   Device1SourcePreparationPortV1,
   Device1TargetReadySourceInputV1,
-  DeviceLinkingSessionActivationPortV1,
   DeviceLinkingFlowPortsV1,
   DeviceLinkingOwnerAuthorizationPortV1,
 } from './deviceLinkingPorts';
@@ -48,16 +45,6 @@ export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
   readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
-  readonly repository: LaneSealedHolderMaterialRepositoryV1;
-  readonly walletSessionRepository: Pick<
-    LinkedDeviceWalletSessionRepositoryV1,
-    'putExactActiveDeliveryV1'
-  >;
-  readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
-  readonly executionEvidenceRepository: Pick<
-    LinkedDeviceExecutionEvidenceRepositoryV1,
-    'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
-  >;
   readonly sourceLanePorts: LaneOperationSourcePortsV1;
   /** The wallet custody worker both devices drive for the export-root handoff. */
   readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
@@ -146,11 +133,10 @@ export function createDeviceLinkingFlowPortsV1(
   });
   const targetCredential = createDeviceLinkingTargetCredentialPortV1({
     authenticator: args.authenticator,
-    keyMaterial,
   });
-  const laneProvisioning = createDeviceLinkingLaneProvisioningPortV1({
-    worker: keyMaterial,
-    repository: args.repository,
+  const authorityInstallation = createDeviceLinkingAuthorityInstallationPortV1({
+    indexedDB: IndexedDBManager,
+    sealing: keyMaterial,
     nowMs: args.nowMs,
   });
   // Both devices drive the same worker port: Device 2 creates the recipient and
@@ -164,17 +150,17 @@ export function createDeviceLinkingFlowPortsV1(
   return {
     transport,
     ownerAuthorization: args.ownerAuthorization,
-    sessionActivation: args.sessionActivation,
     keyMaterial,
     targetCredential,
-    ed25519ExportRoot,
-    laneProvisioning,
-    walletSessions: {
-      putExactActiveDeliveryV1: async (delivery) => {
-        await args.walletSessionRepository.putExactActiveDeliveryV1(delivery);
-      },
+    authorityInstallation,
+    readExpectedLockGenerationV1: async (walletId) => {
+      const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+      if (selected.kind !== 'resolved') {
+        throw new Error(`selected wallet authority is unavailable: ${selected.kind}`);
+      }
+      return selected.selection.lockGeneration;
     },
-    executionEvidence: args.executionEvidenceRepository,
+    ed25519ExportRoot,
     sourcePreparation,
     dispose: keyMaterial.close,
   };

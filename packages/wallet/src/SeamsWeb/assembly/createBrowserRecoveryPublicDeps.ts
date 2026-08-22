@@ -50,8 +50,6 @@ export function createBrowserRecoveryPublicDeps(args: {
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
-  readActiveExecutionBundleForWallet: PersistedAvailableSigningLanesDeps['readActiveExecutionBundleForWallet'];
-  readActiveEcdsaExportContextForWallet: PersistedAvailableSigningLanesDeps['readActiveEcdsaExportContextForWallet'];
   ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
@@ -81,8 +79,6 @@ export function createBrowserRecoveryPublicDeps(args: {
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
-    readActiveExecutionBundleForWallet: args.readActiveExecutionBundleForWallet,
-    readActiveEcdsaExportContextForWallet: args.readActiveEcdsaExportContextForWallet,
     ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
     isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,

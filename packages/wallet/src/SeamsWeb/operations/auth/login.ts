@@ -52,7 +52,6 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import {
-  parseLinkedDeviceWalletSessionAuthorizationId,
   parseReusableWalletSessionMintId,
   type MpcWalletSigningQuotaId,
   type WalletSessionAuthorizationId,
@@ -67,13 +66,6 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
-import {
-  linkedDeviceExecutionEvidence,
-  resolveActiveLinkedDeviceExecutionBundleV1,
-  resolveUniqueActiveLinkedDeviceExecutionBundleV1,
-} from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
-import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
-import type { ActiveLinkedDeviceExecutionBundleV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import {
   walletSessionAuthorizations,
   type ActiveWalletSessionAuthorizationProjection,
@@ -201,7 +193,6 @@ import {
   SIGNER_SOURCES,
 } from '@shared/utils/signerDomain';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
-import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import {
   buildEmailOtpWalletAuthMethodBinding,
   buildPasskeyAuthScope,
@@ -1579,131 +1570,16 @@ export async function unlockResolvedWalletSubjectSet(
   subjectSet: WalletUnlockSubjectSet,
   options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
-  const linkedUnlock = await unlockLinkedDeviceSessionIfAvailable(context, subjectSet, options);
-  if (linkedUnlock) return linkedUnlock;
   return await unlockInternal(context, subjectSet, options, { kind: 'wallet_only' });
 }
 
 export async function resolveLinkedDeviceUnlockSubjectSet(
-  walletId: string,
+  _walletId: string,
 ): Promise<WalletUnlockSubjectSet | null> {
-  const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
-    walletId,
-    nowMs: Date.now(),
-    evidenceRepository: linkedDeviceExecutionEvidence,
-    walletSessionRepository: linkedDeviceWalletSessions,
-  });
-  if (result.kind !== 'found') return null;
-  const execution = result.bundle.orderedExecutions.find(
-    (
-      candidate,
-    ): candidate is Extract<
-      ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-      { keyFamily: 'ed25519' }
-    > => candidate.keyFamily === 'ed25519',
-  );
-  if (!execution || !result.bundle.nearAccountId) return null;
-  const signingKeyId = parseNearEd25519SigningKeyId(
-    String(execution.walletKey.nearEd25519SigningKeyId),
-  );
-  const signerSlot = parseSignerSlot(execution.walletKey.keyCreationSignerSlot, { min: 1 });
-  if (!signerSlot) return null;
-  return {
-    kind: 'wallet_unlock_subject_set',
-    walletId: result.bundle.walletId,
-    subjects: [
-      {
-        kind: 'near_ed25519_wallet',
-        walletId: result.bundle.walletId,
-        nearAccountId: toAccountId(result.bundle.nearAccountId),
-        nearEd25519SigningKeyId: signingKeyId,
-        signerSlot,
-      },
-    ],
-  };
+  return null;
 }
 
-async function unlockLinkedDeviceSessionIfAvailable(
-  context: LoginWebContext,
-  subjectSet: WalletUnlockSubjectSet,
-  options?: LoginHooksOptions,
-): Promise<LoginAndCreateSessionResult | null> {
-  const walletId = String(subjectSet.walletId);
-  const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
-    walletId,
-    nowMs: Date.now(),
-    evidenceRepository: linkedDeviceExecutionEvidence,
-    walletSessionRepository: linkedDeviceWalletSessions,
-  });
-  if (result.kind !== 'found') return null;
-  const linkedNearKey = result.bundle.orderedExecutions.find(
-    (
-      candidate,
-    ): candidate is Extract<
-      ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-      { keyFamily: 'ed25519' }
-    > => candidate.keyFamily === 'ed25519',
-  )?.walletKey.nearEd25519SigningKeyId;
-  const requestedNearKey = subjectSet.subjects.find(
-    (
-      subject,
-    ): subject is Extract<
-      WalletUnlockSubjectSet['subjects'][number],
-      { kind: 'near_ed25519_wallet' }
-    > => subject.kind === 'near_ed25519_wallet',
-  )?.nearEd25519SigningKeyId;
-  if (!linkedNearKey || !requestedNearKey || String(linkedNearKey) !== String(requestedNearKey)) {
-    return null;
-  }
-  const walletSession = await linkedDeviceWalletSessions.readActiveForEnrollmentV1({
-    enrollmentId: result.bundle.enrollmentId,
-    nowMs: Date.now(),
-  });
-  if (walletSession.kind !== 'found') return null;
-  const registration = result.bundle.targetCredentialRegistration;
-  if (registration.targetFactor.kind !== 'passkey_prf' || !registration.webauthnRegistration) {
-    return null;
-  }
-  return await unlockInternal(context, subjectSet, options, {
-    kind: 'linked_device',
-    walletId: result.bundle.walletId,
-    enrollmentId: result.bundle.enrollmentId,
-    credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
-    walletSessionDelivery: walletSession.delivery,
-  });
-}
-
-type LoginUnlockCompletion =
-  | { readonly kind: 'wallet_only' }
-  | {
-      readonly kind: 'linked_device';
-      readonly walletId: WalletId;
-      readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
-      readonly credentialIdB64u: string;
-      readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
-    };
-
-async function activateLinkedDeviceFromVerifiedOwnerUnlock(args: {
-  readonly context: LoginWebContext;
-  readonly completion: Extract<LoginUnlockCompletion, { readonly kind: 'linked_device' }>;
-  readonly credential: WebAuthnAuthenticationCredential;
-}): Promise<void> {
-  const factorSecret = base64UrlDecode(passkeyPrfFirstB64uFromCredential(args.credential));
-  if (factorSecret.byteLength !== 32) {
-    factorSecret.fill(0);
-    throw new Error('[login] linked-device owner unlock PRF output must be 32 bytes');
-  }
-  try {
-    await args.context.signingEngine.establishLinkedDeviceSigningSession({
-      walletId: args.completion.walletId,
-      enrollmentId: args.completion.enrollmentId,
-      walletSessionDelivery: args.completion.walletSessionDelivery,
-      activation: { kind: 'verified_owner_unlock', factorSecret },
-    });
-  } finally {
-    factorSecret.fill(0);
-  }
-}
+type LoginUnlockCompletion = { readonly kind: 'wallet_only' };
 
 async function unlockInternal(
   context: LoginWebContext,
@@ -2175,41 +2051,6 @@ async function unlockInternal(
           console.warn('[login] nonce lane durable recovery after unlock failed', error);
         });
     };
-
-    if (completion.kind === 'linked_device') {
-      if (localUnlockAuthMethod !== SIGNER_AUTH_METHODS.passkey) {
-        throw new Error('[login] linked-device Passkey unlock resolved a non-Passkey factor');
-      }
-      loginCredential = await collectLocalPasskeyCredentialForChallenge({
-        challengeB64u: createLocalUnlockChallengeB64u(),
-        saveAsLoginCredential: true,
-        credentialIds: [completion.credentialIdB64u],
-      });
-      await activateLinkedDeviceFromVerifiedOwnerUnlock({
-        context,
-        completion,
-        credential: loginCredential,
-      });
-      await persistSuccessfulLoginState(baseSignerSlot);
-      void recoverNonceLanesAfterUnlock();
-      const loginResult = buildSuccessfulLoginResult({
-        identity: walletIdentity,
-        accountSubject,
-      });
-      emitUnlockEvent(onEvent, unlockSubjectId, {
-        phase: UnlockEventPhase.STEP_06_SESSION_READY,
-        status: 'succeeded',
-        authMethod: 'passkey',
-      });
-      return await finalizeLoginSuccess({
-        context,
-        authMethod: localUnlockAuthMethod,
-        unlockSubjectId,
-        loginResult,
-        onEvent,
-        afterCall,
-      });
-    }
 
     // Avoid a duplicate prompt when threshold warmup will collect the assertion itself.
     const noServerSessionPasskeyCredentialPlan = resolveLoginNoServerSessionPasskeyCredentialPlan({
@@ -4247,14 +4088,6 @@ export async function getWalletSession(
   const requestedWalletId =
     walletId ??
     (currentAuthentication.kind !== 'signed_out' ? currentAuthentication.walletId : undefined);
-  const linkedDeviceSession = await readActiveLinkedDeviceWalletSession(context, requestedWalletId);
-  if (linkedDeviceSession && linkedDeviceSession.appIdentity.kind === 'resolved') {
-    const linkedWalletId = linkedDeviceSession.appIdentity.walletId;
-    const restored = context.signingEngine.hasLinkedDeviceSigningSession(linkedWalletId)
-      ? true
-      : await context.signingEngine.restoreLinkedDeviceSigningSession(linkedWalletId);
-    if (restored) return linkedDeviceSession;
-  }
   let readResolution = await resolveWalletCapabilitySubjectResolution(requestedWalletId);
   let didReconcileEcdsaActivation = false;
   if (readResolution.kind === 'no_session_request') return buildAnonymousWalletSession();
@@ -4361,364 +4194,6 @@ export async function getWalletSession(
     capabilityProjection,
     nonceDiagnostics: readWalletSessionNonceDiagnostics(context, appIdentity.nearAccountId),
   };
-}
-
-async function readActiveLinkedDeviceWalletSession(
-  context: WalletSessionWebContext,
-  requestedWalletId?: WalletId | string,
-): Promise<WalletSession | null> {
-  const nowMs = Date.now();
-  if (requestedWalletId !== undefined) {
-    const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
-      walletId: String(requestedWalletId),
-      nowMs,
-      evidenceRepository: linkedDeviceExecutionEvidence,
-      walletSessionRepository: linkedDeviceWalletSessions,
-    });
-    if (result.kind !== 'found') return null;
-    try {
-      return await buildActiveLinkedDeviceWalletSession(context, result.bundle);
-    } catch (error) {
-      console.warn(
-        '[WalletSession] linked-device session projection is invalid',
-        error instanceof Error ? error.message : String(error),
-      );
-      return null;
-    }
-  }
-  const sealed = await linkedDeviceWalletSessions.readUniqueActiveSealedRefreshForWalletV1({
-    nowMs,
-  });
-  if (sealed.kind !== 'found') return null;
-  const result = await resolveActiveLinkedDeviceExecutionBundleV1({
-    enrollmentId: sealed.sealedRefresh.enrollmentId,
-    nowMs,
-    evidenceRepository: linkedDeviceExecutionEvidence,
-    walletSessionRepository: linkedDeviceWalletSessions,
-  });
-  if (result.kind !== 'found') return null;
-  try {
-    return await buildActiveLinkedDeviceWalletSession(context, result.bundle);
-  } catch (error) {
-    console.warn(
-      '[WalletSession] linked-device session projection is invalid',
-      error instanceof Error ? error.message : String(error),
-    );
-    return null;
-  }
-}
-
-function isActiveLinkedDeviceEd25519Execution(
-  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-): execution is Extract<
-  ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-  { kind: 'active_linked_device_ed25519_execution_v1' }
-> {
-  return execution.kind === 'active_linked_device_ed25519_execution_v1';
-}
-
-function isActiveLinkedDeviceEcdsaExecution(
-  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-): execution is Extract<
-  ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-  { kind: 'active_linked_device_ecdsa_execution_v1' }
-> {
-  return execution.kind === 'active_linked_device_ecdsa_execution_v1';
-}
-
-function linkedDeviceWalletSessionTokenForExecution(
-  delivery: LinkedDeviceWalletSessionDeliveryV1,
-  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-) {
-  for (const token of delivery.orderedTokens) {
-    if (token.walletKeyId === execution.walletKeyId && token.keyFamily === execution.keyFamily) {
-      return token;
-    }
-  }
-  throw new Error('linked-device Wallet Session omitted an execution token');
-}
-
-async function linkedDeviceWalletSessionAuthorityRef(
-  bundle: ActiveLinkedDeviceExecutionBundleV1,
-): Promise<WalletAuthAuthorityRef> {
-  const registration = bundle.targetCredentialRegistration;
-  if (registration.targetFactor.kind === 'passkey_prf') {
-    const preparation = bundle.targetPreparation;
-    if (
-      preparation.targetFactor.kind !== 'passkey_prf' ||
-      preparation.ownerEnrollment.registration === undefined ||
-      registration.webauthnRegistration === undefined
-    ) {
-      throw new Error('linked-device Passkey Wallet Session authority is incomplete');
-    }
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: bundle.walletId,
-      rpId: preparation.ownerEnrollment.registration.rpId,
-      credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
-    });
-    return walletAuthAuthorityRef({ authority });
-  }
-  const grant = registration.emailOtpVerificationGrant;
-  if (!grant) {
-    throw new Error('linked-device Email OTP Wallet Session authority is incomplete');
-  }
-  const authority = buildEmailOtpWalletAuthAuthority({
-    walletId: bundle.walletId,
-    provider: 'google',
-    providerUserId: grant.providerUserId,
-    emailHashHex: grant.emailHashHex,
-  });
-  const authorityRef = await walletAuthAuthorityRef({ authority });
-  if (authorityRef.walletAuthMethodId !== grant.baseWalletAuthMethodId) {
-    throw new Error('linked-device Email OTP Wallet Session base authority changed');
-  }
-  return authorityRef;
-}
-
-async function persistLinkedDeviceEmailOtpAuthMethod(
-  bundle: ActiveLinkedDeviceExecutionBundleV1,
-): Promise<void> {
-  const registration = bundle.targetCredentialRegistration;
-  if (registration.targetFactor.kind !== 'email_otp') return;
-  const grant = registration.emailOtpVerificationGrant;
-  if (!grant) {
-    throw new Error('linked-device Email OTP auth-method projection is incomplete');
-  }
-  const authority = buildEmailOtpWalletAuthAuthority({
-    walletId: bundle.walletId,
-    provider: 'google',
-    providerUserId: grant.providerUserId,
-    emailHashHex: grant.emailHashHex,
-  });
-  const authorityRef = await walletAuthAuthorityRef({ authority });
-  if (authorityRef.walletAuthMethodId !== grant.baseWalletAuthMethodId) {
-    throw new Error('linked-device Email OTP auth-method projection changed its base identity');
-  }
-  const signerSlot = await persistLinkedDeviceLocalWalletProfile(
-    bundle,
-    registration.registeredAtMs,
-  );
-  await IndexedDBManager.upsertWalletAuthMethod({
-    version: 'wallet_auth_method_v1',
-    kind: 'email_otp',
-    status: 'active',
-    localStatus: 'synced',
-    walletId: bundle.walletId,
-    emailHashHex: grant.emailHashHex,
-    registrationAuthorityId: grant.registrationAuthorityId,
-    authority,
-    createdAtMs: registration.registeredAtMs,
-    updatedAtMs: registration.registeredAtMs,
-  });
-  await IndexedDBManager.setLastProfileStateForProfile(String(bundle.walletId), signerSlot);
-}
-
-async function persistLinkedDeviceLocalWalletProfile(
-  bundle: ActiveLinkedDeviceExecutionBundleV1,
-  updatedAtMs: number,
-): Promise<number> {
-  const ed25519Executions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEd25519Execution);
-  const ecdsaExecutions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEcdsaExecution);
-  if (
-    ed25519Executions.length > 1 ||
-    ecdsaExecutions.length > 1 ||
-    ed25519Executions.length + ecdsaExecutions.length !== bundle.orderedExecutions.length
-  ) {
-    throw new Error('linked-device local wallet signer inventory is invalid');
-  }
-  const authMethod =
-    bundle.targetCredentialRegistration.targetFactor.kind === 'email_otp'
-      ? SIGNER_AUTH_METHODS.emailOtp
-      : SIGNER_AUTH_METHODS.passkey;
-  const signerSource =
-    authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? SIGNER_SOURCES.emailOtpRegistration
-      : SIGNER_SOURCES.passkeyRegistration;
-  if (ed25519Executions.length === 0) {
-    if (ecdsaExecutions.length !== 1 || bundle.nearAccountId !== undefined) {
-      throw new Error('linked-device ECDSA-only wallet identity is invalid');
-    }
-    const profile = await IndexedDBManager.upsertProfile({
-      profileId: String(bundle.walletId),
-    });
-    return profile.defaultSignerSlot;
-  }
-  if (!bundle.nearAccountId) {
-    throw new Error('linked-device NEAR wallet identity is unavailable');
-  }
-  const profile = await IndexedDBManager.upsertProfile({
-    profileId: String(bundle.walletId),
-    defaultSignerSlot: Number(ed25519Executions[0].walletKey.keyCreationSignerSlot),
-    nearProvisioning: {
-      status: 'near_ready',
-      updatedAtMs,
-      nearAccountId: String(bundle.nearAccountId),
-    },
-  });
-  const execution = ed25519Executions[0];
-  const operationalPublicKey = `ed25519:${base58Encode(
-    base64UrlDecode(execution.walletKey.registeredPublicKeyB64u),
-  )}`;
-  await IndexedDBManager.activateAccountSigner({
-    account: {
-      profileId: String(bundle.walletId),
-      chainIdKey: 'wallet',
-      accountAddress: String(bundle.walletId),
-      accountModel: 'wallet',
-    },
-    signer: {
-      signerId: operationalPublicKey,
-      signerType: 'threshold',
-      signerKind: SIGNER_KINDS.thresholdEd25519,
-      signerAuthMethod: authMethod,
-      signerSource,
-      metadata: {
-        walletId: String(bundle.walletId),
-        nearAccountId: String(bundle.nearAccountId),
-        nearEd25519SigningKeyId: String(execution.walletKey.nearEd25519SigningKeyId),
-        operationalPublicKey,
-      },
-    },
-    activationPolicy: {
-      mode: 'fail_if_occupied',
-      signerSlot: profile.defaultSignerSlot,
-    },
-    preferredSlot: profile.defaultSignerSlot,
-    mutation: { routeThroughOutbox: false },
-  });
-  return profile.defaultSignerSlot;
-}
-
-export async function persistLinkedDeviceWalletSessionAuthorization(
-  bundle: ActiveLinkedDeviceExecutionBundleV1,
-): Promise<void> {
-  await persistLinkedDeviceEmailOtpAuthMethod(bundle);
-  const activeSession = await linkedDeviceWalletSessions.readActiveForEnrollmentV1({
-    enrollmentId: bundle.enrollmentId,
-    nowMs: Date.now(),
-  });
-  if (activeSession.kind !== 'found') {
-    throw new Error('linked-device Wallet Session delivery is unavailable');
-  }
-  const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(bundle.authorizationId);
-  const ed25519ThresholdSessionId = parseThresholdEd25519SessionId(bundle.walletSessionId);
-  const ecdsaThresholdSessionId = parseThresholdEcdsaSessionId(bundle.walletSessionId);
-  if (!authorizationId.ok || !ed25519ThresholdSessionId.ok || !ecdsaThresholdSessionId.ok) {
-    throw new Error('linked-device Wallet Session identity is invalid');
-  }
-  const authority = await linkedDeviceWalletSessionAuthorityRef(bundle);
-  const authMethod =
-    bundle.targetCredentialRegistration.targetFactor.kind === 'email_otp'
-      ? SIGNER_AUTH_METHODS.emailOtp
-      : SIGNER_AUTH_METHODS.passkey;
-  for (const execution of bundle.orderedExecutions) {
-    const token = linkedDeviceWalletSessionTokenForExecution(activeSession.delivery, execution);
-    if (execution.keyFamily === 'ed25519') {
-      await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
-        curve: 'ed25519',
-        walletId: bundle.walletId,
-        authorizationId: authorizationId.value,
-        walletSessionId: bundle.walletSessionId,
-        quotaId: bundle.quotaId,
-        expiresAtMs: bundle.expiresAtMs,
-        authority,
-        authMethod,
-        walletSessionToken: token.walletSessionJwt,
-        thresholdSessionId: ed25519ThresholdSessionId.value,
-      });
-      continue;
-    }
-    await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
-      curve: 'ecdsa',
-      walletId: bundle.walletId,
-      authorizationId: authorizationId.value,
-      walletSessionId: bundle.walletSessionId,
-      quotaId: bundle.quotaId,
-      expiresAtMs: bundle.expiresAtMs,
-      authority,
-      authMethod,
-      walletSessionToken: token.walletSessionJwt,
-      thresholdSessionId: ecdsaThresholdSessionId.value,
-    });
-  }
-}
-
-async function buildActiveLinkedDeviceWalletSession(
-  context: WalletSessionWebContext,
-  bundle: ActiveLinkedDeviceExecutionBundleV1,
-): Promise<WalletSession> {
-  const ed25519Executions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEd25519Execution);
-  const ecdsaExecutions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEcdsaExecution);
-  if (ed25519Executions.length > 1 || ecdsaExecutions.length > 1) {
-    throw new Error('linked-device session contains ambiguous wallet keys');
-  }
-  const ed25519Execution = ed25519Executions[0];
-  const ecdsaExecution = ecdsaExecutions[0];
-  if (Boolean(ed25519Execution) !== Boolean(bundle.nearAccountId)) {
-    throw new Error('linked-device NEAR account identity does not match its Ed25519 wallet key');
-  }
-  await persistLinkedDeviceWalletSessionAuthorization(bundle);
-  const nearAccountId = bundle.nearAccountId ? toAccountId(bundle.nearAccountId) : null;
-  const baseIdentity = await resolveWalletSessionAppIdentityForWallet(context, bundle.walletId);
-  const authMethod =
-    bundle.targetCredentialRegistration.targetFactor.kind === 'email_otp'
-      ? SIGNER_AUTH_METHODS.emailOtp
-      : SIGNER_AUTH_METHODS.passkey;
-  const nearOperationalPublicKey = ed25519Execution
-    ? `ed25519:${base58Encode(base64UrlDecode(ed25519Execution.walletKey.registeredPublicKeyB64u))}`
-    : null;
-  const linkedAuthMethods = linkedDeviceWalletAuthMethodBindingsV1(
-    bundle,
-    baseIdentity.authMethods,
-  );
-  return {
-    appIdentity: {
-      ...baseIdentity,
-      nearAccountId,
-      nearOperationalPublicKey,
-      userData: null,
-      authMethods: linkedAuthMethods,
-      thresholdEcdsaEthereumAddress: ecdsaExecution?.walletKey.evmAddress ?? null,
-      thresholdEcdsaPublicKeyB64u: ecdsaExecution?.walletKey.thresholdPublicKey33B64u ?? null,
-    },
-    authentication: {
-      kind: 'authenticated',
-      walletId: bundle.walletId,
-      authMethod,
-    },
-    reusableWalletSession: {
-      kind: 'active',
-      walletId: bundle.walletId,
-      authorizationId: bundle.authorizationId,
-      walletSessionId: bundle.walletSessionId,
-      authMethod,
-      remainingUses: bundle.remainingUses,
-      expiresAtMs: bundle.expiresAtMs,
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: readWalletSessionNonceDiagnostics(context, nearAccountId),
-  };
-}
-
-function linkedDeviceWalletAuthMethodBindingsV1(
-  bundle: ActiveLinkedDeviceExecutionBundleV1,
-  localAuthMethods: readonly WalletAuthMethodBinding[],
-): readonly WalletAuthMethodBinding[] {
-  const registration = bundle.targetCredentialRegistration;
-  if (registration.targetFactor.kind === 'passkey_prf') return localAuthMethods;
-  const grant = registration.emailOtpVerificationGrant;
-  if (!grant) {
-    throw new Error('linked-device Email OTP registration omitted its verification grant');
-  }
-  const binding = buildEmailOtpWalletAuthMethodBinding({
-    wallet: buildWalletIdentity({ walletId: bundle.walletId }),
-    emailHashHex: grant.emailHashHex,
-    registrationAuthorityId: grant.registrationAuthorityId,
-  });
-  if (walletAuthMethodBindingId(binding) !== grant.baseWalletAuthMethodId) {
-    throw new Error('linked-device Email OTP grant changed its base auth-method identity');
-  }
-  return [binding];
 }
 
 async function buildCapabilityUnresolvableWalletSession(args: {
@@ -6071,33 +5546,6 @@ export async function getRecentUnlocks(
 ): Promise<GetRecentUnlocksResult> {
   const allUsersData = await context.signingEngine.getAllUsers();
   const accounts = allUsersData.map((user) => recentUnlockAccountFromUser(user));
-  const linked = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
-    nowMs: Date.now(),
-    evidenceRepository: linkedDeviceExecutionEvidence,
-    walletSessionRepository: linkedDeviceWalletSessions,
-  });
-  if (linked.kind === 'found' && linked.bundle.nearAccountId) {
-    const nearExecution = linked.bundle.orderedExecutions.find(
-      (
-        candidate,
-      ): candidate is Extract<
-        ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
-        { keyFamily: 'ed25519' }
-      > => candidate.keyFamily === 'ed25519',
-    );
-    const signerSlot = nearExecution
-      ? parseSignerSlot(nearExecution.walletKey.keyCreationSignerSlot, { min: 1 })
-      : null;
-    if (nearExecution && signerSlot) {
-      accounts.push({
-        walletId: String(linked.bundle.walletId),
-        nearAccountId: toAccountId(linked.bundle.nearAccountId),
-        displayName: `${String(linked.bundle.walletId)} (linked device)`,
-        signerSlot,
-        authMethod: 'linked_device',
-      });
-    }
-  }
   const walletIds = [...new Set(accounts.map((account) => account.walletId))];
   const accountIds = [...new Set(accounts.map((account) => account.nearAccountId))];
   const lastUsedUser = await context.signingEngine.getLastUser();
@@ -6113,7 +5561,6 @@ export async function getRecentUnlocks(
 export type LockOperationContext = {
   signingEngine: {
     readWalletAuthenticationState(): WalletAuthenticationState;
-    clearLinkedDeviceRefreshMaterial(): Promise<void>;
     retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void>;
     clearWalletAuthentication(): void;
     getNonceCoordinator(): { clearAll(): void };
@@ -6125,7 +5572,6 @@ export type LockOperationContext = {
 export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
   const authentication = signingEngine.readWalletAuthenticationState();
-  const linkedDeviceRefreshCleanup = signingEngine.clearLinkedDeviceRefreshMaterial();
   if (authentication.kind === 'authenticated') {
     await signingEngine.retireActiveWalletSessionAuthorizationForLock(authentication.walletId);
   }
@@ -6137,6 +5583,5 @@ export async function lock(context: LockOperationContext): Promise<void> {
     signingEngine.clearThresholdEcdsaSigningQueue();
   } catch {}
   const warmMaterialCleanup = signingEngine.clearVolatileWarmSigningMaterial();
-  await linkedDeviceRefreshCleanup;
   await warmMaterialCleanup;
 }

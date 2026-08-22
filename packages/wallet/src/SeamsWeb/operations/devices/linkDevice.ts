@@ -10,35 +10,23 @@ import type {
 } from '@/core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
-  buildCancelledClaimedPrecommitLinkedDeviceSessionState,
-  buildCancelledUnclaimedLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV5,
-  buildLinkedDeviceReceiptAcknowledgementV1,
-  buildLinkedDeviceProvisioningCommandV1,
   buildLinkedDeviceSessionCancelClaimedRequestV1,
   buildLinkedDeviceSessionCancelUnclaimedRequestV1,
-  buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1,
   buildLinkedDeviceTargetCredentialRegistrationV1,
-  buildDisplayingQrLinkedDeviceSessionState,
-  assertNeverLinkedDeviceSessionState,
+  assertNeverLinkSessionStateV1,
   serializeQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking';
 import type {
-  LinkedDeviceSessionState,
-  LinkedDeviceSessionTransportEventV1,
-  LinkedDeviceHolderDeliveryAcknowledgementV1,
-  LinkedDeviceEnrollmentReceiptV1,
-  LinkedDeviceApprovalV1,
-  LinkedDeviceProvisioningDeliveriesV1,
-  LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetCredentialRegistrationResultV1,
+  LinkSessionStateV1,
+  LinkSessionTransportEventV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceEmailOtpChallengeResultV1,
-  LinkedDeviceEmailOtpVerificationResultV1,
-  LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
-  LinkedDeviceWalletSessionDeliveryV1,
-  LinkedDeviceOwnerFinalizeRequestV1,
+  ActiveWalletSessionV1,
   QrLinkedDeviceSessionPayloadV5,
+  OrdinarySignerMaterialRecipientRequestV1,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { secureRandomId } from '@shared/utils/secureRandomId';
@@ -50,64 +38,44 @@ import type {
   DeviceLinkingAuthenticatedTransportPortV1,
   DeviceLinkingFlowPortsV1,
   DeviceLinkingKeyMaterialHandleV1,
-  LinkedDeviceSigningSessionActivationV1,
-  LinkedDeviceExportRootActivationRequirementV1,
-  EmailOtpExportRootEnvelopeRecordV1,
   DeviceLinkingTargetCredentialPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
-import { createDeviceLinkingLaneProvisioningHandoffV1 } from './deviceLinkingPorts';
 import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
-import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 import {
   acceptLinkedDeviceEd25519ExportRootV1,
-  acceptLinkedDeviceEmailOtpEd25519ExportRootV1,
   discardLinkedDeviceEd25519ExportRootRecipientV1,
-  publishLinkedDeviceEmailOtpEd25519ExportRootRecipientV1,
   publishLinkedDeviceEd25519ExportRootRecipientV1,
 } from './deviceLinkingTargetEd25519ExportRoot';
 import type { DeviceLinkingEd25519ExportRootRecipientHandleV1 } from './deviceLinkingEd25519ExportRoot';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import {
-  buildFullOwnerDelegatedWalletAuthorityV1,
-  sameDelegatedWalletAuthorityV1,
-} from '@shared/authorization/delegatedAuthority';
-import type { LinkedDeviceEd25519ExportRootRecipientV1 } from '@shared/device-linking/ed25519ExportRoot';
+import type { DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 } from './deviceLinkingOrdinaryMaterialWorker';
+import { activateLinkedAuthorityV1 } from './deviceLinkingAuthorityInstallation';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
-  buildActiveEnvelopeLifecycle,
   buildEd25519YaoClientRootBinding,
-  buildEmailOtpEnvelopeFactor,
-  buildPasskeyCustodyEnvelopeRecord,
   buildPasskeyEnvelopeFactor,
-  parseEnvelopeCiphertextB64u,
-  parseDigestField,
-  parseEnvelopeNonceB64u,
-  parseEnvelopeRevision,
 } from '@shared/passkey-custody';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parsePasskeyEnvelopeId, type PasskeyEnvelopeId } from '@shared/utils/domainIds';
-import {
-  persistFinalizedLinkedOwnerPasskeyV1,
-  type FinalizedPasskeyAuthMethodV1,
-} from '../authMethods/passkey/localPasskeyProjection';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
 };
 
 type AwaitingTargetFactorStateV1 = Extract<
-  LinkedDeviceSessionState,
+  LinkSessionStateV1,
   { readonly state: 'awaiting_target_factor' }
 >;
 type AwaitingTargetPasskeyStateV1 = Extract<
   AwaitingTargetFactorStateV1,
-  { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+  { readonly state: 'awaiting_target_factor' }
 >;
 type AwaitingTargetEmailOtpStateV1 = Extract<
   AwaitingTargetFactorStateV1,
-  { readonly targetFactor: { readonly kind: 'email_otp' } }
+  { readonly state: 'awaiting_target_factor' }
 >;
 type PasskeyTargetPreparationV1 = Extract<
   LinkedDeviceTargetPreparationV1,
@@ -134,18 +102,6 @@ function isEmailOtpTargetPreparation(
     preparation.targetFactor.kind === 'email_otp' &&
     preparation.ownerEnrollment.kind === 'linked_device_email_otp_owner_enrollment_v1'
   );
-}
-
-function isAwaitingTargetPasskeyState(
-  state: AwaitingTargetFactorStateV1,
-): state is AwaitingTargetPasskeyStateV1 {
-  return state.targetFactor.kind === 'passkey_prf';
-}
-
-function isAwaitingTargetEmailOtpState(
-  state: AwaitingTargetFactorStateV1,
-): state is AwaitingTargetEmailOtpStateV1 {
-  return state.targetFactor.kind === 'email_otp';
 }
 
 function createLinkSessionId(): import('@shared/signing-lanes/ids').LinkDeviceSessionId {
@@ -183,7 +139,7 @@ function logDevice2LinkingStageV1(input: {
 function logDevice2LinkingFailureV1(input: {
   readonly flowId: string;
   readonly linkSessionId: string;
-  readonly state: LinkedDeviceSessionState['state'];
+  readonly state: LinkSessionStateV1['state'];
   readonly error: unknown;
 }): void {
   console.error('[Device2Linking] failed', {
@@ -202,22 +158,22 @@ async function waitForSessionStateRetry(attempt: number): Promise<void> {
   await new Promise<void>((resolve) => resolveSessionStateRetry(resolve, attempt));
 }
 
-function phaseForState(state: LinkedDeviceSessionState): LinkDeviceEventPhase {
+function phaseForState(state: LinkSessionStateV1): LinkDeviceEventPhase {
   switch (state.state) {
     case 'displaying_qr':
-    case 'expired_unclaimed':
-    case 'cancelled_unclaimed':
+    case 'expired':
+    case 'cancelled':
       return LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED;
-    case 'claimed_by_owner':
+    case 'claimed':
     case 'awaiting_target_factor':
     case 'provisioning':
+    case 'authority_pending_local_install':
     case 'active':
-    case 'expired_claimed':
-    case 'cancelled_claimed_precommit':
-    case 'committed_completion_required':
       return LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED;
+    case 'failed_before_commit':
+      return LinkDeviceEventPhase.FAILED;
     default:
-      return assertNeverLinkedDeviceSessionState(state);
+      return assertNeverLinkSessionStateV1(state);
   }
 }
 
@@ -275,15 +231,19 @@ type TargetCredentialActivationState =
     };
 
 type EmailOtpTargetActivationBaseContextV1 = {
-  readonly event: LinkedDeviceSessionTransportEventV1;
+  readonly event: LinkSessionTransportEventV1;
   readonly state: AwaitingTargetEmailOtpStateV1;
   readonly runEpoch: number;
   readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
   readonly preparation: EmailOtpTargetPreparationV1;
+  readonly ordinarySignerMaterialRecipientRequests: readonly [
+    OrdinarySignerMaterialRecipientRequestV1,
+    ...OrdinarySignerMaterialRecipientRequestV1[],
+  ];
   readonly exportRoot:
     | {
         readonly kind: 'required';
-        readonly recipient: LinkedDeviceEd25519ExportRootRecipientV1;
+        readonly recipient: DeviceLinkingEd25519ExportRootRecipientHandleV1;
       }
     | {
         readonly kind: 'not_required';
@@ -304,6 +264,7 @@ function emailOtpTargetActivationBaseContextV1(
     runEpoch: context.runEpoch,
     deviceId: context.deviceId,
     preparation: context.preparation,
+    ordinarySignerMaterialRecipientRequests: context.ordinarySignerMaterialRecipientRequests,
     exportRoot: context.exportRoot,
   };
 }
@@ -331,25 +292,10 @@ type EmailOtpTargetActivationStateV1 =
   | {
       readonly kind: 'completed';
       readonly runEpoch: number;
-      readonly exportRootRequirement: Extract<
-        LinkedDeviceSigningSessionActivationV1,
-        { readonly kind: 'target_email_otp_activation' }
-      >['exportRootRequirement'];
-      readonly verificationGrant: LinkedDeviceEmailOtpVerificationResultV1['verificationGrant'];
-      readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+      readonly exportRootRequirement?: never;
+      readonly verificationGrant?: never;
+      readonly factorRelease?: never;
     };
-
-function requireEmailOtpExportRootEnvelopeV1(
-  envelope: PasskeyCustodyEnvelopeRecord,
-): EmailOtpExportRootEnvelopeRecordV1 {
-  if (envelope.factor.kind !== 'email_otp') {
-    throw new Error('linked-device Email OTP export-root transfer returned a Passkey envelope');
-  }
-  return {
-    ...envelope,
-    factor: envelope.factor,
-  };
-}
 
 function assertNeverEmailOtpTargetActivationState(value: never): never {
   throw new Error(`Unknown Email OTP target activation state: ${String(value)}`);
@@ -363,80 +309,11 @@ function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
 }
 
-/**
- * How many times the local writes are retried before the flow gives up.
- *
- * Small on purpose. A transient IndexedDB failure clears in a moment; a durable
- * one (quota, private browsing) will not clear by being asked again, and the
- * retained finalize is what protects the credential in that case, not the loop.
- */
-const LINKED_OWNER_ENROLLMENT_PERSIST_ATTEMPTS_V1 = 3;
-
-/** A committed owner finalize, held until its local writes have landed. */
-type RetainedLinkedOwnerFinalizeV1 = {
-  readonly request: LinkedDeviceOwnerFinalizeRequestV1;
-  readonly finalized: Awaited<
-    ReturnType<DeviceLinkingAuthenticatedTransportPortV1['finalizeOwnerAuthMethodV1']>
-  >;
-};
-
-/**
- * Checks a finalize response against the credential it was supposed to register
- * and returns exactly the fields the local projection needs.
- *
- * Returning the projection rather than asserting in place keeps the narrowing
- * where the check is: the caller cannot reach the passkey fields without having
- * proved the response is a passkey for this wallet and this credential.
- */
-function requireFinalizedOwnerPasskeyV1(
-  finalized: RetainedLinkedOwnerFinalizeV1['finalized']['response'],
-  expected: {
-    readonly state: AwaitingTargetPasskeyStateV1;
-    readonly preparation: PasskeyTargetPreparationV1;
-    readonly credential: Awaited<
-      ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
-    >;
-  },
-): FinalizedPasskeyAuthMethodV1 {
-  const authMethod = finalized.authMethod;
-  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
-    throw new Error('linked-device owner finalize returned a non-passkey auth method');
-  }
-  if (typeof finalized.rpId !== 'string') {
-    throw new Error('linked-device owner finalize omitted the passkey relying party');
-  }
-  if (
-    String(finalized.walletId) !== String(expected.state.walletId) ||
-    String(finalized.rpId) !== String(expected.preparation.ownerEnrollment.registration.rpId) ||
-    String(authMethod.credentialIdB64u) !==
-      String(expected.credential.webauthnRegistration.credentialIdB64u)
-  ) {
-    throw new Error('linked-device owner finalize returned a mismatched auth method');
-  }
-  return {
-    walletId: finalized.walletId,
-    rpId: finalized.rpId,
-    credentialIdB64u: authMethod.credentialIdB64u,
-    credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
-    counter: authMethod.counter,
-  };
-}
-
 /** The relying party the owner ceremony will verify this credential against. */
 function requireTargetRpIdV1(preparation: PasskeyTargetPreparationV1): WebAuthnRpId {
   const rpId = parseWebAuthnRpId(preparation.ownerEnrollment.registration.rpId);
   if (!rpId.ok) throw new Error(rpId.error.message);
   return rpId.value;
-}
-
-function requireEd25519ExportRootPreparationV1(
-  preparation: LinkedDeviceTargetPreparationV1,
-): NonNullable<LinkedDeviceTargetPreparationV1['ed25519ExportRoot']> {
-  const root = preparation.ed25519ExportRoot;
-  if (!root) {
-    throw new Error('linked-device target has no Ed25519 export root requirement');
-  }
-  return root;
 }
 
 function createExportRootEnvelopeIdV1(): PasskeyEnvelopeId {
@@ -462,53 +339,6 @@ function exportRootBindingJsonV1(input: {
   });
 }
 
-function buildResealedExportRootEnvelopeV1(input: {
-  readonly preparation: LinkedDeviceTargetPreparationV1;
-  readonly factor: PasskeyCustodyEnvelopeRecord['factor'];
-  readonly envelopeId: ReturnType<typeof createExportRootEnvelopeIdV1>;
-  readonly resealed: {
-    readonly nonceB64u: string;
-    readonly sealedExportRootB64u: string;
-    readonly aadHashB64u: string;
-    readonly ciphertextDigestB64u: string;
-  };
-  readonly nowMs: number;
-}): PasskeyCustodyEnvelopeRecord {
-  const root = requireEd25519ExportRootPreparationV1(input.preparation);
-  return buildPasskeyCustodyEnvelopeRecord({
-    envelopeId: input.envelopeId,
-    walletId: input.preparation.walletId,
-    binding: buildEd25519YaoClientRootBinding({
-      linkSessionId: input.preparation.linkSessionId,
-      walletKeyId: root.walletKeyId,
-      targetFactor: input.preparation.targetFactor,
-      applicationBindingDigestB64u: root.applicationBindingDigestB64u,
-      registeredPublicKeyB64u: root.registeredPublicKeyB64u,
-      enrollmentId: input.preparation.enrollmentId,
-      deviceId: input.preparation.deviceId,
-      revocationEpoch: root.revocationEpoch,
-    }),
-    factor: input.factor,
-    envelopeRevision: parseEnvelopeRevision(1),
-    nonceB64u: parseEnvelopeNonceB64u(
-      input.resealed.nonceB64u,
-      'resealed Ed25519 export-root nonce',
-    ),
-    sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(
-      input.resealed.sealedExportRootB64u,
-      'resealed Ed25519 export-root ciphertext',
-    ),
-    ciphertextDigestB64u: parseDigestField(
-      input.resealed.ciphertextDigestB64u,
-      'resealed Ed25519 export-root ciphertext digest',
-    ),
-    aadHashB64u: parseDigestField(input.resealed.aadHashB64u, 'resealed Ed25519 export-root AAD hash'),
-    lifecycle: buildActiveEnvelopeLifecycle({ activatedAtMs: input.nowMs }),
-    createdAtMs: input.nowMs,
-    updatedAtMs: input.nowMs,
-  });
-}
-
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
   private readonly ports: Device2LinkingFlowPortsV1;
@@ -516,8 +346,13 @@ export class LinkDeviceFlow {
   private session: DeviceLinkingSession | null = null;
   private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
   private emailOtpReleasePublicKey65B64u: string | null = null;
-  /** Factor-sealed Ed25519 Yao Client root awaiting owner finalization. */
-  private resealedExportRootEnvelope: PasskeyCustodyEnvelopeRecord | null = null;
+  private resealedExportRoot:
+    | import('./deviceLinkingEd25519ExportRoot').DeviceLinkingResealedEd25519ExportRootV1
+    | null = null;
+  private targetCredentialRegistrationResult: LinkedDeviceTargetCredentialRegistrationResultV1 | null =
+    null;
+  private ordinarySignerMaterialRecipientPreparation: DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 | null =
+    null;
   private authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | null = null;
   private subscription: LinkSessionSubscriptionV1 | null = null;
   private error?: Error;
@@ -525,20 +360,9 @@ export class LinkDeviceFlow {
   private runEpoch = 0;
   private generationInProgress = false;
   private discardInProgress: Promise<void> | null = null;
-  private walletSessionDeliveryInProgress: Promise<void> | null = null;
-  private walletSessionDeliveryPersisted = false;
-  private localSigningSessionActivationInProgress: Promise<void> | null = null;
-  private localSigningSessionActivated = false;
-  private claimedSigningSessionActivation: LinkedDeviceSigningSessionActivationV1 | null = null;
   private targetCredentialActivationState: TargetCredentialActivationState = { kind: 'idle' };
   private emailOtpTargetActivationState: EmailOtpTargetActivationStateV1 = { kind: 'idle' };
-  private provisioningApproval: LinkedDeviceApprovalV1 | null = null;
-  private aggregateReceipt: LinkedDeviceEnrollmentReceiptV1 | null = null;
-  private targetPreparationForProvisioning: LinkedDeviceTargetPreparationV1 | null = null;
-  private targetCredentialRegistrationForProvisioning:
-    | LinkedDeviceTargetCredentialRegistrationV1
-    | null = null;
-  private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
+  private readonly handledStates = new Set<LinkSessionStateV1['state']>();
   private sessionEventQueue: Promise<void> = Promise.resolve();
 
   constructor(options: StartDevice2LinkingFlowArgs, ports: Device2LinkingFlowPortsV1) {
@@ -586,10 +410,9 @@ export class LinkDeviceFlow {
         issuedAtMs,
         expiresAtMs: issuedAtMs + 15 * 60 * 1000,
       });
-      const state = buildDisplayingQrLinkedDeviceSessionState({
-        linkSessionId,
-        expiresAtMs: qrData.expiresAtMs,
-      });
+      const state: Extract<LinkSessionStateV1, { readonly state: 'displaying_qr' }> = {
+        state: 'displaying_qr',
+      };
       const authenticatedTransport = ports.transport.createAuthenticatedSessionTransportV1({
         keyMaterial: keyMaterial.handle,
         devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
@@ -694,51 +517,37 @@ export class LinkDeviceFlow {
             });
             this.session = {
               ...session,
-              state: buildCancelledUnclaimedLinkedDeviceSessionState({
-                linkSessionId: session.linkSessionId,
-                cancelledAtMs: now,
-              }),
+              state: { state: 'cancelled', cancelledAtMs: now },
             };
             break;
-          case 'claimed_by_owner':
-          case 'awaiting_target_factor':
+          case 'claimed':
+          case 'awaiting_target_factor': {
+            const identity = await this.resolveLinkIdentityV1(session.linkSessionId);
             await authenticatedTransport.cancelSessionV1({
               request: buildLinkedDeviceSessionCancelClaimedRequestV1({
                 linkSessionId: session.linkSessionId,
-                enrollmentId: session.state.enrollmentId,
-                deviceId: await this.requireDeviceId(session.state),
+                enrollmentId: identity.enrollmentId,
+                deviceId: identity.deviceId,
                 reason: 'user_cancelled',
                 requestedAtMs: now,
               }),
             });
             this.session = {
               ...session,
-              state: buildCancelledClaimedPrecommitLinkedDeviceSessionState({
-                linkSessionId: session.linkSessionId,
-                walletId: session.state.walletId,
-                enrollmentId: session.state.enrollmentId,
-                cancelledAtMs: now,
-              }),
+              state: { state: 'cancelled', cancelledAtMs: now },
             };
             break;
-          case 'committed_completion_required':
-            // Once protocol commitment exists, cancellation is completion recovery.
-            break;
+          }
           case 'provisioning':
-            // Refactor 103 Phase 8: the canonical finalize has committed — the
-            // owner credential and its local records exist. Cancelling the
-            // session now would record a cancelled enrollment around a live
-            // credential; undoing a completed enrollment is revocation, not
-            // cancellation. Local teardown only.
+          case 'authority_pending_local_install':
             break;
           case 'active':
-          case 'expired_unclaimed':
-          case 'expired_claimed':
-          case 'cancelled_unclaimed':
-          case 'cancelled_claimed_precommit':
+          case 'expired':
+          case 'cancelled':
+          case 'failed_before_commit':
             break;
           default:
-            assertNeverLinkedDeviceSessionState(session.state);
+            assertNeverLinkSessionStateV1(session.state);
         }
       }
     } finally {
@@ -762,36 +571,32 @@ export class LinkDeviceFlow {
     this.handledStates.clear();
   }
 
-  private async requireDeviceId(
-    session: Extract<
-      DeviceLinkingSession['state'],
-      {
-        state:
-          | 'claimed_by_owner'
-          | 'awaiting_target_factor'
-          | 'provisioning'
-          | 'committed_completion_required'
-          | 'active';
-      }
-    >,
-  ): Promise<import('@shared/signing-lanes/ids').LinkedDeviceId> {
-    if (!this.session) throw new Error('device-link session is unavailable');
-    const authenticatedTransport = this.requireAuthenticatedTransport();
-    const snapshot = await authenticatedTransport.getSessionV1({
-      linkSessionId: session.linkSessionId,
-    });
-    switch (snapshot.state.state) {
-      case 'displaying_qr':
-      case 'expired_unclaimed':
-      case 'cancelled_unclaimed':
-        throw new Error('claimed device identity is unavailable');
-      default:
-        if (!snapshot.deviceId) throw new Error('claimed device identity is unavailable');
-        return snapshot.deviceId;
+  private async resolveLinkIdentityV1(
+    linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId,
+  ): Promise<{
+    readonly walletId: LinkedDeviceTargetPreparationV1['walletId'];
+    readonly enrollmentId: LinkedDeviceTargetPreparationV1['enrollmentId'];
+    readonly deviceId: LinkedDeviceTargetPreparationV1['deviceId'];
+  }> {
+    const cached = this.targetCredentialRegistrationResult;
+    if (cached && cached.linkSessionId === linkSessionId) {
+      return {
+        walletId: cached.walletId,
+        enrollmentId: cached.enrollmentId,
+        deviceId: cached.deviceId,
+      };
     }
+    const preparation = await this.requireAuthenticatedTransport().getTargetPreparationV1({
+      linkSessionId,
+    });
+    return {
+      walletId: preparation.walletId,
+      enrollmentId: preparation.enrollmentId,
+      deviceId: preparation.deviceId,
+    };
   }
 
-  private async handleSessionEvent(event: LinkedDeviceSessionTransportEventV1): Promise<void> {
+  private async handleSessionEvent(event: LinkSessionTransportEventV1): Promise<void> {
     if (this.cancelled || !this.session || event.linkSessionId !== this.session.linkSessionId)
       return;
     logDevice2LinkingStageV1({
@@ -805,10 +610,7 @@ export class LinkDeviceFlow {
       },
     });
     const runEpoch = this.runEpoch;
-    if (event.state.state !== 'active') {
-      if (this.session.state.state === 'active') return;
-      this.session = { ...this.session, state: event.state };
-    }
+    this.session = { ...this.session, state: event.state };
     if (this.handledStates.has(event.state.state)) {
       logDevice2LinkingStageV1({
         flowId: this.flowId,
@@ -822,7 +624,7 @@ export class LinkDeviceFlow {
     switch (event.state.state) {
       case 'displaying_qr':
         return;
-      case 'claimed_by_owner':
+      case 'claimed':
         this.emit({
           phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
           status: 'running',
@@ -834,63 +636,48 @@ export class LinkDeviceFlow {
       case 'awaiting_target_factor':
         await this.prepareTargetCredentialActivation(event, runEpoch);
         return;
-      // The canonical owner finalize advances the session to provisioning.
-      // Lane preparation continues from the target-credential activation and
-      // the session reaches active only after its aggregate receipt lands.
       case 'provisioning':
-        await this.waitForTargetCredentialActivation();
-        this.assertCurrentRun(runEpoch);
-        await this.provisionLinkedDeviceLanesV1(event.state, runEpoch);
-        return;
-      case 'committed_completion_required':
-        // Polling can skip the short provisioning state. A live flow still
-        // owns the recipient key and must seal any missing holder records
-        // before durable recovery can reconcile them.
-        if (this.handledStates.has('provisioning')) return;
-        await this.waitForTargetCredentialActivation();
-        this.assertCurrentRun(runEpoch);
-        if (
-          this.keyMaterialHandle &&
-          this.targetPreparationForProvisioning &&
-          this.targetCredentialRegistrationForProvisioning
-        ) {
-          await this.provisionLinkedDeviceLanesV1(event.state, runEpoch);
-          return;
+      case 'authority_pending_local_install': {
+        const result = await this.activateAuthorityForStateV1(event.state, runEpoch);
+        if (result.kind === 'pending_local_install') return;
+        if (result.kind === 'integrity_error') {
+          throw new DeviceLinkingError(
+            `Linked-device authority installation failed: ${result.reason}`,
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
         }
-        await this.resumeCommittedDelivery(event.state, runEpoch);
-        return;
-      case 'active': {
-        this.assertCurrentRun(runEpoch);
-        if (!this.session) throw new Error('device-link session is unavailable');
-        this.session = { ...this.session, state: event.state };
-        if (!this.localSigningSessionActivated) {
-          throw new Error('linked-device server became active before local signing activation');
+        if (result.kind === 'failed_before_commit' || result.kind === 'relink_required') {
+          throw new DeviceLinkingError(
+            'Linked-device authority activation cannot continue',
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
         }
-        const walletSessionDelivery = await this.fetchValidatedWalletSessionDeliveryV1({
-          state: event.state,
-          runEpoch,
-        });
-        await this.ensureWalletSessionDeliveryPersistedV1({
-          delivery: walletSessionDelivery,
-          runEpoch,
-        });
-        this.clearTargetCredentialActivationState();
-        this.emailOtpTargetActivationState = { kind: 'idle' };
-        this.resealedExportRootEnvelope = null;
-        this.emit({
-          phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
-          status: 'succeeded',
-          message: 'Linked device active',
-          walletId: event.state.walletId,
-          data: { role: 'display', enrollmentId: event.state.enrollmentId },
-          interaction: { kind: 'qr_display', overlay: 'hide' },
-        });
-        this.runEpoch += 1;
-        await this.cleanupLocalResources();
+        await this.finishActiveAuthorityV1(event.state, result.session, runEpoch);
         return;
       }
-      case 'expired_unclaimed':
-      case 'expired_claimed': {
+      case 'active': {
+        const result = await this.activateAuthorityForStateV1(event.state, runEpoch);
+        if (result.kind === 'pending_local_install') return;
+        if (result.kind === 'integrity_error') {
+          throw new DeviceLinkingError(
+            `Linked-device authority replay failed: ${result.reason}`,
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
+        }
+        if (result.kind === 'failed_before_commit' || result.kind === 'relink_required') {
+          throw new DeviceLinkingError(
+            'Linked-device authority replay cannot continue',
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
+        }
+        await this.finishActiveAuthorityV1(event.state, result.session, runEpoch);
+        return;
+      }
+      case 'expired': {
         const error = new DeviceLinkingError(
           'Device-link session expired',
           DeviceLinkingErrorCode.SESSION_EXPIRED,
@@ -903,19 +690,19 @@ export class LinkDeviceFlow {
         await this.cleanupLocalResources();
         return;
       }
-      case 'cancelled_unclaimed':
-      case 'cancelled_claimed_precommit':
+      case 'cancelled':
+      case 'failed_before_commit':
         this.cancelled = true;
         this.runEpoch += 1;
         await this.cleanupLocalResources();
         return;
       default:
-        return assertNeverLinkedDeviceSessionState(event.state);
+        return assertNeverLinkSessionStateV1(event.state);
     }
   }
 
   private async prepareTargetCredentialActivation(
-    event: LinkedDeviceSessionTransportEventV1,
+    event: LinkSessionTransportEventV1,
     runEpoch: number,
   ): Promise<void> {
     if (event.state.state !== 'awaiting_target_factor') {
@@ -925,14 +712,24 @@ export class LinkDeviceFlow {
     if (!this.keyMaterialHandle || !this.session)
       throw new Error('device-link key material is unavailable');
     const authenticatedTransport = this.requireAuthenticatedTransport();
-    const deviceId = await this.requireDeviceId(state);
     this.assertCurrentRun(runEpoch);
     const preparation = await authenticatedTransport.getTargetPreparationV1({
-      linkSessionId: state.linkSessionId,
+      linkSessionId: event.linkSessionId,
     });
     this.assertCurrentRun(runEpoch);
-    this.assertTargetPreparationMatchesSession({ preparation, state, deviceId });
-    if (isAwaitingTargetEmailOtpState(state)) {
+    this.assertTargetPreparationMatchesSession({
+      preparation,
+      state,
+      linkSessionId: event.linkSessionId,
+    });
+    const deviceId = preparation.deviceId;
+    this.ordinarySignerMaterialRecipientPreparation =
+      await this.ports.keyMaterial.createOrdinarySignerMaterialRecipientRequestsV1({
+        keyMaterial: this.keyMaterialHandle,
+        requirements: preparation.ordinarySignerMaterialRecipientRequirements,
+      });
+    this.assertCurrentRun(runEpoch);
+    if (this.requireSessionTargetFactorV1().kind === 'email_otp') {
       await this.prepareTargetEmailOtpActivation({
         event,
         state,
@@ -942,7 +739,6 @@ export class LinkDeviceFlow {
       });
       return;
     }
-    if (!isAwaitingTargetPasskeyState(state)) throw new Error('Unsupported target factor');
     if (!isPasskeyTargetPreparation(preparation)) {
       throw new Error('Passkey session returned a non-Passkey target preparation');
     }
@@ -968,7 +764,7 @@ export class LinkDeviceFlow {
   }
 
   private async prepareTargetEmailOtpActivation(input: {
-    readonly event: LinkedDeviceSessionTransportEventV1;
+    readonly event: LinkSessionTransportEventV1;
     readonly state: AwaitingTargetEmailOtpStateV1;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
@@ -994,15 +790,14 @@ export class LinkDeviceFlow {
         ? { kind: 'not_required' }
         : {
             kind: 'required',
-            recipient: await publishLinkedDeviceEmailOtpEd25519ExportRootRecipientV1({
-              keyMaterial: this.ports.keyMaterial,
-              keyHandle: this.keyMaterialHandle,
+            recipient: await publishLinkedDeviceEd25519ExportRootRecipientV1({
+              ed25519ExportRoot: this.ports.ed25519ExportRoot,
               transport: authenticatedTransport,
               identity: {
-                linkSessionId: input.state.linkSessionId,
-                walletId: input.state.walletId,
+                linkSessionId: input.event.linkSessionId,
+                walletId: input.preparation.walletId,
                 walletKeyId: exportRoot.walletKeyId,
-                enrollmentId: input.state.enrollmentId,
+                enrollmentId: input.preparation.enrollmentId,
                 deviceId: input.deviceId,
                 applicationBindingDigestB64u: exportRoot.applicationBindingDigestB64u,
                 registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
@@ -1019,36 +814,18 @@ export class LinkDeviceFlow {
       runEpoch: input.runEpoch,
       deviceId: input.deviceId,
       preparation: input.preparation,
+      ordinarySignerMaterialRecipientRequests:
+        this.requireOrdinarySignerMaterialRecipientPreparationV1().recipientRequests,
       exportRoot: exportRootContext,
     };
-    if (input.state.emailOtpChallenge.state === 'available') {
-      this.emailOtpTargetActivationState = { kind: 'available', context: baseContext };
-      this.notifyEmailOtpActivationV1({
-        kind: 'sending',
-        maskedEmailHint: input.state.emailOtpChallenge.maskedEmailHint,
-      });
-      return;
-    }
-    const challenge: LinkedDeviceEmailOtpChallengeResultV1 = {
-      kind: 'linked_device_email_otp_challenge_result_v1',
-      challengeId: input.state.emailOtpChallenge.challengeId,
-      maskedEmailHint: input.state.emailOtpChallenge.maskedEmailHint,
-      expiresAtMs: input.state.emailOtpChallenge.expiresAtMs,
-      resendAvailableAtMs: input.state.emailOtpChallenge.resendAvailableAtMs,
-    };
-    const context: EmailOtpTargetActivationContextV1 = { ...baseContext, challenge };
-    this.emailOtpTargetActivationState = { kind: 'awaiting_code', context };
+    this.emailOtpTargetActivationState = { kind: 'available', context: baseContext };
     this.notifyEmailOtpActivationV1({
-      kind: 'code_input',
-      maskedEmailHint: challenge.maskedEmailHint,
-      expiresAtMs: challenge.expiresAtMs,
-      resendAvailableAtMs: challenge.resendAvailableAtMs,
+      kind: 'sending',
+      maskedEmailHint: input.preparation.ownerEnrollment.maskedEmailHint,
     });
   }
 
-  private notifyEmailOtpActivationV1(
-    state: LinkedDeviceTargetEmailOtpActivationV1['state'],
-  ): void {
+  private notifyEmailOtpActivationV1(state: LinkedDeviceTargetEmailOtpActivationV1['state']): void {
     const onTargetFactorRequired = this.options.options?.onTargetFactorRequired;
     if (!onTargetFactorRequired) return;
     onTargetFactorRequired({
@@ -1098,14 +875,13 @@ export class LinkDeviceFlow {
       if (!workerEphemeralPublicKey65B64u) {
         throw new Error('Email OTP factor-release recipient is unavailable');
       }
-      const challenge =
-        await this.requireAuthenticatedTransport().startTargetEmailOtpChallengeV1({
-          request: {
-            kind: 'linked_device_email_otp_challenge_start_request_v1',
-            linkSessionId: context.state.linkSessionId,
-            workerEphemeralPublicKey65B64u,
-          },
-        });
+      const challenge = await this.requireAuthenticatedTransport().startTargetEmailOtpChallengeV1({
+        request: {
+          kind: 'linked_device_email_otp_challenge_start_request_v1',
+          linkSessionId: context.event.linkSessionId,
+          workerEphemeralPublicKey65B64u,
+        },
+      });
       this.assertCurrentRun(context.runEpoch);
       const nextContext: EmailOtpTargetActivationContextV1 = {
         event: context.event,
@@ -1113,6 +889,7 @@ export class LinkDeviceFlow {
         runEpoch: context.runEpoch,
         deviceId: context.deviceId,
         preparation: context.preparation,
+        ordinarySignerMaterialRecipientRequests: context.ordinarySignerMaterialRecipientRequests,
         exportRoot: context.exportRoot,
         challenge,
       };
@@ -1163,14 +940,13 @@ export class LinkDeviceFlow {
     context: EmailOtpTargetActivationContextV1,
   ): Promise<void> {
     try {
-      const challenge =
-        await this.requireAuthenticatedTransport().resendTargetEmailOtpChallengeV1({
-          request: {
-            kind: 'linked_device_email_otp_challenge_resend_request_v1',
-            linkSessionId: context.state.linkSessionId,
-            challengeId: context.challenge.challengeId,
-          },
-        });
+      const challenge = await this.requireAuthenticatedTransport().resendTargetEmailOtpChallengeV1({
+        request: {
+          kind: 'linked_device_email_otp_challenge_resend_request_v1',
+          linkSessionId: context.event.linkSessionId,
+          challengeId: context.challenge.challengeId,
+        },
+      });
       this.assertCurrentRun(context.runEpoch);
       const nextContext: EmailOtpTargetActivationContextV1 = {
         event: context.event,
@@ -1178,6 +954,7 @@ export class LinkDeviceFlow {
         runEpoch: context.runEpoch,
         deviceId: context.deviceId,
         preparation: context.preparation,
+        ordinarySignerMaterialRecipientRequests: context.ordinarySignerMaterialRecipientRequests,
         exportRoot: context.exportRoot,
         challenge,
       };
@@ -1226,12 +1003,11 @@ export class LinkDeviceFlow {
     context: EmailOtpTargetActivationContextV1,
     otpCode: string,
   ): Promise<void> {
-    let verification: LinkedDeviceEmailOtpVerificationResultV1;
     try {
-      verification = await this.requireAuthenticatedTransport().verifyTargetEmailOtpChallengeV1({
+      await this.requireAuthenticatedTransport().verifyTargetEmailOtpChallengeV1({
         request: {
           kind: 'linked_device_email_otp_challenge_verify_request_v1',
-          linkSessionId: context.state.linkSessionId,
+          linkSessionId: context.event.linkSessionId,
           challengeId: context.challenge.challengeId,
           otpCode,
         },
@@ -1259,105 +1035,17 @@ export class LinkDeviceFlow {
     }
     this.assertCurrentRun(context.runEpoch);
     try {
-      let orderedHolderRegistrations: LinkedDeviceTargetCredentialRegistrationV1['orderedHolderRegistrations'];
-      let exportRootRequirement: Extract<
-        EmailOtpTargetActivationStateV1,
-        { readonly kind: 'completed' }
-      >['exportRootRequirement'];
-      if (context.preparation.ed25519ExportRoot === null) {
-        if (context.exportRoot.kind !== 'not_required') {
-          throw new Error('linked-device Email OTP export-root recipient exists without a root');
-        }
-        const prepared = await this.ports.keyMaterial.prepareEmailOtpTargetV1({
-          handle: this.requireKeyMaterialHandleV1(),
-          preparation: context.preparation,
-          verification,
-          exportRoot: { kind: 'not_required' },
-        });
-        if (prepared.exportRootRequirement.kind !== 'not_required') {
-          throw new Error('linked-device Email OTP worker returned an unexpected export root');
-        }
-        orderedHolderRegistrations = prepared.orderedHolderRegistrations;
-        exportRootRequirement = prepared.exportRootRequirement;
-      } else {
-        if (context.exportRoot.kind !== 'required') {
-          throw new Error('linked-device Email OTP export-root recipient is unavailable');
-        }
-        const envelopeId = createExportRootEnvelopeIdV1();
-        const factor = buildEmailOtpEnvelopeFactor({
-          enrollmentId: verification.factorRelease.enrollmentId,
-          enrollmentSealKeyVersion: verification.factorRelease.enrollmentSealKeyVersion,
-        });
-        const root = requireEd25519ExportRootPreparationV1(context.preparation);
-        const binding = buildEd25519YaoClientRootBinding({
-          linkSessionId: context.preparation.linkSessionId,
-          walletKeyId: root.walletKeyId,
-          targetFactor: context.preparation.targetFactor,
-          applicationBindingDigestB64u: root.applicationBindingDigestB64u,
-          registeredPublicKeyB64u: root.registeredPublicKeyB64u,
-          enrollmentId: context.preparation.enrollmentId,
-          deviceId: context.preparation.deviceId,
-          revocationEpoch: root.revocationEpoch,
-        });
-        const accepted = await acceptLinkedDeviceEmailOtpEd25519ExportRootV1({
-          keyMaterial: this.ports.keyMaterial,
-          keyHandle: this.requireKeyMaterialHandleV1(),
-          transport: this.requireAuthenticatedTransport(),
-          recipient: context.exportRoot.recipient,
-          preparation: context.preparation,
-          verification,
-          replacementEnvelopeBindingJson: exportRootBindingJsonV1({
-            walletId: context.preparation.walletId,
-            envelopeId,
-            factor,
-            binding,
-          }),
-          expiresAtMs: Math.min(
-            context.preparation.ownerEnrollment.expiresAtMs,
-            this.requireSessionV1().qrData.expiresAtMs,
-          ),
-          assertCurrentRun: this.assertCurrentRun.bind(this, context.runEpoch),
-          waitForPollV1: waitForSessionStateRetry,
-        });
-        orderedHolderRegistrations = accepted.orderedHolderRegistrations;
-        exportRootRequirement = {
-          kind: 'required',
-          resealedExportRootEnvelope: requireEmailOtpExportRootEnvelopeV1(
-            buildResealedExportRootEnvelopeV1({
-              preparation: context.preparation,
-              factor,
-              envelopeId,
-              resealed: accepted.resealedExportRootEnvelope,
-              nowMs: Date.now(),
-            }),
-          ),
-        };
+      if (context.exportRoot.kind === 'required') {
+        await discardLinkedDeviceEd25519ExportRootRecipientV1(
+          this.ports.ed25519ExportRoot,
+          context.exportRoot.recipient,
+        );
       }
-      this.assertCurrentRun(context.runEpoch);
-      const targetPreparationDigestB64u =
-        await computeLinkedDeviceTargetPreparationDigestV1(context.preparation);
-      const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
-        linkSessionId: context.state.linkSessionId,
-        walletId: context.state.walletId,
-        enrollmentId: context.state.enrollmentId,
-        deviceId: context.deviceId,
-        targetFactor: { kind: 'email_otp' },
-        targetPreparationDigestB64u,
-        emailOtpVerificationGrant: verification.verificationGrant,
-        orderedHolderRegistrations,
-        registeredAtMs: Date.now(),
-      });
-      this.targetPreparationForProvisioning = context.preparation;
-      this.targetCredentialRegistrationForProvisioning = registration;
-      await this.requireAuthenticatedTransport().registerTargetCredentialV1({ registration });
-      this.assertCurrentRun(context.runEpoch);
-      this.emailOtpTargetActivationState = {
-        kind: 'completed',
-        runEpoch: context.runEpoch,
-        exportRootRequirement,
-        verificationGrant: verification.verificationGrant,
-        factorRelease: verification.factorRelease,
-      };
+      throw new DeviceLinkingError(
+        'Email OTP factor release requires the ordinary-material worker factor-secret boundary',
+        DeviceLinkingErrorCode.UNSUPPORTED,
+        'registration',
+      );
     } catch (error: unknown) {
       if (this.isCurrentRun(context.runEpoch)) {
         const message = errorMessage(error) || 'Email OTP activation is unavailable';
@@ -1378,7 +1066,7 @@ export class LinkDeviceFlow {
   }
 
   private activateTargetCredential(input: {
-    readonly event: LinkedDeviceSessionTransportEventV1;
+    readonly event: LinkSessionTransportEventV1;
     readonly state: AwaitingTargetPasskeyStateV1;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
@@ -1422,7 +1110,7 @@ export class LinkDeviceFlow {
   }
 
   private async runTargetCredentialActivation(input: {
-    readonly event: LinkedDeviceSessionTransportEventV1;
+    readonly event: LinkSessionTransportEventV1;
     readonly state: AwaitingTargetPasskeyStateV1;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
@@ -1507,113 +1195,12 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async ensureLocalSigningSessionActivatedV1(input: {
-    readonly state: Extract<
-      LinkedDeviceSessionState,
-      {
-        readonly state:
-          | 'provisioning'
-          | 'committed_completion_required'
-          | 'active';
-      }
-    >;
-    readonly runEpoch: number;
-    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
-  }): Promise<void> {
-    if (this.localSigningSessionActivated) return;
-    if (this.localSigningSessionActivationInProgress) {
-      await this.localSigningSessionActivationInProgress;
-      return;
-    }
-    const activation =
-      this.claimedSigningSessionActivation ?? this.claimSigningSessionActivationV1(input.runEpoch);
-    this.claimedSigningSessionActivation = activation;
-    const activationPromise = this.ports.sessionActivation.activateLinkedDeviceSigningSessionV1({
-      walletId: input.state.walletId,
-      enrollmentId: input.state.enrollmentId,
-      walletSessionDelivery: input.walletSessionDelivery,
-      activation,
-    });
-    this.localSigningSessionActivationInProgress = activationPromise;
-    try {
-      await activationPromise;
-      this.assertCurrentRun(input.runEpoch);
-      this.localSigningSessionActivated = true;
-    } finally {
-      if (this.localSigningSessionActivationInProgress === activationPromise) {
-        this.localSigningSessionActivationInProgress = null;
-      }
-    }
-  }
-
-  private claimSigningSessionActivationV1(
-    runEpoch: number,
-  ): LinkedDeviceSigningSessionActivationV1 {
-    const targetFactor = this.requireSessionTargetFactorV1();
-    switch (targetFactor.kind) {
-      case 'passkey_prf': {
-        const factorSecret = this.claimTargetCredentialFactorSecret(runEpoch);
-        if (!factorSecret) return { kind: 'existing_target_passkey' };
-        const targetPreparation = this.targetPreparationForProvisioning;
-        if (!targetPreparation) {
-          throw new Error('linked-device target preparation is unavailable');
-        }
-        const resealedExportRootEnvelope = this.resealedExportRootEnvelope;
-        if (targetPreparation.ed25519ExportRoot !== null && !resealedExportRootEnvelope) {
-          throw new Error('linked-device passkey export-root envelope is unavailable');
-        }
-        if (targetPreparation.ed25519ExportRoot === null && resealedExportRootEnvelope) {
-          throw new Error(
-            'linked-device export-root envelope exists for an authority without export_keys',
-          );
-        }
-        const exportRootRequirement: LinkedDeviceExportRootActivationRequirementV1 =
-          resealedExportRootEnvelope
-            ? { kind: 'required', resealedExportRootEnvelope }
-            : { kind: 'not_required' };
-        return { kind: 'target_passkey_creation', factorSecret, exportRootRequirement };
-      }
-      case 'email_otp': {
-        const activationState = this.emailOtpTargetActivationState;
-        if (activationState.kind !== 'completed' || activationState.runEpoch !== runEpoch) {
-          throw new Error('linked-device target Email OTP activation is incomplete');
-        }
-        const registration = this.targetCredentialRegistrationForProvisioning;
-        if (!registration || registration.targetFactor.kind !== 'email_otp') {
-          throw new Error('linked-device Email OTP registration is unavailable');
-        }
-        const registrationGrant = registration.emailOtpVerificationGrant;
-        if (!registrationGrant) {
-          throw new Error('linked-device Email OTP verification grant is unavailable');
-        }
-        if (
-          registrationGrant.grantId !== activationState.verificationGrant.grantId ||
-          registrationGrant.grantToken !== activationState.verificationGrant.grantToken
-        ) {
-          throw new Error('linked-device Email OTP registration authority changed');
-        }
-        return {
-          kind: 'target_email_otp_activation',
-          keyMaterial: this.requireKeyMaterialHandleV1(),
-          holderMaterial: this.ports.keyMaterial,
-          exportRootRequirement: activationState.exportRootRequirement,
-          verificationGrant: activationState.verificationGrant,
-          factorRelease: activationState.factorRelease,
-        };
-      }
-      default:
-        targetFactor satisfies never;
-        throw new Error('linked-device target factor is unsupported');
-    }
-  }
-
   private clearTargetCredentialActivationState(): void {
     const state = this.targetCredentialActivationState;
     if (state.kind === 'factor_ready' || state.kind === 'consuming') {
       zeroizeLiveBytes(state.factorSecret);
     }
     this.targetCredentialActivationState = { kind: 'idle' };
-    this.claimedSigningSessionActivation = null;
   }
 
   private async createTargetCredential(input: {
@@ -1622,13 +1209,13 @@ export class LinkDeviceFlow {
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
     readonly preparation: PasskeyTargetPreparationV1;
   }): Promise<Uint8Array> {
-    const { state, runEpoch, deviceId, preparation } = input;
+    const { runEpoch, deviceId, preparation } = input;
     if (!this.keyMaterialHandle || !this.session)
       throw new Error('device-link key material is unavailable');
     const authenticatedTransport = this.requireAuthenticatedTransport();
     logDevice2LinkingStageV1({
       flowId: this.flowId,
-      linkSessionId: state.linkSessionId,
+      linkSessionId: preparation.linkSessionId,
       stage: 'target_passkey_prompt_started',
     });
     const exportRoot = preparation.ed25519ExportRoot;
@@ -1644,10 +1231,10 @@ export class LinkDeviceFlow {
             ed25519ExportRoot: this.ports.ed25519ExportRoot,
             transport: authenticatedTransport,
             identity: {
-              linkSessionId: state.linkSessionId,
-              walletId: state.walletId,
+              linkSessionId: preparation.linkSessionId,
+              walletId: preparation.walletId,
               walletKeyId: exportRoot.walletKeyId,
-              enrollmentId: state.enrollmentId,
+              enrollmentId: preparation.enrollmentId,
               deviceId,
               applicationBindingDigestB64u: exportRoot.applicationBindingDigestB64u,
               registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
@@ -1671,7 +1258,7 @@ export class LinkDeviceFlow {
       });
       logDevice2LinkingStageV1({
         flowId: this.flowId,
-        linkSessionId: state.linkSessionId,
+        linkSessionId: preparation.linkSessionId,
         stage: 'target_passkey_created',
       });
       this.emit({
@@ -1685,7 +1272,7 @@ export class LinkDeviceFlow {
       if (recipient) {
         logDevice2LinkingStageV1({
           flowId: this.flowId,
-          linkSessionId: state.linkSessionId,
+          linkSessionId: preparation.linkSessionId,
           stage: 'export_root_recipient_published',
         });
       }
@@ -1729,16 +1316,10 @@ export class LinkDeviceFlow {
         });
         logDevice2LinkingStageV1({
           flowId: this.flowId,
-          linkSessionId: state.linkSessionId,
+          linkSessionId: preparation.linkSessionId,
           stage: 'export_root_accepted',
         });
-        this.resealedExportRootEnvelope = buildResealedExportRootEnvelopeV1({
-          preparation,
-          factor,
-          envelopeId,
-          resealed,
-          nowMs: Date.now(),
-        });
+        this.resealedExportRoot = resealed;
         // The worker consumes and frees the recipient during every accept attempt.
         recipient = null;
       }
@@ -1746,39 +1327,37 @@ export class LinkDeviceFlow {
       const targetPreparationDigestB64u =
         await computeLinkedDeviceTargetPreparationDigestV1(preparation);
       const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
-        linkSessionId: state.linkSessionId,
-        walletId: state.walletId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
+        linkSessionId: preparation.linkSessionId,
+        walletId: preparation.walletId,
+        enrollmentId: preparation.enrollmentId,
+        deviceId: preparation.deviceId,
+        walletAuthMethodId: preparation.walletAuthMethodId,
         targetFactor: { kind: 'passkey_prf' },
         targetPreparationDigestB64u,
         webauthnRegistration: credential.webauthnRegistration,
-        orderedHolderRegistrations: credential.orderedHolderRegistrations,
+        ordinarySignerMaterialRecipientRequests:
+          this.requireOrdinarySignerMaterialRecipientPreparationV1().recipientRequests,
         registeredAtMs: Date.now(),
       });
-      this.targetPreparationForProvisioning = preparation;
-      this.targetCredentialRegistrationForProvisioning = registration;
-      // The linked finalize registers only the new owner credential. Any
-      // Ed25519 export root was already persisted in the local root repository
-      // during signing-session activation and never enters generic custody
-      // finalization.
-      await this.commitLinkedOwnerEnrollmentV1({
-        authenticatedTransport,
-        state,
-        preparation,
-        credential,
+      const registrationResult = await authenticatedTransport.registerTargetCredentialV1({
         registration,
-        runEpoch,
-      });
-      logDevice2LinkingStageV1({
-        flowId: this.flowId,
-        linkSessionId: state.linkSessionId,
-        stage: 'owner_enrollment_committed',
       });
       this.assertCurrentRun(runEpoch);
-      // The canonical owner finalize and target-credential registration are
-      // committed. The provisioning state handler continues with R102 lane
-      // provisioning, execution evidence, and Wallet Session delivery.
+      this.targetCredentialRegistrationResult = registrationResult;
+      await this.ports.keyMaterial.prepareOrdinarySignerMaterialV1({
+        keyMaterial: this.requireKeyMaterialHandleV1(),
+        targetFactor: registrationResult.targetFactor,
+        preparations: registrationResult.ordinarySignerMaterialPreparations,
+        recipientRequests: registrationResult.ordinarySignerMaterialRecipientRequests,
+        recipientInputs: this.requireOrdinarySignerMaterialRecipientPreparationV1().recipientInputs,
+        factorSecret: credential.factorSecret.slice().buffer,
+      });
+      this.assertCurrentRun(runEpoch);
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: preparation.linkSessionId,
+        stage: 'ordinary_signer_material_prepared',
+      });
       return credential.factorSecret;
     } catch (error: unknown) {
       if (credential) zeroizeLiveBytes(credential.factorSecret);
@@ -1803,542 +1382,78 @@ export class LinkDeviceFlow {
     }
   }
 
-  /**
-   * Commits the owner credential, then lands the local writes that depend on it.
-   *
-   * The server half of this is irreversible: one successful finalize registers
-   * the passkey and owner binding in a single transaction. Everything after it is local, and a local failure must never
-   * be recovered by minting a second credential — the wallet would carry two
-   * owner factors for one device, only one of which anything knows about.
-   *
-   * So the canonical response is retained the moment the server commits and
-   * reused for every subsequent attempt, rather than the flow unwinding to
-   * somewhere that would prompt again. The finalize is replayable rather than
-   * repeatable — the server answers an identical request with the original
-   * response — but the retained copy means the retry does not even need to ask.
-   *
-   * If the writes still cannot land, this throws and the flow tears itself
-   * down: `handleSessionTransportFailure` advances the run epoch and releases
-   * the local resources, so nothing reaches the authenticator a second time.
-   */
-  private async commitLinkedOwnerEnrollmentV1(input: {
-    readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
-    readonly state: AwaitingTargetPasskeyStateV1;
-    readonly preparation: PasskeyTargetPreparationV1;
-    readonly credential: Awaited<
-      ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
-    >;
-    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly runEpoch: number;
-  }): Promise<void> {
-    const request: LinkedDeviceOwnerFinalizeRequestV1 = {
-      kind: 'linked_device_owner_finalize_request_v1',
-      addAuthMethodCeremonyId: input.preparation.ownerEnrollment.addAuthMethodCeremonyId,
-      webauthnRegistration: input.credential.webauthnRegistration,
-    };
-    // One server call, retained for the whole commit. Replaying it would return
-    // this same response — the point of retaining it is that the retry below
-    // never has to unwind far enough to ask.
-    const retained: RetainedLinkedOwnerFinalizeV1 = {
-      request,
-      finalized: await input.authenticatedTransport.finalizeOwnerAuthMethodV1({
-        linkSessionId: input.state.linkSessionId,
-        request,
-      }),
-    };
-    this.assertCurrentRun(input.runEpoch);
-    const credential = requireFinalizedOwnerPasskeyV1(retained.finalized.response, input);
-    let attempt = 0;
-    for (;;) {
-      try {
-        this.assertCurrentRun(input.runEpoch);
-        // All three local records this device needs to unlock as an ordinary
-        // owner, inside the retried unit: a partial set reads as a revoked
-        // device rather than an incomplete write.
-        await persistFinalizedLinkedOwnerPasskeyV1({
-          credential,
-          localAccount: retained.finalized.localAccount,
-        });
-        // The canonical owner finalize advances the session to provisioning.
-        // The R102 credential registration is deliberately replay-safe in that
-        // state and records the same target preparation binding.
-        await input.authenticatedTransport.registerTargetCredentialV1({
-          registration: input.registration,
-        });
-        this.assertCurrentRun(input.runEpoch);
-        return;
-      } catch (error: unknown) {
-        if (error instanceof LinkDeviceFlowSupersededError) throw error;
-        if (attempt >= LINKED_OWNER_ENROLLMENT_PERSIST_ATTEMPTS_V1) {
-          // The credential exists on the server, so this says what is actually
-          // true rather than implying nothing happened. The flow tears down
-          // from here; it does not fall back to making another one.
-          throw new DeviceLinkingError(
-            `Device-link owner credential was registered but could not be stored locally: ${errorMessage(error)}`,
-            DeviceLinkingErrorCode.REGISTRATION_FAILED,
-            'registration',
-          );
-        }
-        await waitForSessionStateRetry(attempt);
-        attempt += 1;
-      }
-    }
-  }
-
-  private async acknowledgeHolderDeliveries(
-    runEpoch: number,
-    acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
-  ): Promise<LinkedDeviceEnrollmentReceiptV1> {
-    this.assertCurrentRun(runEpoch);
-    const receipt = await this.requireAuthenticatedTransport().acknowledgeHolderDeliveriesV1({
-      acknowledgement,
-    });
-    this.assertCurrentRun(runEpoch);
-    return receipt;
-  }
-
   private assertTargetPreparationMatchesSession(input: {
     readonly preparation: import('@shared/device-linking').LinkedDeviceTargetPreparationV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
-    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly state: AwaitingTargetFactorStateV1;
+    readonly linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId;
   }): void {
     if (
-      input.preparation.linkSessionId !== input.state.linkSessionId ||
-      input.preparation.walletId !== input.state.walletId ||
-      input.preparation.enrollmentId !== input.state.enrollmentId ||
-      input.preparation.deviceId !== input.deviceId ||
-      input.preparation.targetFactor.kind !== input.state.targetFactor.kind ||
+      input.preparation.linkSessionId !== input.linkSessionId ||
+      String(input.preparation.deviceId) !== String(input.state.deviceId) ||
+      input.preparation.targetFactor.kind !== this.requireSessionTargetFactorV1().kind ||
       input.preparation.expiresAtMs <= Date.now()
     ) {
       throw new Error('linked-device target preparation does not match the claimed session');
     }
   }
 
-  private async resumeCommittedDelivery(
-    state: Extract<LinkedDeviceSessionState, { state: 'committed_completion_required' }>,
-    runEpoch: number,
-  ): Promise<void> {
-    const authenticatedTransport = this.requireAuthenticatedTransport();
-    logDevice2LinkingStageV1({
-      flowId: this.flowId,
-      linkSessionId: state.linkSessionId,
-      stage: 'committed_delivery_retry_started',
-    });
-    const deviceId = await this.requireDeviceId(state);
-    const keyMaterial = this.keyMaterialHandle;
-    if (!keyMaterial) {
-      throw new Error(
-        'committed linked-device delivery cannot recover without its live recipient key handle',
-      );
-    }
-    this.assertCurrentRun(runEpoch);
-    await authenticatedTransport.retryCommittedDeliveryV1({
-      request: buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1({
-        linkSessionId: state.linkSessionId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
-        requestedAtMs: Date.now(),
-      }),
-    });
-    this.assertCurrentRun(runEpoch);
-    let replayApproval: LinkedDeviceApprovalV1 | null = null;
-    let replayDeliveries: LinkedDeviceProvisioningDeliveriesV1 | null = null;
-    const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
-      state,
-      keyMaterial,
-      refetchApprovalV1: async () => {
-        const approval = await authenticatedTransport.getApprovalV1({
-          linkSessionId: state.linkSessionId,
-        });
-        this.assertCurrentRun(runEpoch);
-        this.assertCommittedApprovalMatchesSession({ approval, state, deviceId });
-        this.provisioningApproval = approval;
-        replayApproval = approval;
-        return approval;
-      },
-      refetchProvisioningDeliveriesV1: async () => {
-        const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
-          command: buildLinkedDeviceProvisioningCommandV1({
-            linkSessionId: state.linkSessionId,
-            enrollmentId: state.enrollmentId,
-            deviceId,
-            targetFactor: this.requireSessionTargetFactorV1(),
-          }),
-        });
-        this.assertCurrentRun(runEpoch);
-        replayDeliveries = deliveries;
-        return deliveries;
-      },
-      acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this, runEpoch),
-    });
-    this.assertCurrentRun(runEpoch);
-    this.aggregateReceipt = receipt;
-    if (!replayApproval || !replayDeliveries) {
-      throw new Error('committed linked-device delivery did not refetch exact R102 evidence');
-    }
-    await this.revalidatePersistedExecutionEvidenceV1({
-      approval: replayApproval,
-      deliveries: replayDeliveries,
-      receipt,
-      enrollmentId: state.enrollmentId,
-      runEpoch,
-    });
-    if (!this.session) return;
-    const walletSessionDelivery = await this.fetchValidatedWalletSessionDeliveryV1({
-      state,
-      runEpoch,
-      deviceId,
-    });
-    await this.ensureWalletSessionDeliveryPersistedV1({
-      delivery: walletSessionDelivery,
-      runEpoch,
-    });
-    await this.ensureLocalSigningSessionActivatedV1({
-      state,
-      runEpoch,
-      walletSessionDelivery,
-    });
-    await authenticatedTransport.acknowledgeReceiptV1({
-      acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
-        linkSessionId: state.linkSessionId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
-        receipt,
-        acknowledgedAtMs: Date.now(),
-      }),
-    });
-    this.assertCurrentRun(runEpoch);
-    logDevice2LinkingStageV1({
-      flowId: this.flowId,
-      linkSessionId: state.linkSessionId,
-      stage: 'committed_delivery_retry_completed',
-    });
-  }
-
-  private async provisionLinkedDeviceLanesV1(
+  private async activateAuthorityForStateV1(
     state: Extract<
-      LinkedDeviceSessionState,
-      { readonly state: 'provisioning' | 'committed_completion_required' }
+      LinkSessionStateV1,
+      { readonly state: 'provisioning' | 'authority_pending_local_install' | 'active' }
     >,
     runEpoch: number,
+  ): Promise<Awaited<ReturnType<typeof activateLinkedAuthorityV1>>> {
+    this.assertCurrentRun(runEpoch);
+    const registration = this.targetCredentialRegistrationResult;
+    if (!registration) {
+      throw new Error('linked-device target credential registration is unavailable');
+    }
+    const keyMaterial = this.requireKeyMaterialHandleV1();
+    const expectedLockGeneration = await this.ports.readExpectedLockGenerationV1(
+      registration.walletId,
+    );
+    this.assertCurrentRun(runEpoch);
+    return await activateLinkedAuthorityV1({
+      transport: this.requireAuthenticatedTransport(),
+      installation: this.ports.authorityInstallation,
+      sessionState: state,
+      linkSessionId: this.requireSessionV1().linkSessionId,
+      targetFactor: registration.targetFactor,
+      keyMaterial,
+      resealedExportRoot: this.resealedExportRoot,
+      expectedLockGeneration,
+      nowMs: () => Date.now(),
+    });
+  }
+
+  private async finishActiveAuthorityV1(
+    state: Extract<
+      LinkSessionStateV1,
+      { readonly state: 'provisioning' | 'authority_pending_local_install' | 'active' }
+    >,
+    walletSession: ActiveWalletSessionV1,
+    runEpoch: number,
   ): Promise<void> {
-    const authenticatedTransport = this.requireAuthenticatedTransport();
-    logDevice2LinkingStageV1({
-      flowId: this.flowId,
-      linkSessionId: state.linkSessionId,
-      stage: 'lane_provisioning_started',
-    });
-    const deviceId = await this.requireDeviceId(state);
     this.assertCurrentRun(runEpoch);
-    const approval = await authenticatedTransport.getApprovalV1({
-      linkSessionId: state.linkSessionId,
+    const session = this.requireSessionV1();
+    this.session = {
+      ...session,
+      state: {
+        state: 'active',
+        deviceId: state.deviceId,
+        authorityId: walletSession.authorityId,
+        activatedAtMs: walletSession.issuedAtMs,
+      },
+    };
+    this.emit({
+      phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+      status: 'succeeded',
+      message: 'Device link active',
+      data: { role: 'display' },
+      interaction: { kind: 'qr_display', overlay: 'hide' },
     });
-    this.assertCurrentRun(runEpoch);
-    this.assertCommittedApprovalMatchesSession({ approval, state, deviceId });
-    this.provisioningApproval = approval;
-    logDevice2LinkingStageV1({
-      flowId: this.flowId,
-      linkSessionId: state.linkSessionId,
-      stage: 'lane_provisioning_approval_loaded',
-    });
-    if (!this.session) throw new Error('device-link session is unavailable');
-    await this.waitForPreparedDeliveryCommitV1({
-      authenticatedTransport,
-      linkSessionId: state.linkSessionId,
-      expiresAtMs: this.session.qrData.expiresAtMs,
-      runEpoch,
-    });
-    logDevice2LinkingStageV1({
-      flowId: this.flowId,
-      linkSessionId: state.linkSessionId,
-      stage: 'source_delivery_commit_observed',
-    });
-    const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
-      command: buildLinkedDeviceProvisioningCommandV1({
-        linkSessionId: state.linkSessionId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
-        targetFactor: this.requireSessionTargetFactorV1(),
-      }),
-    });
-    this.assertCurrentRun(runEpoch);
-    const keyMaterial = this.keyMaterialHandle;
-    const preparation = this.targetPreparationForProvisioning;
-    const registration = this.targetCredentialRegistrationForProvisioning;
-    if (!keyMaterial || !preparation || !registration) {
-      throw new Error('linked-device target provisioning inputs are unavailable');
-    }
-    const receipt = await this.ports.laneProvisioning.prepareLinkedDeviceLanesV1(
-      createDeviceLinkingLaneProvisioningHandoffV1({
-        approval,
-        deliveries,
-        keyMaterial,
-        acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this, runEpoch),
-      }),
-    );
-    this.assertCurrentRun(runEpoch);
-    this.aggregateReceipt = receipt;
-    await this.persistProvisionedExecutionEvidenceV1({
-      approval,
-      preparation,
-      registration,
-      deliveries,
-      receipt,
-      runEpoch,
-    });
-    const walletSessionDelivery = await this.fetchValidatedWalletSessionDeliveryV1({
-      state,
-      runEpoch,
-      deviceId,
-    });
-    await this.ensureWalletSessionDeliveryPersistedV1({
-      delivery: walletSessionDelivery,
-      runEpoch,
-    });
-    await this.ensureLocalSigningSessionActivatedV1({
-      state,
-      runEpoch,
-      walletSessionDelivery,
-    });
-    await authenticatedTransport.acknowledgeReceiptV1({
-      acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
-        linkSessionId: state.linkSessionId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
-        receipt,
-        acknowledgedAtMs: Date.now(),
-      }),
-    });
-    this.assertCurrentRun(runEpoch);
-  }
-
-  private async waitForPreparedDeliveryCommitV1(input: {
-    readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
-    readonly linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId;
-    readonly expiresAtMs: number;
-    readonly runEpoch: number;
-  }): Promise<void> {
-    let attempt = 0;
-    while (Date.now() < input.expiresAtMs) {
-      this.assertCurrentRun(input.runEpoch);
-      const snapshot = await input.authenticatedTransport.getSessionV1({
-        linkSessionId: input.linkSessionId,
-      });
-      logDevice2LinkingStageV1({
-        flowId: this.flowId,
-        linkSessionId: input.linkSessionId,
-        stage: 'source_delivery_commit_poll',
-        details: {
-          attempt,
-          state: snapshot.state.state,
-          revision: snapshot.revision,
-          updatedAtMs: snapshot.updatedAtMs,
-        },
-      });
-      switch (snapshot.state.state) {
-        case 'committed_completion_required':
-          return;
-        case 'active':
-          return;
-        case 'claimed_by_owner':
-        case 'awaiting_target_factor':
-        case 'provisioning':
-          break;
-        case 'expired_unclaimed':
-        case 'expired_claimed':
-          throw new DeviceLinkingError(
-            'Device-link session expired before source deliveries were committed',
-            DeviceLinkingErrorCode.SESSION_EXPIRED,
-            'registration',
-          );
-        case 'cancelled_unclaimed':
-        case 'cancelled_claimed_precommit':
-          throw new DeviceLinkingError(
-            'Device-link session was cancelled before source deliveries were committed',
-            DeviceLinkingErrorCode.REGISTRATION_FAILED,
-            'registration',
-          );
-        case 'displaying_qr':
-          throw new Error('linked-device session regressed after target credential registration');
-        default:
-          assertNeverLinkedDeviceSessionState(snapshot.state);
-      }
-      await waitForSessionStateRetry(attempt);
-      attempt += 1;
-    }
-    throw new DeviceLinkingError(
-      'Device-link session expired before source deliveries were committed',
-      DeviceLinkingErrorCode.SESSION_EXPIRED,
-      'registration',
-    );
-  }
-
-  private async persistProvisionedExecutionEvidenceV1(input: {
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
-    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-    readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-    readonly runEpoch: number;
-  }): Promise<void> {
-    const evidence = await buildLinkedDeviceProvisionedExecutionEvidenceV1({
-      approval: input.approval,
-      targetPreparation: input.preparation,
-      targetCredentialRegistration: input.registration,
-      provisioningDeliveries: input.deliveries,
-      enrollmentReceipt: input.receipt,
-    });
-    this.assertCurrentRun(input.runEpoch);
-    await this.ports.executionEvidence.putExactProvisionedEvidenceV1(evidence);
-    this.assertCurrentRun(input.runEpoch);
-  }
-
-  private async revalidatePersistedExecutionEvidenceV1(input: {
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-    readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-    readonly enrollmentId: LinkedDeviceApprovalV1['enrollmentId'];
-    readonly runEpoch: number;
-  }): Promise<void> {
-    const stored = await this.ports.executionEvidence.readForEnrollmentV1(input.enrollmentId);
-    this.assertCurrentRun(input.runEpoch);
-    if (stored.kind !== 'found') {
-      throw new Error(`linked-device execution evidence is ${stored.kind}`);
-    }
-    await this.persistProvisionedExecutionEvidenceV1({
-      approval: input.approval,
-      preparation: stored.evidence.targetPreparation,
-      registration: stored.evidence.targetCredentialRegistration,
-      deliveries: input.deliveries,
-      receipt: input.receipt,
-      runEpoch: input.runEpoch,
-    });
-  }
-
-  private async ensureWalletSessionDeliveryPersistedV1(input: {
-    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
-    readonly runEpoch: number;
-  }): Promise<void> {
-    if (this.walletSessionDeliveryPersisted) return;
-    if (this.walletSessionDeliveryInProgress) {
-      await this.walletSessionDeliveryInProgress;
-      return;
-    }
-    const persistence = this.persistWalletSessionDeliveryV1(input);
-    this.walletSessionDeliveryInProgress = persistence;
-    try {
-      await persistence;
-      this.walletSessionDeliveryPersisted = true;
-    } finally {
-      if (this.walletSessionDeliveryInProgress === persistence) {
-        this.walletSessionDeliveryInProgress = null;
-      }
-    }
-  }
-
-  private async fetchValidatedWalletSessionDeliveryV1(input: {
-    readonly state: Extract<
-      LinkedDeviceSessionState,
-      {
-        readonly state:
-          | 'awaiting_target_factor'
-          | 'provisioning'
-          | 'committed_completion_required'
-          | 'active';
-      }
-    >;
-    readonly runEpoch: number;
-    readonly deviceId?: import('@shared/signing-lanes/ids').LinkedDeviceId;
-  }): Promise<LinkedDeviceWalletSessionDeliveryV1> {
-    await Promise.resolve();
-    const transport = this.requireAuthenticatedTransport();
-    const deviceId = input.deviceId ?? (await this.requireDeviceId(input.state));
-    this.assertCurrentRun(input.runEpoch);
-    const approval =
-      this.provisioningApproval ??
-      (await transport.getApprovalV1({ linkSessionId: input.state.linkSessionId }));
-    this.provisioningApproval = approval;
-    const delivery = await transport.getWalletSessionDeliveryV1({
-      linkSessionId: input.state.linkSessionId,
-    });
-    this.assertCurrentRun(input.runEpoch);
-    this.assertWalletSessionDeliveryMatchesV1({
-      delivery,
-      approval,
-      receipt: this.aggregateReceipt,
-      state: input.state,
-      deviceId,
-    });
-    this.assertCurrentRun(input.runEpoch);
-    return delivery;
-  }
-
-  private async persistWalletSessionDeliveryV1(input: {
-    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
-    readonly runEpoch: number;
-  }): Promise<void> {
-    await this.ports.walletSessions.putExactActiveDeliveryV1(input.delivery);
-    this.assertCurrentRun(input.runEpoch);
-  }
-
-  private assertWalletSessionDeliveryMatchesV1(input: {
-    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly receipt: LinkedDeviceEnrollmentReceiptV1 | null;
-    readonly state: Extract<
-      LinkedDeviceSessionState,
-      {
-        readonly state:
-          | 'awaiting_target_factor'
-          | 'provisioning'
-          | 'committed_completion_required'
-          | 'active';
-      }
-    >;
-    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-  }): void {
-    const { delivery, approval, receipt, state, deviceId } = input;
-    if (
-      delivery.walletId !== state.walletId ||
-      delivery.enrollmentId !== state.enrollmentId ||
-      delivery.deviceId !== deviceId ||
-      approval.walletId !== state.walletId ||
-      approval.enrollmentId !== state.enrollmentId ||
-      approval.deviceId !== deviceId ||
-      !sameDelegatedWalletAuthorityV1(delivery.permission, approval.permission) ||
-      delivery.orderedTokens.length !== approval.orderedKeyBindings.length ||
-      approval.orderedKeyBindings.some(
-        (binding, index) =>
-          delivery.orderedTokens[index]?.walletKeyId !== binding.walletKeyId ||
-          delivery.orderedTokens[index]?.keyFamily !== binding.keyFamily ||
-          delivery.orderedTokens[index]?.revocationEpoch !== binding.sourceRevocationEpoch,
-      ) ||
-      (receipt !== null &&
-        delivery.keyManifestDigestB64u !== receipt.manifestDigestB64u)
-    ) {
-      throw new Error('linked-device Wallet Session delivery does not match activation');
-    }
-  }
-
-  private assertCommittedApprovalMatchesSession(input: {
-    readonly approval: import('@shared/device-linking').LinkedDeviceApprovalV1;
-    readonly state: Extract<
-      LinkedDeviceSessionState,
-      { state: 'provisioning' | 'committed_completion_required' }
-    >;
-    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-  }): void {
-    if (!this.session) throw new Error('device-link session is unavailable');
-    if (
-      input.approval.linkSessionId !== input.state.linkSessionId ||
-      input.approval.walletId !== input.state.walletId ||
-      input.approval.enrollmentId !== input.state.enrollmentId ||
-      input.approval.deviceId !== input.deviceId ||
-      input.approval.linkPublicKeyB64u !== this.session.qrData.linkPublicKeyB64u ||
-      input.approval.devicePublicKeyB64u !== this.session.qrData.devicePublicKeyB64u
-    ) {
-      throw new Error('refetched linked-device approval does not match its session');
-    }
+    await this.cleanupLocalResources();
   }
 
   private requireAuthenticatedTransport(): DeviceLinkingAuthenticatedTransportPortV1 {
@@ -2367,23 +1482,24 @@ export class LinkDeviceFlow {
     return this.keyMaterialHandle;
   }
 
+  private requireOrdinarySignerMaterialRecipientPreparationV1(): DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 {
+    const preparation = this.ordinarySignerMaterialRecipientPreparation;
+    if (!preparation) {
+      throw new Error('ordinary signer material recipient preparation is unavailable');
+    }
+    return preparation;
+  }
+
   private startRun(): number {
     this.clearTargetCredentialActivationState();
     this.emailOtpTargetActivationState = { kind: 'idle' };
-    this.resealedExportRootEnvelope = null;
+    this.resealedExportRoot = null;
+    this.targetCredentialRegistrationResult = null;
+    this.ordinarySignerMaterialRecipientPreparation = null;
     this.runEpoch += 1;
     this.generationInProgress = true;
     this.cancelled = false;
     this.error = undefined;
-    this.walletSessionDeliveryInProgress = null;
-    this.walletSessionDeliveryPersisted = false;
-    this.localSigningSessionActivationInProgress = null;
-    this.localSigningSessionActivated = false;
-    this.claimedSigningSessionActivation = null;
-    this.provisioningApproval = null;
-    this.aggregateReceipt = null;
-    this.targetPreparationForProvisioning = null;
-    this.targetCredentialRegistrationForProvisioning = null;
     this.handledStates.clear();
     return this.runEpoch;
   }
@@ -2396,13 +1512,13 @@ export class LinkDeviceFlow {
     if (!this.isCurrentRun(runEpoch)) throw new LinkDeviceFlowSupersededError();
   }
 
-  private handleSessionTransportEvent(event: LinkedDeviceSessionTransportEventV1): void {
+  private handleSessionTransportEvent(event: LinkSessionTransportEventV1): void {
     const processing = this.sessionEventQueue.then(this.handleSessionEvent.bind(this, event));
     this.sessionEventQueue = processing.catch(this.handleSessionTransportFailure.bind(this, event));
   }
 
   private async handleSessionTransportFailure(
-    event: LinkedDeviceSessionTransportEventV1,
+    event: LinkSessionTransportEventV1,
     error: unknown,
   ): Promise<void> {
     if (error instanceof LinkDeviceFlowSupersededError) return;
@@ -2426,57 +1542,50 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async cancelFailedPrecommitSession(
-    event: LinkedDeviceSessionTransportEventV1,
-  ): Promise<void> {
+  private async cancelFailedPrecommitSession(event: LinkSessionTransportEventV1): Promise<void> {
     const transport = this.authenticatedTransport;
     if (!transport) return;
     switch (event.state.state) {
-      case 'claimed_by_owner':
+      case 'claimed':
       case 'awaiting_target_factor': {
         const cancelledAtMs = Date.now();
+        const identity = await this.resolveLinkIdentityV1(event.linkSessionId);
         await transport.cancelSessionV1({
           request: buildLinkedDeviceSessionCancelClaimedRequestV1({
-            linkSessionId: event.state.linkSessionId,
-            enrollmentId: event.state.enrollmentId,
-            deviceId: await this.requireDeviceId(event.state),
+            linkSessionId: event.linkSessionId,
+            enrollmentId: identity.enrollmentId,
+            deviceId: identity.deviceId,
             reason: 'user_cancelled',
             requestedAtMs: cancelledAtMs,
           }),
         });
-        if (this.session?.linkSessionId === event.state.linkSessionId) {
+        if (this.session?.linkSessionId === event.linkSessionId) {
           this.session = {
             ...this.session,
-            state: buildCancelledClaimedPrecommitLinkedDeviceSessionState({
-              linkSessionId: event.state.linkSessionId,
-              walletId: event.state.walletId,
-              enrollmentId: event.state.enrollmentId,
-              cancelledAtMs,
-            }),
+            state: { state: 'cancelled', cancelledAtMs },
           };
         }
         return;
       }
       case 'displaying_qr':
       case 'provisioning':
-      case 'committed_completion_required':
+      case 'authority_pending_local_install':
       case 'active':
-      case 'expired_unclaimed':
-      case 'expired_claimed':
-      case 'cancelled_unclaimed':
-      case 'cancelled_claimed_precommit':
+      case 'expired':
+      case 'cancelled':
+      case 'failed_before_commit':
         return;
       default:
-        assertNeverLinkedDeviceSessionState(event.state);
+        assertNeverLinkSessionStateV1(event.state);
     }
   }
 
   private async cleanupLocalResources(): Promise<void> {
     this.clearTargetCredentialActivationState();
     this.emailOtpTargetActivationState = { kind: 'idle' };
-    this.resealedExportRootEnvelope = null;
-    this.localSigningSessionActivated = false;
-    this.claimedSigningSessionActivation = null;
+    this.resealedExportRoot = null;
+    this.targetCredentialRegistrationResult = null;
+    this.ordinarySignerMaterialRecipientPreparation = null;
     let failure: unknown;
     const subscription = this.subscription;
     if (subscription) {
@@ -2560,19 +1669,18 @@ function isFinishedDeviceLinkFlow(flow: LinkDeviceFlow): boolean {
   if (state.cancelled || state.error || !state.session) return true;
   switch (state.session.state.state) {
     case 'active':
-    case 'expired_unclaimed':
-    case 'expired_claimed':
-    case 'cancelled_unclaimed':
-    case 'cancelled_claimed_precommit':
+    case 'expired':
+    case 'cancelled':
+    case 'failed_before_commit':
       return true;
     case 'displaying_qr':
-    case 'claimed_by_owner':
+    case 'claimed':
     case 'awaiting_target_factor':
     case 'provisioning':
-    case 'committed_completion_required':
+    case 'authority_pending_local_install':
       return false;
     default:
-      return assertNeverLinkedDeviceSessionState(state.session.state);
+      return assertNeverLinkSessionStateV1(state.session.state);
   }
 }
 

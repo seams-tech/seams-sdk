@@ -13,7 +13,6 @@ import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletId,
-  type MpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletAuthorityId,
   type WalletId,
@@ -37,6 +36,11 @@ import {
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
+import type {
+  ActiveWalletSessionV1,
+  WalletCapabilitySubjectV1,
+} from '@shared/device-linking/contracts';
+export type { ActiveWalletSessionV1, WalletCapabilitySubjectV1 } from '@shared/device-linking/contracts';
 
 export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
   'wallet_session_authorization_v3' as const;
@@ -110,36 +114,6 @@ export type WalletSessionAuthorizationProjection =
   | RetiredWalletSessionAuthorizationProjection;
 
 export type WalletSessionAuthorizationCurve = 'ed25519' | 'ecdsa';
-
-export type WalletCapabilitySubjectV1 =
-  | {
-      readonly kind: 'sign';
-      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-      readonly materialActivation: MpcMaterialActivationRef;
-    }
-  | {
-      readonly kind: 'export_keys';
-      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-      readonly materialActivation: MpcMaterialActivationRef;
-    }
-  | {
-      readonly kind: 'link_devices' | 'revoke_devices';
-      readonly materialActivation?: never;
-      readonly keyFamily?: never;
-    };
-
-export type ActiveWalletSessionV1 = {
-  readonly kind: 'active_wallet_session_v1';
-  readonly walletId: WalletId;
-  readonly authorityId: WalletAuthorityId;
-  readonly authMethodId: WalletAuthMethodId;
-  readonly authorizationId: WalletSessionAuthorizationId;
-  readonly authorityDigestB64u: DigestB64u;
-  readonly authorityRevocationEpoch: number;
-  readonly capabilitySubjects: readonly [WalletCapabilitySubjectV1, ...WalletCapabilitySubjectV1[]];
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-};
 
 export type RetiredWalletSessionV1 = {
   readonly kind: 'retired_wallet_session_v1';

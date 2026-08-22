@@ -45,9 +45,6 @@ import { readNearProvisioningState } from '@/core/signingEngine/flows/registrati
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
-import { laneSealedHolderMaterialRepository } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import { linkedDeviceExecutionEvidence } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
-import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type {
   HostedAuthMenuExternalAuthRequest,
   HostedAuthMenuDemoEmailOtpDelivery,
@@ -80,7 +77,6 @@ import {
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
 import {
-  createBrowserHostPlatformRuntime,
   createBrowserSigningRuntime,
 } from './assembly/createBrowserSigningRuntime';
 import { createBrowserSigningStores } from './assembly/createBrowserSigningStores';
@@ -95,9 +91,6 @@ import {
   type LinkedDeviceManagementPortV1,
   type WalletIframeControlCapability,
 } from './publicApi';
-import { createWalletHostCompositionV1 } from './operations/devices/walletHostComposition';
-import type { WalletHostCompositionDependenciesV1 } from './operations/devices/walletHostComposition';
-import { createLinkedDeviceLocalStateInvalidationPortV1 } from './operations/devices/linkedDeviceLocalStateInvalidation';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -138,7 +131,6 @@ import {
 } from '@/SeamsWeb/publicApi/chainTargets';
 import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/public';
 import type { TempoChainTarget } from '@/core/platform/types';
-import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
@@ -721,27 +713,6 @@ function deliverNearProvisioningStateChanged(
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
  */
-type WalletHostLinkedDeviceSessionRepository =
-  WalletHostCompositionDependenciesV1['walletSessionRepository'];
-
-class ProjectingLinkedDeviceWalletSessionRepository implements WalletHostLinkedDeviceSessionRepository {
-  constructor(
-    private readonly repository: WalletHostLinkedDeviceSessionRepository,
-    private readonly userPreferences: Pick<
-      ReturnType<BrowserSigningSurface['getUserPreferences']>,
-      'projectCurrentWallet'
-    >,
-  ) {}
-
-  async putExactActiveDeliveryV1(
-    delivery: LinkedDeviceWalletSessionDeliveryV1,
-  ): Promise<LinkedDeviceWalletSessionDeliveryV1> {
-    const persisted = await this.repository.putExactActiveDeliveryV1(delivery);
-    this.userPreferences.projectCurrentWallet(persisted.walletId);
-    return persisted;
-  }
-}
-
 export class SeamsWeb {
   private readonly signingEngine: SeamsWebSigningSurface;
   private readonly nearClient: NearClient;
@@ -749,7 +720,6 @@ export class SeamsWeb {
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
-  private readonly walletHostDeviceLinkingDisposer: (() => void) | null;
   private readonly lifecycleEventSource: SeamsWebLifecycleEventSource;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
@@ -787,65 +757,24 @@ export class SeamsWeb {
       workerWarmupPolicy: resolveBrowserWorkerWarmupPolicy(this.configs),
     });
     this.signingEngine = browserSigningSurface;
-    const walletHostPlatformRuntime =
-      internalOptions?.kind === 'wallet_host'
-        ? createBrowserHostPlatformRuntime(browserSigningSurface.getSignerWorkerContext())
-        : null;
-    if (walletHostPlatformRuntime) {
-      browserSigningSurface.configureLinkedDeviceSigning(walletHostPlatformRuntime.authenticator);
-    }
-
     this.appearance = this.configs.ui.appearance;
     this.theme = this.appearance.theme.mode;
     try {
       this.signingEngine.setAppearance(this.appearance);
     } catch {}
     const userPreferences = this.signingEngine.getUserPreferences();
-    const projectedLinkedDeviceWalletSessions = new ProjectingLinkedDeviceWalletSessionRepository(
-      linkedDeviceWalletSessions,
-      userPreferences,
-    );
-
     this.walletIframe = new WalletIframeCoordinator({
       configs: this.configs,
       signingEngine: this.signingEngine,
       userPreferences: userPreferences,
       getAppearance: () => this.appearance,
     });
-    let walletHostComposition: ReturnType<typeof createWalletHostCompositionV1> | null = null;
-    if (internalOptions?.kind === 'wallet_host') {
-      if (!walletHostPlatformRuntime) {
-        throw new Error('Wallet host platform runtime is unavailable');
-      }
-      walletHostComposition = createWalletHostCompositionV1(
-        browserSigningSurface.createWalletHostCompositionDependenciesV1({
-          http: walletHostPlatformRuntime.http,
-          authenticator: walletHostPlatformRuntime.authenticator,
-          repository: laneSealedHolderMaterialRepository,
-          walletSessionRepository: projectedLinkedDeviceWalletSessions,
-          executionEvidenceRepository: linkedDeviceExecutionEvidence,
-        }),
-      );
-    }
-    const deviceDomain =
-      internalOptions?.kind === 'wallet_host' && walletHostComposition
-        ? {
-            kind: 'direct' as const,
-            linkedDeviceManagement: walletHostComposition.linkedDeviceManagement,
-            deviceLinkingPorts: walletHostComposition.deviceLinkingPorts,
-            localStateInvalidation: createLinkedDeviceLocalStateInvalidationPortV1({
-              holderRepository: laneSealedHolderMaterialRepository,
-              walletSessionRepository: linkedDeviceWalletSessions,
-              executionEvidenceRepository: linkedDeviceExecutionEvidence,
-            }),
-          }
-        : {
-            kind: 'iframe' as const,
-            linkedDeviceManagement: createWalletIframeLinkedDeviceManagementPortV1({
-              walletIframe: this.walletIframe,
-            }),
-          };
-    this.walletHostDeviceLinkingDisposer = walletHostComposition?.dispose ?? null;
+    const deviceDomain = {
+      kind: 'iframe' as const,
+      linkedDeviceManagement: createWalletIframeLinkedDeviceManagementPortV1({
+        walletIframe: this.walletIframe,
+      }),
+    };
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -1006,7 +935,6 @@ export class SeamsWeb {
   }
 
   dispose(): void {
-    this.walletHostDeviceLinkingDisposer?.();
     this.walletIframe.dispose();
     this.signingEngine.dispose();
   }
@@ -1811,8 +1739,6 @@ export class SeamsWeb {
         loginWithEmailOtpEcdsaCapability: this.loginWithEmailOtpEcdsaCapabilityDomain.bind(this),
         loginWithEmailOtpEd25519YaoCapability:
           this.loginWithEmailOtpEd25519YaoCapabilityDomain.bind(this),
-        loginWithLinkedDeviceEmailOtp:
-          this.loginWithLinkedDeviceEmailOtpDomain.bind(this),
         getWalletSession: this.getGoogleEmailOtpWalletSessionDomain.bind(this),
       },
       args,
@@ -1840,17 +1766,6 @@ export class SeamsWeb {
     walletId: string,
   ): ReturnType<GoogleEmailOtpWalletAuthDeps['getWalletSession']> {
     return await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-  }
-
-  private async loginWithLinkedDeviceEmailOtpDomain(
-    args: Parameters<GoogleEmailOtpWalletAuthDeps['loginWithLinkedDeviceEmailOtp']>[0],
-  ): ReturnType<GoogleEmailOtpWalletAuthDeps['loginWithLinkedDeviceEmailOtp']> {
-    return await this.signingEngine.unlockLinkedDeviceEmailOtpSigningSession({
-      walletId: toWalletId(args.walletId),
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      ...(args.relayUrl ? { relayServerUrl: args.relayUrl } : {}),
-    });
   }
 
   private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {

@@ -29,11 +29,6 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
   type RouterAbNormalSigningAuthorizationWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
-import type { LinkedDeviceWalletSessionCredential } from '@/core/signingEngine/session/lanes/linkedDeviceWalletSessionCredential';
-import {
-  isLinkedDeviceWalletSessionCredential,
-  linkedDeviceWalletSessionBearer,
-} from '@/core/signingEngine/session/lanes/linkedDeviceWalletSessionCredential';
 
 const INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -96,8 +91,7 @@ export type RouterAbOpaqueWalletSessionCredential = {
 };
 
 export type RouterAbWalletSessionCredential =
-  | RouterAbOpaqueWalletSessionCredential
-  | LinkedDeviceWalletSessionCredential;
+  RouterAbOpaqueWalletSessionCredential;
 
 export type RouterAbEd25519NormalSigningCredential =
   | RouterAbWalletSessionCredential
@@ -1061,12 +1055,7 @@ function buildRouterAbRequestInit(args: {
   body: unknown;
 }): RequestInit {
   const bearer =
-    isLinkedDeviceWalletSessionCredential(args.credential)
-      ? {
-          token: linkedDeviceWalletSessionBearer(args.credential),
-          missingMessage: 'linked-device Wallet Session JWT is required',
-        }
-        : args.credential.kind === 'wallet_session_opaque'
+    args.credential.kind === 'wallet_session_opaque'
         ? {
             token: args.credential.walletSessionToken,
             missingMessage: 'walletSessionToken is required',
