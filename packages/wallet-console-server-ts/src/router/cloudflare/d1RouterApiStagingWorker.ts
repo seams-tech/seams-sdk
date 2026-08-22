@@ -28,7 +28,13 @@ import {
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/wallet-server/cloud-host';
 import {
   createCloudflareD1RouterApiAuthService,
+  createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
+  createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+  createD1LinkedDeviceOwnerSourceChildReaderV1,
+  createD1LinkedDeviceSourceContributionPreparationPlannerV1,
+  D1LinkedDeviceTargetCredentialProviderV1,
+  D1WalletAuthMethodStore,
   type CloudflareD1RouterApiAuthServiceOptions,
 } from '@seams/wallet-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
@@ -70,7 +76,7 @@ import {
   parseRouterAbPublicKeysetV2,
   type RouterAbPublicKeysetV2,
 } from '@seams/wallet-server/cloud-host';
-import { parseWalletId } from '@seams/wallet-server/cloud-host';
+import { base64UrlEncode, parseWalletId } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -357,23 +363,69 @@ async function createStagingRouterApiAuthComposition(
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
-    linkedDevice: stagingLinkedDeviceManagementComposition(env),
+    linkedDevice: stagingLinkedDeviceSessionComposition(env, scope),
   });
   return { service, ecdsaStrictPostRegistration };
 }
 
-function stagingLinkedDeviceManagementComposition(
+function stagingLinkedDeviceSessionComposition(
   env: CloudflareD1GatewayBaseEnv,
+  scope: RouterApiTenantScope,
 ): NonNullable<CloudflareD1RouterApiAuthServiceOptions['linkedDevice']> {
+  const walletStore = new D1WalletStore({
+    database: env.SIGNER_DB,
+    ...scope,
+    ensureSchema: false,
+  });
+  const walletAuthMethodStore = new D1WalletAuthMethodStore({
+    database: env.SIGNER_DB,
+    ...scope,
+    ensureSchema: false,
+  });
+  const sourceChildReader = createD1LinkedDeviceOwnerSourceChildReaderV1({
+    walletAuthMethodStore,
+    walletStore,
+  });
+  const serviceFetch = createRouterAbServiceBindingFetch(env);
+  const internalServiceAuthSecret = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
+  const signingWorkerRecipientPublicKeyB64u = x25519PublicKeyB64u(
+    stagingEd25519YaoKeyEnvironment(env).SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
+  );
   return {
-    management: {
-      deactivationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1({
-        fetch: createRouterAbServiceBindingFetch(env),
-        internalServiceAuthSecret: requireEnvString(
-          env,
-          'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-        ),
-      }),
+    session: {
+      readOwnerSourceChildV1: sourceChildReader.readOwnerSourceChildV1,
+      targetCredential: ({
+        verifiedLinkBuilder,
+        targetCredentialVerification,
+        targetPlanner,
+        resolveOwnerSourceChildV1,
+      }) =>
+        new D1LinkedDeviceTargetCredentialProviderV1({
+          database: env.SIGNER_DB,
+          scope,
+          verifier: targetCredentialVerification,
+          planner: targetPlanner,
+          sourceContributionPreparationPlanner:
+            createD1LinkedDeviceSourceContributionPreparationPlannerV1({
+              resolveOwnerSourceChildV1,
+              signingWorkerRecipientPublicKeyB64u,
+            }),
+          verifiedLinkBuilder,
+        }),
+      authorityInstallation: {
+        reservationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
+        activationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
+        deactivationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
+      },
     },
   };
 }
@@ -600,6 +652,19 @@ function stagingEd25519YaoKeyEnvironment(env: CloudflareD1GatewayBaseEnv) {
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
       keyset.signing_worker_server_output_hpke.public_key,
   };
+}
+
+function x25519PublicKeyB64u(value: string): string {
+  if (!/^x25519:[0-9a-f]{64}$/.test(value)) {
+    throw new Error(
+      'signing worker server output HPKE public key must use x25519:<64 lowercase hex chars> encoding',
+    );
+  }
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(8 + index * 2, 10 + index * 2), 16);
+  }
+  return base64UrlEncode(bytes);
 }
 
 function createStagingEcdsaCeremonyTokenIssuer(

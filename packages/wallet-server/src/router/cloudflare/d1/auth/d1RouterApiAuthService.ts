@@ -532,6 +532,8 @@ function createD1LinkedDeviceComposition(input: {
         verifiedLinkBuilder,
         targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(),
         targetPlanner: ownerAuthorizationProvider.targetPlanner,
+        resolveOwnerSourceChildV1:
+          ownerAuthorizationProvider.ownerSourceResolver.resolveOwnerSourceChildV1,
       }),
       installationReceipt,
       nowV1,

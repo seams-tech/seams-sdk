@@ -18,6 +18,7 @@ import type {
   LinkedDeviceTargetPlannerV1,
   LinkedDeviceVerifiedLinkBuilderV1,
 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type { LinkedDeviceOwnerSourceChildResolverV1 } from '../deviceLinking/d1LinkedDeviceTargetPlanner';
 import type { D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
 import type {
   CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
@@ -73,6 +74,7 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
     readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
     readonly targetCredentialVerification: LinkedDeviceTargetCredentialVerificationPortV1;
     readonly targetPlanner: LinkedDeviceTargetPlannerV1;
+    readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
   }) => DeviceLinkingRouteServiceV1['targetCredential'];
   /** Worker endpoints and exact preparation planners for ordinary authority installation. */
   readonly authorityInstallation: CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1;

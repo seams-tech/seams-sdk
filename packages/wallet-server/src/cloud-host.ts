@@ -3,6 +3,7 @@
 export * from './core/SessionService';
 export * from './core/ThresholdService/evmCryptoWasm';
 export * from './core/d1WalletStore';
+export * from './core/d1WalletAuthMethodStore';
 export * from './core/logger';
 export * from './core/signingLanes/LaneLifecycleApplicationService';
 export * from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
