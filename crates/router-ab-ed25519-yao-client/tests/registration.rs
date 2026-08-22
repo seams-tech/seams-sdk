@@ -24,9 +24,12 @@ use router_ab_ed25519_yao::{
 use router_ab_ed25519_yao_client::{
     client_application_binding_digest_v1, complete_client_activation_packages_v1,
     complete_client_activation_v1, import_activated_client_material_v1,
-    import_activated_client_under_custody_seed_v1, prepare_client_registration_with_root_v1,
+    import_activated_client_under_custody_seed_v1,
+    prepare_client_registration_source_preserving_with_root_v1,
+    prepare_client_registration_with_root_v1,
     seal_activated_client_under_custody_seed_v1, ActivatedClientV1, ClientActivationEntropyV1,
-    ClientActivationError, ClientActivationStateV1, LocalMaterialError, LocalMaterialSealDomainV1,
+    ClientActivationError, ClientActivationSourcePreservingEntropyV1, ClientActivationStateV1,
+    LocalMaterialError, LocalMaterialSealDomainV1,
 };
 use signer_core::ed25519_yao_derivation::Ed25519YaoClientRootV1;
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
@@ -41,6 +44,69 @@ fn client_activation_entropy_rejects_zero_and_reused_seeds() {
         ClientActivationEntropyV1::new([0x71; 32], [0x71; 32], [0x73; 32])
             .expect_err("reused entropy"),
         ClientActivationError::InvalidEntropy
+    );
+}
+
+#[test]
+fn source_preserving_registration_seals_to_the_supplied_target_recipient() {
+    let application = application();
+    let participant_ids = [1, 2];
+    let context = stable_key_derivation_context_v1(&application, participant_ids)
+        .expect("stable derivation context");
+    let binding = Ed25519YaoCeremonyBindingV1::new(
+        lifecycle(ExpensiveWorkKindV1::RegistrationPrepare, 0x91),
+        Ed25519YaoOperationV1::Registration,
+        Ed25519YaoSessionIdV1::new([0x91; 32]).expect("session"),
+        Ed25519YaoStableKeyContextBindingV1::new(context.binding_digest()),
+        material_activation(0x91),
+    )
+    .expect("binding");
+    let deriver_a_recipient =
+        generate_local_ed25519_yao_recipient_key_pair_v1().expect("Deriver A recipient");
+    let deriver_b_recipient =
+        generate_local_ed25519_yao_recipient_key_pair_v1().expect("Deriver B recipient");
+    let signing_worker_recipient =
+        generate_local_ed25519_yao_recipient_key_pair_v1().expect("SigningWorker recipient");
+    let admission = RouterAbEd25519YaoActivationAdmissionReceiptV1::new(
+        binding,
+        RouterAbEd25519YaoActivationKeysetV1::new(
+            deriver_a_recipient.public_key,
+            deriver_b_recipient.public_key,
+            signing_worker_recipient.public_key,
+        )
+        .expect("activation keyset"),
+    )
+    .expect("admission");
+    let digest = client_application_binding_digest_v1(&application, participant_ids)
+        .expect("application binding digest");
+    let root = derive_ed25519_yao_client_root_from_seed_v1(&[0x42; 32], &digest)
+        .expect("seed-derived Client root");
+    let target_client_recipient = derive_client_public_key([0x96; 32]);
+    let request = prepare_client_registration_source_preserving_with_root_v1(
+        &admission,
+        &application,
+        participant_ids,
+        &Ed25519YaoClientRootV1::from_secret_bytes(*root),
+        target_client_recipient,
+        ClientActivationSourcePreservingEntropyV1::new([0x97; 32], [0x98; 32])
+            .expect("source-preserving entropy"),
+    )
+    .expect("source-preserving registration request");
+    let request_a = open_local_ed25519_yao_activation_deriver_a_input_v1(
+        request.deriver_a_input(),
+        &deriver_a_recipient.private_key,
+    )
+    .expect("open Deriver A input");
+    let request_b = open_local_ed25519_yao_activation_deriver_b_input_v1(
+        request.deriver_b_input(),
+        &deriver_b_recipient.private_key,
+    )
+    .expect("open Deriver B input");
+    assert_eq!(request_a.recipients, request_b.recipients);
+    assert_eq!(request_a.recipients.client_public_key, target_client_recipient);
+    assert_eq!(
+        request_a.recipients.signing_worker_public_key,
+        signing_worker_recipient.public_key
     );
 }
 

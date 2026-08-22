@@ -1221,7 +1221,7 @@ function assertSourceContributionPreparationContextV1(input: {
           sourceLaneHint.materialActivation,
         ) ||
         !mpcMaterialActivationRefsEqual(
-          routerAbMpcMaterialActivationRefFromWire(preparation.targetRequest.binding.material_activation),
+          routerAbMpcMaterialActivationRefFromWire(preparation.targetAdmission.binding.material_activation),
           preparation.targetMaterialActivation,
         ) ||
         preparation.targetClientRecipientPublicKeyB64u !==

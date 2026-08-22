@@ -14,6 +14,7 @@ import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type {
   RouterAbEd25519YaoApplicationBindingFactsV1,
   RouterAbEd25519YaoCeremonyBindingV1,
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   deriveRouterAbEd25519YaoApplicationBindingDigestV1,
@@ -228,6 +229,13 @@ export const createEd25519YaoLaneWasmAdapter = createEd25519YaoLaneWasmAdapterV1
 export type Ed25519YaoLaneWorkerSourceV1 = {
   readonly sourceHandle: string;
   discard(): Promise<void>;
+  prepareSourcePreservingRegistration(input: {
+    readonly targetAdmission: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+    readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+    readonly participantIds: readonly [number, number];
+    readonly expectedRegisteredPublicKeyB64u: string;
+    readonly targetClientRecipientPublicKeyB64u: string;
+  }): Promise<{ readonly requestJson: string }>;
 };
 
 export async function openEd25519YaoLaneWorkerSourceV1(args: {
@@ -300,6 +308,35 @@ class Ed25519YaoLaneWorkerSource implements Ed25519YaoLaneWorkerSourceV1 {
         payload: { sourceHandle: this.sourceHandle },
       },
     });
+  }
+
+  async prepareSourcePreservingRegistration(input: {
+    readonly targetAdmission: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+    readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+    readonly participantIds: readonly [number, number];
+    readonly expectedRegisteredPublicKeyB64u: string;
+    readonly targetClientRecipientPublicKeyB64u: string;
+  }): Promise<{ readonly requestJson: string }> {
+    if (this.#discarded) {
+      throw new Error('Ed25519 Yao lane source is already consumed');
+    }
+    this.#discarded = true;
+    const result = await executeWorkerOperation({
+      ctx: this.workerCtx,
+      kind: 'walletCustodyCeremony',
+      request: {
+        type: 'prepareEd25519YaoSourcePreservingRegistration',
+        payload: {
+          sourceHandle: this.sourceHandle,
+          targetAdmission: input.targetAdmission,
+          applicationBinding: input.applicationBinding,
+          participantIds: input.participantIds,
+          expectedRegisteredPublicKeyB64u: input.expectedRegisteredPublicKeyB64u,
+          targetClientRecipientPublicKeyB64u: input.targetClientRecipientPublicKeyB64u,
+        },
+      },
+    });
+    return { requestJson: requestJson(result.requestJson) };
   }
 }
 

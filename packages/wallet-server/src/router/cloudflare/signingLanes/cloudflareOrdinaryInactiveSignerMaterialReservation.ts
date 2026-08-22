@@ -26,13 +26,10 @@ import {
   routerAbMpcMaterialActivationRefToWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
-  parseRouterAbEd25519YaoEncryptedPackageV1,
-  parseRouterAbEd25519YaoParticipantIdsV1,
-  parseRouterAbEd25519YaoActivationPublicReceiptV1,
-} from '@shared/utils/routerAbEd25519Yao';
-import {
   parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+  parseLinkedDeviceEd25519SourcePreservingReservationV1,
 } from '@shared/device-linking/sourceContribution';
+import type { DeviceLinkingEd25519SourcePreservingRouterPortV1 } from '../../transport/fetch/routes/deviceLinking';
 import type { OrdinaryInactiveSignerMaterialActivationPortV1 } from '../d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import type {
   OrdinaryEcdsaSignerMaterialReservationPreparationV1,
@@ -42,8 +39,6 @@ import type {
 /** Source-preserving ordinary material paths implemented by the Cloudflare workers. */
 export const CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PATH_V1 =
   '/router-ab/router/ed25519-yao/execute-source-preserving' as const;
-export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1 =
-  '/router-ab/signing-worker/ed25519-yao/reserve-inactive-source-preserving' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1 =
   '/router-ab/signing-worker/ecdsa-derivation/reserve-inactive-source-preserving' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH_V1 =
@@ -71,6 +66,35 @@ export type CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1 = {
   ): Promise<unknown>;
 };
 
+export type CloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1 =
+  DeviceLinkingEd25519SourcePreservingRouterPortV1;
+
+export function createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1(input: {
+  readonly fetch: typeof fetch;
+  readonly internalServiceAuthSecret: string;
+}): CloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1 {
+  return {
+    executeEd25519SourcePreservingV1: async (request) => {
+      const raw = await postRouterJsonRequestV1(
+        input,
+        CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PATH_V1,
+        {
+          source_binding: request.sourceBinding,
+          target: {
+            operation: 'registration',
+            binding: request.targetRequest.binding,
+            deriver_a_input: request.targetRequest.deriver_a_input,
+            deriver_b_input: request.targetRequest.deriver_b_input,
+          },
+          participant_ids: request.participantIds,
+        },
+        'Ed25519 source-preserving Router execution',
+      );
+      return parseLinkedDeviceEd25519SourcePreservingReservationV1(raw);
+    },
+  };
+}
+
 export type CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1 = {
   activateInactiveEd25519SignerMaterialV1(input: {
     readonly sourceContribution: OrdinaryEd25519SignerMaterialReservationPreparationV1['sourceContribution'];
@@ -97,13 +121,7 @@ export function createCloudflareOrdinaryInactiveSignerMaterialReservationEndpoin
 }): CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1 {
   return {
     reserveInactiveEd25519SignerMaterialV1: async (request) => {
-      const raw = await postReservationRequestV1(
-        input,
-        CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH_V1,
-        ed25519ReservationRequestToWireV1(request),
-        'ed25519',
-      );
-      return parseEd25519ReservationResponseV1(request, raw);
+      return ed25519ReservationFromSourceContributionV1(request);
     },
     reserveInactiveEcdsaSignerMaterialV1: async (request) => {
       const raw = await postReservationRequestV1(
@@ -139,19 +157,6 @@ export function createCloudflareOrdinaryInactiveSignerMaterialActivationEndpoint
   };
 }
 
-function ed25519ReservationRequestToWireV1(
-  request: OrdinaryEd25519SignerMaterialReservationRequestV1,
-): Record<string, unknown> {
-  const sourceContribution = request.preparation.sourceContribution;
-  return {
-    source_binding: sourceContribution.sourceBinding,
-    delivery: sourceContribution.delivery,
-    participant_ids: sourceContribution.participantIds,
-    deriver_a_client_package: sourceContribution.deriver_a_client_package,
-    deriver_b_client_package: sourceContribution.deriver_b_client_package,
-  };
-}
-
 function ecdsaReservationRequestToWireV1(
   request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
 ): Record<string, unknown> {
@@ -165,12 +170,33 @@ function ecdsaReservationRequestToWireV1(
   };
 }
 
+function ed25519ReservationFromSourceContributionV1(
+  request: OrdinaryEd25519SignerMaterialReservationRequestV1,
+): Record<string, unknown> {
+  const sourceContribution = request.preparation.sourceContribution;
+  return {
+    kind: 'ordinary_ed25519_signer_material_worker_reservation_v1',
+    keyFamily: 'ed25519',
+    state: 'inactive',
+    signer: request.signer,
+    materialActivation: request.plannedActivationRef,
+    participantIds: sourceContribution.participantIds,
+    activationReceipt: sourceContribution.activationReceipt,
+    clientMaterial: {
+      kind: 'ordinary_ed25519_client_material_v1',
+      deriver_a_client_package: sourceContribution.deriver_a_client_package,
+      deriver_b_client_package: sourceContribution.deriver_b_client_package,
+    },
+    serverMaterialReservationId: sourceContribution.reservationId,
+  };
+}
+
 function ed25519ActivationRequestToWireV1(input: {
   readonly sourceContribution: OrdinaryEd25519SignerMaterialReservationPreparationV1['sourceContribution'];
   readonly reservationId: string;
 }): Record<string, unknown> {
   return {
-    binding: input.sourceContribution.delivery.deriver_a.binding,
+    binding: input.sourceContribution.targetBinding,
     reservation_id: input.reservationId,
   };
 }
@@ -184,57 +210,6 @@ function ecdsaActivationRequestToWireV1(input: {
       input.preparation.sourceContribution.binding.target.activation,
     ),
     reservation_id: input.reservationId,
-  };
-}
-
-function parseEd25519ReservationResponseV1(
-  request: OrdinaryEd25519SignerMaterialReservationRequestV1,
-  raw: unknown,
-): Record<string, unknown> {
-  const reservation = exactResponseRecordV1(
-    raw,
-    [
-      'state',
-      'reservation_id',
-      'participant_ids',
-      'activation_receipt',
-      'deriver_a_client_package',
-      'deriver_b_client_package',
-    ],
-    'ordinary Ed25519 material reservation',
-  );
-  if (reservation.state !== 'inactive' || typeof reservation.reservation_id !== 'string') {
-    throw new Error('ordinary Ed25519 material reservation response is invalid');
-  }
-  const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
-    reservation.activation_receipt,
-  );
-  const participantIds = parseRouterAbEd25519YaoParticipantIdsV1(reservation.participant_ids);
-  const deriverAClientPackage = parseRouterAbEd25519YaoEncryptedPackageV1(
-    reservation.deriver_a_client_package,
-  );
-  const deriverBClientPackage = parseRouterAbEd25519YaoEncryptedPackageV1(
-    reservation.deriver_b_client_package,
-  );
-  if (!deriverAClientPackage.ok || !deriverBClientPackage.ok) {
-    throw new Error('ordinary Ed25519 material reservation client package is invalid');
-  }
-  return {
-    kind: 'ordinary_ed25519_signer_material_worker_reservation_v1',
-    keyFamily: 'ed25519',
-    state: 'inactive',
-    signer: request.signer,
-    materialActivation: routerAbMpcMaterialActivationRefFromWire(
-      activationReceipt.material_activation,
-    ),
-    participantIds,
-    activationReceipt,
-    clientMaterial: {
-      kind: 'ordinary_ed25519_client_material_v1',
-      deriver_a_client_package: deriverAClientPackage.value,
-      deriver_b_client_package: deriverBClientPackage.value,
-    },
-    serverMaterialReservationId: reservation.reservation_id,
   };
 }
 
@@ -373,6 +348,35 @@ async function postSigningWorkerJsonRequestV1(
 ): Promise<unknown> {
   const response = await input.fetch(
     new Request(`https://signing-worker.router-ab.internal${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-router-ab-internal-service-auth': input.internalServiceAuthSecret,
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+  if (!response.ok) {
+    throw new Error(`${operation} failed with HTTP ${response.status}`);
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`${operation} returned invalid JSON`);
+  }
+}
+
+async function postRouterJsonRequestV1(
+  input: {
+    readonly fetch: typeof fetch;
+    readonly internalServiceAuthSecret: string;
+  },
+  path: string,
+  body: Record<string, unknown>,
+  operation: string,
+): Promise<unknown> {
+  const response = await input.fetch(
+    new Request(`https://router.router-ab.internal${path}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

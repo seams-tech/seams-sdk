@@ -20,11 +20,11 @@ import {
 import {
   parseRouterAbEd25519YaoActivationPublicReceiptV1,
   parseRouterAbEd25519YaoParticipantIdsV1,
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  parseRouterAbEd25519YaoCeremonyBindingV1,
   type RouterAbEd25519YaoActivationPublicReceiptV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
-  type RouterAbEd25519YaoActivationExecuteRequestV1,
+  type RouterAbEd25519YaoCeremonyBindingV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
@@ -106,7 +106,7 @@ export type OrdinaryInactiveServerMaterialV1 = {
 export type OrdinaryEd25519SignerMaterialReservationPreparationV1 = {
   readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
   readonly sourceContribution: LinkedDeviceEd25519SourceContributionV1;
-  readonly targetRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+  readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
 };
 
 export type OrdinaryEcdsaSignerMaterialReservationPreparationV1 = {
@@ -375,15 +375,15 @@ export function validateOrdinaryInactiveSignerMaterialReservationRequestV1(
         request.plannedActivationRef,
         request.preparation.sourceContribution.targetMaterialActivation,
       );
-      const targetRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-        request.preparation.targetRequest,
+      const targetBinding = parseRouterAbEd25519YaoCeremonyBindingV1(
+        request.preparation.targetBinding,
       );
-      if (!targetRequest.ok) {
-        throw new Error(`ordinary Ed25519 target request: ${targetRequest.message}`);
+      if (targetBinding.operation !== 'registration') {
+        throw new Error('ordinary Ed25519 target binding must use registration');
       }
       assertMaterialActivationMatchesV1(
         request.plannedActivationRef,
-        routerAbMpcMaterialActivationRefFromWire(targetRequest.value.binding.material_activation),
+        routerAbMpcMaterialActivationRefFromWire(targetBinding.material_activation),
       );
       if (request.preparation.sourceContribution.sourceBinding.operation !== 'registration') {
         throw new Error('ordinary Ed25519 source contribution must use registration');

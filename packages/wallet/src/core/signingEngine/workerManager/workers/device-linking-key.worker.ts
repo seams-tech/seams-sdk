@@ -355,7 +355,7 @@ async function openOrdinarySignerMaterial(input: {
     let material: WasmOrdinaryEd25519ActivationClientMaterialV1 | null = null;
     try {
       material = new WasmOrdinaryEd25519ActivationClientMaterialV1(
-        JSON.stringify(input.preparation.targetRequest),
+        JSON.stringify(input.preparation.targetAdmission.binding),
         JSON.stringify(input.packageValue.package.deriver_a_client_package),
         JSON.stringify(input.packageValue.package.deriver_b_client_package),
         recipientPrivateKey,

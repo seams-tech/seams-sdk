@@ -313,6 +313,7 @@ async function sourceChildResolutionFromSignerV1(input: {
       keyCreationSignerSlot: input.projection.walletKey.keyCreationSignerSlot,
       stableContextBindingB64u,
       sourceBinding: capability.activationResult.binding,
+      applicationBinding: application,
     };
   }
 

@@ -30,7 +30,9 @@ use crate::{
 };
 use crate::{
     complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
-    ClientLaneExecutionEntropyV1, Ed25519YaoClientRootV1, PreparedClientLaneV1,
+    prepare_client_registration_source_preserving_with_root_v1,
+    ClientActivationSourcePreservingEntropyV1, ClientLaneExecutionEntropyV1,
+    Ed25519YaoClientRootV1, PreparedClientLaneV1,
 };
 use crate::{
     ed25519_local_material_binding_v1, import_activated_client_material_v1,
@@ -38,7 +40,7 @@ use crate::{
     LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1,
 };
 use router_ab_core::{
-    Ed25519YaoEncryptedPackageV1, RouterAbEd25519YaoActivationExecuteRequestV1,
+    Ed25519YaoEncryptedPackageV1, RouterAbEd25519YaoActivationAdmissionReceiptV1,
     RouterAbEd25519YaoActivationPublicReceiptV1,
 };
 use signer_core::ed25519_yao_client_root_transfer::open_ed25519_yao_client_root_under_factor_v1;
@@ -599,23 +601,21 @@ pub struct WasmOrdinaryEd25519ActivationClientMaterialV1 {
 
 #[wasm_bindgen]
 impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
-    /// Opens and combines the two Client packages for one registration
-    /// activation. The receipt and participant IDs provide the public
-    /// relation needed before local factor sealing. The recipient private key
-    /// is consumed only in Rust/WASM.
+    /// Opens and combines the two Client packages for one admitted activation.
+    /// The binding, receipt, and participant IDs provide the public relation
+    /// needed before local factor sealing. The recipient private key is
+    /// consumed only in Rust/WASM.
     #[wasm_bindgen(constructor)]
     pub fn new(
-        activation_request_json: &str,
+        binding_json: &str,
         deriver_a_client_package_json: &str,
         deriver_b_client_package_json: &str,
         recipient_private_key: &[u8],
         participant_ids_json: &str,
         public_receipt_json: &str,
     ) -> Result<Self, JsValue> {
-        let request = serde_json::from_str::<RouterAbEd25519YaoActivationExecuteRequestV1>(
-            activation_request_json,
-        )
-        .map_err(js_error)?;
+        let binding = serde_json::from_str::<Ed25519YaoCeremonyBindingV1>(binding_json)
+            .map_err(js_error)?;
         let participant_ids =
             serde_json::from_str::<[u16; 2]>(participant_ids_json).map_err(js_error)?;
         let public_receipt = serde_json::from_str::<RouterAbEd25519YaoActivationPublicReceiptV1>(
@@ -633,7 +633,7 @@ impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
             "Ed25519 activation recipient private key",
         )?);
         let (client_scalar_share, transcript) = complete_client_activation_packages_v1(
-            &request.binding(),
+            &binding,
             participant_ids,
             &public_receipt,
             &recipient_private_key,
@@ -643,7 +643,7 @@ impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
         .map_err(js_error)?;
         Ok(Self {
             client_scalar_share: Some(client_scalar_share),
-            session: request.binding().session_id.into_bytes(),
+            session: binding.session_id.into_bytes(),
             transcript,
         })
     }
@@ -1144,6 +1144,108 @@ pub fn ed25519_yao_lane_source_from_wallet_seed_v1(
         application_binding_digest,
         registered_public_key: parse_32(registered_public_key, "registered Ed25519 public key")?,
     })
+}
+
+/// One-use source-preserving registration request prepared from an opaque
+/// owner source. The root is borrowed only while the request is sealed and is
+/// never retained by this session or returned to JavaScript.
+#[wasm_bindgen]
+pub struct WasmEd25519YaoSourcePreservingRegistrationSessionV1 {
+    request_json: Option<String>,
+}
+
+#[wasm_bindgen]
+impl WasmEd25519YaoSourcePreservingRegistrationSessionV1 {
+    /// Seals one target registration request to Device 2's recipient key.
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        admission_input: JsValue,
+        application_input: JsValue,
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        source: &WasmEd25519YaoLaneSourceV1,
+        expected_registered_public_key: &[u8],
+        target_client_recipient_public_key: &[u8],
+        deriver_a_seal_seed: &[u8],
+        deriver_b_seal_seed: &[u8],
+    ) -> Result<Self, JsValue> {
+        let admission = parse_js_domain_value::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(
+            admission_input,
+        )?;
+        let application = parse_js_domain_value::<RouterAbEd25519YaoApplicationBindingFactsV1>(
+            application_input,
+        )?;
+        let participant_ids = [client_participant_id, signing_worker_participant_id];
+        if participant_ids[0] == 0 || participant_ids[0] >= participant_ids[1] {
+            return Err(JsValue::from_str(
+                "source-preserving participant ids must be distinct, nonzero, ascending values",
+            ));
+        }
+        let expected_application_binding_digest =
+            crate::client_application_binding_digest_v1(&application, participant_ids)
+                .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        if source.application_binding_digest != expected_application_binding_digest {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another application",
+            ));
+        }
+        if source.wallet_id != application.wallet_id() {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another wallet",
+            ));
+        }
+        if source.registered_public_key
+            != parse_32(expected_registered_public_key, "source registered Ed25519 public key")?
+        {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao Client-root source is bound to another public key",
+            ));
+        }
+        if admission.binding().operation != router_ab_core::Ed25519YaoOperationV1::Registration {
+            return Err(JsValue::from_str(
+                "source-preserving target admission must be registration",
+            ));
+        }
+        let target_client_recipient_public_key =
+            parse_32(target_client_recipient_public_key, "target Client recipient public key")?;
+        if target_client_recipient_public_key
+            == admission.keyset().signing_worker_recipient_public_key()
+        {
+            return Err(JsValue::from_str(
+                "target Client and SigningWorker recipients must differ",
+            ));
+        }
+        let deriver_a_seal_seed =
+            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
+        let deriver_b_seal_seed =
+            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
+        let entropy = ClientActivationSourcePreservingEntropyV1::new(
+            *deriver_a_seal_seed,
+            *deriver_b_seal_seed,
+        )
+        .map_err(js_error)?;
+        let request = prepare_client_registration_source_preserving_with_root_v1(
+            &admission,
+            &application,
+            participant_ids,
+            &source.root,
+            target_client_recipient_public_key,
+            entropy,
+        )
+        .map_err(js_error)?;
+        let request_json = serde_json::to_string(&request).map_err(js_error)?;
+        Ok(Self {
+            request_json: Some(request_json),
+        })
+    }
+
+    /// Consumes the one-use session and returns the opaque Router request JSON.
+    pub fn take_execute_request_json(&mut self) -> Result<String, JsValue> {
+        self.request_json.take().ok_or_else(|| {
+            JsValue::from_str("source-preserving registration session was already consumed")
+        })
+    }
 }
 
 #[derive(Debug)]

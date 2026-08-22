@@ -57,7 +57,6 @@ export type {
   LinkedDeviceEcdsaSourceContributionV1,
   LinkedDeviceEcdsaSourceSignerIdentityV1,
   LinkedDeviceEcdsaTargetRecipientPreparationV1,
-  LinkedDeviceEd25519SigningWorkerPackageDeliveryV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEd25519SourceContributionV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
