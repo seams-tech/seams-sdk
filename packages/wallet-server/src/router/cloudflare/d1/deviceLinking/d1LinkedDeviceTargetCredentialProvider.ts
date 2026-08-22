@@ -23,6 +23,7 @@ import {
 } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -121,6 +122,7 @@ export type LinkedDeviceTargetPlannerV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
+    readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   }): Promise<LinkedDeviceTargetPreparationV1>;
 };
 
@@ -226,8 +228,13 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     if (input.session.state.state !== 'awaiting_target_factor') {
       throw new Error('linked-device target preparation is unavailable in this session state');
     }
+    const sourceAuthMethod = await readSourceAuthMethodForTargetPreparationV1({
+      source: this.verifiedLinkBuilder.source,
+      approval: input.approval,
+      requestedAtMs: input.requestedAtMs,
+    });
     const preparation = parseLinkedDeviceTargetPreparationV1(
-      await this.planner.createTargetPreparationV1(input),
+      await this.planner.createTargetPreparationV1({ ...input, sourceAuthMethod }),
     );
     assertPreparationMatchesSession(preparation, input.session, input.approval);
     if (preparation.expiresAtMs <= input.requestedAtMs) {
@@ -873,6 +880,7 @@ function assertPreparationMatchesSession(
     preparation.walletId !== approval.walletId ||
     preparation.enrollmentId !== approval.enrollmentId ||
     preparation.deviceId !== approval.deviceId ||
+    preparation.targetFactor.kind !== approval.targetFactor.kind ||
     preparation.ordinarySignerMaterialRecipientRequirements.length !==
       approval.orderedKeyBindings.length
   ) {
@@ -1052,4 +1060,21 @@ async function digestJsonV1(value: unknown): Promise<DigestB64u> {
 
 async function waitForTargetCommitV1(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function readSourceAuthMethodForTargetPreparationV1(input: {
+  readonly source: VerifiedLinkSourceReaderV1;
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly requestedAtMs: number;
+}): Promise<Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>> {
+  if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
+    throw new Error('linked-device target preparation requires an ordinary Wallet Session');
+  }
+  const source = await input.source.readVerifiedSourceV1({
+    walletId: input.approval.walletId,
+    walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
+    authorizationId: String(input.approval.ownerAuthorization.authorizationId),
+    requestedAtMs: input.requestedAtMs,
+  });
+  return source.authMethod;
 }

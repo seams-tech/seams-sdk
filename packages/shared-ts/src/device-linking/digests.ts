@@ -15,6 +15,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceEd25519ExportRootPreparationV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceTargetFactorV1,
   OrdinarySignerMaterialRecipientRequirementV1,
 } from './contracts';
@@ -160,6 +161,48 @@ function encodeTargetFactor(value: LinkedDeviceTargetFactorV1): Uint8Array {
   return text(value.kind, 'targetFactor.kind');
 }
 
+function encodeLinkedDevicePasskeyCreationOptionsV1(
+  value: LinkedDevicePasskeyCreationOptionsV1,
+): Uint8Array {
+  const algorithms = value.pubKeyCredParams.map((entry) =>
+    concat([text(entry.type, 'passkeyCreationOptions.pubKeyCredParams.type'), text(String(entry.alg), 'passkeyCreationOptions.pubKeyCredParams.alg')]),
+  );
+  const excludeCredentials = value.excludeCredentials.map((entry) =>
+    concat([
+      text(entry.type, 'passkeyCreationOptions.excludeCredentials.type'),
+      text(entry.id, 'passkeyCreationOptions.excludeCredentials.id'),
+    ]),
+  );
+  return concat([
+    text(value.kind, 'passkeyCreationOptions.kind'),
+    text(value.walletAuthMethodId, 'passkeyCreationOptions.walletAuthMethodId'),
+    text(value.challengeId, 'passkeyCreationOptions.challengeId'),
+    text(value.challengeB64u, 'passkeyCreationOptions.challengeB64u'),
+    text(value.rpId, 'passkeyCreationOptions.rpId'),
+    text(value.user.idB64u, 'passkeyCreationOptions.user.idB64u'),
+    text(value.user.name, 'passkeyCreationOptions.user.name'),
+    text(value.user.displayName, 'passkeyCreationOptions.user.displayName'),
+    u32(algorithms.length, 'passkeyCreationOptions.pubKeyCredParams'),
+    ...algorithms.map((entry) => lp32(entry, 'passkeyCreationOptions.pubKeyCredParams.item')),
+    text(
+      value.authenticatorSelection.residentKey,
+      'passkeyCreationOptions.authenticatorSelection.residentKey',
+    ),
+    text(
+      value.authenticatorSelection.userVerification,
+      'passkeyCreationOptions.authenticatorSelection.userVerification',
+    ),
+    u64(value.timeoutMs, 'passkeyCreationOptions.timeoutMs'),
+    text(value.attestation, 'passkeyCreationOptions.attestation'),
+    text(value.extensions.prf.eval.firstB64u, 'passkeyCreationOptions.extensions.prf.eval.firstB64u'),
+    text(value.extensions.prf.eval.secondB64u, 'passkeyCreationOptions.extensions.prf.eval.secondB64u'),
+    u32(excludeCredentials.length, 'passkeyCreationOptions.excludeCredentials'),
+    ...excludeCredentials.map((entry) =>
+      lp32(entry, 'passkeyCreationOptions.excludeCredentials.item'),
+    ),
+  ]);
+}
+
 function encodeProtocolVersion(value: LinkedDeviceProtocolVersionV1): Uint8Array {
   return concat([
     text(value.keyFamily, 'protocolVersion.keyFamily'),
@@ -248,6 +291,11 @@ export function encodeLinkedDeviceTargetPreparationV1(
   value: LinkedDeviceTargetPreparationV1,
 ): Uint8Array {
   const requirements = value.ordinarySignerMaterialRecipientRequirements.map(encodeRecipientRequirement);
+  const passkeyCreationOptions =
+    value.targetFactor.kind === 'passkey_prf' ? value.passkeyCreationOptions : undefined;
+  if (value.targetFactor.kind === 'passkey_prf' && !passkeyCreationOptions) {
+    throw new Error('passkey target preparation is missing creation options');
+  }
   return concat([
     text(TARGET_PREPARATION_DOMAIN, 'domain'),
     text(value.kind, 'kind'),
@@ -258,6 +306,9 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletAuthMethodId, 'walletAuthMethodId'),
     lp32(encodeEd25519ExportRootPreparation(value.ed25519ExportRoot), 'ed25519ExportRoot'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
+    ...(passkeyCreationOptions
+      ? [lp32(encodeLinkedDevicePasskeyCreationOptionsV1(passkeyCreationOptions), 'passkeyCreationOptions')]
+      : []),
     u32(requirements.length, 'ordinarySignerMaterialRecipientRequirements'),
     ...requirements.map((entry) =>
       lp32(entry, 'ordinarySignerMaterialRecipientRequirements.item'),

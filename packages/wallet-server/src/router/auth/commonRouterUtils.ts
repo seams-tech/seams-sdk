@@ -1,17 +1,10 @@
 import type {
   EcdsaDerivationServerBootstrapResponse,
-  ThresholdEd25519AuthorityScope,
   ThresholdRuntimePolicyScope,
 } from '../../core/types';
 import {
-  parseRouterAbEd25519LinkedDeviceWalletSessionClaims,
-  parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-  type RouterAbEd25519LinkedDeviceWalletSessionClaims,
-  type RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
-  type LinkedDeviceWalletSessionPermissionClaimsV1,
 } from '../../core/ThresholdService/validation';
-import type { SessionAdapter } from '../framework/routerApi';
 import type { RouterApiAuthorizationSessionService } from '../framework/authServicePort';
 import {
   type OpaqueOwnerWalletSessionBinding,
@@ -24,10 +17,6 @@ import type {
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
-import {
   parseRouterAbEd25519NormalSigningState,
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
@@ -36,8 +25,6 @@ import {
   buildVerifiedEd25519WalletSessionAuth,
   type VerifiedOwnerEcdsaWalletSessionAuth,
   type VerifiedOwnerEd25519WalletSessionAuth,
-  type VerifiedEcdsaWalletSessionAuth,
-  type VerifiedEd25519WalletSessionAuth,
 } from './verifiedWalletSessionAuth';
 import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
@@ -73,21 +60,12 @@ import {
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseLinkedDeviceEnrollmentId,
-  parseLinkedDeviceId,
-  parseWalletKeyId,
-  parseWalletId,
-  type LinkedDeviceEnrollmentId,
-  type LinkedDeviceId,
-  type WalletKeyId,
-} from '@shared/utils/domainIds';
+import { parseWalletId } from '@shared/utils/domainIds';
 import {
   walletSessionFailure,
   walletSessionFailureMessage,
   type WalletSessionFailureCode,
 } from './walletSessionFailure';
-import { parseDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = {
@@ -353,13 +331,6 @@ export type WalletSessionIssuanceResult =
       participantIds: number[];
     }
   | {
-      ok: true;
-      authorizationKind: 'linked_device_wallet_session';
-      jwt: string;
-      authorizationId: WalletSessionAuthorizationId;
-      expiresAtMs: number;
-    }
-  | {
       ok: false;
       status: 400 | 500;
       code: 'sessions_disabled' | 'invalid_body' | 'internal';
@@ -389,31 +360,6 @@ type RouterAbOpaqueWalletSessionSigningInput = {
   sessionsDisabledMessage?: string;
 };
 
-type RouterAbLinkedDeviceWalletSessionJwtSigningBaseInput = {
-  session: SessionAdapter | null | undefined;
-  userId: unknown;
-  requireJwtErrorMessage: string;
-  invalidPayloadErrorMessage: string;
-  sessionsDisabledMessage?: string;
-  sessionInfo: {
-    sessionKind: 'jwt';
-    authorizationKind: 'linked_device_wallet_session';
-    walletId: unknown;
-    tenantId: unknown;
-    deviceId: unknown;
-    enrollmentId: unknown;
-    walletKeyId: unknown;
-    keyManifestDigestB64u: unknown;
-    revocationEpoch: unknown;
-    permission: unknown;
-    issuedAtMs: unknown;
-    authorizationId: unknown;
-    walletSessionId: unknown;
-    quotaId: unknown;
-    expiresAtMs: unknown;
-  };
-};
-
 export type RouterAbEd25519OpaqueWalletSessionSigningInput =
   RouterAbOpaqueWalletSessionSigningInput & {
     proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
@@ -429,9 +375,6 @@ export type RouterAbEd25519OpaqueWalletSessionSigningInput =
       routerAbNormalSigning: unknown;
     };
   };
-
-export type RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput =
-  RouterAbLinkedDeviceWalletSessionJwtSigningBaseInput;
 
 export type RouterAbEcdsaDerivationOpaqueWalletSessionSigningInput =
   RouterAbOpaqueWalletSessionSigningInput & {
@@ -463,9 +406,6 @@ type NormalizedRouterAbWalletSessionSigningBase = {
   participantIds: number[];
   keyManifestDigestB64u: DigestB64u;
 };
-
-export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionJwtSigningInput =
-  RouterAbLinkedDeviceWalletSessionJwtSigningBaseInput;
 
 function normalizeRouterAbOpaqueWalletSessionSigningBase(
   args: RouterAbOpaqueWalletSessionSigningInput,
@@ -769,168 +709,6 @@ function doesEcdsaDerivationBindingMatchSessionInfo(
   );
 }
 
-type NormalizedLinkedDeviceWalletSessionSigningBase = {
-  walletId: string;
-  authorizationId: WalletSessionAuthorizationId;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  tenantId: TenantId;
-  deviceId: LinkedDeviceId;
-  enrollmentId: LinkedDeviceEnrollmentId;
-  walletKeyId: WalletKeyId;
-  keyManifestDigestB64u: DigestB64u;
-  revocationEpoch: number;
-  permission: LinkedDeviceWalletSessionPermissionClaimsV1;
-  issuedAtMs: number;
-  expiresAtMs: number;
-  iat: number;
-  exp: number;
-};
-
-function parseLinkedDeviceWalletSessionPermission(
-  input: unknown,
-): LinkedDeviceWalletSessionPermissionClaimsV1 | null {
-  const parsed = parseDelegatedWalletAuthorityV1(input);
-  return parsed.ok ? parsed.value : null;
-}
-
-function normalizeLinkedDeviceWalletSessionSigningBase(
-  args: RouterAbLinkedDeviceWalletSessionJwtSigningBaseInput,
-):
-  | { ok: true; value: NormalizedLinkedDeviceWalletSessionSigningBase }
-  | WalletSessionIssuanceFailure {
-  if (args.sessionInfo.sessionKind !== 'jwt') {
-    return {
-      ok: false,
-      status: 400,
-      code: 'invalid_body',
-      message: args.requireJwtErrorMessage,
-    };
-  }
-  const walletId = String(args.sessionInfo.walletId || '').trim();
-  const userId = String(args.userId || '').trim();
-  const tenantId = parseTenantId(args.sessionInfo.tenantId);
-  const deviceId = parseLinkedDeviceId(args.sessionInfo.deviceId);
-  const enrollmentId = parseLinkedDeviceEnrollmentId(args.sessionInfo.enrollmentId);
-  const walletKeyId = parseWalletKeyId(args.sessionInfo.walletKeyId);
-  const authorizationId = parseWalletSessionAuthorizationId(args.sessionInfo.authorizationId);
-  const walletSessionId = parseWalletSessionId(args.sessionInfo.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(args.sessionInfo.quotaId);
-  const issuedAtMs = Number(args.sessionInfo.issuedAtMs);
-  const expiresAtMs = Number(args.sessionInfo.expiresAtMs);
-  const revocationEpoch = Number(args.sessionInfo.revocationEpoch);
-  const permission = parseLinkedDeviceWalletSessionPermission(args.sessionInfo.permission);
-  let keyManifestDigestB64u: DigestB64u;
-  try {
-    keyManifestDigestB64u = parseDigestB64u(args.sessionInfo.keyManifestDigestB64u);
-  } catch {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
-  if (
-    !walletId ||
-    walletId !== userId ||
-    !tenantId.ok ||
-    !deviceId.ok ||
-    !enrollmentId.ok ||
-    !walletKeyId.ok ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    !Number.isSafeInteger(issuedAtMs) ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    issuedAtMs >= expiresAtMs ||
-    !Number.isSafeInteger(revocationEpoch) ||
-    revocationEpoch < 0 ||
-    !permission
-  ) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
-  return {
-    ok: true,
-    value: {
-      walletId,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      tenantId: tenantId.value,
-      deviceId: deviceId.value,
-      enrollmentId: enrollmentId.value,
-      walletKeyId: walletKeyId.value,
-      keyManifestDigestB64u,
-      revocationEpoch,
-      permission,
-      issuedAtMs,
-      expiresAtMs,
-      iat: Math.floor(issuedAtMs / 1000),
-      exp: Math.floor(expiresAtMs / 1000),
-    },
-  };
-}
-
-function buildRouterAbEd25519LinkedDeviceWalletSessionClaims(input: {
-  readonly base: NormalizedLinkedDeviceWalletSessionSigningBase;
-}): RouterAbEd25519LinkedDeviceWalletSessionClaims {
-  return {
-    sub: `linked-device:${input.base.deviceId}`,
-    walletId: input.base.walletId,
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    authorizationId: input.base.authorizationId,
-    walletSessionId: input.base.walletSessionId,
-    quotaId: input.base.quotaId,
-    tenantId: input.base.tenantId,
-    deviceId: input.base.deviceId,
-    enrollmentId: input.base.enrollmentId,
-    walletKeyId: input.base.walletKeyId,
-    keyManifestDigestB64u: input.base.keyManifestDigestB64u,
-    revocationEpoch: input.base.revocationEpoch,
-    permission: input.base.permission,
-    issuedAtMs: input.base.issuedAtMs,
-    expiresAtMs: input.base.expiresAtMs,
-    iat: input.base.iat,
-    exp: input.base.exp,
-  };
-}
-
-function buildRouterAbEcdsaLinkedDeviceWalletSessionClaims(input: {
-  readonly base: NormalizedLinkedDeviceWalletSessionSigningBase;
-}): RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims {
-  return {
-    sub: `linked-device:${input.base.deviceId}`,
-    walletId: input.base.walletId,
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    authorizationId: input.base.authorizationId,
-    walletSessionId: input.base.walletSessionId,
-    quotaId: input.base.quotaId,
-    tenantId: input.base.tenantId,
-    deviceId: input.base.deviceId,
-    enrollmentId: input.base.enrollmentId,
-    walletKeyId: input.base.walletKeyId,
-    keyManifestDigestB64u: input.base.keyManifestDigestB64u,
-    revocationEpoch: input.base.revocationEpoch,
-    permission: input.base.permission,
-    issuedAtMs: input.base.issuedAtMs,
-    expiresAtMs: input.base.expiresAtMs,
-    iat: input.base.iat,
-    exp: input.base.exp,
-  };
-}
-
-type RouterAbLinkedDeviceWalletSessionClaimsToSign =
-  | RouterAbEd25519LinkedDeviceWalletSessionClaims
-  | RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims;
-
 type RouterAbEd25519WalletSessionBindingBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
   authority: WalletAuthAuthority;
@@ -1009,52 +787,6 @@ function buildRouterAbEcdsaDerivationWalletSessionBinding(
   return input.runtimePolicyScope
     ? { ...binding, runtimePolicyScope: input.runtimePolicyScope }
     : binding;
-}
-
-async function signLinkedDeviceWalletSessionJwtClaims(args: {
-  session: SessionAdapter | null | undefined;
-  claims: RouterAbLinkedDeviceWalletSessionClaimsToSign;
-  invalidPayloadErrorMessage: string;
-  sessionsDisabledMessage?: string;
-}): Promise<WalletSessionIssuanceResult> {
-  const session = args.session;
-  if (!session) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'sessions_disabled',
-      message: args.sessionsDisabledMessage || 'Session signing is not configured on this server',
-    };
-  }
-
-  const validClaims =
-    args.claims.kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
-      ? parseRouterAbEd25519LinkedDeviceWalletSessionClaims(args.claims)
-      : parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(args.claims);
-  if (!validClaims) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'internal',
-      message: args.invalidPayloadErrorMessage,
-    };
-  }
-  const jwt = await session.signJwt(args.claims.sub, args.claims);
-  if (args.claims.authorizationKind === 'linked_device_wallet_session') {
-    return {
-      ok: true,
-      authorizationKind: 'linked_device_wallet_session',
-      jwt,
-      authorizationId: args.claims.authorizationId,
-      expiresAtMs: args.claims.expiresAtMs,
-    };
-  }
-  return {
-    ok: false,
-    status: 500,
-    code: 'internal',
-    message: 'Owner Wallet Sessions require opaque token issuance',
-  };
 }
 
 async function issueOpaqueWalletSessionToken(args: {
@@ -1145,44 +877,6 @@ async function ownerWalletSessionProofMatchesBinding(input: {
   return principalId.ok && principalId.value === input.proof.principalId;
 }
 
-async function signRouterAbLinkedDeviceEd25519WalletSessionJwt(
-  args: RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput,
-): Promise<WalletSessionIssuanceResult> {
-  const base = normalizeLinkedDeviceWalletSessionSigningBase(args);
-  if (!base.ok) return base;
-  const claims = buildRouterAbEd25519LinkedDeviceWalletSessionClaims({
-    base: base.value,
-  });
-  return await signLinkedDeviceWalletSessionJwtClaims({
-    session: args.session,
-    claims,
-    invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
-    sessionsDisabledMessage: args.sessionsDisabledMessage,
-  });
-}
-
-async function signRouterAbLinkedDeviceEcdsaWalletSessionJwt(
-  args: RouterAbEcdsaDerivationLinkedDeviceWalletSessionJwtSigningInput,
-): Promise<WalletSessionIssuanceResult> {
-  const base = normalizeLinkedDeviceWalletSessionSigningBase(args);
-  if (!base.ok) return base;
-  const claims = buildRouterAbEcdsaLinkedDeviceWalletSessionClaims({
-    base: base.value,
-  });
-  return await signLinkedDeviceWalletSessionJwtClaims({
-    session: args.session,
-    claims,
-    invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
-    sessionsDisabledMessage: args.sessionsDisabledMessage,
-  });
-}
-
-export async function signRouterAbEd25519LinkedDeviceWalletSessionJwt(
-  args: RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput,
-): Promise<WalletSessionIssuanceResult> {
-  return await signRouterAbLinkedDeviceEd25519WalletSessionJwt(args);
-}
-
 export async function issueRouterAbEd25519OpaqueWalletSessionToken(
   args: RouterAbEd25519OpaqueWalletSessionSigningInput,
 ): Promise<WalletSessionIssuanceResult> {
@@ -1211,12 +905,6 @@ export async function issueRouterAbEd25519OpaqueWalletSessionToken(
     binding,
     invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
   });
-}
-
-export async function signRouterAbEcdsaDerivationLinkedDeviceWalletSessionJwt(
-  args: RouterAbEcdsaDerivationLinkedDeviceWalletSessionJwtSigningInput,
-): Promise<WalletSessionIssuanceResult> {
-  return await signRouterAbLinkedDeviceEcdsaWalletSessionJwt(args);
 }
 
 export async function issueRouterAbEcdsaDerivationOpaqueWalletSessionToken(

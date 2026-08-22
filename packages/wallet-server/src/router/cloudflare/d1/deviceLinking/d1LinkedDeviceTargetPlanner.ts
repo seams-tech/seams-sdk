@@ -4,13 +4,19 @@ import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-lin
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
+  LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
   OrdinarySignerMaterialRecipientRequirementV1,
 } from '@shared/device-linking/contracts';
 import { buildLinkedDeviceTargetPreparationV1 } from '@shared/device-linking/parsers';
+import { base64UrlEncode } from '@shared/utils/base64';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import {
+  PASSKEY_PRF_FIRST_SALT_V1,
+  PASSKEY_PRF_SECOND_SALT_V1,
+} from '@shared/utils/signingSessionSeal';
 import {
   type LaneOperationIdempotencyKey,
 } from '@shared/signing-lanes/ids';
@@ -27,7 +33,10 @@ import type { LaneHolderParticipantId } from '@shared/signing-lanes/participants
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import type { KeyCreationSignerSlot } from '@shared/passkey-custody/primitives';
 import type { Ed25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
-import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import type {
+  NearEd25519SigningKeyId,
+  WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type {
   LinkedDeviceTargetPlannerV1,
@@ -140,6 +149,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
+    readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   }): Promise<LinkedDeviceTargetPreparationV1> {
     assertPreparationInput(input.session, input.approval, input.requestedAtMs);
     // A preparation cannot outlive the approved link session.
@@ -198,6 +208,29 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       throw new Error(`linked-device target wallet auth method id: ${walletAuthMethodId.error.message}`);
     }
 
+    if (input.approval.targetFactor.kind === 'passkey_prf') {
+      return buildLinkedDeviceTargetPreparationV1({
+        linkSessionId: input.approval.linkSessionId,
+        walletId: input.approval.walletId,
+        enrollmentId: input.approval.enrollmentId,
+        deviceId: input.approval.deviceId,
+        walletAuthMethodId: walletAuthMethodId.value,
+        ed25519ExportRoot,
+        targetFactor: input.approval.targetFactor,
+        passkeyCreationOptions: buildPasskeyCreationOptionsV1({
+          walletAuthMethodId: walletAuthMethodId.value,
+          walletId: input.approval.walletId,
+          sourceAuthMethod: input.sourceAuthMethod,
+        }),
+        ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
+          ordinarySignerMaterialRecipientRequirements,
+          'linked-device ordinary signer material recipient requirements',
+        ),
+        issuedAtMs: input.requestedAtMs,
+        expiresAtMs,
+      });
+    }
+
     return buildLinkedDeviceTargetPreparationV1({
       linkSessionId: input.approval.linkSessionId,
       walletId: input.approval.walletId,
@@ -215,6 +248,54 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     });
   }
 
+}
+
+function buildPasskeyCreationOptionsV1(input: {
+  readonly walletAuthMethodId: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>['walletAuthMethodId'];
+  readonly walletId: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>['walletId'];
+  readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+}): LinkedDevicePasskeyCreationOptionsV1 {
+  if (input.sourceAuthMethod.kind !== 'passkey') {
+    throw new Error('linked-device passkey preparation requires a passkey source auth method');
+  }
+  const challengeId = secureRandomBase64Url(16, 'linked-device target passkey challenge id');
+  const challengeB64u = secureRandomBase64Url(32, 'linked-device target passkey challenge');
+  return {
+    kind: 'webauthn_add_auth_method_registration_v1',
+    walletAuthMethodId: input.walletAuthMethodId,
+    challengeId,
+    challengeB64u,
+    rpId: input.sourceAuthMethod.rpId,
+    user: {
+      idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),
+      name: String(input.walletId),
+      displayName: String(input.walletId),
+    },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    authenticatorSelection: {
+      residentKey: 'required',
+      userVerification: 'preferred',
+    },
+    timeoutMs: 60_000,
+    attestation: 'none',
+    extensions: {
+      prf: {
+        eval: {
+          firstB64u: base64UrlEncode(PASSKEY_PRF_FIRST_SALT_V1),
+          secondB64u: base64UrlEncode(PASSKEY_PRF_SECOND_SALT_V1),
+        },
+      },
+    },
+    excludeCredentials: [
+      {
+        type: 'public-key',
+        id: input.sourceAuthMethod.credentialIdB64u,
+      },
+    ],
+  };
 }
 
 function assertPreparationInput(

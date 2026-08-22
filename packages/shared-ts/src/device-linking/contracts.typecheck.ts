@@ -48,6 +48,7 @@ import type {
   WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPlan';
@@ -82,6 +83,7 @@ declare const digest: DigestB64u;
 declare const walletSessionId: WalletSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
 declare const credentialIdB64u: WebAuthnCredentialIdB64u;
+declare const rpId: WebAuthnRpId;
 declare const walletAuthMethodId: WalletAuthMethodId;
 declare const authenticatorDevice: WebAuthnAuthenticatorDeviceInfo;
 declare const ed25519WalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>;
@@ -345,6 +347,25 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletAuthMethodId,
   ed25519ExportRoot: null,
   targetFactor: { kind: 'passkey_prf' },
+  passkeyCreationOptions: {
+    kind: 'webauthn_add_auth_method_registration_v1',
+    walletAuthMethodId,
+    challengeId: 'challenge-id',
+    challengeB64u: 'challenge',
+    rpId,
+    user: { idB64u: 'user-handle', name: 'wallet', displayName: 'Wallet' },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    timeoutMs: 60_000,
+    attestation: 'none',
+    extensions: {
+      prf: { eval: { firstB64u: 'first-salt', secondB64u: 'second-salt' } },
+    },
+    excludeCredentials: [],
+  },
   ordinarySignerMaterialRecipientRequirements: [
     {
       kind: 'ordinary_signer_material_recipient_requirement_v1',
@@ -430,6 +451,14 @@ void invalidPermissionPresence;
 void invalidOwnerAuthorization;
 void invalidEmptyApprovalManifest;
 void invalidEmptyTargetPreparation;
+
+// @ts-expect-error Email OTP preparation cannot carry passkey creation options.
+const invalidEmailTargetPreparation: LinkedDeviceTargetPreparationV1 = {
+  ...targetPreparation,
+  targetFactor: { kind: 'email_otp' },
+  passkeyCreationOptions: targetPreparation.passkeyCreationOptions,
+};
+void invalidEmailTargetPreparation;
 void credentialRegistration;
 void invalidIdOnlyCredentialRegistration;
 void summary;

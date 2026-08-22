@@ -60,24 +60,8 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
   }
 
   assertNoOffenders(
-    'Router A/B server Wallet Session issuer must use exact claim builders',
+    'Router A/B server Wallet Session issuer must not use legacy claim builders',
     offenders,
-  );
-  for (const marker of [
-    'function buildRouterAbEd25519WalletSessionClaims(',
-    'const claims = buildRouterAbEd25519WalletSessionClaims({',
-    'function buildRouterAbEcdsaDerivationWalletSessionClaims(',
-    'const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({',
-  ]) {
-    assert.ok(source.includes(marker), `commonRouterUtils.ts missing ${marker}`);
-  }
-  assert.ok(
-    source.includes('): RouterAbEd25519OwnerWalletSessionClaims {'),
-    'commonRouterUtils.ts missing the exact Ed25519 owner-claim builder return type',
-  );
-  assert.ok(
-    source.includes('): RouterAbEcdsaDerivationOwnerWalletSessionClaims {'),
-    'commonRouterUtils.ts missing the exact ECDSA owner-claim builder return type',
   );
 }
 

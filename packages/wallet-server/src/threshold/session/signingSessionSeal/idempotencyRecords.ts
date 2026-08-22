@@ -7,18 +7,11 @@ function toPositiveInt(value: unknown): number | null {
   return Math.floor(parsed);
 }
 
-function toNonNegativeInt(value: unknown): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.floor(parsed);
-}
-
 export type CurrentSigningSessionSealSuccessIdempotencyResultRecord = {
   ok: true;
   ciphertext: string;
   keyVersion?: string;
   expiresAtMs?: number;
-  remainingUses?: number;
 };
 
 export type CurrentSigningSessionSealFailureIdempotencyResultRecord = {
@@ -49,11 +42,10 @@ export function parseCurrentSigningSessionSealIdempotencyResultRecord(
     if (!ciphertext) return null;
     const keyVersion = toOptionalTrimmedString(obj.keyVersion);
     const expiresAtMs = toPositiveInt(obj.expiresAtMs);
-    const remainingUses = toNonNegativeInt(obj.remainingUses);
     if (
       ('keyVersion' in obj && obj.keyVersion != null && !keyVersion) ||
       ('expiresAtMs' in obj && obj.expiresAtMs != null && expiresAtMs == null) ||
-      ('remainingUses' in obj && obj.remainingUses != null && remainingUses == null)
+      'remainingUses' in obj
     ) {
       return null;
     }
@@ -62,7 +54,6 @@ export function parseCurrentSigningSessionSealIdempotencyResultRecord(
       ciphertext,
       ...(keyVersion ? { keyVersion } : {}),
       ...(expiresAtMs != null ? { expiresAtMs } : {}),
-      ...(remainingUses != null ? { remainingUses } : {}),
     };
   }
 

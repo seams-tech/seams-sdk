@@ -384,26 +384,6 @@ function sessionPrincipalRoute(
   });
 }
 
-function capabilityGrantRoute(
-  id: string,
-  method: RouteMethod,
-  path: string,
-  summary: string,
-  scheme: 'any' | 'ecdsa' | 'ed25519',
-  requiredServices?: readonly RouteServiceKey[],
-): RouteDefinition {
-  return defineRoute({
-    id,
-    surface: 'relay',
-    method,
-    path,
-    auth: { plane: 'capability_grant', scheme },
-    metering: { kind: 'none' },
-    requiredServices,
-    summary,
-  });
-}
-
 function apiCredentialRoute(
   id: string,
   method: RouteMethod,
@@ -845,20 +825,18 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_ED25519_WALLET_SESSION_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ed25519_sign_prepare',
       'POST',
       ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B Ed25519 normal signing',
-      'ed25519',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ed25519_sign_finalize',
       'POST',
       ROUTER_AB_ED25519_NORMAL_SIGNING_PATH,
       'Finalize Router A/B Ed25519 normal signing',
-      'ed25519',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
     publicRoute(
@@ -872,60 +850,53 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_THRESHOLD_RUNTIME_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_export',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
       'Export authorized Router A/B ECDSA derivation material',
-      'ecdsa',
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_refresh',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
       'Refresh Router A/B ECDSA derivation activation',
-      'ecdsa',
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_session_activate',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
       'Activate Router A/B ECDSA normal-signing session',
-      'ecdsa',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_sign_prepare',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
       'Prepare Router A/B ECDSA derivation normal signing',
-      'ecdsa',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_sign_finalize',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
       'Finalize Router A/B ECDSA derivation normal signing',
-      'ecdsa',
       ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_presignature_pool_fill_init',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
       'Begin Router A/B ECDSA derivation presignature pool-fill session',
-      'ecdsa',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
-    capabilityGrantRoute(
+    sessionPrincipalRoute(
       'router_ab_ecdsa_derivation_presignature_pool_fill_step',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
       'Continue Router A/B ECDSA derivation presignature pool-fill session',
-      'ecdsa',
       ROUTER_API_THRESHOLD_SESSION_SERVICES,
     ),
     sessionPrincipalRoute(

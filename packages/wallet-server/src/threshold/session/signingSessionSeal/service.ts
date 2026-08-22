@@ -103,7 +103,6 @@ function emitOperationResultLog(input: {
       ? {
           keyVersion: input.result.keyVersion,
           expiresAtMs: input.result.expiresAtMs,
-          remainingUses: input.result.remainingUses,
         }
       : {
           code: input.result.code,
@@ -135,8 +134,6 @@ function signingSessionSealAuthorizationId(
   switch (session.kind) {
     case 'owner_threshold_session':
       return session.thresholdSessionId;
-    case 'linked_device_wallet_session':
-      return session.walletSessionId;
   }
 }
 
@@ -280,25 +277,13 @@ async function runSealOperation(input: {
       return result;
     }
 
-    switch (session.kind) {
-      case 'owner_threshold_session':
-        result = {
-          ok: true,
-          ciphertext: sealed.ciphertext,
-          keyVersion: sealed.keyVersion || input.request.keyVersion,
-          expiresAtMs: session.expiresAtMs,
-        };
-        return result;
-      case 'linked_device_wallet_session':
-        result = {
-          ok: true,
-          ciphertext: sealed.ciphertext,
-          keyVersion: sealed.keyVersion || input.request.keyVersion,
-          expiresAtMs: session.expiresAtMs,
-          remainingUses: session.remainingUses,
-        };
-        return result;
-    }
+    result = {
+      ok: true,
+      ciphertext: sealed.ciphertext,
+      keyVersion: sealed.keyVersion || input.request.keyVersion,
+      expiresAtMs: session.expiresAtMs,
+    };
+    return result;
   } catch (error: unknown) {
     result = {
       ok: false,

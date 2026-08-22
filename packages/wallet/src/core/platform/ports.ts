@@ -57,6 +57,7 @@ import type {
 export type { CredentialIdB64u } from './ecdsaRoleLocalRecords';
 import type { EcdsaRoleLocalWorkerHandle } from '../signingEngine/session/keyMaterialBrands';
 import type { EcdsaBootstrapSecretSource } from './secretSources';
+import type { WalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
 
 export type SignerCryptoInvocationErrorCode =
   | 'unavailable'
@@ -112,31 +113,16 @@ export type SecureSecretStore = {
   delete(input: { handle: string }): Promise<PlatformResult<void, 'unavailable'>>;
 };
 
-export type AuthenticatorOptions = {
-  userVerification?: 'required' | 'preferred' | 'discouraged';
-  timeoutMs?: number;
-};
-
 export type AuthenticatorOperation =
   | {
       kind: 'create_passkey';
-      rpId: RpId;
-      userHandleB64u: string;
-      userName: string;
-      userDisplayName: string;
-      challengeB64u: string;
+      registrationOptions: WalletAddAuthMethodRegistrationOptions;
       requirePrfFirst: true;
-      authenticatorOptions?: AuthenticatorOptions;
     }
   | {
       kind: 'create_passkey';
-      rpId: RpId;
-      userHandleB64u: string;
-      userName: string;
-      userDisplayName: string;
-      challengeB64u: string;
+      registrationOptions: WalletAddAuthMethodRegistrationOptions;
       requirePrfFirst: false;
-      authenticatorOptions?: AuthenticatorOptions;
     }
   | {
       kind: 'get_passkey';
