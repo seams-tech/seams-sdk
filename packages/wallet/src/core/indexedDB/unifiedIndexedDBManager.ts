@@ -11,6 +11,7 @@ import type {
   IndexedDBEvent,
   LastProfileState,
   LocalWalletAuthMethodRecord,
+  LocalWalletAuthMethodRecordV2,
   LocalAuthorityInstallationReceiptV1,
   NonceLaneLeaseStoreRecord,
   ProfileAuthenticatorRecord,
@@ -43,6 +44,7 @@ import {
   type StoreWalletRegistrationFinalizeBatchResult,
   type AtomicKeyMaterialRecoveryFinalizationInput,
   type LocalAuthorityInstallationInputV1,
+  type PersistFoundingWalletAuthorityInputV1,
   type LocalAuthorityInstallationResultV1,
   type LocalAuthorityActivationFinalizationInputV1,
   type LocalAuthorityActivationFinalizationResultV1,
@@ -413,6 +415,12 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.listWalletAuthMethodsForWallet(walletId);
   }
 
+  async listWalletAuthMethodsV2ForWallet(
+    walletId: string,
+  ): Promise<LocalWalletAuthMethodRecordV2[]> {
+    return this.seamsWalletRepositories.listWalletAuthMethodsV2ForWallet(walletId);
+  }
+
   async installLocalAuthority(
     input: LocalAuthorityInstallationInputV1,
   ): Promise<LocalAuthorityInstallationResultV1> {
@@ -437,6 +445,12 @@ export class UnifiedIndexedDBManager {
 
   async getWalletAuthority(walletAuthorityId: string) {
     return this.seamsWalletRepositories.getWalletAuthority(walletAuthorityId);
+  }
+
+  async persistFoundingWalletAuthority(
+    input: PersistFoundingWalletAuthorityInputV1,
+  ): Promise<void> {
+    await this.seamsWalletRepositories.persistFoundingWalletAuthority(input);
   }
 
   async getWalletAuthMethodV2(walletAuthMethodId: string) {

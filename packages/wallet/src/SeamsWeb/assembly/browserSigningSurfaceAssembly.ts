@@ -1,5 +1,5 @@
 import type { RuntimePorts } from '@/core/platform';
-import { walletSessionAuthorizations } from '@/core/indexedDB';
+import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import {
   OwnerLaneScopeIntegrityError,
   resolveOwnerLaneScope,
@@ -76,7 +76,6 @@ import {
   type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import {
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
@@ -88,6 +87,7 @@ import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walle
 import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
 import { hydrateWalletExecutionLane } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -108,10 +108,9 @@ function omitPasskeyRestoreAuthMethod(
   return passkeyRestore;
 }
 
-type ExactWalletAuthMethodStore = Pick<
-  SigningEngineStorePorts['walletProfileAndSignerRecords']['accountStore'],
-  'listWalletAuthMethodsForWallet'
->;
+type ExactWalletAuthMethodStore = {
+  getWalletAuthMethodV2(walletAuthMethodId: string): Promise<WalletAuthMethodRecordV2 | null>;
+};
 
 /** R103C: every human signing operation must resolve one active owner scope. */
 async function resolveActiveOwnerScopeForSigningRead(args: {
@@ -147,26 +146,36 @@ export async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
   walletAuthMethodStore: ExactWalletAuthMethodStore,
 ): Promise<WalletAuthAuthority> {
-  const authMethods = await walletAuthMethodStore.listWalletAuthMethodsForWallet(
-    authorityRef.walletId,
+  const authMethod = await walletAuthMethodStore.getWalletAuthMethodV2(
+    String(authorityRef.walletAuthMethodId),
   );
-  for (const authMethod of authMethods) {
-    if (authMethod.status !== 'active') continue;
-    const authority =
-      authMethod.kind === 'email_otp'
-        ? authMethod.authority
-        : buildPasskeyWalletAuthAuthority({
-            walletId: authorityRef.walletId,
-            rpId: authMethod.rpId,
-            credentialIdB64u: authMethod.credentialIdB64u,
-          });
-    const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (
-      candidateRef.walletId === authorityRef.walletId &&
-      candidateRef.authorityDigest === authorityRef.authorityDigest
-    ) {
-      return authority;
-    }
+  if (
+    !authMethod ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== authorityRef.walletId ||
+    authMethod.kind !== 'passkey'
+  ) {
+    throw new Error('Exact wallet authentication authority is unavailable');
+  }
+  const authority: WalletAuthAuthority = {
+    walletId: authMethod.walletId,
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: authMethod.credentialIdB64u,
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: authMethod.rpId,
+    },
+    bindingId: authMethod.walletAuthMethodId,
+  };
+  const candidateRef = await walletAuthAuthorityRef({ authority });
+  if (
+    candidateRef.walletId === authorityRef.walletId &&
+    candidateRef.walletAuthMethodId === authorityRef.walletAuthMethodId &&
+    candidateRef.authorityDigest === authorityRef.authorityDigest
+  ) {
+    return authority;
   }
   throw new Error('Exact wallet authentication authority is unavailable');
 }
@@ -348,10 +357,9 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
   // canonical re-resolution. Throwing here would turn routine replacement into
   // a terminal signing failure before that boundary can classify it.
   const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
-    authority: await resolveExactWalletAuthAuthority(
-      manifest.signer.authority,
-      args.stores.walletProfileAndSignerRecords.accountStore,
-    ),
+    authority: await resolveExactWalletAuthAuthority(manifest.signer.authority, {
+      getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
+    }),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
       authority: manifest.signer.authority,
@@ -587,7 +595,15 @@ export function createBrowserSigningSurfaceEnginePorts(
     resolveOwnerLaneScope: (walletId) =>
       resolveActiveOwnerScopeForSigningRead({
         walletId: String(walletId),
-        stores: args.stores.walletProfileAndSignerRecords.accountStore,
+        stores: {
+          getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
+          listWalletAuthMethodsForWallet: (id) =>
+            IndexedDBManager.listWalletAuthMethodsForWallet(id),
+          getWalletPasskeyAuthenticator: (input) =>
+            args.stores.walletProfileAndSignerRecords.accountStore.getWalletPasskeyAuthenticator(
+              input,
+            ),
+        },
       }),
     signerWorkerManager: args.signerWorkerManager,
     getWorkerBaseOrigin: args.getWorkerBaseOrigin,

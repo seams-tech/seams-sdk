@@ -1,17 +1,18 @@
 import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
-  type WalletAuthAuthority,
+  type EmailOtpWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import { walletAuthMethodRecordId } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import { toRpId } from './evmFamilyEcdsaIdentity';
 import type { OwnerLaneScope } from './signingLaneAuthBinding';
 
 export type OwnerLaneScopeStores = {
+  getWalletAuthMethodV2(walletAuthMethodId: string): Promise<WalletAuthMethodRecordV2 | null>;
   listWalletAuthMethodsForWallet(walletId: string): Promise<readonly LocalWalletAuthMethodRecord[]>;
   getWalletPasskeyAuthenticator(args: {
     walletId: string;
@@ -54,23 +55,64 @@ export function isOwnerRelinkRequiredError(error: unknown): error is OwnerRelink
   );
 }
 
-function walletAuthAuthorityFromLocalRecord(
-  record: LocalWalletAuthMethodRecord,
-): WalletAuthAuthority {
-  switch (record.kind) {
-    case 'passkey':
-      return buildPasskeyWalletAuthAuthority({
-        walletId: record.walletId,
-        rpId: record.rpId,
-        credentialIdB64u: record.credentialIdB64u,
-      });
-    case 'email_otp':
-      return buildEmailOtpWalletAuthAuthority({
-        walletId: record.walletId,
-        provider: record.authority.factor.provider,
-        providerUserId: record.authority.factor.providerUserId,
-        emailHashHex: record.authority.verifier.emailHashHex,
-      });
+function passkeyWalletAuthAuthorityFromV2Record(
+  record: Extract<WalletAuthMethodRecordV2, { kind: 'passkey' }>,
+): PasskeyWalletAuthAuthority {
+  return {
+    walletId: record.walletId,
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: record.credentialIdB64u,
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: record.rpId,
+    },
+    bindingId: record.walletAuthMethodId,
+  };
+}
+
+function emailOtpWalletAuthAuthorityFromLocalFactor(args: {
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { kind: 'email_otp' }>;
+  readonly localMethods: readonly LocalWalletAuthMethodRecord[];
+}): EmailOtpWalletAuthAuthority {
+  const matches = args.localMethods.filter(
+    (record): record is Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> =>
+      record.kind === 'email_otp' &&
+      record.status === 'active' &&
+      record.walletId === args.authMethod.walletId &&
+      record.emailHashHex === args.authMethod.emailHashHex,
+  );
+  const localMethod = matches[0];
+  const authority = localMethod ? parseEmailOtpWalletAuthAuthority(localMethod.authority) : null;
+  if (
+    matches.length !== 1 ||
+    !authority ||
+    authority.walletId !== args.authMethod.walletId ||
+    authority.bindingId !== args.authMethod.walletAuthMethodId ||
+    authority.verifier.emailHashHex !== args.authMethod.emailHashHex
+  ) {
+    throw new OwnerLaneScopeIntegrityError('active Email OTP method has no exact local factor');
+  }
+  return authority;
+}
+
+async function assertOwnerAuthorityRefMatches(args: {
+  readonly expected: WalletAuthAuthorityRef;
+  readonly authority: PasskeyWalletAuthAuthority | EmailOtpWalletAuthAuthority;
+}): Promise<void> {
+  const resolvedRef = await walletAuthAuthorityRef({ authority: args.authority });
+  if (
+    resolvedRef.kind !== args.expected.kind ||
+    resolvedRef.walletId !== args.expected.walletId ||
+    resolvedRef.walletAuthMethodId !== args.expected.walletAuthMethodId ||
+    resolvedRef.authorityDigest !== args.expected.authorityDigest
+  ) {
+    throw new OwnerLaneScopeIntegrityError(
+      `resolved wallet auth method does not reproduce the active authority digest (${String(
+        args.expected.walletAuthMethodId,
+      )})`,
+    );
   }
 }
 
@@ -88,45 +130,28 @@ export async function resolveOwnerLaneScope(args: {
 }): Promise<OwnerLaneScope> {
   const walletId = String(args.authorityRef.walletId);
   const expectedAuthMethodId = String(args.authorityRef.walletAuthMethodId);
-  const authMethods = await args.stores.listWalletAuthMethodsForWallet(walletId);
-  const matches = authMethods.filter(
-    (record) =>
-      record.status === 'active' &&
-      String(record.walletId) === walletId &&
-      String(walletAuthMethodRecordId(record)) === expectedAuthMethodId,
-  );
-  const [authMethod] = matches;
-  if (!authMethod) {
+  const authMethod = await args.stores.getWalletAuthMethodV2(expectedAuthMethodId);
+  if (!authMethod || authMethod.status !== 'active' || String(authMethod.walletId) !== walletId) {
     throw new OwnerRelinkRequiredError(expectedAuthMethodId);
   }
-  if (matches.length > 1) {
-    throw new OwnerLaneScopeIntegrityError(
-      `active authority resolves ${matches.length} wallet auth methods (${expectedAuthMethodId})`,
-    );
-  }
-  // The method id alone under-discriminates (an Email OTP id omits the
-  // provider subject); the recomputed authority must reproduce the digest the
-  // active session was issued for.
-  const resolvedAuthority = walletAuthAuthorityFromLocalRecord(authMethod);
-  const resolvedRef = await walletAuthAuthorityRef({ authority: resolvedAuthority });
-  if (
-    resolvedRef.kind !== args.authorityRef.kind ||
-    String(resolvedRef.walletId) !== walletId ||
-    resolvedRef.walletAuthMethodId !== args.authorityRef.walletAuthMethodId ||
-    resolvedRef.authorityDigest !== args.authorityRef.authorityDigest
-  ) {
-    throw new OwnerLaneScopeIntegrityError(
-      `resolved wallet auth method does not reproduce the active authority digest (${expectedAuthMethodId})`,
-    );
-  }
   if (authMethod.kind === 'email_otp') {
+    const authority = emailOtpWalletAuthAuthorityFromLocalFactor({
+      authMethod,
+      localMethods: await args.stores.listWalletAuthMethodsForWallet(walletId),
+    });
+    await assertOwnerAuthorityRefMatches({ expected: args.authorityRef, authority });
     return {
       auth: {
         kind: 'email_otp',
-        providerSubjectId: String(authMethod.authority.factor.providerUserId),
+        providerSubjectId: String(authority.factor.providerUserId),
       },
     };
   }
+  const resolvedAuthority = passkeyWalletAuthAuthorityFromV2Record(authMethod);
+  await assertOwnerAuthorityRefMatches({
+    expected: args.authorityRef,
+    authority: resolvedAuthority,
+  });
   const authenticator = await args.stores.getWalletPasskeyAuthenticator({
     walletId,
     credentialId: authMethod.credentialIdB64u,

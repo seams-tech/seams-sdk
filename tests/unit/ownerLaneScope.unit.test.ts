@@ -4,34 +4,53 @@ import {
   resolveOwnerLaneScope,
   type OwnerLaneScopeStores,
 } from '@/core/signingEngine/session/identity/ownerLaneScope';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
-import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import {
-  walletUnlockEmailOtpAuthMethodFixture,
-  walletUnlockPasskeyAuthMethodFixture,
-} from './helpers/walletUnlockProfile.fixtures';
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = 'owner-lane-scope-wallet';
 const RP_ID = 'localhost';
 const CREDENTIAL_ID = 'credential-owner-scope';
 
-function passkeyAuthMethod(): LocalWalletAuthMethodRecord {
-  return walletUnlockPasskeyAuthMethodFixture({
-    walletId: WALLET_ID,
-    credentialId: CREDENTIAL_ID,
-  });
+function required<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
+  if (!result.ok) throw new Error(String(result.error));
+  return result.value;
+}
+
+function passkeyAuthMethod(args?: {
+  credentialId?: string;
+  rpId?: string;
+}): WalletAuthMethodRecordV2 {
+  return {
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: required(parseWalletAuthMethodId('wallet-auth-method:owner-scope')),
+    walletId: required(parseWalletId(WALLET_ID)),
+    walletAuthorityId: required(parseWalletAuthorityId('wallet-authority:owner-scope')),
+    kind: 'passkey',
+    status: 'active',
+    rpId: required(parseWebAuthnRpId(args?.rpId || RP_ID)),
+    credentialIdB64u: required(parseWebAuthnCredentialIdB64u(args?.credentialId || CREDENTIAL_ID)),
+    credentialPublicKeyB64u: 'AQID',
+    counter: 0,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+    activatedAtMs: 1,
+  };
 }
 
 function stores(args: {
-  authMethods: readonly LocalWalletAuthMethodRecord[];
+  authMethod: WalletAuthMethodRecordV2 | null;
   authenticator?: { credentialId: string; signerSlot: number } | null;
 }): OwnerLaneScopeStores {
   return {
-    listWalletAuthMethodsForWallet: async () => args.authMethods,
+    getWalletAuthMethodV2: async () => args.authMethod,
+    listWalletAuthMethodsForWallet: async () => [],
     getWalletPasskeyAuthenticator: async () =>
       args.authenticator === undefined
         ? { credentialId: CREDENTIAL_ID, signerSlot: 2 }
@@ -40,19 +59,21 @@ function stores(args: {
 }
 
 async function passkeyAuthorityRef() {
+  const authMethod = passkeyAuthMethod();
   return await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId: WALLET_ID,
-      rpId: RP_ID,
-      credentialIdB64u: CREDENTIAL_ID,
-    }),
+    authority: {
+      walletId: authMethod.walletId,
+      factor: { kind: 'passkey', credentialIdB64u: authMethod.credentialIdB64u },
+      verifier: { kind: 'webauthn', rpId: authMethod.rpId },
+      bindingId: authMethod.walletAuthMethodId,
+    },
   });
 }
 
 test('derives the passkey owner scope with the slot of the credential-resolved authenticator', async () => {
   const scope = await resolveOwnerLaneScope({
     authorityRef: await passkeyAuthorityRef(),
-    stores: stores({ authMethods: [passkeyAuthMethod()] }),
+    stores: stores({ authMethod: passkeyAuthMethod() }),
   });
   expect(scope).toMatchObject({
     auth: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID },
@@ -63,7 +84,7 @@ test('derives the passkey owner scope with the slot of the credential-resolved a
 test('a missing canonical auth method is a typed relink requirement, not a generic failure', async () => {
   const error = await resolveOwnerLaneScope({
     authorityRef: await passkeyAuthorityRef(),
-    stores: stores({ authMethods: [] }),
+    stores: stores({ authMethod: null }),
   }).then(
     () => null,
     (thrown: unknown) => thrown,
@@ -74,10 +95,9 @@ test('a missing canonical auth method is a typed relink requirement, not a gener
 
 test('a revoked auth method resolves to the relink requirement', async () => {
   const active = passkeyAuthMethod();
-  if (active.kind !== 'passkey') throw new Error('expected passkey auth method fixture');
   const error = await resolveOwnerLaneScope({
     authorityRef: await passkeyAuthorityRef(),
-    stores: stores({ authMethods: [{ ...active, status: 'revoked' }] }),
+    stores: stores({ authMethod: { ...active, status: 'revoked', revokedAtMs: 2 } }),
   }).then(
     () => null,
     (thrown: unknown) => thrown,
@@ -86,30 +106,18 @@ test('a revoked auth method resolves to the relink requirement', async () => {
 });
 
 test('an auth method that cannot reproduce the authority digest is an integrity failure', async () => {
-  // Same wallet and emailHashHex (the method id inputs) but a different
-  // provider subject: the id matches while the digest cannot.
-  const activeAuthority = buildEmailOtpWalletAuthAuthority({
-    walletId: WALLET_ID,
-    provider: 'google',
-    providerUserId: 'google:subject-active',
-    emailHashHex: 'owner-scope-email-hash',
-  });
-  const impostorAuthority = buildEmailOtpWalletAuthAuthority({
-    walletId: WALLET_ID,
-    provider: 'google',
-    providerUserId: 'google:subject-impostor',
-    emailHashHex: 'owner-scope-email-hash',
-  });
-  const emailAuthMethod = walletUnlockEmailOtpAuthMethodFixture({
-    walletId: WALLET_ID,
-    providerSubjectId: 'google:subject-impostor',
-    emailHashHex: 'owner-scope-email-hash',
-  });
-  expect(emailAuthMethod.authority).toEqual(impostorAuthority);
+  const activeMethod = passkeyAuthMethod();
+  const activeAuthority = {
+    walletId: activeMethod.walletId,
+    factor: { kind: 'passkey' as const, credentialIdB64u: activeMethod.credentialIdB64u },
+    verifier: { kind: 'webauthn' as const, rpId: activeMethod.rpId },
+    bindingId: activeMethod.walletAuthMethodId,
+  };
+  const impostorMethod = passkeyAuthMethod({ credentialId: 'credential-owner-impostor' });
 
   const error = await resolveOwnerLaneScope({
     authorityRef: await walletAuthAuthorityRef({ authority: activeAuthority }),
-    stores: stores({ authMethods: [emailAuthMethod] }),
+    stores: stores({ authMethod: impostorMethod }),
   }).then(
     () => null,
     (thrown: unknown) => thrown,
@@ -121,7 +129,7 @@ test('an auth method that cannot reproduce the authority digest is an integrity 
 test('a passkey owner without its exact local authenticator fails closed', async () => {
   const error = await resolveOwnerLaneScope({
     authorityRef: await passkeyAuthorityRef(),
-    stores: stores({ authMethods: [passkeyAuthMethod()], authenticator: null }),
+    stores: stores({ authMethod: passkeyAuthMethod(), authenticator: null }),
   }).then(
     () => null,
     (thrown: unknown) => thrown,

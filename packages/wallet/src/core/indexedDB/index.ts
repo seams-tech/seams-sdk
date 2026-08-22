@@ -102,6 +102,7 @@ export type {
   UpsertAccountSignerInput,
   EnqueueSignerOperationInput,
   LocalWalletAuthMethodRecord,
+  LocalWalletAuthMethodRecordV2,
   LocalAuthorityInstallationReceiptV1,
   WalletAuthorityExportRootRecordV1,
   WalletAuthoritySignerMaterialRecordV1,

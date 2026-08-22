@@ -21,6 +21,7 @@ import {
   type LockOperationContext,
 } from '@/SeamsWeb/operations/auth/login';
 import { IndexedDBManager } from '@/core/indexedDB';
+import type { LocalWalletAuthMethodRecordV2 } from '@/core/indexedDB/passkeyClientDB.types';
 import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
@@ -217,8 +218,8 @@ export async function hasPasskeyCredentialDomain(
     return await router.hasPasskeyCredential(resolvedWalletId);
   }
 
-  const records = await IndexedDBManager.listWalletAuthMethodsForWallet(resolvedWalletId).catch(
-    () => [],
+  const records = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(resolvedWalletId).catch(
+    () => [] as LocalWalletAuthMethodRecordV2[],
   );
   return records.some(
     (record) => record.kind === SIGNER_AUTH_METHODS.passkey && record.status === 'active',
