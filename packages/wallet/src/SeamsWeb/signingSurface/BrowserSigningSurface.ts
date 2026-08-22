@@ -2429,6 +2429,13 @@ export class BrowserSigningSurface {
     }
   }
 
+  async advanceWalletLockGeneration(walletId: WalletId): Promise<number> {
+    return IndexedDBManager.advanceWalletLockGeneration({
+      walletId,
+      lockedAtMs: Date.now(),
+    });
+  }
+
   /**
    * Every route that lands a wallet in the authenticated state goes through
    * here — passkey unlock, email OTP login, the hosted auth menu, and session

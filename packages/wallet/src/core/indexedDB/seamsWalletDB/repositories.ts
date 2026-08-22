@@ -308,6 +308,24 @@ export type LocalAuthorityActivationFinalizationInputV1 = {
   readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly walletSession: ActiveWalletSessionV1;
+  readonly expectedLockGeneration: number;
+};
+
+export type LocalAuthorityActivationFinalizationResultV1 =
+  | { readonly kind: 'finalized' }
+  | {
+      readonly kind: 'stale_lock_generation';
+      readonly expectedLockGeneration: number;
+      readonly actualLockGeneration: number;
+    }
+  | {
+      readonly kind: 'wallet_locked';
+      readonly lockGeneration: number;
+    };
+
+export type WalletLockGenerationAdvanceInputV1 = {
+  readonly walletId: WalletId;
+  readonly lockedAtMs: number;
 };
 
 export type ResolveSelectedWalletAuthorityResultV1 =
@@ -2515,7 +2533,7 @@ export class SeamsWalletRepositories {
 
   async finalizeLocalAuthorityActivation(
     input: LocalAuthorityActivationFinalizationInputV1,
-  ): Promise<void> {
+  ): Promise<LocalAuthorityActivationFinalizationResultV1> {
     const authorityResult = parseWalletAuthorityV1(input.authority);
     if (!authorityResult.ok || authorityResult.value.state !== 'active') {
       throw new Error('active WalletAuthorityV1 is invalid');
@@ -2530,6 +2548,10 @@ export class SeamsWalletRepositories {
     if (!walletSession || walletSession.kind !== 'active_wallet_session_v1') {
       throw new Error('active Wallet Session is invalid');
     }
+    const expectedLockGeneration = parseNonNegativeSafeInteger(
+      input.expectedLockGeneration,
+      'expectedLockGeneration',
+    );
     if (
       authMethod.walletId !== authorityResult.value.walletId ||
       authMethod.walletAuthorityId !== authorityResult.value.authorityId ||
@@ -2541,7 +2563,7 @@ export class SeamsWalletRepositories {
     ) {
       throw new Error('active authority, auth method, and Wallet Session identities differ');
     }
-    await this.manager.runTransaction(
+    return await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.walletAuthorities,
         SEAMS_WALLET_STORES.walletAuthMethods,
@@ -2554,7 +2576,18 @@ export class SeamsWalletRepositories {
         authority: authorityResult.value,
         authMethod,
         walletSession,
+        expectedLockGeneration,
       }),
+    );
+  }
+
+  async advanceWalletLockGeneration(input: WalletLockGenerationAdvanceInputV1): Promise<number> {
+    const walletId = requireBoundaryParsed(parseWalletId(input.walletId), 'walletId');
+    const lockedAtMs = parseNonNegativeSafeInteger(input.lockedAtMs, 'lockedAtMs');
+    return this.manager.runTransaction(
+      [SEAMS_WALLET_STORES.walletSelections],
+      'readwrite',
+      this.advanceWalletLockGenerationInTransaction.bind(this, { walletId, lockedAtMs }),
     );
   }
 
@@ -2574,7 +2607,7 @@ export class SeamsWalletRepositories {
   private async finalizeLocalAuthorityActivationInTransaction(
     input: LocalAuthorityActivationFinalizationInputV1,
     ctx: SeamsWalletTransactionContext,
-  ): Promise<void> {
+  ): Promise<LocalAuthorityActivationFinalizationResultV1> {
     const authorityStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorities);
     const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
     const receiptStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts);
@@ -2618,7 +2651,7 @@ export class SeamsWalletRepositories {
       ) {
         throw new Error('active local authority replay conflicts with supplied records');
       }
-      return;
+      return { kind: 'finalized' };
     }
     if (
       existingAuthority.record.state !== 'pending_local_install' ||
@@ -2643,6 +2676,16 @@ export class SeamsWalletRepositories {
     if (!selection || selection.wallet_id !== input.authority.walletId) {
       throw new Error('wallet selection is corrupt');
     }
+    if (selection.lock_generation !== input.expectedLockGeneration) {
+      return {
+        kind: 'stale_lock_generation',
+        expectedLockGeneration: input.expectedLockGeneration,
+        actualLockGeneration: selection.lock_generation,
+      };
+    }
+    if (selection.record.lockState === 'locked') {
+      return { kind: 'wallet_locked', lockGeneration: selection.lock_generation };
+    }
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
     await sessionStore.put(toStoredExactWalletSessionAuthorizationRow(input.walletSession));
@@ -2656,6 +2699,35 @@ export class SeamsWalletRepositories {
         updatedAtMs: input.walletSession.issuedAtMs,
       }),
     );
+    return { kind: 'finalized' };
+  }
+
+  private async advanceWalletLockGenerationInTransaction(
+    input: WalletLockGenerationAdvanceInputV1,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<number> {
+    const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
+    const selectionRaw = await selectionStore.get(input.walletId);
+    if (selectionRaw === undefined) throw new Error('wallet selection is missing');
+    const selection = parseWalletSelectionStorageRow(selectionRaw);
+    if (!selection || selection.wallet_id !== input.walletId) {
+      throw new Error('wallet selection is corrupt');
+    }
+    if (selection.record.lockGeneration >= Number.MAX_SAFE_INTEGER) {
+      throw new Error('wallet lock generation cannot advance');
+    }
+    const lockGeneration = selection.record.lockGeneration + 1;
+    await selectionStore.put(
+      walletSelectionStorageRow({
+        kind: 'wallet_selection_v1',
+        walletId: selection.record.walletId,
+        walletAuthMethodId: selection.record.walletAuthMethodId,
+        lockGeneration,
+        lockState: 'locked',
+        updatedAtMs: input.lockedAtMs,
+      }),
+    );
+    return lockGeneration;
   }
 
   private async installLocalAuthorityInTransaction(

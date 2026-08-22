@@ -26,6 +26,7 @@ import type {
   LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceEmailOtpChallengeResultV1,
   ActiveWalletSessionV1,
+  CommittedAuthorityPackagesV1,
   QrLinkedDeviceSessionPayloadV5,
   OrdinarySignerMaterialRecipientRequestV1,
 } from '@shared/device-linking';
@@ -346,6 +347,8 @@ export class LinkDeviceFlow {
     | null = null;
   private targetCredentialRegistrationResult: LinkedDeviceTargetCredentialRegistrationResultV1 | null =
     null;
+  // This boundary is the server commit. Cleanup and retry keep its exact identity intact.
+  private committedAuthorityPackages: CommittedAuthorityPackagesV1 | null = null;
   private ordinarySignerMaterialRecipientPreparation: DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 | null =
     null;
   private authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | null = null;
@@ -490,6 +493,9 @@ export class LinkDeviceFlow {
   }
 
   async cancel(): Promise<void> {
+    if (this.hasCommittedDeliveryState()) {
+      throw new Error('Device-link authority delivery is committed and must be resumed');
+    }
     if (this.cancelled) {
       await this.cleanupLocalResources();
       return;
@@ -557,6 +563,9 @@ export class LinkDeviceFlow {
   }
 
   async reset(): Promise<void> {
+    if (this.hasCommittedDeliveryState()) {
+      throw new Error('Device-link authority delivery is committed and must be resumed');
+    }
     this.runEpoch += 1;
     this.cancelled = true;
     await this.cleanupLocalResources();
@@ -1502,12 +1511,27 @@ export class LinkDeviceFlow {
       throw new Error('linked-device target credential registration is unavailable');
     }
     const keyMaterial = this.requireKeyMaterialHandleV1();
+    const transport = this.requireAuthenticatedTransport();
     const expectedLockGeneration = await this.ports.readExpectedLockGenerationV1(
       registration.walletId,
     );
     this.assertCurrentRun(runEpoch);
+    const committed =
+      this.committedAuthorityPackages ||
+      (await transport.receiveCommittedAuthorityPackagesV1({
+        linkSessionId: this.requireSessionV1().linkSessionId,
+      }));
+    this.committedAuthorityPackages = committed;
+    await this.ports.authorityInstallation.persistCommittedDeliveryResumeV1({
+      linkSessionId: this.requireSessionV1().linkSessionId,
+      committed,
+      targetFactor: registration.targetFactor,
+      committedAtMs: Date.now(),
+    });
+    this.assertCurrentRun(runEpoch);
     return await activateLinkedAuthorityV1({
-      transport: this.requireAuthenticatedTransport(),
+      transport,
+      committed,
       installation: this.ports.authorityInstallation,
       sessionState: state,
       linkSessionId: this.requireSessionV1().linkSessionId,
@@ -1545,7 +1569,7 @@ export class LinkDeviceFlow {
       data: { role: 'display' },
       interaction: { kind: 'qr_display', overlay: 'hide' },
     });
-    await this.cleanupLocalResources();
+    await this.cleanupCompletedLocalResources();
   }
 
   private requireAuthenticatedTransport(): DeviceLinkingAuthenticatedTransportPortV1 {
@@ -1587,6 +1611,7 @@ export class LinkDeviceFlow {
     this.emailOtpTargetActivationState = { kind: 'idle' };
     this.resealedExportRoot = null;
     this.targetCredentialRegistrationResult = null;
+    this.committedAuthorityPackages = null;
     this.ordinarySignerMaterialRecipientPreparation = null;
     this.runEpoch += 1;
     this.generationInProgress = true;
@@ -1614,6 +1639,24 @@ export class LinkDeviceFlow {
     error: unknown,
   ): Promise<void> {
     if (error instanceof LinkDeviceFlowSupersededError) return;
+    if (this.hasCommittedDeliveryState()) {
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: event.linkSessionId,
+        stage: 'committed_delivery_retry_started',
+        details: { state: event.state.state, error: errorMessage(error) },
+      });
+      this.handledStates.delete(event.state.state);
+      await this.retryCommittedDeliveryV1(event).catch((retryError: unknown) => {
+        logDevice2LinkingFailureV1({
+          flowId: this.flowId,
+          linkSessionId: event.linkSessionId,
+          state: event.state.state,
+          error: retryError,
+        });
+      });
+      return;
+    }
     logDevice2LinkingFailureV1({
       flowId: this.flowId,
       linkSessionId: event.linkSessionId,
@@ -1631,6 +1674,36 @@ export class LinkDeviceFlow {
       await this.cleanupLocalResources();
     } catch {
       // A later cancel/reset retries any retained subscription or key handle.
+    }
+  }
+
+  private async retryCommittedDeliveryV1(event: LinkSessionTransportEventV1): Promise<void> {
+    switch (event.state.state) {
+      case 'provisioning':
+      case 'authority_pending_local_install':
+      case 'active': {
+        const runEpoch = this.runEpoch;
+        const result = await this.activateAuthorityForStateV1(event.state, runEpoch);
+        if (result.kind === 'pending_local_install') return;
+        if (result.kind === 'integrity_error') {
+          throw new DeviceLinkingError(
+            `Linked-device authority replay failed: ${result.reason}`,
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
+        }
+        if (result.kind === 'failed_before_commit' || result.kind === 'relink_required') {
+          throw new DeviceLinkingError(
+            'Linked-device authority replay cannot continue',
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
+        }
+        await this.finishActiveAuthorityV1(event.state, result.session, runEpoch);
+        return;
+      }
+      default:
+        throw new Error(`committed link delivery cannot resume from ${event.state.state}`);
     }
   }
 
@@ -1672,12 +1745,16 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async cleanupLocalResources(): Promise<void> {
-    this.clearTargetCredentialActivationState();
-    this.emailOtpTargetActivationState = { kind: 'idle' };
-    this.resealedExportRoot = null;
-    this.targetCredentialRegistrationResult = null;
-    this.ordinarySignerMaterialRecipientPreparation = null;
+  private async cleanupLocalResources(force = false): Promise<void> {
+    if (!force && this.hasCommittedDeliveryState()) return;
+    const preserveCommittedState = force && this.hasCommittedDeliveryState();
+    if (!preserveCommittedState) {
+      this.clearTargetCredentialActivationState();
+      this.emailOtpTargetActivationState = { kind: 'idle' };
+      this.resealedExportRoot = null;
+      this.targetCredentialRegistrationResult = null;
+      this.ordinarySignerMaterialRecipientPreparation = null;
+    }
     let failure: unknown;
     const subscription = this.subscription;
     if (subscription) {
@@ -1688,12 +1765,36 @@ export class LinkDeviceFlow {
         failure = error;
       }
     }
-    try {
-      await this.discardKeyMaterial();
-    } catch (error: unknown) {
-      failure ??= error;
+    if (!failure) {
+      try {
+        await this.discardKeyMaterial();
+      } catch (error: unknown) {
+        failure = error;
+      }
     }
     if (failure) throw failure;
+    if (preserveCommittedState) {
+      this.clearTargetCredentialActivationState();
+      this.emailOtpTargetActivationState = { kind: 'idle' };
+      this.resealedExportRoot = null;
+      this.targetCredentialRegistrationResult = null;
+      this.ordinarySignerMaterialRecipientPreparation = null;
+      this.committedAuthorityPackages = null;
+    }
+  }
+
+  private async cleanupCompletedLocalResources(): Promise<void> {
+    await this.cleanupLocalResources(true);
+  }
+
+  private hasCommittedDeliveryState(): boolean {
+    return (
+      this.targetCredentialRegistrationResult !== null ||
+      this.committedAuthorityPackages !== null ||
+      (this.keyMaterialHandle !== null &&
+        (this.session?.state.state === 'authority_pending_local_install' ||
+          this.session?.state.state === 'active'))
+    );
   }
 
   private async discardKeyMaterial(): Promise<void> {

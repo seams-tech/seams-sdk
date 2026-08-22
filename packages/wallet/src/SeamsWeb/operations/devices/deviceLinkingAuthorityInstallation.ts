@@ -22,6 +22,13 @@ import type {
   DeviceLinkingKeyMaterialHandleV1,
 } from './deviceLinkingPorts';
 import type { DeviceLinkingResealedEd25519ExportRootV1 } from './deviceLinkingEd25519ExportRoot';
+import {
+  buildDeviceLinkingCommittedResumeV1,
+  committedResumeAppStateKeyV1,
+  compareDeviceLinkingCommittedResumeV1,
+  parseDeviceLinkingCommittedResumeV1,
+  type DeviceLinkingCommittedResumeV1,
+} from './deviceLinkingResume';
 
 export type DeviceLinkingSealedAuthorityRecordsV1 = {
   readonly signerMaterials: readonly [
@@ -47,6 +54,18 @@ export type DeviceLinkingCommittedPackageSealingPortV1 = {
 };
 
 export type DeviceLinkingAuthorityInstallationPortV1 = {
+  persistCommittedDeliveryResumeV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly committed: CommittedAuthorityPackagesV1;
+    readonly targetFactor: VerifiedTargetFactorV1;
+    readonly committedAtMs: number;
+  }): Promise<void>;
+  readCommittedDeliveryResumeV1(input: {
+    readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
+  }): Promise<DeviceLinkingCommittedResumeV1 | null>;
+  clearCommittedDeliveryResumeV1(input: {
+    readonly authorityId: CommittedAuthorityPackagesV1['authority']['authorityId'];
+  }): Promise<void>;
   installLocalAuthorityV1(input: {
     readonly committed: CommittedAuthorityPackagesV1;
     readonly targetFactor: VerifiedTargetFactorV1;
@@ -54,9 +73,10 @@ export type DeviceLinkingAuthorityInstallationPortV1 = {
     readonly resealedExportRoot: DeviceLinkingResealedEd25519ExportRootV1 | null;
     readonly expectedLockGeneration: number;
   }): Promise<LocalAuthorityInstallationReceiptV1>;
-  finalizeLocalAuthorityActivationV1(
-    active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>,
-  ): Promise<void>;
+  finalizeLocalAuthorityActivationV1(input: {
+    readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+    readonly expectedLockGeneration: number;
+  }): Promise<void>;
 };
 
 export type DeviceLinkingAuthorityInstallationAssemblyOptionsV1 = {
@@ -67,6 +87,7 @@ export type DeviceLinkingAuthorityInstallationAssemblyOptionsV1 = {
 
 export type DeviceLinkingAuthorityActivationFlowInputV1 = {
   readonly transport: DeviceLinkingAuthorityActivationTransportPortV1;
+  readonly committed: CommittedAuthorityPackagesV1;
   readonly installation: DeviceLinkingAuthorityInstallationPortV1;
   readonly sessionState: Extract<
     LinkSessionStateV1,
@@ -84,11 +105,23 @@ export function createDeviceLinkingAuthorityInstallationPortV1(
   options: DeviceLinkingAuthorityInstallationAssemblyOptionsV1,
 ): DeviceLinkingAuthorityInstallationPortV1 {
   return {
+    persistCommittedDeliveryResumeV1: async (input) => {
+      const resume = buildDeviceLinkingCommittedResumeV1(input);
+      await options.indexedDB.setAppState(committedResumeAppStateKeyV1(resume.authorityId), resume);
+    },
+    readCommittedDeliveryResumeV1: async ({ authorityId }) =>
+      parseDeviceLinkingCommittedResumeV1(
+        await options.indexedDB.getAppState<unknown>(committedResumeAppStateKeyV1(authorityId)),
+      ),
+    clearCommittedDeliveryResumeV1: async ({ authorityId }) => {
+      await options.indexedDB.setAppState(committedResumeAppStateKeyV1(authorityId), null);
+    },
     installLocalAuthorityV1: (input) => installLocalAuthorityV1({ ...input, ...options }),
-    finalizeLocalAuthorityActivationV1: (active) =>
+    finalizeLocalAuthorityActivationV1: ({ active, expectedLockGeneration }) =>
       finalizeLocalAuthorityActivationV1({
         indexedDB: options.indexedDB,
         active,
+        expectedLockGeneration,
       }),
   };
 }
@@ -161,28 +194,61 @@ export async function installLocalAuthorityV1(input: {
 export async function finalizeLocalAuthorityActivationV1(input: {
   readonly indexedDB: UnifiedIndexedDBManager;
   readonly active: Extract<ActivateInstalledAuthorityResultV1, { readonly kind: 'active' }>;
+  readonly expectedLockGeneration: number;
 }): Promise<void> {
   const finalization: LocalAuthorityActivationFinalizationInputV1 = {
     authority: input.active.authority,
     authMethod: input.active.authMethod,
     walletSession: input.active.walletSession,
+    expectedLockGeneration: input.expectedLockGeneration,
   };
-  await input.indexedDB.finalizeLocalAuthorityActivation(finalization);
+  const result = await input.indexedDB.finalizeLocalAuthorityActivation(finalization);
+  switch (result.kind) {
+    case 'finalized':
+      return;
+    case 'stale_lock_generation':
+      throw new Error(
+        `local authority activation lock generation is stale (expected ${result.expectedLockGeneration}, actual ${result.actualLockGeneration})`,
+      );
+    case 'wallet_locked':
+      throw new Error(
+        `local authority activation refused while wallet is locked at generation ${result.lockGeneration}`,
+      );
+    default:
+      result satisfies never;
+      throw new Error('local authority activation returned an unknown result');
+  }
 }
 
 export async function activateLinkedAuthorityV1(
   input: DeviceLinkingAuthorityActivationFlowInputV1,
 ): Promise<LinkedAuthorityActivationResultV1> {
-  const committed = await input.transport.receiveCommittedAuthorityPackagesV1({
-    linkSessionId: input.linkSessionId,
-  });
   const committedStateResult = assertCommittedAuthorityStateMatchesSession({
-    committed,
+    committed: input.committed,
     sessionState: input.sessionState,
   });
   if (committedStateResult) return committedStateResult;
+  const durableResume = await input.installation.readCommittedDeliveryResumeV1({
+    authorityId: input.committed.authority.authorityId,
+  });
+  if (durableResume) {
+    const mismatch = compareDeviceLinkingCommittedResumeV1({
+      resume: durableResume,
+      linkSessionId: input.linkSessionId,
+      committed: input.committed,
+      targetFactor: input.targetFactor,
+    });
+    if (mismatch) return { kind: 'integrity_error', reason: mismatch };
+  } else {
+    await input.installation.persistCommittedDeliveryResumeV1({
+      linkSessionId: input.linkSessionId,
+      committed: input.committed,
+      targetFactor: input.targetFactor,
+      committedAtMs: input.nowMs(),
+    });
+  }
   const receipt = await input.installation.installLocalAuthorityV1({
-    committed,
+    committed: input.committed,
     targetFactor: input.targetFactor,
     keyMaterial: input.keyMaterial,
     resealedExportRoot: input.resealedExportRoot,
@@ -207,7 +273,10 @@ export async function activateLinkedAuthorityV1(
         receipt,
       });
       if (activationReceiptResult) return activationReceiptResult;
-      await input.installation.finalizeLocalAuthorityActivationV1(active);
+      await input.installation.finalizeLocalAuthorityActivationV1({
+        active,
+        expectedLockGeneration: input.expectedLockGeneration,
+      });
       const acknowledgedAtMs = input.nowMs();
       if (!Number.isSafeInteger(acknowledgedAtMs) || acknowledgedAtMs <= 0) {
         throw new Error('local authority activation acknowledgement clock is invalid');
@@ -221,6 +290,9 @@ export async function activateLinkedAuthorityV1(
           authorizationId: active.walletSession.authorizationId,
           acknowledgedAtMs,
         },
+      });
+      await input.installation.clearCommittedDeliveryResumeV1({
+        authorityId: active.authority.authorityId,
       });
       return { kind: 'active', session: active.walletSession };
     }

@@ -210,6 +210,15 @@ function createPorts(
       },
     },
     authorityInstallation: {
+      async persistCommittedDeliveryResumeV1() {
+        return unsupportedPort('persistCommittedDeliveryResumeV1');
+      },
+      async readCommittedDeliveryResumeV1() {
+        return unsupportedPort('readCommittedDeliveryResumeV1');
+      },
+      async clearCommittedDeliveryResumeV1() {
+        return unsupportedPort('clearCommittedDeliveryResumeV1');
+      },
       async installLocalAuthorityV1() {
         return unsupportedPort('installLocalAuthorityV1');
       },

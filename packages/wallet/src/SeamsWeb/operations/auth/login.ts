@@ -5561,6 +5561,7 @@ export async function getRecentUnlocks(
 export type LockOperationContext = {
   signingEngine: {
     readWalletAuthenticationState(): WalletAuthenticationState;
+    advanceWalletLockGeneration(walletId: WalletId): Promise<number>;
     retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void>;
     clearWalletAuthentication(): void;
     getNonceCoordinator(): { clearAll(): void };
@@ -5572,16 +5573,38 @@ export type LockOperationContext = {
 export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
   const authentication = signingEngine.readWalletAuthenticationState();
+  let failure: unknown;
+  let failed = false;
   if (authentication.kind === 'authenticated') {
-    await signingEngine.retireActiveWalletSessionAuthorizationForLock(authentication.walletId);
+    try {
+      await signingEngine.advanceWalletLockGeneration(authentication.walletId);
+      await signingEngine.retireActiveWalletSessionAuthorizationForLock(authentication.walletId);
+    } catch (error: unknown) {
+      failure = error;
+      failed = true;
+    }
   }
-  signingEngine.clearWalletAuthentication();
+  try {
+    signingEngine.clearWalletAuthentication();
+  } catch (error: unknown) {
+    if (!failed) {
+      failure = error;
+      failed = true;
+    }
+  }
   try {
     signingEngine.getNonceCoordinator().clearAll();
   } catch {}
   try {
     signingEngine.clearThresholdEcdsaSigningQueue();
   } catch {}
-  const warmMaterialCleanup = signingEngine.clearVolatileWarmSigningMaterial();
-  await warmMaterialCleanup;
+  try {
+    await signingEngine.clearVolatileWarmSigningMaterial();
+  } catch (error: unknown) {
+    if (!failed) {
+      failure = error;
+      failed = true;
+    }
+  }
+  if (failed) throw failure;
 }

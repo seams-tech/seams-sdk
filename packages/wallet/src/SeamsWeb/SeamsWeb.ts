@@ -1,5 +1,9 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  walletSessionAuthorizations,
+  walletSessionTokenForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
   isRegistrationBenchmarkDiagnosticsEnabled,
@@ -56,7 +60,10 @@ import type {
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
-import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
@@ -77,6 +84,7 @@ import {
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
 import {
+  createBrowserHostPlatformRuntime,
   createBrowserSigningRuntime,
 } from './assembly/createBrowserSigningRuntime';
 import { createBrowserSigningStores } from './assembly/createBrowserSigningStores';
@@ -88,9 +96,34 @@ import {
 import {
   createPublicApi,
   createWalletIframeLinkedDeviceManagementPortV1,
+  type DevicesCapabilityDomainMethods,
   type LinkedDeviceManagementPortV1,
   type WalletIframeControlCapability,
 } from './publicApi';
+import { createWalletHostCompositionV1 } from './operations/devices/walletHostComposition';
+import { createWalletHostOwnerAuthoritiesV1 } from './operations/devices/walletHostOwnerAuthority';
+import type {
+  LinkSessionOwnerApprovalUpdatesPortV1,
+  LinkSessionOwnerAuthenticatedRequestPortV1,
+} from './operations/devices/deviceLinkingOwnerTransport';
+import { LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 } from './operations/devices/deviceLinkingHttpTransport';
+import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
+import {
+  isConcreteAvailableSigningLane,
+  type AvailableSigningLanes,
+} from '@/core/signingEngine/session/availability/availableSigningLanes';
+import {
+  walletCustodyCeremonyTransportFromWorkerContextV1,
+  readUnlockedWalletEd25519ExportRootCapabilityV1,
+} from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
+import {
+  parseLinkedDeviceApprovalResultV1,
+  type LinkedDeviceOwnerSourceLaneV1,
+} from '@shared/device-linking';
+import type {
+  EcdsaCapabilityManifestId,
+  EcdsaCapabilityManifestRevision,
+} from '@shared/utils/ecdsaCapabilityActivation';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -709,6 +742,280 @@ function deliverNearProvisioningStateChanged(
   if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
+type SeamsWebDeviceDomain = {
+  readonly domain: DevicesCapabilityDomainMethods;
+  readonly dispose: () => void;
+};
+
+type WalletHostOwnerSourceLaneCandidateV1 =
+  | {
+      readonly curve: 'ed25519';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly curve: 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly ecdsaSourceManifest: {
+        readonly manifestId: EcdsaCapabilityManifestId;
+        readonly manifestRevision: EcdsaCapabilityManifestRevision;
+      };
+    };
+
+export function resolveSeamsWebDeviceDomainModeV1(mode: SeamsWebRuntimeMode): 'direct' | 'iframe' {
+  return mode === 'wallet_host' ? 'direct' : 'iframe';
+}
+
+function createSeamsWebDeviceDomainV1(args: {
+  readonly mode: SeamsWebRuntimeMode;
+  readonly configs: SeamsConfigsReadonly;
+  readonly signingEngine: BrowserSigningSurface;
+  readonly walletIframe: WalletIframeCoordinator;
+}): SeamsWebDeviceDomain {
+  switch (resolveSeamsWebDeviceDomainModeV1(args.mode)) {
+    case 'iframe':
+      return {
+        domain: {
+          kind: 'iframe',
+          linkedDeviceManagement: createWalletIframeLinkedDeviceManagementPortV1({
+            walletIframe: args.walletIframe,
+          }),
+        },
+        dispose: noopDeviceLinkingDisposeV1,
+      };
+    case 'direct': {
+      const platform = createBrowserHostPlatformRuntime(
+        args.signingEngine.getSignerWorkerContext(),
+      );
+      const ownerAuthorities = createWalletHostOwnerAuthoritiesV1({
+        http: platform.http,
+        relayerUrl: String(args.configs.network.relayer?.url || '').trim(),
+        walletSessions: walletSessionAuthorizations,
+        readWalletAuthenticationState: args.signingEngine.readWalletAuthenticationState.bind(
+          args.signingEngine,
+        ),
+        readOwnerSourceLaneHintsV1: (input) =>
+          readWalletHostOwnerSourceLaneHintsV1({
+            signingEngine: args.signingEngine,
+            relayerUrl: String(args.configs.network.relayer?.url || '').trim(),
+            projection: input.projection,
+          }),
+        readUnlockedEd25519ExportRootCapabilityV1: readUnlockedWalletEd25519ExportRootCapabilityV1,
+      });
+      const composition = createWalletHostCompositionV1({
+        authenticator: platform.authenticator,
+        http: platform.http,
+        relayerUrl: String(args.configs.network.relayer?.url || '').trim(),
+        ownerRequest: ownerAuthorities.ownerRequest,
+        ownerApprovalUpdates: createWalletHostOwnerApprovalUpdatesV1({
+          request: ownerAuthorities.ownerRequest,
+          pollIntervalMs: 1_000,
+        }),
+        ownerAuthorization: ownerAuthorities.ownerAuthorization,
+        custodyCeremonyTransport: walletCustodyCeremonyTransportFromWorkerContextV1(
+          args.signingEngine.getSignerWorkerContext(),
+        ),
+        managementRequest: ownerAuthorities.managementRequest,
+        nowMs: Date.now,
+        pollIntervalMs: 1_000,
+      });
+      return {
+        domain: {
+          kind: 'direct',
+          linkedDeviceManagement: composition.linkedDeviceManagement,
+          deviceLinkingPorts: composition.deviceLinkingPorts,
+        },
+        dispose: composition.dispose,
+      };
+    }
+  }
+}
+
+function noopDeviceLinkingDisposeV1(): void {}
+
+function ownerSourceLaneCandidateKeyV1(candidate: WalletHostOwnerSourceLaneCandidateV1): string {
+  const activation = candidate.materialActivation;
+  return [
+    candidate.curve,
+    activation.activationId,
+    activation.capability,
+    activation.materialOwner,
+    activation.keyBinding,
+    activation.lifecycleBinding,
+    activation.signingWorker,
+  ].join('|');
+}
+
+function collectWalletHostOwnerSourceLaneCandidatesV1(
+  available: AvailableSigningLanes,
+): readonly WalletHostOwnerSourceLaneCandidateV1[] {
+  const candidates = new Map<string, WalletHostOwnerSourceLaneCandidateV1>();
+  for (const lane of available.candidates.ed25519.near) {
+    if (
+      !isConcreteAvailableSigningLane(lane) ||
+      lane.curve !== 'ed25519' ||
+      lane.state !== 'ready'
+    ) {
+      continue;
+    }
+    const candidate: WalletHostOwnerSourceLaneCandidateV1 = {
+      curve: 'ed25519',
+      materialActivation: lane.materialActivation,
+    };
+    candidates.set(ownerSourceLaneCandidateKeyV1(candidate), candidate);
+  }
+  for (const lane of Object.values(available.ecdsa.candidatesByTarget).flat()) {
+    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa' || lane.state !== 'ready') {
+      continue;
+    }
+    const candidate: WalletHostOwnerSourceLaneCandidateV1 = {
+      curve: 'ecdsa_secp256k1',
+      materialActivation: lane.materialActivation,
+      ecdsaSourceManifest: {
+        manifestId: lane.capability.manifest.identity.manifestId,
+        manifestRevision: lane.capability.manifest.identity.manifestRevision,
+      },
+    };
+    const key = ownerSourceLaneCandidateKeyV1(candidate);
+    const previous = candidates.get(key);
+    if (
+      previous?.curve === 'ecdsa_secp256k1' &&
+      (previous.ecdsaSourceManifest.manifestId !== candidate.ecdsaSourceManifest.manifestId ||
+        previous.ecdsaSourceManifest.manifestRevision !==
+          candidate.ecdsaSourceManifest.manifestRevision)
+    ) {
+      throw new Error('Wallet-host owner ECDSA source lane identity is ambiguous');
+    }
+    candidates.set(key, candidate);
+  }
+  return [...candidates.values()];
+}
+
+function buildWalletHostOwnerSourceLaneHintV1(
+  candidate: WalletHostOwnerSourceLaneCandidateV1,
+  projection: Awaited<ReturnType<typeof readOwnerWalletExecutionLaneProjectionV1>>,
+): LinkedDeviceOwnerSourceLaneV1 {
+  switch (candidate.curve) {
+    case 'ed25519':
+      if (projection.walletKey.keyFamily !== 'ed25519') {
+        throw new Error('Wallet-host owner Ed25519 source lane family changed');
+      }
+      return {
+        kind: 'linked_device_owner_source_lane_v1',
+        keyFamily: 'ed25519',
+        walletKey: projection.walletKey,
+        lane: projection.lane,
+        materialActivation: projection.materialActivation,
+        verifiedActivationReceiptDigestB64u: projection.verifiedActivationReceiptDigestB64u,
+      };
+    case 'ecdsa_secp256k1':
+      if (projection.walletKey.keyFamily !== 'ecdsa_secp256k1') {
+        throw new Error('Wallet-host owner ECDSA source lane family changed');
+      }
+      return {
+        kind: 'linked_device_owner_source_lane_v1',
+        keyFamily: 'ecdsa_secp256k1',
+        walletKey: projection.walletKey,
+        lane: projection.lane,
+        materialActivation: projection.materialActivation,
+        verifiedActivationReceiptDigestB64u: projection.verifiedActivationReceiptDigestB64u,
+        ecdsaSourceManifest: candidate.ecdsaSourceManifest,
+      };
+  }
+}
+
+async function readWalletHostOwnerSourceLaneHintsV1(args: {
+  readonly signingEngine: BrowserSigningSurface;
+  readonly relayerUrl: string;
+  readonly projection: ActiveWalletSessionAuthorizationProjection;
+}): Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]> {
+  const ownerScope = await args.signingEngine.resolveActiveOwnerLaneScope(args.projection.walletId);
+  const available = await args.signingEngine.readOwnerScopedSigningLanes({
+    walletId: args.projection.walletId,
+    ownerScope,
+  });
+  const candidates = collectWalletHostOwnerSourceLaneCandidatesV1(available);
+  if (candidates.length === 0) {
+    throw new Error('Wallet-host owner source lanes are unavailable');
+  }
+  const tokenByCurve = {
+    ed25519: walletSessionTokenForCurve(args.projection, 'ed25519'),
+    ecdsa_secp256k1: walletSessionTokenForCurve(args.projection, 'ecdsa'),
+  } as const;
+  const hints = await Promise.all(
+    candidates.map(async (candidate) => {
+      const token = tokenByCurve[candidate.curve];
+      if (!token) {
+        throw new Error(`Wallet-host owner ${candidate.curve} Wallet Session token is unavailable`);
+      }
+      const projection = await readOwnerWalletExecutionLaneProjectionV1({
+        relayerUrl: args.relayerUrl,
+        walletSessionToken: token,
+        curve: candidate.curve,
+        expectedMaterialActivation: candidate.materialActivation,
+      });
+      return buildWalletHostOwnerSourceLaneHintV1(candidate, projection);
+    }),
+  );
+  const first = hints[0];
+  if (!first) throw new Error('Wallet-host owner source lanes are unavailable');
+  return [first, ...hints.slice(1)];
+}
+
+function createWalletHostOwnerApprovalUpdatesV1(args: {
+  readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
+  readonly pollIntervalMs: number;
+}): LinkSessionOwnerApprovalUpdatesPortV1 {
+  return {
+    getApprovalV1: async (input) => await requestWalletHostApprovalV1(args.request, input),
+    subscribeApprovalV1: async (input) =>
+      createWalletHostApprovalSubscriptionV1({ ...args, input }),
+  };
+}
+
+async function requestWalletHostApprovalV1(
+  request: LinkSessionOwnerAuthenticatedRequestPortV1,
+  input: Parameters<LinkSessionOwnerApprovalUpdatesPortV1['getApprovalV1']>[0],
+): Promise<Awaited<ReturnType<LinkSessionOwnerApprovalUpdatesPortV1['getApprovalV1']>>> {
+  const response = await request.requestOwnerV1({
+    method: 'GET',
+    canonicalPath: `${LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1}/${String(
+      input.linkSessionId,
+    )}/approval`,
+    authentication: input.authentication,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Wallet-host approval request failed with HTTP ${response.status}`);
+  }
+  return parseLinkedDeviceApprovalResultV1(response.body);
+}
+
+function createWalletHostApprovalSubscriptionV1(args: {
+  readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
+  readonly pollIntervalMs: number;
+  readonly input: Parameters<LinkSessionOwnerApprovalUpdatesPortV1['subscribeApprovalV1']>[0];
+}): { readonly close: () => void } {
+  let closed = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const poll = async (): Promise<void> => {
+    if (closed) return;
+    try {
+      const result = await requestWalletHostApprovalV1(args.request, args.input);
+      if (!closed) args.input.onResult(result);
+    } catch {
+      // The next poll retries transient owner-session transport failures.
+    }
+    if (!closed) timer = setTimeout(() => void poll(), args.pollIntervalMs);
+  };
+  void poll();
+  return {
+    close: () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
+
 /**
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
@@ -731,6 +1038,7 @@ export class SeamsWeb {
   readonly tempo: TempoSignerCapability;
   readonly evm: EvmSignerCapability;
   private readonly walletIframeControls: WalletIframeControlCapability;
+  private readonly deviceLinkingDispose: () => void;
   private emailOtpUnlockPrewarmRecord: EmailOtpUnlockPrewarmRecord = { kind: 'none' };
 
   constructor(
@@ -769,12 +1077,13 @@ export class SeamsWeb {
       userPreferences: userPreferences,
       getAppearance: () => this.appearance,
     });
-    const deviceDomain = {
-      kind: 'iframe' as const,
-      linkedDeviceManagement: createWalletIframeLinkedDeviceManagementPortV1({
-        walletIframe: this.walletIframe,
-      }),
-    };
+    const deviceDomain = createSeamsWebDeviceDomainV1({
+      mode: resolveSeamsWebRuntimeMode(internalOptions),
+      configs: this.configs,
+      signingEngine: browserSigningSurface,
+      walletIframe: this.walletIframe,
+    });
+    this.deviceLinkingDispose = deviceDomain.dispose;
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -824,7 +1133,7 @@ export class SeamsWeb {
         rotateWalletRecoveryCodes: async (args) => await this.rotateWalletRecoveryCodesDomain(args),
       },
       devices: {
-        ...deviceDomain,
+        ...deviceDomain.domain,
       },
       keys: {
         resolveExactKeyExportLane: async (input) =>
@@ -935,6 +1244,7 @@ export class SeamsWeb {
   }
 
   dispose(): void {
+    this.deviceLinkingDispose();
     this.walletIframe.dispose();
     this.signingEngine.dispose();
   }
