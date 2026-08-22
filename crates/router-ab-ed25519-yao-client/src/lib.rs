@@ -63,7 +63,8 @@ pub use signing::{
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
     WasmActivatedClientV1, WasmClientSigningShareV1, WasmEd25519YaoClientRootExportSessionV1,
-    WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1, WasmExportedEd25519SeedV1,
+    WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1,
+    WasmEd25519YaoSourcePreservingRegistrationSessionV1, WasmExportedEd25519SeedV1,
     WasmLaneCustodySealV1, WasmLaneHolderEcdsaPresignSessionV1, WasmLaneHolderRecipientV1,
     WasmLaneHolderSigningMaterialV1, WasmOrdinaryEd25519ActivationClientMaterialV1,
 };
@@ -143,6 +144,42 @@ impl ClientActivationEntropyV1 {
             deriver_a_seal_seed,
             deriver_b_seal_seed,
         })
+    }
+}
+
+/// Purpose-separated entropy for one source-preserving registration request.
+///
+/// Device 2 owns the recipient private key, so Device 1 only needs fresh
+/// sender seeds for the two Deriver input envelopes.
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct ClientActivationSourcePreservingEntropyV1 {
+    deriver_a_seal_seed: [u8; 32],
+    deriver_b_seal_seed: [u8; 32],
+}
+
+impl ClientActivationSourcePreservingEntropyV1 {
+    /// Creates two nonzero, distinct HPKE sender seeds.
+    pub fn new(
+        deriver_a_seal_seed: [u8; 32],
+        deriver_b_seal_seed: [u8; 32],
+    ) -> Result<Self, ClientActivationError> {
+        let zero = [0_u8; 32];
+        let valid = !deriver_a_seal_seed.ct_eq(&zero)
+            & !deriver_b_seal_seed.ct_eq(&zero)
+            & !deriver_a_seal_seed.ct_eq(&deriver_b_seal_seed);
+        if !bool::from(valid) {
+            return Err(ClientActivationError::InvalidEntropy);
+        }
+        Ok(Self {
+            deriver_a_seal_seed,
+            deriver_b_seal_seed,
+        })
+    }
+}
+
+impl fmt::Debug for ClientActivationSourcePreservingEntropyV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ClientActivationSourcePreservingEntropyV1([REDACTED])")
     }
 }
 
@@ -348,6 +385,76 @@ pub fn prepare_client_registration_with_root_v1(
         Ed25519YaoOperationV1::Registration,
         ClientActivationContinuityV1::Establish,
     )
+}
+
+/// Prepares a source-preserving registration request for a target-owned
+/// recipient. The source root and client contributions remain inside this
+/// function; only recipient-encrypted Deriver inputs are returned.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_client_registration_source_preserving_with_root_v1(
+    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    root: &Ed25519YaoClientRootV1,
+    target_client_recipient_public_key: [u8; 32],
+    mut entropy: ClientActivationSourcePreservingEntropyV1,
+) -> Result<RouterAbEd25519YaoActivationExecuteRequestV1, ClientActivationError> {
+    let context = stable_key_derivation_context_v1(application, participant_ids)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    if admission.binding().operation != Ed25519YaoOperationV1::Registration
+        || context.binding_digest() != admission.binding().stable_key_context_binding.into_bytes()
+    {
+        return Err(ClientActivationError::BindingMismatch);
+    }
+    let contributions = derive_ed25519_yao_client_contributions_v1(&root, &context)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    let (deriver_a, deriver_b) = contributions.into_parts();
+    let (deriver_a_y, deriver_a_tau) = deriver_a.into_parts();
+    let (deriver_b_y, deriver_b_tau) = deriver_b.into_parts();
+    let recipients = LocalEd25519YaoActivationRecipientsV1 {
+        client_public_key: target_client_recipient_public_key,
+        signing_worker_public_key: admission.keyset().signing_worker_recipient_public_key(),
+    };
+    let request_a = LocalEd25519YaoActivationDeriverARequestV1 {
+        binding: admission.binding().clone(),
+        application_binding: application.clone(),
+        participant_ids,
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: deriver_a_y.into_bytes(),
+            tau: deriver_a_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let request_b = LocalEd25519YaoActivationDeriverBRequestV1 {
+        binding: admission.binding().clone(),
+        application_binding: application.clone(),
+        participant_ids,
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: deriver_b_y.into_bytes(),
+            tau: deriver_b_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let deriver_a_input = seal_activation_input(
+        Ed25519YaoDeriverRoleV1::DeriverA,
+        admission.keyset().deriver_a_input_public_key(),
+        &mut entropy.deriver_a_seal_seed,
+        admission.binding(),
+        &request_a,
+    )?;
+    let deriver_b_input = seal_activation_input(
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        admission.keyset().deriver_b_input_public_key(),
+        &mut entropy.deriver_b_seal_seed,
+        admission.binding(),
+        &request_b,
+    )?;
+    RouterAbEd25519YaoActivationExecuteRequestV1::new(
+        admission.binding().clone(),
+        deriver_a_input,
+        deriver_b_input,
+    )
+    .map_err(|_| ClientActivationError::InvalidProtocolShape)
 }
 
 /// Prepares recovery from the same Client root while requiring the registered

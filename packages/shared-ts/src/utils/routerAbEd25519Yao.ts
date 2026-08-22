@@ -795,7 +795,9 @@ function parsePrimitiveRequestKind(
   }
 }
 
-function parseApplicationBinding(value: unknown): RouterAbEd25519YaoApplicationBindingFactsV1 {
+export function parseRouterAbEd25519YaoApplicationBindingFactsV1(
+  value: unknown,
+): RouterAbEd25519YaoApplicationBindingFactsV1 {
   const record = requireRecord(value, 'application_binding');
   requireExactKeys(record, 'application_binding', [
     'wallet_id',
@@ -1379,7 +1381,7 @@ function parseRegistrationAdmissionRequestValue(
   ]);
   return {
     scope: parsePublicLifecycleScope(record.scope),
-    application_binding: parseApplicationBinding(record.application_binding),
+    application_binding: parseRouterAbEd25519YaoApplicationBindingFactsV1(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
   };
 }
@@ -1432,7 +1434,7 @@ function parseRecoveryAdmissionRequestValue(
   return {
     scope,
     active_material_activation: activeMaterialActivation,
-    application_binding: parseApplicationBinding(record.application_binding),
+    application_binding: parseRouterAbEd25519YaoApplicationBindingFactsV1(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
     active_capability_binding: activeCapabilityBinding,
     replacement_capability_binding: replacementCapabilityBinding,
@@ -1554,7 +1556,7 @@ function parseExportAdmissionRequestValue(
   ]);
   return {
     scope: parsePublicLifecycleScope(record.scope),
-    application_binding: parseApplicationBinding(record.application_binding),
+    application_binding: parseRouterAbEd25519YaoApplicationBindingFactsV1(record.application_binding),
     participant_ids: parseParticipantIds(record.participant_ids),
     registered_public_key: requireBytes32(
       record.registered_public_key,

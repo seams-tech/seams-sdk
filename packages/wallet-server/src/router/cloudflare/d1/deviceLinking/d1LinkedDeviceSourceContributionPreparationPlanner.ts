@@ -23,10 +23,9 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import {
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
-  type RouterAbEd25519YaoActivationBindingV1,
-  type RouterAbEd25519YaoDeriverRoleV1,
+import type {
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
+  RouterAbEd25519YaoActivationBindingV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
@@ -45,6 +44,9 @@ import type { VerifiedLinkSourceReadV1 } from './d1LinkedDeviceVerifiedLinkBuild
 
 export type D1LinkedDeviceSourceContributionPreparationPlannerOptionsV1 = {
   readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
+  /** Deriver X25519 input recipients copied from the admitted Router keyset. */
+  readonly deriverAInputPublicKeyB64u: string;
+  readonly deriverBInputPublicKeyB64u: string;
   /** The current SigningWorker X25519 recipient, encoded as canonical 32-byte base64url. */
   readonly signingWorkerRecipientPublicKeyB64u: string;
 };
@@ -58,10 +60,20 @@ export class D1LinkedDeviceSourceContributionPreparationPlannerV1
   implements LinkedDeviceSourceContributionPreparationPlannerV1
 {
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
+  private readonly deriverAInputPublicKeyB64u: string;
+  private readonly deriverBInputPublicKeyB64u: string;
   private readonly signingWorkerRecipientPublicKeyB64u: string;
 
   constructor(input: D1LinkedDeviceSourceContributionPreparationPlannerOptionsV1) {
     this.resolveOwnerSourceChildV1 = input.resolveOwnerSourceChildV1;
+    this.deriverAInputPublicKeyB64u = requireCanonicalBytes32(
+      input.deriverAInputPublicKeyB64u,
+      'deriver A input public key',
+    );
+    this.deriverBInputPublicKeyB64u = requireCanonicalBytes32(
+      input.deriverBInputPublicKeyB64u,
+      'deriver B input public key',
+    );
     this.signingWorkerRecipientPublicKeyB64u = requireCanonicalBytes32(
       input.signingWorkerRecipientPublicKeyB64u,
       'signing worker recipient public key',
@@ -113,6 +125,8 @@ export class D1LinkedDeviceSourceContributionPreparationPlannerV1
             resolution,
             targetActivation,
             recipientRequest,
+            deriverAInputPublicKeyB64u: this.deriverAInputPublicKeyB64u,
+            deriverBInputPublicKeyB64u: this.deriverBInputPublicKeyB64u,
             signingWorkerRecipientPublicKeyB64u: this.signingWorkerRecipientPublicKeyB64u,
           }),
         );
@@ -153,6 +167,8 @@ function buildEd25519Preparation(input: {
   readonly resolution: Extract<LinkedDeviceOwnerSourceChildResolutionV1, { readonly keyFamily: 'ed25519' }>;
   readonly targetActivation: MpcMaterialActivationRef;
   readonly recipientRequest: OrdinarySignerMaterialRecipientRequestV1;
+  readonly deriverAInputPublicKeyB64u: string;
+  readonly deriverBInputPublicKeyB64u: string;
   readonly signingWorkerRecipientPublicKeyB64u: string;
 }): LinkedDeviceEd25519SourceContributionPreparationV1 {
   if (
@@ -166,7 +182,12 @@ function buildEd25519Preparation(input: {
     input.resolution.sourceBinding,
     input.targetActivation,
   );
-  const targetRequest = parseTargetRequest(targetBinding);
+  const targetAdmission = targetAdmissionReceipt({
+    binding: targetBinding,
+    deriverAInputPublicKeyB64u: input.deriverAInputPublicKeyB64u,
+    deriverBInputPublicKeyB64u: input.deriverBInputPublicKeyB64u,
+    signingWorkerRecipientPublicKeyB64u: input.signingWorkerRecipientPublicKeyB64u,
+  });
   const targetDeviceId = parseDeviceId(String(input.input.registration.deviceId));
   if (!targetDeviceId.ok) throw new Error(`target device id: ${targetDeviceId.error.message}`);
   if (input.resolution.source.sourceKind !== 'owner_registration') {
@@ -181,7 +202,9 @@ function buildEd25519Preparation(input: {
     targetDeviceId: targetDeviceId.value,
     targetFactorVerificationDigestB64u: input.input.targetFactor.verificationDigestB64u,
     sourceBinding: input.resolution.sourceBinding,
-    targetRequest,
+    targetAdmission,
+    applicationBinding: input.resolution.applicationBinding,
+    sourceRevocationEpoch: input.resolution.source.revocationEpoch,
     participantIds: input.resolution.source.ownerParticipantContinuity.participantIds,
     targetMaterialActivation: input.targetActivation,
     targetClientRecipientPublicKeyB64u,
@@ -316,38 +339,22 @@ function bindingWithMaterialActivation(
   };
 }
 
-function parseTargetRequest(
-  binding: RouterAbEd25519YaoActivationBindingV1<'registration'>,
-): LinkedDeviceEd25519SourceContributionPreparationV1['targetRequest'] {
-  const session = [...binding.session_id];
-  const stableContextBinding = [...binding.stable_key_context_binding];
-  const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1({
-    binding,
-    deriver_a_input: encryptedInput('deriver_a', session, stableContextBinding),
-    deriver_b_input: encryptedInput('deriver_b', session, stableContextBinding),
-  });
-  if (!parsed.ok) throw new Error(`linked-device target Ed25519 request: ${parsed.message}`);
-  return parsed.value;
-}
-
-function encryptedInput(
-  deriver: RouterAbEd25519YaoDeriverRoleV1,
-  session: readonly number[],
-  stableContextBinding: readonly number[],
-): Record<string, unknown> {
+function targetAdmissionReceipt(input: {
+  readonly binding: RouterAbEd25519YaoActivationBindingV1<'registration'>;
+  readonly deriverAInputPublicKeyB64u: string;
+  readonly deriverBInputPublicKeyB64u: string;
+  readonly signingWorkerRecipientPublicKeyB64u: string;
+}): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
   return {
-    kind: 'activation',
-    deriver,
-    operation: 'registration',
-    session,
-    stable_context_binding: stableContextBinding,
-    encapsulated_key: randomBytes32('linked-device target Ed25519 encapsulated key'),
-    ciphertext: randomBytes32('linked-device target Ed25519 ciphertext'),
+    binding: input.binding,
+    keyset: {
+      deriver_a_input_public_key: [...base64UrlDecode(input.deriverAInputPublicKeyB64u)],
+      deriver_b_input_public_key: [...base64UrlDecode(input.deriverBInputPublicKeyB64u)],
+      signing_worker_recipient_public_key: [
+        ...base64UrlDecode(input.signingWorkerRecipientPublicKeyB64u),
+      ],
+    },
   };
-}
-
-function randomBytes32(label: string): readonly number[] {
-  return [...base64UrlDecode(secureRandomBase64Url(32, label))];
 }
 
 function requireCanonicalBytes32(value: string, label: string): string {

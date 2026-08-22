@@ -25,14 +25,17 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import {
   parseRouterAbEd25519YaoCeremonyBindingV1,
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  parseRouterAbEd25519YaoApplicationBindingFactsV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
+  parseRouterAbEd25519YaoActivationPublicReceiptV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
   parseRouterAbEd25519YaoParticipantIdsV1,
   type RouterAbEd25519YaoCeremonyBindingV1,
-  type RouterAbEd25519YaoActivationExecuteRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
+  type RouterAbEd25519YaoActivationPublicReceiptV1,
+  type RouterAbEd25519YaoApplicationBindingFactsV1,
   type RouterAbEd25519YaoEncryptedPackageV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
-  type RouterAbEd25519YaoBytes32V1,
 } from '../utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefFromWire } from '../utils/routerAbNormalSigningIdentity';
 
@@ -85,7 +88,9 @@ export type LinkedDeviceEd25519SourceContributionPreparationV1 = {
   readonly targetDeviceId: DeviceId;
   readonly targetFactorVerificationDigestB64u: DigestB64u;
   readonly sourceBinding: RouterAbEd25519YaoCeremonyBindingV1;
-  readonly targetRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+  readonly targetAdmission: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+  readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+  readonly sourceRevocationEpoch: number;
   readonly participantIds: readonly [number, number];
   readonly targetMaterialActivation: MpcMaterialActivationRef;
   readonly targetClientRecipientPublicKeyB64u: string;
@@ -144,14 +149,6 @@ export type LinkedDeviceEcdsaSourceContributionV1 = {
   readonly package: LinkedDeviceEcdsaSourceContributionPackageV1;
 };
 
-/** Rust wire package used by the Ed25519 source-preserving worker endpoint. */
-export type LinkedDeviceEd25519SigningWorkerPackageDeliveryV1 = {
-  readonly binding: RouterAbEd25519YaoCeremonyBindingV1;
-  readonly client_commitment: RouterAbEd25519YaoBytes32V1;
-  readonly signing_worker_commitment: RouterAbEd25519YaoBytes32V1;
-  readonly package: RouterAbEd25519YaoEncryptedPackageV1;
-};
-
 export type LinkedDeviceEd25519SourceContributionV1 = {
   readonly kind: 'linked_device_ed25519_source_contribution_v1';
   readonly keyFamily: 'ed25519';
@@ -166,11 +163,20 @@ export type LinkedDeviceEd25519SourceContributionV1 = {
   readonly targetSigningWorkerRecipientPublicKeyB64u: string;
   readonly sourceRegisteredPublicKeyB64u: Ed25519PublicKeyB64u;
   readonly sourceBinding: RouterAbEd25519YaoCeremonyBindingV1;
-  readonly delivery: {
-    readonly deriver_a: LinkedDeviceEd25519SigningWorkerPackageDeliveryV1;
-    readonly deriver_b: LinkedDeviceEd25519SigningWorkerPackageDeliveryV1;
-  };
+  /** Exact inactive reservation returned by Router source-preserving execution. */
+  readonly reservationId: string;
+  readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
+  readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
   readonly participantIds: readonly [number, number];
+  readonly deriver_a_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_a'>;
+  readonly deriver_b_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_b'>;
+};
+
+export type LinkedDeviceEd25519SourcePreservingReservationV1 = {
+  readonly state: 'inactive';
+  readonly reservationId: string;
+  readonly participantIds: readonly [number, number];
+  readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
   readonly deriver_a_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_a'>;
   readonly deriver_b_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_b'>;
 };
@@ -206,6 +212,52 @@ export function parseLinkedDeviceOrdinaryMaterialSourceContributionV1(
     default:
       throw new Error('linked-device ordinary source contribution kind is invalid');
   }
+}
+
+export function parseLinkedDeviceEd25519SourcePreservingReservationV1(
+  raw: unknown,
+): LinkedDeviceEd25519SourcePreservingReservationV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'state',
+      'reservation_id',
+      'participant_ids',
+      'activation_receipt',
+      'deriver_a_client_package',
+      'deriver_b_client_package',
+    ],
+    'linked-device Ed25519 source-preserving reservation',
+  );
+  if (record.state !== 'inactive') {
+    throw new Error('linked-device Ed25519 source-preserving reservation is not inactive');
+  }
+  const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
+    record.activation_receipt,
+  );
+  const participantIds = parseRouterAbEd25519YaoParticipantIdsV1(record.participant_ids);
+  const deriverA = parseEd25519ClientPackage(
+    record.deriver_a_client_package,
+    'deriver_a',
+  );
+  const deriverB = parseEd25519ClientPackage(
+    record.deriver_b_client_package,
+    'deriver_b',
+  );
+  if (
+    !sameBytes(activationReceipt.transcript, deriverA.transcript) ||
+    !sameBytes(activationReceipt.transcript, deriverB.transcript)
+  ) {
+    throw new Error('linked-device Ed25519 reservation packages have mismatched transcripts');
+  }
+  return {
+    state: 'inactive',
+    reservationId: requireText(record.reservation_id, 'reservation_id'),
+    participantIds,
+    activationReceipt,
+    deriver_a_client_package: deriverA,
+    deriver_b_client_package: deriverB,
+  };
 }
 
 export function parseLinkedDeviceOrdinaryMaterialSourceContributionTupleV1(
@@ -316,7 +368,9 @@ function parseEd25519SourceContributionPreparation(
       'targetDeviceId',
       'targetFactorVerificationDigestB64u',
       'sourceBinding',
-      'targetRequest',
+      'targetAdmission',
+      'applicationBinding',
+      'sourceRevocationEpoch',
       'participantIds',
       'targetMaterialActivation',
       'targetClientRecipientPublicKeyB64u',
@@ -329,13 +383,23 @@ function parseEd25519SourceContributionPreparation(
     throw new Error('linked-device Ed25519 source contribution preparation kind is invalid');
   }
   const sourceBinding = parseRegistrationBinding(record.sourceBinding, 'sourceBinding');
-  const targetRequestResult = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-    record.targetRequest,
+  const targetAdmissionResult = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    record.targetAdmission,
   );
-  if (!targetRequestResult.ok) {
-    throw new Error(`targetRequest ${targetRequestResult.message}`);
+  if (!targetAdmissionResult.ok) {
+    throw new Error(`targetAdmission ${targetAdmissionResult.message}`);
   }
-  const targetRequest = targetRequestResult.value;
+  const targetAdmission = targetAdmissionResult.value;
+  const applicationBinding = parseRouterAbEd25519YaoApplicationBindingFactsV1(
+    record.applicationBinding,
+  );
+  if (
+    typeof record.sourceRevocationEpoch !== 'number' ||
+    !Number.isSafeInteger(record.sourceRevocationEpoch) ||
+    record.sourceRevocationEpoch < 0
+  ) {
+    throw new Error('sourceRevocationEpoch must be a non-negative safe integer');
+  }
   const targetMaterialActivation = parseActivation(
     record.targetMaterialActivation,
     'targetMaterialActivation',
@@ -367,12 +431,12 @@ function parseEd25519SourceContributionPreparation(
   if (
     !mpcMaterialActivationRefsEqual(
       targetMaterialActivation,
-      routerAbMpcMaterialActivationRefFromWire(targetRequest.binding.material_activation),
+      routerAbMpcMaterialActivationRefFromWire(targetAdmission.binding.material_activation),
     )
   ) {
-    throw new Error('targetRequest activation differs from targetMaterialActivation');
+    throw new Error('targetAdmission activation differs from targetMaterialActivation');
   }
-  if (!sameEdStableIdentity(sourceBinding, targetRequest.binding)) {
+  if (!sameEdStableIdentity(sourceBinding, targetAdmission.binding)) {
     throw new Error('source and target Ed25519 contribution bindings differ');
   }
   if (
@@ -390,7 +454,9 @@ function parseEd25519SourceContributionPreparation(
     targetDeviceId,
     targetFactorVerificationDigestB64u,
     sourceBinding,
-    targetRequest,
+    targetAdmission,
+    applicationBinding,
+    sourceRevocationEpoch: record.sourceRevocationEpoch,
     participantIds,
     targetMaterialActivation,
     targetClientRecipientPublicKeyB64u,
@@ -488,7 +554,9 @@ function parseEd25519Contribution(
       'targetClientRecipientPublicKeyB64u',
       'targetSigningWorkerRecipientPublicKeyB64u',
       'sourceBinding',
-      'delivery',
+      'reservationId',
+      'targetBinding',
+      'activationReceipt',
       'participantIds',
       'deriver_a_client_package',
       'deriver_b_client_package',
@@ -507,16 +575,12 @@ function parseEd25519Contribution(
     record.targetMaterialActivation,
     'source contribution targetMaterialActivation',
   );
-  const delivery = parseEd25519Delivery(record.delivery);
+  const targetBinding = parseRegistrationBinding(record.targetBinding, 'targetBinding');
+  const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
+    record.activationReceipt,
+  );
+  const reservationId = requireText(record.reservationId, 'reservationId');
   const participantIds = parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds);
-  const deriverA = parseEd25519ClientPackage(
-    record.deriver_a_client_package,
-    'deriver_a',
-  );
-  const deriverB = parseEd25519ClientPackage(
-    record.deriver_b_client_package,
-    'deriver_b',
-  );
   const linkSessionId = parseSessionId(record.linkSessionId);
   const enrollmentId = parseEnrollmentId(record.enrollmentId);
   const sourceAuthorityId = parseAuthorityId(record.sourceAuthorityId);
@@ -540,12 +604,43 @@ function parseEd25519Contribution(
     throw new Error('linked-device Ed25519 source contribution recipients must differ');
   }
   assertSourceBindingContext(sourceBinding, linkSessionId, 'sourceBinding');
-  assertBindingContext(delivery.deriver_a.binding, linkSessionId, targetMaterialActivation, 'delivery');
-  if (!sameEdBinding(delivery.deriver_a.binding, delivery.deriver_b.binding)) {
-    throw new Error('linked-device Ed25519 source contribution delivery bindings differ');
-  }
-  if (!sameEdStableIdentity(sourceBinding, delivery.deriver_a.binding)) {
+  assertBindingContext(targetBinding, linkSessionId, targetMaterialActivation, 'targetBinding');
+  if (!sameEdStableIdentity(sourceBinding, targetBinding)) {
     throw new Error('linked-device Ed25519 source contribution stable identity differs');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      routerAbMpcMaterialActivationRefFromWire(activationReceipt.material_activation),
+      targetMaterialActivation,
+    )
+  ) {
+    throw new Error('linked-device Ed25519 source contribution receipt activation differs');
+  }
+  const sourceRegisteredPublicKeyB64u = parseEd25519PublicKeyB64u(
+    record.sourceRegisteredPublicKeyB64u,
+    'sourceRegisteredPublicKeyB64u',
+  );
+  if (
+    !sameBytes(
+      activationReceipt.registered_public_key,
+      Array.from(base64UrlDecode(sourceRegisteredPublicKeyB64u)),
+    )
+  ) {
+    throw new Error('linked-device Ed25519 source contribution receipt public key differs');
+  }
+  const deriverA = parseEd25519ClientPackage(
+    record.deriver_a_client_package,
+    'deriver_a',
+  );
+  const deriverB = parseEd25519ClientPackage(
+    record.deriver_b_client_package,
+    'deriver_b',
+  );
+  if (
+    !sameBytes(activationReceipt.transcript, deriverA.transcript) ||
+    !sameBytes(activationReceipt.transcript, deriverB.transcript)
+  ) {
+    throw new Error('linked-device Ed25519 source contribution package transcript differs');
   }
   if (sourceBinding.material_activation.activation_id === targetMaterialActivation.activationId) {
     throw new Error('linked-device Ed25519 source contribution reuses the source activation');
@@ -563,14 +658,13 @@ function parseEd25519Contribution(
     targetClientRecipientPublicKeyB64u,
     targetSigningWorkerRecipientPublicKeyB64u,
     sourceBinding,
-    delivery,
+    reservationId,
+    targetBinding,
+    activationReceipt,
     participantIds,
     deriver_a_client_package: deriverA,
     deriver_b_client_package: deriverB,
-    sourceRegisteredPublicKeyB64u: parseEd25519PublicKeyB64u(
-      record.sourceRegisteredPublicKeyB64u,
-      'sourceRegisteredPublicKeyB64u',
-    ),
+    sourceRegisteredPublicKeyB64u,
   };
 }
 
@@ -707,48 +801,6 @@ export function parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1(
       20,
       'thresholdEthereumAddress20B64u',
     ),
-  };
-}
-
-function parseEd25519Delivery(
-  raw: unknown,
-): LinkedDeviceEd25519SourceContributionV1['delivery'] {
-  const record = exactRecord(
-    raw,
-    ['deriver_a', 'deriver_b'],
-    'linked-device Ed25519 source contribution delivery',
-  );
-  return {
-    deriver_a: parseEd25519DeliveryRole(record.deriver_a, 'deriver_a'),
-    deriver_b: parseEd25519DeliveryRole(record.deriver_b, 'deriver_b'),
-  };
-}
-
-function parseEd25519DeliveryRole(
-  raw: unknown,
-  role: 'deriver_a' | 'deriver_b',
-): LinkedDeviceEd25519SigningWorkerPackageDeliveryV1 {
-  const record = exactRecord(raw, ['binding', 'client_commitment', 'signing_worker_commitment', 'package'], role);
-  const binding = parseRegistrationBinding(record.binding, `${role}.binding`);
-  const clientCommitment = parseByteArray(record.client_commitment, 32, `${role}.client_commitment`);
-  const signingWorkerCommitment = parseByteArray(
-    record.signing_worker_commitment,
-    32,
-    `${role}.signing_worker_commitment`,
-  );
-  const packageValue = parseRouterPackage(record.package, `${role}.package`);
-  if (
-    packageValue.kind !== 'activation_signing_worker' ||
-    packageValue.deriver !== role ||
-    !sameBytes(packageValue.session, binding.session_id)
-  ) {
-    throw new Error(`${role}.package is not a matching signing-worker package`);
-  }
-  return {
-    binding,
-    client_commitment: clientCommitment,
-    signing_worker_commitment: signingWorkerCommitment,
-    package: packageValue,
   };
 }
 
@@ -1043,29 +1095,6 @@ function sameEcdsaTarget(
   );
 }
 
-function sameEdBinding(
-  left: RouterAbEd25519YaoCeremonyBindingV1,
-  right: RouterAbEd25519YaoCeremonyBindingV1,
-): boolean {
-  return (
-    left.operation === right.operation &&
-    left.session_id.every((value, index) => value === right.session_id[index]) &&
-    left.stable_key_context_binding.every(
-      (value, index) => value === right.stable_key_context_binding[index],
-    ) &&
-    left.material_activation.activation_id === right.material_activation.activation_id &&
-    left.material_activation.capability === right.material_activation.capability &&
-    left.material_activation.material_owner === right.material_activation.material_owner &&
-    left.material_activation.key_binding === right.material_activation.key_binding &&
-    left.material_activation.lifecycle_binding === right.material_activation.lifecycle_binding &&
-    left.material_activation.signing_worker === right.material_activation.signing_worker &&
-    left.lifecycle.lifecycle_id === right.lifecycle.lifecycle_id &&
-    left.lifecycle.account_id === right.lifecycle.account_id &&
-    left.lifecycle.signer_set_id === right.lifecycle.signer_set_id &&
-    left.lifecycle.selected_server_id === right.lifecycle.selected_server_id
-  );
-}
-
 function parseActivation(raw: unknown, label: string): MpcMaterialActivationRef {
   const parsed = parseMpcMaterialActivationRef(raw);
   if (!parsed.ok) throw new Error(`${label} ${parsed.error.message}`);
@@ -1122,17 +1151,6 @@ function parseFixedBase64(raw: unknown, byteLength: number, label: string): stri
   }
   if (decoded.length !== byteLength || base64UrlEncode(decoded) !== raw) {
     throw new Error(`${label} must decode to ${byteLength} bytes`);
-  }
-  return raw;
-}
-
-function parseByteArray(raw: unknown, byteLength: number, label: string): readonly number[] {
-  if (
-    !Array.isArray(raw) ||
-    raw.length !== byteLength ||
-    raw.some((value) => !Number.isInteger(value) || value < 0 || value > 255)
-  ) {
-    throw new Error(`${label} must contain exactly ${byteLength} bytes`);
   }
   return raw;
 }

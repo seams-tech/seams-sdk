@@ -1747,6 +1747,17 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
     };
     result: { sessionHandle: string; requestJson: string };
   };
+  prepareEd25519YaoSourcePreservingRegistration: {
+    payload: {
+      sourceHandle: string;
+      targetAdmission: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+      applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+      participantIds: readonly [number, number];
+      expectedRegisteredPublicKeyB64u: string;
+      targetClientRecipientPublicKeyB64u: string;
+    };
+    result: { requestJson: string };
+  };
   completeEd25519YaoLane: {
     payload: { sessionHandle: string; responseJson: string };
     result: Ed25519YaoLaneClientCompletionV1;

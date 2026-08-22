@@ -77,7 +77,7 @@ import {
   parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
 } from '@shared/device-linking/sourceContribution';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
-import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import { parseRouterAbEd25519YaoCeremonyBindingV1 } from '@shared/utils/routerAbEd25519Yao';
 import { d1ChangedRows, formatD1ExecStatement, parseD1JsonColumn } from '../../../../storage/d1Sql';
 import {
   D1WalletAuthorityStore,
@@ -1115,7 +1115,7 @@ function workerReservationPreparationForContribution(input: {
       preparation: {
         kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
         sourceContribution: input.sourceContribution,
-        targetRequest: input.sourceContributionPreparation.targetRequest,
+        targetBinding: input.sourceContributionPreparation.targetAdmission.binding,
       },
     };
   }
@@ -1590,7 +1590,7 @@ function parseEd25519ServerReservationRecord(raw: unknown): ServerReservationRec
   const preparationRecord = requireRecord(record.preparation, 'Ed25519 reservation preparation');
   requireExactKeys(
     preparationRecord,
-    ['kind', 'sourceContribution', 'targetRequest'],
+    ['kind', 'sourceContribution', 'targetBinding'],
     'Ed25519 reservation preparation',
   );
   if (preparationRecord.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
@@ -1602,16 +1602,18 @@ function parseEd25519ServerReservationRecord(raw: unknown): ServerReservationRec
   if (sourceContribution.keyFamily !== 'ed25519') {
     throw new Error('Ed25519 reservation source contribution family is invalid');
   }
-  const targetRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-    preparationRecord.targetRequest,
+  const targetBinding = parseRouterAbEd25519YaoCeremonyBindingV1(
+    preparationRecord.targetBinding,
   );
-  if (!targetRequest.ok) throw new Error(`Ed25519 target request: ${targetRequest.message}`);
+  if (targetBinding.operation !== 'registration') {
+    throw new Error('Ed25519 target binding must use registration');
+  }
   return {
     reservationId: requireReservationId(record.reservationId, 'Ed25519 server reservation id'),
     preparation: {
       kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
       sourceContribution,
-      targetRequest: targetRequest.value,
+      targetBinding,
     },
   };
 }
