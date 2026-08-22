@@ -21,6 +21,7 @@ import {
 import { createHostedWalletConsoleRouter } from '../consoleComposition';
 import {
   createCloudflareD1RouterApiAuthService,
+  createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
@@ -1307,6 +1308,8 @@ function localLinkedDeviceSessionComposition(
   });
   const serviceFetch = createRouterAbServiceBindingFetch(env);
   const internalServiceAuthSecret = localRouterAbInternalServiceAuthSecret(env);
+  const deriverAInputPublicKeyB64u = localDeriverInputPublicKeyB64u(env, 'a');
+  const deriverBInputPublicKeyB64u = localDeriverInputPublicKeyB64u(env, 'b');
   const signingWorkerRecipientPublicKeyB64u = localSigningWorkerRecipientPublicKeyB64u(env);
   return {
     session: {
@@ -1325,6 +1328,8 @@ function localLinkedDeviceSessionComposition(
           sourceContributionPreparationPlanner:
             createD1LinkedDeviceSourceContributionPreparationPlannerV1({
               resolveOwnerSourceChildV1,
+              deriverAInputPublicKeyB64u,
+              deriverBInputPublicKeyB64u,
               signingWorkerRecipientPublicKeyB64u,
             }),
           verifiedLinkBuilder,
@@ -1343,6 +1348,11 @@ function localLinkedDeviceSessionComposition(
           internalServiceAuthSecret,
         }),
       },
+      sourceContributionRouter:
+        createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
     },
   };
 }
@@ -1612,14 +1622,43 @@ function localSigningWorkerRecipientPublicKeyB64u(env: LocalD1DevEnv): string {
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY is required for linked-device sessions',
     );
   }
-  if (!/^x25519:[0-9a-f]{64}$/.test(publicKey)) {
+  return localX25519PublicKeyB64u(
+    publicKey,
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+  );
+}
+
+function localDeriverInputPublicKeyB64u(
+  env: LocalD1DevEnv,
+  role: 'a' | 'b',
+): string {
+  const configuredPublicKey = normalizeLocalString(
+    role === 'a'
+      ? env.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY
+      : env.DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY,
+  );
+  const keyset = configuredPublicKey ? undefined : localRouterAbPublicKeyset(env);
+  const publicKey =
+    configuredPublicKey ||
+    keyset?.signer_envelope_hpke.current[role === 'a' ? 'deriver_a' : 'deriver_b'].public_key;
+  if (!publicKey) {
     throw new Error(
-      'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY must use x25519:<64 lowercase hex chars> encoding',
+      `${role === 'a' ? 'DERIVER_A' : 'DERIVER_B'}_ED25519_YAO_INPUT_PUBLIC_KEY is required for linked-device sessions`,
     );
+  }
+  return localX25519PublicKeyB64u(
+    publicKey,
+    `${role === 'a' ? 'DERIVER_A' : 'DERIVER_B'}_ED25519_YAO_INPUT_PUBLIC_KEY`,
+  );
+}
+
+function localX25519PublicKeyB64u(value: string, label: string): string {
+  if (!/^x25519:[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${label} must use x25519:<64 lowercase hex chars> encoding`);
   }
   const bytes = new Uint8Array(32);
   for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(publicKey.slice(8 + index * 2, 10 + index * 2), 16);
+    bytes[index] = Number.parseInt(value.slice(8 + index * 2, 10 + index * 2), 16);
   }
   return base64UrlEncode(bytes);
 }

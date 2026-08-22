@@ -42,6 +42,16 @@ import {
   parseLinkedDeviceEd25519ExportRootSubmissionV1,
 } from '@shared/device-linking/ed25519ExportRoot';
 import type { LinkedDeviceEd25519ExportRootPortV1 } from '../../../../core/deviceLinking/linkedDeviceEd25519ExportRoot';
+import {
+  parseLinkedDeviceEd25519SourcePreservingReservationV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  type LinkedDeviceEd25519SourceContributionPreparationV1,
+} from '@shared/device-linking/sourceContribution';
+import {
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  type RouterAbEd25519YaoActivationExecuteRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type {
   ActivateInstalledAuthorityResultV1 as D1ActivateInstalledAuthorityResultV1,
   CommitPendingAuthorityResultV1,
@@ -205,6 +215,15 @@ export type DeviceLinkingInstallationReceiptPortV1 = {
   }): Promise<void>;
 };
 
+/** Owner-authenticated bridge to the Router's private source-preserving lane. */
+export type DeviceLinkingEd25519SourcePreservingRouterPortV1 = {
+  executeEd25519SourcePreservingV1(input: {
+    readonly sourceBinding: LinkedDeviceEd25519SourceContributionPreparationV1['sourceBinding'];
+    readonly targetRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+    readonly participantIds: readonly [number, number];
+  }): Promise<unknown>;
+};
+
 export type DeviceLinkingRouteServiceV1 = {
   readonly sessionService: Pick<
     LinkedDeviceSessionServiceV1,
@@ -247,6 +266,7 @@ export type DeviceLinkingRouteServiceV1 = {
   readonly targetCredential: DeviceLinkingTargetCredentialProviderV1;
   readonly installationReceipt?: DeviceLinkingInstallationReceiptPortV1;
   readonly ed25519ExportRoot?: LinkedDeviceEd25519ExportRootPortV1;
+  readonly sourceContributionRouter?: DeviceLinkingEd25519SourcePreservingRouterPortV1;
 };
 
 type DeviceLinkingCreateRequestV1 = {
@@ -265,6 +285,7 @@ type RouteAction =
         | 'credential'
         | 'source-contribution-preparation'
         | 'source-contribution'
+        | 'source-contribution-execute'
         | 'email-otp-challenge'
         | 'email-otp-resend'
         | 'email-otp-verify'
@@ -300,6 +321,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
         return await handleSourceContributionPreparation(ctx, service, action.linkSessionId, nowMs);
       case 'source-contribution':
         return await handleSourceContribution(ctx, service, action.linkSessionId, nowMs);
+      case 'source-contribution-execute':
+        return await handleSourceContributionExecute(ctx, service, action.linkSessionId, nowMs);
       case 'email-otp-challenge':
         return await handleEmailOtpChallenge(ctx, service, action.linkSessionId, nowMs, false);
       case 'email-otp-resend':
@@ -530,6 +553,54 @@ async function handleSourceContribution(
     committed.session,
     committed.kind === 'replayed' ? 'replayed' : recorded.outcome,
   );
+}
+
+async function handleSourceContributionExecute(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  const owner = await authenticateOwnerForSession(ctx, service, linkSessionId, nowMs);
+  if (owner.kind !== 'authorized') return ownerSessionResponse(owner);
+  const router = service.sourceContributionRouter;
+  if (!router) return notSupportedResponse('Ed25519 source-preserving linking is not configured');
+  const preparation = requireEd25519SourceContributionPreparation(owner.session);
+  const rawTargetRequest = await readJsonBody(ctx.request);
+  const targetRequest = parseBoundary(() => {
+    const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+      rawTargetRequest,
+    );
+    if (!parsed.ok) throw new Error(parsed.message);
+    return parsed.value;
+  });
+  if (
+    alphabetizeStringify(targetRequest.binding) !==
+    alphabetizeStringify(preparation.targetAdmission.binding)
+  ) {
+    throw new DeviceLinkingInputError(
+      'source-preserving target request binding does not match the persisted preparation',
+    );
+  }
+  const rawReservation = await router.executeEd25519SourcePreservingV1({
+    sourceBinding: preparation.sourceBinding,
+    targetRequest,
+    participantIds: preparation.participantIds,
+  });
+  const reservation = parseBoundary(() =>
+    parseLinkedDeviceEd25519SourcePreservingReservationV1(rawReservation),
+  );
+  if (
+    alphabetizeStringify(reservation.participantIds) !==
+    alphabetizeStringify(preparation.participantIds)
+  ) {
+    throw new DeviceLinkingInputError(
+      'source-preserving reservation participant ids do not match the persisted preparation',
+    );
+  }
+  return json(reservation, { status: 200 });
 }
 
 async function handleEmailOtpChallenge(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number, resend: boolean): Promise<Response> {
@@ -781,6 +852,7 @@ function parseRoutePath(pathname: string): RouteAction | null {
   if (parts.length === 3 && parts[1] === 'email-otp' && parts[2] === 'challenge') return { kind: 'email-otp-challenge', linkSessionId };
   if (parts.length === 4 && parts[1] === 'email-otp' && parts[2] === 'challenge' && parts[3] === 'resend') return { kind: 'email-otp-resend', linkSessionId };
   if (parts.length === 4 && parts[1] === 'email-otp' && parts[2] === 'challenge' && parts[3] === 'verify') return { kind: 'email-otp-verify', linkSessionId };
+  if (parts.length === 3 && parts[1] === 'source-contribution' && parts[2] === 'execute') return { kind: 'source-contribution-execute', linkSessionId };
   if (parts.length !== 2 || !parts[1]) return null;
   switch (parts[1]) {
     case 'claim':
@@ -816,6 +888,39 @@ function requireSourceContributionApproval(
     throw new DeviceLinkingInputError('link session has no source contribution approval');
   }
   return approval;
+}
+
+function requireEd25519SourceContributionPreparation(
+  session: LinkedDeviceSessionRecordV1,
+): LinkedDeviceEd25519SourceContributionPreparationV1 {
+  if (!session.sourceContributionPreparation) {
+    throw new DeviceLinkingInputError(
+      'link session has no source contribution preparation',
+    );
+  }
+  const preparations = parseBoundary(() =>
+    parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
+      session.sourceContributionPreparation,
+    ),
+  );
+  const ed25519 = preparations.find(
+    (preparation): preparation is LinkedDeviceEd25519SourceContributionPreparationV1 =>
+      'kind' in preparation,
+  );
+  if (!ed25519) {
+    throw new DeviceLinkingInputError(
+      'link session has no Ed25519 source contribution preparation',
+    );
+  }
+  if (
+    preparations.filter((preparation) => 'kind' in preparation).length !== 1 ||
+    ed25519.linkSessionId !== session.linkSessionId
+  ) {
+    throw new DeviceLinkingInputError(
+      'Ed25519 source contribution preparation does not match the link session',
+    );
+  }
+  return ed25519;
 }
 
 function requireSentEmailOtpChallenge(session: LinkedDeviceSessionRecordV1): Extract<NonNullable<LinkedDeviceSessionRecordV1['emailOtpChallenge']>, { readonly state: 'sent' }> {
