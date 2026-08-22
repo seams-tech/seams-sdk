@@ -1,6 +1,7 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use sha2::{Digest, Sha256};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::{Zeroize, Zeroizing};
 
 use super::{
@@ -658,6 +659,21 @@ impl EcdsaClientEphemeralKeyPairV1 {
     /// Borrows private key bytes for a Rust-only worker proof-opening operation.
     pub fn private_key_bytes(&self) -> &[u8; 32] {
         &self.private_key
+    }
+}
+
+impl EcdsaClientEphemeralKeyPairV1 {
+    /// Reconstructs a worker-local keypair from the exact private key retained
+    /// by a prior client ceremony.
+    pub fn from_private_key_bytes(private_key: [u8; 32]) -> Result<Self, EcdsaClientProtocolError> {
+        let _private_key_obj = DhKemX25519HkdfSha256::sk_from_bytes(&private_key)
+            .map_err(|_| EcdsaClientProtocolError::HpkeFailed)?;
+        let public_key_bytes =
+            X25519PublicKey::from(&X25519StaticSecret::from(private_key)).to_bytes();
+        Ok(Self {
+            private_key: Zeroizing::new(private_key),
+            public_key: encode_x25519_public_key(&public_key_bytes),
+        })
     }
 }
 

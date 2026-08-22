@@ -123,7 +123,11 @@ impl EcdsaSigningWorkerExportShareBindingV1 {
             push_bytes(&mut out, value.as_bytes());
         }
         out.extend_from_slice(&self.material_activation.canonical_bytes()?);
-        for value in [&self.lifecycle_id, &self.recipient_identity, &self.recipient_public_key] {
+        for value in [
+            &self.lifecycle_id,
+            &self.recipient_identity,
+            &self.recipient_public_key,
+        ] {
             push_bytes(&mut out, value.as_bytes());
         }
         out.extend_from_slice(&self.expires_at_ms.to_be_bytes());
