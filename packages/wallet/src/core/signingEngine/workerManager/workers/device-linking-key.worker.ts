@@ -28,6 +28,7 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { parseRouterAbEd25519YaoActivationPublicReceiptV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
@@ -322,7 +323,20 @@ function ordinarySignerPackageForPreparation(
     if (!committed.signerPackages.ed25519) {
       throw new Error('ordinary Ed25519 signer package is missing');
     }
-    return { keyFamily: 'ed25519', package: committed.signerPackages.ed25519 };
+    const packageValue = committed.signerPackages.ed25519;
+    const activation = routerAbMpcMaterialActivationRefFromWire(
+      preparation.activationRequest.binding.material_activation,
+    );
+    if (!mpcMaterialActivationRefsEqual(activation, packageValue.materialActivation)) {
+      throw new Error('ordinary Ed25519 signer package activation reference changed');
+    }
+    if (
+      packageValue.participantIds[0] !== preparation.participantIds[0] ||
+      packageValue.participantIds[1] !== preparation.participantIds[1]
+    ) {
+      throw new Error('ordinary Ed25519 signer package participant ids changed');
+    }
+    return { keyFamily: 'ed25519', package: packageValue };
   }
   if (!committed.signerPackages.ecdsa) {
     throw new Error('ordinary ECDSA signer package is missing');
@@ -367,6 +381,12 @@ async function openOrdinarySignerMaterial(input: {
         JSON.stringify(input.packageValue.package.deriver_a_client_package),
         JSON.stringify(input.packageValue.package.deriver_b_client_package),
         recipientPrivateKey,
+        JSON.stringify(input.packageValue.package.participantIds),
+        JSON.stringify(
+          parseRouterAbEd25519YaoActivationPublicReceiptV1(
+            input.packageValue.package.activationReceipt,
+          ),
+        ),
       );
       return new Uint8Array(material.take_client_material());
     } finally {
@@ -1298,6 +1318,26 @@ function assertOrdinaryMaterialCommitMatchesPreparation(input: {
         : preparation.materialActivation;
     if (!mpcMaterialActivationRefsEqual(activation, packageValue.materialActivation)) {
       throw new Error(`ordinary signer material ${family} activation reference changed`);
+    }
+    if (preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
+      if (family !== 'ed25519' || !('participantIds' in packageValue)) {
+        throw new Error('ordinary Ed25519 signer material package family changed');
+      }
+      if (
+        packageValue.participantIds[0] !== preparation.participantIds[0] ||
+        packageValue.participantIds[1] !== preparation.participantIds[1]
+      ) {
+        throw new Error('ordinary Ed25519 signer material participant ids changed');
+      }
+      const receipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
+        packageValue.activationReceipt,
+      );
+      const receiptActivation = routerAbMpcMaterialActivationRefFromWire(
+        receipt.material_activation,
+      );
+      if (!mpcMaterialActivationRefsEqual(receiptActivation, packageValue.materialActivation)) {
+        throw new Error('ordinary Ed25519 activation receipt reference changed');
+      }
     }
   }
 }

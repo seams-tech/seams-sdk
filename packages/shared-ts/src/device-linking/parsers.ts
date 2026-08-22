@@ -74,6 +74,7 @@ import {
 } from '../utils/registrationIntent';
 import {
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  parseRouterAbEd25519YaoParticipantIdsV1,
 } from '../utils/routerAbEd25519Yao';
 import { parseRouterAbEcdsaRegistrationRequestV1 } from '../utils/routerAbEcdsaDerivation';
 import { requireRouterAbX25519PublicKey } from '../utils/routerAbPublicKeyset';
@@ -2048,12 +2049,16 @@ function parseOrdinarySignerMaterialPreparationV1(
   const label = `LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations[${index}]`;
   const record = requireRecord(raw, label);
   if (record.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
-    exactRecord(record, ['kind', 'activationRequest'], label);
+    exactRecord(record, ['kind', 'activationRequest', 'participantIds'], label);
     const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
       record.activationRequest,
     );
     if (!parsed.ok) throw new Error(`${label}.activationRequest ${parsed.message}`);
-    return { kind: record.kind, activationRequest: parsed.value };
+    return {
+      kind: record.kind,
+      activationRequest: parsed.value,
+      participantIds: parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds),
+    };
   }
   if (record.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
     exactRecord(record, ['kind', 'registrationRequest', 'materialActivation'], label);

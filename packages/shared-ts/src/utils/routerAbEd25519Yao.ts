@@ -869,6 +869,12 @@ function parseParticipantIds(value: unknown): readonly [number, number] {
   return [first, second];
 }
 
+export function parseRouterAbEd25519YaoParticipantIdsV1(
+  value: unknown,
+): readonly [number, number] {
+  return parseParticipantIds(value);
+}
+
 function parseAdmittedLifecycle(value: unknown): RouterAbEd25519YaoAdmittedLifecycleV1 {
   const record = requireRecord(value, 'binding.lifecycle');
   requireExactKeys(record, 'binding.lifecycle', [
@@ -1257,7 +1263,9 @@ function parseEncryptedPackage(
   };
 }
 
-function parsePublicReceipt(value: unknown): RouterAbEd25519YaoActivationPublicReceiptV1 {
+export function parseRouterAbEd25519YaoActivationPublicReceiptV1(
+  value: unknown,
+): RouterAbEd25519YaoActivationPublicReceiptV1 {
   const record = requireRecord(value, 'public_receipt');
   requireExactKeys(record, 'public_receipt', [
     'transcript',
@@ -1690,7 +1698,7 @@ function parseActivationResultValue(value: unknown): RouterAbEd25519YaoActivatio
     'public_receipt',
   ]);
   const binding = requireActivationBinding(parseCeremonyBinding(record.binding));
-  const receipt = parsePublicReceipt(record.public_receipt);
+  const receipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(record.public_receipt);
   if (
     !sameRouterAbMpcMaterialActivationRef(binding.material_activation, receipt.material_activation)
   ) {
@@ -1753,7 +1761,7 @@ function parseRecoveryActivationRequestValue(
   requireExactKeys(record, 'recovery activation request', ['binding', 'public_receipt']);
   return {
     binding: requireRecoveryBinding(record.binding),
-    public_receipt: parsePublicReceipt(record.public_receipt),
+    public_receipt: parseRouterAbEd25519YaoActivationPublicReceiptV1(record.public_receipt),
   };
 }
 
@@ -1782,7 +1790,7 @@ function parseRecoveryActivationReceiptValue(
   }
   return {
     binding: requireRecoveryBinding(record.binding),
-    public_receipt: parsePublicReceipt(record.public_receipt),
+    public_receipt: parseRouterAbEd25519YaoActivationPublicReceiptV1(record.public_receipt),
     active_capability_binding: activeCapabilityBinding,
     retired_capability_binding: retiredCapabilityBinding,
   };

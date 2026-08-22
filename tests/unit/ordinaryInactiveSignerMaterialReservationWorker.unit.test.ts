@@ -17,6 +17,7 @@ import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import {
   buildOrdinaryEcdsaClientMaterialFixture,
   buildOrdinaryEcdsaSignerFixture,
+  buildOrdinaryEd25519ActivationReceiptFixture,
   buildOrdinaryEd25519ClientMaterialFixture,
   buildOrdinaryEd25519SignerFixture,
   buildOrdinaryEd25519ReservationPreparationFixture,
@@ -37,6 +38,7 @@ class ReservationEndpointFixture
   constructor(
     private readonly ecdsaRecipientPublicKey?: string,
     private readonly deactivationMaterialActivation?: MpcMaterialActivationRef,
+    private readonly ed25519ParticipantIds?: readonly [number, number],
   ) {}
 
   async reserveInactiveEd25519SignerMaterialV1(
@@ -49,7 +51,12 @@ class ReservationEndpointFixture
       state: 'inactive',
       signer: input.signer,
       materialActivation: input.plannedActivationRef,
+      participantIds: this.ed25519ParticipantIds ?? input.preparation.participantIds,
       clientMaterial: buildOrdinaryEd25519ClientMaterialFixture('worker-ed25519'),
+      activationReceipt: buildOrdinaryEd25519ActivationReceiptFixture(
+        'worker-ed25519',
+        input.plannedActivationRef,
+      ),
       serverMaterialReservationId: 'server-reservation-ed25519',
     };
   }
@@ -115,6 +122,9 @@ test('ordinary Ed25519 reservation retries by exact activation ref without a sec
   expect(first).toEqual(second);
   expect(first.state).toBe('inactive');
   expect(first.serverMaterialReservationId).toBe('server-reservation-ed25519');
+  expect(first.activationReceipt.material_activation.activation_id).toBe(
+    request.plannedActivationRef.activationId,
+  );
 });
 
 test('ordinary ECDSA reservation keeps the exact inactive role envelopes', async () => {
@@ -154,6 +164,15 @@ test('ordinary reservation rejects a conflicting signer for an existing activati
     'conflicts for activation ref',
   );
   expect(endpoint.ed25519Calls).toHaveLength(1);
+});
+
+test('ordinary Ed25519 reservation rejects participant evidence changed by the worker', async () => {
+  const endpoint = new ReservationEndpointFixture(undefined, undefined, [2, 3]);
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+
+  await expect(
+    worker.reserveInactiveEd25519SignerMaterialV1(ed25519Request('evidence', 'activation')),
+  ).rejects.toThrow('participant ids do not match');
 });
 
 test('ordinary reservation service composes with the validated worker adapter', async () => {

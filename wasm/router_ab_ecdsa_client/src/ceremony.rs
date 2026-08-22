@@ -420,10 +420,14 @@ fn open_committed_role_envelope(
             "ECDSA committed role envelope role or AAD digest is invalid",
         ));
     }
-    open_ecdsa_signer_envelope_v1(&payload, &aad, recipient_private_key)
-        .map(Zeroizing::new)
+    let plaintext = open_ecdsa_signer_envelope_v1(&payload, &aad, recipient_private_key)
         .map_err(protocol_error)
-        .map_err(js_error)
+        .map_err(js_error)?;
+    header
+        .validate_deriver_plaintext_v1(expected_role, &plaintext)
+        .map_err(protocol_error)
+        .map_err(js_error)?;
+    Ok(Zeroizing::new(plaintext))
 }
 
 #[derive(Debug, Deserialize)]

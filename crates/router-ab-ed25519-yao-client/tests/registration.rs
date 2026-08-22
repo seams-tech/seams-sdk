@@ -22,11 +22,11 @@ use router_ab_ed25519_yao::{
     stable_key_derivation_context_v1, ActivationDeriverA, ActivationDeriverB,
 };
 use router_ab_ed25519_yao_client::{
-    client_application_binding_digest_v1, complete_client_activation_v1,
-    import_activated_client_material_v1, import_activated_client_under_custody_seed_v1,
-    prepare_client_registration_with_root_v1, seal_activated_client_under_custody_seed_v1,
-    ActivatedClientV1, ClientActivationEntropyV1, ClientActivationError, ClientActivationStateV1,
-    LocalMaterialError, LocalMaterialSealDomainV1,
+    client_application_binding_digest_v1, complete_client_activation_packages_v1,
+    complete_client_activation_v1, import_activated_client_material_v1,
+    import_activated_client_under_custody_seed_v1, prepare_client_registration_with_root_v1,
+    seal_activated_client_under_custody_seed_v1, ActivatedClientV1, ClientActivationEntropyV1,
+    ClientActivationError, ClientActivationStateV1, LocalMaterialError, LocalMaterialSealDomainV1,
 };
 use signer_core::ed25519_yao_derivation::Ed25519YaoClientRootV1;
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
@@ -208,6 +208,17 @@ fn derive_client_public_key(input_key_material: [u8; 32]) -> [u8; 32] {
         .as_slice()
         .try_into()
         .expect("X25519 public key")
+}
+
+fn derive_client_private_key(input_key_material: [u8; 32]) -> [u8; 32] {
+    use hpke_ng::{DhKemX25519HkdfSha256, Kem};
+
+    let (private_key, _) = DhKemX25519HkdfSha256::derive_key_pair(&input_key_material)
+        .expect("Client recipient keypair");
+    DhKemX25519HkdfSha256::sk_to_bytes(&private_key)
+        .as_slice()
+        .try_into()
+        .expect("X25519 private key")
 }
 
 fn seal_client_package(
@@ -486,6 +497,57 @@ fn seed_derived_registration_completes_the_real_a_b_circuit() {
         receipt.registered_public_key()
     );
     assert_eq!(activated.state_epoch(), 1);
+}
+
+#[test]
+fn worker_package_completion_verifies_the_public_relation() {
+    let activation = run_client_activation(SeedRootActivationCase {
+        session_byte: 0x55,
+        wallet_custody_seed: [0x24; 32],
+        entropy: activation_entropy(0x75),
+    });
+    let receipt = activation.result.public_receipt().clone();
+    let private_key = derive_client_private_key([0x75; 32]);
+    let (scalar, transcript) = complete_client_activation_packages_v1(
+        activation.result.binding(),
+        [1, 2],
+        &receipt,
+        &private_key,
+        activation.result.deriver_a_client_package(),
+        activation.result.deriver_b_client_package(),
+    )
+    .expect("worker package completion");
+    assert_eq!(transcript, receipt.transcript());
+    let scalar = Scalar::from_canonical_bytes(*scalar)
+        .into_option()
+        .expect("canonical Client scalar");
+    assert_eq!(
+        (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes(),
+        receipt.joined_client_commitment()
+    );
+
+    let wrong_receipt = RouterAbEd25519YaoActivationPublicReceiptV1::new(
+        receipt.transcript(),
+        [0x99; 32],
+        receipt.joined_client_commitment(),
+        receipt.joined_signing_worker_commitment(),
+        receipt.signing_worker_verifying_share(),
+        receipt.state_epoch(),
+        receipt.material_activation().clone(),
+    )
+    .expect("wrong public receipt shape");
+    assert_eq!(
+        complete_client_activation_packages_v1(
+            activation.result.binding(),
+            [1, 2],
+            &wrong_receipt,
+            &private_key,
+            activation.result.deriver_a_client_package(),
+            activation.result.deriver_b_client_package(),
+        )
+        .expect_err("public relation mismatch"),
+        ClientActivationError::PublicRelationMismatch
+    );
 }
 
 #[test]

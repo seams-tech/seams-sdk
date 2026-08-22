@@ -15,6 +15,9 @@ import {
 import { requireRouterAbX25519PublicKey } from '@shared/utils/routerAbPublicKeyset';
 import {
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  parseRouterAbEd25519YaoActivationPublicReceiptV1,
+  parseRouterAbEd25519YaoParticipantIdsV1,
+  type RouterAbEd25519YaoActivationPublicReceiptV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
@@ -68,7 +71,12 @@ type OrdinaryReservationFieldsV1<F extends OrdinarySignerFamilyV1> = {
   readonly signer: OrdinarySignerByFamilyV1[F];
   readonly materialActivation: MpcMaterialActivationRef;
   readonly clientMaterial: OrdinaryClientMaterialByFamilyV1[F];
-};
+} & (F extends 'ed25519'
+  ? {
+      readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
+      readonly participantIds: readonly [number, number];
+    }
+  : { readonly activationReceipt?: never; readonly participantIds?: never });
 
 export type OrdinaryInactiveServerMaterialReservationIdV1 = string & {
   readonly __ordinaryInactiveServerMaterialReservationIdBrand: unique symbol;
@@ -82,6 +90,7 @@ export type OrdinaryInactiveServerMaterialV1 = {
 export type OrdinaryEd25519SignerMaterialReservationPreparationV1 = {
   readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
   readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+  readonly participantIds: readonly [number, number];
 };
 
 export type OrdinaryEcdsaSignerMaterialReservationPreparationV1 = {
@@ -118,7 +127,6 @@ type OrdinarySignerMaterialWorkerReservationV1<F extends OrdinarySignerFamilyV1>
     readonly kind: OrdinaryWorkerKindByFamilyV1[F];
     readonly serverMaterialReservationId: string;
     readonly activatedAtMs?: never;
-    readonly activationReceipt?: never;
   };
 
 export type OrdinaryEd25519SignerMaterialReservationV1 =
@@ -134,7 +142,6 @@ type OrdinarySignerMaterialReservationV1<F extends OrdinarySignerFamilyV1> =
     readonly kind: OrdinaryReservationKindByFamilyV1[F];
     readonly serverMaterial: OrdinaryInactiveServerMaterialV1;
     readonly activatedAtMs?: never;
-    readonly activationReceipt?: never;
   };
 
 /** The worker adapter must reserve by the exact ref and leave material inactive. */
@@ -311,6 +318,8 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
       state: 'inactive',
       signer: request.signer,
       materialActivation: request.plannedActivationRef,
+      activationReceipt: reservation.activationReceipt,
+      participantIds: reservation.participantIds,
       clientMaterial: reservation.clientMaterial,
       serverMaterial: buildServerMaterialV1(reservation.serverMaterialReservationId),
     };
@@ -355,6 +364,7 @@ export function validateOrdinaryInactiveSignerMaterialReservationRequestV1(
         request.plannedActivationRef,
         routerAbMpcMaterialActivationRefFromWire(parsed.value.binding.material_activation),
       );
+      parseRouterAbEd25519YaoParticipantIdsV1(request.preparation.participantIds);
       return;
     }
     case 'ordinary_ecdsa_signer_material_reservation_request_v1':
@@ -392,6 +402,8 @@ export function parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
       'state',
       'signer',
       'materialActivation',
+      'participantIds',
+      'activationReceipt',
       'clientMaterial',
       'serverMaterialReservationId',
     ],
@@ -408,13 +420,36 @@ export function parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
   const materialActivation = parseWorkerMaterialActivationV1(reservation.materialActivation);
   assertEd25519SignerMatchesV1(request.signer, signer);
   assertMaterialActivationMatchesV1(request.plannedActivationRef, materialActivation);
+  const participantIds = parseRouterAbEd25519YaoParticipantIdsV1(reservation.participantIds);
+  if (
+    participantIds[0] !== request.preparation.participantIds[0] ||
+    participantIds[1] !== request.preparation.participantIds[1]
+  ) {
+    throw new Error('ordinary Ed25519 worker reservation participant ids do not match the request');
+  }
+  const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
+    reservation.activationReceipt,
+  );
+  assertMaterialActivationMatchesV1(
+    request.plannedActivationRef,
+    routerAbMpcMaterialActivationRefFromWire(activationReceipt.material_activation),
+  );
+  const clientMaterial = parseEd25519ClientMaterialV1(reservation.clientMaterial);
+  if (
+    !sameBytes(activationReceipt.transcript, clientMaterial.deriver_a_client_package.transcript) ||
+    !sameBytes(activationReceipt.transcript, clientMaterial.deriver_b_client_package.transcript)
+  ) {
+    throw new Error('ordinary Ed25519 worker receipt transcript does not match client packages');
+  }
   return {
     kind: 'ordinary_ed25519_signer_material_worker_reservation_v1',
     keyFamily: 'ed25519',
     state: 'inactive',
     signer,
     materialActivation,
-    clientMaterial: parseEd25519ClientMaterialV1(reservation.clientMaterial),
+    activationReceipt,
+    participantIds,
+    clientMaterial,
     serverMaterialReservationId: parseServerMaterialReservationIdV1(
       reservation.serverMaterialReservationId,
     ),

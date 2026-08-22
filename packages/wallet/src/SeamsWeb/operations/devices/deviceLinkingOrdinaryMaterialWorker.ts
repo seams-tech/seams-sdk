@@ -8,6 +8,7 @@ import type {
   VerifiedTargetFactorV1,
 } from '@shared/device-linking/contracts';
 import {
+  parseRouterAbEd25519YaoParticipantIdsV1,
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
@@ -43,6 +44,7 @@ export type DeviceLinkingOrdinarySignerMaterialReservationPreparationV1 =
   | {
       readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
       readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+      readonly participantIds: readonly [number, number];
     }
   | {
       readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';
@@ -653,12 +655,16 @@ function parsePreparation(
 ): DeviceLinkingOrdinarySignerMaterialReservationPreparationV1 {
   const record = requireRecord(value, 'ordinary material preparation');
   if (record.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
-    exactRecord(record, ['kind', 'activationRequest']);
+    exactRecord(record, ['kind', 'activationRequest', 'participantIds']);
     const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
       record.activationRequest,
     );
     if (!parsed.ok) throw new Error(parsed.message);
-    return { kind: record.kind, activationRequest: parsed.value };
+    return {
+      kind: record.kind,
+      activationRequest: parsed.value,
+      participantIds: parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds),
+    };
   }
   if (record.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
     exactRecord(record, ['kind', 'registrationRequest', 'materialActivation']);
