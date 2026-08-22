@@ -1357,7 +1357,7 @@ export interface PMListLinkedDevicesPayload {
 
 export interface PMRevokeLinkedDevicePayload {
   walletId: string;
-  deviceId: string;
+  walletAuthMethodId: string;
   requestedAtMs: number;
 }
 

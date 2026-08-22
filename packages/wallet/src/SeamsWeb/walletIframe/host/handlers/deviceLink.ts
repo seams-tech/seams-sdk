@@ -130,12 +130,7 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
         ...(cameraId ? { cameraId } : {}),
         options: {
           ...(options || {}),
-          onEvent: forwardDeviceLinkEventV1.bind(
-            null,
-            activeTargetFactor,
-            deps,
-            req.requestId,
-          ),
+          onEvent: forwardDeviceLinkEventV1.bind(null, activeTargetFactor, deps, req.requestId),
           onTargetFactorRequired: publishTargetFactorActivationV1.bind(
             null,
             activeTargetFactor,
@@ -216,12 +211,12 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       const request = parseLinkedDeviceRevokeRequestV1({
         kind: 'linked_device_revoke_request_v1',
         walletId: payload.walletId,
-        deviceId: payload.deviceId,
+        walletAuthMethodId: payload.walletAuthMethodId,
         requestedAtMs: payload.requestedAtMs,
       });
       const result = await pm.devices.revokeLinkedDevice({
         walletId: String(request.walletId),
-        deviceId: String(request.deviceId),
+        walletAuthMethodId: String(request.walletAuthMethodId),
         requestedAtMs: request.requestedAtMs,
       });
       if (deps.respondIfCancelled(req.requestId)) return;

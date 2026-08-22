@@ -3578,20 +3578,20 @@ export class WalletIframeRouter {
 
   async revokeLinkedDevice(payload: {
     walletId: string;
-    deviceId: string;
+    walletAuthMethodId: string;
     requestedAtMs: number;
   }): Promise<LinkedDeviceRevokeResultV1> {
     const request = parseLinkedDeviceRevokeRequestV1({
       kind: 'linked_device_revoke_request_v1',
       walletId: payload.walletId,
-      deviceId: payload.deviceId,
+      walletAuthMethodId: payload.walletAuthMethodId,
       requestedAtMs: payload.requestedAtMs,
     });
     const res = await this.post<unknown>({
       type: 'PM_REVOKE_LINKED_DEVICE',
       payload: {
         walletId: String(request.walletId),
-        deviceId: String(request.deviceId),
+        walletAuthMethodId: String(request.walletAuthMethodId),
         requestedAtMs: request.requestedAtMs,
       },
     });

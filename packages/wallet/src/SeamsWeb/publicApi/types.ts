@@ -1075,7 +1075,7 @@ export interface DevicesCapability {
 
   revokeLinkedDevice(args: {
     walletId: string;
-    deviceId: string;
+    walletAuthMethodId: string;
     requestedAtMs: number;
   }): Promise<LinkedDeviceRevokeResultV1>;
 }

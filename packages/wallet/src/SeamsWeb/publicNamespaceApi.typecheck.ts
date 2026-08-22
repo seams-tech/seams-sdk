@@ -131,11 +131,14 @@ void seams.devices.listLinkedDevices({
 });
 void seams.devices.revokeLinkedDevice({
   walletId: 'frost-vermillion-k7p9m2',
-  deviceId: 'device-1',
+  walletAuthMethodId: 'email_otp:wallet:method-1',
   requestedAtMs: Date.now(),
 });
 // @ts-expect-error revocation requires the exact requested-at timestamp.
-void seams.devices.revokeLinkedDevice({ walletId: 'frost-vermillion-k7p9m2', deviceId: 'device-1' });
+void seams.devices.revokeLinkedDevice({
+  walletId: 'frost-vermillion-k7p9m2',
+  walletAuthMethodId: 'email_otp:wallet:method-1',
+});
 
 seams.preferences.setConfirmBehavior('requireClick');
 void seams.preferences.getConfirmationConfig();
