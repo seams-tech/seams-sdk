@@ -60,6 +60,11 @@
   --dashboard-warning-soft: #f7ecdd;
   --dashboard-danger: #b91c1c;
   --dashboard-danger-soft: #f8e7e7;
+  /* Pastel pair for chart marks. The `-soft` tints above are page-fill pale
+     and vanish as a bar; these sit between them and the full-strength hues,
+     so a plot reads as quiet fill rather than as a row of status badges. */
+  --dashboard-accent-pastel: #7ec8ac;
+  --dashboard-danger-pastel: #dd8f8d;
   --dashboard-sidebar-width: 256px;
   --dashboard-topbar-height: 50px;
   --dashboard-motion-sidebar: 150ms;
@@ -5613,7 +5618,7 @@ select.dashboard-input {
   width: 100%;
   min-height: 2px;
   border-radius: 1.5px;
-  background: var(--dashboard-accent);
+  background: var(--dashboard-accent-pastel);
 }
 
 .dashboard-audit-activity__bar-failures {
@@ -5623,7 +5628,7 @@ select.dashboard-input {
   right: 0;
   min-height: 1px;
   border-radius: 1.5px 1.5px 0 0;
-  background: var(--dashboard-danger);
+  background: var(--dashboard-danger-pastel);
 }
 
 .dashboard-audit-activity__scale {
