@@ -21,6 +21,7 @@ import {
 import { createHostedWalletConsoleRouter } from '../consoleComposition';
 import {
   createCloudflareD1RouterApiAuthService,
+  createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
 } from '@seams/wallet-server/cloud-host';
@@ -1268,7 +1269,21 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env, orgId).registration,
+    linkedDevice: localLinkedDeviceManagementComposition(env),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
+  };
+}
+
+function localLinkedDeviceManagementComposition(
+  env: LocalD1DevEnv,
+): NonNullable<CloudflareD1RouterApiAuthServiceOptions['linkedDevice']> {
+  return {
+    management: {
+      deactivationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1({
+        fetch: createRouterAbServiceBindingFetch(env),
+        internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
+      }),
+    },
   };
 }
 

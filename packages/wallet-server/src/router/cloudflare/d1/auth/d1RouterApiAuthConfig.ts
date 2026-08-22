@@ -34,6 +34,11 @@ export type CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1 = {
   readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
 };
 
+export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
+  readonly deactivationEndpoint: CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1;
+  readonly nowV1?: () => number;
+};
+
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
   readonly challengeId: string;
   readonly walletId: string;
@@ -80,6 +85,11 @@ type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
   readonly session: CloudflareD1LinkedDeviceSessionOptionsV1;
 };
 
+type CloudflareD1LinkedDeviceCompositionWithManagementV1 = {
+  readonly management: CloudflareD1LinkedDeviceManagementOptionsV1;
+  readonly session?: never;
+};
+
 type CloudflareD1LinkedDeviceCompositionDisabledV1 = {
   readonly session?: never;
   readonly management?: never;
@@ -91,6 +101,7 @@ type CloudflareD1LinkedDeviceCompositionDisabledV1 = {
  */
 export type CloudflareD1LinkedDeviceCompositionOptionsV1 =
   | CloudflareD1LinkedDeviceCompositionDisabledV1
+  | CloudflareD1LinkedDeviceCompositionWithManagementV1
   | CloudflareD1LinkedDeviceCompositionWithSessionV1;
 
 export type CloudflareD1GithubOAuthConfig = {

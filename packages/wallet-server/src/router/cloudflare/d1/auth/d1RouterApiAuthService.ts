@@ -166,6 +166,7 @@ export type {
   CloudflareD1EmailOtpServerSealConfig,
   CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1,
   CloudflareD1LinkedDeviceCompositionOptionsV1,
+  CloudflareD1LinkedDeviceManagementOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
   CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
@@ -322,6 +323,9 @@ function createD1LinkedDeviceComposition(input: {
 }): D1LinkedDeviceCompositionAssembly {
   const config = input.options.linkedDevice;
   if (!config) return {};
+  const sessionConfig = 'session' in config ? config.session : undefined;
+  const managementConfig = 'management' in config ? config.management : undefined;
+  if (!sessionConfig && !managementConfig) return {};
 
   const scope = {
     namespace: input.options.namespace,
@@ -330,15 +334,100 @@ function createD1LinkedDeviceComposition(input: {
     envId: input.options.envId,
   };
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
-  let deviceManagement: RouterApiServiceBag['deviceManagement'];
   let ownerAuthorizationRoute: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
-  if (config.session) {
-    const nowV1 = config.session.nowV1 ?? Date.now;
-    const ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
-      authorizationSessions: input.authorizationSessions,
-      nowV1,
-    });
-    ownerAuthorizationRoute = config.session.ownerAuthorizationRoute;
+  const nowV1 = sessionConfig?.nowV1 ?? managementConfig?.nowV1 ?? Date.now;
+  const ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
+    authorizationSessions: input.authorizationSessions,
+    nowV1,
+  });
+  if (sessionConfig) ownerAuthorizationRoute = sessionConfig.ownerAuthorizationRoute;
+  const tenantId = parseTenantId(input.options.orgId);
+  if (!tenantId.ok)
+    throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
+  const authorityStore = new D1WalletAuthorityStore({
+    database: input.options.database,
+    scope,
+  });
+  let deactivationEndpoint;
+  if (sessionConfig) {
+    deactivationEndpoint = sessionConfig.authorityInstallation.deactivationEndpoint;
+  } else if (managementConfig) {
+    deactivationEndpoint = managementConfig.deactivationEndpoint;
+  } else {
+    return {};
+  }
+  const deviceManagementService = createD1LinkedDeviceManagementServiceV1({
+    scope,
+    tenantId: tenantId.value,
+    authorityStore,
+    authMethodStore: input.walletAuthMethodStore,
+    authorizationService: input.authorizationService,
+    webAuthnStore: input.webAuthnStore,
+    materialDeactivation: createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1({
+      endpoint: deactivationEndpoint,
+    }),
+  });
+  const deviceManagement: RouterApiServiceBag['deviceManagement'] = {
+    management: deviceManagementService,
+    nowV1,
+    authenticateOwnerRequestV1: ownerRequestAuthenticator,
+    verifyFreshRevokeProofV1: async (proofInput) => {
+      const expectedOrigin = String(proofInput.request.headers.get('origin') || '').trim();
+      if (!expectedOrigin) {
+        return {
+          kind: 'denied' as const,
+          code: 'invalid' as const,
+          message: 'Fresh revocation proof requires an Origin header',
+        };
+      }
+      return await verifyD1LinkedDeviceFreshRevokeProofV1({
+        walletId: proofInput.walletId,
+        orgId: String(input.options.orgId),
+        targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
+        proof: proofInput.proof,
+        expectedOrigin,
+        verifiedAtMs: proofInput.requestedAtMs,
+        operationFingerprintDigest: await computeWalletAuthMethodRevokeOperationFingerprintV1({
+          walletId: proofInput.walletId,
+          targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
+          requestedAtMs: proofInput.requestedAtMs,
+        }),
+        walletAuthMethodStore: input.walletAuthMethodStore,
+        verifyWebAuthnAuthenticationLite: async (verifyInput) => {
+          const credential = parseWebAuthnAuthenticationCredential(
+            verifyInput.webauthn_authentication,
+          );
+          if (!credential) {
+            return {
+              success: false,
+              verified: false,
+              code: 'invalid_body',
+              message: 'Invalid WebAuthn authentication credential',
+            };
+          }
+          return await input.webAuthnAuthService.verifyWebAuthnAuthenticationLite({
+            ...verifyInput,
+            webauthn_authentication: credential,
+          });
+        },
+        ...(input.emailOtpLinkedDevice === undefined
+          ? {}
+          : {
+              verifyEmailOtpExisting: input.emailOtpLinkedDevice.verifier.verifyExisting.bind(
+                input.emailOtpLinkedDevice.verifier,
+              ),
+              readEmailOtpEnrollment: input.emailOtpLinkedDevice.enrollments.readEnrollment.bind(
+                input.emailOtpLinkedDevice.enrollments,
+              ),
+              resolveEmailOtpAuthority: input.resolveEmailOtpAuthority,
+            }),
+      });
+    },
+  };
+  if (!sessionConfig) {
+    return { deviceManagement };
+  }
+  if (sessionConfig) {
     let emailOtpTargetFactor: D1LinkedDeviceEmailOtpTargetFactorV1 | undefined;
     if (input.emailOtpLinkedDevice) {
       const linkedEmailOtpGrants = new D1LinkedDeviceEmailOtpGrantStoreV1({
@@ -357,87 +446,12 @@ function createD1LinkedDeviceComposition(input: {
     const sessionComposition = createD1LinkedDeviceSessionServiceV1({
       database: input.options.database,
       scope,
-      ownerAuthorization: config.session.ownerAuthorization,
+      ownerAuthorization: sessionConfig.ownerAuthorization,
       ...(emailOtpTargetFactor === undefined
         ? {}
         : { emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor) }),
       nowV1,
     });
-    const tenantId = parseTenantId(input.options.orgId);
-    if (!tenantId.ok)
-      throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
-    const authorityStore = new D1WalletAuthorityStore({
-      database: input.options.database,
-      scope,
-    });
-    const deviceManagementService = createD1LinkedDeviceManagementServiceV1({
-      scope,
-      tenantId: tenantId.value,
-      authorityStore,
-      authMethodStore: input.walletAuthMethodStore,
-      authorizationService: input.authorizationService,
-      webAuthnStore: input.webAuthnStore,
-      materialDeactivation: createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1({
-        endpoint: config.session.authorityInstallation.deactivationEndpoint,
-      }),
-    });
-    deviceManagement = {
-      management: deviceManagementService,
-      nowV1,
-      authenticateOwnerRequestV1: ownerRequestAuthenticator,
-      verifyFreshRevokeProofV1: async (proofInput) => {
-        const expectedOrigin = String(proofInput.request.headers.get('origin') || '').trim();
-        if (!expectedOrigin) {
-          return {
-            kind: 'denied' as const,
-            code: 'invalid' as const,
-            message: 'Fresh revocation proof requires an Origin header',
-          };
-        }
-        return await verifyD1LinkedDeviceFreshRevokeProofV1({
-          walletId: proofInput.walletId,
-          orgId: String(input.options.orgId),
-          targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
-          proof: proofInput.proof,
-          expectedOrigin,
-          verifiedAtMs: proofInput.requestedAtMs,
-          operationFingerprintDigest: await computeWalletAuthMethodRevokeOperationFingerprintV1({
-            walletId: proofInput.walletId,
-            targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
-            requestedAtMs: proofInput.requestedAtMs,
-          }),
-          walletAuthMethodStore: input.walletAuthMethodStore,
-          verifyWebAuthnAuthenticationLite: async (verifyInput) => {
-            const credential = parseWebAuthnAuthenticationCredential(
-              verifyInput.webauthn_authentication,
-            );
-            if (!credential) {
-              return {
-                success: false,
-                verified: false,
-                code: 'invalid_body',
-                message: 'Invalid WebAuthn authentication credential',
-              };
-            }
-            return await input.webAuthnAuthService.verifyWebAuthnAuthenticationLite({
-              ...verifyInput,
-              webauthn_authentication: credential,
-            });
-          },
-          ...(input.emailOtpLinkedDevice === undefined
-            ? {}
-            : {
-                verifyEmailOtpExisting: input.emailOtpLinkedDevice.verifier.verifyExisting.bind(
-                  input.emailOtpLinkedDevice.verifier,
-                ),
-                readEmailOtpEnrollment: input.emailOtpLinkedDevice.enrollments.readEnrollment.bind(
-                  input.emailOtpLinkedDevice.enrollments,
-                ),
-                resolveEmailOtpAuthority: input.resolveEmailOtpAuthority,
-              }),
-        });
-      },
-    };
     const verifiedLinkBuilder = {
       source: createD1LinkedDeviceVerifiedLinkSourceReaderV1({
         authorizationService: input.authorizationService,
@@ -454,13 +468,13 @@ function createD1LinkedDeviceComposition(input: {
       sessionStore: sessionComposition.sessionStore,
       sessionService: sessionComposition.sessionService,
       reservationService: createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({
-        endpoint: config.session.authorityInstallation.reservationEndpoint,
+        endpoint: sessionConfig.authorityInstallation.reservationEndpoint,
       }),
-      materialPlanner: config.session.authorityInstallation.materialPlanner,
+      materialPlanner: sessionConfig.authorityInstallation.materialPlanner,
       reservationPreparationPlanner:
-        config.session.authorityInstallation.reservationPreparationPlanner,
+        sessionConfig.authorityInstallation.reservationPreparationPlanner,
       materialActivation: createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1({
-        endpoint: config.session.authorityInstallation.activationEndpoint,
+        endpoint: sessionConfig.authorityInstallation.activationEndpoint,
       }),
       authorizationService: input.authorizationService,
       authorizationStore: input.authorizationStore,
@@ -483,7 +497,7 @@ function createD1LinkedDeviceComposition(input: {
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
       scope,
-      ownerAuthorization: config.session.ownerAuthorization,
+      ownerAuthorization: sessionConfig.ownerAuthorization,
       ...(emailOtpTargetFactor === undefined
         ? {}
         : {
@@ -491,7 +505,7 @@ function createD1LinkedDeviceComposition(input: {
             emailOtpTargetFactor,
           }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
-      targetCredential: config.session.targetCredential({ verifiedLinkBuilder }),
+      targetCredential: sessionConfig.targetCredential({ verifiedLinkBuilder }),
       installationReceipt,
       nowV1,
     });
