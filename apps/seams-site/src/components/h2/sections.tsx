@@ -4,8 +4,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Fingerprint,
-  Github,
   KeyRound,
+  LayoutDashboard,
   ListChecks,
   Lock,
   ScrollText,
@@ -13,7 +13,6 @@ import {
   Share2,
   ShieldCheck,
   Smartphone,
-  Twitter,
   Wallet,
 } from 'lucide-react';
 import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/wallet/react';
@@ -1313,6 +1312,25 @@ export function H2Security(): React.JSX.Element {
 
 /* ---------- get started band (stacked two-column rows) ---------- */
 
+/* The console band's two screens: the legend rows and the stage cards are
+   driven from one list so a label can never name the screen beside it. */
+const CONSOLE_SCREENS = [
+  {
+    id: 'overview' as const,
+    label: 'Overview',
+    blurb: 'Wallets, approvals, and team activity at a glance',
+    icon: LayoutDashboard,
+    src: '/wallet-preview/wallet-console-dashboard.png',
+  },
+  {
+    id: 'audit' as const,
+    label: 'Audit logs',
+    blurb: 'Every action attributed, timestamped, and exportable',
+    icon: ScrollText,
+    src: '/wallet-preview/wallet-console-audit.png',
+  },
+];
+
 export function H2Start(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const dashboardProps = linkProps('/dashboard');
@@ -1477,15 +1495,36 @@ export function H2Start(): React.JSX.Element {
               </a>
             </div>
           </div>
-          <div className="h2-startrow__notes h2-consoleband__legend">
-            <div>
-              <strong>Overview</strong>
-              <span>Wallets, approvals, and team activity at a glance</span>
-            </div>
-            <div>
-              <strong>Audit logs</strong>
-              <span>Every action attributed, timestamped, and exportable</span>
-            </div>
+          {/* The legend doubles as the control: each row brings its own screen
+              to the front, so the labels are the same affordance as hovering
+              the cards themselves. `aria-pressed` rather than tabs — both
+              screens stay on stage, only their order changes. */}
+          <div
+            className="h2-startrow__notes h2-consoleband__legend"
+            role="group"
+            aria-label="Bring a console screen to the front"
+          >
+            {CONSOLE_SCREENS.map((screen) => {
+              const Icon = screen.icon;
+              const selected = consoleFocus === screen.id;
+              return (
+                <button
+                  key={screen.id}
+                  type="button"
+                  className={`h2-consoleband__tab${selected ? ' is-active' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => setConsoleFocus(screen.id)}
+                >
+                  <span className="h2-consoleband__tab-icon" aria-hidden>
+                    <Icon />
+                  </span>
+                  <span className="h2-consoleband__tab-copy">
+                    <strong>{screen.label}</strong>
+                    <span>{screen.blurb}</span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <div
             className="h2-consoleband__stage"
@@ -1493,32 +1532,22 @@ export function H2Start(): React.JSX.Element {
             role="img"
             aria-label="Wallet console overview and audit log pages"
           >
-            <div
-              className="h2-consoleband__screen h2-consoleband__screen--overview"
-              onPointerEnter={() => setConsoleFocus('overview')}
-            >
-              <img
-                src="/wallet-preview/wallet-console-dashboard.png"
-                alt=""
-                width={2970}
-                height={1680}
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
-            <div
-              className="h2-consoleband__screen h2-consoleband__screen--audit"
-              onPointerEnter={() => setConsoleFocus('audit')}
-            >
-              <img
-                src="/wallet-preview/wallet-console-audit.png"
-                alt=""
-                width={2970}
-                height={1680}
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
+            {CONSOLE_SCREENS.map((screen) => (
+              <div
+                key={screen.id}
+                className={`h2-consoleband__screen h2-consoleband__screen--${screen.id}`}
+                onPointerEnter={() => setConsoleFocus(screen.id)}
+              >
+                <img
+                  src={screen.src}
+                  alt=""
+                  width={2970}
+                  height={1680}
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1587,19 +1616,27 @@ export function H2Faq(): React.JSX.Element {
 
 /* ---------- footer ---------- */
 
-const footerGroups = [
+type H2FooterLink = {
+  label: string;
+  to: string;
+  external?: boolean;
+};
+
+const footerGroups: { heading: string; links: H2FooterLink[] }[] = [
   {
     heading: 'Products',
     links: [
       { label: 'Embedded Wallet', to: '/wallet' },
       { label: 'Ecommerce Agents', to: '/ecommerce' },
       { label: 'Custody Model', to: '/docs/concepts/custody/' },
+      { label: 'Wallet Sessions', to: '/docs/concepts/sessions/wallet-sessions' },
     ],
   },
   {
     heading: 'Platform',
     links: [
       { label: 'Authentication', to: '/docs/concepts/auth-methods/' },
+      { label: 'Passkeys', to: '/docs/concepts/auth-methods/passkeys' },
       { label: 'Wallets & Signatures', to: '/docs/concepts/threshold-signing/' },
       { label: 'Permissions & Policy', to: '/docs/concepts/policy/mandates' },
     ],
@@ -1609,13 +1646,29 @@ const footerGroups = [
     links: [
       { label: 'Documentation', to: '/docs/concepts/' },
       { label: 'Architecture', to: '/docs/concepts/architecture' },
+      { label: 'Wallet Iframe', to: '/docs/concepts/custody/wallet-iframe' },
+    ],
+  },
+  {
+    heading: 'Resources',
+    links: [
+      { label: 'Guides', to: '/docs/guides/' },
+      { label: 'Use Cases', to: '/docs/use-cases/' },
       { label: 'Pricing', to: '/pricing/' },
+    ],
+  },
+  {
+    heading: 'Socials',
+    links: [
+      { label: 'X', to: 'https://x.com/lowerarchy', external: true },
+      { label: 'GitHub', to: 'https://github.com/seams-tech', external: true },
     ],
   },
   {
     heading: 'Company',
     links: [
       { label: 'About', to: '/company/' },
+      { label: 'Blog', to: '/company/#blog' },
       { label: 'Contact', to: '/contact/' },
     ],
   },
@@ -1633,41 +1686,31 @@ export function H2Footer(): React.JSX.Element {
             <a href={homeProps.href} onClick={homeProps.onClick} aria-label="Seams home">
               <SeamsWordmark height={20} />
             </a>
+            <p className="h2-footer__legal">
+              Copyright © {new Date().getFullYear()} Seams Technologies KK. Tokyo.
+            </p>
           </div>
-          {footerGroups.map((group) => (
-            <div className="h2-footer__col" key={group.heading}>
-              <h3>{group.heading}</h3>
-              {group.links.map((link) => {
-                const props = linkProps(link.to);
-                return (
-                  <a key={link.label} href={props.href} onClick={props.onClick}>
-                    {link.label}
-                  </a>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-        <div className="h2-footer__bottom">
-          <span>Copyright © {new Date().getFullYear()} Seams Technologies KK. Tokyo.</span>
-          <span className="h2-footer__socials">
-            <a
-              href="https://x.com/lowerarchy"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="X"
-            >
-              <Twitter size={14} aria-hidden />
-            </a>
-            <a
-              href="https://github.com/seams-tech"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="GitHub"
-            >
-              <Github size={14} aria-hidden />
-            </a>
-          </span>
+
+          <div className="h2-footer__links">
+            {footerGroups.map((group) => (
+              <div className="h2-footer__col" key={group.heading}>
+                <h3>{group.heading}</h3>
+                {group.links.map((link) => {
+                  const props = linkProps(link.to);
+                  return (
+                    <a
+                      key={link.label}
+                      href={props.href}
+                      onClick={props.onClick}
+                      {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : null)}
+                    >
+                      {link.label}
+                    </a>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </footer>
