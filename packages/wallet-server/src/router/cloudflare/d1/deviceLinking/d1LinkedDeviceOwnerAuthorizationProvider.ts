@@ -32,11 +32,32 @@ import {
   parseLinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseEcdsaRelayerKeyId,
+  type WalletAuthMethodId,
+} from '@shared/utils/domainIds';
+import { parseSecp256k1CompressedPublicKeyB64u } from '@shared/passkey-custody/primitives';
+import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { deriveRouterAbEd25519YaoApplicationBindingDigestV1 } from '@shared/utils/routerAbEd25519Yao';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import type { ActiveLaneProtocolSourceV1 } from '@shared/signing-lanes/rotation';
 import type {
   ActiveOwnerWalletExecutionLaneProjection,
+  WalletExecutionLaneProjectionSource,
   WalletExecutionLaneProjectionResult,
 } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
+import {
+  resolveActiveOwnerWalletExecutionLane,
+  resolveWalletAuthMethodIdForAuthority,
+} from '../../../../core/signingLanes/WalletExecutionLaneProjection';
+import type {
+  WalletEcdsaSignerRecord,
+  WalletEd25519SignerRecord,
+} from '../../../../core/WalletStore';
+import type { D1WalletStore } from '../../../../core/d1WalletStore';
+import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import type { RouterApiWalletRegistrationService } from '../../../framework/authServicePort';
 import type {
   LinkedDeviceOwnerAuthorizationContextV1,
@@ -87,6 +108,276 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
     readonly request: LinkedDeviceOwnerSourceChildResolutionRequestV1;
   }): Promise<LinkedDeviceOwnerSourceChildResolutionV1 | null>;
 };
+
+export type D1LinkedDeviceOwnerSourceChildReaderV1 = Pick<
+  D1LinkedDeviceOwnerAuthorizationMetadataSourceV1,
+  'readOwnerSourceChildV1'
+>;
+
+export type D1LinkedDeviceOwnerSourceChildReaderOptionsV1 = {
+  readonly walletAuthMethodStore: Pick<D1WalletAuthMethodStore, 'listForWalletV2'>;
+  readonly walletStore: Pick<
+    D1WalletStore,
+    'listEd25519SignersForWallet' | 'listEcdsaSignersForWallet'
+  >;
+};
+
+/** Builds authoritative source-child facts directly from the wallet stores. */
+export function createD1LinkedDeviceOwnerSourceChildReaderV1(
+  options: D1LinkedDeviceOwnerSourceChildReaderOptionsV1,
+): D1LinkedDeviceOwnerSourceChildReaderV1 {
+  const projectionSource = new D1LinkedDeviceOwnerSourceProjectionSourceV1(options);
+  return {
+    readOwnerSourceChildV1: readD1LinkedDeviceOwnerSourceChildV1.bind(undefined, projectionSource),
+  };
+}
+
+class D1LinkedDeviceOwnerSourceProjectionSourceV1 implements WalletExecutionLaneProjectionSource {
+  constructor(private readonly options: D1LinkedDeviceOwnerSourceChildReaderOptionsV1) {}
+
+  async listWalletAuthMethods(input: {
+    readonly walletId: WalletId;
+  }): Promise<readonly WalletAuthMethodRecordV2[]> {
+    return await this.options.walletAuthMethodStore.listForWalletV2({
+      walletId: input.walletId,
+    });
+  }
+
+  async listWalletSigners(input: {
+    readonly walletId: WalletId;
+  }): Promise<readonly (WalletEd25519SignerRecord | WalletEcdsaSignerRecord)[]> {
+    const [ed25519, ecdsa] = await Promise.all([
+      this.options.walletStore.listEd25519SignersForWallet({ walletId: input.walletId }),
+      this.options.walletStore.listEcdsaSignersForWallet({ walletId: input.walletId }),
+    ]);
+    return [...ed25519, ...ecdsa];
+  }
+}
+
+class WalletExecutionLaneProjectionSnapshotV1 implements WalletExecutionLaneProjectionSource {
+  constructor(
+    private readonly authMethods: readonly WalletAuthMethodRecordV2[],
+    private readonly signers: readonly (WalletEd25519SignerRecord | WalletEcdsaSignerRecord)[],
+  ) {}
+
+  async listWalletAuthMethods(): Promise<readonly WalletAuthMethodRecordV2[]> {
+    return this.authMethods;
+  }
+
+  async listWalletSigners(): Promise<
+    readonly (WalletEd25519SignerRecord | WalletEcdsaSignerRecord)[]
+  > {
+    return this.signers;
+  }
+}
+
+async function readD1LinkedDeviceOwnerSourceChildV1(
+  projectionSource: WalletExecutionLaneProjectionSource,
+  input: Parameters<D1LinkedDeviceOwnerAuthorizationMetadataSourceV1['readOwnerSourceChildV1']>[0],
+): Promise<LinkedDeviceOwnerSourceChildResolutionV1 | null> {
+  if (input.owner.walletId !== input.request.approval.walletId) return null;
+  if (input.request.sourceLaneHint.walletKey.walletId !== input.owner.walletId) return null;
+
+  const [authMethods, signers] = await Promise.all([
+    projectionSource.listWalletAuthMethods({ walletId: input.owner.walletId }),
+    projectionSource.listWalletSigners({ walletId: input.owner.walletId }),
+  ]);
+  const walletAuthMethodId = await ownerWalletAuthMethodIdV1({
+    owner: input.owner,
+    authMethods,
+  });
+  if (!walletAuthMethodId) return null;
+
+  const projected = await resolveActiveOwnerWalletExecutionLane({
+    source: new WalletExecutionLaneProjectionSnapshotV1(authMethods, signers),
+    walletId: input.owner.walletId,
+    walletAuthMethodId,
+    expectedMaterialActivation: input.request.sourceLaneHint.materialActivation,
+  });
+  if (projected.kind !== 'projected') return null;
+  if (!sourceProjectionMatchesHintV1(projected.projection, input.request.sourceLaneHint)) {
+    return null;
+  }
+  const signer = sourceSignerForProjectionV1(signers, projected.projection);
+  if (!signer || signer.custodyKeyManifestDigestB64u !== input.owner.keyManifestDigestB64u) {
+    return null;
+  }
+
+  return await sourceChildResolutionFromSignerV1({
+    signer,
+    projection: projected.projection,
+    sourceLaneHint: input.request.sourceLaneHint,
+  });
+}
+
+async function ownerWalletAuthMethodIdV1(input: {
+  readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
+  readonly authMethods: readonly WalletAuthMethodRecordV2[];
+}): Promise<WalletAuthMethodId | null> {
+  switch (input.owner.curve) {
+    case 'ed25519':
+      return input.owner.authority.bindingId;
+    case 'ecdsa':
+      return await resolveWalletAuthMethodIdForAuthority({
+        walletId: input.owner.walletId,
+        authorityRef: input.owner.walletAuthAuthorityRef,
+        authSource: input.owner.authSource,
+        authMethods: input.authMethods,
+      });
+    default:
+      return assertNeverOwnerCurveV1(input.owner);
+  }
+}
+
+function sourceProjectionMatchesHintV1(
+  projection: ActiveOwnerWalletExecutionLaneProjection,
+  sourceLaneHint: LinkedDeviceOwnerSourceChildResolutionRequestV1['sourceLaneHint'],
+): boolean {
+  return (
+    projection.walletKey.walletId === sourceLaneHint.walletKey.walletId &&
+    projection.walletKey.walletKeyId === sourceLaneHint.walletKey.walletKeyId &&
+    projection.walletKey.keyFamily === sourceLaneHint.keyFamily &&
+    projection.lane.laneId === sourceLaneHint.lane.laneId &&
+    projection.lane.laneKind === sourceLaneHint.lane.laneKind &&
+    projection.lane.laneShareEpoch === sourceLaneHint.lane.laneShareEpoch &&
+    projection.lane.lifecycle.revocationEpoch === sourceLaneHint.lane.lifecycle.revocationEpoch &&
+    projection.lane.participantBindingDigestB64u ===
+      sourceLaneHint.lane.participantBindingDigestB64u &&
+    projection.verifiedActivationReceiptDigestB64u ===
+      sourceLaneHint.verifiedActivationReceiptDigestB64u &&
+    mpcMaterialActivationRefsEqual(projection.materialActivation, sourceLaneHint.materialActivation)
+  );
+}
+
+function sourceSignerForProjectionV1(
+  signers: readonly (WalletEd25519SignerRecord | WalletEcdsaSignerRecord)[],
+  projection: ActiveOwnerWalletExecutionLaneProjection,
+): WalletEd25519SignerRecord | WalletEcdsaSignerRecord | null {
+  for (const signer of signers) {
+    if (signer.walletId !== projection.walletKey.walletId) continue;
+    const wire =
+      signer.version === 'wallet_signer_ed25519_v1'
+        ? signer.activeYaoCapability.activationResult.public_receipt.material_activation
+        : signer.walletKey.publicCapability.material_activation;
+    try {
+      if (
+        signer.version ===
+          (projection.walletKey.keyFamily === 'ed25519'
+            ? 'wallet_signer_ed25519_v1'
+            : 'wallet_signer_ecdsa_v1') &&
+        mpcMaterialActivationRefsEqual(
+          routerAbMpcMaterialActivationRefFromWire(wire),
+          projection.materialActivation,
+        )
+      ) {
+        return signer;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function sourceChildResolutionFromSignerV1(input: {
+  readonly signer: WalletEd25519SignerRecord | WalletEcdsaSignerRecord;
+  readonly projection: ActiveOwnerWalletExecutionLaneProjection;
+  readonly sourceLaneHint: LinkedDeviceOwnerSourceChildResolutionRequestV1['sourceLaneHint'];
+}): Promise<LinkedDeviceOwnerSourceChildResolutionV1 | null> {
+  const source = ownerLaneProtocolSourceV1(input.projection);
+  if (input.signer.version === 'wallet_signer_ed25519_v1') {
+    if (input.projection.walletKey.keyFamily !== 'ed25519') return null;
+    if (input.signer.activeYaoCapability.activationResult.binding.operation !== 'registration') {
+      return null;
+    }
+    const capability = input.signer.activeYaoCapability;
+    if (capability.version !== 'wallet_ed25519_yao_registration_capability_v1') return null;
+    const application = capability.admissionRequest.application_binding;
+    const applicationBindingDigestB64u = parseDigestB64u(
+      base64UrlEncode(
+        Uint8Array.from(await deriveRouterAbEd25519YaoApplicationBindingDigestV1(application)),
+      ),
+    );
+    const stableContextBindingB64u = parseDigestB64u(
+      base64UrlEncode(
+        Uint8Array.from(capability.activationResult.binding.stable_key_context_binding),
+      ),
+    );
+    return {
+      walletKeyId: input.projection.walletKey.walletKeyId,
+      source,
+      keyFamily: 'ed25519',
+      applicationBindingDigestB64u,
+      registeredPublicKeyB64u: input.projection.walletKey.registeredPublicKeyB64u,
+      nearEd25519SigningKeyId: input.projection.walletKey.nearEd25519SigningKeyId,
+      keyCreationSignerSlot: input.projection.walletKey.keyCreationSignerSlot,
+      stableContextBindingB64u,
+      sourceBinding: capability.activationResult.binding,
+    };
+  }
+
+  if (
+    input.projection.walletKey.keyFamily !== 'ecdsa_secp256k1' ||
+    input.sourceLaneHint.keyFamily !== 'ecdsa_secp256k1'
+  ) {
+    return null;
+  }
+  try {
+    const relayerKeyId = parseEcdsaRelayerKeyId(input.signer.walletKey.relayerKeyId);
+    if (!relayerKeyId.ok) return null;
+    return {
+      walletKeyId: input.projection.walletKey.walletKeyId,
+      source,
+      keyFamily: 'ecdsa_secp256k1',
+      evmFamilySigningKeySlotId: input.projection.walletKey.evmFamilySigningKeySlotId,
+      thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
+        input.signer.walletKey.thresholdEcdsaPublicKeyB64u,
+      ),
+      evmAddress: input.signer.walletKey.thresholdOwnerAddress,
+      sourceCapability: {
+        manifestId: input.sourceLaneHint.ecdsaSourceManifest.manifestId,
+        manifestRevision: input.sourceLaneHint.ecdsaSourceManifest.manifestRevision,
+        serverGeneration: input.signer.activationReceipt.server_generation,
+        ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(
+          input.signer.walletKey.ecdsaThresholdKeyId,
+        ),
+        relayerKeyId: relayerKeyId.value,
+      },
+      sourceHolderVerifyingShare33B64u: parseSecp256k1CompressedPublicKeyB64u(
+        input.signer.walletKey.derivationClientSharePublicKey33B64u,
+      ),
+      sourceServerVerifyingShare33B64u: parseSecp256k1CompressedPublicKeyB64u(
+        input.signer.walletKey.relayerVerifyingShareB64u,
+      ),
+      applicationBindingDigestB64u: parseDigestB64u(
+        input.signer.activationReceipt.ecdsa_activation.context.application_binding_digest_b64u,
+      ),
+      clientShareRetryCounter:
+        input.signer.activationReceipt.ecdsa_activation.public_identity.client_share_retry_counter,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function ownerLaneProtocolSourceV1(
+  projection: ActiveOwnerWalletExecutionLaneProjection,
+): ActiveLaneProtocolSourceV1 {
+  return {
+    sourceKind: 'owner_registration',
+    laneKind: projection.lane.laneKind,
+    laneId: projection.lane.laneId,
+    laneShareEpoch: projection.lane.laneShareEpoch,
+    revocationEpoch: projection.lane.lifecycle.revocationEpoch,
+    participantBindingDigestB64u: projection.lane.participantBindingDigestB64u,
+    materialActivation: projection.materialActivation,
+    ownerParticipantContinuity: projection.lane.ownerParticipantContinuity,
+  };
+}
+
+function assertNeverOwnerCurveV1(value: never): never {
+  throw new Error(`unsupported owner curve: ${String(value)}`);
+}
 
 export type D1LinkedDeviceOwnerAuthorizationMetadataSourceOptionsV1 = {
   readonly tenantId: TenantId;
@@ -227,10 +518,7 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
     'resolveActiveOwnerWalletExecutionLane'
   >;
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
-  readonly targetPlanner: Pick<
-    D1LinkedDeviceTargetPlannerOptionsV1,
-    'preparationTtlMs'
-  >;
+  readonly targetPlanner: Pick<D1LinkedDeviceTargetPlannerOptionsV1, 'preparationTtlMs'>;
   readonly nowV1?: () => number;
 };
 
@@ -408,7 +696,8 @@ function createD1LinkedDeviceOwnerSourceResolverV1(input: {
         request.sourceLaneHint.keyFamily !== resolution.keyFamily ||
         request.sourceLaneHint.lane.laneId !== resolution.source.laneId ||
         request.sourceLaneHint.lane.laneShareEpoch !== resolution.source.laneShareEpoch ||
-        request.sourceLaneHint.lane.lifecycle.revocationEpoch !== resolution.source.revocationEpoch ||
+        request.sourceLaneHint.lane.lifecycle.revocationEpoch !==
+          resolution.source.revocationEpoch ||
         request.sourceLaneHint.lane.participantBindingDigestB64u !==
           resolution.source.participantBindingDigestB64u ||
         !mpcMaterialActivationRefsEqual(
@@ -516,7 +805,10 @@ function assertResolutionMatchesOwnerProjectionV1(
     resolution.source.laneShareEpoch !== lane.laneShareEpoch ||
     resolution.source.revocationEpoch !== lane.lifecycle.revocationEpoch ||
     resolution.source.participantBindingDigestB64u !== lane.participantBindingDigestB64u ||
-    !mpcMaterialActivationRefsEqual(resolution.source.materialActivation, projection.materialActivation)
+    !mpcMaterialActivationRefsEqual(
+      resolution.source.materialActivation,
+      projection.materialActivation,
+    )
   ) {
     throw new Error('linked-device source facts do not match the active owner projection');
   }
