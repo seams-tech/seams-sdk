@@ -18,6 +18,8 @@ import type {
   VerifiedLinkInputV1,
   VerifiedSourceAuthorityV1,
   VerifiedTargetFactorV1,
+  OrdinarySignerMaterialRecipientInputV1,
+  OrdinarySignerMaterialReservationPreparationV1,
 } from './contracts';
 import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
 import type {
@@ -115,6 +117,14 @@ declare const permissionSet: CanonicalDelegatedWalletPermissionSetV1;
 declare const signerManifest: ExactAdministeredSignerManifestV1;
 declare const passkeyAuthMethod: PasskeyWalletAuthMethodDraftV1;
 declare const emailOtpAuthMethod: EmailOtpWalletAuthMethodDraftV1;
+declare const ordinarySignerMaterialPreparations: readonly [
+  OrdinarySignerMaterialReservationPreparationV1,
+  ...OrdinarySignerMaterialReservationPreparationV1[],
+];
+declare const ordinarySignerMaterialRecipientInputs: readonly [
+  OrdinarySignerMaterialRecipientInputV1,
+  ...OrdinarySignerMaterialRecipientInputV1[],
+];
 
 function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
   void value;
@@ -425,8 +435,11 @@ const credentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
   walletId,
   enrollmentId,
   deviceId,
+  walletAuthMethodId,
   targetFactor: { kind: 'passkey_prf' },
   targetPreparationDigestB64u: digest,
+  ordinarySignerMaterialPreparations,
+  ordinarySignerMaterialRecipientInputs,
   webauthnRegistration: {
     kind: 'linked_device_webauthn_registration_v1',
     credentialIdB64u,
@@ -634,6 +647,7 @@ const verifiedLinkInput = {
   targetFactor: verifiedPasskeyTarget,
   permissions: permissionSet,
   signerManifest,
+  ordinarySignerMaterialPreparations,
 } satisfies VerifiedLinkInputV1;
 void verifiedLinkInput;
 void verifiedEmailOtpTarget;

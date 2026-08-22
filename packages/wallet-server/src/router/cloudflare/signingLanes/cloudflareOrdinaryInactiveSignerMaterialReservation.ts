@@ -10,7 +10,18 @@ import {
   type OrdinaryInactiveSignerMaterialReservationServiceV1,
   type OrdinaryInactiveSignerMaterialReservationWorkerPortV1,
 } from '../../../core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type {
+  OrdinaryInactiveSignerMaterialActivationPortV1,
+} from '../d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
+import type {
+  OrdinaryEcdsaSignerMaterialReservationPreparationV1,
+  OrdinaryEd25519SignerMaterialReservationPreparationV1,
+} from '../../../core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 
 /** Dedicated SigningWorker paths implemented by the Cloudflare worker. */
 export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_PATH_V1 =
@@ -36,6 +47,17 @@ export type CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1 = {
   reserveInactiveEcdsaSignerMaterialV1(
     input: OrdinaryEcdsaSignerMaterialReservationRequestV1,
   ): Promise<unknown>;
+};
+
+export type CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1 = {
+  activateInactiveEd25519SignerMaterialV1(input: {
+    readonly activationRequest: OrdinaryEd25519SignerMaterialReservationPreparationV1['activationRequest'];
+    readonly reservationId: string;
+  }): Promise<unknown>;
+  activateInactiveEcdsaSignerMaterialV1(input: {
+    readonly preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1;
+    readonly reservationId: string;
+  }): Promise<unknown>;
 };
 
 type CachedEd25519ReservationV1 = {
@@ -102,6 +124,12 @@ export function createCloudflareOrdinaryInactiveSignerMaterialReservationService
   return createOrdinaryInactiveSignerMaterialReservationServiceV1({
     worker: new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(input.endpoint),
   });
+}
+
+export function createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1(input: {
+  readonly endpoint: CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1;
+}): OrdinaryInactiveSignerMaterialActivationPortV1 {
+  return new CloudflareOrdinaryInactiveSignerMaterialActivationWorkerV1(input.endpoint);
 }
 
 /** Explicit fail-closed port for deployments without a configured endpoint. */
@@ -178,4 +206,51 @@ function ordinaryReservationEndpointUnavailableErrorV1(): Error {
   return new Error(
     'ordinary inactive signer material reservation endpoint is unavailable; refusing activation fallback',
   );
+}
+
+class CloudflareOrdinaryInactiveSignerMaterialActivationWorkerV1
+  implements OrdinaryInactiveSignerMaterialActivationPortV1
+{
+  constructor(private readonly endpoint: CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1) {}
+
+  async activateOrdinaryInactiveSignerMaterialV1(input: {
+    readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+    readonly reservationId: string;
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly activatedAtMs: number;
+    readonly preparation:
+      | { readonly keyFamily: 'ed25519'; readonly preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1 }
+      | { readonly keyFamily: 'ecdsa_secp256k1'; readonly preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1 };
+  }): Promise<void> {
+    if (!Number.isSafeInteger(input.activatedAtMs) || input.activatedAtMs < 0) {
+      throw new Error('ordinary signer material activation time is invalid');
+    }
+    if (input.keyFamily !== input.preparation.keyFamily) {
+      throw new Error('ordinary signer material activation family does not match preparation');
+    }
+    if (input.preparation.keyFamily === 'ed25519') {
+      const prepared = input.preparation.preparation;
+      if (
+        !mpcMaterialActivationRefsEqual(
+          input.materialActivation,
+          routerAbMpcMaterialActivationRefFromWire(prepared.activationRequest.binding.material_activation),
+        )
+      ) {
+        throw new Error('ordinary Ed25519 activation reference does not match preparation');
+      }
+      await this.endpoint.activateInactiveEd25519SignerMaterialV1({
+        activationRequest: prepared.activationRequest,
+        reservationId: input.reservationId,
+      });
+      return;
+    }
+    const prepared = input.preparation.preparation;
+    if (!mpcMaterialActivationRefsEqual(input.materialActivation, prepared.materialActivation)) {
+      throw new Error('ordinary ECDSA activation reference does not match preparation');
+    }
+    await this.endpoint.activateInactiveEcdsaSignerMaterialV1({
+      preparation: prepared,
+      reservationId: input.reservationId,
+    });
+  }
 }

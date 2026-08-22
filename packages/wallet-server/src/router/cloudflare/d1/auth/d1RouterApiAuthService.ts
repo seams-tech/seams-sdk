@@ -138,9 +138,18 @@ import {
 } from './d1RouterApiAuthConfig';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
+import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import {
   D1LinkedDeviceEmailOtpGrantStoreV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
+import { D1LinkedDeviceAuthorityInstallServiceV1 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
+import { createD1LinkedDeviceSessionServiceV1 } from '../deviceLinking/d1LinkedDeviceSessionService';
+import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
+import { createD1LinkedDeviceVerifiedLinkSourceReaderV1 } from '../deviceLinking/d1LinkedDeviceVerifiedLinkSourceReader';
+import {
+  createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1,
+  createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1,
+} from '../../signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 import {
   D1LinkedDeviceEmailOtpTargetFactorV1,
   linkedDeviceEmailOtpBaseFactorReaderV1,
@@ -152,6 +161,7 @@ export type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
   CloudflareD1EmailOtpServerSealConfig,
+  CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1,
   CloudflareD1LinkedDeviceCompositionOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
   CloudflareD1RouterApiAuthServiceOptions,
@@ -285,6 +295,8 @@ type D1LinkedDeviceCompositionAssembly = Pick<
 function createD1LinkedDeviceComposition(input: {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
   readonly authorizationSessions: RouterApiServiceBag['authorizationSessions'];
+  readonly authorizationService: AuthorizationService;
+  readonly walletAuthMethodStore: D1WalletAuthMethodStore;
   /**
    * Refactor 103 Phase 6: the R100 Email OTP pieces the linked-device Email
    * OTP target factor composes. Left absent, `email_otp` linking fails closed
@@ -334,6 +346,63 @@ function createD1LinkedDeviceComposition(input: {
         grants: linkedEmailOtpGrants,
       });
     }
+    const sessionComposition = createD1LinkedDeviceSessionServiceV1({
+      database: input.options.database,
+      scope,
+      ownerAuthorization: config.session.ownerAuthorization,
+      ...(emailOtpTargetFactor === undefined
+        ? {}
+        : { emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor) }),
+      nowV1,
+    });
+    const tenantId = parseTenantId(input.options.orgId);
+    if (!tenantId.ok) throw new Error(`orgId cannot identify an authorization tenant: ${tenantId.error.message}`);
+    const authorityStore = new D1WalletAuthorityStore({
+      database: input.options.database,
+      scope,
+    });
+    const verifiedLinkBuilder = {
+      source: createD1LinkedDeviceVerifiedLinkSourceReaderV1({
+        authorizationService: input.authorizationService,
+        authorityStore,
+        authMethodStore: input.walletAuthMethodStore,
+        tenantId: tenantId.value,
+      }),
+    };
+    const authorityInstall = new D1LinkedDeviceAuthorityInstallServiceV1({
+      database: input.options.database,
+      scope,
+      authorityStore,
+      authMethodStore: input.walletAuthMethodStore,
+      sessionStore: sessionComposition.sessionStore,
+      sessionService: sessionComposition.sessionService,
+      reservationService: createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({
+        endpoint: config.session.authorityInstallation.reservationEndpoint,
+      }),
+      materialPlanner: config.session.authorityInstallation.materialPlanner,
+      reservationPreparationPlanner: config.session.authorityInstallation.reservationPreparationPlanner,
+      materialActivation: createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1({
+        endpoint: config.session.authorityInstallation.activationEndpoint,
+      }),
+      authorizationService: input.authorizationService,
+      tenantId: tenantId.value,
+      nowV1,
+    });
+    const installationReceipt: NonNullable<DeviceLinkingRouteServiceV1['installationReceipt']> = {
+      commitPendingAuthorityV1: async ({ input: verifiedLinkInput, nowMs }) =>
+        await authorityInstall.commitPendingAuthorityV1({
+          ...verifiedLinkInput,
+          nowMs,
+        }),
+      readCommittedAuthorityPackagesV1: authorityInstall.readCommittedAuthorityPackagesV1.bind(
+        authorityInstall,
+      ),
+      activateInstalledAuthorityV1: async ({ receipt, requestedAtMs }) =>
+        await authorityInstall.activateInstalledAuthorityV1({ receipt, nowMs: requestedAtMs }),
+      acknowledgeLocalAuthorityActivationV1: authorityInstall.acknowledgeLocalAuthorityActivationV1.bind(
+        authorityInstall,
+      ),
+    };
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
       scope,
@@ -345,10 +414,8 @@ function createD1LinkedDeviceComposition(input: {
             emailOtpTargetFactor,
           }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
-      targetCredential: config.session.targetCredential,
-      ...(config.session.installationReceipt === undefined
-        ? {}
-        : { installationReceipt: config.session.installationReceipt }),
+      targetCredential: config.session.targetCredential({ verifiedLinkBuilder }),
+      installationReceipt,
       nowV1,
     });
     deviceManagement = config.session.management;
@@ -1541,6 +1608,8 @@ function createCloudflareD1RouterApiAuthAssembly(
       serverSeal: emailOtpServerSeal,
     },
     options,
+    authorizationService,
+    walletAuthMethodStore,
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,
       options,

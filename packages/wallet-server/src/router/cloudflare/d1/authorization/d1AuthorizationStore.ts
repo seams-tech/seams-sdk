@@ -1258,13 +1258,45 @@ export class CloudflareD1AuthorizationStore
     return await this.readWalletSessionAuthorizationV2(input, 'authorization_id');
   }
 
+  async readWalletSessionAuthorizationV2ByIdentity(input: {
+    readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+    readonly walletId: WalletSessionAuthorizationV2['walletId'];
+    readonly walletSessionId: WalletSessionAuthorizationV2['walletSessionId'];
+    readonly authorizationId: WalletSessionAuthorizationV2['authorizationId'];
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+    return await this.readWalletSessionAuthorizationV2(
+      {
+        identity: {
+          tenantId: input.tenantId,
+          walletId: input.walletId,
+          walletSessionId: input.walletSessionId,
+          authorizationId: input.authorizationId,
+        },
+        nowMs: input.nowMs,
+      },
+      'authorization_id',
+    );
+  }
+
   private async readWalletSessionAuthorizationV2(
-    input: {
-      readonly expected: WalletSessionAuthorizationV2;
-      readonly nowMs: number;
-    },
+    input:
+      | {
+          readonly expected: WalletSessionAuthorizationV2;
+          readonly nowMs: number;
+        }
+      | {
+          readonly identity: {
+            readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+            readonly walletId: WalletSessionAuthorizationV2['walletId'];
+            readonly walletSessionId: WalletSessionAuthorizationV2['walletSessionId'];
+            readonly authorizationId: WalletSessionAuthorizationV2['authorizationId'];
+          };
+          readonly nowMs: number;
+        },
     lookupColumn: 'mint_id' | 'authorization_id',
   ): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+    const lookup = 'expected' in input ? input.expected : input.identity;
     const row = await this.database
       .prepare(
         `SELECT
@@ -1339,10 +1371,10 @@ export class CloudflareD1AuthorizationStore
         this.walletSignerScope.orgId,
         this.walletSignerScope.projectId,
         this.walletSignerScope.envId,
-        input.expected.tenantId,
+        lookup.tenantId,
         lookupColumn === 'mint_id'
-          ? String(input.expected.mintId)
-          : String(input.expected.authorizationId),
+          ? String('expected' in input ? input.expected.mintId : input.identity.authorizationId)
+          : String(lookup.authorizationId),
       )
       .first<D1Row>();
     if (!row) return null;
@@ -1376,7 +1408,15 @@ export class CloudflareD1AuthorizationStore
     ) {
       throw new Error('Stored V2 Wallet Session authority provenance is no longer active');
     }
-    if (!walletSessionAuthorizationV2RecordsEqual(session, input.expected)) {
+    if (
+      'identity' in input &&
+      (session.walletId !== input.identity.walletId ||
+        session.walletSessionId !== input.identity.walletSessionId ||
+        session.authorizationId !== input.identity.authorizationId)
+    ) {
+      throw new Error('Stored V2 Wallet Session identity does not match the request');
+    }
+    if ('expected' in input && !walletSessionAuthorizationV2RecordsEqual(session, input.expected)) {
       throw new Error('Stored V2 Wallet Session authorization replay does not match');
     }
     const nowMs = requirePositiveInteger(input.nowMs, 'V2 authorization read time');

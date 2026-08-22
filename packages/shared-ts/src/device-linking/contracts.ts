@@ -68,6 +68,8 @@ import type {
   PasskeyWalletAuthMethodDraftV1,
   WalletAuthMethodRecordV2,
 } from '../utils/registrationIntent';
+import type { RouterAbEd25519YaoActivationExecuteRequestV1 } from '../utils/routerAbEd25519Yao';
+import type { RouterAbEcdsaRegistrationRequestV1 } from '../utils/routerAbEcdsaDerivation';
 
 export type {
   CommittedAuthorityPackagesV1,
@@ -683,13 +685,53 @@ export type LinkedDeviceTargetHolderRegistrationV1 = {
   readonly holderParticipant: LaneHolderParticipantRecordV1;
 };
 
+/**
+ * Worker-produced ordinary material inputs. Activation identities are
+ * checked against the server's planned refs before a reservation is made.
+ */
+export type OrdinarySignerMaterialReservationPreparationV1 =
+  | {
+      readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
+      readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+    }
+  | {
+      readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';
+      readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+      readonly materialActivation: MpcMaterialActivationRef;
+    };
+
+/**
+ * Public recipient inputs paired with the worker-produced reservation
+ * preparations. Private recipient keys remain in the browser worker.
+ */
+export type OrdinarySignerMaterialRecipientInputV1 =
+  | {
+      readonly kind: 'ordinary_ed25519_signer_material_recipient_input_v1';
+      readonly keyFamily: 'ed25519';
+      readonly recipientPublicKeyB64u: string;
+    }
+  | {
+      readonly kind: 'ordinary_ecdsa_signer_material_recipient_input_v1';
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly clientEphemeralPublicKey: string;
+    };
+
 type LinkedDeviceTargetCredentialRegistrationBaseV1 = {
   readonly kind: 'linked_device_target_credential_registration_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly targetPreparationDigestB64u: DigestB64u;
+  readonly ordinarySignerMaterialPreparations: readonly [
+    OrdinarySignerMaterialReservationPreparationV1,
+    ...OrdinarySignerMaterialReservationPreparationV1[],
+  ];
+  readonly ordinarySignerMaterialRecipientInputs: readonly [
+    OrdinarySignerMaterialRecipientInputV1,
+    ...OrdinarySignerMaterialRecipientInputV1[],
+  ];
   readonly orderedHolderRegistrations: readonly [
     LinkedDeviceTargetHolderRegistrationV1,
     ...LinkedDeviceTargetHolderRegistrationV1[],
@@ -1178,6 +1220,35 @@ export type VerifiedLinkInputV1 = {
   readonly targetFactor: VerifiedTargetFactorV1;
   readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
   readonly signerManifest: ExactAdministeredSignerManifestV1;
+  readonly ordinarySignerMaterialPreparations: readonly [
+    OrdinarySignerMaterialReservationPreparationV1,
+    ...OrdinarySignerMaterialReservationPreparationV1[],
+  ];
+};
+
+/**
+ * Browser-safe evidence returned after target-factor verification. Source
+ * authority and grant internals stay inside the server installation port.
+ */
+export type LinkedDeviceTargetCredentialRegistrationResultV1 = {
+  readonly kind: 'linked_device_target_credential_registration_result_v1';
+  readonly outcome: 'applied' | 'replayed';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly targetPreparationDigestB64u: DigestB64u;
+  readonly targetFactor: VerifiedTargetFactorV1;
+  readonly ordinarySignerMaterialPreparations: readonly [
+    OrdinarySignerMaterialReservationPreparationV1,
+    ...OrdinarySignerMaterialReservationPreparationV1[],
+  ];
+  readonly ordinarySignerMaterialRecipientInputs: readonly [
+    OrdinarySignerMaterialRecipientInputV1,
+    ...OrdinarySignerMaterialRecipientInputV1[],
+  ];
+  readonly keyManifestDigestB64u: DigestB64u;
 };
 
 /** The ordinary session issued by activation and persisted by the browser. */
@@ -1295,3 +1366,25 @@ export type LocalAuthorityActivationFinalAckV1 = {
 export function assertNeverLinkSessionStateV1(value: never): never {
   throw new Error(`[LinkSessionStateV1] unsupported state: ${String(value)}`);
 }
+
+/**
+ * Authenticated Device 2 projection for the linear link lifecycle. The
+ * temporary session id and QR payload stay at this boundary; lifecycle code
+ * consumes the exact state union only.
+ */
+export type LinkSessionProjectionV1 = {
+  readonly kind: 'linked_device_session_projection_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
+  readonly revision: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly state: LinkSessionStateV1;
+};
+
+export type LinkSessionTransportEventV1 = {
+  readonly kind: 'linked_device_session_event_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly state: LinkSessionStateV1;
+  readonly emittedAtMs: number;
+};

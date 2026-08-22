@@ -22,7 +22,8 @@ import {
   type WalletAuthorityId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual, parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import {
   parsePrincipalId,
@@ -51,6 +52,7 @@ import {
 import type {
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
+  OrdinarySignerMaterialReservationPreparationV1 as SharedOrdinarySignerMaterialReservationPreparationV1,
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
 import {
@@ -68,6 +70,8 @@ import {
   type OrdinaryEcdsaSignerMaterialReservationV1,
   type OrdinaryEd25519SignerMaterialReservationV1,
 } from '../../../../core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
+import { parseRouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { d1ChangedRows, formatD1ExecStatement, parseD1JsonColumn } from '../../../../storage/d1Sql';
 import {
@@ -108,6 +112,16 @@ export type OrdinarySignerMaterialReservationPreparationPlannerV1 = {
       };
 };
 
+export type OrdinarySignerMaterialReservationPreparationV1 =
+  | {
+      readonly keyFamily: 'ed25519';
+      readonly preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1;
+    }
+  | {
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1;
+    };
+
 /** The only worker authority mutation accepted by the linked-device cutover. */
 export type OrdinaryInactiveSignerMaterialActivationPortV1 = {
   activateOrdinaryInactiveSignerMaterialV1(input: {
@@ -115,6 +129,7 @@ export type OrdinaryInactiveSignerMaterialActivationPortV1 = {
     readonly reservationId: string;
     readonly materialActivation: MpcMaterialActivationRef;
     readonly activatedAtMs: number;
+    readonly preparation: OrdinarySignerMaterialReservationPreparationV1;
   }): Promise<void>;
 };
 
@@ -144,7 +159,7 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
   readonly reservationService: OrdinaryInactiveSignerMaterialReservationServiceV1;
   readonly materialPlanner: OrdinarySignerMaterialActivationPlannerV1;
   readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
-  readonly materialActivation?: OrdinaryInactiveSignerMaterialActivationPortV1;
+  readonly materialActivation: OrdinaryInactiveSignerMaterialActivationPortV1;
   readonly authorizationService: Pick<AuthorizationService, 'issueWalletSessionAuthorizationV2'>;
   readonly tenantId: TenantId;
   readonly walletSessionTtlMs?: number;
@@ -175,12 +190,6 @@ export type ActivateInstalledAuthorityResultV1 =
       readonly session: LinkedDeviceSessionRecordV1;
       readonly walletSession: IssuedWalletSessionAuthorizationV2;
     }
-  | {
-      readonly kind: 'pending_local_install';
-      readonly authorityId: WalletAuthorityId;
-      readonly packageSetDigestB64u: DigestB64u;
-      readonly reason: 'worker_activation_unavailable';
-    }
   | { readonly kind: 'integrity_error'; readonly message: string };
 
 type StoredInstallationRow = {
@@ -195,11 +204,19 @@ type StoredInstallationRow = {
   readonly sourceManifestDigestB64u: DigestB64u;
   readonly packages: CommittedAuthorityPackagesV1;
   readonly serverReservationIds: Readonly<{
-    readonly ed25519?: string;
-    readonly ecdsa_secp256k1?: string;
+    readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
+    readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
   }>;
   readonly installedRecordSetDigestB64u: DigestB64u | null;
   readonly activatedAtMs: number | null;
+};
+
+type ServerReservationRecordV1<F extends 'ed25519' | 'ecdsa_secp256k1'> = {
+  readonly reservationId: string;
+  readonly preparation: Extract<
+    OrdinarySignerMaterialReservationPreparationV1,
+    { readonly keyFamily: F }
+  >['preparation'];
 };
 
 const INSTALLATION_SCHEMA_SQL = `
@@ -392,14 +409,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       if (authority.state !== 'pending_local_install' || authMethod.status !== 'pending_local_install' || session.state.state !== 'authority_pending_local_install') {
         return { kind: 'integrity_error', message: 'authority activation state is inconsistent' };
       }
-      if (!this.options.materialActivation) {
-        return {
-          kind: 'pending_local_install',
-          authorityId: stored.authorityId,
-          packageSetDigestB64u: stored.packageSetDigestB64u,
-          reason: 'worker_activation_unavailable',
-        };
-      }
       await this.activateReservations(stored, receipt.installedAtMs);
       const activeAuthority = await buildActiveAuthority(authority, receipt.installedAtMs);
       const activeAuthMethod = buildActiveAuthMethod(authMethod, receipt.installedAtMs);
@@ -541,10 +550,15 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
 
   private async reserveSignerMaterial(input: VerifiedLinkInputV1, authorityId: WalletAuthorityId): Promise<{
     readonly packages: CommittedSignerPackageSetV1;
-    readonly serverReservationIds: { readonly ed25519?: string; readonly ecdsa_secp256k1?: string };
+    readonly serverReservationIds: Readonly<{
+      readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
+      readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
+    }>;
   }> {
     let ed25519: OrdinaryEd25519SignerMaterialReservationV1 | undefined;
     let ecdsa: OrdinaryEcdsaSignerMaterialReservationV1 | undefined;
+    let ed25519Preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1 | undefined;
+    let ecdsaPreparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1 | undefined;
     for (const signer of input.signerManifest.signers) {
       const plannedActivationRef = this.options.materialPlanner.planOrdinaryMaterialActivationRefV1({
         authorityId,
@@ -560,36 +574,54 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         if (preparation.keyFamily !== 'ed25519') {
           throw new Error('ordinary material reservation preparation family does not match signer');
         }
+        const workerPreparation = ordinaryPreparationForEd25519(
+          input.ordinarySignerMaterialPreparations,
+        );
+        assertPreparationActivationMatches(
+          plannedActivationRef,
+          routerAbMpcMaterialActivationRefFromWire(
+            workerPreparation.activationRequest.binding.material_activation,
+          ),
+        );
         const reservation = await this.options.reservationService.reserveOrdinaryInactiveSignerMaterialV1({
           kind: 'ordinary_ed25519_signer_material_reservation_request_v1',
           keyFamily: 'ed25519',
           signer,
           plannedActivationRef,
-          preparation: preparation.preparation,
+          preparation: workerPreparation,
         });
         if (reservation.keyFamily !== 'ed25519') {
           throw new Error('ordinary material reservation returned the wrong family');
         }
         ed25519 = reservation;
+        ed25519Preparation = workerPreparation;
         continue;
       }
       if (preparation.keyFamily !== 'ecdsa_secp256k1') {
         throw new Error('ordinary material reservation preparation family does not match signer');
       }
+      const workerPreparation = ordinaryPreparationForEcdsa(
+        input.ordinarySignerMaterialPreparations,
+      );
+      assertPreparationActivationMatches(plannedActivationRef, workerPreparation.materialActivation);
       const reservation = await this.options.reservationService.reserveOrdinaryInactiveSignerMaterialV1({
         kind: 'ordinary_ecdsa_signer_material_reservation_request_v1',
         keyFamily: 'ecdsa_secp256k1',
         signer,
         plannedActivationRef,
-        preparation: preparation.preparation,
+        preparation: workerPreparation,
       });
       if (reservation.keyFamily !== 'ecdsa_secp256k1') {
         throw new Error('ordinary material reservation returned the wrong family');
       }
       ecdsa = reservation;
+      ecdsaPreparation = workerPreparation;
     }
     if (!ed25519 && !ecdsa) throw new Error('signer manifest produced no reservations');
     if (ed25519 && ecdsa) {
+      if (!ed25519Preparation || !ecdsaPreparation) {
+        throw new Error('signer material reservation preparation was not retained');
+      }
       return {
         packages: {
           kind: 'committed_signer_package_set_v1',
@@ -598,44 +630,75 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           ecdsa: committedEcdsaPackage(ecdsa),
         },
         serverReservationIds: {
-          ed25519: ed25519.serverMaterial.reservationId,
-          ecdsa_secp256k1: ecdsa.serverMaterial.reservationId,
+          ed25519: {
+            reservationId: ed25519.serverMaterial.reservationId,
+            preparation: ed25519Preparation,
+          },
+          ecdsa_secp256k1: {
+            reservationId: ecdsa.serverMaterial.reservationId,
+            preparation: ecdsaPreparation,
+          },
         },
       };
     }
     if (ed25519) {
+      if (!ed25519Preparation) throw new Error('Ed25519 reservation preparation was not retained');
       return {
         packages: {
           kind: 'committed_signer_package_set_v1',
           keyFamilies: ['ed25519'],
           ed25519: committedEd25519Package(ed25519),
         },
-        serverReservationIds: { ed25519: ed25519.serverMaterial.reservationId },
+        serverReservationIds: {
+          ed25519: {
+            reservationId: ed25519.serverMaterial.reservationId,
+            preparation: ed25519Preparation,
+          },
+        },
       };
     }
     if (!ecdsa) throw new Error('signer manifest produced no ECDSA reservation');
+    if (!ecdsaPreparation) throw new Error('ECDSA reservation preparation was not retained');
     return {
       packages: {
         kind: 'committed_signer_package_set_v1',
         keyFamilies: ['ecdsa_secp256k1'],
         ecdsa: committedEcdsaPackage(ecdsa),
       },
-      serverReservationIds: { ecdsa_secp256k1: ecdsa.serverMaterial.reservationId },
+      serverReservationIds: {
+        ecdsa_secp256k1: {
+          reservationId: ecdsa.serverMaterial.reservationId,
+          preparation: ecdsaPreparation,
+        },
+      },
     };
   }
 
   private async activateReservations(stored: StoredInstallationRow, activatedAtMs: number): Promise<void> {
     const activation = this.options.materialActivation;
-    if (!activation) throw new Error('ordinary signer material activation port is unavailable');
     for (const family of stored.packages.signerPackages.keyFamilies) {
-      const packageValue = family === 'ed25519' ? stored.packages.signerPackages.ed25519 : stored.packages.signerPackages.ecdsa;
-      const reservationId = stored.serverReservationIds[family];
-      if (!reservationId || !packageValue) throw new Error(`server reservation for ${family} is missing`);
+      if (family === 'ed25519') {
+        const packageValue = stored.packages.signerPackages.ed25519;
+        const reservation = stored.serverReservationIds.ed25519;
+        if (!reservation || !packageValue) throw new Error('server reservation for ed25519 is missing');
+        await activation.activateOrdinaryInactiveSignerMaterialV1({
+          keyFamily: 'ed25519',
+          reservationId: reservation.reservationId,
+          materialActivation: packageValue.materialActivation,
+          activatedAtMs,
+          preparation: { keyFamily: 'ed25519', preparation: reservation.preparation },
+        });
+        continue;
+      }
+      const packageValue = stored.packages.signerPackages.ecdsa;
+      const reservation = stored.serverReservationIds.ecdsa_secp256k1;
+      if (!reservation || !packageValue) throw new Error('server reservation for ECDSA is missing');
       await activation.activateOrdinaryInactiveSignerMaterialV1({
-        keyFamily: family,
-        reservationId,
+        keyFamily: 'ecdsa_secp256k1',
+        reservationId: reservation.reservationId,
         materialActivation: packageValue.materialActivation,
         activatedAtMs,
+        preparation: { keyFamily: 'ecdsa_secp256k1', preparation: reservation.preparation },
       });
     }
   }
@@ -712,7 +775,10 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
   private async buildInstallationInsertStatement(input: {
     readonly input: CommitPendingAuthorityInputV1;
     readonly packages: CommittedAuthorityPackagesV1;
-    readonly serverReservationIds: Readonly<{ readonly ed25519?: string; readonly ecdsa_secp256k1?: string }>;
+    readonly serverReservationIds: Readonly<{
+      readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
+      readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
+    }>;
     readonly nowMs: number;
   }): Promise<D1PreparedStatementLike> {
     return this.options.database
@@ -802,6 +868,41 @@ async function validateVerifiedLinkInput(
   if (!attenuation.ok) throw new Error(attenuation.error.message);
   if (!input.sourceAuthority.authority.permissions.includes('link_devices')) throw new Error('source authority cannot link devices');
   if (!Number.isSafeInteger(input.sourceAuthority.authority.revocationEpoch) || input.sourceAuthority.authority.revocationEpoch < 0) throw new Error('source authority revocation epoch is invalid');
+}
+
+function ordinaryPreparationForEd25519(
+  preparations: readonly SharedOrdinarySignerMaterialReservationPreparationV1[],
+): OrdinaryEd25519SignerMaterialReservationPreparationV1 {
+  const preparation = preparations.find(
+    (entry): entry is Extract<
+      SharedOrdinarySignerMaterialReservationPreparationV1,
+      { readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1' }
+    > => entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1',
+  );
+  if (!preparation) throw new Error('Ed25519 ordinary material preparation is missing');
+  return preparation;
+}
+
+function ordinaryPreparationForEcdsa(
+  preparations: readonly SharedOrdinarySignerMaterialReservationPreparationV1[],
+): OrdinaryEcdsaSignerMaterialReservationPreparationV1 {
+  const preparation = preparations.find(
+    (entry): entry is Extract<
+      SharedOrdinarySignerMaterialReservationPreparationV1,
+      { readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1' }
+    > => entry.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
+  );
+  if (!preparation) throw new Error('ECDSA ordinary material preparation is missing');
+  return preparation;
+}
+
+function assertPreparationActivationMatches(
+  expected: MpcMaterialActivationRef,
+  actual: MpcMaterialActivationRef,
+): void {
+  if (!mpcMaterialActivationRefsEqual(expected, actual)) {
+    throw new Error('ordinary material preparation activation differs from the planned activation');
+  }
 }
 
 async function deriveAuthorityId(input: VerifiedLinkInputV1): Promise<WalletAuthorityId> {
@@ -1066,19 +1167,86 @@ async function assertStoredPackageDigest(stored: StoredInstallationRow): Promise
   }
 }
 
-function parseServerReservationIds(raw: unknown): Readonly<{ readonly ed25519?: string; readonly ecdsa_secp256k1?: string }> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('server reservation ids are invalid');
-  const record = raw as Record<string, unknown>;
-  const allowed = new Set(['ed25519', 'ecdsa_secp256k1']);
-  if (Object.keys(record).some((key) => !allowed.has(key))) throw new Error('server reservation ids contain unknown fields');
-  const result: { ed25519?: string; ecdsa_secp256k1?: string } = {};
-  for (const key of ['ed25519', 'ecdsa_secp256k1'] as const) {
-    if (record[key] !== undefined) {
-      if (typeof record[key] !== 'string' || !record[key].trim()) throw new Error(`server reservation id ${key} is invalid`);
-      result[key] = record[key];
-    }
+function parseServerReservationIds(raw: unknown): Readonly<{
+  readonly ed25519?: ServerReservationRecordV1<'ed25519'>;
+  readonly ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
+}> {
+  const record = requireRecord(raw, 'server reservation ids');
+  requireExactKeys(record, ['ed25519', 'ecdsa_secp256k1'], 'server reservation ids');
+  const result: {
+    ed25519?: ServerReservationRecordV1<'ed25519'>;
+    ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
+  } = {};
+  if (record.ed25519 !== undefined) {
+    result.ed25519 = parseEd25519ServerReservationRecord(record.ed25519);
+  }
+  if (record.ecdsa_secp256k1 !== undefined) {
+    result.ecdsa_secp256k1 = parseEcdsaServerReservationRecord(record.ecdsa_secp256k1);
   }
   return result;
+}
+
+function parseEd25519ServerReservationRecord(raw: unknown): ServerReservationRecordV1<'ed25519'> {
+  const record = requireRecord(raw, 'Ed25519 server reservation');
+  requireExactKeys(record, ['reservationId', 'preparation'], 'Ed25519 server reservation');
+  const preparationRecord = requireRecord(record.preparation, 'Ed25519 reservation preparation');
+  requireExactKeys(preparationRecord, ['kind', 'activationRequest'], 'Ed25519 reservation preparation');
+  if (preparationRecord.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
+    throw new Error('Ed25519 reservation preparation kind is invalid');
+  }
+  const parsedRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+    preparationRecord.activationRequest,
+  );
+  if (!parsedRequest.ok) throw new Error(`Ed25519 reservation activation request: ${parsedRequest.message}`);
+  return {
+    reservationId: requireReservationId(record.reservationId, 'Ed25519 server reservation id'),
+    preparation: {
+      kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
+      activationRequest: parsedRequest.value,
+    },
+  };
+}
+
+function parseEcdsaServerReservationRecord(raw: unknown): ServerReservationRecordV1<'ecdsa_secp256k1'> {
+  const record = requireRecord(raw, 'ECDSA server reservation');
+  requireExactKeys(record, ['reservationId', 'preparation'], 'ECDSA server reservation');
+  const preparationRecord = requireRecord(record.preparation, 'ECDSA reservation preparation');
+  requireExactKeys(
+    preparationRecord,
+    ['kind', 'registrationRequest', 'materialActivation'],
+    'ECDSA reservation preparation',
+  );
+  if (preparationRecord.kind !== 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
+    throw new Error('ECDSA reservation preparation kind is invalid');
+  }
+  return {
+    reservationId: requireReservationId(record.reservationId, 'ECDSA server reservation id'),
+    preparation: {
+      kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(preparationRecord.registrationRequest),
+      materialActivation: requireParsed(
+        parseMpcMaterialActivationRef(preparationRecord.materialActivation),
+        'ECDSA reservation material activation',
+      ),
+    },
+  };
+}
+
+function requireRecord(raw: unknown, label: string): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${label} is invalid`);
+  return raw as Record<string, unknown>;
+}
+
+function requireExactKeys(record: Record<string, unknown>, keys: readonly string[], label: string): void {
+  const expected = new Set(keys);
+  if (Object.keys(record).length !== keys.length || Object.keys(record).some((key) => !expected.has(key))) {
+    throw new Error(`${label} contains unknown or missing fields`);
+  }
+}
+
+function requireReservationId(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || !raw.trim()) throw new Error(`${label} is invalid`);
+  return raw;
 }
 
 function assertRetryInput(stored: StoredInstallationRow, input: VerifiedLinkInputV1, expectedAuthorityId: WalletAuthorityId): void {

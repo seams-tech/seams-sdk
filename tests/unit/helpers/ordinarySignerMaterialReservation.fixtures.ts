@@ -72,15 +72,29 @@ export function buildOrdinaryEd25519ClientMaterialFixture(label: string) {
   };
 }
 
-export function buildOrdinaryEcdsaClientMaterialFixture(label: string): {
+export function buildOrdinaryEcdsaClientMaterialFixture(
+  label: string,
+  recipientPublicKey = `x25519:${'22'.repeat(32)}`,
+  keyEpoch = `epoch:ordinary-reservation:${label}`,
+): {
   readonly kind: 'ordinary_ecdsa_client_material_v1';
   readonly deriver_a_client_package: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
   readonly deriver_b_client_package: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
 } {
   return {
     kind: 'ordinary_ecdsa_client_material_v1',
-    deriver_a_client_package: buildEcdsaClientPackage('signer_a', label.length + 23),
-    deriver_b_client_package: buildEcdsaClientPackage('signer_b', label.length + 29),
+    deriver_a_client_package: buildEcdsaClientPackage(
+      'signer_a',
+      label.length + 23,
+      recipientPublicKey,
+      keyEpoch,
+    ),
+    deriver_b_client_package: buildEcdsaClientPackage(
+      'signer_b',
+      label.length + 29,
+      recipientPublicKey,
+      keyEpoch,
+    ),
   };
 }
 
@@ -225,13 +239,54 @@ function buildEd25519ClientPackage(
 function buildEcdsaClientPackage<Role extends 'signer_a' | 'signer_b'>(
   role: Role,
   seed: number,
+  recipientPublicKey: string,
+  keyEpoch: string,
 ): RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role> {
+  const aadDigest = bytes(32, seed + 1);
   return {
     recipient_role: role,
     header_digest: { bytes: bytes(32, seed) },
-    aad_digest: { bytes: bytes(32, seed + 1) },
-    ciphertext: { bytes: bytes(32, seed + 2) },
+    aad_digest: { bytes: aadDigest },
+    ciphertext: {
+      bytes: encodeEcdsaSignerEnvelopePayload(
+        role,
+        keyEpoch,
+        recipientPublicKey,
+        aadDigest,
+        seed + 2,
+      ),
+    },
   };
+}
+
+function encodeEcdsaSignerEnvelopePayload(
+  role: 'signer_a' | 'signer_b',
+  keyEpoch: string,
+  recipientPublicKey: string,
+  aadDigest: readonly number[],
+  seed: number,
+): number[] {
+  const output: number[] = [];
+  appendLengthPrefixed(output, 'router-ab-protocol/signer-envelope-hpke/v1');
+  appendLengthPrefixed(output, 'hpke-x25519-hkdf-sha256-aes256gcm/v1');
+  appendLengthPrefixed(output, role);
+  appendLengthPrefixed(output, keyEpoch);
+  appendLengthPrefixed(output, recipientPublicKey);
+  appendLengthPrefixed(output, aadDigest);
+  appendLengthPrefixed(output, bytes(32, seed + 1));
+  appendU32(output, 16);
+  appendLengthPrefixed(output, bytes(32, seed + 2));
+  return output;
+}
+
+function appendLengthPrefixed(output: number[], value: string | readonly number[]): void {
+  const bytesValue = typeof value === 'string' ? Array.from(new TextEncoder().encode(value)) : value;
+  appendU32(output, bytesValue.length);
+  output.push(...bytesValue);
+}
+
+function appendU32(output: number[], value: number): void {
+  output.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
 }
 
 function encodedBytes(length: number, seed: number, firstByte?: number): string {
