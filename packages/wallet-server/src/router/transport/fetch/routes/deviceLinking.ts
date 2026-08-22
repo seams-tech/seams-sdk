@@ -64,6 +64,7 @@ import { json, readJson } from '../../../framework/http';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
+import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   parseLinkDeviceSessionId,
   type LinkDeviceSessionId,
@@ -122,6 +123,7 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly origin: string;
     readonly requestedAtMs: number;
   }): Promise<
     | {
@@ -419,11 +421,13 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   const rawBody = await readJsonBody(ctx.request);
   const registration = parseBoundary(() => parseLinkedDeviceTargetCredentialRegistrationV1(rawBody));
   if (registration.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
+  const origin = normalizeCorsOrigin(ctx.request.headers.get('origin') ?? undefined);
+  if (!origin) return invalidInputResponse('Origin header is required and must be a valid exact origin');
   const session = authenticated.session;
   const approval = requireApproval(session);
   const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
-  const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, requestedAtMs: nowMs });
+  const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, origin, requestedAtMs: nowMs });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
   let sessionOutcome: 'applied' | 'replayed' = result.outcome;
   let recordedSession = session;
