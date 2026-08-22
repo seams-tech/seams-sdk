@@ -5,7 +5,7 @@ import {
 } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import {
   LinkedDeviceManagementServiceV1,
-  type LinkedDeviceManagementSourceV1,
+  type LinkedDeviceManagementRevocationSourceV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
@@ -24,6 +24,59 @@ test('rejects a WalletAuthorityId in the exact-method revocation boundary', () =
       requestedAtMs: 4_000,
     }),
   ).toThrow('must identify a WalletAuthMethodId');
+});
+
+test('rejects a fresh proof from the target auth method itself', async () => {
+  const owner = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'same-method-owner',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+  });
+  let authorityRevocationCalls = 0;
+  const service = new LinkedDeviceManagementServiceV1({
+    tenantId: owner.issuedSession.session.tenantId,
+    authenticator: {
+      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
+        authorizationId === owner.issuedSession.session.authorizationId
+          ? owner.issuedSession
+          : null,
+    },
+    authority: {
+      listActiveForWalletV1: async () => ({ records: [], nextCursor: null }),
+      readByIdV1: async (authorityId) =>
+        authorityId === owner.authority.authorityId ? owner.authority : null,
+      revokeWalletAuthMethodV1: async () => {
+        authorityRevocationCalls += 1;
+        return { kind: 'conflict' };
+      },
+    },
+    authMethod: {
+      listForAuthorityV1: async () => [],
+      readByIdV1: async ({ walletAuthMethodId }) =>
+        walletAuthMethodId === owner.authMethod.walletAuthMethodId ? owner.authMethod : null,
+    },
+    sessions: {
+      revokeReusableWalletSessionsForAuthMethod: async () => {
+        throw new Error('same-method rejection must precede session fencing');
+      },
+    },
+    credentials: {
+      readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+  });
+
+  await expect(
+    service.revokeLinkedDeviceV1(
+      {
+        kind: 'linked_device_revoke_request_v1',
+        walletId: owner.authority.walletId,
+        walletAuthMethodId: owner.authMethod.walletAuthMethodId,
+        requestedAtMs: 4_000,
+      },
+      sourceFor(owner),
+    ),
+  ).resolves.toEqual({ kind: 'conflict' });
+  expect(authorityRevocationCalls).toBe(0);
 });
 
 test('lists active wallet authorities and hides non-linked owner records after source resolution', async () => {
@@ -291,11 +344,15 @@ test('replays a durable revocation and retries terminal material deactivation', 
 
 function sourceFor(
   fixture: Awaited<ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>>,
-): LinkedDeviceManagementSourceV1 {
+): LinkedDeviceManagementRevocationSourceV1 {
   return {
     walletId: fixture.issuedSession.session.walletId,
     walletSessionId: fixture.issuedSession.session.walletSessionId,
     authorizationId: fixture.issuedSession.session.authorizationId,
     expiresAtMs: fixture.issuedSession.session.expiresAtMs,
+    freshProof: {
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      verifiedAtMs: 4_000,
+    },
   };
 }

@@ -70,6 +70,7 @@ import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1R
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
+import { parseWebAuthnAuthenticationCredential } from '../../../auth/webAuthnCredentialCodecs';
 import { CloudflareD1EmailOtpChallengeStore } from '../emailOtp/d1EmailOtpChallengeStore';
 import { CloudflareD1EmailOtpDeliveryRuntime } from '../emailOtp/d1EmailOtpDeliveryRuntime';
 import { CloudflareD1EmailOtpEnrollmentStore } from '../emailOtp/d1EmailOtpEnrollmentStore';
@@ -146,6 +147,10 @@ import { D1LinkedDeviceAuthorityInstallServiceV1 } from '../deviceLinking/d1Link
 import { createD1LinkedDeviceSessionServiceV1 } from '../deviceLinking/d1LinkedDeviceSessionService';
 import { createD1LinkedDeviceManagementServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementService';
 import { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
+import {
+  computeWalletAuthMethodRevokeOperationFingerprintV1,
+  verifyD1LinkedDeviceFreshRevokeProofV1,
+} from '../wallet/d1WalletAuthMethodBoundary';
 import { createD1LinkedDeviceVerifiedLinkSourceReaderV1 } from '../deviceLinking/d1LinkedDeviceVerifiedLinkSourceReader';
 import {
   createCloudflareOrdinaryInactiveSignerMaterialActivationPortV1,
@@ -298,8 +303,14 @@ function createD1LinkedDeviceComposition(input: {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
   readonly authorizationSessions: RouterApiServiceBag['authorizationSessions'];
   readonly authorizationService: AuthorizationService;
+  readonly authorizationStore: Pick<
+    CloudflareD1AuthorizationStore,
+    'prepareWalletSessionAuthorizationV2Statements'
+  >;
   readonly walletAuthMethodStore: D1WalletAuthMethodStore;
+  readonly resolveEmailOtpAuthority: CloudflareD1WalletAuthMethodService['resolveActiveEmailOtpAuthorityForVerifiedSubject'];
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
   /**
    * Refactor 103 Phase 6: the R100 Email OTP pieces the linked-device Email
    * OTP target factor composes. Left absent, `email_otp` linking fails closed
@@ -379,6 +390,61 @@ function createD1LinkedDeviceComposition(input: {
       management: deviceManagementService,
       nowV1,
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
+      verifyFreshRevokeProofV1: async (proofInput) => {
+        const expectedOrigin = String(proofInput.request.headers.get('origin') || '').trim();
+        if (!expectedOrigin) {
+          return {
+            kind: 'denied' as const,
+            code: 'invalid' as const,
+            message: 'Fresh revocation proof requires an Origin header',
+          };
+        }
+        return await verifyD1LinkedDeviceFreshRevokeProofV1({
+          walletId: proofInput.walletId,
+          orgId: String(input.options.orgId),
+          targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
+          proof: proofInput.proof,
+          expectedOrigin,
+          verifiedAtMs: proofInput.requestedAtMs,
+          operationFingerprintDigest:
+            await computeWalletAuthMethodRevokeOperationFingerprintV1({
+              walletId: proofInput.walletId,
+              targetWalletAuthMethodId: proofInput.targetWalletAuthMethodId,
+              requestedAtMs: proofInput.requestedAtMs,
+            }),
+          walletAuthMethodStore: input.walletAuthMethodStore,
+          verifyWebAuthnAuthenticationLite: async (verifyInput) => {
+            const credential = parseWebAuthnAuthenticationCredential(
+              verifyInput.webauthn_authentication,
+            );
+            if (!credential) {
+              return {
+                success: false,
+                verified: false,
+                code: 'invalid_body',
+                message: 'Invalid WebAuthn authentication credential',
+              };
+            }
+            return await input.webAuthnAuthService.verifyWebAuthnAuthenticationLite({
+              ...verifyInput,
+              webauthn_authentication: credential,
+            });
+          },
+          ...(input.emailOtpLinkedDevice === undefined
+            ? {}
+            : {
+                verifyEmailOtpExisting:
+                  input.emailOtpLinkedDevice.verifier.verifyExisting.bind(
+                    input.emailOtpLinkedDevice.verifier,
+                  ),
+                readEmailOtpEnrollment:
+                  input.emailOtpLinkedDevice.enrollments.readEnrollment.bind(
+                    input.emailOtpLinkedDevice.enrollments,
+                  ),
+                resolveEmailOtpAuthority: input.resolveEmailOtpAuthority,
+              }),
+        });
+      },
     };
     const verifiedLinkBuilder = {
       source: createD1LinkedDeviceVerifiedLinkSourceReaderV1({
@@ -404,6 +470,7 @@ function createD1LinkedDeviceComposition(input: {
         endpoint: config.session.authorityInstallation.activationEndpoint,
       }),
       authorizationService: input.authorizationService,
+      authorizationStore: input.authorizationStore,
       tenantId: tenantId.value,
       nowV1,
     });
@@ -1523,6 +1590,15 @@ function createCloudflareD1RouterApiAuthAssembly(
       `orgId cannot identify an authorization tenant: ${authorizationTenantId.error.message}`,
     );
   }
+  const walletAuthorityStore = new D1WalletAuthorityStore({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+  });
   const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
     emailOtpChallengeVerifier,
     getRegistrationCeremonyIntentStore,
@@ -1538,6 +1614,25 @@ function createCloudflareD1RouterApiAuthAssembly(
     passkeyCustodyEnvelopes,
     sha256Bytes: sha256BytesPortable,
     webAuthnStore,
+    walletAuthorityStore,
+    orgId: options.orgId,
+    verifyWebAuthnAuthenticationLite: async (verifyInput) => {
+      const credential = parseWebAuthnAuthenticationCredential(
+        verifyInput.webauthn_authentication,
+      );
+      if (!credential) {
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'Invalid WebAuthn authentication credential',
+        };
+      }
+      return await webAuthnAuthService.verifyWebAuthnAuthenticationLite({
+        ...verifyInput,
+        webauthn_authentication: credential,
+      });
+    },
   });
   const walletRegistrationCommitStore = new CloudflareD1WalletRegistrationCommitStore({
     database: options.database,
@@ -1627,8 +1722,13 @@ function createCloudflareD1RouterApiAuthAssembly(
     },
     options,
     authorizationService,
+    authorizationStore,
     walletAuthMethodStore,
+    resolveEmailOtpAuthority: walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(
+      walletAuthMethods,
+    ),
     webAuthnStore,
+    webAuthnAuthService,
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,
       options,
@@ -1782,6 +1882,10 @@ function createD1WalletAuthMethodRouteService(
   assembly: D1WalletAuthMethodRouteServiceAssembly,
 ): RouterApiServiceBag['walletAuthMethods'] {
   return {
+    verifyWalletAuthMethodRevokeProof:
+      assembly.walletAuthMethods.verifyWalletAuthMethodRevokeProof.bind(
+        assembly.walletAuthMethods,
+      ),
     verifyActivePasskeyAuthority: assembly.walletAuthMethods.verifyActivePasskeyAuthority.bind(
       assembly.walletAuthMethods,
     ),

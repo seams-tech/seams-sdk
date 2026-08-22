@@ -153,6 +153,7 @@ function addAuthMethodInputFor(args: {
   apiKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
   walletId?: string;
+  walletAuthMethodId?: string;
   headers?: Record<string, string>;
   origin?: string;
 }) {
@@ -166,7 +167,10 @@ function addAuthMethodInputFor(args: {
       error: () => {},
     },
     origin: args.origin || 'https://wallet.example.test',
-    pathParams: { walletId: args.walletId || 'wallet_alice' },
+    pathParams: {
+      walletId: args.walletId || 'wallet_alice',
+      ...(args.walletAuthMethodId ? { walletAuthMethodId: args.walletAuthMethodId } : {}),
+    },
     route: route(args.routeId),
     services: {
       walletRegistration: args.authService,
@@ -1111,43 +1115,33 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('auth-method revoke validates app-session policy target and forwards request', async () => {
+  test('auth-method revoke verifies and forwards one exact auth-method id', async () => {
     let revokeRequest: unknown = null;
+    let proofRequest: unknown = null;
     const response = await handleRouterApiWalletRevokeAuthMethod(
       addAuthMethodInputFor({
         routeId: 'wallet_revoke_auth_method',
+        walletAuthMethodId: 'wallet-auth-method:target',
         body: {
-          target: {
+          walletId: 'wallet_alice',
+          walletAuthMethodId: 'wallet-auth-method:target',
+          requestedAtMs: 1_000,
+          sourceProof: {
             kind: 'email_otp',
-            email: 'Alice@Example.test',
+            challengeId: 'email-otp-challenge:revoke',
+            otpCode: '123456',
+            ownerProofBindingDigest: 'digest:revoke',
           },
-          auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'wallet_auth_method_revoke',
-              walletId: 'wallet_alice',
-              target: {
-                kind: 'email_otp',
-                email: 'alice@example.test',
-              },
-              expiresAtMs: Date.now() + 60_000,
-            },
-          },
-        },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'app_session_v1',
-              sub: 'user_1',
-              walletId: 'wallet_alice',
-              appSessionVersion: 'v1',
-              exp: Math.floor(Date.now() / 1000) + 60,
-            },
-          }),
         },
         authService: {
-          validateAppSessionVersion: async () => ({ ok: true }),
+          verifyWalletAuthMethodRevokeProof: async (request: unknown) => {
+            proofRequest = request;
+            return {
+              kind: 'authorized',
+              walletAuthMethodId: 'wallet-auth-method:source',
+              verifiedAtMs: 1_001,
+            };
+          },
           revokeWalletAuthMethod: async (request: unknown) => {
             revokeRequest = request;
             return {
@@ -1161,28 +1155,36 @@ test.describe('wallet registration route boundaries', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(proofRequest).toEqual({
+      walletId: 'wallet_alice',
+      targetWalletAuthMethodId: 'wallet-auth-method:target',
+      requestedAtMs: 1_000,
+      sourceProof: {
+        kind: 'email_otp',
+        challengeId: 'email-otp-challenge:revoke',
+        otpCode: '123456',
+        ownerProofBindingDigest: 'digest:revoke',
+      },
+      expectedOrigin: 'https://wallet.example.test',
+    });
     expect(revokeRequest).toEqual({
       subject: {
         kind: 'wallet_auth_method_management',
         walletId: 'wallet_alice',
       },
-      auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_auth_method_revoke',
-          walletId: 'wallet_alice',
-          target: {
-            kind: 'email_otp',
-            email: 'alice@example.test',
-          },
-          expiresAtMs: expect.any(Number),
-        },
-      },
-      target: {
-        kind: 'email_otp',
-        email: 'alice@example.test',
-      },
       walletId: 'wallet_alice',
+      walletAuthMethodId: 'wallet-auth-method:target',
+      requestedAtMs: 1_000,
+      sourceProof: {
+        kind: 'email_otp',
+        challengeId: 'email-otp-challenge:revoke',
+        otpCode: '123456',
+        ownerProofBindingDigest: 'digest:revoke',
+      },
+      verifiedSource: {
+        walletAuthMethodId: 'wallet-auth-method:source',
+        verifiedAtMs: 1_001,
+      },
     });
   });
 

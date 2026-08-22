@@ -108,7 +108,6 @@ import {
   findRegistrationSignerPlanNearEd25519Branch,
   normalizeEmailOtpRegistrationProof,
   normalizeRegistrationSignerPlan,
-  normalizeWalletAuthMethodTarget,
   registrationSignerSetSelectionFromPlan,
   walletIdFromString,
   type AddSignerIntentV1,
@@ -117,7 +116,11 @@ import {
   type RegistrationSignerPlan,
   type RegistrationSignerSetSelection,
 } from '@shared/utils/registrationIntent';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWebAuthnRpId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -1599,74 +1602,124 @@ async function parseWalletRevokeAuthMethodRequest(
   body: Record<string, unknown>,
   walletId: string,
 ): Promise<ParseResult<WalletRevokeAuthMethodRequest>> {
-  if (Object.prototype.hasOwnProperty.call(body, 'rpId')) {
+  const keys = Object.keys(body).sort();
+  if (
+    keys.length !== 4 ||
+    keys[0] !== 'requestedAtMs' ||
+    keys[1] !== 'sourceProof' ||
+    keys[2] !== 'walletAuthMethodId' ||
+    keys[3] !== 'walletId'
+  ) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'rpId belongs on passkey target or WebAuthn auth',
+      message: 'auth-method revoke body fields are invalid',
     };
   }
-  const target = normalizeWalletAuthMethodTarget(body.target);
-  if (!target) {
+  const requestedAtMs = Number(body.requestedAtMs);
+  if (!Number.isSafeInteger(requestedAtMs) || requestedAtMs < 0) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'auth-method revoke target is invalid',
+      message: 'requestedAtMs is invalid',
     };
   }
-  const auth = isPlainObject(body.auth) ? body.auth : null;
-  if (!auth) {
+  const bodyWalletId = typeof body.walletId === 'string' ? body.walletId.trim() : '';
+  if (!bodyWalletId || bodyWalletId !== walletId) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'auth-method revoke auth is required',
+      message: 'walletId path and body values must agree',
     };
   }
-  let existingAuth: WalletRevokeAuthMethodRequest['auth'];
-  if (auth.kind === 'webauthn_assertion') {
-    const rpId = parseWebAuthnRpId(auth.rpId);
-    if (!rpId.ok) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: rpId.error.message,
-      };
-    }
-    const credential = parseWebAuthnAuthenticationCredential(auth.credential);
+  const walletAuthMethodId = parseWalletAuthMethodId(body.walletAuthMethodId);
+  if (!walletAuthMethodId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'walletAuthMethodId is invalid',
+    };
+  }
+  const sourceProof = parseWalletRevokeAuthMethodSourceProof(body.sourceProof);
+  if (!sourceProof.ok) return sourceProof;
+  return {
+    ok: true,
+    value: {
+      walletId: walletIdFromString(walletId),
+      walletAuthMethodId: walletAuthMethodId.value,
+      requestedAtMs,
+      sourceProof: sourceProof.value,
+    },
+  };
+}
+
+function parseWalletRevokeAuthMethodSourceProof(
+  raw: unknown,
+): ParseResult<WalletRevokeAuthMethodRequest['sourceProof']> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, code: 'invalid_body', message: 'sourceProof is required' };
+  }
+  if (raw.kind === 'webauthn_assertion') {
+    const rpId = parseWebAuthnRpId(raw.rpId);
+    if (!rpId.ok) return { ok: false, code: 'invalid_body', message: rpId.error.message };
+    const credential = parseWebAuthnAuthenticationCredential(raw.credential);
     if (!credential.ok) return credential;
     const expectedChallengeDigestB64u =
-      typeof auth.expectedChallengeDigestB64u === 'string'
-        ? auth.expectedChallengeDigestB64u.trim()
+      typeof raw.expectedChallengeDigestB64u === 'string'
+        ? raw.expectedChallengeDigestB64u.trim()
         : '';
     if (!expectedChallengeDigestB64u) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'auth.expectedChallengeDigestB64u is required',
+        message: 'sourceProof.expectedChallengeDigestB64u is required',
       };
     }
-    existingAuth = {
-      kind: 'webauthn_assertion',
-      rpId: rpId.value,
-      credential: credential.value,
-      expectedChallengeDigestB64u,
-    };
-  } else {
+    if (!hasExactObjectKeys(raw, ['credential', 'expectedChallengeDigestB64u', 'kind', 'rpId'])) {
+      return { ok: false, code: 'invalid_body', message: 'sourceProof fields are invalid' };
+    }
     return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'auth-method revoke auth.kind is unsupported',
+      ok: true,
+      value: {
+        kind: 'webauthn_assertion',
+        rpId: rpId.value,
+        credential: credential.value,
+        expectedChallengeDigestB64u,
+      },
     };
   }
+  if (raw.kind === 'email_otp') {
+    if (
+      !hasExactObjectKeys(raw, ['challengeId', 'kind', 'otpCode', 'ownerProofBindingDigest']) ||
+      typeof raw.challengeId !== 'string' ||
+      typeof raw.otpCode !== 'string' ||
+      typeof raw.ownerProofBindingDigest !== 'string' ||
+      !raw.challengeId.trim() ||
+      !raw.otpCode.trim() ||
+      !raw.ownerProofBindingDigest.trim()
+    ) {
+      return { ok: false, code: 'invalid_body', message: 'sourceProof fields are invalid' };
+    }
+    return {
+      ok: true,
+      value: {
+        kind: 'email_otp',
+        challengeId: raw.challengeId.trim(),
+        otpCode: raw.otpCode.trim(),
+        ownerProofBindingDigest: raw.ownerProofBindingDigest.trim(),
+      },
+    };
+  }
+  return { ok: false, code: 'invalid_body', message: 'sourceProof.kind is unsupported' };
+}
 
-  return {
-    ok: true,
-    value: {
-      walletId: walletIdFromString(walletId),
-      auth: existingAuth,
-      target,
-    },
-  };
+function hasExactObjectKeys(
+  input: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const actual = Object.keys(input).sort();
+  const keys = [...expected].sort();
+  return actual.length === keys.length && actual.every((key, index) => key === keys[index]);
 }
 
 export async function handleRouterApiWalletAddSignerIntent(
@@ -2473,29 +2526,35 @@ export async function handleRouterApiWalletRevokeAuthMethod(
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId is required');
   }
+  const pathWalletAuthMethodId = String(input.pathParams?.walletAuthMethodId || '').trim();
+  const parsedPathWalletAuthMethodId = parseWalletAuthMethodId(pathWalletAuthMethodId);
+  if (!parsedPathWalletAuthMethodId.ok) {
+    return routeError(400, 'invalid_body', 'walletAuthMethodId path parameter is invalid');
+  }
   const parsedBody = await parseWalletRevokeAuthMethodRequest(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
-  if (parsedBody.value.auth.kind === 'webauthn_assertion') {
-    const origin = requireWebAuthnExpectedOrigin(input);
-    if (!origin.ok) return origin.response;
-    const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
-      userId: walletId,
-      rpId: parsedBody.value.auth.rpId,
-      expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
-      expected_origin: origin.expectedOrigin,
-      webauthn_authentication: parsedBody.value.auth.credential,
-    });
-    if (!verified.success || !verified.verified) {
-      return routeError(
-        401,
-        'unauthorized',
-        verified.message || 'Invalid auth-method revoke WebAuthn authorization',
-      );
-    }
+  if (parsedPathWalletAuthMethodId.value !== parsedBody.value.walletAuthMethodId) {
+    return routeError(400, 'invalid_body', 'walletAuthMethodId path and body values must agree');
+  }
+  const origin = requireWebAuthnExpectedOrigin(input);
+  if (!origin.ok) return origin.response;
+  const verified = await input.services.walletRegistration.verifyWalletAuthMethodRevokeProof({
+    walletId: parsedBody.value.walletId,
+    targetWalletAuthMethodId: parsedBody.value.walletAuthMethodId,
+    requestedAtMs: parsedBody.value.requestedAtMs,
+    sourceProof: parsedBody.value.sourceProof,
+    expectedOrigin: origin.expectedOrigin,
+  });
+  if (verified.kind === 'denied') {
+    return routeError(401, 'unauthorized', verified.message);
   }
   const result = await input.services.walletRegistration.revokeWalletAuthMethod({
     ...parsedBody.value,
     subject: { kind: 'wallet_auth_method_management', walletId: walletIdFromString(walletId) },
+    verifiedSource: {
+      walletAuthMethodId: verified.walletAuthMethodId,
+      verifiedAtMs: verified.verifiedAtMs,
+    },
   });
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,

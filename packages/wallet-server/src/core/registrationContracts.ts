@@ -4,7 +4,7 @@ import type {
 } from '@shared/passkey-custody';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
@@ -55,7 +55,7 @@ import type {
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
   WalletAuthMethodRecord,
-  WalletAuthMethodTarget,
+  WalletAuthMethodRevocationProof,
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type {
@@ -343,17 +343,11 @@ export type WalletAddAuthMethodFinalizeResponse =
       message: string;
     };
 
-export type RevokeAuthMethodExistingAuth = {
-  kind: 'webauthn_assertion';
-  rpId: WebAuthnRpId;
-  credential: WebAuthnAuthenticationCredential;
-  expectedChallengeDigestB64u: string;
-};
-
 export type WalletRevokeAuthMethodRequest = {
   walletId: WalletId;
-  auth: RevokeAuthMethodExistingAuth;
-  target: WalletAuthMethodTarget;
+  walletAuthMethodId: WalletAuthMethodId;
+  requestedAtMs: number;
+  sourceProof: WalletAuthMethodRevocationProof;
 };
 
 export type WalletRevokeAuthMethodResponse =

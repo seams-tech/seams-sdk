@@ -6,6 +6,12 @@ import {
   parseLinkedDeviceRevokeRequestV1,
 } from '@shared/device-linking/parsers';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  parseWalletAuthMethodId,
+  parseWebAuthnRpId,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import type {
@@ -18,8 +24,10 @@ import {
   LinkedDeviceListCursorError,
   MAX_LINKED_DEVICE_LIST_LIMIT_V1,
   type LinkedDeviceManagementSourceV1,
+  type LinkedDeviceManagementRevocationSourceV1,
   type LinkedDeviceManagementServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
+import type { D1LinkedDeviceFreshRevokeProofV1 } from '../../../cloudflare/d1/wallet/d1WalletAuthMethodBoundary';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 
@@ -35,6 +43,23 @@ export type DeviceManagementRouteServiceV1 = {
   authenticateOwnerRequestV1(
     input: DeviceLinkingOwnerRequestInputV1,
   ): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
+  verifyFreshRevokeProofV1(input: {
+    readonly walletId: WalletId;
+    readonly targetWalletAuthMethodId: WalletAuthMethodId;
+    readonly proof: D1LinkedDeviceFreshRevokeProofV1;
+    readonly request: Request;
+    readonly method: string;
+    readonly pathname: string;
+    readonly bodyDigestB64u: DigestB64u;
+    readonly requestedAtMs: number;
+  }): Promise<
+    | {
+        readonly kind: 'authorized';
+        readonly walletAuthMethodId: WalletAuthMethodId;
+        readonly verifiedAtMs: number;
+      }
+    | DeviceLinkingAuthDeniedV1
+  >;
 };
 
 export async function handleDeviceManagement(
@@ -111,7 +136,7 @@ async function handleRevoke(
   nowMs: number,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  parseBoundary(() => parseRevokePath(ctx.pathname));
+  const pathWalletAuthMethodId = parseBoundary(() => parseRevokePath(ctx.pathname));
   const body = await readRequestBodyDigest(ctx.request);
   const authentication = await authenticateOwner(
     service,
@@ -122,13 +147,35 @@ async function handleRevoke(
   );
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   validateOwnerBinding(authentication.binding, ctx.method, ctx.pathname, body.digestB64u, nowMs);
-  const request = parseBoundary(() => parseLinkedDeviceRevokeRequestV1(authentication.body));
+  if (!isRecord(authentication.body) || !Object.prototype.hasOwnProperty.call(authentication.body, 'sourceProof')) {
+    return unauthorizedResponse();
+  }
+  const parsedBody = parseBoundary(() => parseRevokeBody(authentication.body));
+  const request = parsedBody.request;
+  if (pathWalletAuthMethodId !== request.walletAuthMethodId) {
+    throw new DeviceManagementInputError('revoke path and body wallet auth method ids must agree');
+  }
   if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
-  const source: LinkedDeviceManagementSourceV1 = {
+  const freshProof = await service.verifyFreshRevokeProofV1({
+    walletId: request.walletId,
+    targetWalletAuthMethodId: request.walletAuthMethodId,
+    proof: parsedBody.proof,
+    request: ctx.request,
+    method: ctx.method,
+    pathname: ctx.pathname,
+    bodyDigestB64u: body.digestB64u,
+    requestedAtMs: request.requestedAtMs,
+  });
+  if (freshProof.kind !== 'authorized') return authDeniedResponse(freshProof);
+  const source: LinkedDeviceManagementRevocationSourceV1 = {
     walletId: authentication.owner.walletId,
     walletSessionId: authentication.owner.walletSessionId,
     authorizationId: authentication.owner.authorizationId,
     expiresAtMs: authentication.owner.expiresAtMs,
+    freshProof: {
+      walletAuthMethodId: freshProof.walletAuthMethodId,
+      verifiedAtMs: freshProof.verifiedAtMs,
+    },
   };
   if (request.requestedAtMs > nowMs) {
     throw new DeviceManagementInputError('revoke request is from the future');
@@ -199,14 +246,92 @@ function canonicalListPath(
   return `${pathname}?${search.toString()}`;
 }
 
-function parseRevokePath(pathname: string): void {
+function parseRevokePath(pathname: string): WalletAuthMethodId {
   const prefix = `${LINKED_DEVICE_MANAGEMENT_BASE_V1}/`;
   const suffix = pathname.slice(prefix.length);
   const parts = suffix.split('/');
   if (parts.length !== 2 || parts[1] !== 'revoke' || !parts[0]) {
     throw new Error('linked-device revoke path is invalid');
   }
-  decodePathComponent(parts[0]);
+  const parsed = parseWalletAuthMethodId(decodePathComponent(parts[0]));
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseRevokeBody(input: unknown): {
+  readonly request: ReturnType<typeof parseLinkedDeviceRevokeRequestV1>;
+  readonly proof: D1LinkedDeviceFreshRevokeProofV1;
+} {
+  if (!isRecord(input)) throw new Error('linked-device revoke body is invalid');
+  const keys = Object.keys(input).sort();
+  if (
+    keys.length !== 5 ||
+    keys[0] !== 'kind' ||
+    keys[1] !== 'requestedAtMs' ||
+    keys[2] !== 'sourceProof' ||
+    keys[3] !== 'walletAuthMethodId' ||
+    keys[4] !== 'walletId'
+  ) {
+    throw new Error('linked-device revoke body fields are invalid');
+  }
+  const { sourceProof, ...requestBody } = input;
+  return {
+    request: parseLinkedDeviceRevokeRequestV1(requestBody),
+    proof: parseFreshRevokeProof(sourceProof),
+  };
+}
+
+function parseFreshRevokeProof(input: unknown): D1LinkedDeviceFreshRevokeProofV1 {
+  if (!isRecord(input)) throw new Error('fresh revocation proof is required');
+  if (input.kind === 'webauthn_assertion') {
+    if (
+      !hasExactKeys(input, ['credential', 'expectedChallengeDigestB64u', 'kind', 'rpId']) ||
+      typeof input.expectedChallengeDigestB64u !== 'string' ||
+      !input.expectedChallengeDigestB64u.trim()
+    ) {
+      throw new Error('fresh WebAuthn revocation proof is invalid');
+    }
+    const rpId = parseWebAuthnRpId(input.rpId);
+    if (!rpId.ok || !isRecord(input.credential)) {
+      throw new Error('fresh WebAuthn revocation proof is invalid');
+    }
+    return {
+      kind: 'webauthn_assertion',
+      rpId: rpId.value,
+      credential: input.credential,
+      expectedChallengeDigestB64u: input.expectedChallengeDigestB64u.trim(),
+    };
+  }
+  if (input.kind === 'email_otp') {
+    if (
+      !hasExactKeys(input, ['challengeId', 'kind', 'otpCode', 'ownerProofBindingDigest']) ||
+      typeof input.challengeId !== 'string' ||
+      typeof input.otpCode !== 'string' ||
+      typeof input.ownerProofBindingDigest !== 'string' ||
+      !input.challengeId.trim() ||
+      !input.otpCode.trim() ||
+      !input.ownerProofBindingDigest.trim()
+    ) {
+      throw new Error('fresh Email OTP revocation proof is invalid');
+    }
+    return {
+      kind: 'email_otp',
+      challengeId: input.challengeId.trim(),
+      otpCode: input.otpCode.trim(),
+      ownerProofBindingDigest: input.ownerProofBindingDigest.trim(),
+    };
+  }
+  throw new Error('fresh revocation proof kind is invalid');
+}
+
+function hasExactKeys(input: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(input).sort();
+  const keys = [...expected].sort();
+  return actual.length === keys.length && actual.every((key, index) => key === keys[index]);
+}
+
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return input !== null && typeof input === 'object' && !Array.isArray(input);
 }
 
 function parseManagementPath(pathname: string): { readonly kind: 'list' | 'revoke' } | null {

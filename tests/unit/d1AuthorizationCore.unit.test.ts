@@ -530,7 +530,7 @@ test.describe('D1 authorization core', () => {
       const first = await admitRouterAbEcdsaReusableWalletSessionOperation({
         request,
         materialActivation: material.materialActivation,
-        claims,
+        binding: claims,
         authorizedOperations,
         resolveEcdsaMaterialActivation: async () => ({
           ok: true as const,
@@ -538,6 +538,7 @@ test.describe('D1 authorization core', () => {
           keyHandle: material.keyHandle,
           relayerKeyId: signer.walletKey.relayerKeyId,
           participantIds: signer.walletKey.participantIds,
+          runtimePolicyScope: material.runtimePolicyScope,
         }),
       });
       expect(first).toMatchObject({ ok: true, admission: { kind: 'claimed' } });
@@ -582,7 +583,7 @@ test.describe('D1 authorization core', () => {
       const retry = await admitRouterAbEcdsaReusableWalletSessionOperation({
         request,
         materialActivation: material.materialActivation,
-        claims,
+        binding: claims,
         authorizedOperations,
         resolveEcdsaMaterialActivation: async () => ({
           ok: true as const,
@@ -590,6 +591,7 @@ test.describe('D1 authorization core', () => {
           keyHandle: material.keyHandle,
           relayerKeyId: signer.walletKey.relayerKeyId,
           participantIds: signer.walletKey.participantIds,
+          runtimePolicyScope: material.runtimePolicyScope,
         }),
       });
       expect(retry).toMatchObject({ ok: true, admission: { kind: 'operation_in_progress' } });

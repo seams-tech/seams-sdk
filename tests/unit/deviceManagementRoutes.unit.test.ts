@@ -90,6 +90,12 @@ test('forwards one exact auth-method revoke and serializes the authority result'
     walletId: String(walletId),
     walletAuthMethodId: String(walletAuthMethodId),
     requestedAtMs: 10_000,
+    sourceProof: {
+      kind: 'webauthn_assertion' as const,
+      rpId: 'wallet.example.test',
+      credential: { id: 'source-credential' },
+      expectedChallengeDigestB64u: 'source-challenge',
+    },
   };
   let forwardedMethodId: string | undefined;
   const service = managementRouteService({
@@ -110,11 +116,10 @@ test('forwards one exact auth-method revoke and serializes the authority result'
     };
   };
 
-  const response = await invoke(service, '/target/revoke', {
+  const response = await invoke(service, `/${encodeURIComponent(String(walletAuthMethodId))}/revoke`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
-
   expect(response.status).toBe(200);
   expect(forwardedMethodId).toBe(String(walletAuthMethodId));
   expect(await response.json()).toEqual({
@@ -126,10 +131,91 @@ test('forwards one exact auth-method revoke and serializes the authority result'
   });
 });
 
+test('rejects a path/body wallet auth-method mismatch before mutation', async () => {
+  const targetId = parseWalletAuthMethodId('auth-method:r103-target').value;
+  const otherId = parseWalletAuthMethodId('auth-method:r103-other').value;
+  const body = {
+    kind: 'linked_device_revoke_request_v1' as const,
+    walletId: String(walletId),
+    walletAuthMethodId: String(otherId),
+    requestedAtMs: 10_000,
+    sourceProof: {
+      kind: 'webauthn_assertion' as const,
+      rpId: 'wallet.example.test',
+      credential: { id: 'source-credential' },
+      expectedChallengeDigestB64u: 'source-challenge',
+    },
+  };
+  let mutationCalls = 0;
+  const service = managementRouteService({
+    authenticateOwnerRequestV1: async ({ pathname, bodyDigestB64u }) => ({
+      kind: 'authorized' as const,
+      body,
+      binding: requestBinding('POST', pathname, bodyDigestB64u),
+      owner: { walletId, expiresAtMs: 11_000 },
+    }),
+  });
+  service.management.revokeLinkedDeviceV1 = async () => {
+    mutationCalls += 1;
+    return { kind: 'not_found' };
+  };
+
+  const response = await invoke(service, `/${encodeURIComponent(String(targetId))}/revoke`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  expect(response.status).toBe(400);
+  expect(mutationCalls).toBe(0);
+});
+
+test('rejects a reusable Wallet Session without a fresh source proof', async () => {
+  const walletAuthMethodId = parseWalletAuthMethodId('auth-method:r103-target').value;
+  const body = {
+    kind: 'linked_device_revoke_request_v1' as const,
+    walletId: String(walletId),
+    walletAuthMethodId: String(walletAuthMethodId),
+    requestedAtMs: 10_000,
+  };
+  let proofCalls = 0;
+  const service = managementRouteService({
+    authenticateOwnerRequestV1: async ({ pathname, bodyDigestB64u }) => ({
+      kind: 'authorized' as const,
+      body,
+      binding: requestBinding('POST', pathname, bodyDigestB64u),
+      owner: { walletId, expiresAtMs: 11_000 },
+    }),
+    verifyFreshRevokeProofV1: async () => {
+      proofCalls += 1;
+      return {
+        kind: 'authorized' as const,
+        walletAuthMethodId: parseWalletAuthMethodId('auth-method:r103-source').value,
+        verifiedAtMs: 10_000,
+      };
+    },
+  });
+
+  const response = await invoke(service, `/${encodeURIComponent(String(walletAuthMethodId))}/revoke`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  expect(response.status).toBe(401);
+  expect(proofCalls).toBe(0);
+});
+
 function managementRouteService(
-  overrides: Pick<DeviceManagementRouteServiceV1, 'authenticateOwnerRequestV1'>,
+  overrides: Partial<Pick<DeviceManagementRouteServiceV1, 'authenticateOwnerRequestV1' | 'verifyFreshRevokeProofV1'>>,
 ): DeviceManagementRouteServiceV1 {
   return {
+    authenticateOwnerRequestV1: async () => {
+      throw new Error('authentication callback is required by this test');
+    },
+    verifyFreshRevokeProofV1: async ({ requestedAtMs }) => ({
+      kind: 'authorized',
+      walletAuthMethodId: parseWalletAuthMethodId('auth-method:r103-source').value,
+      verifiedAtMs: requestedAtMs,
+    }),
     ...overrides,
     nowV1: () => 10_000,
     management: {
@@ -173,7 +259,7 @@ async function invoke(
     url: new URL(request.url),
     pathname:
       options.method === 'POST'
-        ? `${LINKED_DEVICE_MANAGEMENT_BASE_V1}/target/revoke`
+        ? `${LINKED_DEVICE_MANAGEMENT_BASE_V1}/${encodeURIComponent('auth-method:r103-target')}/revoke`
         : LINKED_DEVICE_MANAGEMENT_BASE_V1,
     method: options.method,
     runtime: { kind: 'inline' as const },

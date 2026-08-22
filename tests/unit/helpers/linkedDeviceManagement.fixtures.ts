@@ -46,6 +46,16 @@ import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixture
 
 const MANAGEMENT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(33)));
 
+type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
+
+type RevokedPasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'revoked' }
+>;
+
 function required<T>(
   result:
     | { readonly ok: true; readonly value: T }
@@ -57,7 +67,7 @@ function required<T>(
 
 export type LinkedDeviceManagementAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
-  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly authMethod: ActivePasskeyWalletAuthMethodRecordV2;
   readonly issuedSession: IssuedWalletSessionAuthorizationV2;
 };
 
@@ -156,7 +166,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     ),
   );
   const authMethodId = required(parseWalletAuthMethodId(`auth-method:management-${input.label}`));
-  const authMethod = buildWalletAuthMethodRecordV2({
+  const authMethod = buildActivePasskeyWalletAuthMethodRecord({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId: authMethodId,
     walletId,
@@ -236,10 +246,10 @@ export function buildRevokedLinkedDeviceAuthorityV1(
 }
 
 export function buildRevokedLinkedDeviceAuthMethodV1(
-  authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>,
+  authMethod: ActivePasskeyWalletAuthMethodRecordV2,
   revokedAtMs: number,
-): Extract<WalletAuthMethodRecordV2, { readonly status: 'revoked' }> {
-  return buildWalletAuthMethodRecordV2({
+): RevokedPasskeyWalletAuthMethodRecordV2 {
+  return buildRevokedPasskeyWalletAuthMethodRecord({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId: authMethod.walletAuthMethodId,
     walletId: authMethod.walletId,
@@ -255,6 +265,26 @@ export function buildRevokedLinkedDeviceAuthMethodV1(
     activatedAtMs: authMethod.activatedAtMs,
     revokedAtMs,
   });
+}
+
+function buildActivePasskeyWalletAuthMethodRecord(
+  input: ActivePasskeyWalletAuthMethodRecordV2,
+): ActivePasskeyWalletAuthMethodRecordV2 {
+  const record = buildWalletAuthMethodRecordV2(input);
+  if (record.kind !== 'passkey' || record.status !== 'active') {
+    throw new Error('active Passkey fixture unexpectedly changed branch');
+  }
+  return record;
+}
+
+function buildRevokedPasskeyWalletAuthMethodRecord(
+  input: RevokedPasskeyWalletAuthMethodRecordV2,
+): RevokedPasskeyWalletAuthMethodRecordV2 {
+  const record = buildWalletAuthMethodRecordV2(input);
+  if (record.kind !== 'passkey' || record.status !== 'revoked') {
+    throw new Error('revoked Passkey fixture unexpectedly changed branch');
+  }
+  return record;
 }
 
 export function fullOwnerPermissionsForManagementFixture(): CanonicalDelegatedWalletPermissionSetV1 {

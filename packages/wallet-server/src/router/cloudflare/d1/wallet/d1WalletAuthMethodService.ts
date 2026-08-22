@@ -26,7 +26,8 @@ import {
   type RegistrationAuthority,
   type RegistrationIntentV1,
   type WalletId,
-  walletAuthMethodRecordId,
+  type WalletAuthMethodRevocationProof,
+  type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
@@ -74,15 +75,14 @@ import {
 import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 import {
   activeWalletAuthMethodRecord,
-  authorizeD1WalletAuthMethodRevoke,
   d1HostIsWithinWebAuthnRpId,
-  findD1WalletAuthMethodRecordForRevokeTarget,
-  parseD1RevokeWalletAuthMethodInput,
+  computeWalletAuthMethodRevokeOperationFingerprintV1,
   resolveD1AddAuthMethodExistingAuth,
   resolveD1AddSignerExistingAuth,
-  revokedD1WalletAuthMethodRecord,
+  verifyD1LinkedDeviceFreshRevokeProofV1,
   walletAuthAuthorityFromRegistrationAuthority,
   walletAuthMethodRecordFromRegistrationAuthority,
+  type D1FreshRevokeWebAuthnVerifierV1,
   type D1AddAuthMethodExistingAuthResolution,
   type D1AddSignerExistingAuthResolution,
 } from './d1WalletAuthMethodBoundary';
@@ -93,11 +93,19 @@ import {
 import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type { WebAuthnCredentialBindingRecord } from '../../../../core/WebAuthnCredentialBindingStore';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import type { D1WalletAuthorityStore } from './d1WalletAuthorityStore';
+import {
+  buildDelegatedWalletAuthorityV1,
+  buildFullOwnerPermissionsV1,
+  sameDelegatedWalletAuthorityV1,
+} from '@shared/authorization/delegatedAuthority';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type {
   FinalizeWalletAddAuthMethodCommand,
   WalletAddAuthMethodFinalizeAuthorizationV1,
   RevokeWalletAuthMethodCommand,
   StartWalletAddAuthMethodCommand,
+  WalletAuthMethodRevokeProofVerificationResult,
 } from '../../../framework/authServicePort';
 
 type StartWalletAddAuthMethodInput = StartWalletAddAuthMethodCommand;
@@ -109,10 +117,6 @@ type FinalizeWalletAddAuthMethodInput = FinalizeWalletAddAuthMethodCommand;
 type FinalizeWalletAddAuthMethodResult = WalletAddAuthMethodFinalizeResponse;
 type RevokeWalletAuthMethodInput = RevokeWalletAuthMethodCommand;
 type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
-export type LinkedOwnerAuthMethodRevocationResultV1 =
-  | { readonly kind: 'applied' }
-  | { readonly kind: 'replayed' }
-  | { readonly kind: 'conflict' };
 type OwnerWalletSessionRevocationV1 = (input: {
   readonly walletId: WalletId;
   readonly walletAuthMethodId: WalletAuthMethodId;
@@ -172,6 +176,31 @@ function requireStoredCredentialId(raw: string): WebAuthnCredentialIdB64u {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
+}
+
+function isFullOwnerAuthorityV1(authority: ActiveWalletAuthorityV1): boolean {
+  return sameDelegatedWalletAuthorityV1(
+    buildDelegatedWalletAuthorityV1({ permissions: authority.permissions }),
+    buildDelegatedWalletAuthorityV1({ permissions: buildFullOwnerPermissionsV1() }),
+  );
+}
+
+function walletAuthMethodRevokedResponse(
+  walletId: WalletId,
+  record: Extract<WalletAuthMethodRecordV2, { readonly status: 'revoked' }>,
+): WalletRevokeAuthMethodResponse {
+  return record.kind === 'passkey'
+    ? {
+        ok: true,
+        walletId,
+        authMethod: { kind: 'passkey', status: 'revoked' },
+        rpId: record.rpId,
+      }
+    : {
+        ok: true,
+        walletId,
+        authMethod: { kind: 'email_otp', status: 'revoked' },
+      };
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -300,6 +329,9 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
   private readonly sha256Bytes: Sha256Bytes;
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  private readonly walletAuthorityStore: D1WalletAuthorityStore;
+  private readonly orgId: string;
+  private readonly verifyWebAuthnAuthenticationLite: D1FreshRevokeWebAuthnVerifierV1;
 
   private readonly revokeOwnerWalletSessions?: OwnerWalletSessionRevocationV1;
 
@@ -311,6 +343,9 @@ export class CloudflareD1WalletAuthMethodService {
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly sha256Bytes: Sha256Bytes;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
+    readonly walletAuthorityStore: D1WalletAuthorityStore;
+    readonly orgId: string;
+    readonly verifyWebAuthnAuthenticationLite: D1FreshRevokeWebAuthnVerifierV1;
     readonly revokeOwnerWalletSessions?: OwnerWalletSessionRevocationV1;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
@@ -320,6 +355,9 @@ export class CloudflareD1WalletAuthMethodService {
     this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
+    this.walletAuthorityStore = input.walletAuthorityStore;
+    this.orgId = input.orgId;
+    this.verifyWebAuthnAuthenticationLite = input.verifyWebAuthnAuthenticationLite;
     this.revokeOwnerWalletSessions = input.revokeOwnerWalletSessions;
   }
 
@@ -1073,6 +1111,124 @@ export class CloudflareD1WalletAuthMethodService {
       : null;
   }
 
+  /**
+   * Mixed registration finalization runs in two requests. The ECDSA leg
+   * persists the founding authority and auth method before the deferred
+   * Ed25519 leg arrives, so that leg must address the same rows.
+   */
+  async readActiveRegistrationIdentity(authority: RegistrationAuthority): Promise<{
+    readonly walletAuthorityId: WalletAuthMethodRecordV2['walletAuthorityId'];
+    readonly walletAuthMethodId: WalletAuthMethodRecordV2['walletAuthMethodId'];
+  } | null> {
+    const record =
+      authority.kind === 'passkey'
+        ? await this.getWalletAuthMethodStore().getPasskeyV2({
+            rpId: authority.rpId,
+            credentialIdB64u: authority.credentialIdB64u,
+          })
+        : await this.getWalletAuthMethodStore().getEmailOtpV2({
+            walletId: String(authority.walletId),
+            emailHashHex: authority.emailHashHex,
+          });
+    if (!record || record.status !== 'active' || record.walletId !== authority.walletId) {
+      return null;
+    }
+    if (authority.kind === 'passkey') {
+      if (
+        record.kind !== 'passkey' ||
+        record.rpId !== authority.rpId ||
+        record.credentialIdB64u !== authority.credentialIdB64u ||
+        record.credentialPublicKeyB64u !== authority.credentialPublicKeyB64u
+      ) {
+        return null;
+      }
+    } else if (
+      record.kind !== 'email_otp' ||
+      record.emailHashHex !== authority.emailHashHex ||
+      record.registrationAuthorityId !== authority.registrationAuthorityId
+    ) {
+      return null;
+    }
+    return {
+      walletAuthorityId: record.walletAuthorityId,
+      walletAuthMethodId: record.walletAuthMethodId,
+    };
+  }
+
+  async verifyWalletAuthMethodRevokeProof(input: {
+    readonly walletId: WalletId;
+    readonly targetWalletAuthMethodId: WalletAuthMethodId;
+    readonly requestedAtMs: number;
+    readonly sourceProof: WalletAuthMethodRevocationProof;
+    readonly expectedOrigin: string;
+  }): Promise<WalletAuthMethodRevokeProofVerificationResult> {
+    try {
+      const operationFingerprintDigest =
+        await computeWalletAuthMethodRevokeOperationFingerprintV1({
+          walletId: input.walletId,
+          targetWalletAuthMethodId: input.targetWalletAuthMethodId,
+          requestedAtMs: input.requestedAtMs,
+        });
+      const verified = await verifyD1LinkedDeviceFreshRevokeProofV1({
+        walletId: input.walletId,
+        orgId: this.orgId,
+        targetWalletAuthMethodId: input.targetWalletAuthMethodId,
+        proof: input.sourceProof,
+        expectedOrigin: input.expectedOrigin,
+        verifiedAtMs: input.requestedAtMs,
+        operationFingerprintDigest,
+        walletAuthMethodStore: this.getWalletAuthMethodStore(),
+        verifyWebAuthnAuthenticationLite: this.verifyWebAuthnAuthenticationLite,
+        verifyEmailOtpExisting: this.emailOtpChallengeVerifier.verifyExisting.bind(
+          this.emailOtpChallengeVerifier,
+        ),
+        readEmailOtpEnrollment: this.emailOtpChallengeVerifier.readEnrollmentForWallet.bind(
+          this.emailOtpChallengeVerifier,
+        ),
+        resolveEmailOtpAuthority:
+          this.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(this),
+      });
+      if (verified.kind === 'denied') return verified;
+      const sourceMethod = await this.getWalletAuthMethodStore().readByIdV2({
+        walletAuthMethodId: verified.walletAuthMethodId,
+      });
+      if (
+        !sourceMethod ||
+        sourceMethod.status !== 'active' ||
+        sourceMethod.walletId !== input.walletId ||
+        sourceMethod.walletAuthMethodId === input.targetWalletAuthMethodId
+      ) {
+        return {
+          kind: 'denied',
+          code: 'unauthorized',
+          message: 'Fresh revocation proof is not from a different active wallet method',
+        };
+      }
+      const sourceAuthority = await this.walletAuthorityStore.readById(
+        sourceMethod.walletAuthorityId,
+      );
+      if (
+        !sourceAuthority ||
+        sourceAuthority.state !== 'active' ||
+        sourceAuthority.walletId !== input.walletId ||
+        !isFullOwnerAuthorityV1(sourceAuthority)
+      ) {
+        return {
+          kind: 'denied',
+          code: 'unauthorized',
+          message: 'Fresh revocation proof requires a full-owner authority',
+        };
+      }
+      return verified;
+    } catch (error: unknown) {
+      return {
+        kind: 'denied',
+        code: 'invalid',
+        message: errorMessage(error) || 'Fresh revocation proof is invalid',
+      };
+    }
+  }
+
   async persistAuthority(input: {
     readonly authority: RegistrationAuthority;
     readonly now: number;
@@ -1146,51 +1302,96 @@ export class CloudflareD1WalletAuthMethodService {
     input: RevokeWalletAuthMethodInput,
   ): Promise<RevokeWalletAuthMethodResult> {
     try {
-      const parsed = parseD1RevokeWalletAuthMethodInput(input);
-      if (!parsed.ok) return parsed.result;
-      const walletAuthMethodStore = this.getWalletAuthMethodStore();
-      const walletMethods = await walletAuthMethodStore.listForWallet({
-        walletId: parsed.walletId,
-      });
-      const activeWalletMethods = walletMethods.filter(activeWalletAuthMethodRecord);
-      if (activeWalletMethods.length === 0) {
-        return { ok: false, code: 'not_found', message: 'wallet has no active auth methods' };
+      const walletId = input.subject.walletId;
+      const sourceWalletAuthMethodId = input.verifiedSource.walletAuthMethodId;
+      if (sourceWalletAuthMethodId === input.walletAuthMethodId) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Revocation requires a different active source auth method',
+        };
       }
-      const authorizationError = await authorizeD1WalletAuthMethodRevoke({
-        walletAuthMethodStore,
-        walletId: parsed.walletId,
-        auth: parsed.auth,
+      const walletAuthMethodStore = this.getWalletAuthMethodStore();
+      const sourceMethod = await walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: sourceWalletAuthMethodId,
       });
-      if (authorizationError) return authorizationError;
-
-      const targetRecord = await findD1WalletAuthMethodRecordForRevokeTarget({
-        walletAuthMethodStore,
-        walletId: parsed.walletId,
-        target: parsed.target,
-        emailHash: this.emailHashHex.bind(this),
+      const sourceAuthority = sourceMethod
+        ? await this.walletAuthorityStore.readById(sourceMethod.walletAuthorityId)
+        : null;
+      if (
+        !sourceMethod ||
+        sourceMethod.status !== 'active' ||
+        sourceMethod.walletId !== walletId ||
+        !sourceAuthority ||
+        sourceAuthority.state !== 'active' ||
+        sourceAuthority.walletId !== walletId ||
+        !isFullOwnerAuthorityV1(sourceAuthority)
+      ) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Fresh revocation proof requires a different active full-owner method',
+        };
+      }
+      const targetMethod = await walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: input.walletAuthMethodId,
       });
-      if (!targetRecord) {
+      if (!targetMethod || targetMethod.walletId !== walletId) {
         return { ok: false, code: 'not_found', message: 'wallet auth method not found' };
       }
-      if (targetRecord.status !== 'active') {
+      if (targetMethod.status === 'revoked') {
+        return walletAuthMethodRevokedResponse(walletId, targetMethod);
+      }
+      if (targetMethod.status !== 'active') {
         return {
           ok: false,
           code: 'invalid_state',
-          message: 'wallet auth method is already revoked',
+          message: 'wallet auth method is not active',
         };
       }
-      if (activeWalletMethods.length <= 1) {
+      const targetAuthority = await this.walletAuthorityStore.readById(
+        targetMethod.walletAuthorityId,
+      );
+      if (
+        !targetAuthority ||
+        targetAuthority.walletId !== walletId ||
+        targetAuthority.state !== 'active'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'wallet auth method authority is not active',
+        };
+      }
+      const revoked = await this.walletAuthorityStore.revokeWalletAuthMethod({
+        walletId,
+        authorityId: targetAuthority.authorityId,
+        walletAuthMethodId: input.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: targetAuthority.revocationEpoch,
+        requestedAtMs: input.requestedAtMs,
+      });
+      if (revoked.kind === 'would_remove_last_wallet_auth_method') {
         return {
           ok: false,
           code: 'invalid_state',
           message: 'wallet must retain at least one active auth method',
         };
       }
-      return await this.revokeWalletAuthMethodRecordV1({
-        walletId: parsed.walletId,
-        targetRecord,
-        revokedAtMs: Date.now(),
-      });
+      if (revoked.kind === 'conflict') {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'wallet auth method changed; retry revocation',
+        };
+      }
+      if (this.revokeOwnerWalletSessions) {
+        await this.revokeOwnerWalletSessions({
+          walletId,
+          walletAuthMethodId: input.walletAuthMethodId,
+          requestedAtMs: input.requestedAtMs,
+        });
+      }
+      return walletAuthMethodRevokedResponse(walletId, revoked.authMethod);
     } catch (error: unknown) {
       return {
         ok: false,
@@ -1198,109 +1399,6 @@ export class CloudflareD1WalletAuthMethodService {
         message: errorMessage(error) || 'Failed to revoke wallet auth method',
       };
     }
-  }
-
-  /**
-   * The already-authenticated owner Wallet Session path uses the same
-   * canonical auth-method mutation as the assertion route. Its target is an
-   * exact persisted method id, so it cannot substitute a different factor.
-   */
-  async revokeWalletAuthMethodForOwnerSessionV1(input: {
-    readonly walletId: WalletId;
-    readonly walletAuthMethodId: WalletAuthMethodId;
-    readonly requestedAtMs: number;
-  }): Promise<LinkedOwnerAuthMethodRevocationResultV1> {
-    try {
-      const walletAuthMethodStore = this.getWalletAuthMethodStore();
-      const walletMethods = await walletAuthMethodStore.listForWallet({
-        walletId: input.walletId,
-      });
-      const targetRecord = walletMethods.find(
-        (record) => walletAuthMethodRecordId(record) === input.walletAuthMethodId,
-      );
-      if (!targetRecord) return { kind: 'conflict' };
-      if (targetRecord.status === 'revoked') {
-        if (this.revokeOwnerWalletSessions) {
-          await this.revokeOwnerWalletSessions({
-            walletId: input.walletId,
-            walletAuthMethodId: input.walletAuthMethodId,
-            requestedAtMs: input.requestedAtMs,
-          });
-        }
-        return { kind: 'replayed' };
-      }
-      const activeWalletMethods = walletMethods.filter(activeWalletAuthMethodRecord);
-      if (activeWalletMethods.length <= 1) return { kind: 'conflict' };
-      const result = await this.revokeWalletAuthMethodRecordV1({
-        walletId: input.walletId,
-        targetRecord,
-        revokedAtMs: input.requestedAtMs,
-      });
-      return result.ok ? { kind: 'applied' } : { kind: 'conflict' };
-    } catch {
-      return { kind: 'conflict' };
-    }
-  }
-
-  private async revokeWalletAuthMethodRecordV1(input: {
-    readonly walletId: WalletId;
-    readonly targetRecord: WalletAuthMethodRecord;
-    readonly revokedAtMs: number;
-  }): Promise<RevokeWalletAuthMethodResult> {
-    const walletAuthMethodStore = this.getWalletAuthMethodStore();
-    const revokedRecord = revokedD1WalletAuthMethodRecord({
-      record: input.targetRecord,
-      updatedAtMs: input.revokedAtMs,
-    });
-    if (input.targetRecord.kind === 'passkey') {
-      const custodyResult = await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
-        walletId: input.walletId,
-        factor: {
-          kind: 'passkey',
-          rpId: requireStoredRpId(input.targetRecord.rpId),
-          credentialIdB64u: requireStoredCredentialId(input.targetRecord.credentialIdB64u),
-        },
-        revokedAtMs: input.revokedAtMs,
-        additionalStatements: [
-          ...walletAuthMethodStore.preparePasskeyRevocationStatements({
-            record: revokedRecord,
-            expectedUpdatedAtMs: input.targetRecord.updatedAtMs,
-            revokedAtMs: input.revokedAtMs,
-          }),
-        ],
-      });
-      if (custodyResult.kind === 'refused') {
-        return { ok: false, code: 'invalid_state', message: custodyResult.reason };
-      }
-      if (custodyResult.kind === 'version_mismatch') {
-        return {
-          ok: false,
-          code: 'conflict',
-          message: 'passkey custody changed; retry revocation',
-        };
-      }
-    } else {
-      await walletAuthMethodStore.put(revokedRecord);
-    }
-    if (this.revokeOwnerWalletSessions) {
-      await this.revokeOwnerWalletSessions({
-        walletId: input.walletId,
-        walletAuthMethodId: walletAuthMethodRecordId(input.targetRecord),
-        requestedAtMs: input.revokedAtMs,
-      });
-    }
-    return input.targetRecord.kind === 'passkey'
-      ? {
-          ok: true,
-          walletId: input.walletId,
-          authMethod: { kind: 'passkey', status: 'revoked' },
-          rpId: input.targetRecord.rpId,
-        }
-      : {
-          ok: true,
-          walletId: input.walletId,
-          authMethod: { kind: 'email_otp', status: 'revoked' },
-        };
   }
 
   private async verifyRegistrationCredentialForIntent(input: {

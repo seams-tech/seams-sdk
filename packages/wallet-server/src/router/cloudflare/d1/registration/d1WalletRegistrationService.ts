@@ -258,6 +258,7 @@ import {
   walletAuthAuthorityRef,
   walletAuthAuthoritiesMatch,
   type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import {
   buildRouterAbEd25519YaoProductAdmissionRequestV1,
@@ -719,6 +720,17 @@ async function walletSessionPolicyMintId(
 ): Promise<ReusableWalletSessionMintId> {
   const digest = base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(policy)));
   return requireReusableWalletSessionMintId(`wallet-session-policy:${digest}`);
+}
+
+async function registrationWalletAuthAuthorityRef(input: {
+  readonly authority: WalletAuthAuthority;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): Promise<WalletAuthAuthorityRef> {
+  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+  return {
+    ...authorityRef,
+    walletAuthMethodId: input.walletAuthMethodId,
+  };
 }
 
 function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): PrincipalId {
@@ -1573,6 +1585,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueRegistrationEstablishedGrant(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
   }): Promise<IssuedReusableWalletSession> {
@@ -1585,7 +1598,10 @@ export class CloudflareD1WalletRegistrationService {
     }
     const expiresAtMs = Math.min(input.expiresAtMs, issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS);
     const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, input.remainingUses);
-    const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+    const authorityRef = await registrationWalletAuthAuthorityRef({
+      authority: input.authority,
+      walletAuthMethodId: input.walletAuthMethodId,
+    });
     return await this.authorizationService.issueReusableWalletSession({
       tenantId: this.authorizationTenantId,
       principalId: reusableWalletSessionPrincipalId(input.authority),
@@ -1601,8 +1617,12 @@ export class CloudflareD1WalletRegistrationService {
   private async readRegistrationEstablishedGrant(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly walletAuthMethodId: WalletAuthMethodId;
   }): Promise<IssuedReusableWalletSession | null> {
-    const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+    const authorityRef = await registrationWalletAuthAuthorityRef({
+      authority: input.authority,
+      walletAuthMethodId: input.walletAuthMethodId,
+    });
     return await this.authorizationService.readWalletSessionAuthorizationByMint({
       tenantId: this.authorizationTenantId,
       principalId: reusableWalletSessionPrincipalId(input.authority),
@@ -1630,6 +1650,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueRegistrationEstablishedEcdsaSession(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
     readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
@@ -1654,7 +1675,10 @@ export class CloudflareD1WalletRegistrationService {
       opaqueWalletSessions: this.authorizationService,
       tenantId: this.authorizationTenantId,
       proof: input.proof,
-      walletAuthAuthorityRef: await walletAuthAuthorityRef({ authority: input.authority }),
+      walletAuthAuthorityRef: await registrationWalletAuthAuthorityRef({
+        authority: input.authority,
+        walletAuthMethodId: input.walletAuthMethodId,
+      }),
       authSource: walletSessionAuthSourceFromAuthority(input.authority),
       userId: bootstrap.walletId,
       relayerKeyId: bootstrap.relayerKeyId,
@@ -1715,6 +1739,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueOrReuseRegistrationEstablishedEd25519Session(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
     readonly publicResult: WalletRegistrationEd25519YaoPublicResult;
@@ -2939,6 +2964,25 @@ export class CloudflareD1WalletRegistrationService {
     });
   }
 
+  private async prepareNearProvisioningOperation(
+    registrationCeremonyId: string,
+    allocated: D1WalletRegistrationOperationPreparedV1 = allocateWalletRegistrationOperationPrepared(),
+  ): Promise<D1WalletRegistrationOperationPreparedV1> {
+    const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
+      registrationCeremonyId,
+    );
+    if (!ceremony) return allocated;
+    const authority = verifiedRegistrationCeremonyAuthority(ceremony);
+    if (!authority) return allocated;
+    const persisted = await this.walletAuthMethods.readActiveRegistrationIdentity(authority);
+    if (!persisted) return allocated;
+    return {
+      ...allocated,
+      walletAuthorityId: persisted.walletAuthorityId,
+      walletAuthMethodId: persisted.walletAuthMethodId,
+    };
+  }
+
   private async commitDeferredEd25519Signer(
     args: {
       readonly input: WalletRegistrationNearProvisioningInput;
@@ -2954,6 +2998,10 @@ export class CloudflareD1WalletRegistrationService {
     if (!ownerProofContext) {
       throw new Error('Registration owner proof context is unavailable');
     }
+    const effectivePrepared = await this.prepareNearProvisioningOperation(
+      args.input.registrationCeremonyId,
+      prepared,
+    );
     const committed = await this.executeWalletRegistrationFinalize({
       kind: 'near_ed25519',
       registrationCeremonyId: args.input.registrationCeremonyId,
@@ -2961,7 +3009,7 @@ export class CloudflareD1WalletRegistrationService {
       ed25519: args.input.ed25519,
       emailOtpEnrollment: args.input.emailOtpEnrollment,
       walletCustodyCommit: args.input.walletCustodyCommit,
-    } as FinalizeWalletRegistrationInput, prepared);
+    } as FinalizeWalletRegistrationInput, effectivePrepared);
     const finalized = committed.ok
       ? committed
       : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
@@ -2978,6 +3026,7 @@ export class CloudflareD1WalletRegistrationService {
       await this.issueOrReuseRegistrationEstablishedEd25519Session({
         registrationCeremonyId: args.input.registrationCeremonyId,
         authority: finalized.authority,
+        walletAuthMethodId: effectivePrepared.walletAuthMethodId,
         expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
         publicResult: finalized.ed25519,
@@ -3036,7 +3085,8 @@ export class CloudflareD1WalletRegistrationService {
           requestFingerprint,
           resumeAfterMs: D1_WALLET_REGISTRATION_OPERATION_RESUME_AFTER_MS,
           nowMs: Date.now,
-          prepare: async () => allocateWalletRegistrationOperationPrepared(),
+          prepare: async () =>
+            await this.prepareNearProvisioningOperation(input.registrationCeremonyId),
           derivePreparedArtifactFingerprint: async (prepared) =>
             base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(prepared))),
           execute: this.commitDeferredEd25519Signer.bind(this, { input }),
@@ -3628,6 +3678,7 @@ export class CloudflareD1WalletRegistrationService {
     const registrationEstablishedSession = await this.issueRegistrationEstablishedEcdsaSession({
       registrationCeremonyId: context.registrationCeremonyId,
       authority: commit.authority,
+      walletAuthMethodId: prepared.walletAuthMethodId,
       expiresAtMs: activated.ecdsa.bootstrap.expiresAtMs,
       remainingUses: activated.ecdsa.bootstrap.remainingUses,
       bootstrap: activated.ecdsa.bootstrap,
@@ -4420,12 +4471,16 @@ export class CloudflareD1WalletRegistrationService {
         );
       }
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
+      const foundingAuthorityAlreadyCommitted =
+        finalizeNearEd25519 !== null && storedEcdsaBranch?.kind === 'evm_family_ecdsa_finalized';
       const foundingCommitComplete =
-        (finalizeEvmFamilyEcdsa !== null && requestedNearEd25519 === null) ||
-        (finalizeNearEd25519 !== null && requestedEvmFamilyEcdsa === null) ||
-        (finalizeNearEd25519 !== null && storedEcdsaBranch?.kind === 'evm_family_ecdsa_finalized');
+        /* The first leg of a mixed plan is already an established ECDSA
+           wallet. Its session is issued immediately, so the authority and
+           method must be committed in the same batch before that issuance. */
+        finalizeEvmFamilyEcdsa !== null ||
+        (finalizeNearEd25519 !== null && requestedEvmFamilyEcdsa === null);
       let foundingAuthorityRecords: FoundingAuthorityRecords | null = null;
-      if (foundingCommitComplete) {
+      if (foundingCommitComplete && !foundingAuthorityAlreadyCommitted) {
         const ecdsaWalletKey = ecdsaWalletKeys[0];
         if (ed25519SignerRecord && ed25519MaterialActivation && ed25519RegisteredPublicKeyB64u) {
           if (!ecdsaWalletKey || !ecdsaMaterialActivation) {

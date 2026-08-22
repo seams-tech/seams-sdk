@@ -497,6 +497,11 @@ export type IssuedOpaqueWalletSessionToken = {
   readonly expiresAtMs: number;
 };
 
+export type PreparedWalletSessionAuthorizationV2 = {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly quota: ActiveWalletSessionQuota;
+};
+
 export type ResolvedOpaqueWalletSessionToken = {
   readonly kind: 'resolved_opaque_wallet_session_token';
   readonly curve: OpaqueWalletSessionCurve;
@@ -722,6 +727,22 @@ export class AuthorizationService {
   async issueWalletSessionAuthorizationV2(
     input: IssueWalletSessionAuthorizationV2Input,
   ): Promise<IssuedWalletSessionAuthorizationV2> {
+    const prepared = await this.prepareWalletSessionAuthorizationV2(input);
+    await this.ports.grants.putWalletSessionAuthorizationV2(prepared);
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint({
+      expected: prepared.session,
+      nowMs: input.issuedAtMs,
+    });
+    if (!persisted) throw new Error('Issued V2 Wallet Session authorization was not persisted');
+    if (persisted.quota.remainingUses !== prepared.quota.remainingUses) {
+      throw new Error('V2 Wallet Session issuance replay does not match');
+    }
+    return persisted;
+  }
+
+  async prepareWalletSessionAuthorizationV2(
+    input: IssueWalletSessionAuthorizationV2Input,
+  ): Promise<PreparedWalletSessionAuthorizationV2> {
     if (input.authority.walletId !== input.walletId) {
       throw new Error('Wallet Session authorization authority does not identify the wallet');
     }
@@ -761,13 +782,7 @@ export class AuthorizationService {
       remainingUses: input.remainingUses,
       expiresAtMs: session.expiresAtMs,
     });
-    await this.ports.grants.putWalletSessionAuthorizationV2({ session, quota });
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint({
-      expected: session,
-      nowMs: input.issuedAtMs,
-    });
-    if (!persisted) throw new Error('Issued V2 Wallet Session authorization was not persisted');
-    return persisted;
+    return { session, quota };
   }
 
   async readWalletSessionAuthorizationV2ByMint(input: {

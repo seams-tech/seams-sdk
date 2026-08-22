@@ -6,6 +6,8 @@ import type {
   WalletRecord,
 } from '../../packages/wallet-server/src/core/WalletStore';
 import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationCommitStore';
+import { CloudflareD1WalletAuthMethodService } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
 import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
@@ -361,6 +363,65 @@ test('D1 registration commit writes the founding authority and V2 method atomica
         now: now + 1,
       }),
     ).rejects.toThrow(/replay conflicts/);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('deferred mixed registration reuses the persisted founding identity', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const walletId = walletIdFromString('amber-atlas-abcdef');
+    const createdAtMs = 1_900_000_000_000;
+    const settledAtMs = createdAtMs + 4_000;
+    const ecdsaSigner = testEcdsaSigner(walletId, createdAtMs);
+    const founding = await testFoundingRecords({
+      walletId,
+      signer: ecdsaSigner,
+      now: createdAtMs,
+    });
+    const store = new CloudflareD1WalletRegistrationCommitStore({
+      database,
+      ...TEST_SCOPE,
+    });
+
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, createdAtMs),
+      walletSigners: [ecdsaSigner],
+      authority: testPasskeyAuthority(walletId),
+      foundingAuthority: founding.authority,
+      foundingAuthMethod: founding.authMethod,
+      now: createdAtMs,
+    });
+
+    const walletAuthMethodStore = new D1WalletAuthMethodStore({
+      database,
+      ...TEST_SCOPE,
+    });
+    const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
+      getWalletAuthMethodStore: () => walletAuthMethodStore,
+    } as never);
+    await expect(
+      walletAuthMethods.readActiveRegistrationIdentity(testPasskeyAuthority(walletId)),
+    ).resolves.toEqual({
+      walletAuthorityId: founding.authority.authorityId,
+      walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+    });
+
+    // The deferred leg writes only its signer and binding. It must reuse the
+    // active identity above instead of attempting a second auth-method row.
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, settledAtMs),
+      walletSigners: [testEd25519Signer(walletId, settledAtMs)],
+      authority: testPasskeyAuthority(walletId),
+      now: settledAtMs,
+    });
+    await expect(countRows(database, 'wallet_authorities')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
+    await expect(countRows(database, 'wallet_signers')).resolves.toBe(2);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

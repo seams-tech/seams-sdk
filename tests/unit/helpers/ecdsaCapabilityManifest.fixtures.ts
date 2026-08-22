@@ -73,6 +73,7 @@ import {
   parseRootShareEpoch,
   parseThresholdEcdsaSessionId,
   parseWalletAuthorityBindingDigest,
+  parseWalletAuthMethodId,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import type {
@@ -190,6 +191,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
     kind: 'wallet_auth_authority_ref',
     walletId,
     authorityDigest: unwrap(parseWalletAuthorityBindingDigest('authority-fixture')),
+    walletAuthMethodId: unwrap(parseWalletAuthMethodId(`passkey:${String(walletId)}:fixture`)),
   };
   const roleLocalBinding = buildEcdsaRoleLocalMaterialBinding({
     keyHandle: parseEcdsaKeyHandle(args?.keyHandle ?? 'ecdsa-key-handle-fixture'),
@@ -514,6 +516,7 @@ export function ecdsaCapabilityLookupOutcomeFixture(): EcdsaCapabilityLookupOutc
           kind: 'wallet_auth_authority_ref',
           walletId: signer.authority.walletId,
           authorityDigest: unwrap(parseWalletAuthorityBindingDigest('authority-mismatch-fixture')),
+          walletAuthMethodId: signer.authority.walletAuthMethodId,
         },
       },
     },

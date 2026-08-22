@@ -61,6 +61,16 @@ export type LinkedDeviceManagementSourceV1 = {
   readonly expiresAtMs: number;
 };
 
+/** A fresh factor proof is produced by the request boundary after verification. */
+export type LinkedDeviceManagementFreshProofV1 = {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly verifiedAtMs: number;
+};
+
+export type LinkedDeviceManagementRevocationSourceV1 = LinkedDeviceManagementSourceV1 & {
+  readonly freshProof: LinkedDeviceManagementFreshProofV1;
+};
+
 export type LinkedDeviceManagementSourceResolutionV1 = {
   readonly session: WalletSessionAuthorizationV2;
   readonly authority: ActiveWalletAuthorityV1;
@@ -177,14 +187,43 @@ export class LinkedDeviceManagementServiceV1 {
 
   async revokeLinkedDeviceV1(
     request: LinkedDeviceRevokeRequestV1,
-    source: LinkedDeviceManagementSourceV1,
+    source: LinkedDeviceManagementRevocationSourceV1,
   ): Promise<LinkedDeviceRevokeResultV1> {
     const resolved = await this.resolveSourceV1(source, request.requestedAtMs);
     if (!resolved || !hasFullOwnerPermissionsV1(resolved.authority)) {
       return { kind: 'unauthorized' };
     }
     if (request.walletId !== resolved.session.walletId) return { kind: 'unauthorized' };
-    if (request.walletAuthMethodId === resolved.authMethod.walletAuthMethodId) {
+    const freshProof = source.freshProof;
+    if (
+      !freshProof ||
+      freshProof.verifiedAtMs > request.requestedAtMs ||
+      request.requestedAtMs - freshProof.verifiedAtMs > MAX_FRESH_REVOCATION_PROOF_AGE_MS_V1
+    ) {
+      return { kind: 'unauthorized' };
+    }
+    const freshSourceMethod = await this.options.authMethod.readByIdV1({
+      walletAuthMethodId: freshProof.walletAuthMethodId,
+    });
+    if (
+      !freshSourceMethod ||
+      freshSourceMethod.status !== 'active' ||
+      freshSourceMethod.walletId !== request.walletId
+    ) {
+      return { kind: 'unauthorized' };
+    }
+    const freshSourceAuthority = await this.options.authority.readByIdV1(
+      freshSourceMethod.walletAuthorityId,
+    );
+    if (
+      !freshSourceAuthority ||
+      freshSourceAuthority.state !== 'active' ||
+      freshSourceAuthority.walletId !== request.walletId ||
+      !hasFullOwnerPermissionsV1(freshSourceAuthority)
+    ) {
+      return { kind: 'unauthorized' };
+    }
+    if (request.walletAuthMethodId === freshSourceMethod.walletAuthMethodId) {
       return { kind: 'conflict' };
     }
     const targetMethod = await this.options.authMethod.readByIdV1({
@@ -341,6 +380,8 @@ export class LinkedDeviceManagementServiceV1 {
     };
   }
 }
+
+const MAX_FRESH_REVOCATION_PROOF_AGE_MS_V1 = 5 * 60 * 1000;
 
 function validateListLimit(limit: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_LINKED_DEVICE_LIST_LIMIT_V1) {

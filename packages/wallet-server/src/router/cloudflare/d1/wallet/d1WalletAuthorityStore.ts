@@ -858,6 +858,7 @@ export class D1WalletAuthorityStore {
       return { kind: 'conflict', authorityId: input.pendingAuthority.authorityId };
     }
     if (
+      additionalStatements.length === 0 &&
       existingAuthority?.state === 'active' &&
       existingMethod?.status === 'active' &&
       recordsEqual(existingAuthority, input.activeAuthority) &&
@@ -885,6 +886,7 @@ export class D1WalletAuthorityStore {
       }),
       prepareAuthorityCasGuard(this.database),
       ...additionalStatements,
+      ...(additionalStatements.length > 0 ? [prepareAuthorityCasGuard(this.database)] : []),
     ];
     let results: readonly D1ResultLike[];
     try {
@@ -893,6 +895,7 @@ export class D1WalletAuthorityStore {
       const racedAuthority = await this.readById(input.pendingAuthority.authorityId);
       const racedMethod = await this.readAuthMethodById(input.pendingAuthMethod.walletAuthMethodId);
       if (
+        additionalStatements.length === 0 &&
         racedAuthority?.state === 'active' &&
         racedMethod?.status === 'active' &&
         recordsEqual(racedAuthority, input.activeAuthority) &&
@@ -918,6 +921,7 @@ export class D1WalletAuthorityStore {
     const storedAuthority = await this.readById(input.pendingAuthority.authorityId);
     const storedMethod = await this.readAuthMethodById(input.pendingAuthMethod.walletAuthMethodId);
     if (
+      additionalStatements.length === 0 &&
       storedAuthority?.state === 'active' &&
       storedMethod?.status === 'active' &&
       recordsEqual(storedAuthority, input.activeAuthority) &&
