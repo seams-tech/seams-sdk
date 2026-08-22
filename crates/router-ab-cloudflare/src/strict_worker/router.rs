@@ -212,6 +212,12 @@ pub(super) async fn handle_strict_router_fetch_v1(
     if path == CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH {
         return handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(request, &env).await;
     }
+    if path == CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PRIVATE_REQUEST_PATH {
+        return handle_cloudflare_router_ed25519_yao_source_preserving_execute_private_fetch_v1(
+            request, &env,
+        )
+        .await;
+    }
     if path == CLOUDFLARE_ROUTER_ED25519_YAO_LANE_EXECUTE_PRIVATE_REQUEST_PATH {
         return handle_cloudflare_router_ed25519_yao_lane_execute_private_fetch_v1(request, &env)
             .await;
