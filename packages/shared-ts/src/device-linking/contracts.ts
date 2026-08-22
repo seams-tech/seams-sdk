@@ -42,20 +42,26 @@ import type {
   PasskeyWalletAuthMethodDraftV1,
   WalletAuthMethodRecordV2,
 } from '../utils/registrationIntent';
-import type { RouterAbEd25519YaoActivationExecuteRequestV1 } from '../utils/routerAbEd25519Yao';
-import type { RouterAbEcdsaRegistrationRequestV1 } from '../utils/routerAbEcdsaDerivation';
-import type { LinkedDeviceOrdinaryMaterialSourceContributionTupleV1 } from './sourceContribution';
+import type {
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
+} from './sourceContribution';
 
 export type {
   LinkedDeviceEcdsaSourceContributionBindingV1,
   LinkedDeviceEcdsaSourceContributionPackageV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
+  LinkedDeviceEcdsaSourceDerivationV1,
+  LinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
   LinkedDeviceEcdsaSourceContributionV1,
   LinkedDeviceEcdsaSourceSignerIdentityV1,
   LinkedDeviceEcdsaTargetRecipientPreparationV1,
   LinkedDeviceEd25519SigningWorkerPackageDeliveryV1,
+  LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEd25519SourceContributionV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
 } from './sourceContribution';
@@ -188,6 +194,12 @@ export type LinkedDeviceSessionState =
       readonly walletId: WalletId;
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly keyManifestDigestB64u: DigestB64u;
+    }
+  | {
+      readonly state: 'awaiting_source_contribution';
+      readonly linkSessionId: LinkDeviceSessionId;
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
     }
   | {
       readonly state: 'active';
@@ -379,16 +391,7 @@ export type LinkedDeviceWebAuthnRegistrationV1 = {
  * Activation identities are never accepted from a credential registration.
  */
 export type OrdinarySignerMaterialReservationPreparationV1 =
-  | {
-      readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
-      readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-      readonly participantIds: readonly [number, number];
-    }
-  | {
-      readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';
-      readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
-      readonly materialActivation: MpcMaterialActivationRef;
-    };
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1;
 
 /**
  * Public recipient requirements allocated by the server during target
@@ -560,7 +563,11 @@ export type LinkedDeviceSessionProjectionV1 = {
 export type LinkedDevicePendingSessionStateV1 = Extract<
   LinkedDeviceSessionState,
   {
-    readonly state: 'awaiting_target_factor' | 'provisioning' | 'committed_completion_required';
+    readonly state:
+      | 'awaiting_target_factor'
+      | 'awaiting_source_contribution'
+      | 'provisioning'
+      | 'committed_completion_required';
   }
 >;
 
@@ -692,6 +699,16 @@ export type LinkSessionStateV1 =
     }
   | {
       readonly state: 'awaiting_target_factor';
+      readonly deviceId: DeviceId;
+      readonly authorityId?: never;
+      readonly packageSetDigestB64u?: never;
+      readonly activatedAtMs?: never;
+      readonly error?: never;
+      readonly cancelledAtMs?: never;
+      readonly expiredAtMs?: never;
+    }
+  | {
+      readonly state: 'awaiting_source_contribution';
       readonly deviceId: DeviceId;
       readonly authorityId?: never;
       readonly packageSetDigestB64u?: never;

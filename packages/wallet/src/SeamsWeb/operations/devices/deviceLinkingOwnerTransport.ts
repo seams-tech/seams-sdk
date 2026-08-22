@@ -1,5 +1,7 @@
 import {
   parseLinkedDeviceApprovalResultV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  parseLinkSessionProjectionV1,
   parseLinkedDeviceSessionClaimV1,
 } from '@shared/device-linking';
 import type { LinkedDeviceApprovalResultV1 } from '@shared/device-linking';
@@ -7,6 +9,7 @@ import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/sign
 import { parseLinkedDeviceEd25519ExportRootRecipientV1 } from '@shared/device-linking/ed25519ExportRoot';
 import type {
   LinkSessionAuthenticationV1,
+  LinkSessionSnapshotV1,
   LinkSessionOwnerTransportPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
@@ -65,6 +68,27 @@ export function createDeviceLinkingOwnerTransportV1(
       });
       return parseOwnerResponseV1(response, parseLinkedDeviceApprovalResultV1);
     },
+    getSourceContributionPreparationV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'GET',
+        canonicalPath: `${sessionPath(input.linkSessionId)}/source-contribution-preparation`,
+        authentication: input.authentication,
+      });
+      if (response.status === 204) return null;
+      return parseOwnerResponseV1(
+        response,
+        parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+      );
+    },
+    recordSourceContributionV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `${sessionPath(input.approval.linkSessionId)}/source-contribution`,
+        body: input.approval,
+        authentication: input.authentication,
+      });
+      return parseOwnerResponseV1(response, parseSourceContributionSessionResponseV1);
+    },
     getApprovalV1: options.approvalUpdates.getApprovalV1,
     getEd25519ExportRootRecipientV1: async (input) => {
       const response = await options.request.requestOwnerV1({
@@ -112,6 +136,13 @@ function parseOwnerFailureMessageV1(response: {
     return `linked-device owner request failed: ${response.body.message}`;
   }
   return `linked-device owner request failed with HTTP ${response.status}`;
+}
+
+function parseSourceContributionSessionResponseV1(raw: unknown): LinkSessionSnapshotV1 {
+  if (!isRecord(raw) || !('session' in raw)) {
+    throw new Error('linked-device source contribution response is invalid');
+  }
+  return parseLinkSessionProjectionV1(raw.session);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

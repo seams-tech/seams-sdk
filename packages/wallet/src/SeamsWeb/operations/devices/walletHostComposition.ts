@@ -15,7 +15,10 @@ import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
 } from './deviceLinkingOwnerTransport';
-import type { DeviceLinkingOwnerAuthorizationPortV1 } from './deviceLinkingPorts';
+import type {
+  DeviceLinkingOwnerAuthorizationPortV1,
+  DeviceLinkingSourceContributionPortV1,
+} from './deviceLinkingPorts';
 import type { LinkedDeviceManagementPortV1 } from '@/SeamsWeb/publicApi/devices';
 import type { WalletHostManagementRequestV1 } from './walletHostOwnerAuthority';
 
@@ -34,6 +37,7 @@ export type WalletHostCompositionDependenciesV1 = {
   readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  readonly sourceContribution: DeviceLinkingSourceContributionPortV1;
   /** The wallet custody worker both devices drive for the seed transfer. */
   readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
   readonly managementRequest: WalletHostManagementRequestV1;

@@ -121,6 +121,8 @@ import {
   type WalletCapabilitySubjectV1,
 } from './contracts';
 import {
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   parseLinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
 } from './sourceContribution';
 
@@ -324,6 +326,12 @@ const SESSION_STATE_FIELDS = {
     'enrollmentId',
     'targetFactor',
     'credentialDeadlineMs',
+  ],
+  awaiting_source_contribution: [
+    'state',
+    'linkSessionId',
+    'walletId',
+    'enrollmentId',
   ],
   provisioning: ['state', 'linkSessionId', 'walletId', 'enrollmentId', 'keyManifestDigestB64u'],
   active: ['state', 'linkSessionId', 'walletId', 'enrollmentId', 'activatedAtMs'],
@@ -1169,6 +1177,13 @@ function parseStateRecord(record: UnknownRecord): LinkedDeviceSessionState {
       };
     case 'awaiting_target_factor':
       return parseAwaitingTargetFactorState(exact, linkSessionId);
+    case 'awaiting_source_contribution':
+      return {
+        state,
+        linkSessionId,
+        walletId: parseWallet(exact.walletId, `${state}.walletId`),
+        enrollmentId: parseEnrollmentId(exact.enrollmentId, `${state}.enrollmentId`),
+      };
     case 'provisioning':
       return {
         state,
@@ -1318,6 +1333,7 @@ export function parseLinkSessionStateV1(raw: unknown): LinkSessionStateV1 {
       return { state: 'displaying_qr' };
     case 'claimed':
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
       exactRecord(initial, ['state', 'deviceId'], `LinkSessionStateV1.${initial.state}`);
       return {
@@ -1454,6 +1470,7 @@ function parsePendingApprovalState(raw: unknown): LinkedDevicePendingSessionStat
   const state = parseLinkedDeviceSessionState(raw);
   switch (state.state) {
     case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
     case 'provisioning':
     case 'committed_completion_required':
       return state;
@@ -1870,74 +1887,18 @@ function parseLinkedDeviceWebAuthnRegistrationV1(raw: unknown): LinkedDeviceWebA
 
 function parseOrdinarySignerMaterialPreparationV1(
   raw: unknown,
-  index: number,
+  _index: number,
 ): OrdinarySignerMaterialReservationPreparationV1 {
-  const label = `LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations[${index}]`;
-  const record = requireRecord(raw, label);
-  if (record.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
-    exactRecord(record, ['kind', 'activationRequest', 'participantIds'], label);
-    const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-      record.activationRequest,
-    );
-    if (!parsed.ok) throw new Error(`${label}.activationRequest ${parsed.message}`);
-    return {
-      kind: record.kind,
-      activationRequest: parsed.value,
-      participantIds: parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds),
-    };
-  }
-  if (record.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
-    exactRecord(record, ['kind', 'registrationRequest', 'materialActivation'], label);
-    const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
-    if (!materialActivation.ok) throw new Error(`${label}.materialActivation ${materialActivation.error.message}`);
-    return {
-      kind: record.kind,
-      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
-      materialActivation: materialActivation.value,
-    };
-  }
-  throw new Error(`${label}.kind is invalid`);
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationV1(raw);
 }
 
 function parseOrdinarySignerMaterialPreparationsV1(
   raw: unknown,
-): [OrdinarySignerMaterialReservationPreparationV1, ...OrdinarySignerMaterialReservationPreparationV1[]] {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 2) {
-    throw new Error(
-      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations must contain one or two entries',
-    );
-  }
-  const preparations = raw.map((entry, index) =>
-    parseOrdinarySignerMaterialPreparationV1(entry, index),
-  );
-  const kinds = preparations.map((entry) => entry.kind);
-  if (new Set(kinds).size !== kinds.length) {
-    throw new Error(
-      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations repeats a key family',
-    );
-  }
-  if (
-    preparations.length === 2 &&
-    (preparations[0]?.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1' ||
-      preparations[1]?.kind !== 'ordinary_ecdsa_signer_material_reservation_preparation_v1')
-  ) {
-    throw new Error(
-      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations must be ordered Ed25519 then ECDSA',
-    );
-  }
-  const activations = preparations.map((entry) =>
-    entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
-      ? routerAbMpcMaterialActivationRefFromWire(entry.activationRequest.binding.material_activation)
-      : entry.materialActivation,
-  );
-  if (activations.length === 2 && activations[0]?.activationId === activations[1]?.activationId) {
-    throw new Error(
-      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations repeats an activation reference',
-    );
-  }
-  const first = preparations[0];
-  if (!first) throw new Error('ordinary signer material preparations are empty');
-  return [first, ...preparations.slice(1)];
+): readonly [
+  OrdinarySignerMaterialReservationPreparationV1,
+  ...OrdinarySignerMaterialReservationPreparationV1[],
+] {
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(raw);
 }
 
 function parseOrdinarySignerMaterialRecipientRequestV1(
