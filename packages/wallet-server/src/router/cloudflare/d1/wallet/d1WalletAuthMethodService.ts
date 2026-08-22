@@ -41,14 +41,6 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import {
-  buildLinkedOwnerPasskeyAuthBindingV1,
-  revokeLinkedOwnerAuthBindingV1,
-} from '@shared/device-linking/ownerAuthBinding';
-import type {
-  LinkedDeviceOwnerAuthBindingPortV1,
-  LinkedDeviceOwnerAuthBindingWriterV1,
-} from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import type {
   D1WalletAuthMethodStore,
@@ -309,11 +301,6 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly sha256Bytes: Sha256Bytes;
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
 
-  private readonly linkedDeviceOwnerAuthBindings?: LinkedDeviceOwnerAuthBindingWriterV1;
-  private readonly linkedDeviceOwnerAuthBindingStore?: Pick<
-    LinkedDeviceOwnerAuthBindingPortV1,
-    'readByAuthMethodV1' | 'buildLifecycleUpdateV1'
-  >;
   private readonly revokeOwnerWalletSessions?: OwnerWalletSessionRevocationV1;
 
   constructor(input: {
@@ -324,16 +311,6 @@ export class CloudflareD1WalletAuthMethodService {
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly sha256Bytes: Sha256Bytes;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
-    /**
-     * Optional only where device linking is not deployed. A finalize that
-     * carries a linked-device enrollment without it fails closed rather than
-     * writing an owner credential no enrollment points at.
-     */
-    readonly linkedDeviceOwnerAuthBindings?: LinkedDeviceOwnerAuthBindingWriterV1;
-    readonly linkedDeviceOwnerAuthBindingStore?: Pick<
-      LinkedDeviceOwnerAuthBindingPortV1,
-      'readByAuthMethodV1' | 'buildLifecycleUpdateV1'
-    >;
     readonly revokeOwnerWalletSessions?: OwnerWalletSessionRevocationV1;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
@@ -343,49 +320,7 @@ export class CloudflareD1WalletAuthMethodService {
     this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
-    this.linkedDeviceOwnerAuthBindings = input.linkedDeviceOwnerAuthBindings;
-    this.linkedDeviceOwnerAuthBindingStore = input.linkedDeviceOwnerAuthBindingStore;
     this.revokeOwnerWalletSessions = input.revokeOwnerWalletSessions;
-  }
-
-  /**
-   * Builds the Phase 8 binding insert, or nothing when this finalize is an
-   * ordinary owner add-passkey.
-   *
-   * Every fact here comes from the server's own admission — never from the
-   * request — and the auth-method id is derived inside the builder from the
-   * credential this ceremony just verified, so the binding cannot name a
-   * credential other than the one being registered.
-   */
-  private buildLinkedDeviceOwnerAuthBindingStatement(input: {
-    readonly authorization: WalletAddAuthMethodFinalizeAuthorizationV1;
-    readonly walletId: WalletId;
-    readonly rpId: WebAuthnRpId;
-    readonly credentialIdB64u: string;
-    readonly now: number;
-  }):
-    | { readonly kind: 'statements'; readonly statements: readonly D1PreparedStatementLike[] }
-    | { readonly kind: 'unavailable' }
-    | { readonly kind: 'wallet_mismatch' } {
-    const authorization = input.authorization;
-    if (authorization.kind === 'owner') return { kind: 'statements', statements: [] };
-    const writer = this.linkedDeviceOwnerAuthBindings;
-    if (!writer) return { kind: 'unavailable' };
-    // The admission was proved against a link session, and the ceremony was
-    // resolved from this request. Both name a wallet, and a binding is only
-    // meaningful if they are the same one.
-    if (authorization.admission.walletId !== input.walletId) return { kind: 'wallet_mismatch' };
-    const binding = buildLinkedOwnerPasskeyAuthBindingV1({
-      tenantId: authorization.tenantId,
-      walletId: input.walletId,
-      enrollmentId: authorization.admission.enrollmentId,
-      deviceId: authorization.admission.deviceId,
-      keyManifestDigestB64u: authorization.admission.keyManifestDigestB64u,
-      activatedAtMs: input.now,
-      rpId: input.rpId,
-      credentialIdB64u: requireStoredCredentialId(input.credentialIdB64u),
-    });
-    return { kind: 'statements', statements: [writer.buildInsertV1(binding).statement] };
   }
 
   async startWalletAddAuthMethod(
@@ -662,27 +597,14 @@ export class CloudflareD1WalletAuthMethodService {
       if (ceremony.kind === 'passkey') {
         const hasWebAuthnRegistration = request.webauthnRegistration !== undefined;
         const hasCustodyEnvelope = request.custodyEnvelope !== undefined;
-        const linkedFinalizeWithoutCustody =
-          request.authorization.kind === 'linked_device' && !hasCustodyEnvelope;
-        if (
-          !hasWebAuthnRegistration ||
-          (!hasCustodyEnvelope && !linkedFinalizeWithoutCustody) ||
-          (hasCustodyEnvelope && request.authorization.kind === 'linked_device')
-        ) {
+        if (!hasWebAuthnRegistration || !hasCustodyEnvelope) {
           return {
             ok: false,
             code: 'invalid_body',
-            message:
-              request.authorization.kind === 'linked_device'
-                ? 'Linked-device passkey finalize does not accept a custody envelope'
-                : 'Passkey add-auth-method finalize requires registration and custody envelope',
+            message: 'Passkey add-auth-method finalize requires registration and custody envelope',
           };
         }
-        const expectedOrigin = toOptionalTrimmedString(
-          request.authorization.kind === 'linked_device'
-            ? request.authorization.expectedOrigin
-            : ceremony.expectedOrigin,
-        );
+        const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
         if (!expectedOrigin) {
           return {
             ok: false,
@@ -786,31 +708,6 @@ export class CloudflareD1WalletAuthMethodService {
           credentialIdB64u: credential.credentialIdB64u,
           now,
         });
-        // Refactor 103 Phase 8: when a linked device is the one adding this
-        // factor, its owner-auth binding joins the same batch. Writing it
-        // afterwards would leave a window where the wallet has an auth method
-        // no device owns.
-        const linkedDeviceBinding = this.buildLinkedDeviceOwnerAuthBindingStatement({
-          authorization: request.authorization,
-          walletId,
-          rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
-          credentialIdB64u: credential.credentialIdB64u,
-          now,
-        });
-        if (linkedDeviceBinding.kind === 'unavailable') {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'Linked-device owner auth bindings are not configured',
-          };
-        }
-        if (linkedDeviceBinding.kind === 'wallet_mismatch') {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'linked-device admission and add-auth-method ceremony name different wallets',
-          };
-        }
         const response: Extract<WalletAddAuthMethodFinalizeResponse, { ok: true }> = {
           ok: true,
           walletId,
@@ -847,7 +744,6 @@ export class CloudflareD1WalletAuthMethodService {
             }),
             this.webAuthnStore.prepareCredentialBindingInsertStatement(binding),
             ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
-            ...linkedDeviceBinding.statements,
             ...replayStatements,
             // Last, so the session CAS guard sees `changes()` from its own
             // update rather than from a statement that follows it.
@@ -1092,38 +988,6 @@ export class CloudflareD1WalletAuthMethodService {
     return { ok: true };
   }
 
-  async verifyActiveLinkedEmailOtpAuthority(input: {
-    readonly walletId: WalletId;
-    readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
-    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-    readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
-    readonly baseWalletAuthMethodId: WalletAuthMethodId;
-  }): Promise<{ readonly ok: true } | WalletAuthMethodError> {
-    const binding = this.linkedDeviceOwnerAuthBindingStore
-      ? await this.linkedDeviceOwnerAuthBindingStore.readByAuthMethodV1({
-          walletId: input.walletId,
-          walletAuthMethodId: input.linkedOwnerAuthMethodId,
-        })
-      : null;
-    if (
-      !binding ||
-      binding.walletId !== input.walletId ||
-      binding.enrollmentId !== input.enrollmentId ||
-      binding.deviceId !== input.deviceId ||
-      binding.walletAuthMethodId !== input.linkedOwnerAuthMethodId ||
-      binding.lifecycle.state !== 'active' ||
-      binding.factor.kind !== 'email_otp' ||
-      binding.factor.baseWalletAuthMethodId !== input.baseWalletAuthMethodId
-    ) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'Linked Email OTP device authority is not active for this wallet',
-      };
-    }
-    return { ok: true };
-  }
-
   async resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
     readonly walletId: string;
     readonly providerUserId: string;
@@ -1347,44 +1211,6 @@ export class CloudflareD1WalletAuthMethodService {
     readonly requestedAtMs: number;
   }): Promise<LinkedOwnerAuthMethodRevocationResultV1> {
     try {
-      // Refactor 103 Phase 6: a derived linked Email OTP owner is a binding,
-      // not a wallet_auth_methods row. Revoking that device retires only its
-      // binding and its linked Wallet Sessions — the shared base Email OTP
-      // factor and every sibling linked device stay active.
-      if (this.linkedDeviceOwnerAuthBindingStore) {
-        const linkedBinding = await this.linkedDeviceOwnerAuthBindingStore.readByAuthMethodV1({
-          walletId: input.walletId,
-          walletAuthMethodId: input.walletAuthMethodId,
-        });
-        if (linkedBinding && linkedBinding.factor.kind === 'email_otp') {
-          if (linkedBinding.lifecycle.state === 'revoked') {
-            if (this.revokeOwnerWalletSessions) {
-              await this.revokeOwnerWalletSessions({
-                walletId: input.walletId,
-                walletAuthMethodId: input.walletAuthMethodId,
-                requestedAtMs: input.requestedAtMs,
-              });
-            }
-            return { kind: 'replayed' };
-          }
-          const revokedBinding = revokeLinkedOwnerAuthBindingV1({
-            binding: linkedBinding,
-            revokedAtMs: input.requestedAtMs,
-          });
-          if (!revokedBinding.ok) return { kind: 'conflict' };
-          await this.linkedDeviceOwnerAuthBindingStore
-            .buildLifecycleUpdateV1(revokedBinding.binding, linkedBinding.revocationEpoch)
-            .statement.run();
-          if (this.revokeOwnerWalletSessions) {
-            await this.revokeOwnerWalletSessions({
-              walletId: input.walletId,
-              walletAuthMethodId: input.walletAuthMethodId,
-              requestedAtMs: input.requestedAtMs,
-            });
-          }
-          return { kind: 'applied' };
-        }
-      }
       const walletAuthMethodStore = this.getWalletAuthMethodStore();
       const walletMethods = await walletAuthMethodStore.listForWallet({
         walletId: input.walletId,
@@ -1426,32 +1252,6 @@ export class CloudflareD1WalletAuthMethodService {
       record: input.targetRecord,
       updatedAtMs: input.revokedAtMs,
     });
-    const binding = this.linkedDeviceOwnerAuthBindingStore
-      ? await this.linkedDeviceOwnerAuthBindingStore.readByAuthMethodV1({
-          walletId: input.walletId,
-          walletAuthMethodId: walletAuthMethodRecordId(input.targetRecord),
-        })
-      : null;
-    const revokedBinding = binding
-      ? revokeLinkedOwnerAuthBindingV1({
-          binding,
-          revokedAtMs: input.revokedAtMs,
-        })
-      : null;
-    if (revokedBinding && !revokedBinding.ok) {
-      return {
-        ok: false,
-        code: 'conflict',
-        message: 'linked owner auth binding cannot be revoked',
-      };
-    }
-    const bindingStatement =
-      revokedBinding?.ok && this.linkedDeviceOwnerAuthBindingStore
-        ? this.linkedDeviceOwnerAuthBindingStore.buildLifecycleUpdateV1(
-            revokedBinding.binding,
-            binding?.revocationEpoch ?? 0,
-          ).statement
-        : null;
     if (input.targetRecord.kind === 'passkey') {
       const custodyResult = await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
         walletId: input.walletId,
@@ -1467,7 +1267,6 @@ export class CloudflareD1WalletAuthMethodService {
             expectedUpdatedAtMs: input.targetRecord.updatedAtMs,
             revokedAtMs: input.revokedAtMs,
           }),
-          ...(bindingStatement ? [bindingStatement] : []),
         ],
       });
       if (custodyResult.kind === 'refused') {
@@ -1482,7 +1281,6 @@ export class CloudflareD1WalletAuthMethodService {
       }
     } else {
       await walletAuthMethodStore.put(revokedRecord);
-      if (bindingStatement) await bindingStatement.run();
     }
     if (this.revokeOwnerWalletSessions) {
       await this.revokeOwnerWalletSessions({

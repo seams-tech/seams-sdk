@@ -18,7 +18,6 @@ import type {
   LinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking/contracts';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking/digests';
-import type { LinkedOwnerEmailOtpBaseFactorReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import { linkedOwnerEmailOtpBaseAuthMethodIdV1 } from '@shared/device-linking/ownerAuthBinding';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -36,7 +35,10 @@ import {
   computeLinkedDeviceEmailOtpGrantTokenDigestV1,
   parseLinkedDeviceEmailOtpGrantRecordV1,
 } from '../../../../core/deviceLinking/linkedDeviceEmailOtpGrant';
-import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type {
+  LinkedDeviceEmailOtpBaseFactorReaderV1,
+  LinkedDeviceSessionRecordV1,
+} from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { EmailOtpWalletEnrollmentRecord } from '../../../../core/EmailOtpStores';
 import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type { DeviceLinkingEmailOtpTargetFactorProviderV1 } from '../../../transport/fetch/routes/deviceLinking';
@@ -65,13 +67,12 @@ type ResolvedBaseFactorV1 = {
 };
 
 type SentEmailOtpChallengeV1 = Extract<
-  Extract<
-    LinkedDeviceSessionRecordV1['state'],
-    {
-      readonly state: 'awaiting_target_factor';
-      readonly targetFactor: { readonly kind: 'email_otp' };
-    }
-  >['emailOtpChallenge'],
+  NonNullable<
+    Extract<
+      LinkedDeviceSessionRecordV1,
+      { readonly targetFactor: { readonly kind: 'email_otp' } }
+    >['emailOtpChallenge']
+  >,
   { readonly state: 'sent' }
 >;
 
@@ -79,11 +80,13 @@ function resolveSentEmailOtpChallengeV1(
   session: LinkedDeviceSessionRecordV1,
   challengeId: string,
 ): SentEmailOtpChallengeV1 | null {
-  const state = session.state;
-  if (state.state !== 'awaiting_target_factor' || state.targetFactor.kind !== 'email_otp') {
+  if (
+    session.state.state !== 'awaiting_target_factor' ||
+    session.targetFactor?.kind !== 'email_otp'
+  ) {
     return null;
   }
-  const challenge = state.emailOtpChallenge;
+  const challenge = session.emailOtpChallenge;
   if (!challenge || challenge.state !== 'sent' || challenge.challengeId !== challengeId) {
     return null;
   }
@@ -461,7 +464,7 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
 /** The provenance reader the session service consumes at approval time. */
 export function linkedDeviceEmailOtpBaseFactorReaderV1(
   provider: D1LinkedDeviceEmailOtpTargetFactorV1,
-): LinkedOwnerEmailOtpBaseFactorReaderV1 {
+): LinkedDeviceEmailOtpBaseFactorReaderV1 {
   return {
     readActiveEmailOtpBaseFactorV1: (input) => provider.readActiveEmailOtpBaseFactorV1(input),
   };

@@ -51,11 +51,6 @@ import {
 } from '@shared/signing-lanes/ids';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
-import {
-  admitLinkedOwnerEnrollmentProvenanceV1,
-  type LinkedOwnerEmailOtpBaseFactorReaderV1,
-  type LinkedOwnerEnrollmentCeremonyReaderV1,
-} from './linkedOwnerEnrollmentProvenance';
 
 type LinkedDeviceClaimV1 = LinkedDeviceSessionClaimV1;
 
@@ -210,6 +205,12 @@ export type LinkedDeviceOwnerAuthorizationContextV1 = {
   readonly permission: DelegatedWalletAuthorityV1;
   readonly curve: 'ed25519' | 'ecdsa';
   readonly keyManifestDigestB64u: DigestB64u;
+};
+
+export type LinkedDeviceEmailOtpBaseFactorReaderV1 = {
+  readActiveEmailOtpBaseFactorV1(input: { readonly walletId: WalletId }): Promise<{
+    readonly baseWalletAuthMethodId: import('@shared/utils/domainIds').WalletAuthMethodId;
+  } | null>;
 };
 
 export type LinkedDeviceOwnerAuthorizationPortV1 = {
@@ -414,25 +415,22 @@ export type LinkedDeviceSessionActivationInputV1 = {
   readonly nowMs: number;
 };
 
-const FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1: LinkedOwnerEmailOtpBaseFactorReaderV1 = {
+const FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1: LinkedDeviceEmailOtpBaseFactorReaderV1 = {
   readActiveEmailOtpBaseFactorV1: () => Promise.resolve(null),
 };
 
 export class LinkedDeviceSessionServiceV1 {
   private readonly store: LinkedDeviceSessionStoreV1;
   private readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
-  private readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
-  private readonly emailOtpBaseFactors: LinkedOwnerEmailOtpBaseFactorReaderV1;
+  private readonly emailOtpBaseFactors: LinkedDeviceEmailOtpBaseFactorReaderV1;
 
   constructor(input: {
     readonly store: LinkedDeviceSessionStoreV1;
     readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
-    readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
-    readonly emailOtpBaseFactors?: LinkedOwnerEmailOtpBaseFactorReaderV1;
+    readonly emailOtpBaseFactors?: LinkedDeviceEmailOtpBaseFactorReaderV1;
   }) {
     this.store = input.store;
     this.authorization = input.authorization;
-    this.ownerEnrollmentCeremonies = input.ownerEnrollmentCeremonies;
     this.emailOtpBaseFactors =
       input.emailOtpBaseFactors ?? FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1;
   }
@@ -532,16 +530,16 @@ export class LinkedDeviceSessionServiceV1 {
       );
       if (requestedAuthorityError)
         return unauthorizedResult('unauthorized', requestedAuthorityError);
-      const provenance = await admitLinkedOwnerEnrollmentProvenanceV1({
-        approval,
-        ceremonies: this.ownerEnrollmentCeremonies,
-        emailOtpBaseFactors: this.emailOtpBaseFactors,
-        requestedAtMs: nowMs,
-      });
-      if (!provenance.ok) {
+      if (approval.ownerEnrollment.expiresAtMs <= nowMs) {
         return unauthorizedResult(
-          'linked_device_owner_enrollment_rejected',
-          `linked-device owner enrollment ceremony rejected: ${provenance.reason}`,
+          'linked_device_owner_enrollment_expired',
+          'linked-device owner enrollment has expired',
+        );
+      }
+      if (approval.ownerEnrollment.targetFactor.kind !== approval.targetFactor.kind) {
+        return unauthorizedResult(
+          'linked_device_owner_enrollment_mismatch',
+          'linked-device owner enrollment factor does not match the target factor',
         );
       }
       const authorization = await this.authorization.authorizeOwnerApprovalV1({

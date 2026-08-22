@@ -63,7 +63,6 @@ import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   resolveOpaqueOwnerWalletSessionAdmission,
 } from '../../auth/commonRouterUtils';
-import { parseLinkedDeviceWalletSessionForCurve } from '../signingOperations/linkedDeviceNormalSigning';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { enforceRoutePolicy } from '../../framework/enforceRoutePolicy';
 import type { NormalizedRouterLogger } from '../../framework/logger';
@@ -81,10 +80,6 @@ import type { RouteDefinition } from '../../framework/routeDefinitions';
 import type { RouteErrorBody } from '../../framework/routeResponses';
 import { routeError, routeJson } from '../../framework/routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
-import {
-  sameDelegatedWalletAuthorityV1,
-  type DelegatedWalletAuthorityV1,
-} from '@shared/authorization/delegatedAuthority';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
@@ -821,22 +816,7 @@ async function resolveRouteOpaqueOwnerWalletSession(
 }
 
 type NearFundingWalletSessionAdmission =
-  | {
-      readonly kind: 'owner';
-      readonly walletId: string;
-      readonly nearAccountId: string;
-    }
-  | {
-      readonly kind: 'linked_device';
-      readonly walletId: string;
-    };
-
-function linkedDevicePermissionsMatch(
-  left: DelegatedWalletAuthorityV1,
-  right: DelegatedWalletAuthorityV1,
-): boolean {
-  return sameDelegatedWalletAuthorityV1(left, right);
-}
+  { readonly kind: 'owner'; readonly walletId: string; readonly nearAccountId: string };
 
 async function resolveRouteNearFundingWalletSession(
   input: RouterApiWalletRegistrationInput,
@@ -849,34 +829,7 @@ async function resolveRouteNearFundingWalletSession(
       nearAccountId: owner.binding.nearAccountId,
     };
   }
-  const linked = await parseLinkedDeviceWalletSessionForCurve({
-    curve: 'ed25519',
-    session: input.services.session,
-    headers: input.headers,
-  });
-  if (linked.kind !== 'linked_device') return null;
-  const persisted =
-    await input.services.authorizationSessions.readLinkedDeviceWalletSessionAuthorization({
-      tenantId: linked.claims.tenantId,
-      deviceId: linked.claims.deviceId,
-      authorizationId: linked.claims.authorizationId,
-      walletSessionId: linked.claims.walletSessionId,
-      quotaId: linked.claims.quotaId,
-      nowMs: Date.now(),
-    });
-  const authorization = persisted?.authorization;
-  if (
-    !authorization ||
-    authorization.walletId !== linked.claims.walletId ||
-    authorization.enrollmentId !== linked.claims.enrollmentId ||
-    authorization.deviceId !== linked.claims.deviceId ||
-    authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
-    authorization.revocationEpoch !== linked.claims.revocationEpoch ||
-    !linkedDevicePermissionsMatch(authorization.permission, linked.claims.permission)
-  ) {
-    return null;
-  }
-  return { kind: 'linked_device', walletId: linked.claims.walletId };
+  return null;
 }
 
 async function parseWalletAddSignerStartBody(
@@ -2626,7 +2579,7 @@ export async function handleRouterApiWalletNearImplicitAccountFund(
   if (admission.walletId !== parsedBody.value.walletId) {
     return routeError(403, 'forbidden', 'Wallet session does not match walletId');
   }
-  if (admission.kind === 'owner' && admission.nearAccountId !== parsedBody.value.nearAccountId) {
+  if (admission.nearAccountId !== parsedBody.value.nearAccountId) {
     return routeError(403, 'forbidden', 'Wallet session does not match nearAccountId');
   }
 

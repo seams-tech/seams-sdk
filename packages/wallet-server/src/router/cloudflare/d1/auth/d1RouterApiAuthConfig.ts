@@ -12,14 +12,10 @@ import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa
 import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
 import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
-import type { NormalizedLogger } from '../../../../core/logger';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
-import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from '../deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorProvider';
-import type { RouterAbEd25519YaoActivationKeysetV1 } from '@shared/utils/routerAbEd25519Yao';
-import type { CloudflareLaneServiceBindingV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
-import type { SessionAdapter } from '../../../framework/routerApi';
+import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
+import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
+import type { DeviceManagementRouteServiceV1 } from '../../../transport/fetch/routes/deviceManagement';
 
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
   readonly challengeId: string;
@@ -51,51 +47,22 @@ export type CloudflareD1EmailOtpServerSealConfig = {
   readonly acceptedWarmKeyVersions?: readonly string[];
 };
 
-export type CloudflareD1LinkedDeviceExecutionOptionsV1 = {
-  readonly nowV1: () => number;
-  readonly rpId: WebAuthnRpId;
-  readonly expectedOrigin: string;
-  readonly logger: NormalizedLogger;
-};
-
-/** Service bindings and admission material for the D1-owned lane runtime. */
-export type CloudflareD1LinkedDeviceLaneRuntimeOptionsV1 = {
-  readonly router: CloudflareLaneServiceBindingV1;
-  readonly signingWorker: CloudflareLaneServiceBindingV1;
-  readonly internalServiceAuth: string;
-  readonly ed25519YaoKeyset: RouterAbEd25519YaoActivationKeysetV1;
-};
-
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
-  /** Session verifier used for the owner Wallet Session request boundary. */
-  readonly session: SessionAdapter;
-  readonly laneRuntime: CloudflareD1LinkedDeviceLaneRuntimeOptionsV1;
-  /** Gateway-owned authenticated target deployment authority for both curves. */
-  readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
-};
-
-export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
-  /** Presence enables the owner-authenticated management routes. */
-  readonly enabled?: never;
-};
-
-export type CloudflareD1LinkedDeviceGatewayOptionsV1 = {
+  /** Owner Wallet Session authority after its boundary parser has run. */
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
-  readonly authenticateGatewayRequestV1: DeviceLinkingGatewayCompletionServiceV1['authenticateGatewayRequestV1'];
-};
-
-type CloudflareD1LinkedDeviceCompositionWithoutSessionV1 = {
-  readonly execution: CloudflareD1LinkedDeviceExecutionOptionsV1;
-  readonly session?: never;
-  readonly management?: never;
-  readonly gateway?: CloudflareD1LinkedDeviceGatewayOptionsV1;
+  readonly ownerAuthorizationRoute: DeviceLinkingOwnerAuthorizationRouteServiceV1;
+  readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
+  readonly nowV1?: () => number;
+  readonly management?: DeviceManagementRouteServiceV1;
 };
 
 type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
-  readonly execution: CloudflareD1LinkedDeviceExecutionOptionsV1;
   readonly session: CloudflareD1LinkedDeviceSessionOptionsV1;
-  readonly management?: CloudflareD1LinkedDeviceManagementOptionsV1;
-  readonly gateway?: CloudflareD1LinkedDeviceGatewayOptionsV1;
+};
+
+type CloudflareD1LinkedDeviceCompositionDisabledV1 = {
+  readonly session?: never;
+  readonly management?: never;
 };
 
 /**
@@ -103,7 +70,7 @@ type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
  * external boundary; omitted surfaces stay fail-closed at their route.
  */
 export type CloudflareD1LinkedDeviceCompositionOptionsV1 =
-  | CloudflareD1LinkedDeviceCompositionWithoutSessionV1
+  | CloudflareD1LinkedDeviceCompositionDisabledV1
   | CloudflareD1LinkedDeviceCompositionWithSessionV1;
 
 export type CloudflareD1GithubOAuthConfig = {

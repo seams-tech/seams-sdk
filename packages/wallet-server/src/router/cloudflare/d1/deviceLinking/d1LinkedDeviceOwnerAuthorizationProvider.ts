@@ -1,6 +1,7 @@
 import type {
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
+  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceProtocolVersionV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
@@ -53,7 +54,6 @@ import type {
   D1LinkedDeviceTargetPlannerOptionsV1,
   D1LinkedDeviceTargetPlannerV1,
 } from './d1LinkedDeviceTargetPlanner';
-import type { D1LinkedDeviceOwnerPlanningSnapshotWriterV1 } from './d1LinkedDeviceOwnerPlanningSnapshotWriter';
 import { D1LinkedDeviceTargetPlannerV1 as TargetPlanner } from './d1LinkedDeviceTargetPlanner';
 import { computeLinkedDevicePublicKeyDigestV1 } from '../../../../core/deviceLinking/requestProof';
 
@@ -92,7 +92,14 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
 };
 
 type D1LinkedDeviceOwnerAuthorizationPlanningWriterV1 = {
-  writeV1(input: Parameters<D1LinkedDeviceOwnerPlanningSnapshotWriterV1['writeV1']>[0]): Promise<
+  writeV1(input: {
+    readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
+    readonly orderedOwnerSourceLaneHints: readonly [
+      LinkedDeviceOwnerSourceLaneV1,
+      ...LinkedDeviceOwnerSourceLaneV1[],
+    ];
+  }): Promise<
     | {
         readonly outcome: 'applied' | 'replayed';
         readonly snapshot: { readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataV1 };
@@ -211,10 +218,10 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
         return denied('invalid', 'linked-device approval session is not owner-claimed');
       }
       if (
-        input.session.state.walletId !== input.owner.walletId ||
+        input.session.claimTranscript.value.walletId !== input.owner.walletId ||
         input.approval.walletId !== input.owner.walletId ||
         input.approval.linkSessionId !== input.session.linkSessionId ||
-        input.approval.enrollmentId !== input.session.state.enrollmentId ||
+        input.approval.enrollmentId !== input.session.claimTranscript.value.enrollmentId ||
         input.approval.deviceId !== input.session.claimTranscript.value.deviceId ||
         input.approval.linkPublicKeyB64u !== input.session.qrPayload.linkPublicKeyB64u ||
         input.approval.devicePublicKeyB64u !== input.session.qrPayload.devicePublicKeyB64u ||
@@ -529,9 +536,9 @@ function isApprovalSession(
   session: LinkedDeviceSessionRecordV1,
 ): session is Extract<
   LinkedDeviceSessionRecordV1,
-  { readonly state: { readonly state: 'claimed_by_owner' } }
+  { readonly state: { readonly state: 'claimed' } }
 > {
-  return session.state.state === 'claimed_by_owner' && session.claimTranscript !== undefined;
+  return session.state.state === 'claimed' && session.claimTranscript !== undefined;
 }
 
 function requireNonEmpty<T>(values: readonly T[], label: string): readonly [T, ...T[]] {

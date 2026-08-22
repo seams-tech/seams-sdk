@@ -1,5 +1,4 @@
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { LinkedOwnerEnrollmentAdmissionV1 } from '../../core/deviceLinking/linkedOwnerEnrollmentAdmission';
 import type {
   WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
@@ -44,11 +43,7 @@ import type { ResolvedEd25519WalletBinding } from '../../core/authService/webaut
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { DeviceLinkingRouteServiceV1 } from '../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../transport/fetch/routes/deviceManagement';
-import type { DeviceLinkingGatewayCompletionServiceV1 } from '../transport/fetch/routes/deviceLinkingGateway';
 import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../transport/fetch/routes/deviceLinkingOwnerAuthorization';
-import type { DeviceLinkingLaneGatewayRouteServiceV1 } from '../transport/fetch/routes/deviceLinkingLaneGateway';
-import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../auth/linkedDeviceLocalPresenceVerifier';
-import type { LinkedDeviceExecutionAdmissionResolverV1 } from '../domains/signingOperations/walletExecutionAdmission';
 import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
@@ -111,24 +106,7 @@ export type RevokeWalletAuthMethodCommand = Readonly<
   { subject: WalletAuthMethodManagementSubject } & Omit<WalletRevokeAuthMethodRequest, 'walletId'>
 >;
 
-/**
- * How a finalize was authorized, and the only way linked-device facts reach the
- * finalizer.
- *
- * The linked branch carries an admission that only
- * `admitLinkedOwnerEnrollmentFinalizeV1` produces, from an authenticated link
- * session and its persisted preparation. The public add-auth-method route has
- * neither, so it cannot construct this branch — which is the point: a caller
- * must not be able to claim its factor is a linked-device enrollment.
- */
-export type WalletAddAuthMethodFinalizeAuthorizationV1 =
-  | { readonly kind: 'owner' }
-  | {
-      readonly kind: 'linked_device';
-      readonly tenantId: TenantId;
-      readonly admission: LinkedOwnerEnrollmentAdmissionV1;
-      readonly expectedOrigin: string;
-    };
+export type WalletAddAuthMethodFinalizeAuthorizationV1 = { readonly kind: 'owner' };
 
 export type FinalizeWalletAddAuthMethodCommand = Readonly<
   {
@@ -197,14 +175,11 @@ import type {
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
-  IssuedLinkedDeviceWalletSession,
   IssuedOpaqueWalletSessionToken,
   OpaqueWalletSessionCurve,
   OpaqueOwnerWalletSessionBinding,
   ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
-  LinkedDeviceMaterialActivationScopeV1,
-  RenewLinkedDeviceWalletSessionInputV1,
 } from '../../authorization/service';
 import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
 
@@ -1087,15 +1062,6 @@ export interface RouterApiWalletAuthMethodService {
   ): Promise<
     { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   >;
-  verifyActiveLinkedEmailOtpAuthority(input: {
-    readonly walletId: WalletId;
-    readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
-    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-    readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
-    readonly baseWalletAuthMethodId: WalletAuthMethodId;
-  }): Promise<
-    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
-  >;
   resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
     readonly walletId: string;
     readonly providerUserId: string;
@@ -1311,16 +1277,8 @@ export interface RouterApiServiceBag {
   deviceLinking?: DeviceLinkingRouteServiceV1;
   /** Authenticated R103 linked-device projection and revocation transport. */
   deviceManagement?: DeviceManagementRouteServiceV1;
-  /** Durable active linked-device lane projection used by normal signing admission. */
-  linkedDeviceExecution?: LinkedDeviceExecutionAdmissionResolverV1;
-  /** Device-local user-presence verifier used by linked normal signing admission. */
-  linkedDeviceLocalPresence?: LinkedDeviceLocalPresenceVerifierPortV1;
-  /** Private Gateway completion endpoint for the linked-device activation commit. */
-  deviceLinkingGateway?: DeviceLinkingGatewayCompletionServiceV1;
   /** Request-scoped owner Wallet Session metadata for Device 1 approval. */
   deviceLinkingOwnerAuthorization?: DeviceLinkingOwnerAuthorizationRouteServiceV1;
-  /** Owner-authenticated Device 1 source preparation and protocol commit transport. */
-  deviceLinkingLaneGateway?: DeviceLinkingLaneGatewayRouteServiceV1;
 }
 
 export interface RouterApiAuthorizedOperationService {
@@ -1339,7 +1297,7 @@ export interface RouterApiAuthorizedOperationService {
   }): Promise<AuthorizedOperation | null>;
   admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope | LinkedDeviceMaterialActivationScopeV1;
+    readonly material?: EcdsaMaterialActivationScope;
   }): Promise<
     | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
     | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
@@ -1389,17 +1347,6 @@ export interface RouterApiAuthorizationSessionService {
     readonly quotaId: ReusableWalletSessionStatus['quotaId'];
     readonly nowMs: number;
   }): Promise<ReusableWalletSessionStatus>;
-  readLinkedDeviceWalletSessionAuthorization(input: {
-    readonly tenantId: TenantId;
-    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-    readonly authorizationId: import('@shared/authorization/capabilityKinds').LinkedDeviceWalletSessionAuthorizationId;
-    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
-    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
-    readonly nowMs: number;
-  }): Promise<IssuedLinkedDeviceWalletSession | null>;
-  renewLinkedDeviceWalletSession(
-    input: RenewLinkedDeviceWalletSessionInputV1,
-  ): Promise<IssuedLinkedDeviceWalletSession>;
   mintHostedWalletSeamsSessionExchange(input: {
     readonly tenantId: TenantId;
     readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;

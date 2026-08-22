@@ -39,13 +39,9 @@ import {
   type RouterAbEd25519YaoRecoveryFailure,
   type RouterAbEd25519YaoRecoveryServiceResult,
   type RouterAbEd25519YaoActiveCapabilityResolverV1,
-  buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1,
   type RouterAbEd25519YaoWarmRecoveryBootstrapV1,
 } from './routerAbEd25519YaoRecovery';
-import {
-  warmBootstrapCapabilityMatchesLinkedDeviceIdentity,
-  warmBootstrapCapabilityMatchesStableIdentity,
-} from './routerAbEd25519YaoRecovery';
+import { warmBootstrapCapabilityMatchesStableIdentity } from './routerAbEd25519YaoRecovery';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519SessionId,
@@ -481,8 +477,7 @@ async function runWarmRecoveryBootstrapRequest(
     );
   }
   if (
-    authorized.authorization.kind !== 'wallet_session' &&
-    authorized.authorization.kind !== 'linked_device_wallet_session'
+    authorized.authorization.kind !== 'wallet_session'
   ) {
     return json(
       {
@@ -505,32 +500,6 @@ async function runWarmRecoveryBootstrapRequest(
     return json(
       { ok: false, code: activeCapability.code, message: activeCapability.message },
       { status: activeCapability.code === 'unknown_capability' ? 404 : 409 },
-    );
-  }
-  if (authorized.authorization.kind === 'linked_device_wallet_session') {
-    if (
-      !warmBootstrapCapabilityMatchesLinkedDeviceIdentity({
-        request,
-        claims: authorized.authorization.claims,
-        capability: activeCapability.capability,
-      })
-    ) {
-      return json(
-        {
-          ok: false,
-          code: 'continuity_mismatch',
-          message: 'active Ed25519 Yao capability does not match the linked Wallet Session',
-        },
-        { status: 409 },
-      );
-    }
-    return json(
-      buildRouterAbEd25519YaoLinkedDeviceExportBootstrapV1({
-        request,
-        claims: authorized.authorization.claims,
-        capability: activeCapability.capability,
-      }),
-      { status: 200 },
     );
   }
   const binding = authorized.authorization.binding;

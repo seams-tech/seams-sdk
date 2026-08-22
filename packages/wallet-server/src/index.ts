@@ -43,6 +43,7 @@ export type {
   Ed25519WalletSessionStore,
   Ed25519WalletSessionRecord,
 } from './core/ThresholdService';
+export * from './core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 export {
   D1WalletAuthMethodStore,
   createWalletAuthMethodStore,

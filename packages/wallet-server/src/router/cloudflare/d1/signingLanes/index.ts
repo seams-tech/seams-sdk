@@ -7,4 +7,3 @@ export * from './d1LaneEnrollmentGateway';
 export * from './d1LaneLifecycleApplicationService';
 export * from './d1LaneAggregateRevocationApplicationService';
 export * from './d1LaneProtocolCommitter';
-export * from './d1LinkedDeviceLaneRuntime';
