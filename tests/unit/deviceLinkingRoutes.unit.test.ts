@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
   handleDeviceLinking,
+  targetCredentialResultResponse,
   type DeviceLinkingRouteServiceV1,
 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinking';
 import type {
@@ -17,6 +18,13 @@ import {
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,
 } from './helpers/deviceLinkContracts.fixtures';
+import { buildR103UnclaimedLinkedDeviceSessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
+import { parseLinkedDeviceTargetCredentialRegistrationResultV1 } from '@shared/device-linking/parsers';
+import {
+  buildOrdinaryEcdsaReservationPreparationFixture,
+  buildOrdinaryMaterialActivationFixture,
+} from './helpers/ordinarySignerMaterialReservation.fixtures';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -162,6 +170,63 @@ test('authenticates the owner before parsing a malformed claim body', async () =
   });
   expect(malformed.status).toBe(400);
   expect(ownerAuthCalls).toBe(1);
+});
+
+test('serializes the browser ECDSA recipient in the target credential response', async () => {
+  const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:route-result' });
+  const digest = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
+  const activation = buildOrdinaryMaterialActivationFixture('route-result');
+  const preparation = buildOrdinaryEcdsaReservationPreparationFixture('route-result', activation);
+  const targetWalletAuthMethodId = 'email_otp:wallet:r103:' + 'ab'.repeat(32);
+  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
+    kind: 'linked_device_target_credential_registration_result_v1',
+    outcome: 'applied',
+    linkSessionId: fixture.payload.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    walletAuthMethodId: targetWalletAuthMethodId,
+    targetPreparationDigestB64u: digest,
+    targetFactor: {
+      kind: 'verified_email_otp_target_v1',
+      authMethod: {
+        walletAuthMethodId: targetWalletAuthMethodId,
+        walletId: fixture.approval.walletId,
+        createdAtMs: 1_000,
+        kind: 'email_otp',
+        emailHashHex: 'ab'.repeat(32),
+        registrationAuthorityId: 'authority:r103',
+      },
+      verificationDigestB64u: digest,
+      verifiedAtMs: 2_000,
+    },
+    ordinarySignerMaterialPreparations: [preparation],
+    ordinarySignerMaterialRecipientInputs: [
+      {
+        kind: 'ordinary_ecdsa_signer_material_recipient_input_v1',
+        keyFamily: 'ecdsa_secp256k1',
+        clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
+      },
+    ],
+    keyManifestDigestB64u: digest,
+  });
+  const response = targetCredentialResultResponse(
+    buildR103UnclaimedLinkedDeviceSessionRecordV1(fixture),
+    'applied',
+    targetCredential,
+  );
+  const body = await response.json();
+  expect(body).toMatchObject({
+    ok: true,
+    targetCredential: {
+      walletAuthMethodId: targetWalletAuthMethodId,
+      ordinarySignerMaterialRecipientInputs: [
+        {
+          clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
+        },
+      ],
+    },
+  });
 });
 
 async function openDatabase(): Promise<TemporaryD1Database> {

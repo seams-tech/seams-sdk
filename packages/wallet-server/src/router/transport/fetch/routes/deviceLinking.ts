@@ -30,6 +30,7 @@ import {
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
@@ -124,7 +125,6 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
         readonly outcome: 'applied' | 'replayed';
         readonly keyManifestDigestB64u: DigestB64u;
         readonly verifiedLinkInput: VerifiedLinkInputV1;
-        readonly targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1;
       }
     | { readonly outcome: 'invalid_input'; readonly message: string }
   >;
@@ -413,10 +413,24 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   if (committed.kind === 'conflict') {
     return json({ ok: false, outcome: 'conflict', message: committed.message }, { status: 409 });
   }
+  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
+    kind: 'linked_device_target_credential_registration_result_v1',
+    outcome: committed.kind === 'replayed' ? 'replayed' : sessionOutcome,
+    linkSessionId: registration.linkSessionId,
+    walletId: registration.walletId,
+    enrollmentId: registration.enrollmentId,
+    deviceId: registration.deviceId,
+    walletAuthMethodId: registration.walletAuthMethodId,
+    targetPreparationDigestB64u: registration.targetPreparationDigestB64u,
+    targetFactor: result.verifiedLinkInput.targetFactor,
+    ordinarySignerMaterialPreparations: committed.ordinarySignerMaterialPreparations,
+    ordinarySignerMaterialRecipientRequests: registration.ordinarySignerMaterialRecipientRequests,
+    keyManifestDigestB64u: result.keyManifestDigestB64u,
+  });
   return targetCredentialResultResponse(
     committed.session,
     committed.kind === 'replayed' ? 'replayed' : sessionOutcome,
-    result.targetCredential,
+    targetCredential,
   );
 }
 

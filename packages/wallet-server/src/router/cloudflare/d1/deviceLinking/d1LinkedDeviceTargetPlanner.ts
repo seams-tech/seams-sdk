@@ -5,41 +5,25 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceTargetCredentialRegistrationV1,
-  LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
+  OrdinarySignerMaterialRecipientRequirementV1,
 } from '@shared/device-linking/contracts';
 import { buildLinkedDeviceTargetPreparationV1 } from '@shared/device-linking/parsers';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { secureRandomBase36 } from '@shared/utils/secureRandomId';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
-  parseLaneEnrollmentId,
-  parseLaneOperationId,
-  type LinkedDeviceEnrollmentId,
-  type LaneOperationId,
   type LaneOperationIdempotencyKey,
 } from '@shared/signing-lanes/ids';
 import {
-  parseMpcMaterialActivationId,
-  parseWebAuthnCredentialIdB64u,
-  type MpcMaterialActivationId,
-  type WebAuthnCredentialIdB64u,
+  parseWalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import type {
   ActiveLaneProtocolSourceV1,
   EcdsaSourceCapabilityBindingV1,
   EcdsaTargetCapabilityBindingV1,
   LaneTargetSigningWorkerV1,
-  RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
-import type { LinkedDeviceTargetDeploymentDescriptorV1 } from '@shared/device-linking/targetDeploymentDescriptor';
-import {
-  buildRotatableSigningLaneJobV1,
-} from '@shared/signing-lanes/rotationParsers';
-import type {
-  LaneHolderParticipantId,
-  LaneHolderParticipantRecordV1,
-} from '@shared/signing-lanes/participants';
-import { parseLaneHolderParticipantId } from '@shared/signing-lanes/participants';
+import type { LaneHolderParticipantId } from '@shared/signing-lanes/participants';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import type { KeyCreationSignerSlot } from '@shared/passkey-custody/primitives';
 import type { Ed25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
@@ -52,10 +36,6 @@ import type {
 import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from './d1LinkedDeviceTargetDeploymentDescriptorProvider';
 
 const DEFAULT_TARGET_PREPARATION_TTL_MS = 5 * 60 * 1_000;
-
-type ParseResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: { readonly message: string } };
 
 export type LinkedDeviceTargetAuthorizationFactsV1 = {
   readonly authorizedOperationId: AuthorizedOperationId;
@@ -71,7 +51,7 @@ type LinkedDeviceOwnerSourceChildResolutionBaseV1 = {
 
 /** Facts authenticated from Device 1's owner lane projection. Target
  * participant and capability material is intentionally absent until Device 2
- * returns its credential and holder registration. */
+ * returns its verified factor and public recipient requests. */
 type LinkedDeviceOwnerEd25519SourceChildResolutionV1 =
   LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
     readonly keyFamily: 'ed25519';
@@ -142,8 +122,8 @@ export type D1LinkedDeviceTargetPlannerOptionsV1 = {
 };
 
 /**
- * Builds the one durable target preparation and the exact R102 jobs consumed
- * after Device 2 returns its verified credential and holder records.
+ * Builds the one durable target preparation. Ordinary material activation and
+ * reservation identities are derived only after Device 2 verifies its factor.
  */
 export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV1 {
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
@@ -178,7 +158,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       throw new Error('linked-device target preparation has no remaining lifetime');
     }
 
-    const children: LinkedDeviceTargetPreparationChildV1[] = [];
+    const ordinarySignerMaterialRecipientRequirements: OrdinarySignerMaterialRecipientRequirementV1[] = [];
     let ed25519ExportRoot: LinkedDeviceTargetPreparationV1['ed25519ExportRoot'] = null;
     for (
       let childIndex = 0;
@@ -211,19 +191,18 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
           revocationEpoch: resolution.source.revocationEpoch,
         };
       }
-      children.push({
-        kind: 'linked_device_target_preparation_child_v1',
-        operationId: createChildOperationId(input.approval.operationId, childIndex),
+      ordinarySignerMaterialRecipientRequirements.push({
+        kind: 'ordinary_signer_material_recipient_requirement_v1',
         walletKeyId: binding.walletKeyId,
         keyFamily: binding.keyFamily,
-        targetLaneId: binding.targetLaneId,
-        targetLaneShareEpoch: binding.targetLaneShareEpoch,
-        targetMaterialActivationId: createTargetMaterialActivationId(childIndex),
-        targetHolderParticipantId: createTargetHolderParticipantId(
-          input.approval.enrollmentId,
-          childIndex,
-        ),
       });
+    }
+
+    const walletAuthMethodId = parseWalletAuthMethodId(
+      `wallet-auth-method:${secureRandomBase64Url(32, 'linked-device target wallet auth method')}`,
+    );
+    if (!walletAuthMethodId.ok) {
+      throw new Error(`linked-device target wallet auth method id: ${walletAuthMethodId.error.message}`);
     }
 
     return buildLinkedDeviceTargetPreparationV1({
@@ -231,6 +210,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       walletId: input.approval.walletId,
       enrollmentId: input.approval.enrollmentId,
       deviceId: input.approval.deviceId,
+      walletAuthMethodId: walletAuthMethodId.value,
       ed25519ExportRoot,
       targetFactor: input.approval.targetFactor,
       // The planner no longer mints a relying party, challenge, or user handle
@@ -238,7 +218,10 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       // owner-authenticated approval, which is the only registration Device 2
       // can finalize — a second set here could only ever disagree with it.
       ownerEnrollment: input.approval.ownerEnrollment,
-      orderedChildren: requireNonEmpty(children, 'linked-device target preparation children'),
+      ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
+        ordinarySignerMaterialRecipientRequirements,
+        'linked-device ordinary signer material recipient requirements',
+      ),
       issuedAtMs: input.requestedAtMs,
       expiresAtMs,
     });
@@ -293,41 +276,8 @@ function assertResolutionAuthorizationMatchesApproval(
   }
 }
 
-function createChildOperationId(parent: LaneOperationId, childIndex: number): LaneOperationId {
-  return parseRequired(
-    parseLaneOperationId(
-      `linked-device-target:${String(parent)}:${childIndex}:${secureRandomBase36(16)}`,
-    ),
-    'target child operationId',
-  );
-}
-
-function createTargetMaterialActivationId(childIndex: number): MpcMaterialActivationId {
-  return parseRequired(
-    parseMpcMaterialActivationId(
-      `linked-device-target-material:${childIndex}:${secureRandomBase36(20)}`,
-    ),
-    'target material activation id',
-  );
-}
-
-function createTargetHolderParticipantId(
-  enrollmentId: LinkedDeviceEnrollmentId,
-  childIndex: number,
-): LaneHolderParticipantId {
-  return parseRequired(
-    parseLaneHolderParticipantId(`holder:linked-device:${String(enrollmentId)}:${childIndex}`),
-    'target holder participant id',
-  );
-}
-
 function requireNonEmpty<T>(values: readonly T[], label: string): readonly [T, ...T[]] {
   const [first, ...rest] = values;
   if (first === undefined) throw new Error(`${label} must not be empty`);
   return [first, ...rest];
-}
-
-function parseRequired<T>(result: ParseResult<T>, label: string): T {
-  if (!result.ok) throw new Error(`${label}: ${result.error.message}`);
-  return result.value;
 }
