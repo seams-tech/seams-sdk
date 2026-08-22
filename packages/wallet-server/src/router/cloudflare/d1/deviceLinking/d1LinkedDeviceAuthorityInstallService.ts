@@ -22,8 +22,7 @@ import {
   type WalletAuthorityId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import { mpcMaterialActivationRefsEqual, parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
-import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import {
   parsePrincipalId,
@@ -102,33 +101,7 @@ import {
 
 type ExactSigner = ExactAdministeredSignerV1;
 
-export type OrdinarySignerMaterialActivationPlannerV1 = {
-  planOrdinaryMaterialActivationRefV1(input: {
-    readonly authorityId: WalletAuthorityId;
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly signer: ExactSigner;
-  }): MpcMaterialActivationRef;
-};
-
-export type OrdinarySignerMaterialReservationPreparationPlannerV1 = {
-  planOrdinaryMaterialReservationPreparationV1(input: {
-    readonly authorityId: WalletAuthorityId;
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly signer: ExactSigner;
-    readonly recipientRequest: OrdinarySignerMaterialRecipientRequestV1;
-    readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionV1;
-  }):
-    | {
-        readonly keyFamily: 'ed25519';
-        readonly preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1;
-      }
-    | {
-        readonly keyFamily: 'ecdsa_secp256k1';
-        readonly preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1;
-      };
-};
-
-export type OrdinarySignerMaterialReservationPreparationV1 =
+type WorkerOrdinarySignerMaterialReservationPreparationV1 =
   | {
       readonly keyFamily: 'ed25519';
       readonly preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1;
@@ -145,7 +118,7 @@ export type OrdinaryInactiveSignerMaterialActivationPortV1 = {
     readonly reservationId: string;
     readonly materialActivation: MpcMaterialActivationRef;
     readonly activatedAtMs: number;
-    readonly preparation: OrdinarySignerMaterialReservationPreparationV1;
+    readonly preparation: WorkerOrdinarySignerMaterialReservationPreparationV1;
   }): Promise<void>;
 };
 
@@ -173,8 +146,6 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
     }): Promise<{ readonly outcome: 'applied' | 'replayed' | 'deleted' } | { readonly outcome: string }>;
   };
   readonly reservationService: OrdinaryInactiveSignerMaterialReservationServiceV1;
-  readonly materialPlanner: OrdinarySignerMaterialActivationPlannerV1;
-  readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
   readonly materialActivation: OrdinaryInactiveSignerMaterialActivationPortV1;
   readonly authorizationService: Pick<
     AuthorizationService,
@@ -255,7 +226,7 @@ type AuthorityAllocationPreparation = {
 type ServerReservationRecordV1<F extends 'ed25519' | 'ecdsa_secp256k1'> = {
   readonly reservationId: string;
   readonly preparation: Extract<
-    OrdinarySignerMaterialReservationPreparationV1,
+    WorkerOrdinarySignerMaterialReservationPreparationV1,
     { readonly keyFamily: F }
   >['preparation'];
 };
@@ -360,7 +331,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       const authorityId = expectedAuthorityId;
       const reservations = await this.reserveSignerMaterial(
         input,
-        authorityId,
         sourceContributionPreparation,
       );
       const activationSet = buildActivationSet(input.signerManifest, reservations);
@@ -656,7 +626,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
 
   private async reserveSignerMaterial(
     input: VerifiedLinkInputV1,
-    authorityId: WalletAuthorityId,
     sourceContributionPreparation: readonly [
       SharedOrdinarySignerMaterialReservationPreparationV1,
       ...SharedOrdinarySignerMaterialReservationPreparationV1[],
@@ -678,7 +647,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     let ed25519Preparation: OrdinaryEd25519SignerMaterialReservationPreparationV1 | undefined;
     let ecdsaPreparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1 | undefined;
     for (const signer of input.signerManifest.signers) {
-      const recipientRequest = recipientRequestForSigner(input, signer);
       const sourceContribution = sourceContributionForSigner(input, signer);
       const prepared = sourceContributionPreparationForSigner(
         sourceContributionPreparation,
@@ -709,11 +677,8 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
                 thresholdPublicKey33B64u: signer.thresholdPublicKey33B64u,
               },
       });
-      const preparation = this.options.reservationPreparationPlanner.planOrdinaryMaterialReservationPreparationV1({
-        authorityId,
-        linkSessionId: input.linkSessionId,
-        signer,
-        recipientRequest,
+      const preparation = workerReservationPreparationForContribution({
+        sourceContributionPreparation: prepared,
         sourceContribution,
       });
       if (signer.keyFamily === 'ed25519') {
@@ -1136,6 +1101,36 @@ function sourceContributionPreparationForSigner(
   return preparation;
 }
 
+function workerReservationPreparationForContribution(input: {
+  readonly sourceContributionPreparation: SharedOrdinarySignerMaterialReservationPreparationV1;
+  readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionV1;
+}): WorkerOrdinarySignerMaterialReservationPreparationV1 {
+  if ('kind' in input.sourceContributionPreparation) {
+    if (input.sourceContribution.keyFamily !== 'ed25519') {
+      throw new Error('Ed25519 source contribution preparation family does not match contribution');
+    }
+    return {
+      keyFamily: 'ed25519',
+      preparation: {
+        kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
+        sourceContribution: input.sourceContribution,
+        targetRequest: input.sourceContributionPreparation.targetRequest,
+      },
+    };
+  }
+  if (input.sourceContribution.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('ECDSA source contribution preparation family does not match contribution');
+  }
+  return {
+    keyFamily: 'ecdsa_secp256k1',
+    preparation: {
+      kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
+      sourceDerivation: input.sourceContribution.sourceDerivation,
+      sourceContribution: input.sourceContribution.package,
+    },
+  };
+}
+
 function targetMaterialActivationForPreparation(
   preparation: SharedOrdinarySignerMaterialReservationPreparationV1,
 ): MpcMaterialActivationRef {
@@ -1295,7 +1290,7 @@ function assertPreparationActivationMatches(
   actual: MpcMaterialActivationRef,
 ): void {
   if (!mpcMaterialActivationRefsEqual(expected, actual)) {
-    throw new Error('ordinary material preparation activation differs from the planned activation');
+    throw new Error('ordinary material preparation activation differs from the persisted target activation');
   }
 }
 

@@ -14,10 +14,6 @@ import { parseSigningSessionSealRootConfig } from '../../../../threshold/session
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type {
-  OrdinarySignerMaterialActivationPlannerV1,
-  OrdinarySignerMaterialReservationPreparationPlannerV1,
-} from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
-import type {
   LinkedDeviceTargetCredentialVerificationPortV1,
   LinkedDeviceTargetPlannerV1,
   LinkedDeviceVerifiedLinkBuilderV1,
@@ -33,8 +29,6 @@ export type CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1 = {
   readonly reservationEndpoint: CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1;
   readonly activationEndpoint: CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1;
   readonly deactivationEndpoint: CloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1;
-  readonly materialPlanner: OrdinarySignerMaterialActivationPlannerV1;
-  readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
 };
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {

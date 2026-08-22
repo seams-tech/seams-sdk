@@ -12,7 +12,6 @@ import {
 } from '@shared/authorization/walletAuthority';
 import type {
   OrdinaryEcdsaSignerMaterialWorkerReservationV1,
-  OrdinaryEcdsaSignerMaterialReservationPreparationV1,
   OrdinaryEcdsaSignerMaterialReservationRequestV1,
   OrdinaryInactiveSignerMaterialReservationWorkerPortV1,
 } from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
@@ -383,18 +382,6 @@ async function buildHarness(
       },
     },
     reservationService,
-    materialPlanner: {
-      planOrdinaryMaterialActivationRefV1: () => targetActivation,
-    },
-    reservationPreparationPlanner: {
-      planOrdinaryMaterialReservationPreparationV1: (): {
-        readonly keyFamily: 'ecdsa_secp256k1';
-        readonly preparation: OrdinaryEcdsaSignerMaterialReservationPreparationV1;
-      } => ({
-        keyFamily: 'ecdsa_secp256k1',
-        preparation: targetPreparation,
-      }),
-    },
     materialActivation: options.materialActivation ?? {
       activateOrdinaryInactiveSignerMaterialV1: async () => {
         throw new Error('activation is outside this commit test');
