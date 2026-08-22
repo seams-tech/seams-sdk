@@ -1346,6 +1346,223 @@ recipient/package transport merely because their names include “projection”
 or “linked device.” Deletion is based on duplicated ownership described in
 this plan.
 
+### R102 deletion matrix
+
+This matrix is path-specific. A path enters deletion only after its R103E
+replacement is live and behaviorally verified, its import consumers have
+cut over, and the applicable focused and real operating-path checks pass.
+The matrix introduces no canonical encrypted client signer-package type;
+`AuthorityInstallPlanV1` remains in memory and the retained export transport is
+the existing one-use Ed25519 export-root flow.
+
+#### Shared
+
+- **DELETE ENTIRE FILE** —
+  `packages/shared-ts/src/device-linking/ownerAuthBinding.ts` and
+  `packages/shared-ts/src/device-linking/ownerAuthBinding.typecheck.ts`.
+- **DELETE SYMBOL/BRANCH** — In
+  `packages/shared-ts/src/device-linking/delegatedActivationPlan.ts`, delete
+  `DelegatedDeviceActivationPlanV1`, its opaque proof/parser, and
+  `ExactAdministeredSignerActivationSetV1`; retain
+  `ExactAdministeredSignerManifestV1`. Delete linked Wallet Session identity
+  and grant branches, including `LinkedDeviceWalletSessionAuthorizationId`,
+  from `packages/shared-ts/src/authorization/capabilityKinds.ts`; delete the
+  permission-only durable authority shape from
+  `packages/shared-ts/src/authorization/delegatedAuthority.ts`; delete
+  `LinkedDeviceTargetReadyR102InputV1`, owner-enrollment/binding, candidate,
+  and R102-promotion branches from the device-linking contracts, parsers, and
+  digests.
+- **RETAIN+REKEY/REWRITE** — Use
+  `packages/shared-ts/src/authorization/walletAuthority.ts`,
+  `packages/shared-ts/src/utils/domainIds.ts`,
+  `packages/shared-ts/src/utils/registrationIntent.ts`,
+  `packages/shared-ts/src/authorization/delegatedAuthority.ts`,
+  `packages/shared-ts/src/authorization/capabilityKinds.ts`, and
+  `packages/shared-ts/src/device-linking/{contracts,parsers,digests,index}.ts`
+  for the canonical authority, opaque identities, ordinary Wallet Session,
+  boundary parsers, and domain-separated digests. Rekey
+  `packages/shared-ts/src/device-linking/ed25519ExportRoot.ts` to canonical
+  identities while retaining its one-use transport.
+- **RETAIN UNCHANGED** — Generic lane protocol, material-reference, and
+  custody invariants in
+  `packages/shared-ts/src/signing-lanes/{ids,records,recordParsers,execution,rotation,rotationLifecycle,rotationParsers}.ts`
+  and `packages/shared-ts/src/passkey-custody/custodySecretBinding.ts`;
+  linked ownership/candidate branches in the former are covered by the
+  deletion row above, while R114 custody proofs remain in the latter.
+
+#### Server core and D1
+
+- **DELETE ENTIRE FILE** — Delete owner enrollment/admission and provenance:
+  `packages/wallet-server/src/core/deviceLinking/{linkedOwnerEnrollmentAdmission,linkedOwnerEnrollmentProvenance}.ts`.
+  Delete owner binding, linked execution admission, linked Wallet Session
+  issuer, planning snapshots/deployment, lane lifecycle, holder-share/R102
+  provisioning, and source-lane handoff files:
+  `packages/wallet-server/src/router/cloudflare/d1/deviceLinking/{d1LinkedDeviceOwnerAuthBindingStore,d1LinkedDeviceExecutionAdmissionResolver,d1LinkedDeviceWalletSessionIssuer,d1LinkedDeviceOwnerPlanningDeployment,d1LinkedDeviceOwnerPlanningSnapshotStore,d1LinkedDeviceOwnerPlanningSnapshotStoreParser,d1LinkedDeviceOwnerPlanningSnapshotWriter,d1LinkedDeviceLaneLifecycleAuthorization,linkedDeviceR102ProvisioningExecution,d1LinkedDeviceProvisioningProvider,d1LinkedDeviceProvisioningVerifier,d1LinkedDeviceSourceHandoffProvider,d1LinkedDeviceGatewayCompletionService}.ts`.
+- **DELETE SYMBOL/BRANCH** — Delete linked projection/admission, renewal,
+  local-presence, repair, and candidate paths from
+  `packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission.ts`,
+  `packages/wallet-server/src/authorization/{domain,service}.ts`,
+  `packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore.ts`,
+  and `packages/wallet-server/src/router/auth/{verifiedWalletSessionAuth,commonRouterUtils}.ts`.
+  Remove R102 holder-promotion and target-ready branches from
+  `d1LinkedDeviceTargetPlanner.ts` and the linked management projection reads
+  from `d1LinkedDeviceManagementStore.ts`.
+- **RETAIN+REKEY/REWRITE** — Cut over
+  `packages/wallet-server/src/core/{d1WalletAuthMethodStore,WalletAuthMethodStore,registrationContracts}.ts`,
+  `packages/wallet-server/src/core/deviceLinking/{linkedDeviceSession,linkedDeviceManagement,linkedDeviceEmailOtpGrant}.ts`,
+  and the D1 session, target-factor, target-credential, management, route, and
+  authority-provider files under
+  `packages/wallet-server/src/router/cloudflare/d1/deviceLinking/` to exact
+  authority/method/activation records. Reuse the in-memory install plan in
+  `d1LinkedDeviceTargetPlanner.ts`. **INSPECT**
+  `d1LinkedDeviceTargetDeploymentDescriptorProvider.ts` and
+  `d1LinkedDeviceTargetDeploymentDescriptorRuntime.ts`; retain only reusable
+  worker reservation/package behavior until a real ordinary inactive-material
+  reservation API exists.
+- **RETAIN UNCHANGED** — Temporary request-proof nonce, session, transcript,
+  CAS-guard, target-commit, and one-use export-root records in the D1 schema
+  through Device 2 acknowledgement. Preserve
+  `d1LinkedDeviceRequestProofNonceStore.ts` and
+  `d1LinkedDeviceEd25519ExportRootStore.ts` at that boundary.
+
+#### Routes
+
+- **DELETE ENTIRE FILE** —
+  `packages/wallet-server/src/router/transport/fetch/routes/{linkedDeviceNormalSigning,linkedDeviceEcdsaPresign}.ts` and
+  `packages/wallet-server/src/router/domains/signingOperations/linkedDeviceNormalSigning.ts`.
+- **DELETE SYMBOL/BRANCH** — Remove R102 target-ready, holder-delivery,
+  owner-enrollment, source-handoff, and linked admission branches from
+  `packages/wallet-server/src/router/transport/fetch/routes/deviceLinking.ts`;
+  remove linked projection and linked authorization branches from
+  `deviceManagement.ts`, `createFetchRouter.ts`, and ordinary authorization
+  routes. Remove R102/owner-lane branches from
+  `routes/{deviceLinkingGateway,deviceLinkingLaneGateway,deviceLinkingOwnerAuthorization}.ts`.
+- **RETAIN+REKEY/REWRITE** — Keep the existing route family in
+  `packages/wallet-server/src/router/transport/fetch/routes/{deviceLinking,deviceManagement}.ts`,
+  parsing the R103E authority, method, receipt, and result contracts in place.
+  Keep `createFetchRouter.ts` and existing ordinary signing/auth routes after
+  linked imports are removed.
+- **RETAIN UNCHANGED** — Existing public route names and route family. No new
+  `/v2` route tree or linked-only route family is introduced.
+
+#### Browser and IndexedDB
+
+- **DELETE ENTIRE FILE** —
+  `packages/wallet/src/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore.ts`
+  and `packages/wallet/src/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore.ts`.
+  Delete their public exports from `packages/wallet/src/core/indexedDB/index.ts`.
+- **DELETE SYMBOL/BRANCH** — Remove
+  `linked_device_wallet_sessions` and `linked_device_execution_evidence`
+  names, indexes, migrations, linked reads, candidate scans, R102 hydration,
+  and repair-on-unlock branches from
+  `packages/wallet/src/core/indexedDB/{schemaNames,passkeyClientDB.types,unifiedIndexedDBManager}.ts`,
+  `packages/wallet/src/core/indexedDB/seamsWalletDB/{schema,repositories,walletSessionAuthorizationStore}.ts`,
+  and `packages/wallet/src/core/signingEngine/useCases/unlockWallet.ts`.
+- **RETAIN+REKEY/REWRITE** — Use
+  `packages/wallet/src/core/indexedDB/{schemaNames,passkeyClientDB.types,unifiedIndexedDBManager,index}.ts`,
+  `packages/wallet/src/core/indexedDB/seamsWalletDB/{schema,repositories,walletSessionAuthorizationStore}.ts`,
+  and the ordinary session/restore stores for exact authority installation,
+  lock-generation CAS, reload, unlock, and Wallet Session resolution.
+- **RETAIN UNCHANGED** — Unrelated IndexedDB account, sealed-session,
+  recovery, and ordinary signing stores. Temporary link records remain at the
+  request/activation boundary until acknowledgement; local cleanup is exact
+  and idempotent.
+
+#### Browser orchestration and signing
+
+- **DELETE ENTIRE FILE** — Delete
+  `packages/wallet/src/SeamsWeb/operations/devices/{linkedDeviceSigningRuntime,deviceLinkingLaneProvisioning,deviceLinkingOwnerEnrollmentStart,walletHostSourceLanePorts}.ts`,
+  `packages/wallet/src/core/signingEngine/session/lanes/{linkedDeviceExecutionBundle,linkedDeviceWalletSessionCredential}.ts`,
+  and linked-only signing material/execution files:
+  `packages/wallet/src/core/signingEngine/flows/signNear/shared/linkedDeviceEd25519NormalSigning.ts`,
+  `packages/wallet/src/core/signingEngine/flows/signEvmFamily/shared/linkedDeviceEcdsaNormalSigning.ts`,
+  `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signers/linkedDeviceEcdsaSigningMaterialSource.ts`.
+- **DELETE SYMBOL/BRANCH** — Remove linked state invalidation, linked
+  candidate selection, hydration, repair, and linked execution branches from
+  `packages/wallet/src/SeamsWeb/operations/devices/{linkedDeviceLocalStateInvalidation,deviceLinkingComposition,deviceLinkingPorts}.ts`,
+  `packages/wallet/src/SeamsWeb/operations/auth/login.ts`,
+  `packages/wallet/src/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection.ts`,
+  `BrowserSigningSurface.ts`, and
+  `browserSigningSurfaceAssembly.ts`.
+- **RETAIN+REKEY/REWRITE** — Keep the linear orchestration and ordinary
+  signing/export seams in `packages/wallet/src/SeamsWeb/operations/devices/`,
+  `packages/wallet/src/SeamsWeb/operations/auth/login.ts`,
+  `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`, and
+  `packages/wallet/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts`.
+  **INSPECT**
+  `packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingWorkerChannels.ts`;
+  retain it only when it reuses a real ordinary inactive-material reservation
+  API. Rekey the existing
+  `deviceLinkingEd25519ExportRoot.ts` and
+  `deviceLinkingTargetEd25519ExportRoot.ts` flows to canonical identities.
+- **RETAIN UNCHANGED** —
+  `packages/wallet/src/react/components/AccountMenuButton/LinkedDevicesModal.tsx`,
+  its CSS, and ordinary registration, recovery, and R114 custody behavior.
+  Preserve the UI and public device-linking surface while replacing its
+  linked execution/read paths.
+
+#### Tests, fixtures, and schema
+
+- **DELETE ENTIRE FILE** — Obsolete tests:
+  `tests/unit/{d1LinkedDeviceOwnerAuthBindingStore,d1LinkedDeviceCanonicalOwnerMetadata,d1LinkedDeviceManagementStore,d1LinkedDeviceOwnerPlanningDeployment,d1LinkedDeviceOwnerPlanningSnapshotStore,d1LinkedDeviceOwnerPlanningSnapshotWriter,d1LinkedDeviceLaneGatewayRouteService,d1LinkedDeviceSourceHandoff,d1LinkedDeviceTargetPlanner,linkedDeviceExecutionBundle,linkedDeviceExecutionEvidenceStore,linkedDeviceWalletSessionStore,linkedDeviceWalletSessionClaims,linkedDeviceEd25519NormalSigning,linkedDeviceEcdsaNormalSigning,linkedDeviceNormalSigningRoutes,linkedDeviceEcdsaScope}.unit.test.ts` and
+  `tests/unit/helpers/{linkedOwnerAuthBinding,linkedDeviceWalletExecution}.fixtures.ts`.
+  Delete linked-only branches in
+  `tests/unit/helpers/{deviceLinkContracts,deviceLinkingServer,walletSessionReadProjection}.fixtures.ts`.
+- **DELETE SYMBOL/BRANCH** — Remove source-guard assertions and fixture cases
+  that exist only for owner bindings, linked sessions, R102 promotion,
+  linked execution evidence/bundles, or mocked success. Remove schema objects
+  `linked_device_owner_planning_snapshots`,
+  `linked_device_provisioning_records`,
+  `linked_device_source_handoffs`,
+  `linked_device_target_deployment_descriptors`,
+  `linked_device_wallet_session_authorizations`,
+  `linked_device_wallet_session_quotas`,
+  `linked_device_owner_auth_bindings`, linked R102 lane/promotion rows, and
+  `authorized_operation_linked_grant_claim_atomic` after authority cutover.
+- **RETAIN+REKEY/REWRITE** — Update
+  `tests/unit/indexedDBConsolidation.unit.test.ts`, server lifecycle tests,
+  ordinary authorization/registration tests, and
+  `tests/e2e/linked-device.operating-path.test.ts` to exercise the R103E
+  authority path. Rebuild fixtures through shared factories. Rebuild
+  `wallet_authorities` and `wallet_auth_methods` in the chosen D1 reset/new
+  migration policy; update console manifests in
+  `packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts`
+  and `d1RouterApiStagingWorker.ts`.
+- **RETAIN UNCHANGED** — Historical migrations under
+  `packages/wallet-server/migrations/d1-signer/`; temporary boundary tables
+  `linked_device_request_proof_nonces`, `linked_device_session_transcripts`,
+  `linked_device_sessions`, `linked_device_session_cas_guard`,
+  `linked_device_target_commit_reservations`,
+  `linked_device_target_credentials`,
+  `linked_device_email_otp_grants`, and
+  `linked_device_ed25519_export_root_transfers` through acknowledgement.
+  Preserve `tests/unit/{r102Ed25519WireVectors,r102EcdsaWireVectors}.unit.test.ts`,
+  `tests/unit/helpers/{r102LaneGateway,ecdsaMaterialRef,sealedSigningSession}.fixtures.ts`,
+  recovery tests, ordinary registration tests, and R114 custody tests.
+
+#### Cutover gates and order
+
+1. Record source, type, schema, and fixture baselines; complete the import
+   trace for each matrix row.
+2. Land and type-check the shared authority/method contract, parsers, digests,
+   exports, and fixtures.
+3. Verify server authority installation, exact activation CAS/replay, ordinary
+   Wallet Session, inventory, revocation, and founding registration.
+4. Verify one browser installation transaction, lock-generation behavior,
+   reload/unlock, and exact selected-method-to-authority resolution.
+5. Verify the existing routes, same-family orchestration, interruption retry,
+   acknowledgement cleanup, ordinary signing/export, and real two-browser
+   behavior.
+6. Switch all readers and writers, verify digests/foreign keys/counts, then
+   delete each replaced row in dependency order: shared symbols, server/D1
+   projections and R102 provisioning, route branches, browser stores and
+   linked execution, orchestration branches, and obsolete tests/fixtures.
+7. Remove the boundary migration parser only after supported environments have
+   cut over; retain historical migrations and temporary boundary schemas as
+   specified above.
+8. Run focused package checks, the real operating path, source guards, and
+   `git diff --check`; final source/type/schema counts must decrease.
+
 ## Concurrent implementation structure
 
 R103E is implemented through one small foundation checkpoint followed by four
