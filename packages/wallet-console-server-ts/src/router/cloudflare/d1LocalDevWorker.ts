@@ -21,7 +21,13 @@ import {
 import { createHostedWalletConsoleRouter } from '../consoleComposition';
 import {
   createCloudflareD1RouterApiAuthService,
+  createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1,
+  createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+  createD1LinkedDeviceOwnerSourceChildReaderV1,
+  createD1LinkedDeviceSourceContributionPreparationPlannerV1,
+  D1LinkedDeviceTargetCredentialProviderV1,
+  D1WalletAuthMethodStore,
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
 } from '@seams/wallet-server/cloud-host';
@@ -45,6 +51,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '@seams/wallet-server/cloud-host';
+import { base64UrlEncode } from '@seams/wallet-server/cloud-host';
 import { parseWalletId, parseWebAuthnRpId } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
@@ -1269,20 +1276,73 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env, orgId).registration,
-    linkedDevice: localLinkedDeviceManagementComposition(env),
+    linkedDevice: localLinkedDeviceSessionComposition(env, orgId),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
 }
 
-function localLinkedDeviceManagementComposition(
+function localLinkedDeviceSessionComposition(
   env: LocalD1DevEnv,
+  orgId: string,
 ): NonNullable<CloudflareD1RouterApiAuthServiceOptions['linkedDevice']> {
+  const scope = {
+    namespace: localTenantStorageNamespace(env),
+    orgId,
+    projectId: localConsoleProjectId(env),
+    envId: localConsoleEnvironmentId(env),
+  };
+  const walletStore = new D1WalletStore({
+    database: env.SIGNER_DB,
+    ...scope,
+    ensureSchema: false,
+  });
+  const walletAuthMethodStore = new D1WalletAuthMethodStore({
+    database: env.SIGNER_DB,
+    ...scope,
+    ensureSchema: false,
+  });
+  const sourceChildReader = createD1LinkedDeviceOwnerSourceChildReaderV1({
+    walletAuthMethodStore,
+    walletStore,
+  });
+  const serviceFetch = createRouterAbServiceBindingFetch(env);
+  const internalServiceAuthSecret = localRouterAbInternalServiceAuthSecret(env);
+  const signingWorkerRecipientPublicKeyB64u = localSigningWorkerRecipientPublicKeyB64u(env);
   return {
-    management: {
-      deactivationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1({
-        fetch: createRouterAbServiceBindingFetch(env),
-        internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
-      }),
+    session: {
+      readOwnerSourceChildV1: sourceChildReader.readOwnerSourceChildV1,
+      targetCredential: ({
+        verifiedLinkBuilder,
+        targetCredentialVerification,
+        targetPlanner,
+        resolveOwnerSourceChildV1,
+      }) =>
+        new D1LinkedDeviceTargetCredentialProviderV1({
+          database: env.SIGNER_DB,
+          scope,
+          verifier: targetCredentialVerification,
+          planner: targetPlanner,
+          sourceContributionPreparationPlanner:
+            createD1LinkedDeviceSourceContributionPreparationPlannerV1({
+              resolveOwnerSourceChildV1,
+              signingWorkerRecipientPublicKeyB64u,
+            }),
+          verifiedLinkBuilder,
+        }),
+      authorityInstallation: {
+        reservationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
+        activationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
+        deactivationEndpoint: createCloudflareOrdinaryInactiveSignerMaterialDeactivationEndpointV1({
+          fetch: serviceFetch,
+          internalServiceAuthSecret,
+        }),
+      },
     },
   };
 }
@@ -1541,6 +1601,27 @@ function localRouterAbPublicKeyset(env: LocalD1DevEnv): RouterAbPublicKeysetV2 |
       ),
     },
   });
+}
+
+function localSigningWorkerRecipientPublicKeyB64u(env: LocalD1DevEnv): string {
+  const publicKey =
+    normalizeLocalString(env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY) ||
+    localRouterAbPublicKeyset(env)?.signing_worker_server_output_hpke.public_key;
+  if (!publicKey) {
+    throw new Error(
+      'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY is required for linked-device sessions',
+    );
+  }
+  if (!/^x25519:[0-9a-f]{64}$/.test(publicKey)) {
+    throw new Error(
+      'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY must use x25519:<64 lowercase hex chars> encoding',
+    );
+  }
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(publicKey.slice(8 + index * 2, 10 + index * 2), 16);
+  }
+  return base64UrlEncode(bytes);
 }
 
 async function assertD1Tables(input: {
