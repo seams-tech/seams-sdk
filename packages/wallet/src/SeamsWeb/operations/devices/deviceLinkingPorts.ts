@@ -313,6 +313,8 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
 export type DeviceLinkingEd25519SourceContributionPortV1 = {
   produceSourceContributionV1(input: {
     readonly preparation: LinkedDeviceEd25519SourceContributionPreparationV1;
+    readonly capability: UnlockedWalletEd25519ExportRootCapabilityV1;
+    readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceEd25519SourceContributionV1>;
 };
 

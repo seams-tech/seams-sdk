@@ -199,6 +199,8 @@ export async function scanAndLinkDevice(
     await submitSourceContributionsV1({
       transport: ports.transport,
       sourceContribution: ports.sourceContribution,
+      ed25519ExportRootCapability:
+        owner.exportRootRequirement === 'required' ? owner.ed25519ExportRootCapability : undefined,
       initialApproval: approval,
       authentication: owner.authentication,
       expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
@@ -258,6 +260,7 @@ function assertApprovalRecordedV1(
 async function submitSourceContributionsV1(input: {
   readonly transport: LinkSessionOwnerTransportPortV1;
   readonly sourceContribution: DeviceLinkingSourceContributionPortV1;
+  readonly ed25519ExportRootCapability: UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
   readonly initialApproval: LinkedDeviceApprovalV1;
   readonly authentication: Parameters<
     LinkSessionOwnerTransportPortV1['getApprovalV1']
@@ -285,6 +288,8 @@ async function submitSourceContributionsV1(input: {
   const sourceContribution = await produceSourceContributionTupleV1({
     preparation,
     ports: input.sourceContribution,
+    ed25519ExportRootCapability: input.ed25519ExportRootCapability,
+    authentication: input.authentication,
   });
   const finalApproval = buildFinalLinkedDeviceApprovalV1(
     input.initialApproval,
@@ -338,12 +343,21 @@ function buildFinalLinkedDeviceApprovalV1(
 async function produceSourceContributionTupleV1(input: {
   readonly preparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly ports: DeviceLinkingSourceContributionPortV1;
+  readonly ed25519ExportRootCapability: UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
+  readonly authentication: Parameters<
+    LinkSessionOwnerTransportPortV1['getApprovalV1']
+  >[0]['authentication'];
 }): Promise<LinkedDeviceOrdinaryMaterialSourceContributionTupleV1> {
   const first = input.preparation[0];
   if (!first) throw new Error('source contribution preparation is empty');
   if (isEd25519SourceContributionPreparationV1(first)) {
+    if (!input.ed25519ExportRootCapability) {
+      throw new Error('Ed25519 export-root capability is required for source contribution');
+    }
     const ed25519 = await input.ports.ed25519.produceSourceContributionV1({
       preparation: first,
+      capability: input.ed25519ExportRootCapability,
+      authentication: input.authentication,
     });
     const second = input.preparation[1];
     if (!second) return [ed25519];
