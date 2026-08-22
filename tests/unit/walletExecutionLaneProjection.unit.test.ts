@@ -21,8 +21,6 @@ import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
 import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
@@ -224,21 +222,36 @@ test.describe('R101 owner wallet execution lane projection', () => {
   test('resolves passkey and Email OTP authority references to one exact active method', async () => {
     const passkey = passkeyAuthMethod();
     if (passkey.kind !== 'passkey') throw new Error('passkey fixture is required');
-    const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+    const passkeyAuthority = {
       walletId,
-      rpId: passkey.rpId,
-      credentialIdB64u: passkey.credentialIdB64u,
-    });
+      factor: { kind: 'passkey' as const, credentialIdB64u: passkey.credentialIdB64u },
+      verifier: { kind: 'webauthn' as const, rpId: passkey.rpId },
+      bindingId: passkey.walletAuthMethodId,
+    };
     const passkeyId = await resolveWalletAuthMethodIdForAuthority({
       walletId,
-      authorityRef: {
-        ...(await walletAuthAuthorityRef({ authority: passkeyAuthority })),
-        walletAuthMethodId: passkey.walletAuthMethodId,
-      },
+      authorityRef: await walletAuthAuthorityRef({ authority: passkeyAuthority }),
       authSource: { kind: 'passkey', credentialIdB64u: passkey.credentialIdB64u },
       authMethods: [passkey],
     });
     expect(passkeyId).toBe(passkey.walletAuthMethodId);
+    const canonicalCredentialBindingId = resultValue(
+      parseWalletAuthMethodId(`passkey:${passkey.rpId}:${passkey.credentialIdB64u}`),
+    );
+    const canonicalAuthority = {
+      walletId,
+      factor: { kind: 'passkey' as const, credentialIdB64u: passkey.credentialIdB64u },
+      verifier: { kind: 'webauthn' as const, rpId: passkey.rpId },
+      bindingId: canonicalCredentialBindingId,
+    };
+    expect(
+      await resolveWalletAuthMethodIdForAuthority({
+        walletId,
+        authorityRef: await walletAuthAuthorityRef({ authority: canonicalAuthority }),
+        authSource: { kind: 'passkey', credentialIdB64u: passkey.credentialIdB64u },
+        authMethods: [passkey],
+      }),
+    ).toBeNull();
 
     const email = buildWalletAuthMethodRecordV2({
       version: 'wallet_auth_method_v2',
@@ -254,19 +267,23 @@ test.describe('R101 owner wallet execution lane projection', () => {
       activatedAtMs: now,
     });
     if (email.kind !== 'email_otp') throw new Error('Email OTP fixture is invalid');
-    const emailAuthority = buildEmailOtpWalletAuthAuthority({
-      walletId,
-      provider: 'google',
-      providerUserId: 'google:provider-user-r101',
-      emailHashHex: email.emailHashHex,
-    });
     const providerSubject = resultValue(parseProviderSubject('google:provider-user-r101'));
+    const emailAuthority = {
+      walletId,
+      factor: {
+        kind: 'email_otp' as const,
+        provider: 'google' as const,
+        providerUserId: providerSubject,
+      },
+      verifier: {
+        kind: 'email_otp_wallet_auth_method' as const,
+        emailHashHex: email.emailHashHex,
+      },
+      bindingId: email.walletAuthMethodId,
+    };
     const emailId = await resolveWalletAuthMethodIdForAuthority({
       walletId,
-      authorityRef: {
-        ...(await walletAuthAuthorityRef({ authority: emailAuthority })),
-        walletAuthMethodId: email.walletAuthMethodId,
-      },
+      authorityRef: await walletAuthAuthorityRef({ authority: emailAuthority }),
       authSource: {
         kind: 'oidc_provider',
         providerId: 'google_oidc',

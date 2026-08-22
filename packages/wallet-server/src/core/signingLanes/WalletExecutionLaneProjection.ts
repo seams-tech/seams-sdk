@@ -49,8 +49,6 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base58Encode } from '@shared/utils/base58';
 import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
@@ -130,7 +128,8 @@ export async function resolveWalletAuthMethodIdForAuthority(input: {
     const candidateRef = await walletAuthAuthorityRef({ authority });
     if (
       candidateRef.walletId === input.authorityRef.walletId &&
-      candidateRef.authorityDigest === input.authorityRef.authorityDigest
+      candidateRef.authorityDigest === input.authorityRef.authorityDigest &&
+      candidateRef.walletAuthMethodId === input.authorityRef.walletAuthMethodId
     ) {
       matches.push(authMethod.walletAuthMethodId);
     }
@@ -564,19 +563,27 @@ function walletAuthorityForAuthMethod(
     }
     const credentialId = parseWebAuthnCredentialIdB64u(authMethod.credentialIdB64u);
     if (!credentialId.ok) return null;
-    return buildPasskeyWalletAuthAuthority({
+    return {
       walletId: authMethod.walletId,
-      rpId: authMethod.rpId,
-      credentialIdB64u: credentialId.value,
-    });
+      factor: { kind: 'passkey', credentialIdB64u: credentialId.value },
+      verifier: { kind: 'webauthn', rpId: authMethod.rpId },
+      bindingId: authMethod.walletAuthMethodId,
+    };
   }
   if (authSource.kind !== 'oidc_provider') return null;
   const providerUserId = parseEmailOtpProviderUserId(authSource.providerSubject);
   if (!providerUserId.ok) return null;
-  return buildEmailOtpWalletAuthAuthority({
+  return {
     walletId: authMethod.walletId,
-    provider: authSource.providerId === 'google_oidc' ? 'google' : 'email',
-    providerUserId: providerUserId.value,
-    emailHashHex: authMethod.emailHashHex,
-  });
+    factor: {
+      kind: 'email_otp',
+      provider: authSource.providerId === 'google_oidc' ? 'google' : 'email',
+      providerUserId: providerUserId.value,
+    },
+    verifier: {
+      kind: 'email_otp_wallet_auth_method',
+      emailHashHex: authMethod.emailHashHex,
+    },
+    bindingId: authMethod.walletAuthMethodId,
+  };
 }
