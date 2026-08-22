@@ -11,7 +11,6 @@ import type {
   RegistrationIntentV1,
   RegistrationNearAccountProvisioning,
   ResolvedRegistrationNearAccount,
-  WalletAuthMethodTarget,
   WalletId,
   WebAuthnRpId,
 } from '@shared/utils/registrationIntent';
@@ -854,33 +853,6 @@ export type WalletAddAuthMethodFinalizeResponse =
         kind: 'email_otp';
         status: 'active';
       };
-    };
-
-export type RevokeAuthMethodAuth = {
-  kind: 'webauthn_assertion';
-  rpId: WebAuthnRpId;
-  credential: WebAuthnAuthenticationCredential;
-  expectedChallengeDigestB64u: string;
-};
-
-export type WalletRevokeAuthMethodResponse =
-  | {
-      ok: true;
-      walletId: WalletId;
-      authMethod: {
-        kind: 'passkey';
-        status: 'revoked';
-      };
-      rpId: string;
-    }
-  | {
-      ok: true;
-      walletId: WalletId;
-      authMethod: {
-        kind: 'email_otp';
-        status: 'revoked';
-      };
-      rpId?: never;
     };
 
 export function parseWalletAddAuthMethodStartResponse(args: {
@@ -3519,18 +3491,6 @@ function addAuthMethodAuthorityBody(
   }
 }
 
-function revokeAuthMethodAuthBody(auth: RevokeAuthMethodAuth): unknown {
-  switch (auth.kind) {
-    case 'webauthn_assertion':
-      return {
-        kind: 'webauthn_assertion',
-        rpId: auth.rpId,
-        credential: auth.credential,
-        expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
-      };
-  }
-}
-
 export async function startWalletAddSigner(args: {
   relayerUrl: string;
   walletId: WalletId;
@@ -3728,24 +3688,6 @@ export async function finalizeWalletAddAuthMethod(
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/finalize`,
     body,
-  });
-}
-
-export async function revokeWalletAuthMethod(args: {
-  relayerUrl: string;
-  walletId: WalletId;
-  auth: RevokeAuthMethodAuth;
-  target: WalletAuthMethodTarget;
-}): Promise<WalletRevokeAuthMethodResponse> {
-  const walletId = String(args.walletId || '').trim();
-  if (!walletId) throw new Error('walletId is required for auth-method revoke');
-  return await postJson<WalletRevokeAuthMethodResponse>({
-    relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/revoke`,
-    body: {
-      auth: revokeAuthMethodAuthBody(args.auth),
-      target: args.target,
-    },
   });
 }
 

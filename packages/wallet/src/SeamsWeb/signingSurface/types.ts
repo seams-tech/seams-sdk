@@ -28,6 +28,7 @@ import type {
   WalletIframeWarmupSurface,
   WalletIframeSurfaceMeasurementSurface,
   WalletAuthenticationSurface,
+  WalletLockGenerationSurface,
   UnlockedEd25519ExportRootCapabilitySurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
@@ -98,6 +99,7 @@ export interface SeamsWebSigningSurface
     WalletIframeWarmupSurface,
     WalletIframeSurfaceMeasurementSurface,
     WalletAuthenticationSurface,
+    WalletLockGenerationSurface,
     RuntimeStartupSurface,
     SigningEngineLifecycleEventSurface,
     WorkerOperationContext,

@@ -614,6 +614,10 @@ export interface WalletAuthenticationSurface {
   clearWalletAuthentication(): void;
 }
 
+export interface WalletLockGenerationSurface {
+  advanceWalletLockGeneration(walletId: WalletId): Promise<number>;
+}
+
 export interface WarmSessionStatusSurface {
   getWarmThresholdEd25519SessionStatus(args: {
     walletId: WalletId | string;
@@ -677,6 +681,7 @@ export interface EcdsaSessionControlSurface {
 
 export type LockSigningSurface = NonceCoordinatorSurface &
   EcdsaSessionControlSurface &
+  WalletLockGenerationSurface &
   Pick<
     UnlockedEd25519ExportRootCapabilitySurface,
     'destroyUnlockedWalletEd25519ExportRootCapabilitiesV1'

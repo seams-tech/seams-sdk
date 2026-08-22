@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   buildLinkedDeviceSessionClaimV1,
+  buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1,
   parseLinkedDeviceSessionClaimV1,
   parseLinkSessionProjectionV1,
 } from '../../packages/shared-ts/src/device-linking';
@@ -96,11 +97,31 @@ test.describe('R103 authenticated linked-device browser transport', () => {
       state: { state: 'displaying_qr' },
     });
     await transport.getSessionV1({ linkSessionId: fixture.payload.linkSessionId });
+    const retryRequest = buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1({
+      linkSessionId: fixture.payload.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      requestedAtMs: 2_001,
+    });
+    await transport.retryCommittedDeliveryV1({ request: retryRequest });
+    await transport.retryCommittedDeliveryV1({ request: retryRequest });
 
-    expect(calls).toHaveLength(2);
-    expect(signatures).toHaveLength(2);
+    expect(calls).toHaveLength(4);
+    expect(signatures).toHaveLength(4);
     expect(calls[0]?.url).toBe(`https://relay.example.test/wallet/device-linking/v1/sessions`);
     expect(calls[1]?.method).toBe('GET');
+    expect(calls[2]?.url).toBe(
+      `https://relay.example.test/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/retry`,
+    );
+    expect(calls[2]?.body).toEqual({
+      kind: 'linked_device_session_retry_committed_delivery_request_v1',
+      linkSessionId: fixture.payload.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      requestedAtMs: 2_001,
+    });
+    expect(calls[3]?.url).toBe(calls[2]?.url);
+    expect(calls[3]?.body).toEqual(calls[2]?.body);
     expect(calls[0]?.proof.requestNonceB64u).not.toBe(calls[1]?.proof.requestNonceB64u);
     for (const call of calls) {
       const proof = call.proof;

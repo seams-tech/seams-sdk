@@ -11,13 +11,18 @@ import {
 } from '../../packages/wallet/src/core/indexedDB/schemaNames';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
+  buildActiveWalletAuthorityV1,
   buildPendingWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
 } from '@shared/authorization/walletAuthority';
-import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import {
+  parseDeviceId,
+  parseWalletSessionAuthorizationId,
+} from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
+import { parseActiveWalletSessionV1 } from '@shared/device-linking';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
@@ -1439,6 +1444,156 @@ test.describe('IndexedDB consolidation', () => {
         exportRootCount: 1,
         selectionCount: 1,
       },
+    });
+  });
+
+  test('refuses stale finalization after an explicit lock advances the selection generation', async ({
+    page,
+  }) => {
+    const fixture = await buildLocalAuthorityInstallationFixture();
+    const pendingAuthority = fixture.input.authority;
+    const activeAuthorityDraft = buildActiveWalletAuthorityV1({
+      kind: pendingAuthority.kind,
+      authorityId: pendingAuthority.authorityId,
+      walletId: pendingAuthority.walletId,
+      principal: pendingAuthority.principal,
+      provenance: pendingAuthority.provenance,
+      permissions: pendingAuthority.permissions,
+      signerActivations: pendingAuthority.signerActivations,
+      signerActivationSetDigestB64u: pendingAuthority.signerActivationSetDigestB64u,
+      authorityDigestB64u: pendingAuthority.authorityDigestB64u,
+      revocationEpoch: pendingAuthority.revocationEpoch,
+      createdAtMs: pendingAuthority.createdAtMs,
+      updatedAtMs: 30,
+      state: 'active',
+      activatedAtMs: 30,
+    });
+    const activeAuthority = buildActiveWalletAuthorityV1({
+      ...activeAuthorityDraft,
+      authorityDigestB64u: await computeWalletAuthorityDigestB64u(activeAuthorityDraft),
+    });
+    const pendingAuthMethod = fixture.input.authMethod;
+    const activeAuthMethod = buildWalletAuthMethodRecordV2({
+      ...pendingAuthMethod,
+      status: 'active',
+      updatedAtMs: 30,
+      activatedAtMs: 30,
+    });
+    const authorizationId = unwrap(
+      parseWalletSessionAuthorizationId('wallet-session:r103e-install'),
+    );
+    const activeWalletSession = parseActiveWalletSessionV1({
+      kind: 'active_wallet_session_v1',
+      walletId: fixture.walletId,
+      authorityId: activeAuthority.authorityId,
+      authMethodId: activeAuthMethod.walletAuthMethodId,
+      authorizationId,
+      authorityDigestB64u: activeAuthority.authorityDigestB64u,
+      authorityRevocationEpoch: activeAuthority.revocationEpoch,
+      capabilitySubjects: [
+        {
+          kind: 'sign',
+          keyFamily: 'ed25519',
+          materialActivation: fixture.input.signerMaterials[0].materialActivation,
+        },
+      ],
+      issuedAtMs: 30,
+      expiresAtMs: 3_600_030,
+    });
+    const unlockedSelection = {
+      ...fixture.selection,
+      lock_state: 'unlocked' as const,
+      record: { ...fixture.selection.record, lockState: 'unlocked' as const },
+    };
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(
+      async ({
+        fixture,
+        unlockedSelection,
+        activeAuthority,
+        activeAuthMethod,
+        activeWalletSession,
+      }) => {
+        const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+        const managerModule =
+          await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+        const repositoryModule =
+          await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/repositories.js');
+        const dbName = schemaNames.createSeamsTestWalletDbName(
+          `authority_finalize_lock_${crypto.randomUUID()}`,
+        );
+        const manager = new managerModule.SeamsWalletDBManager();
+        manager.setDbName(dbName);
+        const repositories = new repositoryModule.SeamsWalletRepositories(manager);
+        const db = await manager.getDB();
+        await db.put(schemaNames.SEAMS_WALLET_STORES.walletSelections, unlockedSelection);
+        await repositories.installLocalAuthority(fixture.input);
+        const advancedGeneration = await repositories.advanceWalletLockGeneration({
+          walletId: fixture.walletId,
+          lockedAtMs: 40,
+        });
+        const stale = await repositories.finalizeLocalAuthorityActivation({
+          authority: activeAuthority,
+          authMethod: activeAuthMethod,
+          walletSession: activeWalletSession,
+          expectedLockGeneration: fixture.input.expectedLockGeneration,
+        });
+        const locked = await repositories.finalizeLocalAuthorityActivation({
+          authority: activeAuthority,
+          authMethod: activeAuthMethod,
+          walletSession: activeWalletSession,
+          expectedLockGeneration: advancedGeneration,
+        });
+        const authority = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletAuthorities,
+          fixture.input.authority.authorityId,
+        );
+        const authMethod = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
+          fixture.input.authMethod.walletAuthMethodId,
+        );
+        const selection = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletSelections,
+          fixture.walletId,
+        );
+        const session = await db.get(
+          schemaNames.SEAMS_WALLET_STORES.walletSessionAuthorizations,
+          activeWalletSession.authorizationId,
+        );
+        manager.close();
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(dbName);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+        return {
+          advancedGeneration,
+          stale,
+          locked,
+          authorityState: authority?.record?.state,
+          authMethodStatus: authMethod?.record?.status,
+          selectionGeneration: selection?.lock_generation,
+          selectionState: selection?.lock_state,
+          sessionPresent: session !== undefined,
+        };
+      },
+      { fixture, unlockedSelection, activeAuthority, activeAuthMethod, activeWalletSession },
+    );
+
+    expect(result).toEqual({
+      advancedGeneration: 8,
+      stale: {
+        kind: 'stale_lock_generation',
+        expectedLockGeneration: 7,
+        actualLockGeneration: 8,
+      },
+      locked: { kind: 'wallet_locked', lockGeneration: 8 },
+      authorityState: 'pending_local_install',
+      authMethodStatus: 'pending_local_install',
+      selectionGeneration: 8,
+      selectionState: 'locked',
+      sessionPresent: false,
     });
   });
 });

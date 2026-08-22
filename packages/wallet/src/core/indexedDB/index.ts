@@ -108,7 +108,11 @@ export type {
   WalletAuthMethodRecordV2,
   WalletSelectionRecordV1,
 } from './passkeyClientDB.types';
-export type { LocalAuthorityActivationFinalizationInputV1 } from './seamsWalletDB/repositories';
+export type {
+  LocalAuthorityActivationFinalizationInputV1,
+  LocalAuthorityActivationFinalizationResultV1,
+  WalletLockGenerationAdvanceInputV1,
+} from './seamsWalletDB/repositories';
 
 export type {
   KeyMaterialAlgorithm,
