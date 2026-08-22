@@ -168,11 +168,7 @@ export async function scanAndLinkDevice(
       targetFactor: parsedQrData.targetFactor,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
-      policyDigestB64u: owner.policyDigestB64u,
-      operationId: owner.operationId,
-      idempotencyKey: owner.idempotencyKey,
-      orderedKeyBindings: owner.orderedKeyBindings,
-      protocolVersions: owner.protocolVersions,
+      orderedOwnerSourceLaneHints: owner.orderedOwnerSourceLaneHints,
       approvedAtMs: Date.now(),
       expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
     });

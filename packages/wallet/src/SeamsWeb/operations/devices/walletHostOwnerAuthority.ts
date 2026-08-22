@@ -20,13 +20,11 @@ import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedA
 import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
 import type { LinkSessionOwnerAuthenticatedRequestPortV1 } from './deviceLinkingOwnerTransport';
 import {
-  parseLinkedDeviceEnrollmentKeyBindingV1,
   parseLinkedDeviceOwnerAuthorizationSourceV1,
-  parseLinkedDeviceProtocolVersionV1,
+  parseLinkedDeviceOwnerSourceLaneV1,
 } from '@shared/device-linking/parsers';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
-import { parseLaneOperationId, parseLaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 
 const OWNER_AUTHORIZATION_PATH = '/wallet/device-linking/v1/owner-authorization';
 
@@ -296,11 +294,7 @@ function parseOwnerAuthorizationResponseV1(
     'authentication',
     'walletId',
     'ownerAuthorization',
-    'policyDigestB64u',
-    'operationId',
-    'idempotencyKey',
-    'orderedKeyBindings',
-    'protocolVersions',
+    'orderedOwnerSourceLaneHints',
     'expiresAtMs',
   ]);
   const authenticationRecord = exactRecord(record.authentication, [
@@ -324,29 +318,16 @@ function parseOwnerAuthorizationResponseV1(
   if (!walletId.ok || walletId.value !== projection.walletId) {
     throw new Error('Owner authorization wallet identity changed');
   }
-  const orderedKeyBindings = parseNonEmptyArray(
-    record.orderedKeyBindings,
-    parseLinkedDeviceEnrollmentKeyBindingV1,
-    'orderedKeyBindings',
+  const orderedOwnerSourceLaneHints = parseNonEmptyArray(
+    record.orderedOwnerSourceLaneHints,
+    parseLinkedDeviceOwnerSourceLaneV1,
+    'orderedOwnerSourceLaneHints',
   );
-  const protocolVersions = parseNonEmptyArray(
-    record.protocolVersions,
-    parseLinkedDeviceProtocolVersionV1,
-    'protocolVersions',
-  );
-  const operationId = parseLaneOperationId(record.operationId);
-  if (!operationId.ok) throw new Error(operationId.error.message);
-  const idempotencyKey = parseLaneOperationIdempotencyKey(record.idempotencyKey);
-  if (!idempotencyKey.ok) throw new Error(idempotencyKey.error.message);
   return {
     authentication,
     walletId: walletId.value,
     ownerAuthorization,
-    policyDigestB64u: parseDigestB64u(String(record.policyDigestB64u)),
-    operationId: operationId.value,
-    idempotencyKey: idempotencyKey.value,
-    orderedKeyBindings,
-    protocolVersions,
+    orderedOwnerSourceLaneHints,
     expiresAtMs: positiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
   };
 }

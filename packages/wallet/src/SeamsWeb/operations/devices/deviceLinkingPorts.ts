@@ -3,9 +3,8 @@ import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signing
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceApprovalResultV1,
-  LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceProtocolVersionV1,
+  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceSessionClaimRequestV1,
   LinkedDeviceSessionClaimV1,
   LinkSessionProjectionV1,
@@ -38,8 +37,6 @@ import type {
 } from '@shared/device-linking/ed25519ExportRoot';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
-  LaneOperationId,
-  LaneOperationIdempotencyKey,
   LinkedDeviceId,
   LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
@@ -275,16 +272,9 @@ export type LinkedDeviceOwnerAuthorizationResultBaseV1 = {
   readonly authentication: LinkSessionAuthenticationV1;
   readonly walletId: WalletId;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly policyDigestB64u: DigestB64u;
-  readonly operationId: LaneOperationId;
-  readonly idempotencyKey: LaneOperationIdempotencyKey;
-  readonly orderedKeyBindings: readonly [
-    LinkedDeviceEnrollmentKeyBindingV1,
-    ...LinkedDeviceEnrollmentKeyBindingV1[],
-  ];
-  readonly protocolVersions: readonly [
-    LinkedDeviceProtocolVersionV1,
-    ...LinkedDeviceProtocolVersionV1[],
+  readonly orderedOwnerSourceLaneHints: readonly [
+    LinkedDeviceOwnerSourceLaneV1,
+    ...LinkedDeviceOwnerSourceLaneV1[],
   ];
   readonly expiresAtMs: number;
 };
