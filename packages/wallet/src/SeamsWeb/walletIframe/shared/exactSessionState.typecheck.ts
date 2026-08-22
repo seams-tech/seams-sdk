@@ -1,7 +1,6 @@
 import type { WalletIframeExactSessionState } from './exactSessionState';
 import { parseWalletId } from '@shared/utils/domainIds';
 import {
-  parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -9,10 +8,7 @@ import {
 const walletId = parseWalletId('wallet-id');
 const walletSessionId = parseWalletSessionId('wallet-session-id');
 const authorizationId = parseWalletSessionAuthorizationId('wallet-session-authorization-id');
-const linkedAuthorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
-  'linked-device-wallet-session-authorization-id',
-);
-if (!walletId.ok || !walletSessionId.ok || !authorizationId.ok || !linkedAuthorizationId.ok) {
+if (!walletId.ok || !walletSessionId.ok || !authorizationId.ok) {
   throw new Error('Type fixture IDs must be valid');
 }
 
@@ -26,17 +22,6 @@ const activeSession = {
   expiresAtMs: 1,
 } satisfies WalletIframeExactSessionState;
 void activeSession;
-
-const linkedActiveSession = {
-  kind: 'active_session',
-  status: 'active',
-  walletId: walletId.value,
-  authorizationId: linkedAuthorizationId.value,
-  walletSessionId: walletSessionId.value,
-  authMethod: 'passkey',
-  expiresAtMs: 1,
-} satisfies WalletIframeExactSessionState;
-void linkedActiveSession;
 
 const missingSession = {
   kind: 'wallet_unlocked_without_signing_session',

@@ -7,7 +7,6 @@ import {
   VAULT_OPERATION_KINDS,
   buildEvmEcdsaMpcOperationRef,
   buildAuthorizationEvidenceRequirement,
-  buildLinkedDeviceWalletSessionAuthorizationRef,
   buildNearEd25519MpcOperationRef,
   buildVaultOperationRef,
   type AuthFactorId,
@@ -15,7 +14,6 @@ import {
   type AuthorizationEvidenceKind,
   type AuthorizationEvidenceRequirement,
   type AuthorizationGrantRef,
-  type LinkedDeviceWalletSessionAuthorizationId,
   type WalletSessionAuthorizationId,
   type AuthorizedOperationId,
   type EcdsaAuthorizationSessionId,
@@ -74,19 +72,12 @@ void unsupportedEvidence;
 
 declare const ecdsaAuthorizationSessionId: EcdsaAuthorizationSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
-declare const linkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId;
 declare const authorizedOperationId: AuthorizedOperationId;
 const authorizationRef: AuthorizationGrantRef = {
   kind: 'wallet_session_authorization',
   authorizationId,
 };
 void authorizationRef;
-const linkedAuthorizationRef: AuthorizationGrantRef =
-  buildLinkedDeviceWalletSessionAuthorizationRef(linkedAuthorizationId);
-void linkedAuthorizationRef;
-// @ts-expect-error Owner and linked-device authorization identities are independent.
-const invalidLinkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId = authorizationId;
-void invalidLinkedAuthorizationId;
 // @ts-expect-error Session identity cannot substitute for reusable authorization identity.
 const invalidAuthorizationId: WalletSessionAuthorizationId = ecdsaAuthorizationSessionId;
 void invalidAuthorizationId;

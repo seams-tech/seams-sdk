@@ -32,11 +32,15 @@ import {
   type LinkedDeviceEnrollmentId,
   type LinkedDeviceId,
 } from '@shared/signing-lanes/ids';
-import { requireRecord, rejectUnknownFields, parseUnixMs } from '@shared/passkey-custody/primitives';
+import {
+  requireRecord,
+  rejectUnknownFields,
+  parseUnixMs,
+} from '@shared/passkey-custody/primitives';
 
 const GRANT_TOKEN_DIGEST_DOMAIN = 'seams:linked-device-email-otp-grant-token:v1';
 const DESCRIPTOR_CREDENTIAL_DOMAIN = 'seams:linked-device-email-otp-descriptor-credential:v1';
-const AUTHORITY_DIGEST_DOMAIN = 'seams:linked-device-email-otp-owner-authority:v1';
+const AUTHORITY_DIGEST_DOMAIN = 'seams:linked-device-email-otp-authority:v1';
 const CHALLENGE_BINDING_DOMAIN = 'seams:linked-device-email-otp-challenge-binding:v1';
 
 /**
@@ -53,7 +57,7 @@ export async function computeLinkedDeviceEmailOtpChallengeBindingDigestV1(input:
   readonly deviceId: LinkedDeviceId;
   readonly targetPreparationDigestB64u: DigestB64u;
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
-  readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
 }): Promise<DigestB64u> {
   const preimage = [
     CHALLENGE_BINDING_DOMAIN,
@@ -64,7 +68,7 @@ export async function computeLinkedDeviceEmailOtpChallengeBindingDigestV1(input:
     'email_otp',
     String(input.targetPreparationDigestB64u),
     String(input.baseWalletAuthMethodId),
-    String(input.linkedOwnerAuthMethodId),
+    String(input.walletAuthMethodId),
   ].join('\\u0000');
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(preimage)));
 }
@@ -84,7 +88,7 @@ export type LinkedDeviceEmailOtpGrantRecordV1 = {
   readonly targetFactor: { readonly kind: 'email_otp' };
   readonly targetPreparationDigestB64u: DigestB64u;
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
-  readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly challengeId: string;
   readonly state: LinkedDeviceEmailOtpGrantStateV1;
@@ -103,7 +107,7 @@ const GRANT_RECORD_FIELDS = [
   'targetFactor',
   'targetPreparationDigestB64u',
   'baseWalletAuthMethodId',
-  'linkedOwnerAuthMethodId',
+  'walletAuthMethodId',
   'authorityDigestB64u',
   'challengeId',
   'state',
@@ -172,9 +176,9 @@ export function parseLinkedDeviceEmailOtpGrantRecordV1(
       parseWalletAuthMethodId(record.baseWalletAuthMethodId),
       'LinkedDeviceEmailOtpGrantRecordV1.baseWalletAuthMethodId',
     ),
-    linkedOwnerAuthMethodId: requireParsed(
-      parseWalletAuthMethodId(record.linkedOwnerAuthMethodId),
-      'LinkedDeviceEmailOtpGrantRecordV1.linkedOwnerAuthMethodId',
+    walletAuthMethodId: requireParsed(
+      parseWalletAuthMethodId(record.walletAuthMethodId),
+      'LinkedDeviceEmailOtpGrantRecordV1.walletAuthMethodId',
     ),
     authorityDigestB64u: requireGrantDigest(
       record.authorityDigestB64u,
@@ -240,7 +244,7 @@ export async function computeLinkedDeviceEmailOtpGrantTokenDigestV1(
 
 /**
  * The digest every Wallet Session and admission surface compares to name this
- * one derived linked-owner authority. It covers the full identity chain —
+ * one target authority. It covers the full identity chain —
  * wallet, enrollment, device, derived principal, base factor — so two devices
  * sharing an email produce different digests, and a digest computed against a
  * substituted base factor matches nothing.
@@ -249,7 +253,7 @@ export async function computeLinkedDeviceEmailOtpAuthorityDigestV1(input: {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
 }): Promise<DigestB64u> {
   const preimage = [
@@ -257,7 +261,7 @@ export async function computeLinkedDeviceEmailOtpAuthorityDigestV1(input: {
     String(input.walletId),
     String(input.enrollmentId),
     String(input.deviceId),
-    String(input.linkedOwnerAuthMethodId),
+    String(input.walletAuthMethodId),
     String(input.baseWalletAuthMethodId),
   ].join('\u0000');
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(preimage)));
@@ -266,17 +270,15 @@ export async function computeLinkedDeviceEmailOtpAuthorityDigestV1(input: {
 /**
  * The target-deployment descriptor binds each child to the target credential
  * by a credential id. The Email OTP branch creates no WebAuthn credential, so
- * its descriptor binding is a deterministic digest of the derived linked-owner
+ * its descriptor binding is a deterministic digest of the target
  * authority — the credential-equivalent principal this enrollment activates.
  * Deterministic, so replays reproduce byte-identical descriptor requests.
  */
 export async function linkedDeviceEmailOtpDescriptorCredentialIdV1(
-  linkedOwnerAuthMethodId: WalletAuthMethodId,
+  walletAuthMethodId: WalletAuthMethodId,
 ): Promise<WebAuthnCredentialIdB64u> {
   const digest = base64UrlEncode(
-    await sha256BytesUtf8(
-      `${DESCRIPTOR_CREDENTIAL_DOMAIN}\u0000${String(linkedOwnerAuthMethodId)}`,
-    ),
+    await sha256BytesUtf8(`${DESCRIPTOR_CREDENTIAL_DOMAIN}\u0000${String(walletAuthMethodId)}`),
   );
   const parsed = parseWebAuthnCredentialIdB64u(digest);
   if (!parsed.ok) throw new Error(parsed.error.message);

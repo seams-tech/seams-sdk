@@ -303,3 +303,74 @@ test('D1 signer migrations install and constrain Wallet Session authorization V2
     cleanupTemporaryD1Database(temporary.tempDir);
   }
 });
+
+test('R103E signer baseline removes retired linked-device projections', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+
+    const retiredObjectNames = [
+      'wallet_auth_methods_legacy',
+      'linked_device_owner_auth_bindings',
+      'linked_device_owner_planning_snapshots',
+      'linked_device_provisioning_records',
+      'linked_device_source_handoffs',
+      'linked_device_target_deployment_descriptors',
+      'linked_device_wallet_session_authorizations',
+      'linked_device_wallet_session_quotas',
+      'authorized_operation_linked_grant_claim_atomic',
+      'authorized_operation_audit_linked_device_activity_idx',
+      'linked_device_wallet_session_authorization_identity_insert',
+      'linked_device_wallet_session_authorization_identity_update',
+      'linked_device_wallet_session_authorization_revoke_atomic',
+      'linked_device_wallet_session_quota_revoke_guard',
+    ];
+    const retiredObjects = await temporary.database
+      .prepare(
+        `SELECT type, name FROM sqlite_master
+           WHERE name IN (${retiredObjectNames.map(() => '?').join(', ')})
+           ORDER BY type, name`,
+      )
+      .bind(...retiredObjectNames)
+      .all<{ readonly type?: unknown; readonly name?: unknown }>();
+    expect(retiredObjects.results).toEqual([]);
+
+    const grantShapeGuard = await temporary.database
+      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?`)
+      .bind('authorized_operation_grant_shape_guard')
+      .first<{ readonly sql?: unknown }>();
+    expect(grantShapeGuard?.sql).toEqual(expect.any(String));
+    expect(grantShapeGuard?.sql).not.toContain('linked_device_wallet_session_authorization_v1');
+
+    await expect(readTableColumnNames(temporary.database, 'wallet_auth_methods')).resolves.toEqual(
+      expect.arrayContaining(['wallet_authority_id', 'wallet_auth_method_id']),
+    );
+
+    const retainedBoundaryTables = await temporary.database
+      .prepare(
+        `SELECT name FROM sqlite_master
+           WHERE type = 'table' AND name IN (
+             'linked_device_request_proof_nonces',
+             'linked_device_session_transcripts',
+             'linked_device_sessions',
+             'linked_device_target_commit_reservations',
+             'linked_device_target_credentials',
+             'linked_device_email_otp_grants',
+             'linked_device_ed25519_export_root_transfers'
+           )
+           ORDER BY name`,
+      )
+      .all<{ readonly name?: unknown }>();
+    expect(retainedBoundaryTables.results.map((row) => row.name)).toEqual([
+      'linked_device_ed25519_export_root_transfers',
+      'linked_device_email_otp_grants',
+      'linked_device_request_proof_nonces',
+      'linked_device_session_transcripts',
+      'linked_device_sessions',
+      'linked_device_target_commit_reservations',
+      'linked_device_target_credentials',
+    ]);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});

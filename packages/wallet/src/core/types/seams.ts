@@ -26,7 +26,6 @@ import type {
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import type {
-  LinkedDeviceWalletSessionAuthorizationId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -37,9 +36,7 @@ import type {
   WalletUnlockSubjectSet,
 } from '../signingEngine/session/identity/walletUnlockSubject';
 
-export type ReusableWalletSessionAuthorizationId =
-  | WalletSessionAuthorizationId
-  | LinkedDeviceWalletSessionAuthorizationId;
+export type ReusableWalletSessionAuthorizationId = WalletSessionAuthorizationId;
 
 export type {
   SensitiveOperationPolicy,

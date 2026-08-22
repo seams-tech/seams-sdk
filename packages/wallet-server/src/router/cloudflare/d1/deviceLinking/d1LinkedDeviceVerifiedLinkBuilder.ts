@@ -80,7 +80,10 @@ export async function buildVerifiedLinkInputV1(
     requestedAtMs: input.requestedAtMs,
   });
   await assertSourceRead(source, input.registration.walletId, input.requestedAtMs);
-  const targetFactor = await buildVerifiedTargetFactorV1(input);
+  const targetFactor = await buildVerifiedTargetFactorV1({
+    ...input,
+    sourceAuthMethod: source.authMethod,
+  });
   assertPermissionAttenuation(source.authority, input.approval.permission);
   assertSourceManifestMatchesAuthority(source.authority, source.signerManifest);
   const sourceAuthority: VerifiedSourceAuthorityV1 = {
@@ -120,7 +123,6 @@ export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
         kind: input.evidence.kind,
         grantId: input.evidence.grant.grantId,
         baseWalletAuthMethodId: input.evidence.grant.baseWalletAuthMethodId,
-        linkedOwnerAuthMethodId: input.evidence.grant.linkedOwnerAuthMethodId,
         authorityDigestB64u: input.evidence.grant.authorityDigestB64u,
         descriptorCredentialIdB64u: input.evidence.grant.descriptorCredentialIdB64u,
       };
@@ -143,7 +145,9 @@ export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
 }
 
 async function buildVerifiedTargetFactorV1(
-  input: BuildVerifiedLinkInputV1,
+  input: BuildVerifiedLinkInputV1 & {
+    readonly sourceAuthMethod: VerifiedLinkSourceReadV1['authMethod'];
+  },
 ): Promise<VerifiedTargetFactorV1> {
   const verifiedAtMs = input.registration.registeredAtMs;
   if (!Number.isSafeInteger(verifiedAtMs) || verifiedAtMs < 0 || verifiedAtMs > input.requestedAtMs) {
@@ -169,7 +173,7 @@ async function buildVerifiedTargetFactorV1(
       walletId: input.registration.walletId,
       createdAtMs: verifiedAtMs,
       kind: 'passkey',
-      rpId: requirePasskeyRpId(input.preparation),
+      rpId: requirePasskeyRpId(input.sourceAuthMethod),
       credentialIdB64u: requireCredentialId(input.evidence.credential.credentialIdB64u),
       credentialPublicKeyB64u: canonicalBase64Url(
         input.evidence.credential.credentialPublicKeyB64u,
@@ -190,9 +194,7 @@ async function buildVerifiedTargetFactorV1(
     grant.deviceId !== input.registration.deviceId ||
     grant.targetPreparationDigestB64u !== input.registration.targetPreparationDigestB64u ||
     grant.grantId !== input.evidence.grant.grantId ||
-    grant.authorityDigestB64u !== input.evidence.grant.authorityDigestB64u ||
-    String(grant.linkedOwnerAuthMethodId) !==
-      String(input.evidence.grant.linkedOwnerAuthMethodId)
+    grant.authorityDigestB64u !== input.evidence.grant.authorityDigestB64u
   ) {
     throw new Error('Email OTP target factor grant identity changed');
   }
@@ -299,15 +301,12 @@ function requireCredentialId(value: string): PasskeyWalletAuthMethodDraftV1['cre
 }
 
 function requirePasskeyRpId(
-  preparation: LinkedDeviceTargetPreparationV1,
+  sourceAuthMethod: VerifiedLinkSourceReadV1['authMethod'],
 ): PasskeyWalletAuthMethodDraftV1['rpId'] {
-  if (preparation.targetFactor.kind !== 'passkey_prf') {
-    throw new Error('Passkey target factor preparation is missing');
+  if (sourceAuthMethod.kind !== 'passkey') {
+    throw new Error('Passkey target factor requires a Passkey source auth method');
   }
-  if (!preparation.ownerEnrollment.registration) {
-    throw new Error('Passkey target factor registration options are missing');
-  }
-  return preparation.ownerEnrollment.registration.rpId;
+  return sourceAuthMethod.rpId;
 }
 
 function assertPermissionAttenuation(

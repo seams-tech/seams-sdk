@@ -15,8 +15,8 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
-  LinkedDeviceWalletSessionAuthorizationId,
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { TenantId } from '@shared/authorization/capabilityKinds';
@@ -76,7 +76,7 @@ export type LinkedDeviceManagementProjectionPortV1 = {
 export type LinkedDeviceWalletSessionRevocationTargetV1 = {
   readonly tenantId: TenantId;
   readonly deviceId: LinkedDeviceId;
-  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
 };

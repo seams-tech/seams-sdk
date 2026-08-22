@@ -1,14 +1,8 @@
 import {
   parseLinkedDeviceApprovalResultV1,
-  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseLinkedDeviceSessionClaimV1,
-  parseLinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking';
-import type {
-  LinkedDeviceApprovalResultV1,
-  LinkedDeviceProvisioningDeliveriesSubmissionV1,
-  LinkedDeviceTargetReadyR102InputV1,
-} from '@shared/device-linking';
+import type { LinkedDeviceApprovalResultV1 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { parseLinkedDeviceEd25519ExportRootRecipientV1 } from '@shared/device-linking/ed25519ExportRoot';
 import type {
@@ -72,24 +66,6 @@ export function createDeviceLinkingOwnerTransportV1(
       return parseOwnerResponseV1(response, parseLinkedDeviceApprovalResultV1);
     },
     getApprovalV1: options.approvalUpdates.getApprovalV1,
-    getTargetReadyV1: async (input) => {
-      const response = await options.request.requestOwnerV1({
-        method: 'GET',
-        canonicalPath: `${sessionPath(input.linkSessionId)}/target-ready`,
-        authentication: input.authentication,
-      });
-      if (response.status === 404) return null;
-      return parseOwnerResponseV1(response, parseLinkedDeviceTargetReadyR102InputV1);
-    },
-    submitPreparedProvisioningDeliveriesV1: async (input) => {
-      const response = await options.request.requestOwnerV1({
-        method: 'POST',
-        canonicalPath: `${sessionPath(input.submission.linkSessionId)}/prepared-deliveries`,
-        body: input.submission,
-        authentication: input.authentication,
-      });
-      return parseOwnerResponseV1(response, parseLinkedDeviceProvisioningDeliveriesSubmissionV1);
-    },
     getEd25519ExportRootRecipientV1: async (input) => {
       const response = await options.request.requestOwnerV1({
         method: 'GET',

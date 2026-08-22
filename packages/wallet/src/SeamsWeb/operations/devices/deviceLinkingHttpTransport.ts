@@ -16,13 +16,10 @@ import {
   parseLinkedDeviceEmailOtpChallengeStartRequestV1,
   parseLinkedDeviceEmailOtpChallengeVerifyRequestV1,
   parseLinkedDeviceEmailOtpVerificationResultV1,
-  parseLinkedDeviceEnrollmentReceiptV1,
-  parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkSessionProjectionV1,
   parseLinkSessionTransportEventV1,
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
-  parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -36,8 +33,6 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
-import { parseLinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
-import type { LinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
 import { parseLinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-linking/ed25519ExportRoot';
 import type { HttpTransport } from '@/core/platform/http';
 import type {
@@ -50,13 +45,6 @@ import type {
   LinkSessionOwnerTransportPortV1,
   LinkSessionTransportPortV1,
 } from './deviceLinkingPorts';
-import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
-import { parseWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
-import {
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-  parseWalletId,
-} from '@shared/utils/domainIds';
 
 export const LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 = '/wallet/device-linking/v1/sessions';
 
@@ -139,16 +127,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       });
       return parseLinkedDeviceApprovalDeliveryV1(response.body).approval;
     },
-    getWalletSessionDeliveryV1: async ({ linkSessionId }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'GET',
-        canonicalPath: sessionActionPath(linkSessionId, 'wallet-session'),
-        linkSessionId,
-      });
-      return parseLinkedDeviceWalletSessionDeliveryV1(response.body);
-    },
     getTargetPreparationV1: async ({ linkSessionId }) => {
       const response = await requestDeviceV1({
         options,
@@ -195,28 +173,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       });
       return parseLinkedDeviceEmailOtpVerificationResultV1(response.body);
     },
-    requestProvisioningDeliveriesV1: async ({ command }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(command.linkSessionId, 'provision'),
-        linkSessionId: command.linkSessionId,
-        body: command,
-      });
-      return parseLinkedDeviceProvisioningDeliveriesV1(response.body);
-    },
-    acknowledgeHolderDeliveriesV1: async ({ acknowledgement }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(acknowledgement.linkSessionId, 'holder-receipts'),
-        linkSessionId: acknowledgement.linkSessionId,
-        body: acknowledgement,
-      });
-      return parseLinkedDeviceEnrollmentReceiptV1(response.body);
-    },
     registerTargetCredentialV1: async ({ registration }) => {
       const response = await requestDeviceV1({
         options,
@@ -227,17 +183,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         body: registration,
       });
       return parseTargetCredentialRegistrationResponseV1(response.body);
-    },
-    finalizeOwnerAuthMethodV1: async ({ linkSessionId, request }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(linkSessionId, 'owner-finalize'),
-        linkSessionId,
-        body: request,
-      });
-      return parseLinkedDeviceOwnerFinalizeResponseV1(response.body);
     },
     registerEd25519ExportRootRecipientV1: async ({ recipient }) => {
       const linkSessionId = requireLinkSessionId(recipient.linkSessionId);
@@ -261,16 +206,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       // Device 1 has not sealed yet. Normal while the owner is approving.
       if (response.status === 204) return null;
       return parseLinkedDeviceEd25519ExportRootPackageV1(response.body);
-    },
-    acknowledgeReceiptV1: async ({ acknowledgement }) => {
-      await requestMutationV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(acknowledgement.linkSessionId, 'receipt'),
-        linkSessionId: acknowledgement.linkSessionId,
-        body: acknowledgement,
-      });
     },
     retryCommittedDeliveryV1: async ({ request }) => {
       await requestMutationV1({
@@ -575,83 +510,6 @@ function parseHttpFailureMessageV1(response: DeviceRequestResponseV1): string {
   return `linked-device request failed with HTTP ${response.status}`;
 }
 
-/**
- * The finalize response, plus the local account identity that rides with it.
- *
- * Kept as a distinct return type rather than widened onto the canonical finalize
- * response: only the linked route carries this, because only a device that never
- * registered locally needs it.
- */
-export type LinkedDeviceOwnerFinalizeResultV1 = {
-  readonly response: WalletAddAuthMethodFinalizeResponse;
-  readonly localAccount: LinkedDeviceLocalAccountProjectionV1;
-};
-
-function parseLinkedDeviceOwnerFinalizeResponseV1(raw: unknown): LinkedDeviceOwnerFinalizeResultV1 {
-  if (!isRecord(raw) || raw.ok !== true) {
-    throw new Error('linked-device owner finalize response is invalid');
-  }
-  const walletId = parseRequiredDomainId(parseWalletId(raw.walletId), 'walletId');
-  const rpId = parseRequiredDomainId(parseWebAuthnRpId(raw.rpId), 'rpId');
-  if (!isRecord(raw.authMethod)) {
-    throw new Error('linked-device owner finalize response omitted auth method');
-  }
-  const authMethod = raw.authMethod;
-  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
-    throw new Error('linked-device owner finalize response is not an active passkey');
-  }
-  const credentialIdB64u = parseRequiredDomainId(
-    parseWebAuthnCredentialIdB64u(authMethod.credentialIdB64u),
-    'authMethod.credentialIdB64u',
-  );
-  if (
-    typeof authMethod.credentialPublicKeyB64u !== 'string' ||
-    !authMethod.credentialPublicKeyB64u.trim()
-  ) {
-    throw new Error('linked-device owner finalize response omitted credential public key');
-  }
-  const counter = authMethod.counter;
-  if (typeof counter !== 'number' || !Number.isSafeInteger(counter) || counter < 0) {
-    throw new Error('linked-device owner finalize response has an invalid counter');
-  }
-  const device = parseWebAuthnAuthenticatorDeviceInfo(authMethod.device);
-  if (!device) {
-    throw new Error('linked-device owner finalize response has invalid device metadata');
-  }
-  // Required, not optional: a linked finalize that omitted it would leave this
-  // device unable to unlock, and failing here names the cause.
-  const localAccount = parseLinkedDeviceLocalAccountProjectionV1(raw.localAccount);
-  if (String(localAccount.walletId) !== String(walletId)) {
-    throw new Error('linked-device owner finalize response local account names another wallet');
-  }
-  return {
-    response: {
-      ok: true,
-      walletId,
-      rpId,
-      authMethod: {
-        kind: 'passkey',
-        status: 'active',
-        credentialIdB64u,
-        credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
-        counter,
-        device,
-      },
-    },
-    localAccount,
-  };
-}
-
-function parseRequiredDomainId<T>(
-  parsed:
-    | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly error: { readonly message: string } },
-  label: string,
-): T {
-  if (!parsed.ok) throw new Error(`linked-device owner finalize ${label} ${parsed.error.message}`);
-  return parsed.value;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -678,14 +536,10 @@ function sessionActionPath(
   linkSessionId: LinkDeviceSessionId,
   action:
     | 'approval'
-    | 'wallet-session'
     | 'target-preparation'
     | 'email-otp/challenge'
     | 'email-otp/challenge/resend'
     | 'email-otp/challenge/verify'
-    | 'owner-finalize'
-    | 'provision'
-    | 'holder-receipts'
     | 'credential'
     | 'ed25519-export-root'
     | 'ed25519-export-root-recipient'

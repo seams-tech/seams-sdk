@@ -7,7 +7,6 @@ import {
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   parseAuthorizedOperationId,
-  parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
   parseTenantId,
   parseWalletSessionAuthorizationId,
@@ -20,7 +19,10 @@ import {
 import { parseLaneEnrollmentId } from '../../packages/shared-ts/src/signing-lanes/ids';
 import {
   parseMpcMaterialActivationId,
+  parseMpcMaterialActivationRef,
+  parseWalletAuthMethodId,
   parseWalletId,
+  parseWebAuthnCredentialIdB64u,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import type { LaneAggregateRevocationRequestV1 } from '../../packages/wallet-server/src/core/signingLanes/LaneAggregateRevocationApplicationService';
@@ -29,7 +31,6 @@ import {
   type LinkedDeviceManagementTargetV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 
 const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
@@ -114,9 +115,7 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
             {
               tenantId: parseTenantId('tenant:management').value,
               deviceId: target.summary.deviceId,
-              authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
-                'authorization:management',
-              ).value,
+              authorizationId: parseWalletSessionAuthorizationId('authorization:management').value,
               walletSessionId: parseWalletSessionId('wallet-session:management').value,
               quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
             },
@@ -210,18 +209,16 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
             {
               tenantId: parseTenantId('tenant:management').value,
               deviceId: target.summary.deviceId,
-              authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
-                'authorization:management:first',
-              ).value,
+              authorizationId: parseWalletSessionAuthorizationId('authorization:management:first')
+                .value,
               walletSessionId: parseWalletSessionId('wallet-session:management:first').value,
               quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management:first').value,
             },
             {
               tenantId: parseTenantId('tenant:management').value,
               deviceId: target.summary.deviceId,
-              authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
-                'authorization:management:renewed',
-              ).value,
+              authorizationId: parseWalletSessionAuthorizationId('authorization:management:renewed')
+                .value,
               walletSessionId: parseWalletSessionId('wallet-session:management:renewed').value,
               quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management:renewed').value,
             },
@@ -351,7 +348,7 @@ async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> 
         sourceLaneId: binding.sourceLaneId,
         sourceLaneShareEpoch: binding.sourceLaneShareEpoch,
         sourceRevocationEpoch: binding.sourceRevocationEpoch,
-        sourceMaterialActivation: fixture.receipt.orderedChildReceipts[0].materialActivation,
+        sourceMaterialActivation: parseMpcMaterialActivationRef('activation:management').value,
         targetLaneId: binding.targetLaneId,
         targetLaneShareEpoch: binding.targetLaneShareEpoch,
         targetMaterialActivationId: parseMpcMaterialActivationId('activation:management').value,
@@ -366,20 +363,13 @@ async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> 
     deviceId: fixture.approval.deviceId,
     enrollmentId: fixture.approval.enrollmentId,
     walletId: fixture.approval.walletId,
-    credential: (() => {
-      const ownerBinding = buildLinkedOwnerPasskeyBindingFixtureV1({
-        walletId: String(fixture.approval.walletId),
-        enrollmentId: String(fixture.approval.enrollmentId),
-        deviceId: String(fixture.approval.deviceId),
-      });
-      if (ownerBinding.factor.kind !== 'passkey') throw new Error('expected passkey binding');
-      return {
-        kind: 'passkey',
-        walletAuthMethodId: ownerBinding.walletAuthMethodId,
-        credentialIdB64u: ownerBinding.factor.credentialIdB64u,
-        device: unknownWebAuthnAuthenticatorDeviceInfo(),
-      };
-    })(),
+    credential: {
+      kind: 'passkey',
+      walletAuthMethodId: parseWalletAuthMethodId('wallet-auth-method:management').value,
+      credentialIdB64u: parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(15)))
+        .value,
+      device: unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
     permission: fixture.approval.permission,
     keyManifestDigestB64u: fixture.approval.policyDigestB64u,
     coveredWalletKeys: [binding.walletKeyId],

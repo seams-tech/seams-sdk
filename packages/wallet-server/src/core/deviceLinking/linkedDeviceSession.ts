@@ -98,7 +98,7 @@ type LinkedDeviceTargetFactorRecordV1 =
     }
   | {
       readonly targetFactor: { readonly kind: 'email_otp' };
-      readonly emailOtpChallenge: LinkedDeviceEmailOtpChallengeV1;
+      readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     };
 
 type LinkedDeviceSessionRecordBaseV1 = {
@@ -530,18 +530,6 @@ export class LinkedDeviceSessionServiceV1 {
       );
       if (requestedAuthorityError)
         return unauthorizedResult('unauthorized', requestedAuthorityError);
-      if (approval.ownerEnrollment.expiresAtMs <= nowMs) {
-        return unauthorizedResult(
-          'linked_device_owner_enrollment_expired',
-          'linked-device owner enrollment has expired',
-        );
-      }
-      if (approval.ownerEnrollment.targetFactor.kind !== approval.targetFactor.kind) {
-        return unauthorizedResult(
-          'linked_device_owner_enrollment_mismatch',
-          'linked-device owner enrollment factor does not match the target factor',
-        );
-      }
       const authorization = await this.authorization.authorizeOwnerApprovalV1({
         session: existing,
         approval,
@@ -552,11 +540,9 @@ export class LinkedDeviceSessionServiceV1 {
         return unauthorizedResult(authorization.code, authorization.message);
       }
       const targetFactor = approval.targetFactor;
-      const emailOtpChallenge = emailOtpChallengeForApproval(approval);
       const nextRecord = replaceSessionRecordV1(existing, {
         state: awaitingTargetFactorStateV1(existing),
         targetFactor,
-        emailOtpChallenge,
         approvalTranscript: {
           digestB64u: approvalDigestB64u,
           value: approval,
@@ -1095,8 +1081,6 @@ function buildApprovedSessionRecordV1(input: {
       updatedAtMs: input.updatedAtMs,
     };
   }
-  if (!input.emailOtpChallenge)
-    throw new Error(`${input.state.state} email session is missing challenge state`);
   return {
     version: 'linked_device_session_v1',
     linkSessionId: input.linkSessionId,
@@ -1105,7 +1089,7 @@ function buildApprovedSessionRecordV1(input: {
     claimTranscript: input.claimTranscript,
     approvalTranscript: input.approvalTranscript,
     targetFactor: input.targetFactor,
-    emailOtpChallenge: input.emailOtpChallenge,
+    ...(input.emailOtpChallenge ? { emailOtpChallenge: input.emailOtpChallenge } : {}),
     revision: input.revision,
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
@@ -1150,7 +1134,6 @@ function buildPendingSessionRecordV1(input: {
       updatedAtMs: input.updatedAtMs,
     };
   }
-  if (!input.emailOtpChallenge) throw new Error('pending email session is missing challenge state');
   return {
     version: 'linked_device_session_v1',
     linkSessionId: input.linkSessionId,
@@ -1159,7 +1142,7 @@ function buildPendingSessionRecordV1(input: {
     claimTranscript: input.claimTranscript,
     approvalTranscript: input.approvalTranscript,
     targetFactor: input.targetFactor,
-    emailOtpChallenge: input.emailOtpChallenge,
+    ...(input.emailOtpChallenge ? { emailOtpChallenge: input.emailOtpChallenge } : {}),
     authorityId: input.authorityId,
     packageSetDigestB64u: input.packageSetDigestB64u,
     revision: input.revision,
@@ -1202,7 +1185,6 @@ function buildActiveSessionRecordV1(input: {
       updatedAtMs: input.updatedAtMs,
     };
   }
-  if (!input.emailOtpChallenge) throw new Error('active email session is missing challenge state');
   return {
     version: 'linked_device_session_v1',
     linkSessionId: input.linkSessionId,
@@ -1211,7 +1193,7 @@ function buildActiveSessionRecordV1(input: {
     claimTranscript: input.claimTranscript,
     approvalTranscript: input.approvalTranscript,
     targetFactor: input.targetFactor,
-    emailOtpChallenge: input.emailOtpChallenge,
+    ...(input.emailOtpChallenge ? { emailOtpChallenge: input.emailOtpChallenge } : {}),
     authorityId: input.authorityId,
     packageSetDigestB64u: input.packageSetDigestB64u,
     revision: input.revision,
@@ -1362,8 +1344,7 @@ function validateApprovalMatchesSession(
   if (!sameDelegatedWalletAuthorityV1(approval.permission, record.qrPayload.requestedPermission))
     throw new Error('approval permission does not match QR payload');
   if (
-    approval.targetFactor.kind !== record.qrPayload.targetFactor.kind ||
-    approval.targetFactor.kind !== approval.ownerEnrollment.targetFactor.kind
+    approval.targetFactor.kind !== record.qrPayload.targetFactor.kind
   )
     throw new Error('approval target factor does not match the QR session');
   if (approval.expiresAtMs <= nowMs || approval.expiresAtMs > claim.claimExpiresAtMs)
@@ -1692,15 +1673,6 @@ function parseEmailOtpChallengeV1(raw: unknown): LinkedDeviceEmailOtpChallengeV1
   };
 }
 
-function emailOtpChallengeForApproval(
-  approval: LinkedDeviceApprovalV1,
-): LinkedDeviceEmailOtpChallengeV1 | undefined {
-  if (approval.targetFactor.kind !== 'email_otp') return undefined;
-  if (approval.ownerEnrollment.kind !== 'linked_device_email_otp_owner_enrollment_v1')
-    throw new Error('email OTP approval requires an email owner enrollment ceremony');
-  return { state: 'available', maskedEmailHint: approval.ownerEnrollment.maskedEmailHint };
-}
-
 function parseOwnerAuthorizationV1(raw: unknown): LinkedDeviceOwnerAuthorizationSourceV1 {
   const record = requireRecord(raw, 'ownerAuthorization');
   const kind = parseIdentityString(record.kind, 'ownerAuthorization.kind');
@@ -1798,8 +1770,6 @@ function requireApprovedRecordFacts(
     throw new Error(`${state} session facts are incomplete`);
   if (input.authorityId || input.packageSetDigestB64u)
     throw new Error(`${state} session contains committed facts`);
-  if (input.targetFactor.kind === 'email_otp' && !input.emailOtpChallenge)
-    throw new Error(`${state} email session is missing challenge state`);
   if (input.targetFactor.kind === 'passkey_prf' && input.emailOtpChallenge)
     throw new Error(`${state} passkey session contains email challenge state`);
 }
@@ -1829,8 +1799,6 @@ function requireCommittedRecordFacts(
     !input.packageSetDigestB64u
   )
     throw new Error(`${state} session facts are incomplete`);
-  if (input.targetFactor.kind === 'email_otp' && !input.emailOtpChallenge)
-    throw new Error(`${state} email session is missing challenge state`);
   if (input.targetFactor.kind === 'passkey_prf' && input.emailOtpChallenge)
     throw new Error(`${state} passkey session contains email challenge state`);
 }
@@ -1934,9 +1902,6 @@ function requireTerminalRecordFacts(
   }
   if (input.approvalTranscript && !input.targetFactor) {
     throw new Error(`${state} session approval has no target factor`);
-  }
-  if (input.targetFactor?.kind === 'email_otp' && !input.emailOtpChallenge) {
-    throw new Error(`${state} email session is missing challenge state`);
   }
   if (input.targetFactor?.kind === 'passkey_prf' && input.emailOtpChallenge) {
     throw new Error(`${state} passkey session contains email challenge state`);

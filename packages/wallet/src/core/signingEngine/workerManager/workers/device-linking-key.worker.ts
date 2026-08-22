@@ -10,8 +10,10 @@ import {
   LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
   parseLinkDevicePublicKeyB64u,
   parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
+  parseLinkedDeviceEmailOtpVerificationGrantV1,
   type LinkedDeviceRequestProofV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
+  type LinkedDeviceEmailOtpVerificationGrantV1,
   type LinkDevicePublicKeyB64u,
   type CommittedAuthorityPackagesV1,
   type CommittedEd25519SignerPackageV1,
@@ -25,15 +27,19 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
+  parseWalletAuthMethodId,
   parseWalletId,
   type MpcMaterialActivationRef,
+  type WalletAuthMethodId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
   parseLinkDeviceSessionId,
   type LinkedDeviceEnrollmentId,
+  type LinkedDeviceId,
   type LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import type {
@@ -100,6 +106,7 @@ type DeviceLinkingKeySlotV1 = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly emailOtpReleasePrivateKey: CryptoKey;
   readonly emailOtpReleasePublicKey65B64u: string;
+  emailOtpFactorReleaseChallengeId: string | null;
   emailOtpExportRootRecipient: WasmEd25519YaoClientRootTransferRecipientV1 | null;
   ordinaryMaterialRecipientPreparation: DeviceLinkingOrdinarySignerMaterialRecipientPreparationStateV1 | null;
   ordinaryMaterial: DeviceLinkingOrdinaryMaterialStateV1 | null;
@@ -152,16 +159,18 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly holderRecord: LaneSealedHolderRecordV1;
     }
   | {
-      readonly kind: 'device_linking_email_otp_factor_release_holder_signing_material_batch_open_v1';
+      readonly kind: 'device_linking_email_otp_factor_release_open_v1';
       readonly handleId: string;
       readonly walletId: WalletId;
+      readonly linkSessionId: LinkDeviceSessionId;
       readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+      readonly targetPreparationDigestB64u: DigestB64u;
       readonly expectedChallengeId: string;
+      readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
       readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
-      readonly orderedChildren: readonly [
-        DeviceLinkingEmailOtpHolderSigningMaterialChildV1,
-        ...DeviceLinkingEmailOtpHolderSigningMaterialChildV1[],
-      ];
     }
   | {
       readonly kind: 'device_linking_holder_signing_material_discard_v1';
@@ -235,6 +244,11 @@ type DeviceLinkingKeyWorkerResponseV1 =
         DeviceLinkingOrdinarySignerMaterialReservationPreparationV1,
         ...DeviceLinkingOrdinarySignerMaterialReservationPreparationV1[],
       ];
+    }
+  | {
+      readonly kind: 'device_linking_email_otp_factor_release_result_v1';
+      readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+      readonly factorSecret: ArrayBuffer;
     }
   | {
       readonly handleId: string;
@@ -332,13 +346,6 @@ export type DeviceLinkingHolderSigningMaterialFactoryV1 = {
     readonly jobJson: string;
     readonly receiptJson: string;
   }): DeviceLinkingLaneSigningMaterialV1 | Promise<DeviceLinkingLaneSigningMaterialV1>;
-};
-
-type DeviceLinkingEmailOtpHolderSigningMaterialChildV1 = {
-  readonly job: RotatableSigningLaneJobV1;
-  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly holderRecord: LaneSealedHolderRecordV1;
 };
 
 const keySlots = new Map<string, DeviceLinkingKeySlotV1>();
@@ -872,46 +879,6 @@ function parseEd25519Commitments(value: unknown): {
   };
 }
 
-function nonEmptyTupleV1<T>(first: T, rest: readonly T[]): readonly [T, ...T[]] {
-  return [first, ...rest];
-}
-
-function parseEmailOtpHolderSigningMaterialBatchChildren(
-  value: unknown,
-): readonly [
-  DeviceLinkingEmailOtpHolderSigningMaterialChildV1,
-  ...DeviceLinkingEmailOtpHolderSigningMaterialChildV1[],
-] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('device-linking Email OTP holder signing material batch is empty');
-  }
-  const children: DeviceLinkingEmailOtpHolderSigningMaterialChildV1[] = [];
-  for (let index = 0; index < value.length; index += 1) {
-    const record = exactRecord(
-      value[index],
-      ['job', 'protocolCommitReceipt', 'materialActivation', 'holderRecord'],
-      `device-linking Email OTP holder signing material child ${index}`,
-    );
-    children.push({
-      job: parseRotatableSigningLaneJobV1(
-        record.job,
-        `device-linking Email OTP holder signing material child ${index}.job`,
-      ),
-      protocolCommitReceipt: parseLaneProtocolCommitReceiptV1(
-        record.protocolCommitReceipt,
-        `device-linking Email OTP holder signing material child ${index}.protocolCommitReceipt`,
-      ),
-      materialActivation: parseMaterialActivation(record.materialActivation),
-      holderRecord: parseLaneSealedHolderRecordV1(record.holderRecord),
-    });
-  }
-  const first = children[0];
-  if (!first) {
-    throw new Error('device-linking Email OTP holder signing material batch is empty');
-  }
-  return nonEmptyTupleV1(first, children.slice(1));
-}
-
 function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
   const record = requireRecord(value, 'device-linking worker request');
   if (record.kind === 'device_linking_key_material_create_v1') {
@@ -1077,34 +1044,53 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
       throw error;
     }
   }
-  if (
-    record.kind === 'device_linking_email_otp_factor_release_holder_signing_material_batch_open_v1'
-  ) {
+  if (record.kind === 'device_linking_email_otp_factor_release_open_v1') {
     const parsed = exactRecord(
       record,
       [
         'kind',
         'handleId',
         'walletId',
+        'linkSessionId',
         'enrollmentId',
+        'deviceId',
+        'walletAuthMethodId',
+        'baseWalletAuthMethodId',
+        'targetPreparationDigestB64u',
         'expectedChallengeId',
+        'verificationGrant',
         'factorRelease',
-        'orderedChildren',
       ],
-      'device-linking Email OTP factor release holder signing material batch open request',
+      'device-linking Email OTP factor release open request',
     );
     const walletId = parseWalletId(parsed.walletId);
     if (!walletId.ok) throw new Error(walletId.error.message);
+    const linkSessionId = parseLinkDeviceSessionId(parsed.linkSessionId);
+    if (!linkSessionId.ok) throw new Error(linkSessionId.error.message);
     const enrollmentId = parseLinkedDeviceEnrollmentId(parsed.enrollmentId);
     if (!enrollmentId.ok) throw new Error(enrollmentId.error.message);
+    const deviceId = parseLinkedDeviceId(parsed.deviceId);
+    if (!deviceId.ok) throw new Error(deviceId.error.message);
+    const walletAuthMethodId = parseWalletAuthMethodId(parsed.walletAuthMethodId);
+    if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+    const baseWalletAuthMethodId = parseWalletAuthMethodId(parsed.baseWalletAuthMethodId);
+    if (!baseWalletAuthMethodId.ok) throw new Error(baseWalletAuthMethodId.error.message);
     return {
-      kind: 'device_linking_email_otp_factor_release_holder_signing_material_batch_open_v1',
+      kind: 'device_linking_email_otp_factor_release_open_v1',
       handleId: parseHandleId(parsed.handleId),
       walletId: walletId.value,
+      linkSessionId: linkSessionId.value,
       enrollmentId: enrollmentId.value,
+      deviceId: deviceId.value,
+      walletAuthMethodId: walletAuthMethodId.value,
+      baseWalletAuthMethodId: baseWalletAuthMethodId.value,
+      targetPreparationDigestB64u: parseDigest(
+        parsed.targetPreparationDigestB64u,
+        'targetPreparationDigestB64u',
+      ),
       expectedChallengeId: requireNonEmptyString(parsed.expectedChallengeId, 'expectedChallengeId'),
+      verificationGrant: parseLinkedDeviceEmailOtpVerificationGrantV1(parsed.verificationGrant),
       factorRelease: parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1(parsed.factorRelease),
-      orderedChildren: parseEmailOtpHolderSigningMaterialBatchChildren(parsed.orderedChildren),
     };
   }
   throw new Error('device-linking worker request kind is unsupported');
@@ -1229,6 +1215,7 @@ async function generateKeySlot(): Promise<{
       linkPublicKeyB64u,
       emailOtpReleasePrivateKey: emailOtpReleasePair.privateKey,
       emailOtpReleasePublicKey65B64u,
+      emailOtpFactorReleaseChallengeId: null,
       emailOtpExportRootRecipient: null,
       ordinaryMaterialRecipientPreparation: null,
       ordinaryMaterial: null,
@@ -1397,6 +1384,13 @@ function responseTransferables(
   if (
     result &&
     'kind' in result &&
+    result.kind === 'device_linking_email_otp_factor_release_result_v1'
+  ) {
+    return [result.factorSecret];
+  }
+  if (
+    result &&
+    'kind' in result &&
     result.kind === 'device_linking_ordinary_signer_material_recipient_preparation_v1'
   ) {
     return result.recipientInputs.map((input) =>
@@ -1427,76 +1421,62 @@ function postWorkerResponse(
   scope.postMessage(message);
 }
 
-async function openPersistedEmailOtpHolderSigningMaterialsFromFactorRelease(
+async function openEmailOtpFactorRelease(
   request: Extract<
     DeviceLinkingKeyWorkerRequestV1,
-    {
-      readonly kind: 'device_linking_email_otp_factor_release_holder_signing_material_batch_open_v1';
-    }
+    { readonly kind: 'device_linking_email_otp_factor_release_open_v1' }
   >,
-  signingMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1,
-): Promise<DeviceLinkingHolderSigningMaterialBatchResultV1> {
+): Promise<{
+  readonly kind: 'device_linking_email_otp_factor_release_result_v1';
+  readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+  readonly factorSecret: ArrayBuffer;
+}> {
   const slot = keySlots.get(request.handleId);
   if (!slot) throw new Error('device-linking key handle is unknown or discarded');
-  let factorSecret: Uint8Array | null = null;
-  const opened: DeviceLinkingHolderSigningMaterialHandleResultV1[] = [];
+  assertEmailOtpFactorReleaseBinding(request);
+  if (slot.emailOtpFactorReleaseChallengeId !== null) {
+    throw new Error('device-linking Email OTP factor release has already been consumed');
+  }
+  const factorSecret = await decryptEmailOtpFactorReleaseEnvelope({
+    slot,
+    walletId: String(request.walletId),
+    factorRelease: request.factorRelease,
+    expectedChallengeId: request.expectedChallengeId,
+  });
+  slot.emailOtpFactorReleaseChallengeId = request.expectedChallengeId;
   try {
-    const operationIds = new Set<string>();
-    for (const child of request.orderedChildren) {
-      const operationId = String(child.job.operationId);
-      if (operationIds.has(operationId)) {
-        throw new Error('device-linking Email OTP factor release batch repeats an operation');
-      }
-      operationIds.add(operationId);
-      if (
-        String(child.job.walletId) !== String(request.walletId) ||
-        child.job.authorization.kind !== 'linked_device_enrollment' ||
-        String(child.job.authorization.linkedDeviceEnrollmentId) !== String(request.enrollmentId) ||
-        child.job.target.laneKind !== 'linked_device'
-      ) {
-        throw new Error('device-linking Email OTP factor release batch changed its wallet binding');
-      }
-      assertHolderRecordMatchesPersistedJob({
-        job: child.job,
-        receipt: child.protocolCommitReceipt,
-        materialActivation: child.materialActivation,
-        record: child.holderRecord,
-      });
-    }
-    factorSecret = await decryptEmailOtpFactorReleaseEnvelope({
-      slot,
-      walletId: String(request.walletId),
-      factorRelease: request.factorRelease,
-      expectedChallengeId: request.expectedChallengeId,
-    });
-    for (const child of request.orderedChildren) {
-      const childFactorSecret = factorSecret.slice();
-      try {
-        opened.push(
-          await openHolderSigningMaterialWithFactorSecret({
-            factorSecret: childFactorSecret,
-            job: child.job,
-            protocolCommitReceipt: child.protocolCommitReceipt,
-            materialActivation: child.materialActivation,
-            holderRecord: child.holderRecord,
-            signingMaterialFactory,
-          }),
-        );
-      } finally {
-        childFactorSecret.fill(0);
-      }
-    }
-    const first = opened[0];
-    if (!first) throw new Error('device-linking Email OTP factor release batch is empty');
     return {
-      holderSigningMaterialHandles: nonEmptyTupleV1(first, opened.slice(1)),
+      kind: 'device_linking_email_otp_factor_release_result_v1',
+      verificationGrant: request.verificationGrant,
+      factorSecret: factorSecret.slice().buffer,
     };
-  } catch (error) {
-    for (const holderHandle of opened) discardHolderSigningMaterial(holderHandle.handleId);
-    throw error;
   } finally {
-    factorSecret?.fill(0);
-    discardKeyMaterialSlot(request.handleId);
+    factorSecret.fill(0);
+  }
+}
+
+function assertEmailOtpFactorReleaseBinding(
+  request: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_email_otp_factor_release_open_v1' }
+  >,
+): void {
+  const grant = request.verificationGrant;
+  if (
+    String(grant.walletId) !== String(request.walletId) ||
+    String(grant.linkSessionId) !== String(request.linkSessionId) ||
+    String(grant.enrollmentId) !== String(request.enrollmentId) ||
+    String(grant.deviceId) !== String(request.deviceId) ||
+    String(grant.baseWalletAuthMethodId) !== String(request.baseWalletAuthMethodId) ||
+    grant.targetPreparationDigestB64u !== request.targetPreparationDigestB64u ||
+    grant.challengeId !== request.expectedChallengeId ||
+    request.factorRelease.challengeId !== request.expectedChallengeId
+  ) {
+    throw new Error('device-linking Email OTP factor release identity binding changed');
+  }
+  const nowMs = Date.now();
+  if (grant.issuedAtMs > nowMs || grant.expiresAtMs <= nowMs) {
+    throw new Error('device-linking Email OTP factor release grant is expired');
   }
 }
 
@@ -2438,13 +2418,10 @@ async function decryptEmailOtpFactorReleaseEnvelope(input: {
   readonly slot: DeviceLinkingKeySlotV1;
   readonly walletId: string;
   readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
-  readonly expectedChallengeId?: string;
+  readonly expectedChallengeId: string;
 }): Promise<Uint8Array> {
   const release = input.factorRelease;
-  if (
-    input.expectedChallengeId !== undefined &&
-    input.expectedChallengeId !== release.challengeId
-  ) {
+  if (input.expectedChallengeId !== release.challengeId) {
     throw new Error('Email OTP factor release challenge does not match the submitted challenge');
   }
   let serverPublicKey: Uint8Array | null = null;
@@ -2528,11 +2505,8 @@ async function handleRequest(
       return await signRequest(request);
     case 'device_linking_holder_signing_material_open_v1':
       return await openPersistedHolderSigningMaterial(request, signingMaterialFactory);
-    case 'device_linking_email_otp_factor_release_holder_signing_material_batch_open_v1':
-      return await openPersistedEmailOtpHolderSigningMaterialsFromFactorRelease(
-        request,
-        signingMaterialFactory,
-      );
+    case 'device_linking_email_otp_factor_release_open_v1':
+      return await openEmailOtpFactorRelease(request);
     case 'device_linking_holder_ed25519_sign_v1':
       return createEd25519HolderSigningShare(request);
     case 'device_linking_holder_ecdsa_export_recipient_prepare_v1':

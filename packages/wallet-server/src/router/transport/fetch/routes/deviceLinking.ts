@@ -1,6 +1,8 @@
 import type {
   ActiveWalletSessionV1,
   ActivateInstalledAuthorityResultV1 as WireActivateInstalledAuthorityResultV1,
+  LinkSessionProjectionV1,
+  LinkSessionStateV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceEmailOtpChallengeResendRequestV1,
   LinkedDeviceEmailOtpChallengeStartRequestV1,
@@ -15,6 +17,7 @@ import type {
   QrLinkedDeviceSessionPayloadV5,
   VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
+import { assertNeverLinkSessionStateV1 } from '@shared/device-linking/contracts';
 import type { CommittedAuthorityPackagesV1 } from '@shared/device-linking/committedSignerPackages';
 import {
   parseLinkedDeviceApprovalDeliveryV1,
@@ -716,10 +719,49 @@ function readTargetPreparation(service: DeviceLinkingRouteServiceV1, session: Li
   return service.targetCredential.getTargetPreparationV1({ session, approval, requestedAtMs: nowMs });
 }
 
-function projectSession(record: LinkedDeviceSessionRecordV1): Record<string, unknown> {
-  const state = record.state;
-  const deviceId = state.state === 'displaying_qr' || state.state === 'failed_before_commit' || state.state === 'cancelled' || state.state === 'expired' ? undefined : state.deviceId;
-  return { kind: 'linked_device_session_projection_v1', linkSessionId: record.linkSessionId, qrPayload: record.qrPayload, revision: record.revision, createdAtMs: record.createdAtMs, updatedAtMs: record.updatedAtMs, state, ...(deviceId === undefined ? {} : { deviceId }) };
+function projectLinkSessionStateV1(state: LinkSessionStateV1): LinkSessionStateV1 {
+  switch (state.state) {
+    case 'displaying_qr':
+      return { state: 'displaying_qr' };
+    case 'claimed':
+    case 'awaiting_target_factor':
+    case 'provisioning':
+      return { state: state.state, deviceId: state.deviceId };
+    case 'authority_pending_local_install':
+      return {
+        state: 'authority_pending_local_install',
+        deviceId: state.deviceId,
+        authorityId: state.authorityId,
+        packageSetDigestB64u: state.packageSetDigestB64u,
+      };
+    case 'active':
+      return {
+        state: 'active',
+        deviceId: state.deviceId,
+        authorityId: state.authorityId,
+        activatedAtMs: state.activatedAtMs,
+      };
+    case 'failed_before_commit':
+      return { state: 'failed_before_commit', error: state.error };
+    case 'cancelled':
+      return { state: 'cancelled', cancelledAtMs: state.cancelledAtMs };
+    case 'expired':
+      return { state: 'expired', expiredAtMs: state.expiredAtMs };
+    default:
+      return assertNeverLinkSessionStateV1(state);
+  }
+}
+
+function projectSession(record: LinkedDeviceSessionRecordV1): LinkSessionProjectionV1 {
+  return {
+    kind: 'linked_device_session_projection_v1',
+    linkSessionId: record.linkSessionId,
+    qrPayload: record.qrPayload,
+    revision: record.revision,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: record.updatedAtMs,
+    state: projectLinkSessionStateV1(record.state),
+  };
 }
 
 function sessionProjectionResponse(record: LinkedDeviceSessionRecordV1, outcome: 'applied' | 'replayed'): Response {

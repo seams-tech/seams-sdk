@@ -201,10 +201,11 @@ test('serializes the browser ECDSA recipient in the target credential response',
       verifiedAtMs: 2_000,
     },
     ordinarySignerMaterialPreparations: [preparation],
-    ordinarySignerMaterialRecipientInputs: [
+    ordinarySignerMaterialRecipientRequests: [
       {
-        kind: 'ordinary_ecdsa_signer_material_recipient_input_v1',
+        kind: 'ordinary_ecdsa_signer_material_recipient_request_v1',
         keyFamily: 'ecdsa_secp256k1',
+        walletKeyId: 'wallet-key:route-result',
         clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
       },
     ],
@@ -220,7 +221,7 @@ test('serializes the browser ECDSA recipient in the target credential response',
     ok: true,
     targetCredential: {
       walletAuthMethodId: targetWalletAuthMethodId,
-      ordinarySignerMaterialRecipientInputs: [
+      ordinarySignerMaterialRecipientRequests: [
         {
           clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
         },
@@ -380,10 +381,7 @@ async function requestProofHeader(
   return base64UrlEncode(new TextEncoder().encode(JSON.stringify(proof)));
 }
 
-function linkSessionIdForRequest(
-  pathname: string,
-  bodyText: string | undefined,
-): Promise<string> {
+function linkSessionIdForRequest(pathname: string, bodyText: string | undefined): Promise<string> {
   if (pathname.startsWith('/wallet/device-linking/v1/sessions/')) {
     return pathname.slice('/wallet/device-linking/v1/sessions/'.length).split('/')[0];
   }
@@ -397,6 +395,7 @@ function linkSessionIdForRequest(
     throw new Error('create request payload must be an object');
   }
   const linkSessionId = Object.fromEntries(Object.entries(payload)).linkSessionId;
-  if (typeof linkSessionId !== 'string') throw new Error('create request link session id is required');
+  if (typeof linkSessionId !== 'string')
+    throw new Error('create request link session id is required');
   return linkSessionId;
 }

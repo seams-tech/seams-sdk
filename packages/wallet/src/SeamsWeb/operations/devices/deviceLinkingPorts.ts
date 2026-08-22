@@ -1,18 +1,11 @@
 import type { DeviceLinkingEd25519ExportRootPortV1 } from './deviceLinkingEd25519ExportRoot';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
-  LinkedDeviceProvisioningChildV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceApprovalResultV1,
   LinkedDeviceEnrollmentKeyBindingV1,
-  LinkedDeviceEnrollmentReceiptV1,
-  LinkedDeviceHolderDeliveryAcknowledgementV1,
-  LinkedDeviceProvisioningCommandV1,
-  LinkedDeviceProvisioningDeliveriesV1,
-  LinkedDeviceProvisioningDeliveriesSubmissionV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
-  LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionClaimRequestV1,
   LinkedDeviceSessionClaimV1,
   LinkSessionProjectionV1,
@@ -22,31 +15,21 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
-  LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWebAuthnRegistrationV1,
-  LinkedDeviceWalletSessionDeliveryV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
-  LinkedDeviceOwnerFinalizeRequestV1,
-  LinkedDeviceLocalAccountProjectionV1,
   LinkedDeviceEmailOtpChallengeStartRequestV1,
   LinkedDeviceEmailOtpChallengeResendRequestV1,
   LinkedDeviceEmailOtpChallengeVerifyRequestV1,
   LinkedDeviceEmailOtpChallengeResultV1,
   LinkedDeviceEmailOtpVerificationResultV1,
   LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
+  LinkedDeviceEmailOtpVerificationGrantV1,
   ActivateInstalledAuthorityResultV1,
   CommittedAuthorityPackagesV1,
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
 } from '@shared/device-linking';
-import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
-import type {
-  LaneProtocolCommitReceiptV1,
-  RotatableSigningLaneJobV1,
-  SealedLaneHolderMaterialV1,
-} from '@shared/signing-lanes/rotation';
 import type {
   LinkedDeviceEd25519ExportRootPackageV1,
   LinkedDeviceEd25519ExportRootRecipientV1,
@@ -60,12 +43,8 @@ import type {
   LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
-import type { LaneSealedHolderRecordV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type {
-  DeviceLinkingHolderSigningMaterialHandleV1,
-  DeviceLinkingHolderSigningMaterialPortV1,
-} from '@/core/signingEngine/session/lanes/linkedDevicePorts';
+import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
+import type { DeviceLinkingHolderSigningMaterialPortV1 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 import type { DeviceLinkingOrdinaryMaterialWorkerPortV1 } from './deviceLinkingOrdinaryMaterialWorker';
 import type {
   PasskeyCustodyEnvelopeRecord,
@@ -79,20 +58,6 @@ export type {
   DeviceLinkingSealedAuthorityRecordsV1,
 } from './deviceLinkingAuthorityInstallation';
 import type { DeviceLinkingAuthorityInstallationPortV1 } from './deviceLinkingAuthorityInstallation';
-
-export type DeviceLinkingEmailOtpExportRootPreparationInputV1 =
-  | {
-      readonly kind: 'required';
-      readonly transferBindingJson: string;
-      readonly package: LinkedDeviceEd25519ExportRootPackageV1;
-      readonly replacementEnvelopeBindingJson: string;
-    }
-  | {
-      readonly kind: 'not_required';
-      readonly transferBindingJson?: never;
-      readonly package?: never;
-      readonly replacementEnvelopeBindingJson?: never;
-    };
 
 export type {
   DeviceLinkingEd25519SigningShareV1,
@@ -146,9 +111,6 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getApprovalV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceApprovalV1>;
-  getWalletSessionDeliveryV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-  }): Promise<LinkedDeviceWalletSessionDeliveryV1>;
   getTargetPreparationV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceTargetPreparationV1>;
@@ -161,26 +123,9 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   verifyTargetEmailOtpChallengeV1(input: {
     readonly request: LinkedDeviceEmailOtpChallengeVerifyRequestV1;
   }): Promise<LinkedDeviceEmailOtpVerificationResultV1>;
-  requestProvisioningDeliveriesV1(input: {
-    readonly command: LinkedDeviceProvisioningCommandV1;
-  }): Promise<LinkedDeviceProvisioningDeliveriesV1>;
-  acknowledgeHolderDeliveriesV1(input: {
-    readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
-  }): Promise<LinkedDeviceEnrollmentReceiptV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
   }): Promise<LinkedDeviceTargetCredentialRegistrationResultV1>;
-  /**
-   * Returns the local account identity alongside the finalize, because a device
-   * that never registered here cannot unlock without it.
-   */
-  finalizeOwnerAuthMethodV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly request: LinkedDeviceOwnerFinalizeRequestV1;
-  }): Promise<{
-    readonly response: WalletAddAuthMethodFinalizeResponse;
-    readonly localAccount: LinkedDeviceLocalAccountProjectionV1;
-  }>;
   /**
    * Device 2 publishes where the Ed25519 Yao Client export root
    * should be sealed, then collects the sealed package once Device 1 has
@@ -202,9 +147,6 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   }): Promise<ActivateInstalledAuthorityResultV1>;
   acknowledgeLocalAuthorityActivationV1(input: {
     readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
-  }): Promise<void>;
-  acknowledgeReceiptV1(input: {
-    readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
   }): Promise<void>;
   retryCommittedDeliveryV1(input: {
     readonly request: Extract<
@@ -242,14 +184,6 @@ export type LinkSessionOwnerTransportPortV1 = {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceApprovalResultV1>;
-  getTargetReadyV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly authentication: LinkSessionAuthenticationV1;
-  }): Promise<LinkedDeviceTargetReadyR102InputV1 | null>;
-  submitPreparedProvisioningDeliveriesV1(input: {
-    readonly submission: LinkedDeviceProvisioningDeliveriesSubmissionV1;
-    readonly authentication: LinkSessionAuthenticationV1;
-  }): Promise<LinkedDeviceProvisioningDeliveriesSubmissionV1>;
   /**
    * Device 1 reads where to seal, then returns the sealed package. `null` means Device 2 has not published a recipient key
    * yet — normal while the target device is still preparing.
@@ -293,66 +227,36 @@ export type DeviceLinkingKeyMaterialBundleV1 = {
   readonly emailOtpReleasePublicKey65B64u: string;
 };
 
-export type DeviceLinkingPersistedHolderSigningMaterialChildV1 = {
-  readonly job: RotatableSigningLaneJobV1;
-  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly holderRecord: LaneSealedHolderRecordV1;
-};
-
-export type DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1 = {
-  /** The worker slot that retained the Email OTP factor during preparation. */
+export type DeviceLinkingEmailOtpFactorReleaseInputV1 = {
+  /** The fresh server envelope is opened only by this worker slot. */
   readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
   readonly walletId: WalletId;
   readonly linkSessionId: LinkDeviceSessionId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly baseWalletAuthMethodId: WalletAuthMethodId;
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly orderedChildren: readonly [
-    DeviceLinkingPersistedHolderSigningMaterialChildV1,
-    ...DeviceLinkingPersistedHolderSigningMaterialChildV1[],
-  ];
-};
-
-export type DeviceLinkingEmailOtpHolderSigningMaterialBatchResultV1 = {
-  readonly handles: readonly [
-    DeviceLinkingHolderSigningMaterialHandleV1,
-    ...DeviceLinkingHolderSigningMaterialHandleV1[],
-  ];
-  readonly warmSessionFactorSecret: ArrayBuffer;
-};
-
-export type DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1 = {
-  /** The fresh server envelope is decrypted only by this worker slot. */
-  readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
-  readonly walletId: WalletId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly expectedChallengeId: string;
+  readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
   readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
-  readonly orderedChildren: readonly [
-    DeviceLinkingPersistedHolderSigningMaterialChildV1,
-    ...DeviceLinkingPersistedHolderSigningMaterialChildV1[],
-  ];
+};
+
+export type DeviceLinkingEmailOtpFactorReleaseResultV1 = {
+  readonly kind: 'device_linking_email_otp_factor_release_result_v1';
+  readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+  readonly factorSecret: ArrayBuffer;
+};
+
+export type DeviceLinkingEmailOtpFactorReleasePortV1 = {
+  openEmailOtpFactorReleaseV1(
+    input: DeviceLinkingEmailOtpFactorReleaseInputV1,
+  ): Promise<DeviceLinkingEmailOtpFactorReleaseResultV1>;
 };
 
 export type DeviceLinkingKeyMaterialPortV1 = {
   createBootstrapKeyMaterialV1(): Promise<DeviceLinkingKeyMaterialBundleV1>;
 
-  openPersistedEmailOtpHolderSigningMaterialsV1(
-    input: DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1,
-  ): Promise<DeviceLinkingEmailOtpHolderSigningMaterialBatchResultV1>;
-  openPersistedEmailOtpHolderSigningMaterialsFromFactorReleaseV1(
-    input: DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1,
-  ): Promise<
-    readonly [
-      DeviceLinkingHolderSigningMaterialHandleV1,
-      ...DeviceLinkingHolderSigningMaterialHandleV1[],
-    ]
-  >;
-  openAndSealTargetHolderDeliveryV1(input: {
-    readonly handle: DeviceLinkingKeyMaterialHandleV1;
-    readonly delivery: LinkedDeviceProvisioningChildV1;
-  }): Promise<SealedLaneHolderMaterialV1>;
   /** Discards the worker slot and releases all private key references. */
   discardKeyMaterialV1(input: { readonly handle: DeviceLinkingKeyMaterialHandleV1 }): Promise<void>;
   signDeviceSessionRequestV1(input: {
@@ -370,6 +274,7 @@ export type DeviceLinkingKeyMaterialPortV1 = {
 
 export type DeviceLinkingLiveKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 &
   DeviceLinkingHolderSigningMaterialPortV1 &
+  DeviceLinkingEmailOtpFactorReleasePortV1 &
   DeviceLinkingOrdinaryMaterialWorkerPortV1;
 
 export type EmailOtpExportRootEnvelopeRecordV1 = Omit<PasskeyCustodyEnvelopeRecord, 'factor'> & {
@@ -405,25 +310,6 @@ export type LinkedDeviceOwnerAuthorizationResultV1 =
     });
 
 export type DeviceLinkingOwnerAuthorizationPortV1 = {
-  /**
-   * Starts the canonical owner add-auth-method ceremony that the linked device
-   * will finalize.
-   *
-   * It belongs to Device 1's owner authority, not to the link session: Device 2
-   * has no owner authority and cannot start one. Approval is the single
-   * owner-authenticated step in the flow, so the ceremony is started here and
-   * carried by the approval that authorizes it.
-   *
-   * It also returns the custody material that same prompt produced, held for
-   * the seal that happens once Device 2 publishes a recipient.
-   */
-  startOwnerEnrollmentCeremonyV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-    readonly walletId: WalletId;
-    readonly targetFactor: QrLinkedDeviceSessionPayloadV5['targetFactor'];
-    readonly expiresAtMs: number;
-    readonly requestedAtMs: number;
-  }): Promise<{ readonly ceremony: LinkedDeviceOwnerEnrollmentCeremonyV1 }>;
   authenticateOwnerForLinkingV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly requestedAtMs: number;
@@ -432,10 +318,9 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
 
 export type DeviceLinkingTargetCredentialPortV1 = {
   createTargetCredentialV1(input: {
-    readonly preparation: Extract<
-      LinkedDeviceTargetPreparationV1,
-      { readonly targetFactor: { readonly kind: 'passkey_prf' } }
-    >;
+    readonly preparation: LinkedDeviceTargetPreparationV1 & {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+    };
     readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
   }): Promise<{
     readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
@@ -459,15 +344,6 @@ export type Device1LinkingFlowPortsV1 = {
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
   /** Device 1's encrypted Ed25519 export-root handoff. */
   readonly ed25519ExportRoot: DeviceLinkingEd25519ExportRootPortV1;
-  readonly sourcePreparation: Device1SourcePreparationPortV1;
-};
-
-export type Device1TargetReadySourceInputV1 = LinkedDeviceTargetReadyR102InputV1;
-
-export type Device1SourcePreparationPortV1 = {
-  prepareTargetReadyDeliveriesV1(
-    input: Device1TargetReadySourceInputV1,
-  ): Promise<LinkedDeviceProvisioningDeliveriesV1>;
 };
 
 export type DeviceLinkingFlowPortsV1 = Device2LinkingFlowPortsV1 & Device1LinkingFlowPortsV1;

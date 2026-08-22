@@ -2,7 +2,6 @@ import type { ActionResult } from './seams';
 import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEvents';
 import type { ConfirmationConfig } from './signer-worker';
 import type {
-  LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceTargetFactorV1,
   LinkSessionStateV1,
   QrLinkedDeviceSessionPayloadV5,
@@ -12,7 +11,6 @@ import type {
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
@@ -27,13 +25,11 @@ export type DeviceLinkingSession = {
 export type LinkDeviceResult =
   | {
       readonly success: true;
-      /** The target's additive Ed25519/ECDSA lane enrollment is active. */
-      readonly kind: 'lane_enrollment_complete';
+      /** Owner approval was durably recorded for the claimed target device. */
+      readonly kind: 'approval_recorded';
       readonly walletId: WalletId;
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly deviceId: LinkedDeviceId;
-      readonly manifestDigestB64u: DigestB64u;
-      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
       readonly error?: never;
     }
   | (Extract<ActionResult, { success: false }> & {
@@ -41,8 +37,6 @@ export type LinkDeviceResult =
       readonly walletId?: never;
       readonly enrollmentId?: never;
       readonly deviceId?: never;
-      readonly manifestDigestB64u?: never;
-      readonly receipt?: never;
     });
 
 export class DeviceLinkingError extends Error {

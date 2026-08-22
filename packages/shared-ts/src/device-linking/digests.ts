@@ -1,6 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
-import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
+import { sha256Bytes } from '../utils/digests';
 import {
   delegatedWalletPermissionNamesV1,
   type DelegatedWalletAuthorityV1,
@@ -10,9 +10,7 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceProtocolVersionV1,
-  LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceEd25519ExportRootPreparationV1,
@@ -20,15 +18,6 @@ import type {
   LinkedDeviceTargetFactorV1,
   OrdinarySignerMaterialRecipientRequirementV1,
 } from './contracts';
-import {
-  parseAuthorizedOperationId,
-  type AuthorizedOperationId,
-  type LinkedDeviceWalletSessionAuthorizationId,
-  type MpcWalletSigningQuotaId,
-  type WalletSessionId,
-} from '../authorization/capabilityKinds';
-import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '../signing-lanes/ids';
-import type { WebAuthnCredentialIdB64u } from '../utils/domainIds';
 import { ownerLaneParticipantContinuityCanonicalBytesV1 } from '../signing-lanes/ownerContinuity';
 
 export {
@@ -39,15 +28,7 @@ export {
 const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
-const LOCAL_PRESENCE_DOMAIN = 'seams/linked-device/local-presence/v1';
-const WALLET_SESSION_RENEWAL_DOMAIN = 'seams/linked-device/wallet-session-renewal/v1';
 const TEXT_ENCODER = new TextEncoder();
-
-export async function computeLinkedDeviceProvisioningDeliveriesDigestV1(
-  value: LinkedDeviceProvisioningDeliveriesV1,
-): Promise<DigestB64u> {
-  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(value))));
-}
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
   let length = 0;
@@ -175,66 +156,6 @@ function encodeKeyBinding(value: LinkedDeviceEnrollmentKeyBindingV1): Uint8Array
   ]);
 }
 
-/**
- * The owner ceremony, bound by identity *and* by the exact registration
- * options it minted.
- *
- * Binding the id alone would leave the WebAuthn parameters unbound: a
- * substituted challenge or relying party would produce the same digest, and
- * Device 2 would create a credential against something the approval never
- * covered. Encoding the options field-by-field rather than hashing their JSON
- * keeps the digest independent of key order and of any field a future version
- * adds without meaning to.
- */
-function encodeOwnerEnrollmentCeremony(value: LinkedDeviceOwnerEnrollmentCeremonyV1): Uint8Array {
-  if (value.kind === 'linked_device_email_otp_owner_enrollment_v1') {
-    return concat([
-      text(value.kind, 'ownerEnrollment.kind'),
-      text(value.targetFactor.kind, 'ownerEnrollment.targetFactor.kind'),
-      text(value.baseWalletAuthMethodId, 'ownerEnrollment.baseWalletAuthMethodId'),
-      text(value.maskedEmailHint, 'ownerEnrollment.maskedEmailHint'),
-      u64(value.expiresAtMs, 'ownerEnrollment.expiresAtMs'),
-    ]);
-  }
-  const registration = value.registration;
-  const excludeCredentials = registration.excludeCredentials.map((entry) =>
-    concat([text(entry.type, 'excludeCredentials.type'), text(entry.id, 'excludeCredentials.id')]),
-  );
-  return concat([
-    text(value.kind, 'ownerEnrollment.kind'),
-    text(value.targetFactor.kind, 'ownerEnrollment.targetFactor.kind'),
-    text(value.addAuthMethodCeremonyId, 'ownerEnrollment.addAuthMethodCeremonyId'),
-    u64(value.expiresAtMs, 'ownerEnrollment.expiresAtMs'),
-    text(registration.kind, 'registration.kind'),
-    text(registration.challengeId, 'registration.challengeId'),
-    text(registration.challengeB64u, 'registration.challengeB64u'),
-    text(registration.rpId, 'registration.rpId'),
-    text(registration.user.idB64u, 'registration.user.idB64u'),
-    text(registration.user.name, 'registration.user.name'),
-    text(registration.user.displayName, 'registration.user.displayName'),
-    u32(registration.pubKeyCredParams.length, 'registration.pubKeyCredParams'),
-    ...registration.pubKeyCredParams.map((entry) =>
-      lp32(
-        concat([
-          text(entry.type, 'pubKeyCredParams.type'),
-          // Two's-complement is irrelevant here: the algorithms are fixed
-          // negative COSE identifiers, so their decimal spelling is stable.
-          text(String(entry.alg), 'pubKeyCredParams.alg'),
-        ]),
-        'registration.pubKeyCredParams.item',
-      ),
-    ),
-    text(registration.authenticatorSelection.residentKey, 'registration.residentKey'),
-    text(registration.authenticatorSelection.userVerification, 'registration.userVerification'),
-    u64(registration.timeoutMs, 'registration.timeoutMs'),
-    text(registration.attestation, 'registration.attestation'),
-    text(registration.extensions.prf.eval.firstB64u, 'registration.prf.firstB64u'),
-    text(registration.extensions.prf.eval.secondB64u, 'registration.prf.secondB64u'),
-    u32(excludeCredentials.length, 'registration.excludeCredentials'),
-    ...excludeCredentials.map((entry) => lp32(entry, 'registration.excludeCredentials.item')),
-  ]);
-}
-
 function encodeTargetFactor(value: LinkedDeviceTargetFactorV1): Uint8Array {
   return text(value.kind, 'targetFactor.kind');
 }
@@ -305,7 +226,6 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     lp32(encodeDelegatedWalletAuthority(value.permission), 'permission'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
-    lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     rawDigest(value.policyDigestB64u, 'policyDigestB64u'),
     text(value.operationId, 'operationId'),
     text(value.idempotencyKey, 'idempotencyKey'),
@@ -338,7 +258,6 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletAuthMethodId, 'walletAuthMethodId'),
     lp32(encodeEd25519ExportRootPreparation(value.ed25519ExportRoot), 'ed25519ExportRoot'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
-    lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     u32(requirements.length, 'ordinarySignerMaterialRecipientRequirements'),
     ...requirements.map((entry) =>
       lp32(entry, 'ordinarySignerMaterialRecipientRequirements.item'),
@@ -353,71 +272,6 @@ export async function computeLinkedDeviceTargetPreparationDigestV1(
 ): Promise<DigestB64u> {
   return parseDigestB64u(
     base64UrlEncode(await sha256Bytes(encodeLinkedDeviceTargetPreparationV1(value))),
-  );
-}
-
-export type LinkedDeviceLocalPresenceChallengeV1 = {
-  readonly authorizedOperationId: AuthorizedOperationId;
-  readonly deviceId: LinkedDeviceId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
-  readonly intentDigestB64u: DigestB64u;
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-};
-
-export function encodeLinkedDeviceLocalPresenceChallengeV1(
-  value: LinkedDeviceLocalPresenceChallengeV1,
-): Uint8Array {
-  if (value.issuedAtMs >= value.expiresAtMs) {
-    throw new Error('linked-device local presence must expire after issuance');
-  }
-  return concat([
-    text(LOCAL_PRESENCE_DOMAIN, 'domain'),
-    text(value.authorizedOperationId, 'authorizedOperationId'),
-    text(value.deviceId, 'deviceId'),
-    text(value.enrollmentId, 'enrollmentId'),
-    lp32(rawPublicKey(value.credentialIdB64u, 'credentialIdB64u'), 'credentialIdB64u'),
-    rawDigest(value.intentDigestB64u, 'intentDigestB64u'),
-    u64(value.issuedAtMs, 'issuedAtMs'),
-    u64(value.expiresAtMs, 'expiresAtMs'),
-  ]);
-}
-
-export async function computeLinkedDeviceLocalPresenceChallengeDigestV1(
-  value: LinkedDeviceLocalPresenceChallengeV1,
-): Promise<DigestB64u> {
-  return parseDigestB64u(
-    base64UrlEncode(await sha256Bytes(encodeLinkedDeviceLocalPresenceChallengeV1(value))),
-  );
-}
-
-export function linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1(): AuthorizedOperationId {
-  const parsed = parseAuthorizedOperationId('linked-device-wallet-session-renewal-v1');
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
-export async function computeLinkedDeviceWalletSessionRenewalIntentDigestV1(input: {
-  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-  readonly deviceId: LinkedDeviceId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-}): Promise<DigestB64u> {
-  return parseDigestB64u(
-    base64UrlEncode(
-      await sha256BytesUtf8(
-        [
-          WALLET_SESSION_RENEWAL_DOMAIN,
-          String(input.authorizationId),
-          String(input.walletSessionId),
-          String(input.quotaId),
-          String(input.deviceId),
-          String(input.enrollmentId),
-        ].join('\u0000'),
-      ),
-    ),
   );
 }
 

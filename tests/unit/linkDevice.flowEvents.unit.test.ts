@@ -1,224 +1,106 @@
 import { expect, test } from '@playwright/test';
 import { DeviceLinkingDomain, LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
-import {
-  scanAndLinkDevice,
-  validateQrLinkedDeviceSessionPayloadV5,
-} from '@/SeamsWeb/operations/devices/scanDevice';
+import { validateQrLinkedDeviceSessionPayloadV5 } from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
-  DeviceLinkingSessionActivationPortV1,
-  LinkedDeviceApprovalResultV1,
   DeviceLinkingFlowPortsV1,
-  LinkSessionAuthenticationV1,
   LinkSessionTransportPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
-import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import {
-  buildLinkedDeviceProvisionedExecutionEvidenceV1,
-  type LinkedDeviceProvisionedExecutionEvidenceV1,
-} from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
-import {
-  buildActiveLinkedDeviceSessionState,
-  buildLinkedDeviceHolderDeliveryAcknowledgementV1,
-  buildCancelledUnclaimedLinkedDeviceSessionState,
-  buildDisplayingQrLinkedDeviceSessionState,
-  buildExpiredUnclaimedLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV5,
-  buildLinkedDeviceTargetPreparationV1,
+  parseLinkSessionStateV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '../../packages/shared-ts/src/device-linking';
 import type {
-  LinkedDeviceApprovalV1,
-  LinkedDeviceProvisioningDeliveriesSubmissionV1,
-  LinkedDeviceTargetReadyR102InputV1,
-  LinkedDeviceReceiptAcknowledgementV1,
-  LinkedDeviceSessionState,
-  LinkedDeviceSessionTransportEventV1,
+  LinkSessionProjectionV1,
+  LinkSessionStateV1,
+  LinkSessionTransportEventV1,
 } from '../../packages/shared-ts/src/device-linking';
-import {
-  buildR103DeviceLinkFixture,
-  buildR103ActiveExecutionFixture,
-  buildR103LinkedWalletSessionDeliveryFixture,
-  buildR103OwnerEnrollmentCeremonyV1,
-  buildR103ProvisioningFixture,
-  buildR103TargetReadySourceFixture,
-} from './helpers/deviceLinkContracts.fixtures';
-import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
+import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '../../packages/shared-ts/src/device-linking/requestProof';
+
+function unsupportedPort(name: string): never {
+  throw new Error(`${name} is outside this Device 2 QR orchestration test`);
+}
 
 function createPorts(
   calls: string[],
-  onApproval?: (approval: LinkedDeviceApprovalV1) => void,
   onTransportBind?: (transport: DeviceLinkingAuthenticatedTransportPortV1) => void,
-  approvalResult?: (state: LinkedDeviceSessionState) => LinkedDeviceApprovalResultV1,
-  onSessionEventHandler?: (handler: (event: LinkedDeviceSessionTransportEventV1) => void) => void,
-  onReceiptAcknowledgement?: (acknowledgement: LinkedDeviceReceiptAcknowledgementV1) => void,
-  sourceHandoff?: {
-    readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
-    readonly onSubmission: (submission: LinkedDeviceProvisioningDeliveriesSubmissionV1) => void;
-  },
-  approvalSubscriptionResults?: readonly LinkedDeviceApprovalResultV1[],
-  onSessionActivation?: (
-    input: Parameters<
-      DeviceLinkingSessionActivationPortV1['activateLinkedDeviceSigningSessionV1']
-    >[0],
-  ) => void,
+  onSessionEventHandler?: (handler: (event: LinkSessionTransportEventV1) => void) => void,
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
-  const now = Date.now();
-  const payload = buildQrLinkedDeviceSessionPayloadV5({
-    linkSessionId: fixture.payload.linkSessionId,
-    linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
-    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-    requestedPermission: buildFullOwnerDelegatedWalletAuthorityV1(),
-    targetFactor: fixture.payload.targetFactor,
-    issuedAtMs: now - 1_000,
-    expiresAtMs: now + 60_000,
-  });
-  let state: LinkedDeviceSessionState = buildDisplayingQrLinkedDeviceSessionState({
-    linkSessionId: payload.linkSessionId,
-    expiresAtMs: payload.expiresAtMs,
-  });
-  let activeLinkSessionId = payload.linkSessionId;
-  const authentication: LinkSessionAuthenticationV1 = {
-    kind: 'link_session_authenticated_request_v1',
-    source: fixture.approval.ownerAuthorization,
-    proofDigestB64u: fixture.approval.policyDigestB64u,
-  };
-  const credentialIdResult = parseWebAuthnCredentialIdB64u(
-    base64UrlEncode(new Uint8Array(32).fill(6)),
-  );
-  if (!credentialIdResult.ok) throw new Error(credentialIdResult.error.message);
-  const targetBinding = fixture.approval.orderedKeyBindings[0];
-  const targetHolder =
-    buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job.targetHolder;
-  let storedExecutionEvidence: LinkedDeviceProvisionedExecutionEvidenceV1 | null = null;
-  // Refactor 103 Phase 8: the owner add-auth-method ceremony Device 2 finalizes.
-  // Device 1 starts it under its own owner authority and it travels to Device 2
-  // inside the target preparation, so both sides read the same one here.
-  const ownerEnrollmentCeremony = buildR103OwnerEnrollmentCeremonyV1({
-    rpId: 'wallet.example.test',
-    expiresAtMs: now + 30_000,
-  });
+  let currentPayload = fixture.payload;
+  let state: LinkSessionStateV1 = { state: 'displaying_qr' };
   const authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 = {
     async createUnclaimedSessionV1(input) {
       calls.push('create');
-      activeLinkSessionId = input.payload.linkSessionId;
+      currentPayload = input.payload;
+      state = input.state;
     },
-    async getSessionV1() {
+    async getSessionV1(input): Promise<LinkSessionProjectionV1> {
       calls.push('get');
-      if (
-        state.state === 'displaying_qr' ||
-        state.state === 'expired_unclaimed' ||
-        state.state === 'cancelled_unclaimed'
-      ) {
-        return { state };
-      }
-      return { state, deviceId: fixture.approval.deviceId };
+      return {
+        kind: 'linked_device_session_projection_v1',
+        linkSessionId: input.linkSessionId,
+        qrPayload: currentPayload,
+        revision: 0,
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+        state,
+      };
     },
     async getApprovalV1() {
-      calls.push('get-approval');
-      return buildR103DeviceLinkFixture({
-        linkSessionId: String(activeLinkSessionId),
-      }).approval;
+      return unsupportedPort('getApprovalV1');
     },
     async getWalletSessionDeliveryV1() {
-      calls.push('get-wallet-session');
-      return buildR103LinkedWalletSessionDeliveryFixture(
-        buildR103DeviceLinkFixture({ linkSessionId: String(activeLinkSessionId) }),
-      );
+      return unsupportedPort('getWalletSessionDeliveryV1');
     },
     async getTargetPreparationV1() {
-      calls.push('target-preparation');
-      return buildLinkedDeviceTargetPreparationV1({
-        linkSessionId: activeLinkSessionId,
-        walletId: fixture.approval.walletId,
-        enrollmentId: fixture.approval.enrollmentId,
-        deviceId: fixture.approval.deviceId,
-        targetFactor: fixture.approval.targetFactor,
-        ownerEnrollment: ownerEnrollmentCeremony,
-        ed25519ExportRoot: null,
-        orderedChildren: [
-          {
-            kind: 'linked_device_target_preparation_child_v1',
-            operationId: fixture.approval.operationId,
-            walletKeyId: targetBinding.walletKeyId,
-            keyFamily: targetBinding.keyFamily,
-            targetLaneId: targetBinding.targetLaneId,
-            targetLaneShareEpoch: targetBinding.targetLaneShareEpoch,
-            targetMaterialActivationId:
-              fixture.receipt.orderedChildReceipts[0].materialActivation.activationId,
-            targetHolderParticipantId: targetHolder.participantId,
-          },
-        ],
-        issuedAtMs: now - 1_000,
-        expiresAtMs: now + 30_000,
-      });
-    },
-    async requestProvisioningDeliveriesV1() {
-      throw new Error('provisioning delivery adapter is not configured for this test');
-    },
-    async acknowledgeHolderDeliveriesV1() {
-      throw new Error('holder delivery adapter is not configured for this test');
+      return unsupportedPort('getTargetPreparationV1');
     },
     async startTargetEmailOtpChallengeV1() {
-      throw new Error('Email OTP is not configured for this passkey test');
+      return unsupportedPort('startTargetEmailOtpChallengeV1');
     },
     async resendTargetEmailOtpChallengeV1() {
-      throw new Error('Email OTP is not configured for this passkey test');
+      return unsupportedPort('resendTargetEmailOtpChallengeV1');
     },
     async verifyTargetEmailOtpChallengeV1() {
-      throw new Error('Email OTP is not configured for this passkey test');
+      return unsupportedPort('verifyTargetEmailOtpChallengeV1');
+    },
+    async requestProvisioningDeliveriesV1() {
+      return unsupportedPort('requestProvisioningDeliveriesV1');
+    },
+    async acknowledgeHolderDeliveriesV1() {
+      return unsupportedPort('acknowledgeHolderDeliveriesV1');
     },
     async registerTargetCredentialV1() {
-      calls.push('credential');
+      return unsupportedPort('registerTargetCredentialV1');
     },
     async registerEd25519ExportRootRecipientV1() {
-      calls.push('export-root-recipient-register');
+      return unsupportedPort('registerEd25519ExportRootRecipientV1');
     },
     async getEd25519ExportRootPackageV1() {
-      calls.push('export-root-package');
       return null;
     },
     async finalizeOwnerAuthMethodV1() {
-      calls.push('finalize');
-      return {
-        localAccount: {
-          kind: 'linked_device_local_account_projection_v1',
-          walletId: fixture.approval.walletId,
-          nearAccountId: 'linked-owner.testnet',
-          signerSlot: 4,
-        },
-        response: {
-          ok: true,
-          walletId: fixture.approval.walletId,
-          rpId: String(ownerEnrollmentCeremony.registration.rpId),
-          authMethod: {
-            kind: 'passkey',
-            status: 'active',
-            credentialIdB64u: String(credentialIdResult.value),
-            credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
-            counter: 0,
-            device: {
-              label: 'Chrome on macOS',
-              browser: 'chrome',
-              os: 'macos',
-              synced: false,
-              transports: ['internal'],
-            },
-          },
-        },
-      };
+      return unsupportedPort('finalizeOwnerAuthMethodV1');
     },
-    async acknowledgeReceiptV1(input) {
-      calls.push('ack');
-      onReceiptAcknowledgement?.(input.acknowledgement);
+    async receiveCommittedAuthorityPackagesV1() {
+      return unsupportedPort('receiveCommittedAuthorityPackagesV1');
+    },
+    async activateInstalledAuthorityV1() {
+      return unsupportedPort('activateInstalledAuthorityV1');
+    },
+    async acknowledgeLocalAuthorityActivationV1() {
+      return unsupportedPort('acknowledgeLocalAuthorityActivationV1');
+    },
+    async acknowledgeReceiptV1() {
+      return unsupportedPort('acknowledgeReceiptV1');
     },
     async retryCommittedDeliveryV1() {
-      calls.push('retry');
+      return unsupportedPort('retryCommittedDeliveryV1');
     },
     async cancelSessionV1() {
       calls.push('cancel');
@@ -233,9 +115,9 @@ function createPorts(
       } else {
         input.onEvent({
           kind: 'linked_device_session_event_v1',
-          linkSessionId: payload.linkSessionId,
+          linkSessionId: input.linkSessionId,
           state,
-          emittedAtMs: now,
+          emittedAtMs: Date.now(),
         });
       }
       return {
@@ -245,114 +127,31 @@ function createPorts(
       };
     },
   };
+
   const transport: LinkSessionTransportPortV1 = {
     async claimSessionV1() {
-      calls.push('claim');
-      state = {
-        state: 'claimed_by_owner',
-        linkSessionId: payload.linkSessionId,
-        walletId: fixture.approval.walletId,
-        enrollmentId: fixture.approval.enrollmentId,
-        claimExpiresAtMs: now + 30_000,
-      };
-      return {
-        kind: 'linked_device_session_claim_v1',
-        linkSessionId: payload.linkSessionId,
-        walletId: fixture.approval.walletId,
-        enrollmentId: fixture.approval.enrollmentId,
-        deviceId: fixture.approval.deviceId,
-        devicePublicKeyB64u: payload.devicePublicKeyB64u,
-        claimedAtMs: now,
-        claimExpiresAtMs: now + 30_000,
-      };
+      return unsupportedPort('claimSessionV1');
     },
-    async recordOwnerApprovalV1(input) {
-      calls.push('approve');
-      onApproval?.(input.approval);
-      state = buildActiveLinkedDeviceSessionState({
-        linkSessionId: input.approval.linkSessionId,
-        walletId: input.approval.walletId,
-        enrollmentId: input.approval.enrollmentId,
-        activatedAtMs: input.approval.approvedAtMs,
-      });
-      const result = approvalResult?.(state);
-      if (result) return result;
-      return {
-        outcome: 'active',
-        state,
-        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        receipt: fixture.receipt,
-      };
+    async recordOwnerApprovalV1() {
+      return unsupportedPort('recordOwnerApprovalV1');
     },
     async getApprovalV1() {
-      calls.push('get-approval-owner');
-      return {
-        outcome: 'active',
-        state:
-          state.state === 'active'
-            ? state
-            : buildActiveLinkedDeviceSessionState({
-                linkSessionId: payload.linkSessionId,
-                walletId: fixture.approval.walletId,
-                enrollmentId: fixture.approval.enrollmentId,
-                activatedAtMs: now,
-              }),
-        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        receipt: fixture.receipt,
-      };
+      return unsupportedPort('getApprovalV1');
     },
     async getTargetReadyV1() {
-      calls.push('get-target-ready');
-      return sourceHandoff?.targetReady ?? null;
+      return unsupportedPort('getTargetReadyV1');
     },
-    async submitPreparedProvisioningDeliveriesV1(input) {
-      calls.push('submit-prepared-deliveries');
-      sourceHandoff?.onSubmission(input.submission);
-      return input.submission;
+    async submitPreparedProvisioningDeliveriesV1() {
+      return unsupportedPort('submitPreparedProvisioningDeliveriesV1');
     },
     async getEd25519ExportRootRecipientV1() {
-      calls.push('get-export-root-recipient');
       return null;
     },
     async submitEd25519ExportRootPackageV1() {
-      calls.push('submit-export-root-package');
+      return unsupportedPort('submitEd25519ExportRootPackageV1');
     },
-    async subscribeApprovalV1(input) {
-      calls.push('subscribe-approval');
-      const subscribedResults = approvalSubscriptionResults ?? [
-        approvalResult?.(state) ?? {
-          outcome: 'active' as const,
-          state: buildActiveLinkedDeviceSessionState({
-            linkSessionId: payload.linkSessionId,
-            walletId: fixture.approval.walletId,
-            enrollmentId: fixture.approval.enrollmentId,
-            activatedAtMs: now,
-          }),
-          manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-          receipt: fixture.receipt,
-        },
-      ];
-      for (const subscribedResult of subscribedResults) input.onResult(subscribedResult);
-      if (
-        !approvalSubscriptionResults &&
-        sourceHandoff &&
-        subscribedResults[0]?.outcome === 'pending'
-      ) {
-        setTimeout(() => {
-          input.onResult({
-            outcome: 'active',
-            state: buildActiveLinkedDeviceSessionState({
-              linkSessionId: payload.linkSessionId,
-              walletId: fixture.approval.walletId,
-              enrollmentId: fixture.approval.enrollmentId,
-              activatedAtMs: now,
-            }),
-            manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-            receipt: fixture.receipt,
-          });
-        }, 0);
-      }
-      return { close: () => undefined };
+    async subscribeApprovalV1() {
+      return unsupportedPort('subscribeApprovalV1');
     },
     createAuthenticatedSessionTransportV1() {
       calls.push('bind-transport');
@@ -360,6 +159,7 @@ function createPorts(
       return authenticatedTransport;
     },
   };
+
   return {
     transport,
     keyMaterial: {
@@ -367,31 +167,13 @@ function createPorts(
         calls.push('keygen');
         return {
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'test-key-material' },
-          linkPublicKeyB64u: payload.linkPublicKeyB64u,
-          devicePublicKeyB64u: payload.devicePublicKeyB64u,
+          linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+          devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
           emailOtpReleasePublicKey65B64u: base64UrlEncode(new Uint8Array(65).fill(4)),
         };
       },
-      async prepareTargetHolderRegistrationsV1() {
-        throw new Error('target holder preparation is owned by the target credential fake');
-      },
-      async openAndSealTargetHolderDeliveryV1() {
-        throw new Error('holder delivery is owned by the lane provisioning fake');
-      },
-      async createEmailOtpEd25519ExportRootRecipientV1() {
-        throw new Error('Email OTP export-root preparation is outside this passkey test');
-      },
-      async prepareEmailOtpTargetV1() {
-        throw new Error('Email OTP target preparation is outside this passkey test');
-      },
-      async openPersistedHolderSigningMaterialV1() {
-        throw new Error('holder signing material is outside this orchestration test');
-      },
-      async createEd25519HolderSigningShareV1() {
-        throw new Error('holder signing material is outside this orchestration test');
-      },
-      async discardHolderSigningMaterialV1() {
-        calls.push('holder-material-discard');
+      async openEmailOtpFactorReleaseV1() {
+        return unsupportedPort('openEmailOtpFactorReleaseV1');
       },
       async discardKeyMaterialV1() {
         calls.push('key-discard');
@@ -399,114 +181,70 @@ function createPorts(
       async signDeviceSessionRequestV1() {
         return { signatureB64u: 'test-signature' };
       },
+      async openPersistedHolderSigningMaterialV1() {
+        return unsupportedPort('openPersistedHolderSigningMaterialV1');
+      },
+      async createEd25519HolderSigningShareV1() {
+        return unsupportedPort('createEd25519HolderSigningShareV1');
+      },
+      async prepareEcdsaExportRecipientV1() {
+        return unsupportedPort('prepareEcdsaExportRecipientV1');
+      },
+      async finalizeEcdsaExportV1() {
+        return unsupportedPort('finalizeEcdsaExportV1');
+      },
+      async discardHolderSigningMaterialV1() {
+        calls.push('holder-material-discard');
+      },
+      async createOrdinarySignerMaterialRecipientRequestsV1() {
+        return unsupportedPort('createOrdinarySignerMaterialRecipientRequestsV1');
+      },
+      async prepareOrdinarySignerMaterialV1() {
+        return unsupportedPort('prepareOrdinarySignerMaterialV1');
+      },
+      async sealCommittedAuthorityPackagesV1() {
+        return unsupportedPort('sealCommittedAuthorityPackagesV1');
+      },
     },
     ownerAuthorization: {
       async startOwnerEnrollmentCeremonyV1() {
-        calls.push('start-owner-ceremony');
-        return { ceremony: ownerEnrollmentCeremony };
+        return unsupportedPort('startOwnerEnrollmentCeremonyV1');
       },
       async authenticateOwnerForLinkingV1() {
-        calls.push('authenticate');
-        return {
-          authentication,
-          walletId: fixture.approval.walletId,
-          ownerAuthorization: fixture.approval.ownerAuthorization,
-          policyDigestB64u: fixture.approval.policyDigestB64u,
-          operationId: fixture.approval.operationId,
-          idempotencyKey: fixture.approval.idempotencyKey,
-          orderedKeyBindings: fixture.approval.orderedKeyBindings,
-          protocolVersions: fixture.approval.protocolVersions,
-          expiresAtMs: now + 30_000,
-          exportRootRequirement: 'not_required',
-        };
+        return unsupportedPort('authenticateOwnerForLinkingV1');
       },
     },
     sourcePreparation: {
       async prepareTargetReadyDeliveriesV1() {
-        calls.push('prepare-source-deliveries');
-        if (!sourceHandoff) throw new Error('source handoff is not configured for this test');
-        return buildR103TargetReadySourceFixture(fixture).deliveries;
+        return unsupportedPort('prepareTargetReadyDeliveriesV1');
       },
     },
     targetCredential: {
-      async createTargetCredentialV1(input) {
-        calls.push('target-passkey');
-        return {
-          webauthnRegistration: {
-            kind: 'linked_device_webauthn_registration_v1',
-            credentialIdB64u: credentialIdResult.value,
-            authenticatorAttachment: 'platform',
-            clientDataJsonB64u: fixture.payload.devicePublicKeyB64u,
-            attestationObjectB64u: fixture.payload.devicePublicKeyB64u,
-            transports: ['internal'],
-          },
-          orderedHolderRegistrations: [
-            {
-              kind: 'linked_device_target_holder_registration_v1',
-              operationId: input.preparation.orderedChildren[0].operationId,
-              walletKeyId: input.preparation.orderedChildren[0].walletKeyId,
-              keyFamily: input.preparation.orderedChildren[0].keyFamily,
-              targetLaneId: input.preparation.orderedChildren[0].targetLaneId,
-              targetLaneShareEpoch: input.preparation.orderedChildren[0].targetLaneShareEpoch,
-              targetMaterialActivationId:
-                input.preparation.orderedChildren[0].targetMaterialActivationId,
-              holderParticipant: {
-                kind: 'lane_holder_participant_v1',
-                ...targetHolder,
-              },
-            },
-          ],
-          factorSecret: new Uint8Array(32).fill(8),
-        };
+      async createTargetCredentialV1() {
+        return unsupportedPort('createTargetCredentialV1');
       },
     },
+    authorityInstallation: {
+      async installLocalAuthorityV1() {
+        return unsupportedPort('installLocalAuthorityV1');
+      },
+      async finalizeLocalAuthorityActivationV1() {
+        return unsupportedPort('finalizeLocalAuthorityActivationV1');
+      },
+    },
+    readExpectedLockGenerationV1: async () => 0,
     ed25519ExportRoot: {
       async createRecipientV1() {
-        throw new Error('export-root recipient is outside this signing-only test');
+        return unsupportedPort('createRecipientV1');
       },
       async sealForLinkedDeviceV1() {
-        throw new Error('export-root sealing is outside this signing-only test');
+        return unsupportedPort('sealForLinkedDeviceV1');
       },
       async acceptTransferV1() {
-        throw new Error('export-root acceptance is outside this signing-only test');
+        return unsupportedPort('acceptTransferV1');
       },
       async discardRecipientV1() {
         calls.push('export-root-recipient-discard');
-      },
-    },
-    sessionActivation: {
-      async activateLinkedDeviceSigningSessionV1(input) {
-        onSessionActivation?.(input);
-      },
-    },
-    laneProvisioning: {
-      async prepareLinkedDeviceLanesV1() {
-        calls.push('prepare-lanes');
-        return fixture.receipt;
-      },
-      async resumeCommittedDeliveryV1(input) {
-        calls.push('resume-delivery');
-        await input.refetchApprovalV1();
-        await input.refetchProvisioningDeliveriesV1();
-        return fixture.receipt;
-      },
-    },
-    walletSessions: {
-      async putExactActiveDeliveryV1() {
-        calls.push('persist-wallet-session');
-      },
-    },
-    executionEvidence: {
-      async putExactProvisionedEvidenceV1(evidence) {
-        calls.push('persist-execution-evidence');
-        storedExecutionEvidence = evidence;
-        return evidence;
-      },
-      async readForEnrollmentV1() {
-        calls.push('read-execution-evidence');
-        return storedExecutionEvidence
-          ? { kind: 'found', evidence: storedExecutionEvidence }
-          : { kind: 'missing' };
       },
     },
   };
@@ -533,9 +271,7 @@ test.describe('linked-device browser orchestration', () => {
     await expect.poll(() => calls).toContain('create');
     await expect(
       domain.startDevice2LinkingFlow({ targetFactor: { kind: 'passkey_prf' } }),
-    ).rejects.toThrow(
-      'Device-link QR flow is already running',
-    );
+    ).rejects.toThrow('Device-link QR flow is already running');
     await first;
     await domain.cancelDeviceLinking();
     expect(calls.filter((call) => call === 'keygen')).toHaveLength(1);
@@ -547,7 +283,7 @@ test.describe('linked-device browser orchestration', () => {
     const calls: string[] = [];
     const events: string[] = [];
     let transportBound = false;
-    const ports = createPorts(calls, undefined, () => {
+    const ports = createPorts(calls, () => {
       transportBound = true;
     });
     const flow = new LinkDeviceFlow(
@@ -587,31 +323,31 @@ test.describe('linked-device browser orchestration', () => {
   });
 
   test('Device 2 closes polling and discards its worker key for every terminal session', async () => {
-    const fixture = buildR103DeviceLinkFixture();
-    for (const terminalKind of ['expired', 'cancelled', 'active'] as const) {
+    for (const terminalKind of ['expired', 'cancelled', 'failed_before_commit'] as const) {
       const calls: string[] = [];
-      let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
-      const ports = createPorts(calls, undefined, undefined, undefined, (handler) => {
+      let emitSessionEvent: ((event: LinkSessionTransportEventV1) => void) | undefined;
+      const ports = createPorts(calls, undefined, (handler) => {
         emitSessionEvent = handler;
       });
       const flow = new LinkDeviceFlow({ targetFactor: { kind: 'passkey_prf' } }, ports);
       const generated = await flow.generateQR();
       const terminalState =
         terminalKind === 'expired'
-          ? buildExpiredUnclaimedLinkedDeviceSessionState({
-              linkSessionId: generated.qrData.linkSessionId,
+          ? parseLinkSessionStateV1({
+              state: 'expired',
               expiredAtMs: Date.now(),
             })
           : terminalKind === 'cancelled'
-            ? buildCancelledUnclaimedLinkedDeviceSessionState({
-                linkSessionId: generated.qrData.linkSessionId,
+            ? parseLinkSessionStateV1({
+                state: 'cancelled',
                 cancelledAtMs: Date.now(),
               })
-            : buildActiveLinkedDeviceSessionState({
-                linkSessionId: generated.qrData.linkSessionId,
-                walletId: fixture.approval.walletId,
-                enrollmentId: fixture.approval.enrollmentId,
-                activatedAtMs: Date.now(),
+            : parseLinkSessionStateV1({
+                state: 'failed_before_commit',
+                error: {
+                  kind: 'package_preparation_failed',
+                  reason: 'test-terminal-state',
+                },
               });
       emitSessionEvent?.({
         kind: 'linked_device_session_event_v1',

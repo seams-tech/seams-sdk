@@ -1,5 +1,4 @@
-import type { AuthenticatorPort, DurableRecordStore, RuntimePorts } from '@/core/platform';
-import type { HttpTransport } from '@/core/platform/http';
+import type { DurableRecordStore, RuntimePorts } from '@/core/platform';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -373,26 +372,6 @@ import type {
 import { createBrowserRecoveryPublicDeps } from '../assembly/createBrowserRecoveryPublicDeps';
 import { createBrowserStepUpRuntime } from '../assembly/createBrowserStepUpRuntime';
 import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWarmSessionPublicDeps';
-import { createWalletHostOwnerAuthoritiesV1 } from '../operations/devices/walletHostOwnerAuthority';
-import type { WalletHostCompositionDependenciesV1 } from '../operations/devices/walletHostComposition';
-import type {
-  LinkSessionOwnerApprovalUpdatesPortV1,
-  LinkSessionOwnerAuthenticatedRequestPortV1,
-} from '../operations/devices/deviceLinkingOwnerTransport';
-import type { LinkSessionSubscriptionV1 } from '../operations/devices/deviceLinkingPorts';
-import { nextLinkedDevicePollingDelayMsV1 } from '../operations/devices/deviceLinkingHttpTransport';
-import type {
-  LinkedDeviceApprovalResultV1,
-  LinkedDeviceApprovalV1,
-  LinkedDeviceWalletSessionDeliveryV1,
-} from '@shared/device-linking';
-import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
-import {
-  parseLinkedDeviceApprovalResultV1,
-  parseLinkedDeviceApprovalV1,
-  parseLinkedDeviceOwnerEnrollmentCeremonyV1,
-} from '@shared/device-linking';
-import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
 import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type {
   EcdsaLaneProtocolWasmV1,
@@ -654,187 +633,6 @@ function currentNearEd25519CapabilityRehydrationSubject(args: {
 
 function assertNeverNearEd25519CapabilityRehydrationSubject(value: never): never {
   throw new Error(`Unknown Ed25519 capability rehydration subject: ${String(value)}`);
-}
-
-type WalletHostOwnerApprovalTransportV1 = {
-  readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
-  readonly approvalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
-};
-
-type OwnerApprovalPollingStateV1 = {
-  readonly input: Parameters<LinkSessionOwnerApprovalUpdatesPortV1['subscribeApprovalV1']>[0];
-  readonly getApproval: LinkSessionOwnerApprovalUpdatesPortV1['getApprovalV1'];
-  readonly approvals: Map<string, LinkedDeviceApprovalV1>;
-  closed: boolean;
-  timer: ReturnType<typeof setTimeout> | null;
-  inFlight: Promise<void> | null;
-  pollAttempt: number;
-};
-
-function clearOwnerApprovalV1(
-  approvals: Map<string, LinkedDeviceApprovalV1>,
-  linkSessionId: LinkDeviceSessionId,
-): void {
-  approvals.delete(String(linkSessionId));
-}
-
-function ownerApprovalResultIsPendingV1(result: LinkedDeviceApprovalResultV1): boolean {
-  return (
-    result.outcome === 'pending' ||
-    (result.outcome === 'replayed' && result.replay.state === 'pending')
-  );
-}
-
-function scheduleOwnerApprovalPollV1(
-  controller: OwnerApprovalPollingStateV1,
-  delayMs: number,
-): void {
-  if (controller.closed || controller.timer !== null) return;
-  controller.timer = setTimeout(runOwnerApprovalPollTimerV1, delayMs, controller);
-}
-
-function runOwnerApprovalPollTimerV1(controller: OwnerApprovalPollingStateV1): void {
-  controller.timer = null;
-  void runOwnerApprovalPollV1(controller);
-}
-
-async function pollOwnerApprovalResultV1(controller: OwnerApprovalPollingStateV1): Promise<void> {
-  let result: LinkedDeviceApprovalResultV1;
-  try {
-    result = await controller.getApproval(controller.input);
-  } catch {
-    if (!controller.closed) {
-      scheduleOwnerApprovalPollV1(
-        controller,
-        nextLinkedDevicePollingDelayMsV1(250, controller.pollAttempt),
-      );
-      controller.pollAttempt += 1;
-    }
-    return;
-  }
-  if (controller.closed) return;
-  try {
-    controller.input.onResult(result);
-  } catch {
-    closeOwnerApprovalPollingV1(controller);
-    return;
-  }
-  if (ownerApprovalResultIsPendingV1(result)) {
-    scheduleOwnerApprovalPollV1(
-      controller,
-      nextLinkedDevicePollingDelayMsV1(250, controller.pollAttempt),
-    );
-    controller.pollAttempt += 1;
-    return;
-  }
-  closeOwnerApprovalPollingV1(controller);
-}
-
-async function finishOwnerApprovalPollV1(
-  controller: OwnerApprovalPollingStateV1,
-  task: Promise<void>,
-): Promise<void> {
-  try {
-    await task;
-  } finally {
-    if (controller.inFlight === task) controller.inFlight = null;
-  }
-}
-
-function runOwnerApprovalPollV1(controller: OwnerApprovalPollingStateV1): Promise<void> {
-  if (controller.closed || controller.inFlight) return Promise.resolve();
-  const task = pollOwnerApprovalResultV1(controller);
-  controller.inFlight = task;
-  return finishOwnerApprovalPollV1(controller, task);
-}
-
-function closeOwnerApprovalPollingV1(controller: OwnerApprovalPollingStateV1): void {
-  controller.closed = true;
-  if (controller.timer !== null) {
-    clearTimeout(controller.timer);
-    controller.timer = null;
-  }
-  clearOwnerApprovalV1(controller.approvals, controller.input.linkSessionId);
-}
-
-class OwnerApprovalPollingControllerV1 implements LinkSessionSubscriptionV1 {
-  private readonly state: OwnerApprovalPollingStateV1;
-
-  constructor(
-    input: Parameters<LinkSessionOwnerApprovalUpdatesPortV1['subscribeApprovalV1']>[0],
-    getApproval: LinkSessionOwnerApprovalUpdatesPortV1['getApprovalV1'],
-    approvals: Map<string, LinkedDeviceApprovalV1>,
-  ) {
-    this.state = {
-      input,
-      getApproval,
-      approvals,
-      closed: false,
-      timer: null,
-      inFlight: null,
-      pollAttempt: 0,
-    };
-    void runOwnerApprovalPollV1(this.state);
-  }
-
-  close(): void {
-    closeOwnerApprovalPollingV1(this.state);
-  }
-}
-
-function createOwnerApprovalPollingSubscriptionV1(
-  input: Parameters<LinkSessionOwnerApprovalUpdatesPortV1['subscribeApprovalV1']>[0],
-  getApproval: LinkSessionOwnerApprovalUpdatesPortV1['getApprovalV1'],
-  approvals: Map<string, LinkedDeviceApprovalV1>,
-): LinkSessionSubscriptionV1 {
-  return new OwnerApprovalPollingControllerV1(input, getApproval, approvals);
-}
-
-function createWalletHostOwnerApprovalTransportV1(
-  request: LinkSessionOwnerAuthenticatedRequestPortV1,
-): WalletHostOwnerApprovalTransportV1 {
-  const approvals = new Map<string, LinkedDeviceApprovalV1>();
-  const ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1 = {
-    requestOwnerV1: async (input) => {
-      const isApprovalRequest =
-        input.method === 'POST' && input.canonicalPath.endsWith('/approval');
-      const approval = isApprovalRequest ? parseLinkedDeviceApprovalV1(input.body) : null;
-      const response = await request.requestOwnerV1(input);
-      if (approval && response.status >= 200 && response.status < 300) {
-        const result = parseLinkedDeviceApprovalResultV1(response.body);
-        if (ownerApprovalResultIsPendingV1(result)) {
-          approvals.set(String(approval.linkSessionId), approval);
-        } else {
-          clearOwnerApprovalV1(approvals, approval.linkSessionId);
-        }
-      }
-      return response;
-    },
-  };
-  const approvalUpdates: LinkSessionOwnerApprovalUpdatesPortV1 = {
-    getApprovalV1: async (input) => {
-      const approval = approvals.get(String(input.linkSessionId));
-      if (!approval) throw new Error('Owner approval is unavailable for polling');
-      const response = await ownerRequest.requestOwnerV1({
-        method: 'POST',
-        canonicalPath: `/wallet/device-linking/v1/sessions/${String(input.linkSessionId)}/approval`,
-        body: approval,
-        authentication: input.authentication,
-      });
-      if (response.status < 200 || response.status >= 300) {
-        throw new Error(`Owner approval polling failed with HTTP ${response.status}`);
-      }
-      return parseLinkedDeviceApprovalResultV1(response.body);
-    },
-    subscribeApprovalV1: async (input) => {
-      return createOwnerApprovalPollingSubscriptionV1(
-        input,
-        approvalUpdates.getApprovalV1,
-        approvals,
-      );
-    },
-  };
-  return { request: ownerRequest, approvalUpdates };
 }
 
 function createDiscardingEd25519LaneClientV1(
@@ -3981,10 +3779,7 @@ export class BrowserSigningSurface {
           nearAccountId: toAccountId(nearAccountId),
           materialActivation,
         }),
-      resolveEd25519YaoClientRootEnvelope: async ({
-        capability,
-        selectedMaterialActivation,
-      }) => {
+      resolveEd25519YaoClientRootEnvelope: async ({ capability, selectedMaterialActivation }) => {
         if (capability) {
           return await readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1({
             walletId: String(args.laneIdentity.signer.account.wallet.walletId),
