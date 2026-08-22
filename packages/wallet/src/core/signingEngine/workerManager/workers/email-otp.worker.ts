@@ -154,6 +154,7 @@ import {
   RouterAbEd25519YaoActiveClientV1,
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
+  type RouterAbEd25519YaoExportCustodyEnvelopeV1,
 } from '../../threshold/ed25519/yaoClient';
 import type { NearResolvedEd25519SigningSessionState } from '../../interfaces/near';
 import {
@@ -529,14 +530,9 @@ async function exportEmailOtpEd25519YaoSeed(args: {
   signerSlot: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
-  resolveCustodyEnvelope: (release: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1) => Promise<{
-    factorSecret: Uint8Array;
-    bindingJson: string;
-    nonce: Uint8Array;
-    ciphertext: Uint8Array;
-    aadHash: Uint8Array;
-    ciphertextDigest: Uint8Array;
-  }>;
+  resolveCustodyEnvelope: (
+    release: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
+  ) => Promise<RouterAbEd25519YaoExportCustodyEnvelopeV1>;
 }): Promise<RouterAbEd25519YaoExportArtifactV1> {
   assertEmailOtpEd25519YaoExportCapabilityContinuity(args);
   const capability = args.capability;
@@ -649,7 +645,7 @@ function emailOtpEd25519YaoExportCapabilityV1(
 
 function emailOtpEd25519ExportRootEnvelopeWireV1(
   envelope: PasskeyCustodyEnvelopeRecord,
-): WalletCustodyCacheEnvelopeV1 {
+): Omit<RouterAbEd25519YaoExportCustodyEnvelopeV1, 'factorSecret'> {
   if (
     envelope.lifecycle.state !== 'active' ||
     envelope.binding.kind !== 'ed25519_yao_client_root_v1'
@@ -657,6 +653,7 @@ function emailOtpEd25519ExportRootEnvelopeWireV1(
     throw new Error('Email OTP Ed25519 export requires an active Client-root envelope');
   }
   return {
+    kind: 'ed25519_yao_client_root_v1',
     bindingJson: JSON.stringify({
       walletId: envelope.walletId,
       envelopeId: envelope.envelopeId,
@@ -664,10 +661,10 @@ function emailOtpEd25519ExportRootEnvelopeWireV1(
       envelopeRevision: envelope.envelopeRevision,
       binding: envelope.binding,
     }),
-    nonceB64u: envelope.nonceB64u,
-    ciphertextB64u: envelope.sealedCustodySecretB64u,
-    aadHashB64u: envelope.aadHashB64u,
-    ciphertextDigestB64u: envelope.ciphertextDigestB64u,
+    nonce: base64UrlDecode(envelope.nonceB64u),
+    ciphertext: base64UrlDecode(envelope.sealedCustodySecretB64u),
+    aadHash: base64UrlDecode(envelope.aadHashB64u),
+    ciphertextDigest: base64UrlDecode(envelope.ciphertextDigestB64u),
   };
 }
 
@@ -675,12 +672,13 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
   state: EmailOtpEd25519ExportCustodyResolutionState,
   release: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
 ): Promise<{
-  factorSecret: Uint8Array;
-  bindingJson: string;
-  nonce: Uint8Array;
-  ciphertext: Uint8Array;
-  aadHash: Uint8Array;
-  ciphertextDigest: Uint8Array;
+  readonly factorSecret: Uint8Array;
+  readonly bindingJson: string;
+  readonly nonce: Uint8Array;
+  readonly ciphertext: Uint8Array;
+  readonly aadHash: Uint8Array;
+  readonly ciphertextDigest: Uint8Array;
+  readonly kind: 'wallet_custody_seed_v1' | 'ed25519_yao_client_root_v1';
 }> {
   const released = await releaseEmailOtpFactorSecret({
     relayUrl: state.relayUrl,
@@ -711,12 +709,8 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
       const ownedFactorSecret = factorSecret32;
       factorSecret32 = null;
       return {
+        ...envelope,
         factorSecret: ownedFactorSecret,
-        bindingJson: envelope.bindingJson,
-        nonce: base64UrlDecode(envelope.nonceB64u),
-        ciphertext: base64UrlDecode(envelope.ciphertextB64u),
-        aadHash: base64UrlDecode(envelope.aadHashB64u),
-        ciphertextDigest: base64UrlDecode(envelope.ciphertextDigestB64u),
       };
     }
     const unlocked = await completeEmailOtpUnlockFromSecret32({
@@ -761,6 +755,7 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
     const ownedFactorSecret = factorSecret32;
     factorSecret32 = null;
     return {
+      kind: 'wallet_custody_seed_v1',
       factorSecret: ownedFactorSecret,
       bindingJson: envelope.bindingJson,
       nonce: base64UrlDecode(envelope.nonceB64u),

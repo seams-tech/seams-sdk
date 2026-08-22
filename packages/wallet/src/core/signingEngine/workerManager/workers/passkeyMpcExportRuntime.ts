@@ -167,6 +167,7 @@ function custodyEnvelopeInputForExport(
           ciphertextDigestB64u: record.ciphertextDigestB64u,
         };
   return {
+    kind: record.binding.kind,
     bindingJson: envelope.bindingJson,
     nonce: base64UrlDecode(envelope.nonceB64u),
     ciphertext: base64UrlDecode(envelope.ciphertextB64u),

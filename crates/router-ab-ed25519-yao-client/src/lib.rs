@@ -31,6 +31,7 @@ use signer_core::ed25519_yao_derivation::{
 };
 use signer_core::near_ed25519_recovery::expand_ed25519_seed;
 use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -67,6 +68,7 @@ pub use wasm::{
     WasmEd25519YaoSourcePreservingRegistrationSessionV1, WasmExportedEd25519SeedV1,
     WasmLaneCustodySealV1, WasmLaneHolderEcdsaPresignSessionV1, WasmLaneHolderRecipientV1,
     WasmLaneHolderSigningMaterialV1, WasmOrdinaryEd25519ActivationClientMaterialV1,
+    WasmWalletCustodySeedExportSessionV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
@@ -783,6 +785,33 @@ fn prepare_client_export_from_root_v1(
             recipient_private_key,
         },
     })
+}
+
+/// Prepares an owner export from the verified wallet custody seed.
+///
+/// The seed and derived root remain inside this crate. Linked-device export
+/// uses the separate factor-sealed Client-root envelope path.
+pub(crate) fn prepare_client_export_from_custody_seed_v1(
+    admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    custody_seed: &[u8; 32],
+    entropy: ClientActivationEntropyV1,
+) -> Result<PreparedClientExportV1, ClientActivationError> {
+    let context = stable_key_derivation_context_v1(application, participant_ids)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    let root = derive_ed25519_yao_client_root_from_seed_v1(
+        custody_seed,
+        context.application_binding_digest(),
+    )
+    .map_err(|_| ClientActivationError::DerivationFailed)?;
+    prepare_client_export_from_root_v1(
+        admission,
+        application,
+        participant_ids,
+        Ed25519YaoClientRootV1::from_secret_bytes(*root),
+        entropy,
+    )
 }
 
 /// Reconstructs and verifies the exact seed inside the Client boundary.

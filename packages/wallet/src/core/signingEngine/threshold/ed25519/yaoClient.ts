@@ -1,6 +1,7 @@
 import {
   WasmActivatedClientV1,
   WasmEd25519YaoClientRootExportSessionV1,
+  WasmWalletCustodySeedExportSessionV1,
   openWalletCustodyEd25519MaterialV1,
   default as initializeYaoClientWasm,
   type InitInput,
@@ -164,7 +165,7 @@ export type RouterAbEd25519YaoExportEmailOtpFactorReleaseV1 = {
   readonly expiresAtMs: number;
 };
 
-export type RouterAbEd25519YaoExportCustodyEnvelopeV1 = {
+type RouterAbEd25519YaoExportCustodyEnvelopeFieldsV1 = {
   factorSecret: Uint8Array;
   bindingJson: string;
   nonce: Uint8Array;
@@ -172,6 +173,14 @@ export type RouterAbEd25519YaoExportCustodyEnvelopeV1 = {
   aadHash: Uint8Array;
   ciphertextDigest: Uint8Array;
 };
+
+export type RouterAbEd25519YaoExportCustodyEnvelopeV1 =
+  | (RouterAbEd25519YaoExportCustodyEnvelopeFieldsV1 & {
+      readonly kind: 'wallet_custody_seed_v1';
+    })
+  | (RouterAbEd25519YaoExportCustodyEnvelopeFieldsV1 & {
+      readonly kind: 'ed25519_yao_client_root_v1';
+    });
 
 export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
   protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
@@ -381,20 +390,32 @@ function isPasskeyExportSeedInput(
   return input.authorization.kind === 'passkey';
 }
 
-type WasmExportSessionV1 = WasmEd25519YaoClientRootExportSessionV1;
+type WasmExportSessionV1 =
+  | WasmWalletCustodySeedExportSessionV1
+  | WasmEd25519YaoClientRootExportSessionV1;
+
+type WasmExportSessionConstructorV1 =
+  | typeof WasmWalletCustodySeedExportSessionV1
+  | typeof WasmEd25519YaoClientRootExportSessionV1;
+
+export function exportSessionConstructorForCustodyEnvelopeV1(
+  envelope: { readonly kind: RouterAbEd25519YaoExportCustodyEnvelopeV1['kind'] },
+): WasmExportSessionConstructorV1 {
+  switch (envelope.kind) {
+    case 'wallet_custody_seed_v1':
+      return WasmWalletCustodySeedExportSessionV1;
+    case 'ed25519_yao_client_root_v1':
+      return WasmEd25519YaoClientRootExportSessionV1;
+    default:
+      return assertNever(envelope.kind);
+  }
+}
 
 function createExportSession(args: {
   admission: unknown;
   applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
   participantIds: readonly [number, number];
-  custodyEnvelope: {
-    factorSecret: Uint8Array;
-    bindingJson: string;
-    nonce: Uint8Array;
-    ciphertext: Uint8Array;
-    aadHash: Uint8Array;
-    ciphertextDigest: Uint8Array;
-  };
+  custodyEnvelope: RouterAbEd25519YaoExportCustodyEnvelopeV1;
   entropy: RouterAbEd25519YaoActivationEntropyV1;
 }): WasmExportSessionV1 {
   const common = [
@@ -412,7 +433,8 @@ function createExportSession(args: {
     args.entropy.deriverASealSeed,
     args.entropy.deriverBSealSeed,
   ] as const;
-  return new WasmEd25519YaoClientRootExportSessionV1(...common);
+  const ExportSession = exportSessionConstructorForCustodyEnvelopeV1(args.custodyEnvelope);
+  return new ExportSession(...common);
 }
 
 function parseExportEmailOtpFactorRelease(
