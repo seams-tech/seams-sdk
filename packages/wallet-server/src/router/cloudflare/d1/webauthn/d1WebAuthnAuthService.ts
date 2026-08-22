@@ -169,7 +169,7 @@ export class CloudflareD1WebAuthnAuthService {
       });
       const activeCredentialIds = new Set(
         (
-          await this.walletAuthMethodStore.listForWallet({
+          await this.walletAuthMethodStore.listForWalletV2({
             walletId: userId.value,
             rpId,
           })
@@ -178,7 +178,7 @@ export class CloudflareD1WebAuthnAuthService {
             (method) =>
               method.kind === 'passkey' && method.status === 'active' && method.rpId === rpId,
           )
-          .map((method) => method.credentialIdB64u),
+          .map((method) => String(method.credentialIdB64u)),
       );
       for (const binding of bindings) {
         const credentialId = toOptionalTrimmedString(binding.credentialIdB64u);
@@ -252,7 +252,7 @@ export class CloudflareD1WebAuthnAuthService {
         const seenCredentialIds = new Set<string>();
         const activeCredentialIds = new Set(
           (
-            await this.walletAuthMethodStore.listForWallet({
+            await this.walletAuthMethodStore.listForWalletV2({
               walletId: expectedUserId,
               rpId,
             })
@@ -261,7 +261,7 @@ export class CloudflareD1WebAuthnAuthService {
               (method) =>
                 method.kind === 'passkey' && method.status === 'active' && method.rpId === rpId,
             )
-            .map((method) => method.credentialIdB64u),
+            .map((method) => String(method.credentialIdB64u)),
         );
         const bindings = await this.webAuthnStore.readBindingRows({ userId: expectedUserId, rpId });
         for (const binding of bindings) {
@@ -549,7 +549,7 @@ export class CloudflareD1WebAuthnAuthService {
           message: credentialId.message,
         };
       }
-      const activeMethod = await this.walletAuthMethodStore.getPasskey({
+      const activeMethod = await this.walletAuthMethodStore.getPasskeyV2({
         rpId: challenge.rpId,
         credentialIdB64u: credentialId.credentialIdB64u,
       });
@@ -622,6 +622,8 @@ export class CloudflareD1WebAuthnAuthService {
         userId: challenge.userId,
         rpId: challenge.rpId,
         credentialIdB64u: credentialId.credentialIdB64u,
+        walletAuthMethodId: activeMethod.walletAuthMethodId,
+        walletAuthorityId: activeMethod.walletAuthorityId,
         ed25519,
       };
     } catch (error: unknown) {
@@ -687,7 +689,7 @@ export class CloudflareD1WebAuthnAuthService {
           message: `Credential is not registered for account ${challenge.expectedUserId}`,
         };
       }
-      const activeMethod = await this.walletAuthMethodStore.getPasskey({
+      const activeMethod = await this.walletAuthMethodStore.getPasskeyV2({
         rpId: challenge.rpId,
         credentialIdB64u: credentialId.credentialIdB64u,
       });
@@ -814,6 +816,8 @@ export class CloudflareD1WebAuthnAuthService {
         walletBinding,
         rpId: walletBinding.rpId,
         signerSlot: walletBinding.signerSlot,
+        walletAuthMethodId: activeMethod.walletAuthMethodId,
+        walletAuthorityId: activeMethod.walletAuthorityId,
         ...(binding.publicKey ? { publicKey: binding.publicKey } : {}),
         ...(binding.relayerKeyId ? { relayerKeyId: binding.relayerKeyId } : {}),
         credentialIdB64u: credentialId.credentialIdB64u,
