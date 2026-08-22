@@ -3681,7 +3681,10 @@ body:has(.h2-page) {
   display: grid;
   gap: 30px;
   padding-top: 50px;
-  padding-bottom: 32px;
+  /* The stage runs off the section's bottom edge, so the shell keeps no
+     bottom padding — any gap here would float the open-bottomed card above
+     the rule instead of meeting it. */
+  padding-bottom: 0;
 }
 
 /* legend columns track the stage split so each label sits over its screen */
@@ -3703,8 +3706,11 @@ body:has(.h2-page) {
   position: relative;
   overflow: hidden;
   aspect-ratio: 14 / 5;
-  border-radius: 26px;
+  /* Open-bottomed: the stage meets the section rule rather than closing
+     above it, so the screens read as continuing past the fold. */
+  border-radius: 26px 26px 0 0;
   border: 1px solid var(--h2-stone);
+  border-bottom: 0;
   background: var(--h2-taupe);
 }
 
@@ -3788,7 +3794,9 @@ body:has(.h2-page) {
 @media (max-width: 760px) {
   .h2-consoleband {
     padding-top: 36px;
-    padding-bottom: 24px;
+    /* Matches the wide layout: the stage is open-bottomed at every width, so
+       keeping 24px here would leave its cut edge floating above the rule. */
+    padding-bottom: 0;
   }
 
   .h2-consoleband__legend {
