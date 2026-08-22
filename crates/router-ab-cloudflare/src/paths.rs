@@ -41,6 +41,9 @@ pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_PRIVATE_REQUEST_P
 /// Private Router endpoint for one admitted Ed25519 Yao ceremony execution.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/execute";
+/// Private Router endpoint for source-preserving linked-device registration.
+pub const CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/router/ed25519-yao/execute-source-preserving";
 /// Private Router endpoint for promoting a verified recovery result.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/recovery/promote";

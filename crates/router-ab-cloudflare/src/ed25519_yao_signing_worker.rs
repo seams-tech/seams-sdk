@@ -525,7 +525,7 @@ pub async fn handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_v1(
         deriver_b_client_package,
     ) = reserve_inactive_ed25519_yao_v1(env, &reservation).await?;
     json_response(&CloudflareEd25519YaoInactiveReservationResponseV1 {
-        state: "inactive",
+        state: "inactive".to_owned(),
         reservation_id,
         participant_ids,
         activation_receipt,
@@ -551,7 +551,7 @@ pub async fn handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_sourc
         deriver_b_client_package,
     ) = reserve_source_preserving_inactive_ed25519_yao_v1(env, &reservation).await?;
     json_response(&CloudflareEd25519YaoInactiveReservationResponseV1 {
-        state: "inactive",
+        state: "inactive".to_owned(),
         reservation_id,
         participant_ids,
         activation_receipt,
@@ -582,10 +582,10 @@ pub async fn handle_cloudflare_signing_worker_ed25519_yao_deactivate_reservation
     json_response(&response)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEd25519YaoInactiveReservationResponseV1 {
-    pub state: &'static str,
+    pub state: String,
     pub reservation_id: String,
     pub participant_ids: [u16; 2],
     pub activation_receipt: RouterAbEd25519YaoActivationPublicReceiptV1,

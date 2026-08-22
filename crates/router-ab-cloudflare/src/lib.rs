@@ -52,15 +52,20 @@ mod ordinary_inactive_signer_material;
 pub use ordinary_inactive_signer_material::{
     handle_cloudflare_signing_worker_ecdsa_activate_reservation_v1,
     handle_cloudflare_signing_worker_ecdsa_deactivate_reservation_v1,
+    handle_cloudflare_signing_worker_ecdsa_reserve_inactive_source_preserving_v1,
     handle_cloudflare_signing_worker_ecdsa_reserve_inactive_v1,
     CloudflareEcdsaActivateReservationRequestV1, CloudflareEcdsaDeactivateReservationRequestV1,
     CloudflareEcdsaInactiveMaterialReservationRequestV1,
     CloudflareEcdsaInactiveMaterialReservationResponseV1,
     CloudflareEcdsaReservationActivationResponseV1,
     CloudflareEcdsaReservationDeactivationResponseV1,
+    CloudflareEcdsaSourcePreservingInactiveMaterialReservationRequestV1,
+    CloudflareEcdsaSourcePreservingInactiveMaterialReservationResponseV1,
+    CloudflareEcdsaSourcePreservingReservationActivationResponseV1,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_ACTIVATE_RESERVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_DEACTIVATE_RESERVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH,
 };
 mod router;
 pub use router::*;
@@ -72,6 +77,8 @@ pub use router_coordinator::{
     handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_lane_execute_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
+    handle_cloudflare_router_ed25519_yao_source_preserving_execute_private_fetch_v1,
+    CloudflareRouterEd25519YaoSourcePreservingExecuteRequestV1,
 };
 mod signing_worker;
 pub use signing_worker::*;

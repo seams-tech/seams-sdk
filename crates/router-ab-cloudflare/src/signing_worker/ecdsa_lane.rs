@@ -75,7 +75,7 @@ pub struct CloudflareEcdsaRegistrationSourceDerivationV1 {
 }
 
 impl CloudflareEcdsaRegistrationSourceDerivationV1 {
-    fn validate(&self) -> RouterAbProtocolResult<()> {
+    pub(crate) fn validate(&self) -> RouterAbProtocolResult<()> {
         decode_b64::<32>(
             "ECDSA registration source application binding digest",
             &self.application_binding_digest_b64u,
@@ -700,6 +700,51 @@ mod worker_execution {
             .map_err(|_| invalid("SigningWorker ECDSA lane artifact has invalid JSON"))
     }
 
+    pub(crate) async fn derive_registration_source_relayer_share_v1(
+        env: &Env,
+        source_activation: &EcdsaMaterialActivationRefV1,
+        source_derivation: &CloudflareEcdsaRegistrationSourceDerivationV1,
+        source_client_public_key33: &[u8; 33],
+        source_relayer_public_key33: &[u8; 33],
+    ) -> RouterAbProtocolResult<Zeroizing<[u8; 32]>> {
+        source_derivation.validate()?;
+        let lookup = CloudflareActiveSigningWorkerStateLookupV1::new(
+            source_activation.material_owner.clone(),
+            source_activation.activation_id.clone(),
+            source_activation.signing_worker.clone(),
+        )?;
+        let material =
+            load_cloudflare_signing_worker_registration_active_material_v1(env, &lookup).await?;
+        let application_binding_digest = decode_b64::<32>(
+            "ECDSA registration source application binding digest",
+            &source_derivation.application_binding_digest_b64u,
+        )?;
+        let context = RouterAbEcdsaDerivationStableKeyContext::new(application_binding_digest);
+        let (relayer_share, public_identity) = derive_relayer_share_for_client_public(
+            &context,
+            *material.output_material.as_bytes(),
+            source_client_public_key33,
+            source_derivation.client_share_retry_counter,
+        )
+        .map_err(|error| {
+            map_protocol_error("ECDSA registration source share derivation failed", error)
+        })?;
+        if b64(&public_identity.context_binding32) != source_activation.key_binding {
+            return Err(invalid(
+                "ECDSA registration source context binding is inconsistent",
+            ));
+        }
+        if !ct_eq(
+            &public_identity.relayer_public_key33,
+            source_relayer_public_key33,
+        ) {
+            return Err(invalid(
+                "ECDSA registration source relayer public key is inconsistent",
+            ));
+        }
+        Ok(Zeroizing::new(relayer_share.x_relayer32))
+    }
+
     fn committed_artifacts(
         record: &CloudflareSigningWorkerLaneMaterialRecordV1,
     ) -> RouterAbProtocolResult<(
@@ -812,50 +857,26 @@ mod worker_execution {
                 material.share32()?
             }
             CloudflareEcdsaLaneSourceMaterialLookupV1::RegistrationActivation {
-                lookup,
+                lookup: _,
                 source_derivation,
             } => {
-                let material =
-                    load_cloudflare_signing_worker_registration_active_material_v1(env, lookup)
-                        .await?;
-                let application_binding_digest = decode_b64::<32>(
-                    "ECDSA registration source application binding digest",
-                    &source_derivation.application_binding_digest_b64u,
-                )?;
                 let source_client_public = decode_public33(
                     "ECDSA source holder verifying share",
                     &job.source_holder_verifying_share33_b64u,
                 )?;
-                let context =
-                    RouterAbEcdsaDerivationStableKeyContext::new(application_binding_digest);
-                let (relayer_share, public_identity) = derive_relayer_share_for_client_public(
-                    &context,
-                    *material.output_material.as_bytes(),
+                let source_relayer_public = decode_public33(
+                    "ECDSA source server verifying share",
+                    &job.source_server_verifying_share33_b64u,
+                )?;
+                let relayer_share = derive_registration_source_relayer_share_v1(
+                    env,
+                    job.source.material_activation(),
+                    source_derivation,
                     &source_client_public,
-                    source_derivation.client_share_retry_counter,
+                    &source_relayer_public,
                 )
-                .map_err(|error| {
-                    map_protocol_error("ECDSA registration source share derivation failed", error)
-                })?;
-                if b64(&public_identity.context_binding32)
-                    != job.source.material_activation().key_binding
-                {
-                    return Err(invalid(
-                        "ECDSA registration source context binding is inconsistent",
-                    ));
-                }
-                if !ct_eq(
-                    &public_identity.relayer_public_key33,
-                    &decode_public33(
-                        "ECDSA source server verifying share",
-                        &job.source_server_verifying_share33_b64u,
-                    )?,
-                ) {
-                    return Err(invalid(
-                        "ECDSA registration source relayer public key is inconsistent",
-                    ));
-                }
-                relayer_share.x_relayer32
+                .await?;
+                *relayer_share
             }
         };
         Ok(Zeroizing::new(share))

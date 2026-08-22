@@ -71,6 +71,16 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Err(err) => cloudflare_protocol_error_response_v1(err),
             }
         }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH => {
+            match handle_cloudflare_signing_worker_ecdsa_reserve_inactive_source_preserving_v1(
+                request, &env,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(err) => cloudflare_protocol_error_response_v1(err),
+            }
+        }
         CLOUDFLARE_SIGNING_WORKER_ECDSA_ACTIVATE_RESERVATION_PATH => {
             match handle_cloudflare_signing_worker_ecdsa_activate_reservation_v1(
                 request, &env, &runtime,
