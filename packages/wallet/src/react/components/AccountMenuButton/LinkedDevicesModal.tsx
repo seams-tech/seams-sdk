@@ -36,8 +36,8 @@ type NumberedWalletDevice = {
 
 type RevokeState =
   | { kind: 'idle' }
-  | { kind: 'confirming'; deviceId: string }
-  | { kind: 'working'; deviceId: string }
+  | { kind: 'confirming'; walletAuthMethodId: string }
+  | { kind: 'working'; walletAuthMethodId: string }
   | { kind: 'error'; message: string };
 
 function viewCreatedAtMs(view: WalletDeviceView): number {
@@ -84,8 +84,7 @@ function visibleWalletDevices(
   return views
     .sort(
       (left, right) =>
-        viewCreatedAtMs(left) - viewCreatedAtMs(right) ||
-        viewId(left).localeCompare(viewId(right)),
+        viewCreatedAtMs(left) - viewCreatedAtMs(right) || viewId(left).localeCompare(viewId(right)),
     )
     .map((view, index) => ({ view, deviceNumber: index + 1 }))
     .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked');
@@ -281,19 +280,18 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   const revokeDevice = React.useCallback(
     async (device: LinkedDeviceSummaryV1, deviceNumber: number) => {
       if (!walletId) return;
-      const deviceId = String(device.deviceId);
+      const walletAuthMethodId = String(device.credential.walletAuthMethodId);
       const description = deviceDescription({ kind: 'linked', device }, deviceNumber);
-      setRevokeState({ kind: 'working', deviceId });
+      setRevokeState({ kind: 'working', walletAuthMethodId });
       setAnnouncement(`Removing ${description}…`);
       try {
         const result = await seams.devices.revokeLinkedDevice({
           walletId,
-          deviceId,
+          walletAuthMethodId,
           requestedAtMs: Date.now(),
         });
         switch (result.kind) {
           case 'revoked':
-          case 'replayed':
             setRevokeState({ kind: 'idle' });
             setAnnouncement(`${description} can no longer use this wallet.`);
             await loadDevices();
@@ -392,14 +390,15 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                 {devices.map(({ view, deviceNumber }) => {
                   const cardId = viewId(view);
                   const displayId = viewDisplayId(view);
-                  const secondaryDescription = credentialSecondaryDescription(
-                    viewCredential(view),
-                  );
+                  const secondaryDescription = credentialSecondaryDescription(viewCredential(view));
                   const standing = deviceStanding(view);
+                  const walletAuthMethodId = String(viewCredential(view).walletAuthMethodId);
                   const confirming =
-                    revokeState.kind === 'confirming' && revokeState.deviceId === cardId;
+                    revokeState.kind === 'confirming' &&
+                    revokeState.walletAuthMethodId === walletAuthMethodId;
                   const working =
-                    revokeState.kind === 'working' && revokeState.deviceId === cardId;
+                    revokeState.kind === 'working' &&
+                    revokeState.walletAuthMethodId === walletAuthMethodId;
                   const fullIdShown = expandedDeviceId === cardId;
                   return (
                     <li key={cardId} className="w3a-linked-devices-modal-item">
@@ -463,7 +462,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                           className="w3a-linked-devices-modal-secondary"
                           disabled={working}
                           aria-label={`Remove ${deviceDescription(view, deviceNumber)}`}
-                          onClick={() => setRevokeState({ kind: 'confirming', deviceId: cardId })}
+                          onClick={() => setRevokeState({ kind: 'confirming', walletAuthMethodId })}
                         >
                           {working ? 'Removing…' : 'Remove'}
                         </button>

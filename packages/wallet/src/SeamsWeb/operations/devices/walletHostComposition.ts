@@ -86,17 +86,17 @@ function createWalletHostLinkedDeviceManagementPortV1(args: {
       assertManagementSuccess(response, 'list linked devices');
       return parseLinkedDeviceListResultV1(stripOkField(response.body));
     },
-    revokeLinkedDevice: async ({ walletId, deviceId, requestedAtMs }) => {
+    revokeLinkedDevice: async ({ walletId, walletAuthMethodId, requestedAtMs }) => {
       const request = parseLinkedDeviceRevokeRequestV1({
         kind: 'linked_device_revoke_request_v1',
         walletId,
-        deviceId,
+        walletAuthMethodId,
         requestedAtMs,
       });
       const response = await args.request.request({
         method: 'POST',
         canonicalPath: `${LINKED_DEVICE_MANAGEMENT_HTTP_BASE_PATH_V1}/${encodeURIComponent(
-          String(deviceId),
+          String(walletAuthMethodId),
         )}/revoke`,
         body: request,
         walletId,

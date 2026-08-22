@@ -2,8 +2,12 @@ import { DeviceLinkingDomain } from '@/SeamsWeb/operations/devices/linkDevice';
 import type { DeviceLinkingFlowPortsV1 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { DeviceLinkingWebContext, DevicesCapability } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
-import { parseLinkedDeviceId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
-import type { LinkedDeviceId } from '@shared/signing-lanes/ids';
+import {
+  parseWalletAuthMethodId,
+  parseWalletId,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import type { LinkedDeviceListResultV1, LinkedDeviceRevokeResultV1 } from '@shared/device-linking';
 import {
   parseLinkedDeviceListRequestV1,
@@ -36,7 +40,7 @@ export type LinkedDeviceManagementPortV1 = {
   }): Promise<LinkedDeviceListResultV1>;
   revokeLinkedDevice(input: {
     readonly walletId: WalletId;
-    readonly deviceId: LinkedDeviceId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceRevokeResultV1>;
 };
@@ -60,11 +64,11 @@ export function createWalletIframeLinkedDeviceManagementPortV1(deps: {
       const router = await deps.walletIframe.requireRouter(walletId);
       return await router.listLinkedDevices({ walletId: String(walletId), limit, cursor });
     },
-    revokeLinkedDevice: async ({ walletId, deviceId, requestedAtMs }) => {
+    revokeLinkedDevice: async ({ walletId, walletAuthMethodId, requestedAtMs }) => {
       const router = await deps.walletIframe.requireRouter(walletId);
       return await router.revokeLinkedDevice({
         walletId: String(walletId),
-        deviceId: String(deviceId),
+        walletAuthMethodId: String(walletAuthMethodId),
         requestedAtMs,
       });
     },
@@ -112,12 +116,12 @@ export function createDevicesCapability(deps: {
       const request = parseLinkedDeviceRevokeRequestV1({
         kind: 'linked_device_revoke_request_v1',
         walletId: parseWalletIdForPublicCall(args.walletId),
-        deviceId: parseLinkedDeviceIdForPublicCall(args.deviceId),
+        walletAuthMethodId: parseWalletAuthMethodIdForPublicCall(args.walletAuthMethodId),
         requestedAtMs: args.requestedAtMs,
       });
       const rawResult = await deps.domain.linkedDeviceManagement.revokeLinkedDevice({
         walletId: request.walletId,
-        deviceId: request.deviceId,
+        walletAuthMethodId: request.walletAuthMethodId,
         requestedAtMs: request.requestedAtMs,
       });
       const result = parseLinkedDeviceRevokeResultV1(rawResult);
@@ -132,8 +136,8 @@ function parseWalletIdForPublicCall(raw: string): WalletId {
   return result.value;
 }
 
-function parseLinkedDeviceIdForPublicCall(raw: string): LinkedDeviceId {
-  const result = parseLinkedDeviceId(raw);
+function parseWalletAuthMethodIdForPublicCall(raw: string): WalletAuthMethodId {
+  const result = parseWalletAuthMethodId(raw);
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
 }
