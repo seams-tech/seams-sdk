@@ -1757,7 +1757,7 @@ class D1WalletExecutionLaneProjectionSource implements WalletExecutionLaneProjec
   async listWalletAuthMethods(
     input: Parameters<WalletExecutionLaneProjectionSource['listWalletAuthMethods']>[0],
   ) {
-    return await this.walletAuthMethodStore.listForWallet({ walletId: input.walletId });
+    return await this.walletAuthMethodStore.listForWalletV2({ walletId: input.walletId });
   }
 
   async listWalletSigners(

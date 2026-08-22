@@ -5,14 +5,18 @@ import {
   resolveWalletAuthMethodIdForAuthority,
   type WalletExecutionLaneProjectionSource,
 } from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
-import { normalizeWalletAuthMethod } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import type { WalletSignerRecord } from '../../packages/wallet-server/src/core/WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseProviderSubject, parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
+import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import {
+  parseProviderSubject,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
@@ -35,8 +39,10 @@ const walletId = resultValue(parseWalletId('wallet:r101-projection'));
 const now = 1_900_000_000_000;
 
 function passkeyAuthMethod(status: 'active' | 'revoked' = 'active', methodWalletId = walletId) {
-  const record = normalizeWalletAuthMethod({
-    version: 'wallet_auth_method_v1',
+  return buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: resultValue(parseWalletAuthMethodId('wallet-auth-method:r101-projection')),
+    walletAuthorityId: resultValue(parseWalletAuthorityId('wallet-authority:r101-projection')),
     kind: 'passkey',
     status,
     walletId: methodWalletId,
@@ -46,9 +52,9 @@ function passkeyAuthMethod(status: 'active' | 'revoked' = 'active', methodWallet
     counter: 0,
     createdAtMs: now,
     updatedAtMs: now,
+    activatedAtMs: now,
+    ...(status === 'revoked' ? { revokedAtMs: now + 1 } : {}),
   });
-  if (!record) throw new Error('passkey auth fixture is invalid');
-  return record;
 }
 
 function source(input: {
@@ -71,7 +77,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     const result = await resolveActiveOwnerWalletExecutionLane({
       source: source({ authMethods: [authMethod], signers: [signer] }),
       walletId,
-      walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+      walletAuthMethodId: authMethod.walletAuthMethodId,
       expectedMaterialActivation: materialActivation,
     });
 
@@ -84,7 +90,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     });
     expect(result.projection.lane).toMatchObject({
       laneKind: 'owner_passkey',
-      walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+      walletAuthMethodId: authMethod.walletAuthMethodId,
       lifecycle: { state: 'active', revocationEpoch: 0 },
       ownerParticipantContinuity: {
         signerId: `ecdsa-key:${signer.walletKey.keyHandle}`,
@@ -112,7 +118,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     );
     const projection = await projectActiveOwnerWalletExecutionLane({
       walletId,
-      walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+      walletAuthMethodId: authMethod.walletAuthMethodId,
       authMethod,
       signers: [signer, secondChain],
       expectedMaterialActivation: materialActivation,
@@ -129,7 +135,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     await expect(
       projectActiveOwnerWalletExecutionLane({
         walletId,
-        walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+        walletAuthMethodId: authMethod.walletAuthMethodId,
         authMethod,
         signers: [signer, conflict],
         expectedMaterialActivation: materialActivation,
@@ -169,7 +175,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     const result = await resolveActiveOwnerWalletExecutionLane({
       source: source({ authMethods: [authMethod], signers: [signer] }),
       walletId: edWalletId,
-      walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+      walletAuthMethodId: authMethod.walletAuthMethodId,
       expectedMaterialActivation: materialActivation,
     });
 
@@ -201,7 +207,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     const revokedResult = await resolveActiveOwnerWalletExecutionLane({
       source: source({ authMethods: [revoked], signers: [signer] }),
       walletId,
-      walletAuthMethodId: walletAuthMethodRecordId(revoked),
+      walletAuthMethodId: revoked.walletAuthMethodId,
       expectedMaterialActivation: materialActivation,
     });
     expect(revokedResult).toEqual({ kind: 'refused', reason: 'auth_method_inactive' });
@@ -209,7 +215,7 @@ test.describe('R101 owner wallet execution lane projection', () => {
     const missingResult = await resolveActiveOwnerWalletExecutionLane({
       source: source({ authMethods: [passkeyAuthMethod()], signers: [] }),
       walletId,
-      walletAuthMethodId: walletAuthMethodRecordId(passkeyAuthMethod()),
+      walletAuthMethodId: passkeyAuthMethod().walletAuthMethodId,
       expectedMaterialActivation: materialActivation,
     });
     expect(missingResult).toEqual({ kind: 'refused', reason: 'signer_missing' });
@@ -225,14 +231,19 @@ test.describe('R101 owner wallet execution lane projection', () => {
     });
     const passkeyId = await resolveWalletAuthMethodIdForAuthority({
       walletId,
-      authorityRef: await walletAuthAuthorityRef({ authority: passkeyAuthority }),
+      authorityRef: {
+        ...(await walletAuthAuthorityRef({ authority: passkeyAuthority })),
+        walletAuthMethodId: passkey.walletAuthMethodId,
+      },
       authSource: { kind: 'passkey', credentialIdB64u: passkey.credentialIdB64u },
       authMethods: [passkey],
     });
-    expect(passkeyId).toBe(walletAuthMethodRecordId(passkey));
+    expect(passkeyId).toBe(passkey.walletAuthMethodId);
 
-    const email = normalizeWalletAuthMethod({
-      version: 'wallet_auth_method_v1',
+    const email = buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: resultValue(parseWalletAuthMethodId('wallet-auth-method:r101-email')),
+      walletAuthorityId: resultValue(parseWalletAuthorityId('wallet-authority:r101-projection')),
       kind: 'email_otp',
       status: 'active',
       walletId,
@@ -240,8 +251,9 @@ test.describe('R101 owner wallet execution lane projection', () => {
       registrationAuthorityId: 'registration-authority-r101',
       createdAtMs: now,
       updatedAtMs: now,
+      activatedAtMs: now,
     });
-    if (!email || email.kind !== 'email_otp') throw new Error('Email OTP fixture is invalid');
+    if (email.kind !== 'email_otp') throw new Error('Email OTP fixture is invalid');
     const emailAuthority = buildEmailOtpWalletAuthAuthority({
       walletId,
       provider: 'google',
@@ -251,7 +263,10 @@ test.describe('R101 owner wallet execution lane projection', () => {
     const providerSubject = resultValue(parseProviderSubject('google:provider-user-r101'));
     const emailId = await resolveWalletAuthMethodIdForAuthority({
       walletId,
-      authorityRef: await walletAuthAuthorityRef({ authority: emailAuthority }),
+      authorityRef: {
+        ...(await walletAuthAuthorityRef({ authority: emailAuthority })),
+        walletAuthMethodId: email.walletAuthMethodId,
+      },
       authSource: {
         kind: 'oidc_provider',
         providerId: 'google_oidc',
@@ -259,6 +274,6 @@ test.describe('R101 owner wallet execution lane projection', () => {
       },
       authMethods: [email],
     });
-    expect(emailId).toBe(walletAuthMethodRecordId(email));
+    expect(emailId).toBe(email.walletAuthMethodId);
   });
 });

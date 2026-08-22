@@ -285,7 +285,10 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
     binding.walletSessionId !== resolved.authorization.walletSessionId ||
     binding.authorizationId !== resolved.authorization.authorizationId ||
     binding.quotaId !== resolved.authorization.quotaId ||
-    binding.thresholdExpiresAtMs !== resolved.authorization.expiresAtMs
+    binding.thresholdExpiresAtMs !== resolved.authorization.expiresAtMs ||
+    resolved.authorization.walletAuthMethodId === null ||
+    binding.walletAuthAuthorityRef.walletAuthMethodId !==
+      resolved.authorization.walletAuthMethodId
   ) {
     return walletSessionFailure('wallet_session_scope_mismatch');
   }
