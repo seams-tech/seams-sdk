@@ -45,10 +45,6 @@ import type { WalletAuthoritySignerMaterialRecordV1 } from '@/core/indexedDB';
 import initEd25519YaoClient, {
   WasmOrdinaryEd25519ActivationClientMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
-import initEcdsaClient, {
-  RouterAbEcdsaClientCeremonyV1,
-  type WasmOrdinaryEcdsaClientMaterialV1,
-} from '../../../../../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import {
   assertOrdinaryExportRootResealingMatchesCommittedV1,
@@ -188,11 +184,6 @@ const laneRecipientWasmUrl = resolveWasmUrl(
   'Ed25519 Yao Client',
 );
 let laneRecipientInitPromise: Promise<void> | null = null;
-const ordinaryEcdsaWasmUrl = resolveWasmUrl(
-  'router_ab_ecdsa_client_bg.wasm',
-  'ECDSA derivation client',
-);
-let ordinaryEcdsaInitPromise: Promise<void> | null = null;
 const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer');
 let nearSignerInitPromise: Promise<void> | null = null;
 
@@ -209,19 +200,6 @@ async function initializeLaneRecipientWasm(): Promise<void> {
     );
   }
   return await laneRecipientInitPromise;
-}
-
-async function initializeOrdinaryEcdsaWasm(): Promise<void> {
-  if (!ordinaryEcdsaInitPromise) {
-    ordinaryEcdsaInitPromise = initEcdsaClient({ module_or_path: ordinaryEcdsaWasmUrl }).then(
-      () => undefined,
-      (error: unknown) => {
-        ordinaryEcdsaInitPromise = null;
-        throw error;
-      },
-    );
-  }
-  return await ordinaryEcdsaInitPromise;
 }
 
 async function initializeNearSignerWasm(): Promise<void> {
@@ -319,14 +297,12 @@ function ordinarySignerPackageForPreparation(
   committed: CommittedAuthorityPackagesV1,
   preparation: DeviceLinkingOrdinarySignerMaterialReservationPreparationV1,
 ): OrdinarySignerPackageForWorkerV1 {
-  if (preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
+  if ('kind' in preparation) {
     if (!committed.signerPackages.ed25519) {
       throw new Error('ordinary Ed25519 signer package is missing');
     }
     const packageValue = committed.signerPackages.ed25519;
-    const activation = routerAbMpcMaterialActivationRefFromWire(
-      preparation.activationRequest.binding.material_activation,
-    );
+    const activation = preparation.targetMaterialActivation;
     if (!mpcMaterialActivationRefsEqual(activation, packageValue.materialActivation)) {
       throw new Error('ordinary Ed25519 signer package activation reference changed');
     }
@@ -341,7 +317,9 @@ function ordinarySignerPackageForPreparation(
   if (!committed.signerPackages.ecdsa) {
     throw new Error('ordinary ECDSA signer package is missing');
   }
-  return { keyFamily: 'ecdsa_secp256k1', package: committed.signerPackages.ecdsa };
+  const packageValue = committed.signerPackages.ecdsa;
+  assertEcdsaPreparationMatchesPackage(preparation, packageValue);
+  return { keyFamily: 'ecdsa_secp256k1', package: packageValue };
 }
 
 function ordinaryRecipientInputForPreparation(
@@ -353,7 +331,7 @@ function ordinaryRecipientInputForPreparation(
   const input = inputs[index];
   if (!input) throw new Error('ordinary signer material recipient input is missing');
   const expectedKind =
-    preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
+    'kind' in preparation
       ? 'ordinary_ed25519_signer_material_recipient_input_v1'
       : 'ordinary_ecdsa_signer_material_recipient_input_v1';
   if (input.kind !== expectedKind) {
@@ -368,7 +346,7 @@ async function openOrdinarySignerMaterial(input: {
   readonly recipientInput: DeviceLinkingOrdinarySignerMaterialRecipientInputV1;
 }): Promise<Uint8Array> {
   if (
-    input.preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1' &&
+    'kind' in input.preparation &&
     input.packageValue.keyFamily === 'ed25519' &&
     input.recipientInput.kind === 'ordinary_ed25519_signer_material_recipient_input_v1'
   ) {
@@ -377,11 +355,11 @@ async function openOrdinarySignerMaterial(input: {
     let material: WasmOrdinaryEd25519ActivationClientMaterialV1 | null = null;
     try {
       material = new WasmOrdinaryEd25519ActivationClientMaterialV1(
-        JSON.stringify(input.preparation.activationRequest),
+        JSON.stringify(input.preparation.targetRequest),
         JSON.stringify(input.packageValue.package.deriver_a_client_package),
         JSON.stringify(input.packageValue.package.deriver_b_client_package),
         recipientPrivateKey,
-        JSON.stringify(input.packageValue.package.participantIds),
+        JSON.stringify(input.preparation.participantIds),
         JSON.stringify(
           parseRouterAbEd25519YaoActivationPublicReceiptV1(
             input.packageValue.package.activationReceipt,
@@ -396,37 +374,284 @@ async function openOrdinarySignerMaterial(input: {
     }
   }
   if (
-    input.preparation.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1' &&
+    !('kind' in input.preparation) &&
     input.packageValue.keyFamily === 'ecdsa_secp256k1' &&
     input.recipientInput.kind === 'ordinary_ecdsa_signer_material_recipient_input_v1'
   ) {
-    await initializeOrdinaryEcdsaWasm();
     const recipientPrivateKey = new Uint8Array(input.recipientInput.clientEphemeralPrivateKey);
-    let ceremony: RouterAbEcdsaClientCeremonyV1 | null = null;
-    let material: WasmOrdinaryEcdsaClientMaterialV1 | null = null;
     try {
-      ceremony = RouterAbEcdsaClientCeremonyV1.fromRecipientPrivateKey(recipientPrivateKey);
-      material = ceremony.open_committed_role_envelopes(
-        JSON.stringify({
-          registrationRequest: input.preparation.registrationRequest,
-          materialActivationId: input.packageValue.package.materialActivation.activationId,
-          deriverAClientPackage: input.packageValue.package.deriver_a_client_package,
-          deriverBClientPackage: input.packageValue.package.deriver_b_client_package,
-        }),
-      );
-      if (material.activation_id() !== input.packageValue.package.materialActivation.activationId) {
-        throw new Error('ECDSA ordinary signer material activation id changed');
-      }
-      return new Uint8Array(material.take_client_material());
+      return await openLinkedDeviceEcdsaTargetClientShare({
+        envelope: input.packageValue.package.encryptedTargetClientShare,
+        recipientPrivateKey,
+      });
     } finally {
       recipientPrivateKey.fill(0);
-      material?.destroy();
-      material?.free();
-      ceremony?.close();
-      ceremony?.free();
     }
   }
   throw new Error('ordinary signer material preparation and package family differ');
+}
+
+function assertEcdsaPreparationMatchesPackage(
+  preparation: Exclude<
+    DeviceLinkingOrdinarySignerMaterialReservationPreparationV1,
+    { readonly kind: string }
+  >,
+  packageValue: CommittedEcdsaSignerPackageV1,
+): void {
+  const binding = packageValue.activationReceipt.binding;
+  if (
+    preparation.linkSessionId !== binding.linkSessionId ||
+    preparation.enrollmentId !== binding.enrollmentId ||
+    preparation.sourceAuthorityId !== binding.sourceAuthorityId ||
+    !sameEcdsaSourceSignerIdentity(preparation.source, binding.source) ||
+    !sameEcdsaTargetRecipientPreparation(preparation.target, binding.target) ||
+    !mpcMaterialActivationRefsEqual(preparation.target.activation, packageValue.materialActivation) ||
+    packageValue.encryptedTargetClientShare.recipientPublicKeyB64u !==
+      preparation.target.clientRecipientPublicKeyB64u
+  ) {
+    throw new Error('ordinary ECDSA signer package differs from its source preparation');
+  }
+}
+
+function sameEcdsaSourceSignerIdentity(
+  left: Exclude<
+    DeviceLinkingOrdinarySignerMaterialReservationPreparationV1,
+    { readonly kind: string }
+  >['source'],
+  right: CommittedEcdsaSignerPackageV1['activationReceipt']['binding']['source'],
+): boolean {
+  return (
+    mpcMaterialActivationRefsEqual(left.activation, right.activation) &&
+    left.clientPublicKey33B64u === right.clientPublicKey33B64u &&
+    left.relayerPublicKey33B64u === right.relayerPublicKey33B64u &&
+    left.thresholdPublicKey33B64u === right.thresholdPublicKey33B64u &&
+    left.thresholdEthereumAddress20B64u === right.thresholdEthereumAddress20B64u
+  );
+}
+
+function sameEcdsaTargetRecipientPreparation(
+  left: Exclude<
+    DeviceLinkingOrdinarySignerMaterialReservationPreparationV1,
+    { readonly kind: string }
+  >['target'],
+  right: CommittedEcdsaSignerPackageV1['activationReceipt']['binding']['target'],
+): boolean {
+  return (
+    mpcMaterialActivationRefsEqual(left.activation, right.activation) &&
+    String(left.targetDeviceId) === String(right.targetDeviceId) &&
+    left.targetFactorVerificationDigestB64u === right.targetFactorVerificationDigestB64u &&
+    left.clientRecipientPublicKeyB64u === right.clientRecipientPublicKeyB64u &&
+    left.signingWorkerRecipientPublicKeyB64u === right.signingWorkerRecipientPublicKeyB64u
+  );
+}
+
+const LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_HPKE_INFO_V1 =
+  new TextEncoder().encode(
+    'seams/linked-device/ecdsa-source-contribution/hpke-x25519-hkdf-sha256-aes256gcm/v1',
+  );
+const HPKE_VERSION_V1 = new TextEncoder().encode('HPKE-v1');
+const HPKE_KEM_SUITE_ID_V1 = concatBytes(new TextEncoder().encode('KEM'), uint16Bytes(0x0020));
+const HPKE_SUITE_ID_V1 = concatBytes(
+  new TextEncoder().encode('HPKE'),
+  uint16Bytes(0x0020),
+  uint16Bytes(0x0001),
+  uint16Bytes(0x0002),
+);
+
+async function openLinkedDeviceEcdsaTargetClientShare(input: {
+  readonly envelope: CommittedEcdsaSignerPackageV1['encryptedTargetClientShare'];
+  readonly recipientPrivateKey: Uint8Array;
+}): Promise<Uint8Array> {
+  if (input.recipientPrivateKey.length !== 32) {
+    throw new Error('ECDSA client recipient private key must be 32 bytes');
+  }
+  const encappedKey = base64UrlDecode(input.envelope.encappedKeyB64u);
+  const recipientPublicKey = base64UrlDecode(input.envelope.recipientPublicKeyB64u);
+  const bindingDigest = base64UrlDecode(input.envelope.bindingDigestB64u);
+  const ciphertext = base64UrlDecode(input.envelope.ciphertextB64u);
+  let privatePkcs8: Uint8Array | null = null;
+  let sharedSecret: Uint8Array | null = null;
+  let kemSharedSecret: Uint8Array | null = null;
+  let secret: Uint8Array | null = null;
+  let key: CryptoKey | null = null;
+  try {
+    privatePkcs8 = x25519PrivateKeyPkcs8(input.recipientPrivateKey);
+    const privateKey = await globalThis.crypto.subtle.importKey(
+      'pkcs8',
+      privatePkcs8,
+      { name: 'X25519' },
+      false,
+      ['deriveBits'],
+    );
+    const encappedPublicKey = await globalThis.crypto.subtle.importKey(
+      'raw',
+      encappedKey,
+      { name: 'X25519' },
+      false,
+      [],
+    );
+    sharedSecret = new Uint8Array(
+      await globalThis.crypto.subtle.deriveBits(
+        { name: 'X25519', public: encappedPublicKey },
+        privateKey,
+        256,
+      ),
+    );
+    const kemContext = concatBytes(encappedKey, recipientPublicKey);
+    const eaePrk = await hpkeLabeledExtract(
+      HPKE_KEM_SUITE_ID_V1,
+      'eae_prk',
+      sharedSecret,
+    );
+    kemSharedSecret = await hpkeLabeledExpand(
+      HPKE_KEM_SUITE_ID_V1,
+      eaePrk,
+      'shared_secret',
+      kemContext,
+      32,
+    );
+    const pskIdHash = await hpkeLabeledExtract(HPKE_SUITE_ID_V1, 'psk_id_hash', new Uint8Array(0));
+    const infoHash = await hpkeLabeledExtract(
+      HPKE_SUITE_ID_V1,
+      'info_hash',
+      LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_HPKE_INFO_V1,
+    );
+    const keyScheduleContext = concatBytes(new Uint8Array([0]), pskIdHash, infoHash);
+    secret = await hpkeLabeledExtract(
+      HPKE_SUITE_ID_V1,
+      'secret',
+      new Uint8Array(0),
+      kemSharedSecret,
+    );
+    const encryptionKey = await hpkeLabeledExpand(
+      HPKE_SUITE_ID_V1,
+      secret,
+      'key',
+      keyScheduleContext,
+      32,
+    );
+    const baseNonce = await hpkeLabeledExpand(
+      HPKE_SUITE_ID_V1,
+      secret,
+      'base_nonce',
+      keyScheduleContext,
+      12,
+    );
+    key = await globalThis.crypto.subtle.importKey(
+      'raw',
+      encryptionKey,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt'],
+    );
+    const plaintext = new Uint8Array(
+      await globalThis.crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: baseNonce, additionalData: bindingDigest, tagLength: 128 },
+        key,
+        ciphertext,
+      ),
+    );
+    if (plaintext.length !== 32) {
+      plaintext.fill(0);
+      throw new Error('ECDSA target client share must be 32 bytes');
+    }
+    return plaintext;
+  } finally {
+    encappedKey.fill(0);
+    recipientPublicKey.fill(0);
+    bindingDigest.fill(0);
+    ciphertext.fill(0);
+    privatePkcs8?.fill(0);
+    sharedSecret?.fill(0);
+    kemSharedSecret?.fill(0);
+    secret?.fill(0);
+  }
+}
+
+async function hpkeLabeledExtract(
+  suiteId: Uint8Array,
+  label: string,
+  input: Uint8Array,
+  salt: Uint8Array = new Uint8Array(0),
+): Promise<Uint8Array> {
+  return await hmacSha256(
+    salt.length === 0 ? new Uint8Array(32) : salt,
+    concatBytes(HPKE_VERSION_V1, suiteId, new TextEncoder().encode(label), input),
+  );
+}
+
+async function hpkeLabeledExpand(
+  suiteId: Uint8Array,
+  prk: Uint8Array,
+  label: string,
+  info: Uint8Array,
+  length: number,
+): Promise<Uint8Array> {
+  const labeledInfo = concatBytes(
+    uint16Bytes(length),
+    HPKE_VERSION_V1,
+    suiteId,
+    new TextEncoder().encode(label),
+    info,
+  );
+  return await hkdfExpand(prk, labeledInfo, length);
+}
+
+async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
+  const output = new Uint8Array(length);
+  let previous = new Uint8Array(0);
+  try {
+    for (let counter = 1, offset = 0; offset < length; counter += 1) {
+      const block = await hmacSha256(prk, concatBytes(previous, info, new Uint8Array([counter])));
+      const copied = Math.min(block.length, length - offset);
+      output.set(block.subarray(0, copied), offset);
+      offset += copied;
+      previous.fill(0);
+      previous = block;
+    }
+    return output;
+  } catch (error) {
+    output.fill(0);
+    throw error;
+  } finally {
+    previous.fill(0);
+  }
+}
+
+async function hmacSha256(keyBytes: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, data));
+}
+
+function x25519PrivateKeyPkcs8(privateKey: Uint8Array): Uint8Array {
+  return concatBytes(
+    Uint8Array.from([
+      0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04,
+      0x20,
+    ]),
+    privateKey,
+  );
+}
+
+function uint16Bytes(value: number): Uint8Array {
+  return new Uint8Array([(value >>> 8) & 0xff, value & 0xff]);
+}
+
+function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
+  const total = parts.reduce((length, part) => length + part.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
 }
 
 async function sealOrdinaryWorkerMaterial(input: {
@@ -1297,31 +1522,19 @@ function assertOrdinaryMaterialCommitMatchesPreparation(input: {
   if (input.preparations.length !== input.committed.signerPackages.keyFamilies.length) {
     throw new Error('ordinary signer material family count changed before commit');
   }
-  for (const family of input.committed.signerPackages.keyFamilies) {
-    const preparation = input.preparations.find((entry) =>
-      family === 'ed25519'
-        ? entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
-        : entry.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
-    );
-    const packageValue =
-      family === 'ed25519'
-        ? input.committed.signerPackages.ed25519
-        : input.committed.signerPackages.ecdsa;
-    if (!preparation || !packageValue) {
+  for (let index = 0; index < input.committed.signerPackages.keyFamilies.length; index += 1) {
+    const family = input.committed.signerPackages.keyFamilies[index];
+    const preparation = input.preparations[index];
+    if (!preparation) {
       throw new Error(`ordinary signer material ${family} preparation is missing`);
     }
-    const activation =
-      preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
-        ? routerAbMpcMaterialActivationRefFromWire(
-            preparation.activationRequest.binding.material_activation,
-          )
-        : preparation.materialActivation;
-    if (!mpcMaterialActivationRefsEqual(activation, packageValue.materialActivation)) {
-      throw new Error(`ordinary signer material ${family} activation reference changed`);
-    }
-    if (preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
-      if (family !== 'ed25519' || !('participantIds' in packageValue)) {
+    if (family === 'ed25519') {
+      if (!('kind' in preparation) || !input.committed.signerPackages.ed25519) {
         throw new Error('ordinary Ed25519 signer material package family changed');
+      }
+      const packageValue = input.committed.signerPackages.ed25519;
+      if (!mpcMaterialActivationRefsEqual(preparation.targetMaterialActivation, packageValue.materialActivation)) {
+        throw new Error('ordinary Ed25519 signer material activation reference changed');
       }
       if (
         packageValue.participantIds[0] !== preparation.participantIds[0] ||
@@ -1338,7 +1551,15 @@ function assertOrdinaryMaterialCommitMatchesPreparation(input: {
       if (!mpcMaterialActivationRefsEqual(receiptActivation, packageValue.materialActivation)) {
         throw new Error('ordinary Ed25519 activation receipt reference changed');
       }
+      continue;
     }
+    if ('kind' in preparation || !input.committed.signerPackages.ecdsa) {
+      throw new Error('ordinary ECDSA signer material package family changed');
+    }
+    assertEcdsaPreparationMatchesPackage(
+      preparation,
+      input.committed.signerPackages.ecdsa,
+    );
   }
 }
 
