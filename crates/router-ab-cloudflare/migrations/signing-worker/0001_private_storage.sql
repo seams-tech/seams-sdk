@@ -6,6 +6,10 @@ CREATE TABLE signing_worker_activations (
     created_at_ms INTEGER NOT NULL
 );
 
+CREATE TABLE signing_worker_activation_revocation_fences (
+    active_key TEXT PRIMARY KEY
+);
+
 CREATE TABLE signing_worker_round1 (
     record_key TEXT PRIMARY KEY,
     record_json TEXT NOT NULL,

@@ -11,6 +11,7 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+  type RouterAbEd25519YaoActivationPublicReceiptV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type {
@@ -65,10 +66,37 @@ export function buildOrdinaryEcdsaSignerFixture(label: string): ExactAdministere
 }
 
 export function buildOrdinaryEd25519ClientMaterialFixture(label: string) {
+  const session = bytes(32, label.length + 9);
+  const transcript = bytes(32, label.length + 10);
   return {
     kind: 'ordinary_ed25519_client_material_v1' as const,
-    deriver_a_client_package: buildEd25519ClientPackage('deriver_a', label.length + 11),
-    deriver_b_client_package: buildEd25519ClientPackage('deriver_b', label.length + 17),
+    deriver_a_client_package: buildEd25519ClientPackage(
+      'deriver_a',
+      label.length + 11,
+      session,
+      transcript,
+    ),
+    deriver_b_client_package: buildEd25519ClientPackage(
+      'deriver_b',
+      label.length + 17,
+      session,
+      transcript,
+    ),
+  };
+}
+
+export function buildOrdinaryEd25519ActivationReceiptFixture(
+  label: string,
+  materialActivation: MpcMaterialActivationRef,
+): RouterAbEd25519YaoActivationPublicReceiptV1 {
+  return {
+    transcript: bytes(32, label.length + 10),
+    registered_public_key: bytes(32, label.length + 71),
+    joined_client_commitment: bytes(32, label.length + 72),
+    joined_signing_worker_commitment: bytes(32, label.length + 73),
+    signing_worker_verifying_share: bytes(32, label.length + 74),
+    state_epoch: 1,
+    material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
   };
 }
 
@@ -135,6 +163,7 @@ export function buildOrdinaryEd25519ReservationPreparationFixture(
   return {
     kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
     activationRequest: parsed.value,
+    participantIds: [1, 2],
   };
 }
 
@@ -225,12 +254,14 @@ function activationInput(
 function buildEd25519ClientPackage(
   deriver: 'deriver_a' | 'deriver_b',
   seed: number,
+  session: readonly number[],
+  transcript: readonly number[],
 ): RouterAbEd25519YaoActivationClientPackageV1<typeof deriver> {
   return {
     kind: 'activation_client',
     deriver,
-    session: bytes(32, seed),
-    transcript: bytes(32, seed + 1),
+    session,
+    transcript,
     encapsulated_key: bytes(32, seed + 2),
     ciphertext: bytes(32, seed + 3),
   };

@@ -139,6 +139,14 @@ enum EcdsaReservationStateV1 {
         reservation_id: String,
         client_packages: EcdsaClientPackagePairV1,
     },
+    Activating {
+        registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+        activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+        material_activation: MpcMaterialActivationRefV1,
+        reservation_id: String,
+        client_packages: EcdsaClientPackagePairV1,
+    },
     Active {
         registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
@@ -149,6 +157,13 @@ enum EcdsaReservationStateV1 {
         receipt: CloudflareSigningWorkerOutputActivationReceiptV1,
     },
     Revoked {
+        registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+        activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+        material_activation: MpcMaterialActivationRefV1,
+        reservation_id: String,
+        revoked_at_ms: u64,
+    },
+    Deactivating {
         registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
         material_activation: MpcMaterialActivationRefV1,
@@ -183,6 +198,14 @@ impl EcdsaReservationStateV1 {
                 reservation_id,
                 client_packages,
                 ..
+            }
+            | Self::Activating {
+                registration,
+                activation,
+                material,
+                material_activation,
+                reservation_id,
+                client_packages,
             } => (
                 registration,
                 activation,
@@ -192,6 +215,13 @@ impl EcdsaReservationStateV1 {
                 client_packages,
             ),
             Self::Revoked {
+                registration,
+                activation,
+                material_activation,
+                reservation_id,
+                revoked_at_ms,
+            }
+            | Self::Deactivating {
                 registration,
                 activation,
                 material_activation,
@@ -211,7 +241,7 @@ impl EcdsaReservationStateV1 {
                 require_reservation_id(reservation_id)?;
                 if *revoked_at_ms == 0 {
                     return Err(invalid_reservation(
-                        "revoked ECDSA reservation timestamp is invalid",
+                        "ECDSA reservation transition timestamp is invalid",
                     ));
                 }
                 return Ok(());
@@ -324,6 +354,24 @@ async fn reserve_ecdsa_inactive_v1(
             current.value.validate()?;
             match &current.value {
                 EcdsaReservationStateV1::Inactive {
+                    registration: stored_registration,
+                    activation: stored_activation,
+                    material_activation: stored_ref,
+                    reservation_id: stored_id,
+                    client_packages,
+                    ..
+                } if stored_registration == &request.registration
+                    && stored_activation == activation
+                    && stored_ref == &activation.material_activation
+                    && stored_id == &reservation_id =>
+                {
+                    return Ok((
+                        reservation_id,
+                        activation.material_activation.clone(),
+                        client_packages.clone(),
+                    ));
+                }
+                EcdsaReservationStateV1::Activating {
                     registration: stored_registration,
                     activation: stored_activation,
                     material_activation: stored_ref,
@@ -485,6 +533,7 @@ async fn activate_ecdsa_reservation_v1(
     request: &CloudflareEcdsaActivateReservationRequestV1,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerOutputActivationReceiptV1> {
     let record_key = reservation_record_key_v1(&request.material_activation)?;
+    let active_key = active_output_key_v1(&request.material_activation);
     for _ in 0..3 {
         let Some(current) = load_cloudflare_signing_worker_private_d1_secret_v1::<
             EcdsaReservationStateV1,
@@ -543,6 +592,46 @@ async fn activate_ecdsa_reservation_v1(
                         "ordinary ECDSA reservation activation conflicts with the exact reservation",
                     ));
                 }
+                let activating = EcdsaReservationStateV1::Activating {
+                    registration,
+                    activation,
+                    material,
+                    material_activation,
+                    reservation_id,
+                    client_packages,
+                };
+                match compare_and_set_cloudflare_signing_worker_private_d1_secret_v1(
+                    env,
+                    "ecdsa_inactive_reservations",
+                    &record_key,
+                    Some(current.version),
+                    &activating,
+                    cloudflare_now_unix_ms_v1()?,
+                )
+                .await
+                {
+                    Err(error) if error.code() == RouterAbProtocolErrorCode::ConflictingPair => {
+                        continue
+                    }
+                    Ok(()) => continue,
+                    Err(error) => return Err(error),
+                }
+            }
+            EcdsaReservationStateV1::Activating {
+                registration,
+                activation,
+                material,
+                material_activation,
+                reservation_id,
+                client_packages,
+            } => {
+                if reservation_id != request.reservation_id
+                    || material_activation != request.material_activation
+                {
+                    return Err(invalid_reservation(
+                        "ordinary ECDSA reservation activation conflicts with the exact reservation",
+                    ));
+                }
                 let receipt = activate_cloudflare_signing_worker_server_output_v1(
                     env,
                     runtime,
@@ -570,11 +659,79 @@ async fn activate_ecdsa_reservation_v1(
                 .await
                 {
                     Err(error) if error.code() == RouterAbProtocolErrorCode::ConflictingPair => {
-                        continue
+                        let Some(latest) = load_cloudflare_signing_worker_private_d1_secret_v1::<
+                            EcdsaReservationStateV1,
+                        >(
+                            env, "ecdsa_inactive_reservations", &record_key
+                        )
+                        .await?
+                        else {
+                            continue;
+                        };
+                        latest.value.validate()?;
+                        match latest.value {
+                            EcdsaReservationStateV1::Active {
+                                activation,
+                                material_activation,
+                                reservation_id,
+                                receipt,
+                                ..
+                            } if reservation_id == request.reservation_id
+                                && material_activation == request.material_activation
+                                && activation.material_activation
+                                    == request.material_activation =>
+                            {
+                                return Ok(receipt);
+                            }
+                            EcdsaReservationStateV1::Deactivating {
+                                material_activation,
+                                reservation_id,
+                                ..
+                            }
+                            | EcdsaReservationStateV1::Revoked {
+                                material_activation,
+                                reservation_id,
+                                ..
+                            } => {
+                                if reservation_id != request.reservation_id
+                                    || material_activation != request.material_activation
+                                {
+                                    return Err(invalid_reservation(
+                                        "ordinary ECDSA reservation activation conflicts with the exact reservation",
+                                    ));
+                                }
+                                delete_cloudflare_signing_worker_output_activation_by_active_key_v1(
+                                    env,
+                                    &active_key,
+                                    &request.material_activation,
+                                )
+                                .await?;
+                                return Err(invalid_reservation(
+                                    "ordinary ECDSA material reservation is revoked",
+                                ));
+                            }
+                            _ => continue,
+                        }
                     }
                     Ok(()) => return Ok(receipt),
                     Err(error) => return Err(error),
                 }
+            }
+            EcdsaReservationStateV1::Deactivating {
+                material_activation,
+                reservation_id,
+                ..
+            } => {
+                if reservation_id != request.reservation_id
+                    || material_activation != request.material_activation
+                {
+                    return Err(invalid_reservation(
+                        "ordinary ECDSA reservation activation conflicts with the exact reservation",
+                    ));
+                }
+                return Err(invalid_reservation(
+                    "ordinary ECDSA material reservation is being deactivated",
+                ));
             }
             EcdsaReservationStateV1::Revoked {
                 material_activation,
@@ -641,19 +798,12 @@ async fn deactivate_ecdsa_reservation_v1(
                 .await?;
                 (material_activation, revoked_at_ms)
             }
-            EcdsaReservationStateV1::Inactive {
+            EcdsaReservationStateV1::Deactivating {
                 registration,
                 activation,
                 material_activation,
                 reservation_id: stored_id,
-                ..
-            }
-            | EcdsaReservationStateV1::Active {
-                registration,
-                activation,
-                material_activation,
-                reservation_id: stored_id,
-                ..
+                revoked_at_ms,
             } => {
                 if stored_id != reservation_id || material_activation != request.material_activation
                 {
@@ -667,7 +817,6 @@ async fn deactivate_ecdsa_reservation_v1(
                     &request.material_activation,
                 )
                 .await?;
-                let revoked_at_ms = cloudflare_now_unix_ms_v1()?;
                 let revoked = EcdsaReservationStateV1::Revoked {
                     registration,
                     activation,
@@ -692,6 +841,58 @@ async fn deactivate_ecdsa_reservation_v1(
                     Err(error) => return Err(error),
                 }
             }
+            EcdsaReservationStateV1::Inactive {
+                registration,
+                activation,
+                material_activation,
+                reservation_id: stored_id,
+                ..
+            }
+            | EcdsaReservationStateV1::Activating {
+                registration,
+                activation,
+                material_activation,
+                reservation_id: stored_id,
+                ..
+            }
+            | EcdsaReservationStateV1::Active {
+                registration,
+                activation,
+                material_activation,
+                reservation_id: stored_id,
+                ..
+            } => {
+                if stored_id != reservation_id || material_activation != request.material_activation
+                {
+                    return Err(invalid_reservation(
+                        "ordinary ECDSA deactivation conflicts with the exact activation ref",
+                    ));
+                }
+                let revoked_at_ms = cloudflare_now_unix_ms_v1()?;
+                let deactivating = EcdsaReservationStateV1::Deactivating {
+                    registration,
+                    activation,
+                    material_activation: material_activation.clone(),
+                    reservation_id: reservation_id.clone(),
+                    revoked_at_ms,
+                };
+                match compare_and_set_cloudflare_signing_worker_private_d1_secret_v1(
+                    env,
+                    "ecdsa_inactive_reservations",
+                    &record_key,
+                    Some(current.version),
+                    &deactivating,
+                    revoked_at_ms,
+                )
+                .await
+                {
+                    Err(error) if error.code() == RouterAbProtocolErrorCode::ConflictingPair => {
+                        continue
+                    }
+                    Ok(()) => continue,
+                    Err(error) => return Err(error),
+                }
+            }
         };
         return Ok(CloudflareEcdsaReservationDeactivationResponseV1 {
             state: "revoked",
@@ -703,6 +904,51 @@ async fn deactivate_ecdsa_reservation_v1(
     Err(invalid_reservation(
         "ordinary ECDSA material deactivation changed concurrently",
     ))
+}
+
+pub(crate) async fn require_ecdsa_material_active_v1(
+    env: &Env,
+    material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<()> {
+    let record_key = reservation_record_key_v1(material_activation)?;
+    let Some(current) = load_cloudflare_signing_worker_private_d1_secret_v1::<
+        EcdsaReservationStateV1,
+    >(env, "ecdsa_inactive_reservations", &record_key)
+    .await?
+    else {
+        return Ok(());
+    };
+    current.value.validate()?;
+    match current.value {
+        EcdsaReservationStateV1::Active {
+            material_activation: stored_ref,
+            ..
+        } if stored_ref == *material_activation => Ok(()),
+        EcdsaReservationStateV1::Inactive {
+            material_activation: stored_ref,
+            ..
+        }
+        | EcdsaReservationStateV1::Activating {
+            material_activation: stored_ref,
+            ..
+        } if stored_ref == *material_activation => Err(invalid_reservation(
+            "ordinary ECDSA material reservation is not active",
+        )),
+        EcdsaReservationStateV1::Deactivating {
+            material_activation: stored_ref,
+            ..
+        }
+        | EcdsaReservationStateV1::Revoked {
+            material_activation: stored_ref,
+            ..
+        } if stored_ref == *material_activation => Err(invalid_reservation(
+            "ordinary ECDSA material reservation is revoked",
+        )),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ConflictingPair,
+            "ordinary ECDSA material activation identity conflicts with the reservation",
+        )),
+    }
 }
 
 fn reservation_record_key_v1(

@@ -494,7 +494,11 @@ pub fn complete_client_activation_v1(
     )
     .map_err(|_| ClientActivationError::InvalidRecipientPackage)?
     .into_bytes();
-    verify_public_relation(&client_scalar_share, state.participant_ids, result)?;
+    verify_public_relation(
+        &client_scalar_share,
+        state.participant_ids,
+        result.public_receipt(),
+    )?;
     if let ClientActivationContinuityV1::Preserve(expected) = state.continuity {
         if !bool::from(expected.ct_eq(&result.public_receipt().registered_public_key())) {
             return Err(ClientActivationError::PublicKeyContinuityMismatch);
@@ -507,16 +511,16 @@ pub fn complete_client_activation_v1(
     })
 }
 
-/// Completes the two Client-recipient packages when the surrounding authority
-/// commit already carried the public activation evidence.
+/// Completes the two Client-recipient packages for one exact activation.
 ///
-/// The package pair is still checked against the admitted activation binding
-/// and its exact transcript before either plaintext is combined. Public-key
-/// continuity remains the responsibility of the terminal activation result;
-/// this worker-only seam deliberately returns the scalar share for the local
-/// factor-sealing boundary.
+/// The package pair and public receipt are checked against the admitted
+/// activation binding and exact transcript before either plaintext is
+/// combined. The opened scalar is then checked against the receipt's public
+/// relation before it crosses the local material boundary.
 pub fn complete_client_activation_packages_v1(
     binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
+    participant_ids: [u16; 2],
+    public_receipt: &router_ab_core::RouterAbEd25519YaoActivationPublicReceiptV1,
     recipient_private_key: &[u8; 32],
     deriver_a_client_package: &Ed25519YaoEncryptedPackageV1,
     deriver_b_client_package: &Ed25519YaoEncryptedPackageV1,
@@ -541,6 +545,11 @@ pub fn complete_client_activation_packages_v1(
         return Err(ClientActivationError::InvalidRecipientPackage);
     }
     let transcript = deriver_a_client_package.transcript();
+    if public_receipt.material_activation() != &binding.material_activation
+        || public_receipt.transcript() != transcript
+    {
+        return Err(ClientActivationError::BindingMismatch);
+    }
     let mut deriver_a_plaintext =
         open_client_package(deriver_a_client_package, recipient_private_key)?;
     let mut deriver_b_plaintext =
@@ -559,6 +568,7 @@ pub fn complete_client_activation_packages_v1(
     )
     .map_err(|_| ClientActivationError::InvalidRecipientPackage)?
     .into_bytes();
+    verify_public_relation(&scalar, participant_ids, public_receipt)?;
     Ok((Zeroizing::new(scalar), transcript))
 }
 
@@ -856,12 +866,11 @@ fn open_client_package(
 fn verify_public_relation(
     client_scalar_share: &[u8; 32],
     participant_ids: [u16; 2],
-    result: &RouterAbEd25519YaoActivationResultV1,
+    receipt: &router_ab_core::RouterAbEd25519YaoActivationPublicReceiptV1,
 ) -> Result<(), ClientActivationError> {
     let scalar_option = Scalar::from_canonical_bytes(*client_scalar_share);
     let scalar = scalar_option.unwrap_or(Scalar::ZERO);
     let client_commitment = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
-    let receipt = result.public_receipt();
     let mut valid = scalar_option.is_some();
     valid &= client_commitment.ct_eq(&receipt.joined_client_commitment());
     valid &= receipt

@@ -29,8 +29,12 @@ import {
 } from '../utils/routerAbEcdsaDerivation';
 import {
   parseRouterAbEd25519YaoEncryptedPackageV1,
+  parseRouterAbEd25519YaoActivationPublicReceiptV1,
+  parseRouterAbEd25519YaoParticipantIdsV1,
+  type RouterAbEd25519YaoActivationPublicReceiptV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
 } from '../utils/routerAbEd25519Yao';
+import { routerAbMpcMaterialActivationRefFromWire } from '../utils/routerAbNormalSigningIdentity';
 
 const COMMITTED_SIGNER_PACKAGE_DOMAIN_V1 = 'seams/wallet/committed-signer-package/v1' as const;
 const COMMITTED_SIGNER_PACKAGE_SET_DOMAIN_V1 =
@@ -39,6 +43,8 @@ const COMMITTED_SIGNER_PACKAGE_SET_DOMAIN_V1 =
 export type CommittedEd25519SignerPackageV1 = {
   readonly kind: 'committed_ed25519_signer_package_v1';
   readonly materialActivation: MpcMaterialActivationRef;
+  readonly participantIds: readonly [number, number];
+  readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
   readonly deriver_a_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_a'>;
   readonly deriver_b_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_b'>;
 };
@@ -266,25 +272,54 @@ export async function computeCommittedSignerPackageSetDigestB64u(
 function parseEd25519Package(raw: unknown): CommittedEd25519SignerPackageV1 {
   const record = exactRecord(
     raw,
-    ['kind', 'materialActivation', 'deriver_a_client_package', 'deriver_b_client_package'],
+    [
+      'kind',
+      'materialActivation',
+      'participantIds',
+      'activationReceipt',
+      'deriver_a_client_package',
+      'deriver_b_client_package',
+    ],
     'CommittedEd25519SignerPackageV1',
   );
   if (record.kind !== 'committed_ed25519_signer_package_v1') {
     throw new Error('CommittedEd25519SignerPackageV1.kind is invalid');
   }
+  const materialActivation = parseActivation(record.materialActivation, 'materialActivation');
+  const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
+    record.activationReceipt,
+  );
+  if (
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      routerAbMpcMaterialActivationRefFromWire(activationReceipt.material_activation),
+    )
+  ) {
+    throw new Error('CommittedEd25519SignerPackageV1 activation receipt does not match material');
+  }
+  const deriverA = parseEd25519ClientPackage(
+    record.deriver_a_client_package,
+    'deriver_a_client_package',
+    'deriver_a',
+  );
+  const deriverB = parseEd25519ClientPackage(
+    record.deriver_b_client_package,
+    'deriver_b_client_package',
+    'deriver_b',
+  );
+  if (
+    !sameBytes(activationReceipt.transcript, deriverA.transcript) ||
+    !sameBytes(activationReceipt.transcript, deriverB.transcript)
+  ) {
+    throw new Error('CommittedEd25519SignerPackageV1 receipt transcript does not match packages');
+  }
   return {
     kind: 'committed_ed25519_signer_package_v1',
-    materialActivation: parseActivation(record.materialActivation, 'materialActivation'),
-    deriver_a_client_package: parseEd25519ClientPackage(
-      record.deriver_a_client_package,
-      'deriver_a_client_package',
-      'deriver_a',
-    ),
-    deriver_b_client_package: parseEd25519ClientPackage(
-      record.deriver_b_client_package,
-      'deriver_b_client_package',
-      'deriver_b',
-    ),
+    materialActivation,
+    participantIds: parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds),
+    activationReceipt,
+    deriver_a_client_package: deriverA,
+    deriver_b_client_package: deriverB,
   };
 }
 
@@ -369,6 +404,10 @@ function objectRecord(raw: unknown, label: string): Record<string, unknown> {
 
 function isRecord(raw: unknown): raw is Record<string, unknown> {
   return raw !== null && typeof raw === 'object' && !Array.isArray(raw);
+}
+
+function sameBytes(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function exactKeys(record: Record<string, unknown>, keys: readonly string[], label: string): void {

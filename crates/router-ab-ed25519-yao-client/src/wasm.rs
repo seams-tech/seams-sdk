@@ -37,7 +37,10 @@ use crate::{
     open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
     LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1,
 };
-use router_ab_core::{Ed25519YaoEncryptedPackageV1, RouterAbEd25519YaoActivationExecuteRequestV1};
+use router_ab_core::{
+    Ed25519YaoEncryptedPackageV1, RouterAbEd25519YaoActivationExecuteRequestV1,
+    RouterAbEd25519YaoActivationPublicReceiptV1,
+};
 use signer_core::ed25519_yao_client_root_transfer::open_ed25519_yao_client_root_under_factor_v1;
 use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
@@ -597,16 +600,26 @@ pub struct WasmOrdinaryEd25519ActivationClientMaterialV1 {
 #[wasm_bindgen]
 impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
     /// Opens and combines the two Client packages for one registration
-    /// activation. The recipient private key is consumed only in Rust/WASM.
+    /// activation. The receipt and participant IDs provide the public
+    /// relation needed before local factor sealing. The recipient private key
+    /// is consumed only in Rust/WASM.
     #[wasm_bindgen(constructor)]
     pub fn new(
         activation_request_json: &str,
         deriver_a_client_package_json: &str,
         deriver_b_client_package_json: &str,
         recipient_private_key: &[u8],
+        participant_ids_json: &str,
+        public_receipt_json: &str,
     ) -> Result<Self, JsValue> {
         let request = serde_json::from_str::<RouterAbEd25519YaoActivationExecuteRequestV1>(
             activation_request_json,
+        )
+        .map_err(js_error)?;
+        let participant_ids =
+            serde_json::from_str::<[u16; 2]>(participant_ids_json).map_err(js_error)?;
+        let public_receipt = serde_json::from_str::<RouterAbEd25519YaoActivationPublicReceiptV1>(
+            public_receipt_json,
         )
         .map_err(js_error)?;
         let deriver_a =
@@ -621,6 +634,8 @@ impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
         )?);
         let (client_scalar_share, transcript) = complete_client_activation_packages_v1(
             &request.binding(),
+            participant_ids,
+            &public_receipt,
             &recipient_private_key,
             &deriver_a,
             &deriver_b,

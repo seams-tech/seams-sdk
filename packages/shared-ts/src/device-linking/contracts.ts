@@ -448,6 +448,7 @@ export type OrdinarySignerMaterialReservationPreparationV1 =
   | {
       readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
       readonly activationRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+      readonly participantIds: readonly [number, number];
     }
   | {
       readonly kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1';

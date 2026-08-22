@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS signing_worker_activations (
   active_state_json TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS signing_worker_activation_revocation_fences (
+  active_key TEXT PRIMARY KEY
+);
 CREATE TABLE IF NOT EXISTS signing_worker_round1 (
   record_key TEXT PRIMARY KEY,
   record_json TEXT NOT NULL,
@@ -660,7 +663,12 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
         .prepare(
             "INSERT OR IGNORE INTO signing_worker_activations
              (material_key, active_key, record_json, active_state_json, created_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             SELECT ?1, ?2, ?3, ?4, ?5
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM signing_worker_activation_revocation_fences
+               WHERE active_key = ?2
+             )",
         )
         .bind(&[
             js_string(&material_key),
@@ -676,6 +684,12 @@ pub async fn put_cloudflare_signing_worker_output_activation_record_v1(
     let activated = d1_changes(&inserted)? == 1;
     if activated {
         return Ok(true);
+    }
+    if activation_revocation_fence_exists_v1(&session, &active_key).await? {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+            "SigningWorker activation is fenced by an exact deactivation",
+        ));
     }
     let stored = activation_row_by_material_key_v1(&session, &material_key)
         .await?
@@ -712,19 +726,28 @@ pub(crate) async fn delete_cloudflare_signing_worker_output_activation_by_active
     let session = database
         .with_session_constraint(D1SessionConstraint::FirstPrimary)
         .map_err(|error| map_d1_error("SigningWorker activation primary session failed", error))?;
-    let Some(row) = activation_row_by_active_key_v1(&session, active_key).await? else {
-        return Ok(false);
-    };
-    let active_state = decode_json::<ActiveSigningWorkerStateV1>(
-        "SigningWorker active state",
-        &row.active_state_json,
-    )?;
-    if active_state.material_activation != *expected_material_activation {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::ConflictingPair,
-            "SigningWorker activation identity conflicts with the exact material activation",
-        ));
+    if let Some(row) = activation_row_by_active_key_v1(&session, active_key).await? {
+        let active_state = decode_json::<ActiveSigningWorkerStateV1>(
+            "SigningWorker active state",
+            &row.active_state_json,
+        )?;
+        if active_state.material_activation != *expected_material_activation {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ConflictingPair,
+                "SigningWorker activation identity conflicts with the exact material activation",
+            ));
+        }
     }
+    session
+        .prepare(
+            "INSERT OR IGNORE INTO signing_worker_activation_revocation_fences
+             (active_key) VALUES (?1)",
+        )
+        .bind(&[js_string(active_key)])
+        .map_err(|error| map_d1_error("SigningWorker activation fence bind failed", error))?
+        .run()
+        .await
+        .map_err(|error| map_d1_error("SigningWorker activation fence failed", error))?;
     let result = session
         .prepare("DELETE FROM signing_worker_activations WHERE active_key = ?1")
         .bind(&[js_string(active_key)])
@@ -733,6 +756,30 @@ pub(crate) async fn delete_cloudflare_signing_worker_output_activation_by_active
         .await
         .map_err(|error| map_d1_error("SigningWorker activation delete failed", error))?;
     Ok(d1_changes(&result)? == 1)
+}
+
+async fn activation_revocation_fence_exists_v1(
+    db: &D1DatabaseSession,
+    active_key: &str,
+) -> RouterAbProtocolResult<bool> {
+    #[derive(Debug, Deserialize)]
+    struct ActivationRevocationFenceRowV1 {
+        #[serde(rename = "active_key")]
+        _active_key: String,
+    }
+
+    Ok(db
+        .prepare(
+            "SELECT active_key
+             FROM signing_worker_activation_revocation_fences
+             WHERE active_key = ?1",
+        )
+        .bind(&[js_string(active_key)])
+        .map_err(|error| map_d1_error("SigningWorker activation fence query bind failed", error))?
+        .first::<ActivationRevocationFenceRowV1>(None)
+        .await
+        .map_err(|error| map_d1_error("SigningWorker activation fence query failed", error))?
+        .is_some())
 }
 
 pub(crate) async fn load_cloudflare_signing_worker_private_d1_secret_v1<T>(
@@ -956,6 +1003,16 @@ pub async fn load_cloudflare_signing_worker_registration_active_material_v1(
         &row.active_state_json,
     )?;
     lookup.validate_active_state(&active_state)?;
+    crate::ordinary_inactive_signer_material::require_ecdsa_material_active_v1(
+        env,
+        &active_state.material_activation,
+    )
+    .await?;
+    crate::ed25519_yao_signing_worker::require_ed25519_material_active_v1(
+        env,
+        &active_state.material_activation,
+    )
+    .await?;
     let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
     let record = cipher.open::<CloudflareSigningWorkerOutputActivationRecordV1>(
         "activation",
@@ -1171,7 +1228,12 @@ async fn activate_output_v1(
         .prepare(
             "INSERT OR IGNORE INTO signing_worker_activations
              (material_key, active_key, record_json, active_state_json, created_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             SELECT ?1, ?2, ?3, ?4, ?5
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM signing_worker_activation_revocation_fences
+               WHERE active_key = ?2
+             )",
         )
         .bind(&[
             js_string(&material_key),
@@ -1187,6 +1249,12 @@ async fn activate_output_v1(
     let activated = d1_changes(&inserted)? == 1;
     let activation_context = &activation.activation_context;
     let selected_server = &activation_context.signer_set().selected_server;
+    if !activated && activation_revocation_fence_exists_v1(db, &active_key).await? {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+            "SigningWorker activation is fenced by an exact deactivation",
+        ));
+    }
     if activated {
         return Ok(
             CloudflareSigningWorkerPrivateD1ResponseV1::OutputActivated {
@@ -1255,6 +1323,7 @@ async fn active_state_get_v1(
 }
 
 async fn output_material_get_v1(
+    env: &Env,
     db: &D1DatabaseSession,
     cipher: &SigningWorkerPrivateD1CipherV1,
     request: &CloudflareSigningWorkerPrivateD1RequestV1,
@@ -1275,6 +1344,14 @@ async fn output_material_get_v1(
         &row.record_json,
     )?;
     record.validate()?;
+    let material_activation = &record.active_signing_worker_state().material_activation;
+    crate::ordinary_inactive_signer_material::require_ecdsa_material_active_v1(
+        env,
+        material_activation,
+    )
+    .await?;
+    crate::ed25519_yao_signing_worker::require_ed25519_material_active_v1(env, material_activation)
+        .await?;
     if record.active_signing_worker_state() != &lookup.active_signing_worker_state {
         return Err(d1_error(
             "SigningWorker-output material active state does not match lookup",
@@ -1498,7 +1575,7 @@ pub async fn execute_cloudflare_signing_worker_private_d1_request_v1(
             active_state_get_v1(&db, request, lookup).await
         }
         CloudflareSigningWorkerPrivateD1RequestV1::OutputMaterialGet { lookup } => {
-            output_material_get_v1(&db, &cipher, request, lookup).await
+            output_material_get_v1(env, &db, &cipher, request, lookup).await
         }
         CloudflareSigningWorkerPrivateD1RequestV1::Round1Put { record } => {
             round1_put_v1(&db, &cipher, request, record).await
@@ -1515,4 +1592,74 @@ pub async fn execute_cloudflare_signing_worker_private_d1_request_v1(
     }?;
     response.validate_for_request(request)?;
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SIGNING_WORKER_PRIVATE_D1_SCHEMA_V1;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ActivationOutputEventV1 {
+        ActivationInsert,
+        RevocationFence,
+        ActivationDelete,
+    }
+
+    #[derive(Default)]
+    struct ActivationOutputPersistenceModelV1 {
+        fenced: bool,
+        output_present: bool,
+    }
+
+    impl ActivationOutputPersistenceModelV1 {
+        fn apply(&mut self, event: ActivationOutputEventV1) {
+            match event {
+                ActivationOutputEventV1::ActivationInsert if !self.fenced => {
+                    self.output_present = true;
+                }
+                ActivationOutputEventV1::RevocationFence => self.fenced = true,
+                ActivationOutputEventV1::ActivationDelete => self.output_present = false,
+                ActivationOutputEventV1::ActivationInsert => {}
+            }
+        }
+    }
+
+    #[test]
+    fn activation_output_revocation_fence_interleavings_are_safe_for_both_curves() {
+        assert!(SIGNING_WORKER_PRIVATE_D1_SCHEMA_V1
+            .contains("signing_worker_activation_revocation_fences"));
+        let interleavings = [
+            [
+                ActivationOutputEventV1::ActivationInsert,
+                ActivationOutputEventV1::RevocationFence,
+                ActivationOutputEventV1::ActivationDelete,
+            ],
+            [
+                ActivationOutputEventV1::RevocationFence,
+                ActivationOutputEventV1::ActivationInsert,
+                ActivationOutputEventV1::ActivationDelete,
+            ],
+            [
+                ActivationOutputEventV1::RevocationFence,
+                ActivationOutputEventV1::ActivationDelete,
+                ActivationOutputEventV1::ActivationInsert,
+            ],
+        ];
+        for curve in ["ecdsa_secp256k1", "ed25519"] {
+            for interleaving in interleavings {
+                let mut state = ActivationOutputPersistenceModelV1::default();
+                for event in interleaving {
+                    state.apply(event);
+                }
+                assert!(
+                    state.fenced,
+                    "{curve} interleaving did not persist the fence"
+                );
+                assert!(
+                    !state.output_present,
+                    "{curve} interleaving left active signer output"
+                );
+            }
+        }
+    }
 }

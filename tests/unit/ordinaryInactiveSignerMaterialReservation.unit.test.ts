@@ -12,6 +12,7 @@ import type { CommittedEcdsaSignerPackageV1 } from '../../packages/shared-ts/src
 import {
   buildOrdinaryEcdsaClientMaterialFixture,
   buildOrdinaryEcdsaSignerFixture,
+  buildOrdinaryEd25519ActivationReceiptFixture,
   buildOrdinaryEd25519ClientMaterialFixture,
   buildOrdinaryEd25519SignerFixture,
   buildOrdinaryEd25519ReservationPreparationFixture,
@@ -49,7 +50,12 @@ class IdempotentWorkerFixture implements OrdinaryInactiveSignerMaterialReservati
       state: 'inactive',
       signer: input.signer,
       materialActivation: this.activationOverride ?? input.plannedActivationRef,
+      participantIds: input.preparation.participantIds,
       clientMaterial: buildOrdinaryEd25519ClientMaterialFixture('ed25519'),
+      activationReceipt: buildOrdinaryEd25519ActivationReceiptFixture(
+        'ed25519',
+        this.activationOverride ?? input.plannedActivationRef,
+      ),
       serverMaterialReservationId: this.serverReservationId,
     };
     this.ed25519Reservations.set(key, reservation);
@@ -104,7 +110,9 @@ test('reserves inactive Ed25519 material and reuses the exact activation reserva
   expect(first.state).toBe('inactive');
   expect(first.serverMaterial.reservationId).toBe('server-reservation-1');
   expect(first).not.toHaveProperty('activatedAtMs');
-  expect(first).not.toHaveProperty('activationReceipt');
+  expect(first.activationReceipt.material_activation.activation_id).toBe(
+    request.plannedActivationRef.activationId,
+  );
 });
 
 test('reserves inactive ECDSA material in the committed role-envelope shape', async () => {
