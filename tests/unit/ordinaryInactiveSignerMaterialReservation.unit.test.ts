@@ -69,7 +69,11 @@ class IdempotentWorkerFixture implements OrdinaryInactiveSignerMaterialReservati
       state: 'inactive',
       signer: input.signer,
       materialActivation: this.activationOverride ?? input.plannedActivationRef,
-      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture('ecdsa'),
+      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture(
+        'ecdsa',
+        input.preparation.registrationRequest.client_ephemeral_public_key,
+        input.preparation.registrationRequest.signer_set.signer_a.key_epoch,
+      ),
       serverMaterialReservationId: this.serverReservationId,
     };
     this.ecdsaReservations.set(key, reservation);

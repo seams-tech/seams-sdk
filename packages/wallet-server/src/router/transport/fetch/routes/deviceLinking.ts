@@ -8,10 +8,12 @@ import type {
   LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceEmailOtpVerificationResultV1,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
   LocalAuthorityActivationFinalAckV1,
   LocalAuthorityInstallationReceiptV1,
   QrLinkedDeviceSessionPayloadV5,
+  VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
 import type { CommittedAuthorityPackagesV1 } from '@shared/device-linking/committedSignerPackages';
 import {
@@ -36,7 +38,10 @@ import {
   parseLinkedDeviceEd25519ExportRootSubmissionV1,
 } from '@shared/device-linking/ed25519ExportRoot';
 import type { LinkedDeviceEd25519ExportRootPortV1 } from '../../../../core/deviceLinking/linkedDeviceEd25519ExportRoot';
-import type { ActivateInstalledAuthorityResultV1 as D1ActivateInstalledAuthorityResultV1 } from '../../../../router/cloudflare/d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
+import type {
+  ActivateInstalledAuthorityResultV1 as D1ActivateInstalledAuthorityResultV1,
+  CommitPendingAuthorityResultV1,
+} from '../../../../router/cloudflare/d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import {
   computeLinkedDevicePublicKeyDigestV1,
   LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
@@ -115,7 +120,12 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<
-    | { readonly outcome: 'applied' | 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+    | {
+        readonly outcome: 'applied' | 'replayed';
+        readonly keyManifestDigestB64u: DigestB64u;
+        readonly verifiedLinkInput: VerifiedLinkInputV1;
+        readonly targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1;
+      }
     | { readonly outcome: 'invalid_input'; readonly message: string }
   >;
 };
@@ -165,6 +175,10 @@ export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
 };
 
 export type DeviceLinkingInstallationReceiptPortV1 = {
+  commitPendingAuthorityV1(input: {
+    readonly input: VerifiedLinkInputV1;
+    readonly nowMs: number;
+  }): Promise<CommitPendingAuthorityResultV1>;
   readCommittedAuthorityPackagesV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
@@ -369,7 +383,41 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(readTargetPreparation(service, session, approval, nowMs)));
   const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, requestedAtMs: nowMs });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
-  return sessionResultResponse(await service.sessionService.recordTargetCredentialV1({ linkSessionId: session.linkSessionId, expectedRevision: session.revision, nowMs }));
+  let sessionOutcome: 'applied' | 'replayed' = result.outcome;
+  if (session.state.state === 'awaiting_target_factor') {
+    const recorded = await service.sessionService.recordTargetCredentialV1({
+      linkSessionId: session.linkSessionId,
+      expectedRevision: session.revision,
+      nowMs,
+    });
+    if (recorded.outcome !== 'applied' && recorded.outcome !== 'replayed') {
+      return sessionResultResponse(recorded);
+    }
+    sessionOutcome = recorded.outcome;
+  } else if (
+    session.state.state !== 'provisioning' &&
+    session.state.state !== 'authority_pending_local_install' &&
+    session.state.state !== 'active'
+  ) {
+    return invalidStateResponse(session);
+  }
+  const installationReceipt = service.installationReceipt;
+  if (!installationReceipt) {
+    return invalidInputResponse('verified authority installation is not configured');
+  }
+  const committed = await installationReceipt.commitPendingAuthorityV1({
+    input: result.verifiedLinkInput,
+    nowMs,
+  });
+  if (committed.kind === 'invalid_input') return invalidInputResponse(committed.message);
+  if (committed.kind === 'conflict') {
+    return json({ ok: false, outcome: 'conflict', message: committed.message }, { status: 409 });
+  }
+  return targetCredentialResultResponse(
+    committed.session,
+    committed.kind === 'replayed' ? 'replayed' : sessionOutcome,
+    result.targetCredential,
+  );
 }
 
 async function handleEmailOtpChallenge(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number, resend: boolean): Promise<Response> {
@@ -504,15 +552,6 @@ function installationResultResponse(result: D1ActivateInstalledAuthorityResultV1
           walletSession: activeWalletSessionWireV1(result.walletSession),
         } satisfies WireActivateInstalledAuthorityResultV1,
         { status: 200 },
-      );
-    case 'pending_local_install':
-      return json(
-        {
-          kind: 'pending_local_install',
-          authorityId: result.authorityId,
-          reason: { kind: 'server_worker_activation_pending' },
-        } satisfies WireActivateInstalledAuthorityResultV1,
-        { status: 202 },
       );
     case 'integrity_error':
       return json(
@@ -671,6 +710,14 @@ function projectSession(record: LinkedDeviceSessionRecordV1): Record<string, unk
 
 function sessionProjectionResponse(record: LinkedDeviceSessionRecordV1, outcome: 'applied' | 'replayed'): Response {
   return json({ ok: true, outcome, session: projectSession(record) }, { status: 200 });
+}
+
+export function targetCredentialResultResponse(
+  record: LinkedDeviceSessionRecordV1,
+  outcome: 'applied' | 'replayed',
+  targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1,
+): Response {
+  return json({ ok: true, outcome, targetCredential, session: projectSession(record) }, { status: 200 });
 }
 
 function claimResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {

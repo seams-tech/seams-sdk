@@ -3,6 +3,8 @@ export * from './d1LinkedDeviceSessionStore';
 export * from './d1LinkedDeviceRequestProofNonceStore';
 export * from './d1LinkedDeviceRouteService';
 export * from './d1LinkedDeviceAuthorityInstallService';
+export * from './d1LinkedDeviceVerifiedLinkBuilder';
+export * from './d1LinkedDeviceVerifiedLinkSourceReader';
 export * from './d1LinkedDeviceSessionService';
 export * from './d1LinkedDeviceEd25519ExportRootStore';
 export * from './d1LinkedDeviceTargetCredentialProvider';

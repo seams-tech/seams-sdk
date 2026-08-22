@@ -23,6 +23,8 @@ class ReservationEndpointFixture implements CloudflareOrdinaryInactiveSignerMate
   readonly ed25519Calls: OrdinaryEd25519SignerMaterialReservationRequestV1[] = [];
   readonly ecdsaCalls: OrdinaryEcdsaSignerMaterialReservationRequestV1[] = [];
 
+  constructor(private readonly ecdsaRecipientPublicKey?: string) {}
+
   async reserveInactiveEd25519SignerMaterialV1(
     input: OrdinaryEd25519SignerMaterialReservationRequestV1,
   ): Promise<unknown> {
@@ -48,7 +50,11 @@ class ReservationEndpointFixture implements CloudflareOrdinaryInactiveSignerMate
       state: 'inactive',
       signer: input.signer,
       materialActivation: input.plannedActivationRef,
-      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture('worker-ecdsa'),
+      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture(
+        'worker-ecdsa',
+        this.ecdsaRecipientPublicKey ?? input.preparation.registrationRequest.client_ephemeral_public_key,
+        input.preparation.registrationRequest.signer_set.signer_a.key_epoch,
+      ),
       serverMaterialReservationId: 'server-reservation-ecdsa',
     };
   }
@@ -82,6 +88,16 @@ test('ordinary ECDSA reservation keeps the exact inactive role envelopes', async
   expect(result.clientMaterial.deriver_a_client_package.recipient_role).toBe('signer_a');
   expect(result.clientMaterial.deriver_b_client_package.recipient_role).toBe('signer_b');
   expect(result.serverMaterialReservationId).toBe('server-reservation-ecdsa');
+});
+
+test('ordinary ECDSA reservation rejects a Deriver-recipient package', async () => {
+  const endpoint = new ReservationEndpointFixture(`x25519:${'11'.repeat(32)}`);
+  const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
+  const request = ecdsaRequest('ecdsa-deriver-recipient', 'activation');
+
+  await expect(worker.reserveInactiveEcdsaSignerMaterialV1(request)).rejects.toThrow(
+    'browser client recipient',
+  );
 });
 
 test('ordinary reservation rejects a conflicting signer for an existing activation ref', async () => {

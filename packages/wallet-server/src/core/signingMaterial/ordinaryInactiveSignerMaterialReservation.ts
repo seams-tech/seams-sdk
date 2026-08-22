@@ -12,6 +12,7 @@ import {
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import { requireRouterAbX25519PublicKey } from '@shared/utils/routerAbPublicKeyset';
 import {
   parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
   parseRouterAbEd25519YaoEncryptedPackageV1,
@@ -320,7 +321,10 @@ export function parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
     state: 'inactive',
     signer,
     materialActivation,
-    clientMaterial: parseEcdsaClientMaterialV1(reservation.clientMaterial),
+    clientMaterial: parseEcdsaClientMaterialV1(
+      reservation.clientMaterial,
+      request.preparation.registrationRequest,
+    ),
     serverMaterialReservationId: parseServerMaterialReservationIdV1(
       reservation.serverMaterialReservationId,
     ),
@@ -389,7 +393,10 @@ function parseEd25519ClientMaterialV1(raw: unknown): OrdinaryEd25519ClientMateri
   };
 }
 
-function parseEcdsaClientMaterialV1(raw: unknown): OrdinaryEcdsaClientMaterialV1 {
+function parseEcdsaClientMaterialV1(
+  raw: unknown,
+  registration: RouterAbEcdsaRegistrationRequestV1,
+): OrdinaryEcdsaClientMaterialV1 {
   const record = exactRecord(
     raw,
     ['kind', 'deriver_a_client_package', 'deriver_b_client_package'],
@@ -400,17 +407,144 @@ function parseEcdsaClientMaterialV1(raw: unknown): OrdinaryEcdsaClientMaterialV1
   }
   return {
     kind: 'ordinary_ecdsa_client_material_v1',
-    deriver_a_client_package: parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1(
+    deriver_a_client_package: parseEcdsaClientPackageV1(
       record.deriver_a_client_package,
       'deriver_a_client_package',
       'signer_a',
+      registration.signer_set.signer_a.key_epoch,
+      registration.client_ephemeral_public_key,
     ),
-    deriver_b_client_package: parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1(
+    deriver_b_client_package: parseEcdsaClientPackageV1(
       record.deriver_b_client_package,
       'deriver_b_client_package',
       'signer_b',
+      registration.signer_set.signer_b.key_epoch,
+      registration.client_ephemeral_public_key,
     ),
   };
+}
+
+function parseEcdsaClientPackageV1<Role extends 'signer_a' | 'signer_b'>(
+  raw: unknown,
+  label: string,
+  expectedRole: Role,
+  expectedKeyEpoch: string,
+  expectedRecipientPublicKey: string,
+): RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<Role> {
+  const packageValue = parseRouterAbEcdsaDerivationRoleEncryptedEnvelopeV1(
+    raw,
+    label,
+    expectedRole,
+  );
+  const payload = parseEcdsaSignerEnvelopePayloadV1(packageValue.ciphertext.bytes, label);
+  if (
+    payload.recipientRole !== expectedRole ||
+    payload.keyEpoch !== expectedKeyEpoch ||
+    payload.recipientPublicKey !== requireRouterAbX25519PublicKey(
+      expectedRecipientPublicKey,
+      `${label}.expectedRecipientPublicKey`,
+    )
+  ) {
+    throw new Error(`${label} is not sealed for the browser client recipient`);
+  }
+  if (!sameBytes(payload.aadDigest, packageValue.aad_digest.bytes)) {
+    throw new Error(`${label} payload AAD digest differs from its envelope`);
+  }
+  return packageValue;
+}
+
+type EcdsaSignerEnvelopePayloadV1 = {
+  readonly recipientRole: 'signer_a' | 'signer_b';
+  readonly keyEpoch: string;
+  readonly recipientPublicKey: string;
+  readonly aadDigest: readonly number[];
+};
+
+type EcdsaPayloadCursorV1 = {
+  readonly bytes: readonly number[];
+  offset: number;
+};
+
+function parseEcdsaSignerEnvelopePayloadV1(
+  bytes: readonly number[],
+  label: string,
+): EcdsaSignerEnvelopePayloadV1 {
+  const cursor: EcdsaPayloadCursorV1 = { bytes, offset: 0 };
+  const version = readEcdsaPayloadTextV1(cursor, label, 'version');
+  if (version !== 'router-ab-protocol/signer-envelope-hpke/v1') {
+    throw new Error(`${label} payload version is invalid`);
+  }
+  const algorithm = readEcdsaPayloadTextV1(cursor, label, 'algorithm');
+  if (algorithm !== 'hpke-x25519-hkdf-sha256-aes256gcm/v1') {
+    throw new Error(`${label} payload algorithm is invalid`);
+  }
+  const recipientRole = readEcdsaPayloadTextV1(cursor, label, 'recipientRole');
+  if (recipientRole !== 'signer_a' && recipientRole !== 'signer_b') {
+    throw new Error(`${label} payload recipient role is invalid`);
+  }
+  const keyEpoch = readEcdsaPayloadTextV1(cursor, label, 'keyEpoch');
+  const recipientPublicKey = readEcdsaPayloadTextV1(cursor, label, 'recipientPublicKey');
+  requireRouterAbX25519PublicKey(recipientPublicKey, `${label}.payload.recipientPublicKey`);
+  const aadDigest = readEcdsaPayloadBytesV1(cursor, label, 'aadDigest');
+  if (aadDigest.length !== 32) throw new Error(`${label} payload AAD digest is invalid`);
+  const encappedKey = readEcdsaPayloadBytesV1(cursor, label, 'encappedKey');
+  if (encappedKey.length !== 32) throw new Error(`${label} payload encapsulated key is invalid`);
+  if (readEcdsaPayloadU32V1(cursor, label, 'tagLength') !== 16) {
+    throw new Error(`${label} payload tag length is invalid`);
+  }
+  const ciphertext = readEcdsaPayloadBytesV1(cursor, label, 'ciphertext');
+  if (ciphertext.length <= 16 || cursor.offset !== bytes.length) {
+    throw new Error(`${label} payload ciphertext is invalid`);
+  }
+  return { recipientRole, keyEpoch, recipientPublicKey, aadDigest };
+}
+
+function readEcdsaPayloadTextV1(
+  cursor: EcdsaPayloadCursorV1,
+  label: string,
+  field: string,
+): string {
+  const bytes = readEcdsaPayloadBytesV1(cursor, label, field);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
+  } catch {
+    throw new Error(`${label} payload ${field} is not valid UTF-8`);
+  }
+}
+
+function readEcdsaPayloadBytesV1(
+  cursor: EcdsaPayloadCursorV1,
+  label: string,
+  field: string,
+): readonly number[] {
+  const length = readEcdsaPayloadU32V1(cursor, label, `${field}.length`);
+  const end = cursor.offset + length;
+  if (!Number.isSafeInteger(end) || end > cursor.bytes.length) {
+    throw new Error(`${label} payload ${field} is truncated`);
+  }
+  const value = cursor.bytes.slice(cursor.offset, end);
+  cursor.offset = end;
+  return value;
+}
+
+function readEcdsaPayloadU32V1(
+  cursor: EcdsaPayloadCursorV1,
+  label: string,
+  field: string,
+): number {
+  const end = cursor.offset + 4;
+  if (end > cursor.bytes.length) throw new Error(`${label} payload ${field} is truncated`);
+  const value =
+    cursor.bytes[cursor.offset]! * 0x1000000 +
+    cursor.bytes[cursor.offset + 1]! * 0x10000 +
+    cursor.bytes[cursor.offset + 2]! * 0x100 +
+    cursor.bytes[cursor.offset + 3]!;
+  cursor.offset = end;
+  return value;
+}
+
+function sameBytes(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function parseEd25519ClientPackageV1<Role extends 'deriver_a' | 'deriver_b'>(

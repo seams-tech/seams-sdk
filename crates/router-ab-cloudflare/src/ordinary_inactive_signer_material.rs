@@ -4,12 +4,16 @@ use crate::{
     compare_and_set_cloudflare_signing_worker_private_d1_secret_v1,
     load_cloudflare_server_output_hpke_private_key_bytes_v1,
     load_cloudflare_signing_worker_private_d1_secret_v1, CloudflareServerOutputMaterialRecordV1,
+    seal_cloudflare_signer_envelope_hpke_payload_v1,
+    CloudflareSignerEnvelopeHpkePublicKeyV1,
     CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
     CloudflareSigningWorkerRuntimeV1,
 };
 use router_ab_core::{
-    ExpensiveWorkKindV1, MpcMaterialActivationRefV1, RoleEncryptedEnvelopeV1,
+    decode_and_validate_signer_envelope_hpke_payload_v1, EncryptedPayloadV1, ExpensiveWorkKindV1,
+    MpcMaterialActivationRefV1, Role, RoleEncryptedEnvelopeV1,
+    RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1, RouterAbProtocolError,
     RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
@@ -78,6 +82,31 @@ pub struct CloudflareEcdsaInactiveMaterialReservationResponseV1 {
     pub deriver_b_client_package: RoleEncryptedEnvelopeV1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EcdsaClientPackagePairV1 {
+    deriver_a_client_package: RoleEncryptedEnvelopeV1,
+    deriver_b_client_package: RoleEncryptedEnvelopeV1,
+}
+
+impl EcdsaClientPackagePairV1 {
+    fn validate_for_registration(
+        &self,
+        registration: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        validate_client_package_v1(
+            registration,
+            Role::SignerA,
+            &self.deriver_a_client_package,
+        )?;
+        validate_client_package_v1(
+            registration,
+            Role::SignerB,
+            &self.deriver_b_client_package,
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareEcdsaReservationActivationResponseV1 {
@@ -93,6 +122,7 @@ enum EcdsaReservationStateV1 {
         material: CloudflareServerOutputMaterialRecordV1,
         material_activation: MpcMaterialActivationRefV1,
         reservation_id: String,
+        client_packages: EcdsaClientPackagePairV1,
     },
     Active {
         registration: RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
@@ -100,19 +130,28 @@ enum EcdsaReservationStateV1 {
         material: CloudflareServerOutputMaterialRecordV1,
         material_activation: MpcMaterialActivationRefV1,
         reservation_id: String,
+        client_packages: EcdsaClientPackagePairV1,
         receipt: CloudflareSigningWorkerOutputActivationReceiptV1,
     },
 }
 
 impl EcdsaReservationStateV1 {
     fn validate(&self) -> RouterAbProtocolResult<()> {
-        let (registration, activation, material, material_activation, reservation_id) = match self {
+        let (
+            registration,
+            activation,
+            material,
+            material_activation,
+            reservation_id,
+            client_packages,
+        ) = match self {
             Self::Inactive {
                 registration,
                 activation,
                 material,
                 material_activation,
                 reservation_id,
+                client_packages,
             }
             | Self::Active {
                 registration,
@@ -120,6 +159,7 @@ impl EcdsaReservationStateV1 {
                 material,
                 material_activation,
                 reservation_id,
+                client_packages,
                 ..
             } => (
                 registration,
@@ -127,6 +167,7 @@ impl EcdsaReservationStateV1 {
                 material,
                 material_activation,
                 reservation_id,
+                client_packages,
             ),
         };
         CloudflareEcdsaInactiveMaterialReservationRequestV1 {
@@ -140,14 +181,7 @@ impl EcdsaReservationStateV1 {
                 "ECDSA reservation material activation does not match its activation request",
             ));
         }
-        let (deriver_a_client_package, deriver_b_client_package) = match self {
-            Self::Inactive { registration, .. } | Self::Active { registration, .. } => (
-                registration.deriver_a_envelope.clone(),
-                registration.deriver_b_envelope.clone(),
-            ),
-        };
-        deriver_a_client_package.validate()?;
-        deriver_b_client_package.validate()?;
+        client_packages.validate_for_registration(registration)?;
         if let Self::Active { receipt, .. } = self {
             receipt.validate()?;
         }
@@ -164,14 +198,14 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_reserve_inactive_v1(
         .await
         .map_err(|_| invalid_reservation("ECDSA inactive reservation JSON is malformed"))?;
     reservation.validate()?;
-    let (reservation_id, material_activation) =
+    let (reservation_id, material_activation, client_packages) =
         reserve_ecdsa_inactive_v1(env, &reservation).await?;
     Response::from_json(&CloudflareEcdsaInactiveMaterialReservationResponseV1 {
         state: "inactive",
         reservation_id,
         material_activation,
-        deriver_a_client_package: reservation.registration.deriver_a_envelope.clone(),
-        deriver_b_client_package: reservation.registration.deriver_b_envelope.clone(),
+        deriver_a_client_package: client_packages.deriver_a_client_package,
+        deriver_b_client_package: client_packages.deriver_b_client_package,
     })
     .map_err(|_| invalid_reservation("ECDSA inactive reservation response could not be encoded"))
 }
@@ -194,7 +228,11 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_activate_reservation_v1(
 async fn reserve_ecdsa_inactive_v1(
     env: &Env,
     request: &CloudflareEcdsaInactiveMaterialReservationRequestV1,
-) -> RouterAbProtocolResult<(String, MpcMaterialActivationRefV1)> {
+) -> RouterAbProtocolResult<(
+    String,
+    MpcMaterialActivationRefV1,
+    EcdsaClientPackagePairV1,
+)> {
     request.validate()?;
     let activation = &request.activation;
     let record_key = reservation_record_key_v1(&activation.material_activation)?;
@@ -228,18 +266,23 @@ async fn reserve_ecdsa_inactive_v1(
         if let Some(current) = current.as_ref() {
             current.value.validate()?;
             match &current.value {
-                EcdsaReservationStateV1::Inactive {
+            EcdsaReservationStateV1::Inactive {
                     registration: stored_registration,
                     activation: stored_activation,
                     material_activation: stored_ref,
                     reservation_id: stored_id,
+                    client_packages,
                     ..
                 } if stored_registration == &request.registration
                     && stored_activation == activation
                     && stored_ref == &activation.material_activation
                     && stored_id == &reservation_id =>
                 {
-                    return Ok((reservation_id, activation.material_activation.clone()));
+                    return Ok((
+                        reservation_id,
+                        activation.material_activation.clone(),
+                        client_packages.clone(),
+                    ));
                 }
                 EcdsaReservationStateV1::Active {
                     activation: stored_activation,
@@ -257,12 +300,14 @@ async fn reserve_ecdsa_inactive_v1(
                 }
             }
         }
+        let client_packages = build_client_package_pair_v1(&request.registration)?;
         let state = EcdsaReservationStateV1::Inactive {
             registration: request.registration.clone(),
             activation: activation.clone(),
             material: material.clone(),
             material_activation: activation.material_activation.clone(),
             reservation_id: reservation_id.clone(),
+            client_packages: client_packages.clone(),
         };
         match compare_and_set_cloudflare_signing_worker_private_d1_secret_v1(
             env,
@@ -275,13 +320,92 @@ async fn reserve_ecdsa_inactive_v1(
         .await
         {
             Err(error) if error.code() == RouterAbProtocolErrorCode::ConflictingPair => continue,
-            Ok(()) => return Ok((reservation_id, activation.material_activation.clone())),
+            Ok(()) => {
+                return Ok((
+                    reservation_id,
+                    activation.material_activation.clone(),
+                    client_packages,
+                ))
+            }
             Err(error) => return Err(error),
         }
     }
     Err(invalid_reservation(
         "ordinary ECDSA material reservation changed concurrently",
     ))
+}
+
+fn build_client_package_pair_v1(
+    registration: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+) -> RouterAbProtocolResult<EcdsaClientPackagePairV1> {
+    Ok(EcdsaClientPackagePairV1 {
+        deriver_a_client_package: build_client_package_v1(registration, Role::SignerA)?,
+        deriver_b_client_package: build_client_package_v1(registration, Role::SignerB)?,
+    })
+}
+
+fn build_client_package_v1(
+    registration: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    role: Role,
+) -> RouterAbProtocolResult<RoleEncryptedEnvelopeV1> {
+    registration.validate()?;
+    let aad = registration.header().role_aad(role)?;
+    let plaintext = RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::registration_for_request(
+        registration,
+        role,
+        aad.digest(),
+    )?
+    .canonical_plaintext_bytes()?;
+    let key_epoch = match role {
+        Role::SignerA => registration.signer_set.signer_a.key_epoch.clone(),
+        Role::SignerB => registration.signer_set.signer_b.key_epoch.clone(),
+        _ => {
+            return Err(invalid_reservation(
+                "ordinary ECDSA client package requires a signer role",
+            ))
+        }
+    };
+    let recipient_key = CloudflareSignerEnvelopeHpkePublicKeyV1::new(
+        role,
+        key_epoch,
+        registration.client_ephemeral_public_key.clone(),
+    )?;
+    let payload = seal_cloudflare_signer_envelope_hpke_payload_v1(&recipient_key, &aad, &plaintext)?;
+    RoleEncryptedEnvelopeV1::new(
+        role,
+        registration.request_header_digest()?,
+        aad.digest(),
+        EncryptedPayloadV1::new(payload.canonical_bytes())?,
+    )
+}
+
+fn validate_client_package_v1(
+    registration: &RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    role: Role,
+    package: &RoleEncryptedEnvelopeV1,
+) -> RouterAbProtocolResult<()> {
+    registration.validate()?;
+    let aad = registration.header().role_aad(role)?;
+    let expected_key_epoch = match role {
+        Role::SignerA => &registration.signer_set.signer_a.key_epoch,
+        Role::SignerB => &registration.signer_set.signer_b.key_epoch,
+        _ => {
+            return Err(invalid_reservation(
+                "ordinary ECDSA client package requires a signer role",
+            ))
+        }
+    };
+    if package.header_digest != registration.request_header_digest()? || package.aad_digest != aad.digest() {
+        return Err(invalid_reservation(
+            "ordinary ECDSA client package public binding does not match registration",
+        ));
+    }
+    decode_and_validate_signer_envelope_hpke_payload_v1(
+        package,
+        expected_key_epoch,
+        &registration.client_ephemeral_public_key,
+    )?;
+    Ok(())
 }
 
 async fn activate_ecdsa_reservation_v1(
@@ -305,6 +429,7 @@ async fn activate_ecdsa_reservation_v1(
                 registration: _,
                 activation,
                 reservation_id,
+                client_packages: _,
                 receipt,
                 ..
             } => {
@@ -323,6 +448,7 @@ async fn activate_ecdsa_reservation_v1(
                 material,
                 material_activation,
                 reservation_id,
+                client_packages,
             } => {
                 if reservation_id != request.reservation_id
                     || material_activation != request.material_activation
@@ -344,6 +470,7 @@ async fn activate_ecdsa_reservation_v1(
                     material,
                     material_activation,
                     reservation_id,
+                    client_packages,
                     receipt: receipt.clone(),
                 };
                 match compare_and_set_cloudflare_signing_worker_private_d1_secret_v1(

@@ -97,6 +97,16 @@ import {
   parseWalletSignerActivationSetV1,
 } from '../authorization/walletAuthority';
 import { parseWalletAuthMethodRecordV2 } from '../utils/registrationIntent';
+import {
+  type EmailOtpWalletAuthMethodDraftV1,
+  type PasskeyWalletAuthMethodDraftV1,
+} from '../utils/registrationIntent';
+import {
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+} from '../utils/routerAbEd25519Yao';
+import { parseRouterAbEcdsaRegistrationRequestV1 } from '../utils/routerAbEcdsaDerivation';
+import { requireRouterAbX25519PublicKey } from '../utils/routerAbPublicKeyset';
+import { routerAbMpcMaterialActivationRefFromWire } from '../utils/routerAbNormalSigningIdentity';
 import { parseNearAccountId } from '../utils/near';
 import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import {
@@ -133,8 +143,16 @@ import {
   type LinkedDeviceSessionState,
   type LinkedDeviceSessionUnclaimedState,
   type LinkedDeviceSessionTransportEventV1,
+  type LinkSessionProjectionV1,
+  type LinkPrecommitFailureV1,
+  type LinkSessionStateV1,
+  type LinkSessionTransportEventV1,
   type LinkedDeviceSessionTransportRequestV1,
   type LinkedDeviceTargetCredentialRegistrationV1,
+  type LinkedDeviceTargetCredentialRegistrationResultV1,
+  type OrdinarySignerMaterialRecipientInputV1,
+  type OrdinarySignerMaterialReservationPreparationV1,
+  type VerifiedTargetFactorV1,
   type LinkedDeviceEd25519ExportRootPreparationV1,
   type LinkedDeviceEmailOtpVerificationGrantV1,
   type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
@@ -378,8 +396,11 @@ const CREDENTIAL_BASE_FIELDS = [
   'walletId',
   'enrollmentId',
   'deviceId',
+  'walletAuthMethodId',
   'targetFactor',
   'targetPreparationDigestB64u',
+  'ordinarySignerMaterialPreparations',
+  'ordinarySignerMaterialRecipientInputs',
   'orderedHolderRegistrations',
   'registeredAtMs',
 ] as const;
@@ -1797,6 +1818,139 @@ export function parseLinkedDeviceSessionProjectionV1(
   };
 }
 
+const LINK_SESSION_PROJECTION_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'qrPayload',
+  'revision',
+  'createdAtMs',
+  'updatedAtMs',
+  'state',
+] as const;
+
+const LINK_SESSION_EVENT_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'state',
+  'emittedAtMs',
+] as const;
+
+export function parseLinkSessionStateV1(raw: unknown): LinkSessionStateV1 {
+  const initial = requireRecord(raw, 'LinkSessionStateV1');
+  if (typeof initial.state !== 'string') {
+    throw new Error('LinkSessionStateV1.state is invalid');
+  }
+  switch (initial.state) {
+    case 'displaying_qr':
+      exactRecord(initial, ['state'], 'LinkSessionStateV1.displaying_qr');
+      return { state: 'displaying_qr' };
+    case 'claimed':
+    case 'awaiting_target_factor':
+    case 'provisioning':
+      exactRecord(initial, ['state', 'deviceId'], `LinkSessionStateV1.${initial.state}`);
+      return {
+        state: initial.state,
+        deviceId: parseId(
+          parseAuthorizationDeviceId,
+          initial.deviceId,
+          `LinkSessionStateV1.${initial.state}.deviceId`,
+        ),
+      };
+    case 'authority_pending_local_install':
+      exactRecord(
+        initial,
+        ['state', 'deviceId', 'authorityId', 'packageSetDigestB64u'],
+        'LinkSessionStateV1.authority_pending_local_install',
+      );
+      return {
+        state: initial.state,
+        deviceId: parseId(
+          parseAuthorizationDeviceId,
+          initial.deviceId,
+          'LinkSessionStateV1.authority_pending_local_install.deviceId',
+        ),
+        authorityId: parseId(
+          parseWalletAuthorityId,
+          initial.authorityId,
+          'LinkSessionStateV1.authority_pending_local_install.authorityId',
+        ),
+        packageSetDigestB64u: parseDigest(
+          initial.packageSetDigestB64u,
+          'LinkSessionStateV1.authority_pending_local_install.packageSetDigestB64u',
+        ),
+      };
+    case 'active':
+      exactRecord(initial, ['state', 'deviceId', 'authorityId', 'activatedAtMs'], 'LinkSessionStateV1.active');
+      return {
+        state: initial.state,
+        deviceId: parseId(parseAuthorizationDeviceId, initial.deviceId, 'LinkSessionStateV1.active.deviceId'),
+        authorityId: parseId(parseWalletAuthorityId, initial.authorityId, 'LinkSessionStateV1.active.authorityId'),
+        activatedAtMs: parseUnixTime(initial.activatedAtMs, 'LinkSessionStateV1.active.activatedAtMs'),
+      };
+    case 'failed_before_commit':
+      exactRecord(initial, ['state', 'error'], 'LinkSessionStateV1.failed_before_commit');
+      return { state: initial.state, error: parseLinkPrecommitFailureV1(initial.error) };
+    case 'cancelled':
+      exactRecord(initial, ['state', 'cancelledAtMs'], 'LinkSessionStateV1.cancelled');
+      return { state: initial.state, cancelledAtMs: parseUnixTime(initial.cancelledAtMs, 'LinkSessionStateV1.cancelled.cancelledAtMs') };
+    case 'expired':
+      exactRecord(initial, ['state', 'expiredAtMs'], 'LinkSessionStateV1.expired');
+      return { state: initial.state, expiredAtMs: parseUnixTime(initial.expiredAtMs, 'LinkSessionStateV1.expired.expiredAtMs') };
+    default:
+      throw new Error(`LinkSessionStateV1.state ${initial.state} is unsupported`);
+  }
+}
+
+function parseLinkPrecommitFailureV1(raw: unknown): LinkPrecommitFailureV1 {
+  const record = exactRecord(raw, ['kind', 'reason'], 'LinkPrecommitFailureV1');
+  if (
+    record.kind !== 'invalid_input' &&
+    record.kind !== 'unauthorized_source' &&
+    record.kind !== 'revoked_source' &&
+    record.kind !== 'permission_attenuation_failed' &&
+    record.kind !== 'target_factor_failed' &&
+    record.kind !== 'expired_session' &&
+    record.kind !== 'cancelled_session' &&
+    record.kind !== 'claim_conflict' &&
+    record.kind !== 'package_preparation_failed'
+  ) {
+    throw new Error('LinkPrecommitFailureV1.kind is invalid');
+  }
+  return {
+    kind: record.kind,
+    reason: parseNonEmptyToken(record.reason, 'LinkPrecommitFailureV1.reason'),
+  };
+}
+
+export function parseLinkSessionProjectionV1(raw: unknown): LinkSessionProjectionV1 {
+  const record = exactRecord(raw, LINK_SESSION_PROJECTION_FIELDS, 'LinkSessionProjectionV1');
+  if (record.kind !== 'linked_device_session_projection_v1') {
+    throw new Error('LinkSessionProjectionV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_session_projection_v1',
+    linkSessionId: parseSessionId(record.linkSessionId, 'LinkSessionProjectionV1.linkSessionId'),
+    qrPayload: parseQrLinkedDeviceSessionPayloadV5(record.qrPayload),
+    revision: parseNonNegativeSafeInteger(record.revision, 'LinkSessionProjectionV1.revision'),
+    createdAtMs: parseUnixTime(record.createdAtMs, 'LinkSessionProjectionV1.createdAtMs'),
+    updatedAtMs: parseUnixTime(record.updatedAtMs, 'LinkSessionProjectionV1.updatedAtMs'),
+    state: parseLinkSessionStateV1(record.state),
+  };
+}
+
+export function parseLinkSessionTransportEventV1(raw: unknown): LinkSessionTransportEventV1 {
+  const record = exactRecord(raw, LINK_SESSION_EVENT_FIELDS, 'LinkSessionTransportEventV1');
+  if (record.kind !== 'linked_device_session_event_v1') {
+    throw new Error('LinkSessionTransportEventV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_session_event_v1',
+    linkSessionId: parseSessionId(record.linkSessionId, 'LinkSessionTransportEventV1.linkSessionId'),
+    state: parseLinkSessionStateV1(record.state),
+    emittedAtMs: parseUnixTime(record.emittedAtMs, 'LinkSessionTransportEventV1.emittedAtMs'),
+  };
+}
+
 export function parseLinkedDeviceApprovalResultV1(raw: unknown): LinkedDeviceApprovalResultV1 {
   const initial = requireRecord(raw, 'LinkedDeviceApprovalResultV1');
   if (initial.outcome === 'pending') {
@@ -2976,6 +3130,142 @@ function parseTargetHolderRegistration(
   };
 }
 
+function parseOrdinarySignerMaterialPreparationV1(
+  raw: unknown,
+  index: number,
+): OrdinarySignerMaterialReservationPreparationV1 {
+  const label = `LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations[${index}]`;
+  const record = requireRecord(raw, label);
+  if (record.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
+    exactRecord(record, ['kind', 'activationRequest'], label);
+    const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+      record.activationRequest,
+    );
+    if (!parsed.ok) throw new Error(`${label}.activationRequest ${parsed.message}`);
+    return { kind: record.kind, activationRequest: parsed.value };
+  }
+  if (record.kind === 'ordinary_ecdsa_signer_material_reservation_preparation_v1') {
+    exactRecord(record, ['kind', 'registrationRequest', 'materialActivation'], label);
+    const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
+    if (!materialActivation.ok) throw new Error(`${label}.materialActivation ${materialActivation.error.message}`);
+    return {
+      kind: record.kind,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      materialActivation: materialActivation.value,
+    };
+  }
+  throw new Error(`${label}.kind is invalid`);
+}
+
+function parseOrdinarySignerMaterialPreparationsV1(
+  raw: unknown,
+): [OrdinarySignerMaterialReservationPreparationV1, ...OrdinarySignerMaterialReservationPreparationV1[]] {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 2) {
+    throw new Error(
+      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations must contain one or two entries',
+    );
+  }
+  const preparations = raw.map((entry, index) =>
+    parseOrdinarySignerMaterialPreparationV1(entry, index),
+  );
+  const kinds = preparations.map((entry) => entry.kind);
+  if (new Set(kinds).size !== kinds.length) {
+    throw new Error(
+      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations repeats a key family',
+    );
+  }
+  if (
+    preparations.length === 2 &&
+    (preparations[0]?.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1' ||
+      preparations[1]?.kind !== 'ordinary_ecdsa_signer_material_reservation_preparation_v1')
+  ) {
+    throw new Error(
+      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations must be ordered Ed25519 then ECDSA',
+    );
+  }
+  const activations = preparations.map((entry) =>
+    entry.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1'
+      ? routerAbMpcMaterialActivationRefFromWire(entry.activationRequest.binding.material_activation)
+      : entry.materialActivation,
+  );
+  if (activations.length === 2 && activations[0]?.activationId === activations[1]?.activationId) {
+    throw new Error(
+      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialPreparations repeats an activation reference',
+    );
+  }
+  const first = preparations[0];
+  if (!first) throw new Error('ordinary signer material preparations are empty');
+  return [first, ...preparations.slice(1)];
+}
+
+function parseOrdinarySignerMaterialRecipientInputV1(
+  raw: unknown,
+  index: number,
+  preparation: OrdinarySignerMaterialReservationPreparationV1,
+): OrdinarySignerMaterialRecipientInputV1 {
+  const label = `LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialRecipientInputs[${index}]`;
+  const record = requireRecord(raw, label);
+  if (preparation.kind === 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
+    exactRecord(record, ['kind', 'keyFamily', 'recipientPublicKeyB64u'], label);
+    if (
+      record.kind !== 'ordinary_ed25519_signer_material_recipient_input_v1' ||
+      record.keyFamily !== 'ed25519'
+    ) {
+      throw new Error(`${label} does not match its Ed25519 preparation`);
+    }
+    return {
+      kind: record.kind,
+      keyFamily: 'ed25519',
+      recipientPublicKeyB64u: parseCanonicalFixedBase64UrlBytes(
+        record.recipientPublicKeyB64u,
+        32,
+        `${label}.recipientPublicKeyB64u`,
+      ),
+    };
+  }
+  exactRecord(record, ['kind', 'keyFamily', 'clientEphemeralPublicKey'], label);
+  if (
+    record.kind !== 'ordinary_ecdsa_signer_material_recipient_input_v1' ||
+    record.keyFamily !== 'ecdsa_secp256k1'
+  ) {
+    throw new Error(`${label} does not match its ECDSA preparation`);
+  }
+  const clientEphemeralPublicKey = requireRouterAbX25519PublicKey(
+    record.clientEphemeralPublicKey,
+    `${label}.clientEphemeralPublicKey`,
+  );
+  if (clientEphemeralPublicKey !== preparation.registrationRequest.client_ephemeral_public_key) {
+    throw new Error(`${label}.clientEphemeralPublicKey does not match its registration request`);
+  }
+  return {
+    kind: record.kind,
+    keyFamily: 'ecdsa_secp256k1',
+    clientEphemeralPublicKey,
+  };
+}
+
+function parseOrdinarySignerMaterialRecipientInputsV1(
+  raw: unknown,
+  preparations: readonly [
+    OrdinarySignerMaterialReservationPreparationV1,
+    ...OrdinarySignerMaterialReservationPreparationV1[],
+  ],
+): [OrdinarySignerMaterialRecipientInputV1, ...OrdinarySignerMaterialRecipientInputV1[]] {
+  if (!Array.isArray(raw) || raw.length !== preparations.length) {
+    throw new Error(
+      'LinkedDeviceTargetCredentialRegistrationV1.ordinarySignerMaterialRecipientInputs must match its preparations',
+    );
+  }
+  const inputs = raw.map((entry, index) => {
+    const preparation = preparations[index];
+    if (!preparation) throw new Error('ordinary signer material preparation is missing');
+    return parseOrdinarySignerMaterialRecipientInputV1(entry, index, preparation);
+  });
+  const first = inputs[0];
+  if (!first) throw new Error('ordinary signer material recipient inputs are empty');
+  return [first, ...inputs.slice(1)];
+}
+
 export function parseLinkedDeviceTargetCredentialRegistrationV1(
   raw: unknown,
 ): LinkedDeviceTargetCredentialRegistrationV1 {
@@ -3008,11 +3298,24 @@ export function parseLinkedDeviceTargetCredentialRegistrationV1(
     record.deviceId,
     'LinkedDeviceTargetCredentialRegistrationV1.deviceId',
   );
+  const walletAuthMethodId = parseWalletAuthMethodId(
+    record.walletAuthMethodId,
+  );
+  if (!walletAuthMethodId.ok) {
+    throw new Error(`LinkedDeviceTargetCredentialRegistrationV1.walletAuthMethodId ${walletAuthMethodId.error.message}`);
+  }
   const targetPreparationDigestB64u = parseDigest(
     record.targetPreparationDigestB64u,
     'LinkedDeviceTargetCredentialRegistrationV1.targetPreparationDigestB64u',
   );
-  const orderedHolderRegistrations = parseTargetHolderRegistrations(
+  const ordinarySignerMaterialPreparations = parseOrdinarySignerMaterialPreparationsV1(
+    record.ordinarySignerMaterialPreparations,
+  );
+  const ordinarySignerMaterialRecipientInputs = parseOrdinarySignerMaterialRecipientInputsV1(
+    record.ordinarySignerMaterialRecipientInputs,
+    ordinarySignerMaterialPreparations,
+  );
+  const orderedHolderRegistrations = parseLinkedDeviceTargetHolderRegistrationsV1(
     record.orderedHolderRegistrations,
   );
   const registeredAtMs = parseUnixTime(
@@ -3026,8 +3329,11 @@ export function parseLinkedDeviceTargetCredentialRegistrationV1(
       walletId,
       enrollmentId,
       deviceId,
+      walletAuthMethodId: walletAuthMethodId.value,
       targetFactor,
       targetPreparationDigestB64u,
+      ordinarySignerMaterialPreparations,
+      ordinarySignerMaterialRecipientInputs,
       webauthnRegistration: parseLinkedDeviceWebAuthnRegistrationV1(record.webauthnRegistration),
       orderedHolderRegistrations,
       registeredAtMs,
@@ -3039,13 +3345,204 @@ export function parseLinkedDeviceTargetCredentialRegistrationV1(
     walletId,
     enrollmentId,
     deviceId,
+    walletAuthMethodId: walletAuthMethodId.value,
     targetFactor,
     targetPreparationDigestB64u,
+    ordinarySignerMaterialPreparations,
+    ordinarySignerMaterialRecipientInputs,
     emailOtpVerificationGrant: parseLinkedDeviceEmailOtpVerificationGrantV1(
       record.emailOtpVerificationGrant,
     ),
     orderedHolderRegistrations,
     registeredAtMs,
+  };
+}
+
+export function parseLinkedDeviceTargetCredentialRegistrationResultV1(
+  raw: unknown,
+): LinkedDeviceTargetCredentialRegistrationResultV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'kind',
+      'outcome',
+      'linkSessionId',
+      'walletId',
+      'enrollmentId',
+      'deviceId',
+      'walletAuthMethodId',
+      'targetPreparationDigestB64u',
+      'targetFactor',
+      'ordinarySignerMaterialPreparations',
+      'ordinarySignerMaterialRecipientInputs',
+      'keyManifestDigestB64u',
+    ],
+    'LinkedDeviceTargetCredentialRegistrationResultV1',
+  );
+  if (record.kind !== 'linked_device_target_credential_registration_result_v1') {
+    throw new Error('LinkedDeviceTargetCredentialRegistrationResultV1.kind is invalid');
+  }
+  if (record.outcome !== 'applied' && record.outcome !== 'replayed') {
+    throw new Error('LinkedDeviceTargetCredentialRegistrationResultV1.outcome is invalid');
+  }
+  const linkSessionId = parseSessionId(
+    record.linkSessionId,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.linkSessionId',
+  );
+  const walletId = parseWallet(
+    record.walletId,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.walletId',
+  );
+  const enrollmentId = parseEnrollmentId(
+    record.enrollmentId,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.enrollmentId',
+  );
+  const deviceId = parseDeviceId(
+    record.deviceId,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.deviceId',
+  );
+  const walletAuthMethodId = parseId(
+    parseWalletAuthMethodId,
+    record.walletAuthMethodId,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.walletAuthMethodId',
+  );
+  const targetPreparationDigestB64u = parseDigest(
+    record.targetPreparationDigestB64u,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.targetPreparationDigestB64u',
+  );
+  const targetFactor = parseVerifiedTargetFactorV1(
+    record.targetFactor,
+    'LinkedDeviceTargetCredentialRegistrationResultV1.targetFactor',
+  );
+  if (
+    targetFactor.authMethod.walletAuthMethodId !== walletAuthMethodId ||
+    targetFactor.authMethod.walletId !== walletId
+  ) {
+    throw new Error('LinkedDeviceTargetCredentialRegistrationResultV1 target identity differs');
+  }
+  const ordinarySignerMaterialPreparations = parseOrdinarySignerMaterialPreparationsV1(
+    record.ordinarySignerMaterialPreparations,
+  );
+  const ordinarySignerMaterialRecipientInputs = parseOrdinarySignerMaterialRecipientInputsV1(
+    record.ordinarySignerMaterialRecipientInputs,
+    ordinarySignerMaterialPreparations,
+  );
+  return {
+    kind: 'linked_device_target_credential_registration_result_v1',
+    outcome: record.outcome,
+    linkSessionId,
+    walletId,
+    enrollmentId,
+    deviceId,
+    walletAuthMethodId,
+    targetPreparationDigestB64u,
+    targetFactor,
+    ordinarySignerMaterialPreparations,
+    ordinarySignerMaterialRecipientInputs,
+    keyManifestDigestB64u: parseDigest(
+      record.keyManifestDigestB64u,
+      'LinkedDeviceTargetCredentialRegistrationResultV1.keyManifestDigestB64u',
+    ),
+  };
+}
+
+function parseVerifiedTargetFactorV1(raw: unknown, label: string): VerifiedTargetFactorV1 {
+  const record = requireRecord(raw, label);
+  if (record.kind === 'verified_passkey_target_v1') {
+    exactRecord(record, ['kind', 'authMethod', 'verificationDigestB64u', 'verifiedAtMs'], label);
+    const authMethod = parsePasskeyWalletAuthMethodDraftV1(record.authMethod, `${label}.authMethod`);
+    const verifiedAtMs = parseUnixTime(record.verifiedAtMs, `${label}.verifiedAtMs`);
+    if (verifiedAtMs < authMethod.createdAtMs) {
+      throw new Error(`${label}.verifiedAtMs precedes authMethod.createdAtMs`);
+    }
+    return {
+      kind: 'verified_passkey_target_v1',
+      authMethod,
+      verificationDigestB64u: parseDigest(
+        record.verificationDigestB64u,
+        `${label}.verificationDigestB64u`,
+      ),
+      verifiedAtMs,
+    };
+  }
+  if (record.kind === 'verified_email_otp_target_v1') {
+    exactRecord(record, ['kind', 'authMethod', 'verificationDigestB64u', 'verifiedAtMs'], label);
+    const authMethod = parseEmailOtpWalletAuthMethodDraftV1(record.authMethod, `${label}.authMethod`);
+    const verifiedAtMs = parseUnixTime(record.verifiedAtMs, `${label}.verifiedAtMs`);
+    if (verifiedAtMs < authMethod.createdAtMs) {
+      throw new Error(`${label}.verifiedAtMs precedes authMethod.createdAtMs`);
+    }
+    return {
+      kind: 'verified_email_otp_target_v1',
+      authMethod,
+      verificationDigestB64u: parseDigest(
+        record.verificationDigestB64u,
+        `${label}.verificationDigestB64u`,
+      ),
+      verifiedAtMs,
+    };
+  }
+  throw new Error(`${label}.kind is invalid`);
+}
+
+function parsePasskeyWalletAuthMethodDraftV1(
+  raw: unknown,
+  label: string,
+): PasskeyWalletAuthMethodDraftV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'walletAuthMethodId',
+      'walletId',
+      'createdAtMs',
+      'kind',
+      'rpId',
+      'credentialIdB64u',
+      'credentialPublicKeyB64u',
+      'counter',
+    ],
+    label,
+  );
+  if (record.kind !== 'passkey') throw new Error(`${label}.kind is invalid`);
+  return {
+    walletAuthMethodId: parseId(parseWalletAuthMethodId, record.walletAuthMethodId, `${label}.walletAuthMethodId`),
+    walletId: parseWallet(record.walletId, `${label}.walletId`),
+    createdAtMs: parseUnixTime(record.createdAtMs, `${label}.createdAtMs`),
+    kind: 'passkey',
+    rpId: parseId(parseWebAuthnRpId, record.rpId, `${label}.rpId`),
+    credentialIdB64u: parseId(
+      parseWebAuthnCredentialIdB64u,
+      record.credentialIdB64u,
+      `${label}.credentialIdB64u`,
+    ),
+    credentialPublicKeyB64u: parseCanonicalBase64UrlBytes(
+      record.credentialPublicKeyB64u,
+      `${label}.credentialPublicKeyB64u`,
+    ),
+    counter: parseNonNegativeInteger(record.counter, `${label}.counter`),
+  };
+}
+
+function parseEmailOtpWalletAuthMethodDraftV1(
+  raw: unknown,
+  label: string,
+): EmailOtpWalletAuthMethodDraftV1 {
+  const record = exactRecord(
+    raw,
+    ['walletAuthMethodId', 'walletId', 'createdAtMs', 'kind', 'emailHashHex', 'registrationAuthorityId'],
+    label,
+  );
+  if (record.kind !== 'email_otp') throw new Error(`${label}.kind is invalid`);
+  return {
+    walletAuthMethodId: parseId(parseWalletAuthMethodId, record.walletAuthMethodId, `${label}.walletAuthMethodId`),
+    walletId: parseWallet(record.walletId, `${label}.walletId`),
+    createdAtMs: parseUnixTime(record.createdAtMs, `${label}.createdAtMs`),
+    kind: 'email_otp',
+    emailHashHex: parseEmailHashHex(record.emailHashHex, `${label}.emailHashHex`),
+    registrationAuthorityId: parseNonEmptyToken(
+      record.registrationAuthorityId,
+      `${label}.registrationAuthorityId`,
+    ),
   };
 }
 
@@ -3312,7 +3809,7 @@ export function parseLinkedDeviceEmailOtpVerificationResultV1(
   };
 }
 
-function parseTargetHolderRegistrations(
+export function parseLinkedDeviceTargetHolderRegistrationsV1(
   raw: unknown,
 ): [LinkedDeviceTargetHolderRegistrationV1, ...LinkedDeviceTargetHolderRegistrationV1[]] {
   if (!Array.isArray(raw)) {

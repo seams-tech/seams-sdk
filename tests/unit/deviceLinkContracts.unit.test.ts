@@ -11,6 +11,11 @@ import {
 } from '@shared/device-linking/digests';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { parseLinkedDeviceSessionStateV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
+import {
+  parseLinkSessionProjectionV1,
+  parseLinkSessionStateV1,
+  parseLinkSessionTransportEventV1,
+} from '../../packages/shared-ts/src/device-linking/parsers';
 
 test.describe('R103E link-session contracts', () => {
   test('round-trips the QR payload through its strict wire parser', () => {
@@ -88,6 +93,53 @@ test.describe('R103E link-session contracts', () => {
         state: 'authority_pending_local_install',
         deviceId: String(fixture.approval.deviceId),
         authorityId,
+        packageSetDigestB64u: String(fixture.packageSetDigestB64u),
+        cancelledAtMs: 3_000,
+      }),
+    ).toThrow();
+  });
+
+  test('parses the browser projection and event at the strict shared boundary', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const projection = parseLinkSessionProjectionV1({
+      kind: 'linked_device_session_projection_v1',
+      linkSessionId: fixture.payload.linkSessionId,
+      qrPayload: fixture.payload,
+      revision: 1,
+      createdAtMs: fixture.payload.issuedAtMs,
+      updatedAtMs: fixture.payload.issuedAtMs,
+      state: {
+        state: 'claimed',
+        deviceId: String(fixture.approval.deviceId),
+      },
+    });
+    expect(projection.state).toEqual({
+      state: 'claimed',
+      deviceId: fixture.approval.deviceId,
+    });
+    expect(
+      parseLinkSessionTransportEventV1({
+        kind: 'linked_device_session_event_v1',
+        linkSessionId: fixture.payload.linkSessionId,
+        state: {
+          state: 'authority_pending_local_install',
+          deviceId: String(fixture.approval.deviceId),
+          authorityId: 'authority:r103',
+          packageSetDigestB64u: String(fixture.packageSetDigestB64u),
+        },
+        emittedAtMs: fixture.payload.issuedAtMs,
+      }).state,
+    ).toEqual({
+      state: 'authority_pending_local_install',
+      deviceId: fixture.approval.deviceId,
+      authorityId: 'authority:r103',
+      packageSetDigestB64u: fixture.packageSetDigestB64u,
+    });
+    expect(() =>
+      parseLinkSessionStateV1({
+        state: 'authority_pending_local_install',
+        deviceId: String(fixture.approval.deviceId),
+        authorityId: 'authority:r103',
         packageSetDigestB64u: String(fixture.packageSetDigestB64u),
         cancelledAtMs: 3_000,
       }),

@@ -16,6 +16,22 @@ import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/devi
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type { DeviceManagementRouteServiceV1 } from '../../../transport/fetch/routes/deviceManagement';
+import type {
+  OrdinarySignerMaterialActivationPlannerV1,
+  OrdinarySignerMaterialReservationPreparationPlannerV1,
+} from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
+import type { LinkedDeviceVerifiedLinkBuilderV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type {
+  CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
+  CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+} from '../../signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
+
+export type CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1 = {
+  readonly reservationEndpoint: CloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1;
+  readonly activationEndpoint: CloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1;
+  readonly materialPlanner: OrdinarySignerMaterialActivationPlannerV1;
+  readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
+};
 
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
   readonly challengeId: string;
@@ -51,9 +67,11 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   /** Owner Wallet Session authority after its boundary parser has run. */
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly ownerAuthorizationRoute: DeviceLinkingOwnerAuthorizationRouteServiceV1;
-  readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
-  /** Pending-authority commit/installation activation, supplied by the deployment adapter. */
-  readonly installationReceipt?: DeviceLinkingRouteServiceV1['installationReceipt'];
+  readonly targetCredential: (input: {
+    readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
+  }) => DeviceLinkingRouteServiceV1['targetCredential'];
+  /** Worker endpoints and exact preparation planners for ordinary authority installation. */
+  readonly authorityInstallation: CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1;
   readonly nowV1?: () => number;
   readonly management?: DeviceManagementRouteServiceV1;
 };

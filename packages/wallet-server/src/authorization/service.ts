@@ -166,6 +166,13 @@ export interface AuthorizationGrantPort {
     readonly expected: WalletSessionAuthorizationV2;
     readonly nowMs: number;
   }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
+  readWalletSessionAuthorizationV2ByIdentity(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: WalletId;
+    readonly walletSessionId: WalletSessionId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
   putOpaqueWalletSessionToken(input: {
     readonly tokenHash: DigestB64u;
     readonly curve: OpaqueWalletSessionCurve;
@@ -886,6 +893,16 @@ export class AuthorizationService {
     readonly nowMs: number;
   }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
     return await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId(input);
+  }
+
+  async readWalletSessionAuthorizationV2ByIdentity(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: WalletId;
+    readonly walletSessionId: WalletSessionId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+    return await this.ports.grants.readWalletSessionAuthorizationV2ByIdentity(input);
   }
 
   async issueOpaqueWalletSessionToken(input: {

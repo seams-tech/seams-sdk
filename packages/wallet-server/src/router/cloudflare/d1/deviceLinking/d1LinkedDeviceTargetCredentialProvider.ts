@@ -1,13 +1,14 @@
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
-  LinkedDeviceTargetReadyR102InputV1,
+  VerifiedLinkInputV1,
 } from '@shared/device-linking/contracts';
 import {
   parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
-  parseLinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking/parsers';
 import {
   assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1,
@@ -24,7 +25,6 @@ import {
 } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
-import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -36,6 +36,10 @@ import { linkedDeviceEmailOtpDescriptorCredentialIdV1 } from '../../../../core/d
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
 import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import {
+  buildVerifiedLinkInputV1,
+  type VerifiedLinkSourceReaderV1,
+} from './d1LinkedDeviceVerifiedLinkBuilder';
 
 export type VerifiedLinkedDeviceWebAuthnCredentialV1 = {
   readonly credentialIdB64u: string;
@@ -172,31 +176,10 @@ export type LinkedDeviceTargetPlannerV1 = {
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1>;
-  commitVerifiedTargetV1(input: {
-    readonly preparation: LinkedDeviceTargetPreparationV1;
-    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
-    readonly registrationDigestB64u: DigestB64u;
-    readonly requestedAtMs: number;
-  }): Promise<{
-    readonly keyManifestDigestB64u: DigestB64u;
-    readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
-  }>;
 };
 
-/** Trusted server handoff for the exact R102 manifest/jobs produced by the committer. */
-export type LinkedDeviceTargetReadyPersistencePortV1 = {
-  getTargetReadyV1(input: {
-    readonly session: LinkedDeviceSessionRecordV1;
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceTargetReadyR102InputV1 | null>;
-  persistTargetReadyV1(input: {
-    readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
-    readonly session: LinkedDeviceSessionRecordV1;
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceTargetReadyR102InputV1>;
+export type LinkedDeviceVerifiedLinkBuilderV1 = {
+  readonly source: VerifiedLinkSourceReaderV1;
 };
 
 type TargetCredentialRowV1 = {
@@ -231,6 +214,48 @@ type PersistedTargetCredentialV1 = {
   } | null;
 };
 
+type TargetCredentialRegistrationSuccessV1 = {
+  readonly outcome: 'applied' | 'replayed';
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly verifiedLinkInput: VerifiedLinkInputV1;
+  readonly targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1;
+};
+
+function buildTargetCredentialRegistrationSuccessV1(input: {
+  readonly outcome: 'applied' | 'replayed';
+  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly verifiedLinkInput: VerifiedLinkInputV1;
+}): TargetCredentialRegistrationSuccessV1 {
+  const targetFactor = input.verifiedLinkInput.targetFactor;
+  if (
+    targetFactor.authMethod.walletAuthMethodId !== input.registration.walletAuthMethodId ||
+    targetFactor.authMethod.walletId !== input.registration.walletId
+  ) {
+    throw new Error('verified target factor identity differs from its registration');
+  }
+  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
+    kind: 'linked_device_target_credential_registration_result_v1',
+    outcome: input.outcome,
+    linkSessionId: input.registration.linkSessionId,
+    walletId: input.registration.walletId,
+    enrollmentId: input.registration.enrollmentId,
+    deviceId: input.registration.deviceId,
+    walletAuthMethodId: input.registration.walletAuthMethodId,
+    targetPreparationDigestB64u: input.registration.targetPreparationDigestB64u,
+    targetFactor,
+    ordinarySignerMaterialPreparations: input.registration.ordinarySignerMaterialPreparations,
+    ordinarySignerMaterialRecipientInputs: input.registration.ordinarySignerMaterialRecipientInputs,
+    keyManifestDigestB64u: input.keyManifestDigestB64u,
+  });
+  return {
+    outcome: input.outcome,
+    keyManifestDigestB64u: input.keyManifestDigestB64u,
+    verifiedLinkInput: input.verifiedLinkInput,
+    targetCredential,
+  };
+}
+
 type PersistedTargetCommitReservationV1 =
   | {
       readonly state: 'reserved';
@@ -256,13 +281,10 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
   private readonly emailOtpGrants: LinkedDeviceEmailOtpGrantRegistrationPortV1;
   private readonly planner: LinkedDeviceTargetPlannerV1;
-  private readonly sourceHandoff: LinkedDeviceTargetReadyPersistencePortV1;
+  private readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
   private readonly inFlightCommits = new Map<
     string,
-    Promise<
-      | { readonly outcome: 'applied' | 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
-      | { readonly outcome: 'invalid_input'; readonly message: string }
-    >
+    Promise<TargetCredentialRegistrationSuccessV1 | { readonly outcome: 'invalid_input'; readonly message: string }>
   >();
 
   constructor(input: {
@@ -271,14 +293,14 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
     readonly emailOtpGrants?: LinkedDeviceEmailOtpGrantRegistrationPortV1;
     readonly planner: LinkedDeviceTargetPlannerV1;
-    readonly sourceHandoff: LinkedDeviceTargetReadyPersistencePortV1;
+    readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
   }) {
     this.database = input.database;
     this.scope = normalizeScope(input.scope);
     this.verifier = input.verifier;
     this.emailOtpGrants = input.emailOtpGrants ?? FAIL_CLOSED_EMAIL_OTP_REGISTRATION_PORT_V1;
     this.planner = input.planner;
-    this.sourceHandoff = input.sourceHandoff;
+    this.verifiedLinkBuilder = input.verifiedLinkBuilder;
   }
 
   async getTargetPreparationV1(input: {
@@ -341,7 +363,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<
-    | { readonly outcome: 'applied' | 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+    | TargetCredentialRegistrationSuccessV1
     | { readonly outcome: 'invalid_input'; readonly message: string }
   > {
     try {
@@ -359,7 +381,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         ) {
           throw new Error('linked-device target credential conflicts with its durable replay');
         }
-        await this.persistTargetReadyForReplayV1({
+        const verifiedLinkInput = await this.buildVerifiedLinkInputForPersistedV1({
           persisted,
           session: input.session,
           approval: input.approval,
@@ -371,10 +393,12 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
           committedAtMs: input.requestedAtMs,
         });
-        return {
+        return buildTargetCredentialRegistrationSuccessV1({
           outcome: 'replayed',
+          registration,
           keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
-        };
+          verifiedLinkInput,
+        });
       }
       if (input.requestedAtMs >= persisted.preparation.expiresAtMs) {
         throw new Error('linked-device target credential registration is expired');
@@ -400,16 +424,18 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         if (reservation.keyManifestDigestB64u !== stored.registration.keyManifestDigestB64u) {
           throw new Error('linked-device target commit reservation manifest digest changed');
         }
-        await this.persistTargetReadyForReplayV1({
+        const verifiedLinkInput = await this.buildVerifiedLinkInputForPersistedV1({
           persisted: stored,
           session: input.session,
           approval: input.approval,
           requestedAtMs: input.requestedAtMs,
         });
-        return {
+        return buildTargetCredentialRegistrationSuccessV1({
           outcome: 'replayed',
+          registration,
           keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
-        };
+          verifiedLinkInput,
+        });
       }
       if (reservation.outcome === 'waiting') {
         const completed = await this.waitForCommitV1({
@@ -450,29 +476,24 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly registrationDigestB64u: DigestB64u;
   }): Promise<
-    | { readonly outcome: 'applied' | 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+    | TargetCredentialRegistrationSuccessV1
     | { readonly outcome: 'invalid_input'; readonly message: string }
   > {
-    let externalCommitCompleted = false;
     try {
       const evidence = await this.verifyTargetFactorEvidenceV1({
         preparation: input.persisted.preparation,
         registration: input.registration,
         requestedAtMs: input.input.requestedAtMs,
       });
-      const committed = await this.planner.commitVerifiedTargetV1({
+      const verifiedLinkInput = await this.buildVerifiedLinkInputV1({
+        session: input.input.session,
+        approval: input.input.approval,
         preparation: input.persisted.preparation,
         registration: input.registration,
         evidence,
-        registrationDigestB64u: input.registrationDigestB64u,
         requestedAtMs: input.input.requestedAtMs,
       });
-      externalCommitCompleted = true;
-      const keyManifestDigestB64u = parseDigestB64u(committed.keyManifestDigestB64u);
-      const targetReady = await verifiedTargetReadyV1({
-        targetReady: committed.targetReady,
-        keyManifestDigestB64u,
-      });
+      const keyManifestDigestB64u = await digestJsonV1(verifiedLinkInput.signerManifest);
       const result = await this.persistRegisteredTargetV1({
         session: input.input.session,
         persisted: input.persisted,
@@ -484,29 +505,23 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       const stored = await this.readV1(input.input.session.linkSessionId);
       if (!stored?.registration) throw new Error('linked-device target credential did not persist');
       assertRegistrationReplay(stored, input.registration, keyManifestDigestB64u);
-      await this.persistExactTargetReadyV1({
-        targetReady,
-        session: input.input.session,
-        approval: input.input.approval,
-        requestedAtMs: input.input.requestedAtMs,
-      });
       await this.commitReservationV1({
         linkSessionId: input.input.session.linkSessionId,
         registrationDigestB64u: input.registrationDigestB64u,
         keyManifestDigestB64u,
         committedAtMs: input.input.requestedAtMs,
       });
-      return {
+      return buildTargetCredentialRegistrationSuccessV1({
         outcome: result.applied ? 'applied' : 'replayed',
+        registration: input.registration,
         keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
-      };
+        verifiedLinkInput,
+      });
     } catch (error: unknown) {
-      if (!externalCommitCompleted) {
-        await this.releaseCommitReservationV1({
-          linkSessionId: input.input.session.linkSessionId,
-          registrationDigestB64u: input.registrationDigestB64u,
-        });
-      }
+      await this.releaseCommitReservationV1({
+        linkSessionId: input.input.session.linkSessionId,
+        registrationDigestB64u: input.registrationDigestB64u,
+      });
       return { outcome: 'invalid_input', message: errorMessage(error) };
     }
   }
@@ -638,62 +653,42 @@ SELECT 1
     return { applied: d1ChangedRows(flipResult) === 1 };
   }
 
-  private async persistTargetReadyForReplayV1(input: {
+  private async buildVerifiedLinkInputForPersistedV1(input: {
     readonly persisted: PersistedTargetCredentialV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
-  }): Promise<void> {
+  }): Promise<VerifiedLinkInputV1> {
     if (!input.persisted.registration) {
       throw new Error('linked-device target credential replay is not registered');
     }
-    const existing = await this.sourceHandoff.getTargetReadyV1({
+    const verifiedLinkInput = await this.buildVerifiedLinkInputV1({
       session: input.session,
       approval: input.approval,
-      requestedAtMs: input.requestedAtMs,
-    });
-    if (existing) {
-      const digest = parseDigestB64u(
-        await computeLaneEnrollmentManifestDigestV1(existing.manifest),
-      );
-      if (digest !== input.persisted.registration.keyManifestDigestB64u) {
-        throw new Error('linked-device target-ready replay manifest digest changed');
-      }
-      return;
-    }
-    const committed = await this.planner.commitVerifiedTargetV1({
       preparation: input.persisted.preparation,
       registration: input.persisted.registration.value,
       evidence: input.persisted.registration.evidence,
-      registrationDigestB64u: await digestRegistrationV1(input.persisted.registration.value),
       requestedAtMs: input.requestedAtMs,
     });
-    const keyManifestDigestB64u = parseDigestB64u(committed.keyManifestDigestB64u);
+    const keyManifestDigestB64u = await digestJsonV1(verifiedLinkInput.signerManifest);
     if (keyManifestDigestB64u !== input.persisted.registration.keyManifestDigestB64u) {
-      throw new Error('linked-device target committer replay manifest digest changed');
+      throw new Error('linked-device source manifest replay digest changed');
     }
-    const targetReady = await verifiedTargetReadyV1({
-      targetReady: committed.targetReady,
-      keyManifestDigestB64u,
-    });
-    await this.persistExactTargetReadyV1({
-      targetReady,
-      session: input.session,
-      approval: input.approval,
-      requestedAtMs: input.requestedAtMs,
-    });
+    return verifiedLinkInput;
   }
 
-  private async persistExactTargetReadyV1(input: {
-    readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
+  private async buildVerifiedLinkInputV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
     readonly requestedAtMs: number;
-  }): Promise<void> {
-    const persisted = await this.sourceHandoff.persistTargetReadyV1(input);
-    if (alphabetizeStringify(persisted) !== alphabetizeStringify(input.targetReady)) {
-      throw new Error('linked-device target-ready persistence changed the committed manifest');
-    }
+  }): Promise<VerifiedLinkInputV1> {
+    return await buildVerifiedLinkInputV1({
+      ...input,
+      source: this.verifiedLinkBuilder.source,
+    });
   }
 
   private async finalizeReservationIfPresentV1(input: {
@@ -773,7 +768,7 @@ SELECT 1
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<
-    | { readonly outcome: 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+    | TargetCredentialRegistrationSuccessV1
     | { readonly outcome: 'invalid_input'; readonly message: string }
   > {
     for (let attempt = 0; attempt < TARGET_COMMIT_WAIT_ATTEMPTS; attempt += 1) {
@@ -784,16 +779,18 @@ SELECT 1
           input.registration,
           stored.registration.keyManifestDigestB64u,
         );
-        await this.persistTargetReadyForReplayV1({
+        const verifiedLinkInput = await this.buildVerifiedLinkInputForPersistedV1({
           persisted: stored,
           session: input.session,
           approval: input.approval,
           requestedAtMs: input.requestedAtMs,
         });
-        return {
+        return buildTargetCredentialRegistrationSuccessV1({
           outcome: 'replayed',
+          registration: input.registration,
           keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
-        };
+          verifiedLinkInput,
+        });
       }
       const reservation = await this.readCommitReservationV1(input.linkSessionId);
       if (!reservation || reservation.registrationDigestB64u !== input.registrationDigestB64u) {
@@ -1095,20 +1092,6 @@ async function parseTargetCredentialRow(
   };
 }
 
-async function verifiedTargetReadyV1(input: {
-  readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
-  readonly keyManifestDigestB64u: DigestB64u;
-}): Promise<LinkedDeviceTargetReadyR102InputV1> {
-  const targetReady = parseLinkedDeviceTargetReadyR102InputV1(input.targetReady);
-  const manifestDigestB64u = parseDigestB64u(
-    await computeLaneEnrollmentManifestDigestV1(targetReady.manifest),
-  );
-  if (manifestDigestB64u !== input.keyManifestDigestB64u) {
-    throw new Error('linked-device target committer manifest digest differs from target-ready');
-  }
-  return targetReady;
-}
-
 function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSessionScopeV1 {
   return {
     namespace: requiredScope(scope.namespace, 'namespace'),
@@ -1153,6 +1136,10 @@ async function digestRegistrationV1(
       ),
     ),
   );
+}
+
+async function digestJsonV1(value: unknown): Promise<DigestB64u> {
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(value))));
 }
 
 async function waitForTargetCommitV1(delayMs: number): Promise<void> {
