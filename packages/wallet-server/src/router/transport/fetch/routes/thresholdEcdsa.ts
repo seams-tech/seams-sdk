@@ -158,13 +158,6 @@ type VerifiedOwnerWalletSessionProof = Extract<
 >;
 import { hashEmailOtpOperationBinding } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
-import { handleLinkedDeviceEcdsaNormalSigning } from './linkedDeviceNormalSigning';
-import {
-  handleLinkedDeviceEcdsaPresign,
-  ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH,
-} from './linkedDeviceEcdsaPresign';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
@@ -2663,22 +2656,12 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
     pathname !== ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH &&
-    pathname !== ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH &&
-    pathname !== ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH &&
-    pathname !== ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH &&
-    pathname !== ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH
+    pathname !== ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH
   ) {
     return null;
   }
 
   const bodyUnknown = await readJson(ctx.request.clone());
-  if (
-    pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_EXPORT_SHARE_PATH ||
-    pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_INIT_PATH ||
-    pathname === ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_PRESIGN_STEP_PATH
-  ) {
-    return await handleLinkedDeviceEcdsaPresign(ctx);
-  }
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH) {
     let request: RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire;
     try {
@@ -2721,12 +2704,6 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
       ? (bodyUnknown as Record<string, unknown>)
       : {};
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH) {
-    const linked = await handleLinkedDeviceEcdsaNormalSigning({
-      ctx,
-      body,
-      phase: 'prepare',
-    });
-    if (linked) return linked;
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
@@ -2735,12 +2712,6 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
   }
 
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH) {
-    const linked = await handleLinkedDeviceEcdsaNormalSigning({
-      ctx,
-      body,
-      phase: 'finalize',
-    });
-    if (linked) return linked;
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,

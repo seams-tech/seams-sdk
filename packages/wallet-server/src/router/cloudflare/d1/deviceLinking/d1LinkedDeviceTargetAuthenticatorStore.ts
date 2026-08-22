@@ -2,14 +2,10 @@ import type {
   WebAuthnAuthenticatorRecord,
   WebAuthnAuthenticatorStore,
 } from '../../../../core/WebAuthnAuthenticatorStore';
-import { verifyWebAuthnAuthenticationLiteWithStore } from '../../../../core/authService/webauthn';
-import type { NormalizedLogger } from '../../../../core/logger';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import { d1ChangedRows } from '../../../../storage/d1Sql';
-import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../../../auth/linkedDeviceLocalPresenceVerifier';
-import type { D1LinkedDeviceCredentialResolverV1 } from './d1LinkedDeviceExecutionAdmissionResolver';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
-import { parseWebAuthnCredentialIdB64u, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 
 type TargetAuthenticatorRowV1 = {
@@ -26,23 +22,8 @@ type TargetIdentityV1 = {
 
 const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
 
-export function createD1LinkedDeviceCredentialResolverV1(input: {
-  readonly database: D1DatabaseLike;
-  readonly scope: D1LinkedDeviceSessionScopeV1;
-}): D1LinkedDeviceCredentialResolverV1 {
-  return {
-    readLinkedDeviceCredentialIdV1: async (target) =>
-      await new D1LinkedDeviceTargetAuthenticatorStoreV1({
-        database: input.database,
-        scope: input.scope,
-        enrollmentId: target.enrollmentId,
-        deviceId: target.deviceId,
-      }).readLinkedDeviceCredentialIdV1(target),
-  };
-}
-
 export class D1LinkedDeviceTargetAuthenticatorStoreV1
-  implements WebAuthnAuthenticatorStore, D1LinkedDeviceCredentialResolverV1
+  implements WebAuthnAuthenticatorStore
 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
@@ -60,24 +41,6 @@ export class D1LinkedDeviceTargetAuthenticatorStoreV1
       enrollmentId: requiredText(input.enrollmentId, 'enrollmentId'),
       deviceId: requiredText(input.deviceId, 'deviceId'),
     };
-  }
-
-  async readLinkedDeviceCredentialIdV1(input: {
-    readonly walletId: string;
-    readonly enrollmentId: string;
-    readonly deviceId: string;
-  }): Promise<string | null> {
-    if (
-      String(input.enrollmentId) !== this.target.enrollmentId ||
-      String(input.deviceId) !== this.target.deviceId
-    ) {
-      return null;
-    }
-    const row = await this.readRegisteredRow({
-      walletId: String(input.walletId),
-      credentialIdB64u: null,
-    });
-    return row ? String(row.credential_id_b64u) : null;
   }
 
   async get(userId: string, credentialIdB64u: string): Promise<WebAuthnAuthenticatorRecord | null> {
@@ -158,38 +121,6 @@ export class D1LinkedDeviceTargetAuthenticatorStoreV1
       .bind(...bindings)
       .first<TargetAuthenticatorRowV1>();
   }
-}
-
-export function createD1LinkedDeviceLocalPresenceVerifierV1(input: {
-  readonly database: D1DatabaseLike;
-  readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly rpId: WebAuthnRpId;
-  readonly expectedOrigin: string;
-  readonly logger: NormalizedLogger;
-  readonly nowMs: () => number;
-}): LinkedDeviceLocalPresenceVerifierPortV1 {
-  return {
-    verify: async (assertion) => {
-      const store = new D1LinkedDeviceTargetAuthenticatorStoreV1({
-        database: input.database,
-        scope: input.scope,
-        enrollmentId: assertion.enrollmentId,
-        deviceId: assertion.deviceId,
-      });
-      const verification = await verifyWebAuthnAuthenticationLiteWithStore({
-        userId: `linked-device:${assertion.deviceId}`,
-        rpId: input.rpId,
-        expectedChallenge: String(assertion.challengeDigestB64u),
-        webauthnAuthentication: assertion.assertion,
-        expectedOrigin: input.expectedOrigin,
-        authenticatorStore: store,
-        logger: input.logger,
-      });
-      return verification.success && verification.verified
-        ? { kind: 'verified', verifiedAtMs: input.nowMs() }
-        : { kind: 'refused', reason: 'assertion_invalid' };
-    },
-  };
 }
 
 function parseTargetAuthenticatorRow(row: TargetAuthenticatorRowV1): WebAuthnAuthenticatorRecord {

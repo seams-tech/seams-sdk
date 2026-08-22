@@ -428,8 +428,8 @@ function assertPreparationInput(
   if (
     session.state.state !== 'awaiting_target_factor' ||
     session.linkSessionId !== approval.linkSessionId ||
-    session.state.walletId !== approval.walletId ||
-    session.state.enrollmentId !== approval.enrollmentId ||
+    session.claimTranscript?.value.walletId !== approval.walletId ||
+    session.claimTranscript?.value.enrollmentId !== approval.enrollmentId ||
     requestedAtMs < approval.approvedAtMs ||
     requestedAtMs >= approval.expiresAtMs
   ) {

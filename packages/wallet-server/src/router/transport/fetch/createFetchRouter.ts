@@ -39,26 +39,18 @@ import {
   handleDeviceManagement,
   LINKED_DEVICE_MANAGEMENT_BASE_V1,
 } from './routes/deviceManagement';
-import {
-  handleDeviceLinkingGatewayCompletion,
-  LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1,
-} from './routes/deviceLinkingGateway';
 import { handleDeviceLinkingOwnerAuthorization } from './routes/deviceLinkingOwnerAuthorization';
-import { handleDeviceLinkingLaneGateway } from './routes/deviceLinkingLaneGateway';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
 import type {
   SigningSessionSealAuthorizeInput,
   SigningSessionSealAuthorizeResult,
   SigningSessionSealCurve,
-  SigningSessionSealLinkedDeviceWalletSessionRecord,
   SigningSessionSealThresholdSessionRecord,
 } from '../../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { resolveOpaqueOwnerWalletSessionAdmission } from '../../auth/commonRouterUtils';
-import { parseLinkedDeviceWalletSession } from '../../domains/signingOperations/linkedDeviceNormalSigning';
-import { sameDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
@@ -162,55 +154,6 @@ async function authorizeSigningSessionSealWithOpaqueWalletSession(
     }
     return { ok: true, auth: { userId: thresholdSession.userId, session: thresholdSession } };
   }
-  const linked = await parseLinkedDeviceWalletSession({
-    session,
-    headers: input.headers,
-  });
-  if (linked.kind === 'linked_device') {
-    if (String(linked.claims.walletSessionId) !== input.thresholdSessionId) {
-      return {
-        ok: false,
-        code: 'wallet_session_scope_mismatch',
-        message: 'Wallet Session does not match the requested linked-device session',
-        status: 403,
-      };
-    }
-    const persisted = await authorizationSessions.readLinkedDeviceWalletSessionAuthorization({
-      tenantId: linked.claims.tenantId,
-      deviceId: linked.claims.deviceId,
-      authorizationId: linked.claims.authorizationId,
-      walletSessionId: linked.claims.walletSessionId,
-      quotaId: linked.claims.quotaId,
-      nowMs: Date.now(),
-    });
-    const authorization = persisted?.authorization;
-    if (
-      !authorization ||
-      authorization.walletId !== linked.claims.walletId ||
-      authorization.enrollmentId !== linked.claims.enrollmentId ||
-      authorization.deviceId !== linked.claims.deviceId ||
-      authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
-      authorization.revocationEpoch !== linked.claims.revocationEpoch ||
-      !sameDelegatedWalletAuthorityV1(authorization.permission, linked.claims.permission)
-    ) {
-      return {
-        ok: false,
-        code: 'wallet_session_unavailable',
-        message: 'Linked-device Wallet Session is unavailable',
-        status: 401,
-      };
-    }
-    const linkedSession: SigningSessionSealLinkedDeviceWalletSessionRecord = {
-      kind: 'linked_device_wallet_session',
-      userId: String(linked.claims.walletId),
-      walletSessionId: String(linked.claims.walletSessionId),
-      deviceId: String(linked.claims.deviceId),
-      enrollmentId: String(linked.claims.enrollmentId),
-      expiresAtMs: Math.min(linked.claims.expiresAtMs, persisted.quota.expiresAtMs),
-      remainingUses: persisted.quota.remainingUses,
-    };
-    return { ok: true, auth: { userId: linkedSession.userId, session: linkedSession } };
-  }
   return {
     ok: false,
     code: 'wallet_session_unavailable',
@@ -264,28 +207,11 @@ export function createFetchRouter(
   const handlers: Array<(c: FetchRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleWalletRegistration,
-    async (context: FetchRouterApiContext) => {
-      if (!context.pathname.startsWith(LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1)) return null;
-      const service = context.service.deviceLinkingGateway;
-      if (!service) {
-        return json(
-          {
-            ok: false,
-            code: 'not_supported',
-            message: 'Linked-device Gateway completion is not configured',
-          },
-          { status: 501 },
-        );
-      }
-      return await handleDeviceLinkingGatewayCompletion(context, service);
-    },
     async (context: FetchRouterApiContext) =>
       await handleDeviceLinkingOwnerAuthorization(
         context,
         context.service.deviceLinkingOwnerAuthorization,
       ),
-    async (context: FetchRouterApiContext) =>
-      await handleDeviceLinkingLaneGateway(context, context.service.deviceLinkingLaneGateway),
     handleDeviceLinking,
     async (context: FetchRouterApiContext) => {
       if (!context.pathname.startsWith(LINKED_DEVICE_MANAGEMENT_BASE_V1)) return null;

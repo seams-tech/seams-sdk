@@ -80,7 +80,6 @@ import type {
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
-import { handleLinkedDeviceEd25519NormalSigning } from './linkedDeviceNormalSigning';
 import {
   parseEmailOtpChallengeId,
   parseWalletId,
@@ -2119,14 +2118,6 @@ export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promis
 
   switch (pathname) {
     case ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH:
-      {
-        const linked = await handleLinkedDeviceEd25519NormalSigning({
-          ctx,
-          body,
-          phase: 'prepare',
-        });
-        if (linked) return linked;
-      }
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -2134,14 +2125,6 @@ export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promis
       });
 
     case ROUTER_AB_ED25519_NORMAL_SIGNING_PATH:
-      {
-        const linked = await handleLinkedDeviceEd25519NormalSigning({
-          ctx,
-          body,
-          phase: 'finalize',
-        });
-        if (linked) return linked;
-      }
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,

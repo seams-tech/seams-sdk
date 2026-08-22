@@ -34,18 +34,6 @@ export {
   type DeviceLinkingOwnerAuthorizationRouteServiceV1,
   type DeviceLinkingOwnerWalletSessionContextV1,
 } from './router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
-export {
-  LINKED_DEVICE_GATEWAY_LANE_BASE_V1,
-  LINKED_DEVICE_GATEWAY_LANE_PATHS_V1,
-  type DeviceLinkingLaneGatewayPortV1,
-  type DeviceLinkingLaneGatewayRequestV1,
-  type DeviceLinkingLaneGatewayResponseV1,
-  type DeviceLinkingLaneGatewayRouteServiceV1,
-  type DeviceLinkingLaneProtocolCommitRequestV1,
-  type DeviceLinkingLaneProtocolCommitResultV1,
-  type DeviceLinkingLaneCeremonyBindingRequestV1,
-  type DeviceLinkingLaneCeremonyBindingResponseV1,
-} from './router/transport/fetch/routes/deviceLinkingLaneGateway';
 export type {
   DeviceLinkingAuthDeniedV1,
   DeviceLinkingRouteServiceV1,

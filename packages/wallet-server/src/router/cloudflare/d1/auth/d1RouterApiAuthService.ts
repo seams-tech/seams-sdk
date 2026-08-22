@@ -1,5 +1,3 @@
-import type { FinalizeWalletAddAuthMethodCommand } from '../../../framework/authServicePort';
-import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/registrationContracts';
 import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
@@ -63,14 +61,12 @@ import type {
 } from '../../../../core/types';
 import type {
   RouterApiServiceBag,
-  RouterApiWalletRegistrationService,
 } from '../../../framework/authServicePort';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
-import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
@@ -142,49 +138,13 @@ import {
 } from './d1RouterApiAuthConfig';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
-import { createD1LinkedDeviceManagementRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementRouteService';
-import {
-  D1LinkedDeviceManagementStoreV1,
-  D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1,
-} from '../deviceLinking/d1LinkedDeviceManagementStore';
-import {
-  AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
-  D1LinkedDeviceOwnerCredentialRevocationV1,
-  D1LinkedDeviceRevocationPreparationV1,
-  D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
-} from '../deviceLinking/d1LinkedDeviceManagementComposition';
-import { createD1LinkedDeviceGatewayCompletionServiceV1 } from '../deviceLinking/d1LinkedDeviceGatewayCompletionService';
-import {
-  D1LinkedDeviceTargetCredentialProviderV1,
-  LinkedDeviceWebAuthnRegistrationVerifierV1,
-} from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
-import { D1LinkedDeviceOwnerPlanningSnapshotStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
-import { D1LinkedDeviceOwnerPlanningSnapshotWriterV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotWriter';
-import { D1LinkedDeviceOwnerPlanningDeploymentV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningDeployment';
-import { createD1LinkedDeviceOwnerAuthorizationProviderV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
-import { D1LinkedDeviceProvisioningProviderV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
-import { D1LinkedDeviceSourceHandoffProviderV1 } from '../deviceLinking/d1LinkedDeviceSourceHandoffProvider';
-import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../deviceLinking/linkedDeviceR102ProvisioningExecution';
-import {
-  createD1LinkedDeviceCredentialResolverV1,
-  createD1LinkedDeviceLocalPresenceVerifierV1,
-} from '../deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
-import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
 import {
   D1LinkedDeviceEmailOtpGrantStoreV1,
-  createLinkedDeviceEmailOtpRegistrationPortV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
 import {
   D1LinkedDeviceEmailOtpTargetFactorV1,
   linkedDeviceEmailOtpBaseFactorReaderV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpTargetFactor';
-import { D1LinkedDeviceLocalStateInvalidationV1 } from '../deviceLinking/d1LinkedDeviceLocalStateInvalidation';
-import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
-import { CloudflareD1LaneEnrollmentGateway } from '../signingLanes/d1LaneEnrollmentGateway';
-import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../signingLanes/d1LaneAggregateRevocationApplicationService';
-import { createCloudflareD1LaneLifecycleApplicationService } from '../signingLanes/d1LaneLifecycleApplicationService';
-import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
-import { createD1LinkedDeviceLaneRuntimeV1 } from '../signingLanes/d1LinkedDeviceLaneRuntime';
 import { createDeviceLinkingOwnerRequestAuthenticatorV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 
 export type {
@@ -193,11 +153,7 @@ export type {
   CloudflareD1EmailOtpDeliveryProviderResult,
   CloudflareD1EmailOtpServerSealConfig,
   CloudflareD1LinkedDeviceCompositionOptionsV1,
-  CloudflareD1LinkedDeviceExecutionOptionsV1,
-  CloudflareD1LinkedDeviceLaneRuntimeOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
-  CloudflareD1LinkedDeviceManagementOptionsV1,
-  CloudflareD1LinkedDeviceGatewayOptionsV1,
   CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
 
@@ -264,11 +220,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly deviceLinking?: RouterApiServiceBag['deviceLinking'];
   readonly deviceManagement?: RouterApiServiceBag['deviceManagement'];
-  readonly linkedDeviceExecution?: RouterApiServiceBag['linkedDeviceExecution'];
-  readonly linkedDeviceLocalPresence?: RouterApiServiceBag['linkedDeviceLocalPresence'];
-  readonly deviceLinkingGateway?: RouterApiServiceBag['deviceLinkingGateway'];
   readonly deviceLinkingOwnerAuthorization?: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
-  readonly deviceLinkingLaneGateway?: RouterApiServiceBag['deviceLinkingLaneGateway'];
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -327,31 +279,12 @@ type D1LinkedDeviceCompositionAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
   | 'deviceLinking'
   | 'deviceManagement'
-  | 'linkedDeviceExecution'
-  | 'linkedDeviceLocalPresence'
-  | 'deviceLinkingGateway'
   | 'deviceLinkingOwnerAuthorization'
-  | 'deviceLinkingLaneGateway'
 >;
 
 function createD1LinkedDeviceComposition(input: {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
   readonly authorizationSessions: RouterApiServiceBag['authorizationSessions'];
-  readonly walletStore: D1WalletStore;
-  readonly walletRegistration: Pick<
-    RouterApiWalletRegistrationService,
-    'resolveActiveOwnerWalletExecutionLane' | 'listWalletEcdsaCustodyContinuity'
-  >;
-  readonly authorization: Pick<
-    CloudflareD1AuthorizationStore,
-    'readClaimedLinkedDeviceWalletSessionAuthorization'
-  >;
-  /**
-   * The registration ceremony store, read back so an approval's owner
-   * enrollment is proved to be the server's own ceremony before its digest
-   * seals it.
-   */
-  readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
   /**
    * Refactor 103 Phase 6: the R100 Email OTP pieces the linked-device Email
    * OTP target factor composes. Left absent, `email_otp` linking fails closed
@@ -366,26 +299,6 @@ function createD1LinkedDeviceComposition(input: {
     };
     readonly serverSeal: Pick<CloudflareD1EmailOtpServerSealRuntime, 'removeEmailOtpServerSeal'>;
   };
-  /** The canonical add-auth-method service the linked finalize reuses. */
-  readonly walletAuthMethods: {
-    finalizeWalletAddAuthMethod(
-      command: FinalizeWalletAddAuthMethodCommand,
-      atomicCompanionStatements: readonly D1PreparedStatementLike[],
-    ): Promise<WalletAddAuthMethodFinalizeResponse>;
-    revokeWalletAuthMethodForOwnerSessionV1(input: {
-      readonly walletId: import('@shared/utils/domainIds').WalletId;
-      readonly walletAuthMethodId: import('@shared/utils/domainIds').WalletAuthMethodId;
-      readonly requestedAtMs: number;
-    }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }>;
-  };
-  readonly authorizationService: Pick<
-    AuthorizationService,
-    | 'getLinkedDeviceWalletSessionStatus'
-    | 'issueLinkedDeviceWalletSession'
-    | 'readLinkedDeviceWalletSessionAuthorization'
-    | 'renewLinkedDeviceWalletSession'
-    | 'revokeLinkedDeviceWalletSession'
-  >;
 }): D1LinkedDeviceCompositionAssembly {
   const config = input.options.linkedDevice;
   if (!config) return {};
@@ -396,101 +309,17 @@ function createD1LinkedDeviceComposition(input: {
     projectId: input.options.projectId,
     envId: input.options.envId,
   };
-  const credentials = createD1LinkedDeviceCredentialResolverV1({
-    database: input.options.database,
-    scope,
-  });
-  const linkedOwnerAuthBindings = new D1LinkedDeviceOwnerAuthBindingStoreV1({
-    database: input.options.database,
-    scope,
-  });
-  const linkedDeviceExecution = new D1LinkedDeviceExecutionAdmissionResolverV1({
-    database: input.options.database,
-    scope,
-    authorization: input.authorization,
-    credentials,
-    ownerAuthBindings: linkedOwnerAuthBindings,
-    nowV1: config.execution.nowV1,
-  });
-  const linkedDeviceLocalPresence = createD1LinkedDeviceLocalPresenceVerifierV1({
-    database: input.options.database,
-    scope,
-    rpId: config.execution.rpId,
-    expectedOrigin: config.execution.expectedOrigin,
-    logger: config.execution.logger,
-    nowMs: config.execution.nowV1,
-  });
-
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
   let deviceManagement: RouterApiServiceBag['deviceManagement'];
-  let laneRuntime: ReturnType<typeof createD1LinkedDeviceLaneRuntimeV1> | undefined;
   let ownerAuthorizationRoute: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
-  let ownerRequestAuthenticator:
-    | ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1>
-    | undefined;
   if (config.session) {
-    const tenantId = parseTenantId(input.options.orgId);
-    if (!tenantId.ok) {
-      throw new Error(
-        `orgId cannot identify a linked-device authorization tenant: ${tenantId.error.message}`,
-      );
-    }
-    const ownerMetadata = new D1LinkedDeviceOwnerPlanningSnapshotStoreV1({
-      database: input.options.database,
-      scope,
-      walletRegistration: input.walletRegistration,
-      nowV1: config.execution.nowV1,
-    });
-    const ownerPlanningWriter = new D1LinkedDeviceOwnerPlanningSnapshotWriterV1({
-      snapshotStore: ownerMetadata,
-      walletRegistration: input.walletRegistration,
-      deployment: new D1LinkedDeviceOwnerPlanningDeploymentV1({
-        walletSource: input.walletStore,
-      }),
-    });
-    const ownerAuthorizationProvider = createD1LinkedDeviceOwnerAuthorizationProviderV1({
-      walletRegistration: input.walletRegistration,
-      metadata: ownerMetadata,
-      targetPlanner: {
-        targetDeploymentDescriptorProvider: config.session.targetDeploymentDescriptorProvider,
-      },
-      planningWriter: ownerPlanningWriter,
-      nowV1: config.execution.nowV1,
-    });
-    ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
+    const nowV1 = config.session.nowV1 ?? Date.now;
+    const ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
       authorizationSessions: input.authorizationSessions,
-      nowV1: config.execution.nowV1,
+      nowV1,
     });
-    ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
-    const sourceHandoff = new D1LinkedDeviceSourceHandoffProviderV1({
-      database: input.options.database,
-      scope,
-    });
-    laneRuntime = createD1LinkedDeviceLaneRuntimeV1({
-      database: input.options.database,
-      scope,
-      nowV1: config.execution.nowV1,
-      walletRegistration: input.walletRegistration,
-      authenticateOwnerRequestV1: ownerRequestAuthenticator,
-      ...config.session.laneRuntime,
-    });
-    const laneStoreOptions = {
-      database: input.options.database,
-      scope,
-      now: config.execution.nowV1,
-    };
-    const laneLifecycleStore = new CloudflareD1LaneLifecycleStore(laneStoreOptions);
-    const laneGateway = new CloudflareD1LaneEnrollmentGateway({
-      lifecycleStore: laneLifecycleStore,
-    });
-    const laneLifecycle = createCloudflareD1LaneLifecycleApplicationService({
-      ...laneStoreOptions,
-      ...laneRuntime.laneLifecycle,
-    });
+    ownerAuthorizationRoute = config.session.ownerAuthorizationRoute;
     let emailOtpTargetFactor: D1LinkedDeviceEmailOtpTargetFactorV1 | undefined;
-    let emailOtpRegistrationPort:
-      | ReturnType<typeof createLinkedDeviceEmailOtpRegistrationPortV1>
-      | undefined;
     if (input.emailOtpLinkedDevice) {
       const linkedEmailOtpGrants = new D1LinkedDeviceEmailOtpGrantStoreV1({
         database: input.options.database,
@@ -504,45 +333,11 @@ function createD1LinkedDeviceComposition(input: {
         serverSeal: input.emailOtpLinkedDevice.serverSeal,
         grants: linkedEmailOtpGrants,
       });
-      emailOtpRegistrationPort = createLinkedDeviceEmailOtpRegistrationPortV1({
-        grants: linkedEmailOtpGrants,
-        bindingWriter: linkedOwnerAuthBindings,
-        resolveBaseEmailOtpFactorV1:
-          emailOtpTargetFactor.resolveBaseEmailOtpFactorForCompletionV1(),
-        tenantId: tenantId.value,
-      });
     }
-    const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
-      database: input.options.database,
-      scope,
-      verifier: new LinkedDeviceWebAuthnRegistrationVerifierV1({
-        expectedOrigin: config.execution.expectedOrigin,
-      }),
-      ...(emailOtpRegistrationPort === undefined
-        ? {}
-        : { emailOtpGrants: emailOtpRegistrationPort }),
-      planner: ownerAuthorizationProvider.targetPlanner,
-      sourceHandoff,
-    });
-    const provisioning = new D1LinkedDeviceProvisioningProviderV1({
-      database: input.options.database,
-      scope,
-      execution: createLinkedDeviceR102ProvisioningExecutionV1({
-        sourcePreparation: sourceHandoff,
-        gateway: laneGateway,
-        lifecycle: laneLifecycle,
-        products: laneLifecycleStore,
-      }),
-    });
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
       scope,
-      tenantId: tenantId.value,
-      expectedOrigin: config.execution.expectedOrigin,
-      walletAuthMethods: input.walletAuthMethods,
-      authorizationService: input.authorizationService,
-      ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
-      ownerEnrollmentCeremonies: input.ownerEnrollmentCeremonies,
+      ownerAuthorization: config.session.ownerAuthorization,
       ...(emailOtpTargetFactor === undefined
         ? {}
         : {
@@ -550,112 +345,19 @@ function createD1LinkedDeviceComposition(input: {
             emailOtpTargetFactor,
           }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
-      linkedDeviceLocalPresence,
-      targetCredential,
-      provisioning,
-      sourceHandoff,
-      nowV1: config.execution.nowV1,
+      targetCredential: config.session.targetCredential,
+      nowV1,
     });
-  }
-
-  if (config.management) {
-    const sessionConfig = config.session;
-    if (!deviceLinking || !sessionConfig) {
-      throw new Error('linked-device management requires linked-device session composition');
-    }
-    const managementTenantId = parseTenantId(input.options.orgId);
-    if (!managementTenantId.ok) {
-      throw new Error(
-        `orgId cannot identify a linked-device management tenant: ${managementTenantId.error.message}`,
-      );
-    }
-    const metadataSource = new D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1({
-      database: input.options.database,
-      scope,
-    });
-    const preparation = new D1LinkedDeviceRevocationPreparationV1(metadataSource);
-    const metadata = new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
-      database: input.options.database,
-      scope,
-      tenantId: managementTenantId.value,
-    });
-    const managementProjection = new D1LinkedDeviceManagementStoreV1({
-      database: input.options.database,
-      scope,
-      metadata,
-    });
-    const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
-      input.authorizationService,
-    );
-    if (!laneRuntime) {
-      throw new Error('linked-device management requires linked-device lane runtime');
-    }
-    const laneStoreOptions = {
-      database: input.options.database,
-      scope,
-      now: config.execution.nowV1,
-    };
-    deviceManagement = createD1LinkedDeviceManagementRouteServiceV1({
-      database: input.options.database,
-      scope,
-      metadata,
-      preparation,
-      aggregateRevocation: createCloudflareD1LaneAggregateRevocationApplicationService({
-        ...laneStoreOptions,
-        ...laneRuntime.laneLifecycle,
-      }),
-      ownerCredentialRevocation: new D1LinkedDeviceOwnerCredentialRevocationV1(
-        input.walletAuthMethods,
-      ),
-      walletSessionRevocation,
-      localStateInvalidation: new D1LinkedDeviceLocalStateInvalidationV1({
-        projection: managementProjection,
-      }),
-      nowV1: config.execution.nowV1,
-      authenticateOwnerRequestV1: requireOwnerRequestAuthenticator(ownerRequestAuthenticator),
-    });
-  }
-
-  let deviceLinkingGateway: RouterApiServiceBag['deviceLinkingGateway'];
-  if (config.gateway) {
-    const laneLifecycle = new CloudflareD1LaneLifecycleStore({
-      database: input.options.database,
-      scope,
-      now: config.execution.nowV1,
-    });
-    deviceLinkingGateway = createD1LinkedDeviceGatewayCompletionServiceV1({
-      database: input.options.database,
-      scope,
-      ownerAuthorization: config.gateway.ownerAuthorization,
-      ownerEnrollmentCeremonies: input.ownerEnrollmentCeremonies,
-      laneLifecycle,
-      nowV1: config.execution.nowV1,
-      authenticateGatewayRequestV1: config.gateway.authenticateGatewayRequestV1,
-    });
+    deviceManagement = config.session.management;
   }
 
   return {
-    linkedDeviceExecution,
-    linkedDeviceLocalPresence,
     ...(deviceLinking === undefined ? {} : { deviceLinking }),
     ...(deviceManagement === undefined ? {} : { deviceManagement }),
-    ...(deviceLinkingGateway === undefined ? {} : { deviceLinkingGateway }),
     ...(ownerAuthorizationRoute === undefined
       ? {}
       : { deviceLinkingOwnerAuthorization: ownerAuthorizationRoute }),
-    ...(laneRuntime === undefined
-      ? {}
-      : { deviceLinkingLaneGateway: laneRuntime.laneGatewayRoute }),
   };
-}
-
-function requireOwnerRequestAuthenticator(
-  authenticator: ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1> | undefined,
-): ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1> {
-  if (!authenticator) {
-    throw new Error('linked-device owner request authentication is not configured');
-  }
-  return authenticator;
 }
 
 class CloudflareD1SignedDelegateExecutor {
@@ -1670,16 +1372,6 @@ function createCloudflareD1RouterApiAuthAssembly(
       getEd25519KeyManifestBySlot: readD1Ed25519KeyManifestBySlot.bind(undefined, walletStore),
     },
   });
-  const linkedDeviceWalletRegistrationProjection: Pick<
-    RouterApiWalletRegistrationService,
-    'resolveActiveOwnerWalletExecutionLane' | 'listWalletEcdsaCustodyContinuity'
-  > = {
-    resolveActiveOwnerWalletExecutionLane: resolveD1ActiveOwnerWalletExecutionLane.bind(
-      undefined,
-      new D1WalletExecutionLaneProjectionSource(walletAuthMethodStore, walletStore),
-    ),
-    listWalletEcdsaCustodyContinuity: walletStore.listEcdsaSignersForWallet.bind(walletStore),
-  };
   const emailOtpChallenges = new CloudflareD1EmailOtpChallengeStore({
     database: options.database,
     namespace: options.namespace,
@@ -1743,22 +1435,11 @@ function createCloudflareD1RouterApiAuthAssembly(
       `orgId cannot identify an authorization tenant: ${authorizationTenantId.error.message}`,
     );
   }
-  const linkedDeviceOwnerAuthBindingStore = new D1LinkedDeviceOwnerAuthBindingStoreV1({
-    database: options.database,
-    scope: {
-      namespace: options.namespace,
-      orgId: options.orgId,
-      projectId: options.projectId,
-      envId: options.envId,
-    },
-  });
   const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
     emailOtpChallengeVerifier,
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
-    linkedDeviceOwnerAuthBindings: linkedDeviceOwnerAuthBindingStore,
-    linkedDeviceOwnerAuthBindingStore,
     revokeOwnerWalletSessions: (sessionInput) =>
       authorizationService.revokeReusableWalletSessionsForAuthMethod({
         tenantId: authorizationTenantId.value,
@@ -1849,7 +1530,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   // target factor reuses this deployment's exact issuer, verifier, enrollment
   // store, and server-seal runtime — never a second OTP implementation.
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
-    ownerEnrollmentCeremonies: getRegistrationCeremonyIntentStore(),
     emailOtpLinkedDevice: {
       issuer: emailOtpChallengeIssuer,
       verifier: emailOtpChallengeVerifier,
@@ -1857,21 +1537,11 @@ function createCloudflareD1RouterApiAuthAssembly(
       walletAuthMethodStore,
       serverSeal: emailOtpServerSeal,
     },
-    walletAuthMethods: {
-      finalizeWalletAddAuthMethod: (command, atomicCompanionStatements) =>
-        walletAuthMethods.finalizeWalletAddAuthMethod(command, atomicCompanionStatements),
-      revokeWalletAuthMethodForOwnerSessionV1: (command) =>
-        walletAuthMethods.revokeWalletAuthMethodForOwnerSessionV1(command),
-    },
     options,
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,
       options,
     }),
-    walletStore,
-    walletRegistration: linkedDeviceWalletRegistrationProjection,
-    authorization: authorizationStore,
-    authorizationService,
   });
 
   return {
@@ -2027,10 +1697,6 @@ function createD1WalletAuthMethodRouteService(
     verifyActiveEmailOtpAuthority: assembly.walletAuthMethods.verifyActiveEmailOtpAuthority.bind(
       assembly.walletAuthMethods,
     ),
-    verifyActiveLinkedEmailOtpAuthority:
-      assembly.walletAuthMethods.verifyActiveLinkedEmailOtpAuthority.bind(
-        assembly.walletAuthMethods,
-      ),
     resolveActiveEmailOtpAuthorityForVerifiedSubject:
       assembly.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(
         assembly.walletAuthMethods,
@@ -2235,14 +1901,6 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.readReusableWalletSessionStatus.bind(
         assembly.authorizationService,
       ),
-    readLinkedDeviceWalletSessionAuthorization:
-      assembly.authorizationService.readLinkedDeviceWalletSessionAuthorization.bind(
-        assembly.authorizationService,
-      ),
-    renewLinkedDeviceWalletSession:
-      assembly.authorizationService.renewLinkedDeviceWalletSession.bind(
-        assembly.authorizationService,
-      ),
     mintHostedWalletSeamsSessionExchange:
       assembly.authorizationService.mintHostedWalletSeamsSessionExchange.bind(
         assembly.authorizationService,
@@ -2345,20 +2003,8 @@ export function createCloudflareD1RouterApiAuthService(
     ...(assembly.deviceManagement === undefined
       ? {}
       : { deviceManagement: assembly.deviceManagement }),
-    ...(assembly.linkedDeviceExecution === undefined
-      ? {}
-      : { linkedDeviceExecution: assembly.linkedDeviceExecution }),
-    ...(assembly.linkedDeviceLocalPresence === undefined
-      ? {}
-      : { linkedDeviceLocalPresence: assembly.linkedDeviceLocalPresence }),
-    ...(assembly.deviceLinkingGateway === undefined
-      ? {}
-      : { deviceLinkingGateway: assembly.deviceLinkingGateway }),
     ...(assembly.deviceLinkingOwnerAuthorization === undefined
       ? {}
       : { deviceLinkingOwnerAuthorization: assembly.deviceLinkingOwnerAuthorization }),
-    ...(assembly.deviceLinkingLaneGateway === undefined
-      ? {}
-      : { deviceLinkingLaneGateway: assembly.deviceLinkingLaneGateway }),
   };
 }
