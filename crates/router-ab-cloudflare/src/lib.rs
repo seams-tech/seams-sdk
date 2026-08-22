@@ -29,6 +29,7 @@ pub use ed25519_yao_signing_worker::{
     handle_cloudflare_signing_worker_ed25519_yao_deactivate_reservation_v1,
     handle_cloudflare_signing_worker_ed25519_yao_packages_v1,
     handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1,
+    handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_source_preserving_v1,
     handle_cloudflare_signing_worker_ed25519_yao_reserve_inactive_v1,
     CloudflareEd25519YaoActivateReservationRequestV1,
     CloudflareEd25519YaoDeactivateReservationRequestV1,
@@ -37,11 +38,13 @@ pub use ed25519_yao_signing_worker::{
     CloudflareEd25519YaoRecoveryPromotionRequestV1,
     CloudflareEd25519YaoReservationActivationResponseV1,
     CloudflareEd25519YaoReservationDeactivationResponseV1,
+    CloudflareEd25519YaoSourcePreservingInactiveReservationRequestV1,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_ACTIVATE_RESERVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_DEACTIVATE_RESERVATION_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_PATH,
+    CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RESERVE_INACTIVE_SOURCE_PRESERVING_PATH,
 };
 #[cfg(feature = "workers-rs")]
 mod ordinary_inactive_signer_material;
