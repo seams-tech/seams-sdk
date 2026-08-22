@@ -30,11 +30,13 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
+  PrepareLinkedDeviceEcdsaSourceContributionResultV1,
   SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
   SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
   VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
   VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
+import type { LinkedDeviceEcdsaSourceContributionPreparationV1 } from '@shared/device-linking/sourceContribution';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
   parseEcdsaRoleLocalWorkerHandle,
@@ -570,6 +572,30 @@ export async function signWalletRecoveryEcdsaMaterialPossessionProofWasm(input: 
     EcdsaDerivationClientCustomResponseType.SignWalletRecoveryEcdsaMaterialPossessionProofSuccess
   ) {
     throw new Error('Wallet recovery ECDSA possession proof signing failed');
+  }
+  return response.payload;
+}
+
+export async function prepareLinkedDeviceEcdsaSourceContributionWasm(input: {
+  readonly preparation: LinkedDeviceEcdsaSourceContributionPreparationV1;
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<PrepareLinkedDeviceEcdsaSourceContributionResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        kind: 'prepare_linked_device_ecdsa_source_contribution_v1',
+        preparation: input.preparation,
+      },
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.PrepareLinkedDeviceEcdsaSourceContributionSuccess
+  ) {
+    throw new Error('Linked-device ECDSA source contribution preparation failed');
   }
   return response.payload;
 }
