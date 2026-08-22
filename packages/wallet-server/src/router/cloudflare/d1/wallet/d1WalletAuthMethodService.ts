@@ -19,6 +19,7 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import {
   addAuthMethodIntentGrantFromString,
+  computeWalletAuthMethodRevokeOperationFingerprintV1,
   computeAddAuthMethodIntentDigestB64u,
   normalizeEmailOtpRegistrationProof,
   type AddAuthMethodIntentV1,
@@ -76,7 +77,6 @@ import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 import {
   activeWalletAuthMethodRecord,
   d1HostIsWithinWebAuthnRpId,
-  computeWalletAuthMethodRevokeOperationFingerprintV1,
   resolveD1AddAuthMethodExistingAuth,
   resolveD1AddSignerExistingAuth,
   verifyD1LinkedDeviceFreshRevokeProofV1,
@@ -102,7 +102,6 @@ import {
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type {
   FinalizeWalletAddAuthMethodCommand,
-  WalletAddAuthMethodFinalizeAuthorizationV1,
   RevokeWalletAuthMethodCommand,
   StartWalletAddAuthMethodCommand,
   WalletAuthMethodRevokeProofVerificationResult,
@@ -363,7 +362,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   async startWalletAddAuthMethod(
     request: StartWalletAddAuthMethodInput,
-    context?: { readonly userAgent?: string },
+    _context?: { readonly userAgent?: string },
   ): Promise<StartWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
@@ -769,23 +768,23 @@ export class CloudflareD1WalletAuthMethodService {
           expiresAtMs: now + ADD_AUTH_METHOD_FINALIZE_REPLAY_TTL_MS,
         });
         const additionalStatements = [
-            this.webAuthnStore.prepareAuthenticatorInsertStatement({
-              userId: String(walletId),
-              record: {
-                credentialIdB64u: credential.credentialIdB64u,
-                credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
-                counter: credential.counter,
-                createdAtMs: now,
-                updatedAtMs: now,
-                deviceInfo: credential.device,
-              },
-            }),
-            this.webAuthnStore.prepareCredentialBindingInsertStatement(binding),
-            ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
-            ...replayStatements,
-            // Last, so the session CAS guard sees `changes()` from its own
-            // update rather than from a statement that follows it.
-            ...atomicCompanionStatements,
+          this.webAuthnStore.prepareAuthenticatorInsertStatement({
+            userId: String(walletId),
+            record: {
+              credentialIdB64u: credential.credentialIdB64u,
+              credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
+              counter: credential.counter,
+              createdAtMs: now,
+              updatedAtMs: now,
+              deviceInfo: credential.device,
+            },
+          }),
+          this.webAuthnStore.prepareCredentialBindingInsertStatement(binding),
+          ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
+          ...replayStatements,
+          // Last, so the session CAS guard sees `changes()` from its own
+          // update rather than from a statement that follows it.
+          ...atomicCompanionStatements,
         ];
         const link =
           replacementEnvelope === null
@@ -1163,12 +1162,11 @@ export class CloudflareD1WalletAuthMethodService {
     readonly expectedOrigin: string;
   }): Promise<WalletAuthMethodRevokeProofVerificationResult> {
     try {
-      const operationFingerprintDigest =
-        await computeWalletAuthMethodRevokeOperationFingerprintV1({
-          walletId: input.walletId,
-          targetWalletAuthMethodId: input.targetWalletAuthMethodId,
-          requestedAtMs: input.requestedAtMs,
-        });
+      const operationFingerprintDigest = await computeWalletAuthMethodRevokeOperationFingerprintV1({
+        walletId: input.walletId,
+        targetWalletAuthMethodId: input.targetWalletAuthMethodId,
+        requestedAtMs: input.requestedAtMs,
+      });
       const verified = await verifyD1LinkedDeviceFreshRevokeProofV1({
         walletId: input.walletId,
         orgId: this.orgId,
@@ -1185,8 +1183,7 @@ export class CloudflareD1WalletAuthMethodService {
         readEmailOtpEnrollment: this.emailOtpChallengeVerifier.readEnrollmentForWallet.bind(
           this.emailOtpChallengeVerifier,
         ),
-        resolveEmailOtpAuthority:
-          this.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(this),
+        resolveEmailOtpAuthority: this.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(this),
       });
       if (verified.kind === 'denied') return verified;
       const sourceMethod = await this.getWalletAuthMethodStore().readByIdV2({

@@ -1,4 +1,4 @@
-import { parseWebAuthnRpId, type WalletAuthMethodId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import {
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
@@ -27,11 +27,9 @@ import type {
   WalletAuthMethodStore,
   WalletAuthMethodV2Store,
 } from '../../../../core/d1WalletAuthMethodStore';
-import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 import { webAuthnCredentialIdB64uFromCredential } from '../../../auth/webAuthnCredentialCodecs';
-import { alphabetizeStringify, sha256BytesUtf8, sha256HexUtf8 } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/base64';
-import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { sha256HexUtf8 } from '@shared/utils/digests';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
@@ -165,25 +163,6 @@ export type D1FreshRevokeWebAuthnVerifierV1 = (input: {
   readonly message?: string;
 }>;
 
-export async function computeWalletAuthMethodRevokeOperationFingerprintV1(input: {
-  readonly walletId: WalletId;
-  readonly targetWalletAuthMethodId: WalletAuthMethodId;
-  readonly requestedAtMs: number;
-}): Promise<DigestB64u> {
-  return parseDigestB64u(
-    base64UrlEncode(
-      await sha256BytesUtf8(
-        alphabetizeStringify({
-          version: 'wallet_auth_method_revoke_operation_v1',
-          walletId: String(input.walletId),
-          targetWalletAuthMethodId: String(input.targetWalletAuthMethodId),
-          requestedAtMs: input.requestedAtMs,
-        }),
-      ),
-    ),
-  );
-}
-
 export async function verifyD1LinkedDeviceFreshRevokeProofV1(input: {
   readonly walletId: WalletId;
   readonly orgId: string;
@@ -232,7 +211,11 @@ export async function verifyD1LinkedDeviceFreshRevokeProofV1(input: {
       };
     }
     const enrollment = await input.readEmailOtpEnrollment(String(input.walletId));
-    if (!enrollment || enrollment.walletId !== String(input.walletId) || enrollment.orgId !== input.orgId) {
+    if (
+      !enrollment ||
+      enrollment.walletId !== String(input.walletId) ||
+      enrollment.orgId !== input.orgId
+    ) {
       return {
         kind: 'denied',
         code: 'unauthorized',

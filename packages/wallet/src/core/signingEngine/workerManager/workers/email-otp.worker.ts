@@ -6213,6 +6213,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
             walletId: readString(msg.payload.walletId, 'walletId'),
             otpChannel: EMAIL_OTP_CHANNEL,
             operation: routePlan.operation,
+            ...(msg.payload.operationFingerprintDigest
+              ? { operationFingerprintDigest: msg.payload.operationFingerprintDigest }
+              : {}),
           },
         });
         assertEmailOtpChallengeAction({
@@ -6232,11 +6235,16 @@ self.addEventListener('message', async (event: MessageEvent) => {
           delivery: EmailOtpChallengeDelivery;
           emailHint?: string;
           expiresAtMs?: number;
+          ownerProofBindingDigest: string;
         } = {
           challengeId: readString(challenge?.challengeId, 'challengeId'),
           otpChannel: EMAIL_OTP_CHANNEL,
           delivery,
           emailHint: delivery.emailHint,
+          ownerProofBindingDigest: readString(
+            challenge?.ownerProofBindingDigest,
+            'ownerProofBindingDigest',
+          ),
         };
         if (Number.isFinite(expiresAtMs)) {
           result.expiresAtMs = expiresAtMs;

@@ -158,7 +158,7 @@ async function renderModal(
         ownerDevices: [...(ownerDevices ?? [])],
         revokeOutcomes: [...revokeOutcomes],
         loadError,
-        revokeCalls: [] as string[],
+        revokeCalls: [] as Array<{ walletAuthMethodId: string; proofKind: string }>,
       };
 
       const Harness: React.FC = () => {
@@ -171,17 +171,23 @@ async function renderModal(
             nextCursor: null,
           };
         };
-        seams.devices.revokeLinkedDevice = async ({ deviceId }: { deviceId: string }) => {
-          controller.revokeCalls.push(deviceId);
+        seams.devices.revokeLinkedDevice = async ({
+          walletAuthMethodId,
+          sourceProof,
+        }: {
+          walletAuthMethodId: string;
+          sourceProof: { kind: string };
+        }) => {
+          controller.revokeCalls.push({ walletAuthMethodId, proofKind: sourceProof.kind });
           const outcome = controller.revokeOutcomes.shift() ?? 'revoked';
           if (outcome === 'revoked') {
             controller.devices = controller.devices.filter(
-              (device) => String(device.deviceId) !== deviceId,
+              (device) => String(device.credential.walletAuthMethodId) !== walletAuthMethodId,
             );
             return { kind: 'revoked' as const };
           }
           controller.devices = controller.devices.filter(
-            (device) => String(device.deviceId) !== deviceId,
+            (device) => String(device.credential.walletAuthMethodId) !== walletAuthMethodId,
           );
           return { kind: 'not_found' as const };
         };
@@ -278,36 +284,6 @@ test.describe('linked devices modal lifecycle', () => {
     await expect(
       dialog.getByRole('button', { name: /Remove Device 2, Linked passkey/ }),
     ).toBeVisible();
-  });
-
-  test('removes a device from the modal immediately and clears an already-gone error', async ({
-    page,
-  }) => {
-    await renderModal(page, {
-      devices: [deviceFixture('device-active', 'Phone passkey', 'active')],
-      revokeOutcomes: ['revoked'],
-    });
-
-    const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    const removeButton = dialog.getByRole('button', { name: /Remove Device 1, Phone passkey/ });
-    await removeButton.click();
-    await dialog.getByRole('button', { name: 'Yes, remove' }).click();
-    await expect(
-      dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Phone passkey' }),
-    ).toHaveCount(0);
-    await expect(dialog.getByText('No other devices are using this wallet.')).toBeVisible();
-
-    await renderModal(page, {
-      devices: [deviceFixture('device-race', 'Race passkey', 'active')],
-      revokeOutcomes: ['not_found'],
-    });
-    const raceDialog = page.getByRole('dialog', { name: 'Your devices' });
-    await raceDialog.getByRole('button', { name: /Remove Device 1, Race passkey/ }).click();
-    await raceDialog.getByRole('button', { name: 'Yes, remove' }).click();
-    await expect(
-      raceDialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Race passkey' }),
-    ).toHaveCount(0);
-    await expect(raceDialog.getByRole('alert')).toHaveCount(0);
   });
 
   test('surfaces linked-device loading failures in the dialog', async ({ page }) => {

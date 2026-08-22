@@ -191,6 +191,10 @@ export class CloudflareD1EmailOtpChallengeVerifier {
     return await this.readActiveEnrollment(input);
   }
 
+  async readEnrollmentForWallet(walletId: string): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    return await this.emailOtpEnrollments.readEnrollment(walletId);
+  }
+
   async verifyExisting(
     input: EmailOtpExistingChallengeVerifyInput,
   ): Promise<EmailOtpExistingChallengeVerifyResult> {

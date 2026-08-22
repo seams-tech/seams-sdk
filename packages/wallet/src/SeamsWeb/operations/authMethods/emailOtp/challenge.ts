@@ -14,11 +14,12 @@ import type {
   EmailOtpEnrollmentResult,
   GoogleEmailOtpProviderResolution,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 import {
-  parseEmailOtpChallengeDelivery,
-  parseEmailOtpProviderDelivery,
-} from '@/core/signingEngine/session/emailOtp/challengeDelivery';
-import { buildEmailOtpRoutePlan, type EmailOtpRouteFamily } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+  buildEmailOtpRoutePlan,
+  type EmailOtpRouteFamily,
+} from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 export type FetchLike = typeof fetch;
 export type { EmailOtpEnrollmentResult, WalletEmailOtpChannel };
@@ -214,13 +215,8 @@ export async function resolveGoogleEmailOtpProvider(args: {
     body: {
       id_token: readString(args.idToken, 'idToken'),
       account_mode: args.accountMode,
-      project_environment_id: readString(
-        args.projectEnvironmentId,
-        'projectEnvironmentId',
-      ),
-      ...(args.restartRegistrationOffer === true
-        ? { restart_registration_offer: true }
-        : {}),
+      project_environment_id: readString(args.projectEnvironmentId, 'projectEnvironmentId'),
+      ...(args.restartRegistrationOffer === true ? { restart_registration_offer: true } : {}),
     },
   });
   const mode = readString(response.mode, 'auth/google/verify mode');
@@ -260,10 +256,7 @@ export async function resolveGoogleEmailOtpProvider(args: {
       response.registrationAttemptId,
       'auth/google/verify registrationAttemptId',
     ),
-    expiresAtMs: requireFutureTimestamp(
-      response.expiresAtMs,
-      'auth/google/verify expiresAtMs',
-    ),
+    expiresAtMs: requireFutureTimestamp(response.expiresAtMs, 'auth/google/verify expiresAtMs'),
     offer: {
       offerId: readString(offer.offerId, 'auth/google/verify offer.offerId'),
       selectedCandidateId: readString(
@@ -299,6 +292,7 @@ export async function requestEmailOtpChallenge(args: {
   walletId: string;
   otpChannel?: WalletEmailOtpChannel;
   operation?: WalletEmailOtpLoginOperation;
+  operationFingerprintDigest?: DigestB64u;
   fetchImpl?: FetchLike;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
@@ -307,6 +301,7 @@ export async function requestEmailOtpChallenge(args: {
   delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
+  ownerProofBindingDigest: string;
 }> {
   const operation = args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (!args.fetchImpl && args.workerCtx) {
@@ -322,6 +317,9 @@ export async function requestEmailOtpChallenge(args: {
             operation,
           }),
           otpChannel: EMAIL_OTP_CHANNEL,
+          ...(args.operationFingerprintDigest
+            ? { operationFingerprintDigest: args.operationFingerprintDigest }
+            : {}),
         },
       },
     });
@@ -333,6 +331,9 @@ export async function requestEmailOtpChallenge(args: {
       walletId: readString(args.walletId, 'walletId'),
       otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
       operation,
+      ...(args.operationFingerprintDigest
+        ? { operationFingerprintDigest: args.operationFingerprintDigest }
+        : {}),
     },
   });
   const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/challenge');
@@ -352,11 +353,16 @@ export async function requestEmailOtpChallenge(args: {
     delivery: EmailOtpChallengeDelivery;
     emailHint?: string;
     expiresAtMs?: number;
+    ownerProofBindingDigest: string;
   } = {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
     delivery,
     emailHint: delivery.emailHint,
+    ownerProofBindingDigest: readString(
+      challenge.ownerProofBindingDigest,
+      'wallet/email-otp/challenge ownerProofBindingDigest',
+    ),
   };
   if (Number.isFinite(expiresAtMs)) {
     result.expiresAtMs = expiresAtMs;

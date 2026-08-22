@@ -28,11 +28,7 @@ import {
   handleEmailOtpRegistrationSealRoute,
   sealEmailOtpFactorSecretForWorker,
 } from '../../../domains/emailOtp/emailOtpRouteHandlers';
-import {
-  parseOrgId,
-  parseProviderSubject,
-  parseWalletId,
-} from '@shared/utils/domainIds';
+import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -49,7 +45,6 @@ import { isPlainObject } from '@shared/utils/validation';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
-  type AuthorizationParseResult,
   type MpcWalletSigningQuotaId,
   type PrincipalId,
   type WalletSessionId,
@@ -64,6 +59,7 @@ import {
 } from '../../../../authorization/domain';
 import type { OpaqueWalletSessionCurve } from '../../../../authorization/service';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 
 const HOSTED_WALLET_EXCHANGE_TTL_MS = 5 * 60 * 1000;
 
@@ -282,11 +278,6 @@ export async function handleHostedWalletSessionExchangeRedeem(
     },
     { status: 200 },
   );
-}
-
-function requiredAuthorizationValue<T>(result: AuthorizationParseResult<T>): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
 }
 
 function projectWalletUnlockEcdsaCustodySigner(
@@ -688,8 +679,14 @@ export async function handleWalletEmailOtpChallenge(
     const raw = await readJson(ctx.request);
     if (!isPlainObject(raw)) throw new Error('Expected JSON object body');
     const keys = Object.keys(raw).sort();
-    if (keys.length !== 3 || keys.join(',') !== 'operation,otpChannel,walletId') {
-      throw new Error('Email OTP challenge body must contain walletId, otpChannel, and operation');
+    const exactFields = keys.join(',');
+    if (
+      exactFields !== 'operation,otpChannel,walletId' &&
+      exactFields !== 'operation,operationFingerprintDigest,otpChannel,walletId'
+    ) {
+      throw new Error(
+        'Email OTP challenge body must contain walletId, otpChannel, operation, and optionally operationFingerprintDigest',
+      );
     }
     body = raw;
   } catch (error: unknown) {
@@ -719,6 +716,22 @@ export async function handleWalletEmailOtpChallenge(
     );
   }
   const walletId = parsedWalletId.value;
+  let operationFingerprintDigest: string | undefined;
+  try {
+    operationFingerprintDigest =
+      body.operationFingerprintDigest === undefined
+        ? undefined
+        : parseDigestB64u(body.operationFingerprintDigest);
+  } catch (error: unknown) {
+    return json(
+      {
+        ok: false,
+        code: 'invalid_body',
+        message: error instanceof Error ? error.message : 'operationFingerprintDigest is invalid',
+      },
+      { status: 400 },
+    );
+  }
   const orgId = ctx.service.authorizedOperations.tenantId;
   const enrollment = await ctx.service.emailOtp.readActiveEmailOtpEnrollment({ walletId, orgId });
   if (!enrollment.ok) {
@@ -738,6 +751,7 @@ export async function handleWalletEmailOtpChallenge(
     requestOrigin,
     audience: requestOrigin,
     authorityRef: await walletAuthAuthorityRef({ authority: authority.authority }),
+    ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),
   });
   if (parsedOperation.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
     const policy = await authorizeEmailOtpExportPolicy(ctx.opts, {
@@ -793,15 +807,15 @@ function parseWalletEmailOtpFactorReleaseRequest(
       : kind === 'wallet_session'
         ? ['kind', 'walletId', 'workerEphemeralPublicKey65B64u']
         : kind === 'email_otp'
-            ? [
-                'challengeId',
-                'kind',
-                'operation',
-                'otpCode',
-                'walletId',
-                'workerEphemeralPublicKey65B64u',
-              ]
-            : null;
+          ? [
+              'challengeId',
+              'kind',
+              'operation',
+              'otpCode',
+              'walletId',
+              'workerEphemeralPublicKey65B64u',
+            ]
+          : null;
   if (!expectedFields || Object.keys(value).sort().join(',') !== expectedFields.join(',')) {
     throw new Error('Email OTP factor release body has invalid fields');
   }
