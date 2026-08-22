@@ -3730,7 +3730,7 @@ body:has(.h2-page) {
    mask (the elevenlabs.io mechanic): each card carries a fixed gradient mask
    twice its width, and only mask-position, translateY, and z-index change
    between states — the unfocused card's overlapped edge dissolves, the
-   focused one reveals fully. Rest state = policy focused. */
+   focused one reveals fully. Rest state = audit focused. */
 .h2-consoleband__screen--overview {
   inset-inline-start: 3.5%;
   inset-block-start: 16%;
@@ -3743,7 +3743,7 @@ body:has(.h2-page) {
   transform: translateY(12px);
 }
 
-.h2-consoleband__screen--policy {
+.h2-consoleband__screen--audit {
   inset-inline-end: 3.5%;
   inset-block-start: 14%;
   z-index: 1;
@@ -3760,17 +3760,19 @@ body:has(.h2-page) {
       transform 500ms ease;
   }
 
-  /* hovering the overview slides its mask off the edge and dissolves the
-     policy screen's overlap instead; hovering the policy restores rest */
-  .h2-consoleband__stage:has(.h2-consoleband__screen--overview:hover)
-    .h2-consoleband__screen--overview {
+  /* Focusing the overview slides its mask off the edge and dissolves the
+     audit screen's overlap instead. This keys off the stage's data-focus,
+     which holds the last hovered card, rather than off `:has(:hover)` —
+     `:hover` only describes the pointer's current position, so on mouse-out
+     the stage snapped back and the audit screen animated forward every
+     time. Held state means whichever card was last hovered stays in front. */
+  .h2-consoleband__stage[data-focus='overview'] .h2-consoleband__screen--overview {
     z-index: 1;
     mask-position: -150% 0;
     transform: translateY(0);
   }
 
-  .h2-consoleband__stage:has(.h2-consoleband__screen--overview:hover)
-    .h2-consoleband__screen--policy {
+  .h2-consoleband__stage[data-focus='overview'] .h2-consoleband__screen--audit {
     z-index: 0;
     mask-position: 0% 0;
     transform: translateY(12px);
@@ -3806,7 +3808,7 @@ body:has(.h2-page) {
     transform: none;
   }
 
-  .h2-consoleband__screen--policy {
+  .h2-consoleband__screen--audit {
     display: none;
   }
 }

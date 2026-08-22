@@ -1318,6 +1318,12 @@ export function H2Start(): React.JSX.Element {
   const dashboardProps = linkProps('/dashboard');
   const docsProps = linkProps('/docs/concepts/');
   const contactProps = linkProps('/contact/');
+  /* Which console screen sits in front. CSS `:has(:hover)` cannot express
+     this: it only knows what the pointer is on *now*, so leaving either card
+     snapped the stage back to its rest state and the right screen animated
+     forward on every mouse-out. Holding the last hover here leaves the card
+     the reader was just looking at in front. */
+  const [consoleFocus, setConsoleFocus] = React.useState<'overview' | 'audit'>('audit');
 
   return (
     <section
@@ -1477,16 +1483,20 @@ export function H2Start(): React.JSX.Element {
               <span>Wallets, approvals, and team activity at a glance</span>
             </div>
             <div>
-              <strong>Policy engine</strong>
-              <span>Signing rules and spend caps checked on every action</span>
+              <strong>Audit logs</strong>
+              <span>Every action attributed, timestamped, and exportable</span>
             </div>
           </div>
           <div
             className="h2-consoleband__stage"
+            data-focus={consoleFocus}
             role="img"
-            aria-label="Wallet console overview and policy engine pages"
+            aria-label="Wallet console overview and audit log pages"
           >
-            <div className="h2-consoleband__screen h2-consoleband__screen--overview">
+            <div
+              className="h2-consoleband__screen h2-consoleband__screen--overview"
+              onPointerEnter={() => setConsoleFocus('overview')}
+            >
               <img
                 src="/wallet-preview/wallet-console-dashboard.png"
                 alt=""
@@ -1496,9 +1506,12 @@ export function H2Start(): React.JSX.Element {
                 decoding="async"
               />
             </div>
-            <div className="h2-consoleband__screen h2-consoleband__screen--policy">
+            <div
+              className="h2-consoleband__screen h2-consoleband__screen--audit"
+              onPointerEnter={() => setConsoleFocus('audit')}
+            >
               <img
-                src="/wallet-preview/wallet-console-policy.png"
+                src="/wallet-preview/wallet-console-audit.png"
                 alt=""
                 width={2970}
                 height={1680}
