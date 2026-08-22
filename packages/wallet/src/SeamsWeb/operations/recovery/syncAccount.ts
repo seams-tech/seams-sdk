@@ -64,6 +64,7 @@ import {
   type WalletCustodyEd25519MaterialBindingV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
@@ -902,6 +903,11 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
         loadWalletCustodyEd25519Material: input.loadWalletCustodyEd25519Material,
         persistWalletCustodyEd25519Material: input.persistWalletCustodyEd25519Material,
       }),
+    });
+    await rememberPasskeyCustodySessionEnvelope({
+      walletId: String(parsed.walletId),
+      credentialIdB64u: parsed.credentialIdB64u,
+      envelope: parsed.walletCustody.envelope,
     });
     await restoreWalletCustodyEcdsaContinuity({
       signingSurface: {
