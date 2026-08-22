@@ -49,8 +49,6 @@ export type PersistedAvailableSigningLanesDeps = {
   readActiveWalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
-  readActiveExecutionBundleForWallet?: ReadAvailableSigningLanesPorts['readActiveExecutionBundleForWallet'];
-  readActiveEcdsaExportContextForWallet?: ReadAvailableSigningLanesPorts['readActiveEcdsaExportContextForWallet'];
   listEcdsaSigningCapabilitiesForWallet: (args: {
     walletId: string;
     chainTargets: readonly ThresholdEcdsaChainTarget[];
@@ -244,8 +242,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
         : undefined,
       isPublicCapabilityActive: deps.isEd25519YaoPublicCapabilityActive,
       readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
-      readActiveExecutionBundleForWallet: deps.readActiveExecutionBundleForWallet,
-      readActiveEcdsaExportContextForWallet: deps.readActiveEcdsaExportContextForWallet,
       listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
           authMethod: SignerAuthMethod,

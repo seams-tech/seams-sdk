@@ -18,6 +18,7 @@ import {
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { sameDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
+import { parseLocalAuthorityInstallationReceiptV1 } from '@shared/device-linking';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
@@ -28,13 +29,11 @@ import {
 import {
   encodeWalletSignerActivationSetV1,
   parseWalletAuthorityV1,
-  parseWalletSignerActivationSetV1,
   walletAuthorityDigestsMatchV1,
   type PendingWalletAuthorityV1,
   type WalletAuthorityV1,
   type WalletSignerActivationSetV1,
 } from '@shared/authorization/walletAuthority';
-import { parseDeviceId } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -93,6 +92,11 @@ import {
 } from '../normalization';
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
+import {
+  parseStoredExactWalletSessionAuthorizationRow,
+  toStoredExactWalletSessionAuthorizationRow,
+  type ActiveWalletSessionV1,
+} from './walletSessionAuthorizationStore';
 
 type AppStateRow<T = unknown> = {
   key: string;
@@ -299,6 +303,12 @@ export type LocalAuthorityInstallationResultV1 =
       readonly kind: 'integrity_error';
       readonly reason: string;
     };
+
+export type LocalAuthorityActivationFinalizationInputV1 = {
+  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly walletSession: ActiveWalletSessionV1;
+};
 
 export type ResolveSelectedWalletAuthorityResultV1 =
   | {
@@ -1280,52 +1290,12 @@ function walletAuthorityExportRootStorageRow(
   };
 }
 
-function parseLocalAuthorityInstallationReceipt(
-  value: unknown,
-): LocalAuthorityInstallationReceiptV1 {
-  if (!isRecord(value)) throw new Error('installation receipt must be an object');
-  if (
-    !hasExactKeys(value, [
-      'kind',
-      'authorityId',
-      'walletId',
-      'authMethodId',
-      'deviceId',
-      'packageSetDigestB64u',
-      'installedActivationRefs',
-      'installedRecordSetDigestB64u',
-      'targetFactorVerificationDigestB64u',
-      'installedAtMs',
-    ])
-  ) {
-    throw new Error('installation receipt fields are invalid');
-  }
-  if (value.kind !== 'local_authority_installation_receipt_v1') {
-    throw new Error('installation receipt kind is invalid');
-  }
-  return {
-    kind: 'local_authority_installation_receipt_v1',
-    authorityId: requireBoundaryParsed(parseWalletAuthorityId(value.authorityId), 'authorityId'),
-    walletId: requireBoundaryParsed(parseWalletId(value.walletId), 'walletId'),
-    authMethodId: requireBoundaryParsed(parseWalletAuthMethodId(value.authMethodId), 'authMethodId'),
-    deviceId: requireBoundaryParsed(parseDeviceId(value.deviceId), 'deviceId'),
-    packageSetDigestB64u: parseDigestB64u(value.packageSetDigestB64u),
-    installedActivationRefs: requireBoundaryParsed(
-      parseWalletSignerActivationSetV1(value.installedActivationRefs),
-      'installedActivationRefs',
-    ),
-    installedRecordSetDigestB64u: parseDigestB64u(value.installedRecordSetDigestB64u),
-    targetFactorVerificationDigestB64u: parseDigestB64u(value.targetFactorVerificationDigestB64u),
-    installedAtMs: parseNonNegativeSafeInteger(value.installedAtMs, 'installedAtMs'),
-  };
-}
-
 function parseLocalAuthorityInstallationReceiptStorageRow(
   value: unknown,
 ): WalletAuthorityInstallationReceiptRow | null {
   if (!isRecord(value)) return null;
   try {
-    const record = parseLocalAuthorityInstallationReceipt(value.record);
+    const record = parseLocalAuthorityInstallationReceiptV1(value.record);
     if (
       value.authority_id !== record.authorityId ||
       value.wallet_id !== record.walletId ||
@@ -1419,6 +1389,17 @@ function parseWalletSelectionStorageRow(value: unknown): WalletSelectionRow | nu
   } catch {
     return null;
   }
+}
+
+function walletSelectionStorageRow(record: WalletSelectionRecordV1): WalletSelectionRow {
+  return {
+    wallet_id: record.walletId,
+    wallet_auth_method_id: record.walletAuthMethodId,
+    lock_generation: record.lockGeneration,
+    lock_state: record.lockState,
+    updated_at_ms: record.updatedAtMs,
+    record,
+  };
 }
 
 function signerMaterialExpectations(
@@ -1536,6 +1517,25 @@ function walletAuthorityRecordsMatch(left: WalletAuthorityV1, right: WalletAutho
   );
 }
 
+function walletAuthorityPendingMatchesActive(
+  pending: Extract<WalletAuthorityV1, { readonly state: 'pending_local_install' }>,
+  active: Extract<WalletAuthorityV1, { readonly state: 'active' }>,
+): boolean {
+  return (
+    pending.kind === active.kind &&
+    pending.authorityId === active.authorityId &&
+    pending.walletId === active.walletId &&
+    pending.principal.kind === active.principal.kind &&
+    pending.principal.deviceId === active.principal.deviceId &&
+    walletAuthorityProvenancesMatch(pending.provenance, active.provenance) &&
+    walletAuthorityPermissionsMatch(pending, active) &&
+    walletSignerActivationSetsMatch(pending.signerActivations, active.signerActivations) &&
+    pending.signerActivationSetDigestB64u === active.signerActivationSetDigestB64u &&
+    pending.revocationEpoch === active.revocationEpoch &&
+    pending.createdAtMs === active.createdAtMs
+  );
+}
+
 function walletAuthMethodRecordsMatch(
   left: WalletAuthMethodRecordV2,
   right: WalletAuthMethodRecordV2,
@@ -1570,6 +1570,38 @@ function walletAuthMethodRecordsMatch(
         left.registrationAuthorityId === right.registrationAuthorityId &&
         (left.status === 'pending_local_install' || left.activatedAtMs === right.activatedAtMs) &&
         (left.status !== 'revoked' || left.revokedAtMs === right.revokedAtMs)
+      );
+  }
+}
+
+function walletAuthMethodPendingMatchesActive(
+  pending: Extract<WalletAuthMethodRecordV2, { readonly status: 'pending_local_install' }>,
+  active: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>,
+): boolean {
+  if (
+    pending.version !== active.version ||
+    pending.walletAuthMethodId !== active.walletAuthMethodId ||
+    pending.walletId !== active.walletId ||
+    pending.walletAuthorityId !== active.walletAuthorityId ||
+    pending.kind !== active.kind ||
+    pending.createdAtMs !== active.createdAtMs
+  ) {
+    return false;
+  }
+  switch (pending.kind) {
+    case 'passkey':
+      return (
+        active.kind === 'passkey' &&
+        pending.rpId === active.rpId &&
+        pending.credentialIdB64u === active.credentialIdB64u &&
+        pending.credentialPublicKeyB64u === active.credentialPublicKeyB64u &&
+        pending.counter === active.counter
+      );
+    case 'email_otp':
+      return (
+        active.kind === 'email_otp' &&
+        pending.emailHashHex === active.emailHashHex &&
+        pending.registrationAuthorityId === active.registrationAuthorityId
       );
   }
 }
@@ -1622,6 +1654,46 @@ function localAuthorityInstallationReceiptsMatch(
   );
 }
 
+function walletSessionRecordsMatch(
+  left: ActiveWalletSessionV1,
+  right: ActiveWalletSessionV1,
+): boolean {
+  if (
+    left.kind !== right.kind ||
+    left.walletId !== right.walletId ||
+    left.authorityId !== right.authorityId ||
+    left.authMethodId !== right.authMethodId ||
+    left.authorizationId !== right.authorizationId ||
+    left.authorityDigestB64u !== right.authorityDigestB64u ||
+    left.authorityRevocationEpoch !== right.authorityRevocationEpoch ||
+    left.issuedAtMs !== right.issuedAtMs ||
+    left.expiresAtMs !== right.expiresAtMs ||
+    left.capabilitySubjects.length !== right.capabilitySubjects.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < left.capabilitySubjects.length; index += 1) {
+    const leftSubject = left.capabilitySubjects[index];
+    const rightSubject = right.capabilitySubjects[index];
+    if (leftSubject.kind !== rightSubject.kind) return false;
+    if (leftSubject.kind === 'link_devices' || leftSubject.kind === 'revoke_devices') {
+      if (rightSubject.kind !== leftSubject.kind) return false;
+      continue;
+    }
+    if (
+      rightSubject.kind !== leftSubject.kind ||
+      leftSubject.keyFamily !== rightSubject.keyFamily ||
+      !mpcMaterialActivationRefsEqual(
+        leftSubject.materialActivation,
+        rightSubject.materialActivation,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function localAuthorityInstallationError(error: unknown): string {
   return error instanceof Error ? error.message : 'local authority installation input is invalid';
 }
@@ -1648,7 +1720,7 @@ function parseLocalAuthorityInstallationInput(
     }
     const exportRoot =
       input.exportRoot === null ? null : parseWalletAuthorityExportRootRecord(input.exportRoot);
-    const receipt = parseLocalAuthorityInstallationReceipt(input.receipt);
+    const receipt = parseLocalAuthorityInstallationReceiptV1(input.receipt);
     const expectedLockGeneration = parseNonNegativeSafeInteger(
       input.expectedLockGeneration,
       'expectedLockGeneration',
@@ -2438,6 +2510,151 @@ export class SeamsWalletRepositories {
       ],
       'readwrite',
       this.installLocalAuthorityInTransaction.bind(this, parsed.value),
+    );
+  }
+
+  async finalizeLocalAuthorityActivation(
+    input: LocalAuthorityActivationFinalizationInputV1,
+  ): Promise<void> {
+    const authorityResult = parseWalletAuthorityV1(input.authority);
+    if (!authorityResult.ok || authorityResult.value.state !== 'active') {
+      throw new Error('active WalletAuthorityV1 is invalid');
+    }
+    const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
+    if (!authMethod || authMethod.status !== 'active') {
+      throw new Error('active WalletAuthMethodRecordV2 is invalid');
+    }
+    const walletSession = parseStoredExactWalletSessionAuthorizationRow(
+      toStoredExactWalletSessionAuthorizationRow(input.walletSession),
+    );
+    if (!walletSession || walletSession.kind !== 'active_wallet_session_v1') {
+      throw new Error('active Wallet Session is invalid');
+    }
+    if (
+      authMethod.walletId !== authorityResult.value.walletId ||
+      authMethod.walletAuthorityId !== authorityResult.value.authorityId ||
+      walletSession.walletId !== authorityResult.value.walletId ||
+      walletSession.authorityId !== authorityResult.value.authorityId ||
+      walletSession.authMethodId !== authMethod.walletAuthMethodId ||
+      walletSession.authorityDigestB64u !== authorityResult.value.authorityDigestB64u ||
+      walletSession.authorityRevocationEpoch !== authorityResult.value.revocationEpoch
+    ) {
+      throw new Error('active authority, auth method, and Wallet Session identities differ');
+    }
+    await this.manager.runTransaction(
+      [
+        SEAMS_WALLET_STORES.walletAuthorities,
+        SEAMS_WALLET_STORES.walletAuthMethods,
+        SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
+        SEAMS_WALLET_STORES.walletSelections,
+        SEAMS_WALLET_STORES.walletSessionAuthorizations,
+      ],
+      'readwrite',
+      this.finalizeLocalAuthorityActivationInTransaction.bind(this, {
+        authority: authorityResult.value,
+        authMethod,
+        walletSession,
+      }),
+    );
+  }
+
+  async getLocalAuthorityInstallationReceipt(
+    authorityId: string,
+  ): Promise<LocalAuthorityInstallationReceiptV1 | null> {
+    const parsedAuthorityId = parseWalletAuthorityId(authorityId);
+    if (!parsedAuthorityId.ok) return null;
+    const db = await this.manager.getDB();
+    return (
+      parseLocalAuthorityInstallationReceiptStorageRow(
+        await db.get(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts, parsedAuthorityId.value),
+      )?.record || null
+    );
+  }
+
+  private async finalizeLocalAuthorityActivationInTransaction(
+    input: LocalAuthorityActivationFinalizationInputV1,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<void> {
+    const authorityStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorities);
+    const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
+    const receiptStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts);
+    const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
+    const sessionStore = ctx.store(SEAMS_WALLET_STORES.walletSessionAuthorizations);
+    const authorityRaw = await authorityStore.get(input.authority.authorityId);
+    const authMethodRaw = await authMethodStore.get(input.authMethod.walletAuthMethodId);
+    const receiptRaw = await receiptStore.get(input.authority.authorityId);
+    const sessionRaw = await sessionStore.get(input.walletSession.authorizationId);
+    const existingAuthority =
+      authorityRaw === undefined ? null : parseWalletAuthorityStorageRow(authorityRaw);
+    const existingAuthMethod =
+      authMethodRaw === undefined ? null : parseWalletAuthMethodV2StorageRow(authMethodRaw);
+    const receipt =
+      receiptRaw === undefined ? null : parseLocalAuthorityInstallationReceiptStorageRow(receiptRaw);
+    const existingSession =
+      sessionRaw === undefined ? null : parseStoredExactWalletSessionAuthorizationRow(sessionRaw);
+    if (!receipt) throw new Error('local authority installation receipt is missing or corrupt');
+    if (
+      receipt.record.authorityId !== input.authority.authorityId ||
+      receipt.record.walletId !== input.authority.walletId ||
+      receipt.record.authMethodId !== input.authMethod.walletAuthMethodId ||
+      !walletSignerActivationSetsMatch(
+        receipt.record.installedActivationRefs,
+        input.authority.signerActivations,
+      )
+    ) {
+      throw new Error('local authority installation receipt does not match active authority');
+    }
+    if (!existingAuthority || !existingAuthMethod) {
+      throw new Error('pending local authority records are missing');
+    }
+    if (existingAuthority.record.state === 'active') {
+      if (
+        !walletAuthorityRecordsMatch(existingAuthority.record, input.authority) ||
+        existingAuthMethod.record.status !== 'active' ||
+        !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
+        !existingSession ||
+        existingSession.kind !== 'active_wallet_session_v1' ||
+        !walletSessionRecordsMatch(existingSession, input.walletSession)
+      ) {
+        throw new Error('active local authority replay conflicts with supplied records');
+      }
+      return;
+    }
+    if (
+      existingAuthority.record.state !== 'pending_local_install' ||
+      existingAuthMethod.record.status !== 'pending_local_install' ||
+      !walletAuthorityPendingMatchesActive(existingAuthority.record, input.authority) ||
+      !walletAuthMethodPendingMatchesActive(existingAuthMethod.record, input.authMethod)
+    ) {
+      throw new Error('local authority records are not the expected pending installation');
+    }
+    if (existingSession && existingSession.kind !== 'active_wallet_session_v1') {
+      throw new Error('Wallet Session authorization is not active');
+    }
+    if (
+      existingSession?.kind === 'active_wallet_session_v1' &&
+      !walletSessionRecordsMatch(existingSession, input.walletSession)
+    ) {
+      throw new Error('Wallet Session authorization conflicts with finalization');
+    }
+    const selectionRaw = await selectionStore.get(input.authority.walletId);
+    if (selectionRaw === undefined) throw new Error('wallet selection is missing');
+    const selection = parseWalletSelectionStorageRow(selectionRaw);
+    if (!selection || selection.wallet_id !== input.authority.walletId) {
+      throw new Error('wallet selection is corrupt');
+    }
+    await authorityStore.put(walletAuthorityStorageRow(input.authority));
+    await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
+    await sessionStore.put(toStoredExactWalletSessionAuthorizationRow(input.walletSession));
+    await selectionStore.put(
+      walletSelectionStorageRow({
+        kind: 'wallet_selection_v1',
+        walletId: selection.record.walletId,
+        walletAuthMethodId: input.authMethod.walletAuthMethodId,
+        lockGeneration: selection.record.lockGeneration,
+        lockState: 'unlocked',
+        updatedAtMs: input.walletSession.issuedAtMs,
+      }),
     );
   }
 

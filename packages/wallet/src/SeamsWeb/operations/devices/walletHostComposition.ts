@@ -2,9 +2,6 @@ import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/wa
 import type { AuthenticatorPort } from '@/core/platform';
 import type { HttpTransport } from '@/core/platform/http';
 import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
-import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
-import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import {
   parseLinkedDeviceListRequestV1,
   parseLinkedDeviceListResultV1,
@@ -22,7 +19,6 @@ import type {
 } from './deviceLinkingOwnerTransport';
 import type {
   DeviceLinkingOwnerAuthorizationPortV1,
-  DeviceLinkingSessionActivationPortV1,
 } from './deviceLinkingPorts';
 import type { LinkedDeviceManagementPortV1 } from '@/SeamsWeb/publicApi/devices';
 import type { WalletHostManagementRequestV1 } from './walletHostOwnerAuthority';
@@ -45,16 +41,6 @@ export type WalletHostCompositionDependenciesV1 = {
   /** The wallet custody worker both devices drive for the seed transfer. */
   readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
   readonly managementRequest: WalletHostManagementRequestV1;
-  readonly repository: LaneSealedHolderMaterialRepositoryV1;
-  readonly walletSessionRepository: Pick<
-    LinkedDeviceWalletSessionRepositoryV1,
-    'putExactActiveDeliveryV1'
-  >;
-  readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
-  readonly executionEvidenceRepository: Pick<
-    LinkedDeviceExecutionEvidenceRepositoryV1,
-    'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
-  >;
   readonly sourceLanePorts: LaneOperationSourcePortsV1;
   readonly workerEndpoint?: DeviceLinkingWorkerEndpointV1;
   readonly workerTimeoutMs?: number;

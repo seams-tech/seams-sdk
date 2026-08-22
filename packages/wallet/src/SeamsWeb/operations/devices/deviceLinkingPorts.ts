@@ -1,5 +1,4 @@
 import type { DeviceLinkingEd25519ExportRootPortV1 } from './deviceLinkingEd25519ExportRoot';
-import type { LinkedDeviceOwnerEnrollmentStartV1 } from './deviceLinkingOwnerEnrollmentStart';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   LinkedDeviceProvisioningChildV1,
@@ -16,12 +15,12 @@ import type {
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionClaimRequestV1,
   LinkedDeviceSessionClaimV1,
-  LinkedDeviceSessionProjectionV1,
-  LinkedDeviceSessionState,
-  LinkedDeviceSessionTransportEventV1,
+  LinkSessionProjectionV1,
+  LinkSessionStateV1,
+  LinkSessionTransportEventV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
-  LinkedDeviceTargetHolderRegistrationV1,
+  LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWebAuthnRegistrationV1,
@@ -35,8 +34,12 @@ import type {
   LinkedDeviceEmailOtpChallengeVerifyRequestV1,
   LinkedDeviceEmailOtpChallengeResultV1,
   LinkedDeviceEmailOtpVerificationResultV1,
-  LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
+  LinkedDeviceOwnerEnrollmentCeremonyV1,
+  ActivateInstalledAuthorityResultV1,
+  CommittedAuthorityPackagesV1,
+  LocalAuthorityActivationFinalAckV1,
+  LocalAuthorityInstallationReceiptV1,
 } from '@shared/device-linking';
 import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
@@ -59,15 +62,23 @@ import type {
 } from '@shared/signing-lanes/ids';
 import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
 import type { LaneSealedHolderRecordV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import type {
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
+import type { DeviceLinkingOrdinaryMaterialWorkerPortV1 } from './deviceLinkingOrdinaryMaterialWorker';
 import type {
   PasskeyCustodyEnvelopeRecord,
   WalletCustodyEnvelopeFactor,
 } from '@shared/passkey-custody';
+export type {
+  DeviceLinkingAuthorityActivationFlowInputV1,
+  DeviceLinkingAuthorityInstallationAssemblyOptionsV1,
+  DeviceLinkingAuthorityInstallationPortV1,
+  DeviceLinkingCommittedPackageSealingPortV1,
+  DeviceLinkingSealedAuthorityRecordsV1,
+} from './deviceLinkingAuthorityInstallation';
+import type { DeviceLinkingAuthorityInstallationPortV1 } from './deviceLinkingAuthorityInstallation';
 
 export type DeviceLinkingEmailOtpExportRootPreparationInputV1 =
   | {
@@ -83,30 +94,6 @@ export type DeviceLinkingEmailOtpExportRootPreparationInputV1 =
       readonly replacementEnvelopeBindingJson?: never;
     };
 
-export type DeviceLinkingEmailOtpTargetPreparationResultV1 = {
-  readonly orderedHolderRegistrations: readonly [
-    LinkedDeviceTargetHolderRegistrationV1,
-    ...LinkedDeviceTargetHolderRegistrationV1[],
-  ];
-} & (
-  | {
-      readonly exportRootRequirement: {
-        readonly kind: 'required';
-        readonly resealedExportRootEnvelope: {
-          readonly nonceB64u: string;
-          readonly sealedExportRootB64u: string;
-          readonly aadHashB64u: string;
-          readonly ciphertextDigestB64u: string;
-        };
-      };
-    }
-  | {
-      readonly exportRootRequirement: {
-        readonly kind: 'not_required';
-        readonly resealedExportRootEnvelope?: never;
-      };
-    }
-);
 export type {
   DeviceLinkingEd25519SigningShareV1,
   DeviceLinkingEcdsaExportArtifactV1,
@@ -127,8 +114,22 @@ export type LinkSessionSubscriptionV1 = {
   readonly close: () => void | Promise<void>;
 };
 
-export type LinkSessionSnapshotV1 = LinkedDeviceSessionProjectionV1;
+export type LinkSessionSnapshotV1 = LinkSessionProjectionV1;
 export type { LinkedDeviceApprovalResultV1 };
+
+/** Strict R103E authority-package delivery and activation acknowledgement. */
+export type DeviceLinkingAuthorityActivationTransportPortV1 = {
+  receiveCommittedAuthorityPackagesV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+  }): Promise<CommittedAuthorityPackagesV1>;
+  activateInstalledAuthorityV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly receipt: LocalAuthorityInstallationReceiptV1;
+  }): Promise<ActivateInstalledAuthorityResultV1>;
+  acknowledgeLocalAuthorityActivationV1(input: {
+    readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+  }): Promise<void>;
+};
 
 /**
  * This adapter owns challenge exchange, canonical request bytes, and worker
@@ -137,7 +138,7 @@ export type { LinkedDeviceApprovalResultV1 };
 export type DeviceLinkingAuthenticatedTransportPortV1 = {
   createUnclaimedSessionV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV5;
-    readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'displaying_qr' }>;
+    readonly state: Extract<LinkSessionStateV1, { readonly state: 'displaying_qr' }>;
   }): Promise<void>;
   getSessionV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
@@ -168,7 +169,7 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   }): Promise<LinkedDeviceEnrollmentReceiptV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-  }): Promise<void>;
+  }): Promise<LinkedDeviceTargetCredentialRegistrationResultV1>;
   /**
    * Returns the local account identity alongside the finalize, because a device
    * that never registered here cannot unlock without it.
@@ -192,6 +193,16 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getEd25519ExportRootPackageV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceEd25519ExportRootPackageV1 | null>;
+  receiveCommittedAuthorityPackagesV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+  }): Promise<CommittedAuthorityPackagesV1>;
+  activateInstalledAuthorityV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly receipt: LocalAuthorityInstallationReceiptV1;
+  }): Promise<ActivateInstalledAuthorityResultV1>;
+  acknowledgeLocalAuthorityActivationV1(input: {
+    readonly acknowledgement: LocalAuthorityActivationFinalAckV1;
+  }): Promise<void>;
   acknowledgeReceiptV1(input: {
     readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
   }): Promise<void>;
@@ -214,7 +225,7 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   }): Promise<void>;
   subscribeSessionV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
-    readonly onEvent: (event: LinkedDeviceSessionTransportEventV1) => void;
+    readonly onEvent: (event: LinkSessionTransportEventV1) => void;
   }): Promise<LinkSessionSubscriptionV1>;
 };
 
@@ -326,30 +337,6 @@ export type DeviceLinkingEmailOtpFactorReleaseHolderSigningMaterialBatchInputV1 
 
 export type DeviceLinkingKeyMaterialPortV1 = {
   createBootstrapKeyMaterialV1(): Promise<DeviceLinkingKeyMaterialBundleV1>;
-  prepareTargetHolderRegistrationsV1(input: {
-    readonly handle: DeviceLinkingKeyMaterialHandleV1;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
-    readonly credentialIdB64u: LinkedDeviceWebAuthnRegistrationV1['credentialIdB64u'];
-    readonly factorSecret: ArrayBuffer;
-  }): Promise<{
-    readonly orderedHolderRegistrations: readonly [
-      LinkedDeviceTargetHolderRegistrationV1,
-      ...LinkedDeviceTargetHolderRegistrationV1[],
-    ];
-  }>;
-  createEmailOtpEd25519ExportRootRecipientV1(input: {
-    readonly handle: DeviceLinkingKeyMaterialHandleV1;
-  }): Promise<{ readonly recipientPublicKeyB64u: string }>;
-
-  prepareEmailOtpTargetV1(input: {
-    readonly handle: DeviceLinkingKeyMaterialHandleV1;
-    readonly preparation: Extract<
-      LinkedDeviceTargetPreparationV1,
-      { readonly targetFactor: { readonly kind: 'email_otp' } }
-    >;
-    readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
-    readonly exportRoot: DeviceLinkingEmailOtpExportRootPreparationInputV1;
-  }): Promise<DeviceLinkingEmailOtpTargetPreparationResultV1>;
 
   openPersistedEmailOtpHolderSigningMaterialsV1(
     input: DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1,
@@ -382,7 +369,8 @@ export type DeviceLinkingKeyMaterialPortV1 = {
 };
 
 export type DeviceLinkingLiveKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 &
-  DeviceLinkingHolderSigningMaterialPortV1;
+  DeviceLinkingHolderSigningMaterialPortV1 &
+  DeviceLinkingOrdinaryMaterialWorkerPortV1;
 
 export type EmailOtpExportRootEnvelopeRecordV1 = Omit<PasskeyCustodyEnvelopeRecord, 'factor'> & {
   readonly factor: Extract<WalletCustodyEnvelopeFactor, { readonly kind: 'email_otp' }>;
@@ -435,7 +423,7 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
     readonly targetFactor: QrLinkedDeviceSessionPayloadV5['targetFactor'];
     readonly expiresAtMs: number;
     readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceOwnerEnrollmentStartV1>;
+  }): Promise<{ readonly ceremony: LinkedDeviceOwnerEnrollmentCeremonyV1 }>;
   authenticateOwnerForLinkingV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly requestedAtMs: number;
@@ -451,109 +439,19 @@ export type DeviceLinkingTargetCredentialPortV1 = {
     readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
   }): Promise<{
     readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
-    readonly orderedHolderRegistrations: readonly [
-      LinkedDeviceTargetHolderRegistrationV1,
-      ...LinkedDeviceTargetHolderRegistrationV1[],
-    ];
     /** Ephemeral PRF output from the user-verified creation ceremony. */
     readonly factorSecret: Uint8Array;
   }>;
 };
 
-export type LinkedDeviceExportRootActivationRequirementV1 =
-  | {
-      readonly kind: 'required';
-      readonly resealedExportRootEnvelope: PasskeyCustodyEnvelopeRecord;
-    }
-  | {
-      readonly kind: 'not_required';
-      readonly resealedExportRootEnvelope?: never;
-    };
-
-export type LinkedDeviceSigningSessionActivationV1 =
-  | {
-      readonly kind: 'target_passkey_creation';
-      readonly factorSecret: Uint8Array;
-      readonly exportRootRequirement: LinkedDeviceExportRootActivationRequirementV1;
-    }
-  | {
-      readonly kind: 'verified_owner_unlock';
-      readonly factorSecret: Uint8Array;
-    }
-  | {
-      readonly kind: 'existing_target_passkey';
-    }
-  | {
-      readonly kind: 'target_email_otp_activation';
-      readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
-      readonly holderMaterial: DeviceLinkingLiveKeyMaterialPortV1;
-      readonly exportRootRequirement:
-        | (Omit<LinkedDeviceExportRootActivationRequirementV1, 'resealedExportRootEnvelope'> & {
-            readonly kind: 'required';
-            readonly resealedExportRootEnvelope: EmailOtpExportRootEnvelopeRecordV1;
-          })
-        | Extract<LinkedDeviceExportRootActivationRequirementV1, { readonly kind: 'not_required' }>;
-      readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
-      readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
-    };
-
-export type DeviceLinkingSessionActivationPortV1 = {
-  activateLinkedDeviceSigningSessionV1(input: {
-    readonly walletId: WalletId;
-    readonly enrollmentId: LinkedDeviceEnrollmentId;
-    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
-    readonly activation: LinkedDeviceSigningSessionActivationV1;
-  }): Promise<void>;
-};
-
-/** R102 source/recipient/delivery/activation handoff owned by the worker assembly. */
-export type DeviceLinkingLaneProvisioningHandoffV1 = {
-  readonly kind: 'linked_device_lane_provisioning_handoff_v1';
-  readonly approval: LinkedDeviceApprovalV1;
-  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-  readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
-  readonly acknowledgeHolderDeliveriesV1: (
-    acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
-  ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
-};
-
-export type DeviceLinkingLaneProvisioningPortV1 = {
-  prepareLinkedDeviceLanesV1(
-    input: DeviceLinkingLaneProvisioningHandoffV1,
-  ): Promise<LinkedDeviceEnrollmentReceiptV1>;
-  resumeCommittedDeliveryV1(input: {
-    readonly state: Extract<
-      LinkedDeviceSessionState,
-      { readonly state: 'committed_completion_required' }
-    >;
-    readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
-    readonly refetchApprovalV1: () => Promise<LinkedDeviceApprovalV1>;
-    readonly refetchProvisioningDeliveriesV1: () => Promise<LinkedDeviceProvisioningDeliveriesV1>;
-    readonly acknowledgeHolderDeliveriesV1: (
-      acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
-    ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
-  }): Promise<LinkedDeviceEnrollmentReceiptV1>;
-};
-
-export type DeviceLinkingWalletSessionStorePortV1 = {
-  putExactActiveDeliveryV1(delivery: LinkedDeviceWalletSessionDeliveryV1): Promise<void>;
-};
-
-export type DeviceLinkingExecutionEvidenceStorePortV1 = Pick<
-  LinkedDeviceExecutionEvidenceRepositoryV1,
-  'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
->;
-
 export type Device2LinkingFlowPortsV1 = {
   readonly transport: LinkSessionTransportPortV1;
   readonly keyMaterial: DeviceLinkingLiveKeyMaterialPortV1;
   readonly targetCredential: DeviceLinkingTargetCredentialPortV1;
+  readonly authorityInstallation: DeviceLinkingAuthorityInstallationPortV1;
+  readonly readExpectedLockGenerationV1: (walletId: WalletId) => Promise<number>;
   /** Device 2's recipient and factor-reseal half of the Ed25519 export-root handoff. */
   readonly ed25519ExportRoot: DeviceLinkingEd25519ExportRootPortV1;
-  readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
-  readonly laneProvisioning: DeviceLinkingLaneProvisioningPortV1;
-  readonly walletSessions: DeviceLinkingWalletSessionStorePortV1;
-  readonly executionEvidence: DeviceLinkingExecutionEvidenceStorePortV1;
 };
 
 export type Device1LinkingFlowPortsV1 = {
@@ -573,20 +471,3 @@ export type Device1SourcePreparationPortV1 = {
 };
 
 export type DeviceLinkingFlowPortsV1 = Device2LinkingFlowPortsV1 & Device1LinkingFlowPortsV1;
-
-export function createDeviceLinkingLaneProvisioningHandoffV1(input: {
-  readonly approval: LinkedDeviceApprovalV1;
-  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
-  readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
-  readonly acknowledgeHolderDeliveriesV1: (
-    acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
-  ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
-}): DeviceLinkingLaneProvisioningHandoffV1 {
-  return {
-    kind: 'linked_device_lane_provisioning_handoff_v1',
-    approval: input.approval,
-    deliveries: input.deliveries,
-    keyMaterial: input.keyMaterial,
-    acknowledgeHolderDeliveriesV1: input.acknowledgeHolderDeliveriesV1,
-  };
-}

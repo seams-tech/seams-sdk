@@ -20,8 +20,6 @@ export const SEAMS_WALLET_STORES = {
   signingSessionRestoreLeases: 'signing_session_restore_leases',
   pendingWalletRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
   walletSessionAuthorizations: 'wallet_session_authorizations',
-  linkedDeviceWalletSessions: 'linked_device_wallet_sessions',
-  linkedDeviceExecutionEvidence: 'linked_device_execution_evidence',
   ecdsaCapabilityManifests: 'ecdsa_capability_manifests',
   ecdsaCurrentCapabilityManifests: 'ecdsa_current_capability_manifests',
   ecdsaRoleLocalMaterial: 'ecdsa_role_local_material',
@@ -485,19 +483,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
       { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
     ],
-  },
-  {
-    store: SEAMS_WALLET_STORES.linkedDeviceWalletSessions,
-    keyPath: 'enrollment_id',
-    indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
-      { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
-    ],
-  },
-  {
-    store: SEAMS_WALLET_STORES.linkedDeviceExecutionEvidence,
-    keyPath: 'enrollment_id',
-    indexes: [{ name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false }],
   },
   {
     store: SEAMS_WALLET_STORES.ecdsaCapabilityManifests,

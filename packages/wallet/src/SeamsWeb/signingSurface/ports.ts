@@ -51,9 +51,7 @@ import type {
   Ed25519YaoPublicCapabilityReferenceV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
-import type { LinkedDeviceEnrollmentId, MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
-import type { LinkedDeviceSigningSessionActivationV1 } from '../operations/devices/deviceLinkingPorts';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
@@ -612,21 +610,6 @@ export interface WalletAuthenticationSurface {
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void;
-  establishLinkedDeviceSigningSession(input: {
-    readonly walletId: WalletId;
-    readonly enrollmentId: LinkedDeviceEnrollmentId;
-    readonly walletSessionDelivery: LinkedDeviceWalletSessionDeliveryV1;
-    readonly activation: LinkedDeviceSigningSessionActivationV1;
-  }): Promise<void>;
-  unlockLinkedDeviceEmailOtpSigningSession(input: {
-    readonly walletId: WalletId;
-    readonly challengeId: string;
-    readonly otpCode: string;
-    readonly relayServerUrl?: string;
-  }): Promise<boolean>;
-  restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean>;
-  hasLinkedDeviceSigningSession(walletId: WalletId): boolean;
-  clearLinkedDeviceRefreshMaterial(): Promise<void>;
   retireActiveWalletSessionAuthorizationForLock(walletId: WalletId): Promise<void>;
   clearWalletAuthentication(): void;
 }
@@ -648,9 +631,6 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
     WalletAuthenticationSurface,
     | 'readWalletAuthenticationState'
     | 'setWalletAuthenticated'
-    | 'establishLinkedDeviceSigningSession'
-    | 'restoreLinkedDeviceSigningSession'
-    | 'hasLinkedDeviceSigningSession'
   > &
   Pick<
     SigningSessionSurface,
@@ -683,7 +663,6 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   // reason.
   Pick<RegistrationAccountSurface, 'activateAuthenticatedWalletState'> &
   Pick<WalletAuthenticationSurface, 'setWalletAuthenticated'> &
-  Pick<WalletAuthenticationSurface, 'establishLinkedDeviceSigningSession'> &
   Pick<WarmSessionStatusSurface, 'getWarmThresholdEd25519SessionStatus'>;
 
 export type RecentUnlocksSigningSurface = Pick<
@@ -705,7 +684,6 @@ export type LockSigningSurface = NonceCoordinatorSurface &
   Pick<
     WalletAuthenticationSurface,
     | 'readWalletAuthenticationState'
-    | 'clearLinkedDeviceRefreshMaterial'
     | 'retireActiveWalletSessionAuthorizationForLock'
     | 'clearWalletAuthentication'
   >;

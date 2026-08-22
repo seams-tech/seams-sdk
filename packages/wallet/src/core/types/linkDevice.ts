@@ -4,7 +4,7 @@ import type { ConfirmationConfig } from './signer-worker';
 import type {
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceTargetFactorV1,
-  LinkedDeviceSessionState,
+  LinkSessionStateV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type {
@@ -20,7 +20,7 @@ export { LinkDeviceEventPhase } from './sdkSentEvents';
 /** Public browser projection of the exhaustive shared session state. */
 export type DeviceLinkingSession = {
   readonly linkSessionId: LinkDeviceSessionId;
-  readonly state: LinkedDeviceSessionState;
+  readonly state: LinkSessionStateV1;
   readonly qrData: QrLinkedDeviceSessionPayloadV5;
 };
 

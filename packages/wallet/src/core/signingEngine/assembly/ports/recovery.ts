@@ -26,7 +26,6 @@ import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
 import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoExportFlow';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
-import { exportActiveLinkedDeviceEcdsaArtifactV1 } from '../../flows/signEvmFamily/shared/linkedDeviceEcdsaNormalSigning';
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
@@ -37,8 +36,6 @@ export function createRecoveryPublicDeps(args: {
   ecdsaSessions: Pick<RecoveryPublicEcdsaSessionStoreDeps, 'exportArtifactsByLane'>;
   relayerUrl: string;
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
-  readActiveExecutionBundleForWallet: PersistedAvailableSigningLanesDeps['readActiveExecutionBundleForWallet'];
-  readActiveEcdsaExportContextForWallet: PersistedAvailableSigningLanesDeps['readActiveEcdsaExportContextForWallet'];
   ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
@@ -94,8 +91,6 @@ export function createRecoveryPublicDeps(args: {
             ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
             isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
             readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
-            readActiveExecutionBundleForWallet: args.readActiveExecutionBundleForWallet,
-            readActiveEcdsaExportContextForWallet: args.readActiveEcdsaExportContextForWallet,
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
@@ -106,8 +101,6 @@ export function createRecoveryPublicDeps(args: {
             ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
             isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
             readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
-            readActiveExecutionBundleForWallet: args.readActiveExecutionBundleForWallet,
-            readActiveEcdsaExportContextForWallet: args.readActiveEcdsaExportContextForWallet,
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },
           {
@@ -131,13 +124,6 @@ export function createRecoveryPublicDeps(args: {
       },
       provisionPasskeyEcdsaExplicitExportSession: (request) =>
         args.provisionPasskeyEcdsaExplicitExportSession(request),
-      exportActiveExecutionBundleEcdsaArtifact: async ({ material, flowId, authorize }) =>
-        await exportActiveLinkedDeviceEcdsaArtifactV1({
-          relayServerUrl: args.relayerUrl,
-          material,
-          flowId,
-          authorize,
-        }),
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       withThresholdEcdsaSigningQueue: args.withThresholdEcdsaSigningQueue,
     },

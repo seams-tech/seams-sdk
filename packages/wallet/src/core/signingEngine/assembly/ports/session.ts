@@ -18,7 +18,6 @@ export function createSessionPublicDeps(args: {
   ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
-  readActiveExecutionBundleForWallet: PersistedAvailableSigningLanesDeps['readActiveExecutionBundleForWallet'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
   getWalletSessionStatus: SigningSessionStatusReader;
 }): SessionPublicDeps {
@@ -33,7 +32,6 @@ export function createSessionPublicDeps(args: {
       ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
       isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
       readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
-      readActiveExecutionBundleForWallet: args.readActiveExecutionBundleForWallet,
       listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     },
     signingSessionSeal:

@@ -11,6 +11,7 @@ import type {
   IndexedDBEvent,
   LastProfileState,
   LocalWalletAuthMethodRecord,
+  LocalAuthorityInstallationReceiptV1,
   NonceLaneLeaseStoreRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
@@ -43,6 +44,7 @@ import {
   type AtomicKeyMaterialRecoveryFinalizationInput,
   type LocalAuthorityInstallationInputV1,
   type LocalAuthorityInstallationResultV1,
+  type LocalAuthorityActivationFinalizationInputV1,
   type ResolveSelectedWalletAuthorityResultV1,
 } from './seamsWalletDB/repositories';
 
@@ -413,6 +415,18 @@ export class UnifiedIndexedDBManager {
     input: LocalAuthorityInstallationInputV1,
   ): Promise<LocalAuthorityInstallationResultV1> {
     return this.seamsWalletRepositories.installLocalAuthority(input);
+  }
+
+  async finalizeLocalAuthorityActivation(
+    input: LocalAuthorityActivationFinalizationInputV1,
+  ): Promise<void> {
+    return this.seamsWalletRepositories.finalizeLocalAuthorityActivation(input);
+  }
+
+  async getLocalAuthorityInstallationReceipt(
+    authorityId: string,
+  ): Promise<LocalAuthorityInstallationReceiptV1 | null> {
+    return this.seamsWalletRepositories.getLocalAuthorityInstallationReceipt(authorityId);
   }
 
   async getWalletAuthority(walletAuthorityId: string) {

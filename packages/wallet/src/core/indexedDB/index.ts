@@ -25,23 +25,6 @@ export type {
   LaneSealedHolderRecordLookupV1,
 } from './seamsWalletDB/laneHolderMaterialStore';
 export {
-  LinkedDeviceWalletSessionRepositoryV1,
-  linkedDeviceWalletSessions,
-} from './seamsWalletDB/linkedDeviceWalletSessionStore';
-export type {
-  LinkedDeviceWalletSessionReadResultV1,
-  LinkedDeviceWalletSessionTokenReadResultV1,
-} from './seamsWalletDB/linkedDeviceWalletSessionStore';
-export {
-  LinkedDeviceExecutionEvidenceRepositoryV1,
-  linkedDeviceExecutionEvidence,
-  resolveActiveLinkedDeviceExecutionBundleV1,
-} from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
-export type {
-  ActiveLinkedDeviceExecutionBundleReadResultV1,
-  LinkedDeviceExecutionEvidenceReadResultV1,
-} from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
-export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4,
   WalletSessionAuthorizationRepository,
@@ -56,18 +39,20 @@ export {
   walletSessionAuthorizations,
 } from './seamsWalletDB/walletSessionAuthorizationStore';
 export type {
-  ActiveWalletSessionV1,
   ActiveWalletSessionAuthorizationProjection,
   BuildActiveWalletSessionAuthorizationProjectionInput,
   RetiredWalletSessionV1,
   RetiredWalletSessionAuthorizationProjection,
-  WalletCapabilitySubjectV1,
   WalletSessionAuthorizationRecordV4,
   WalletSessionAuthorizationToken,
   WalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
   WalletSessionAuthorizationRetirementReason,
 } from './seamsWalletDB/walletSessionAuthorizationStore';
+export type {
+  ActiveWalletSessionV1,
+  WalletCapabilitySubjectV1,
+} from '@shared/device-linking/contracts';
 
 export type {
   ActivateAccountSignerInput,
@@ -123,6 +108,7 @@ export type {
   WalletAuthMethodRecordV2,
   WalletSelectionRecordV1,
 } from './passkeyClientDB.types';
+export type { LocalAuthorityActivationFinalizationInputV1 } from './seamsWalletDB/repositories';
 
 export type {
   KeyMaterialAlgorithm,

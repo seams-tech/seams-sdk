@@ -1,6 +1,23 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletKeyId,
+} from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseDigestField,
+  parseEnvelopeCiphertextB64u,
+  parseEnvelopeNonceB64u,
+} from '../../packages/shared-ts/src/passkey-custody';
 import { installDeviceLinkingKeyWorkerV1 } from '../../packages/wallet/src/core/signingEngine/workerManager/workers/device-linking-key.worker';
+import {
+  assertOrdinaryExportRootResealingMatchesIdentityV1,
+  parseOrdinaryMaterialWorkerRequestV1,
+  parseOrdinarySignerMaterialRecipientPreparationV1,
+  parseOrdinaryResealedExportRootRecordV1,
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingOrdinaryMaterialWorker';
+import type { DeviceLinkingResealedEd25519ExportRootV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingEd25519ExportRoot';
 import {
   buildR102EcdsaLaneJob,
   buildR102ProtocolCommitReceipt,
@@ -44,6 +61,208 @@ async function waitForResponse(scope: FakeWorkerScope): Promise<Record<string, u
 }
 
 test.describe('device-linking key worker', () => {
+  test('accepts only the custody-worker resealed export-root record', () => {
+    const authorityId = parseWalletAuthorityId('authority:ordinary-seal-test');
+    const walletAuthMethodId = parseWalletAuthMethodId('auth-method:ordinary-seal-test');
+    const walletKeyId = parseWalletKeyId('wallet-key:ordinary-seal-test');
+    if (!authorityId.ok || !walletAuthMethodId.ok || !walletKeyId.ok) {
+      throw new Error('ordinary export-root identity fixture is invalid');
+    }
+    const resealed: DeviceLinkingResealedEd25519ExportRootV1 = {
+      nonceB64u: parseEnvelopeNonceB64u(base64UrlEncode(new Uint8Array(12)), 'fixture nonceB64u'),
+      sealedExportRootB64u: parseEnvelopeCiphertextB64u(
+        base64UrlEncode(new Uint8Array(32)),
+        'fixture sealedExportRootB64u',
+      ),
+      aadHashB64u: parseDigestField(digest(8), 'fixture aadHashB64u'),
+      ciphertextDigestB64u: parseDigestField(digest(7), 'fixture ciphertextDigestB64u'),
+    };
+    expect(
+      assertOrdinaryExportRootResealingMatchesIdentityV1({
+        authorityId: authorityId.value,
+        walletAuthMethodId: walletAuthMethodId.value,
+        walletKeyId: walletKeyId.value,
+        resealedExportRoot: resealed,
+      }),
+    ).toEqual({
+      kind: 'wallet_authority_export_root_v1',
+      authorityId: authorityId.value,
+      walletAuthMethodId: walletAuthMethodId.value,
+      walletKeyId: walletKeyId.value,
+      sealedRootB64u: resealed.sealedExportRootB64u,
+      sealedRootDigestB64u: resealed.ciphertextDigestB64u,
+    });
+    expect(() =>
+      assertOrdinaryExportRootResealingMatchesIdentityV1({
+        authorityId: authorityId.value,
+        walletAuthMethodId: walletAuthMethodId.value,
+        walletKeyId: walletKeyId.value,
+        resealedExportRoot: null,
+      }),
+    ).toThrow('requires an Ed25519 export-root result');
+    expect(() =>
+      assertOrdinaryExportRootResealingMatchesIdentityV1({
+        authorityId: authorityId.value,
+        walletAuthMethodId: walletAuthMethodId.value,
+        walletKeyId: null,
+        resealedExportRoot: resealed,
+      }),
+    ).toThrow('without a package');
+    expect(() =>
+      parseOrdinaryResealedExportRootRecordV1({
+        kind: 'linked_device_ed25519_export_root_package_v1',
+        sealedExportRootB64u: resealed.sealedExportRootB64u,
+      }),
+    ).toThrow('unsupported');
+  });
+
+  test('keeps ordinary recipient inputs inside the worker boundary', () => {
+    const requirements = [
+      {
+        kind: 'ordinary_signer_material_recipient_requirement_v1',
+        keyFamily: 'ed25519',
+        walletKeyId: 'wallet-key:ordinary-recipient-boundary',
+      },
+    ] as const;
+    expect(() =>
+      parseOrdinaryMaterialWorkerRequestV1({
+        kind: 'device_linking_ordinary_signer_material_recipient_prepare_v1',
+        handleId: 'device-linking-key-boundary',
+        requirements,
+        recipientInputs: [
+          {
+            kind: 'ordinary_ed25519_signer_material_recipient_input_v1',
+            keyFamily: 'ed25519',
+            walletKeyId: requirements[0].walletKeyId,
+            recipientPrivateKey: new ArrayBuffer(32),
+          },
+        ],
+      }),
+    ).toThrow('recipientInputs is unsupported');
+
+    expect(() =>
+      parseOrdinaryMaterialWorkerRequestV1({
+        kind: 'device_linking_ordinary_signer_material_prepare_private_v1',
+        handleId: 'device-linking-key-boundary',
+        targetFactor: {
+          kind: 'passkey',
+          walletAuthMethodId: 'auth-method:ordinary-recipient-boundary',
+          verificationDigestB64u: digest(4),
+          rpId: 'example.test',
+          credentialIdB64u: base64UrlEncode(new Uint8Array([1])),
+        },
+        preparations: [],
+        recipientRequests: [],
+        recipientInputs: [],
+        factorSecret: new ArrayBuffer(32),
+      }),
+    ).toThrow('ordinary material worker request kind is unsupported');
+  });
+
+  test('pairs each public ordinary recipient request with its private input', () => {
+    const ed25519PrivateKey = new ArrayBuffer(32);
+    const ecdsaPrivateKey = new ArrayBuffer(32);
+    const parsed = parseOrdinarySignerMaterialRecipientPreparationV1({
+      kind: 'device_linking_ordinary_signer_material_recipient_preparation_v1',
+      recipientRequests: [
+        {
+          kind: 'ordinary_ed25519_signer_material_recipient_request_v1',
+          keyFamily: 'ed25519',
+          walletKeyId: 'wallet-key:ordinary-ed25519',
+          recipientPublicKeyB64u: base64UrlEncode(new Uint8Array(32)),
+        },
+        {
+          kind: 'ordinary_ecdsa_signer_material_recipient_request_v1',
+          keyFamily: 'ecdsa_secp256k1',
+          walletKeyId: 'wallet-key:ordinary-ecdsa',
+          clientEphemeralPublicKey: 'x25519:01020304',
+        },
+      ],
+      recipientInputs: [
+        {
+          kind: 'ordinary_ed25519_signer_material_recipient_input_v1',
+          keyFamily: 'ed25519',
+          walletKeyId: 'wallet-key:ordinary-ed25519',
+          recipientPrivateKey: ed25519PrivateKey,
+        },
+        {
+          kind: 'ordinary_ecdsa_signer_material_recipient_input_v1',
+          keyFamily: 'ecdsa_secp256k1',
+          walletKeyId: 'wallet-key:ordinary-ecdsa',
+          clientEphemeralPrivateKey: ecdsaPrivateKey,
+        },
+      ],
+    });
+    expect(parsed.recipientInputs).toHaveLength(2);
+    expect(parsed.recipientRequests[0]?.keyFamily).toBe('ed25519');
+    expect(parsed.recipientInputs[1]?.keyFamily).toBe('ecdsa_secp256k1');
+
+    expect(() =>
+      parseOrdinarySignerMaterialRecipientPreparationV1({
+        kind: 'device_linking_ordinary_signer_material_recipient_preparation_v1',
+        recipientRequests: parsed.recipientRequests,
+        recipientInputs: [parsed.recipientInputs[1], parsed.recipientInputs[0]],
+      }),
+    ).toThrow('ordinary recipient requests must be ordered Ed25519 then ECDSA');
+  });
+
+  test('creates paired ordinary recipients inside the key worker', async () => {
+    const scope = new FakeWorkerScope();
+    const installed = installDeviceLinkingKeyWorkerV1(scope);
+    scope.send({
+      id: 'create-ordinary-recipient-slot',
+      request: { kind: 'device_linking_key_material_create_v1' },
+    });
+    const created = await waitForResponse(scope);
+    scope.responses.shift();
+    const createdResult = created.result as Record<string, unknown>;
+    const handleId = String(createdResult.handleId);
+    scope.send({
+      id: 'prepare-ordinary-recipients',
+      request: {
+        kind: 'device_linking_ordinary_signer_material_recipient_prepare_v1',
+        handleId,
+        requirements: [
+          {
+            kind: 'ordinary_signer_material_recipient_requirement_v1',
+            keyFamily: 'ed25519',
+            walletKeyId: 'wallet-key:ordinary-worker-ed25519',
+          },
+          {
+            kind: 'ordinary_signer_material_recipient_requirement_v1',
+            keyFamily: 'ecdsa_secp256k1',
+            walletKeyId: 'wallet-key:ordinary-worker-ecdsa',
+          },
+        ],
+      },
+    });
+    const prepared = await waitForResponse(scope);
+    expect(prepared).toMatchObject({ ok: true });
+    const preparation = prepared.result as {
+      readonly recipientRequests: readonly Record<string, unknown>[];
+      readonly recipientInputs: readonly Record<string, unknown>[];
+    };
+    expect(preparation.recipientRequests).toHaveLength(2);
+    expect(preparation.recipientInputs).toHaveLength(2);
+    expect(preparation.recipientRequests[0]).toMatchObject({
+      keyFamily: 'ed25519',
+      walletKeyId: 'wallet-key:ordinary-worker-ed25519',
+    });
+    expect(preparation.recipientRequests[1]).toMatchObject({
+      keyFamily: 'ecdsa_secp256k1',
+      walletKeyId: 'wallet-key:ordinary-worker-ecdsa',
+    });
+    expect(preparation.recipientInputs[0]?.recipientPrivateKey).toBeInstanceOf(ArrayBuffer);
+    expect(preparation.recipientInputs[1]?.clientEphemeralPrivateKey).toBeInstanceOf(ArrayBuffer);
+    scope.responses.shift();
+    scope.send({
+      id: 'discard-ordinary-recipient-slot',
+      request: { kind: 'device_linking_key_material_discard_v1', handleId },
+    });
+    await waitForResponse(scope);
+    await installed.close();
+  });
+
   test('opens persisted linked holders from a fresh Email OTP factor release in the worker', async () => {
     const scope = new FakeWorkerScope();
     const openedSecrets: number[] = [];
@@ -144,9 +363,7 @@ test.describe('device-linking key worker', () => {
           nonce12B64u: base64UrlEncode(nonce),
           ciphertextB64u: base64UrlEncode(ciphertext),
         },
-        orderedChildren: [
-          { job, protocolCommitReceipt, materialActivation, holderRecord },
-        ],
+        orderedChildren: [{ job, protocolCommitReceipt, materialActivation, holderRecord }],
       },
     });
     const opened = await waitForResponse(scope);
@@ -174,9 +391,7 @@ test.describe('device-linking key worker', () => {
           nonce12B64u: base64UrlEncode(nonce),
           ciphertextB64u: base64UrlEncode(ciphertext),
         },
-        orderedChildren: [
-          { job, protocolCommitReceipt, materialActivation, holderRecord },
-        ],
+        orderedChildren: [{ job, protocolCommitReceipt, materialActivation, holderRecord }],
       },
     });
     const reused = await waitForResponse(scope);
@@ -309,5 +524,4 @@ test.describe('device-linking key worker', () => {
     await installed.close();
     expect(presignSessionFrees).toBe(1);
   });
-
 });

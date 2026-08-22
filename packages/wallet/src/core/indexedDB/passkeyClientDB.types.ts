@@ -11,7 +11,6 @@ import type {
   WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { DeviceId } from '@shared/authorization/capabilityKinds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   MpcMaterialActivationRef,
@@ -19,7 +18,7 @@ import type {
   WalletAuthorityId,
   WalletKeyId,
 } from '@shared/utils/domainIds';
-import type { WalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
+export type { LocalAuthorityInstallationReceiptV1 } from '@shared/device-linking/contracts';
 
 export interface PasskeyCredentialRecord {
   id: string;
@@ -201,19 +200,6 @@ export type WalletAuthorityExportRootRecordV1 = {
   readonly walletKeyId: WalletKeyId;
   readonly sealedRootB64u: string;
   readonly sealedRootDigestB64u: DigestB64u;
-};
-
-export type LocalAuthorityInstallationReceiptV1 = {
-  readonly kind: 'local_authority_installation_receipt_v1';
-  readonly authorityId: WalletAuthorityId;
-  readonly walletId: WalletId;
-  readonly authMethodId: WalletAuthMethodId;
-  readonly deviceId: DeviceId;
-  readonly packageSetDigestB64u: DigestB64u;
-  readonly installedActivationRefs: WalletSignerActivationSetV1;
-  readonly installedRecordSetDigestB64u: DigestB64u;
-  readonly targetFactorVerificationDigestB64u: DigestB64u;
-  readonly installedAtMs: number;
 };
 
 export type WalletSelectionRecordV1 = {

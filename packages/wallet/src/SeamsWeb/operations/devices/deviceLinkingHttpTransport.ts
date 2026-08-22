@@ -1,10 +1,15 @@
 import type {
-  LinkedDeviceSessionProjectionV1,
-  LinkedDeviceSessionTransportEventV1,
+  LinkSessionProjectionV1,
+  LinkSessionTransportEventV1,
+  LinkedDeviceTargetCredentialRegistrationResultV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import {
+  parseActivateInstalledAuthorityResultV1,
+  parseCommittedAuthorityPackagesV1,
+  parseLocalAuthorityActivationFinalAckV1,
+  parseLocalAuthorityInstallationReceiptV1,
   parseLinkedDeviceApprovalDeliveryV1,
   parseLinkedDeviceEmailOtpChallengeResultV1,
   parseLinkedDeviceEmailOtpChallengeResendRequestV1,
@@ -13,8 +18,9 @@ import {
   parseLinkedDeviceEmailOtpVerificationResultV1,
   parseLinkedDeviceEnrollmentReceiptV1,
   parseLinkedDeviceProvisioningDeliveriesV1,
-  parseLinkedDeviceSessionProjectionV1,
-  parseLinkedDeviceSessionTransportEventV1,
+  parseLinkSessionProjectionV1,
+  parseLinkSessionTransportEventV1,
+  parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking';
@@ -36,6 +42,7 @@ import { parseLinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-link
 import type { HttpTransport } from '@/core/platform/http';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
+  DeviceLinkingAuthorityActivationTransportPortV1,
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
   LinkSessionSnapshotV1,
@@ -90,7 +97,7 @@ export type DeviceLinkingSessionTransportAssemblyOptionsV1 = {
 type SessionMutationEnvelopeV1 = {
   readonly ok: true;
   readonly outcome: 'applied' | 'replayed';
-  readonly session: LinkedDeviceSessionProjectionV1;
+  readonly session: LinkSessionProjectionV1;
 };
 
 type DeviceRequestResponseV1 = {
@@ -106,6 +113,7 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
     throw new Error('linked-device session poll interval must be a positive integer');
   }
   return {
+    ...createDeviceLinkingAuthorityActivationTransportV1(options),
     createUnclaimedSessionV1: async (input) => {
       await requestMutationV1({
         options,
@@ -210,7 +218,7 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       return parseLinkedDeviceEnrollmentReceiptV1(response.body);
     },
     registerTargetCredentialV1: async ({ registration }) => {
-      await requestMutationV1({
+      const response = await requestDeviceV1({
         options,
         baseUrl,
         method: 'POST',
@@ -218,6 +226,7 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId: registration.linkSessionId,
         body: registration,
       });
+      return parseTargetCredentialRegistrationResponseV1(response.body);
     },
     finalizeOwnerAuthMethodV1: async ({ linkSessionId, request }) => {
       const response = await requestDeviceV1({
@@ -290,6 +299,47 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
         onEvent,
       }),
+  };
+}
+
+export function createDeviceLinkingAuthorityActivationTransportV1(
+  options: DeviceLinkingAuthenticatedSessionTransportOptionsV1,
+): DeviceLinkingAuthorityActivationTransportPortV1 {
+  const baseUrl = normalizeBaseUrl(options.relayerUrl);
+  return {
+    receiveCommittedAuthorityPackagesV1: async ({ linkSessionId }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'GET',
+        canonicalPath: sessionActionPath(linkSessionId, 'approval'),
+        linkSessionId,
+      });
+      return parseCommittedAuthorityPackagesV1(response.body);
+    },
+    activateInstalledAuthorityV1: async ({ linkSessionId, receipt }) => {
+      const parsedReceipt = parseLocalAuthorityInstallationReceiptV1(receipt);
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(linkSessionId, 'receipt'),
+        linkSessionId,
+        body: parsedReceipt,
+      });
+      return parseActivateInstalledAuthorityResultV1(response.body);
+    },
+    acknowledgeLocalAuthorityActivationV1: async ({ acknowledgement }) => {
+      const parsedAcknowledgement = parseLocalAuthorityActivationFinalAckV1(acknowledgement);
+      await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(acknowledgement.linkSessionId, 'receipt'),
+        linkSessionId: acknowledgement.linkSessionId,
+        body: parsedAcknowledgement,
+      });
+    },
   };
 }
 
@@ -417,7 +467,7 @@ async function createPollingSubscriptionV1(input: {
   readonly options: DeviceLinkingAuthenticatedSessionTransportOptionsV1;
   readonly baseUrl: string;
   readonly linkSessionId: LinkDeviceSessionId;
-  readonly onEvent: (event: LinkedDeviceSessionTransportEventV1) => void;
+  readonly onEvent: (event: LinkSessionTransportEventV1) => void;
 }): Promise<LinkSessionSubscriptionV1> {
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -432,7 +482,7 @@ async function createPollingSubscriptionV1(input: {
         lastRevision = session.revision;
         retryAttempt = 0;
         input.onEvent(
-          parseLinkedDeviceSessionTransportEventV1({
+          parseLinkSessionTransportEventV1({
             kind: 'linked_device_session_event_v1',
             linkSessionId: session.linkSessionId,
             state: session.state,
@@ -484,8 +534,34 @@ function parseSessionMutationEnvelopeV1(raw: unknown): SessionMutationEnvelopeV1
   return {
     ok: true,
     outcome: raw.outcome,
-    session: parseLinkedDeviceSessionProjectionV1(raw.session),
+    session: parseLinkSessionProjectionV1(raw.session),
   };
+}
+
+function parseTargetCredentialRegistrationResponseV1(
+  raw: unknown,
+): LinkedDeviceTargetCredentialRegistrationResultV1 {
+  if (!isRecord(raw)) {
+    throw new Error('linked-device target credential response must be an object');
+  }
+  const keys = Object.keys(raw).sort();
+  if (keys.join(',') !== 'ok,outcome,session,targetCredential') {
+    throw new Error('linked-device target credential response contains invalid fields');
+  }
+  if (raw.ok !== true || (raw.outcome !== 'applied' && raw.outcome !== 'replayed')) {
+    throw new Error('linked-device target credential response outcome is invalid');
+  }
+  const session = parseLinkSessionProjectionV1(raw.session);
+  const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1(
+    raw.targetCredential,
+  );
+  if (targetCredential.outcome !== raw.outcome) {
+    throw new Error('linked-device target credential response outcome does not match its result');
+  }
+  if (targetCredential.linkSessionId !== session.linkSessionId) {
+    throw new Error('linked-device target credential response session identity differs');
+  }
+  return targetCredential;
 }
 
 function parseHttpFailureMessageV1(response: DeviceRequestResponseV1): string {

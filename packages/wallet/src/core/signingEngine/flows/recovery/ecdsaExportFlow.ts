@@ -14,8 +14,6 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
   ecdsaExportBoundaryChain,
-  type ActiveLinkedDeviceEcdsaExportLane,
-  type ActiveLinkedDeviceEcdsaExportMaterial,
   type EcdsaExportSessionStoreDeps,
   type EmailOtpEcdsaExportAuthLane,
   type ExactEcdsaExportLane,
@@ -62,7 +60,6 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import type { RouterAbEcdsaOperationStepUpAuthorizationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
-import type { LinkedDeviceEcdsaFreshExportProofV1 } from '../signEvmFamily/shared/linkedDeviceEcdsaNormalSigning';
 
 type ExportedKeySchemes = Array<'secp256k1'>;
 type EcdsaExportArtifact = {
@@ -95,15 +92,6 @@ export type EcdsaExportFlowDeps = {
   provisionPasskeyEcdsaExplicitExportSession: (
     args: ThresholdEcdsaPasskeyExportActivationRequest,
   ) => Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult>;
-  exportActiveExecutionBundleEcdsaArtifact: (args: {
-    readonly walletId: WalletId;
-    readonly exportLane: ActiveLinkedDeviceEcdsaExportLane;
-    readonly material: ActiveLinkedDeviceEcdsaExportMaterial;
-    readonly flowId: string;
-    readonly authorize: (args: {
-      readonly challengeB64u: string;
-    }) => Promise<LinkedDeviceEcdsaFreshExportProofV1>;
-  }) => Promise<EcdsaExportArtifact>;
   getSignerWorkerContext: () => WorkerOperationContext;
   withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
@@ -118,15 +106,7 @@ type EcdsaExportOptions = {
   theme?: 'dark' | 'light';
 };
 
-type DisplayableEcdsaExportLane = ExactEcdsaExportLane | ActiveLinkedDeviceEcdsaExportLane;
-
-type ActiveLinkedDeviceEcdsaFreshExportAuthorizationContext = {
-  readonly deps: Pick<EcdsaExportFlowDeps, 'touchConfirm' | 'theme' | 'emailOtp'>;
-  readonly walletId: WalletId;
-  readonly exportLane: ActiveLinkedDeviceEcdsaExportLane;
-  readonly flowId: string;
-  readonly onEvent?: KeyExportEventCallback;
-};
+type DisplayableEcdsaExportLane = ExactEcdsaExportLane;
 
 
 function emitEcdsaMaterialStarted(args: {
@@ -220,191 +200,6 @@ async function showEcdsaExportLoadingViewer(
       onEvent: args.onEvent,
     },
   );
-}
-
-type ActiveLinkedDeviceEcdsaPasskeyCredential = Awaited<
-  ReturnType<typeof requestThresholdEcdsaExportAuthorization>
->['credential'];
-
-function linkedDeviceEcdsaPasskeyExportProof(args: {
-  readonly walletId: WalletId;
-  readonly auth: Extract<ActiveLinkedDeviceEcdsaExportLane['laneIdentity']['auth'], { kind: 'passkey' }>;
-  readonly credential: ActiveLinkedDeviceEcdsaPasskeyCredential;
-}): Extract<LinkedDeviceEcdsaFreshExportProofV1, { readonly kind: 'passkey' }> {
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: args.walletId,
-    rpId: args.auth.rpId,
-    credentialIdB64u: args.auth.credentialIdB64u,
-  });
-  return {
-    kind: 'passkey',
-    authority,
-    webauthn_authentication: {
-      id: args.credential.id,
-      rawId: args.credential.rawId,
-      type: args.credential.type,
-      authenticatorAttachment: args.credential.authenticatorAttachment ?? null,
-      response: {
-        clientDataJSON: args.credential.response.clientDataJSON,
-        authenticatorData: args.credential.response.authenticatorData,
-        signature: args.credential.response.signature,
-        userHandle: args.credential.response.userHandle ?? null,
-      },
-      clientExtensionResults: args.credential.clientExtensionResults ?? null,
-    },
-  };
-}
-
-async function requestActiveLinkedDeviceEcdsaFreshExportProof(
-  context: ActiveLinkedDeviceEcdsaFreshExportAuthorizationContext,
-  input: { readonly challengeB64u: string },
-): Promise<LinkedDeviceEcdsaFreshExportProofV1> {
-  const auth = context.exportLane.laneIdentity.auth;
-  switch (auth.kind) {
-    case 'passkey': {
-      const authorization = await requestThresholdEcdsaExportAuthorization(
-        { touchConfirm: context.deps.touchConfirm, theme: context.deps.theme },
-        {
-          walletSessionUserId: String(context.walletId),
-          credentialIdB64u: auth.credentialIdB64u,
-          publicKey: String(context.exportLane.publicFacts.publicKeyB64u),
-          chainTarget: context.exportLane.chainTarget,
-          challengeB64u: input.challengeB64u,
-          flowId: context.flowId,
-          onEvent: context.onEvent,
-        },
-      );
-      return linkedDeviceEcdsaPasskeyExportProof({
-        walletId: context.walletId,
-        auth,
-        credential: authorization.credential,
-      });
-    }
-    case 'email_otp': {
-      const authorization = await requestEmailOtpKeyExportAuthorization(
-        {
-          touchConfirm: context.deps.touchConfirm,
-          requestExportChallenge: context.deps.emailOtp.requestExportChallenge,
-        },
-        {
-          kind: 'wallet_session_export_auth',
-          walletSession: walletSessionRefFromSession({
-            walletId: context.walletId,
-            walletSessionUserId: String(context.walletId),
-          }),
-          chain: context.exportLane.chainTarget.kind,
-          publicKey: String(context.exportLane.publicFacts.publicKeyB64u),
-          curve: 'ecdsa',
-          flowId: context.flowId,
-          onEvent: context.onEvent,
-        },
-      );
-      return {
-        kind: 'email_otp',
-        provider_user_id: auth.providerSubjectId,
-        challenge_id: authorization.challengeId,
-        otp_code: authorization.otpCode,
-      };
-    }
-    default: {
-      const exhaustive: never = auth;
-      throw new Error(`Unsupported linked ECDSA export auth: ${String(exhaustive)}`);
-    }
-  }
-}
-
-function activeLinkedDeviceEcdsaExportAuthorizer(
-  context: ActiveLinkedDeviceEcdsaFreshExportAuthorizationContext,
-): (input: { readonly challengeB64u: string }) => Promise<LinkedDeviceEcdsaFreshExportProofV1> {
-  return requestActiveLinkedDeviceEcdsaFreshExportProof.bind(undefined, context);
-}
-
-async function showActiveEcdsaExportArtifact(
-  deps: EcdsaExportFlowDeps,
-  args: {
-    readonly walletId: WalletId;
-    readonly exportLane: ActiveLinkedDeviceEcdsaExportLane;
-    readonly material: ActiveLinkedDeviceEcdsaExportMaterial;
-    readonly options: EcdsaExportOptions;
-    readonly flowId: string;
-    readonly onEvent?: KeyExportEventCallback;
-  },
-): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  const exportChain = ecdsaExportBoundaryChain(args.exportLane);
-  const viewerSessionId = createExportUiRequestId('export-threshold-ecdsa-viewer-session');
-  const materialActivation = args.exportLane.laneIdentity.signer.materialActivation;
-  emitEcdsaMaterialStarted({
-    flowId: args.flowId,
-    walletId: args.walletId,
-    chain: exportChain,
-    onEvent: args.onEvent,
-  });
-  try {
-    await showEcdsaExportLoadingViewer(deps, {
-      walletId: args.walletId,
-      exportLane: args.exportLane,
-      publicKey: String(args.exportLane.publicFacts.publicKeyB64u),
-      ethereumAddress: args.exportLane.publicFacts.thresholdOwnerAddress,
-      options: args.options,
-      viewerSessionId,
-      flowId: args.flowId,
-      onEvent: args.onEvent,
-    });
-    const artifact = await deps.withThresholdEcdsaSigningQueue({
-      queueKey: resolveThresholdEcdsaSigningQueueKey({ materialActivation }),
-      walletId: args.walletId,
-      enabled: true,
-      task: async () =>
-        await deps.exportActiveExecutionBundleEcdsaArtifact({
-          walletId: args.walletId,
-          exportLane: args.exportLane,
-          material: args.material,
-          flowId: args.flowId,
-          authorize: activeLinkedDeviceEcdsaExportAuthorizer({
-            deps,
-            walletId: args.walletId,
-            exportLane: args.exportLane,
-            flowId: args.flowId,
-            onEvent: args.onEvent,
-          }),
-        }),
-    });
-    emitEcdsaMaterialSucceeded({
-      flowId: args.flowId,
-      walletId: args.walletId,
-      chain: exportChain,
-      onEvent: args.onEvent,
-    });
-    if (isExportViewerSessionOpen(viewerSessionId)) {
-      await showEcdsaExportArtifact(deps, {
-        walletId: args.walletId,
-        exportLane: args.exportLane,
-        artifact,
-        options: args.options,
-        viewerSessionId,
-        flowId: args.flowId,
-        onEvent: args.onEvent,
-      });
-    }
-    return { accountId: String(args.walletId), exportedSchemes: ['secp256k1'] };
-  } catch (error: unknown) {
-    removeExportViewerHostIfPresent();
-    throw error;
-  }
-}
-
-export async function exportActiveExecutionBundleEcdsaKey(
-  deps: EcdsaExportFlowDeps,
-  args: {
-    readonly walletId: WalletId;
-    readonly exportLane: ActiveLinkedDeviceEcdsaExportLane;
-    readonly material: ActiveLinkedDeviceEcdsaExportMaterial;
-    readonly options: EcdsaExportOptions;
-    readonly flowId: string;
-    readonly onEvent?: KeyExportEventCallback;
-  },
-): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  return await showActiveEcdsaExportArtifact(deps, args);
 }
 
 async function prepareAndShowEcdsaExportArtifact(
