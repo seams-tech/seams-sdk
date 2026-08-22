@@ -72,7 +72,10 @@ import {
   type OrdinaryEd25519SignerMaterialReservationV1,
 } from '../../../../core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 import { parseRouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  parseRouterAbEd25519YaoParticipantIdsV1,
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { d1ChangedRows, formatD1ExecStatement, parseD1JsonColumn } from '../../../../storage/d1Sql';
 import {
@@ -81,11 +84,16 @@ import {
 } from '../wallet/d1WalletAuthorityStore';
 import type { D1LinkedDeviceSessionStoreV1 } from './d1LinkedDeviceSessionStore';
 import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
-import type { AuthorizationService, IssueWalletSessionAuthorizationV2Input } from '../../../../authorization/service';
+import type {
+  AuthorizationService,
+  IssueWalletSessionAuthorizationV2Input,
+  PreparedWalletSessionAuthorizationV2,
+} from '../../../../authorization/service';
 import type { IssuedWalletSessionAuthorizationV2 } from '../../../../authorization/domain';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 
 type ExactSigner = ExactAdministeredSignerV1;
 
@@ -162,7 +170,16 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
   readonly materialPlanner: OrdinarySignerMaterialActivationPlannerV1;
   readonly reservationPreparationPlanner: OrdinarySignerMaterialReservationPreparationPlannerV1;
   readonly materialActivation: OrdinaryInactiveSignerMaterialActivationPortV1;
-  readonly authorizationService: Pick<AuthorizationService, 'issueWalletSessionAuthorizationV2'>;
+  readonly authorizationService: Pick<
+    AuthorizationService,
+    'issueWalletSessionAuthorizationV2' | 'prepareWalletSessionAuthorizationV2'
+  >;
+  readonly authorizationStore: {
+    prepareWalletSessionAuthorizationV2Statements(input: PreparedWalletSessionAuthorizationV2): readonly [
+      D1PreparedStatementLike,
+      D1PreparedStatementLike,
+    ];
+  };
   readonly tenantId: TenantId;
   readonly walletSessionTtlMs?: number;
   readonly walletSessionRemainingUses?: number;
@@ -217,6 +234,18 @@ type StoredInstallationRow = {
   readonly activatedAtMs: number | null;
 };
 
+type AuthorityAllocation = {
+  readonly authorityId: WalletAuthorityId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: string;
+  readonly deviceId: DeviceId;
+};
+
+type AuthorityAllocationPreparation = {
+  readonly authorityId: WalletAuthorityId;
+  readonly statement: D1PreparedStatementLike | null;
+};
+
 type ServerReservationRecordV1<F extends 'ed25519' | 'ecdsa_secp256k1'> = {
   readonly reservationId: string;
   readonly preparation: Extract<
@@ -255,6 +284,24 @@ const INSTALLATION_SCHEMA_SQL = `
   )
 `;
 
+const AUTHORITY_ALLOCATION_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS linked_device_authority_allocations (
+    namespace TEXT NOT NULL,
+    org_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    env_id TEXT NOT NULL,
+    link_session_id TEXT NOT NULL,
+    authority_id TEXT NOT NULL,
+    wallet_id TEXT NOT NULL,
+    enrollment_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (namespace, org_id, project_id, env_id, link_session_id),
+    UNIQUE (namespace, org_id, project_id, env_id, authority_id),
+    CHECK (created_at_ms >= 0)
+  )
+`;
+
 export class D1LinkedDeviceAuthorityInstallServiceV1 {
   private readonly nowV1: () => number;
   private schemaReady = false;
@@ -270,16 +317,20 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       await this.ensureSchema();
       const nowMs = requireTime(input.nowMs, 'nowMs');
       await validateVerifiedLinkInput(input, nowMs, this.options.authMethodStore);
-      const expectedAuthorityId = await deriveAuthorityId(input);
       const existing = await this.readInstallation(input.linkSessionId);
       const session = await this.options.sessionService.getSessionV1({
         linkSessionId: input.linkSessionId,
         nowMs,
       });
       if (!session) return { kind: 'conflict', message: 'linked-device session was not found' };
+      const allocation = await this.prepareAuthorityAllocation(input, existing);
+      const expectedAuthorityId = allocation.authorityId;
       if (existing) {
         await assertStoredPackageDigest(existing);
         assertRetryInput(existing, input, expectedAuthorityId);
+        if (allocation.statement) {
+          await this.options.database.batch([allocation.statement]);
+        }
         if (session.state.state !== 'authority_pending_local_install' && session.state.state !== 'active') {
           return { kind: 'conflict', message: 'stored authority installation has no pending session' };
         }
@@ -297,7 +348,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         return { kind: 'conflict', message: `linked-device session is ${session.state.state}` };
       }
 
-      const authorityId = await deriveAuthorityId(input);
+      const authorityId = expectedAuthorityId;
       const reservations = await this.reserveSignerMaterial(input, authorityId);
       const activationSet = buildActivationSet(input.signerManifest, reservations);
       const pendingAuthMethod = buildPendingAuthMethod(input, authorityId, nowMs);
@@ -352,7 +403,11 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       });
       const committed = await this.options.authorityStore.commitPendingAuthorityWithStatements(
         { authority: pendingAuthority, authMethod: pendingAuthMethod },
-        [packageStatement, ...sessionStatements],
+        [
+          ...(allocation.statement ? [allocation.statement] : []),
+          packageStatement,
+          ...sessionStatements,
+        ],
       );
       if (committed.kind === 'conflict') {
         const replay = await this.readInstallation(input.linkSessionId);
@@ -460,6 +515,13 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         nextRecord: nextSession,
         nowMs,
       });
+      const preparedWalletSession = await this.options.authorizationService.prepareWalletSessionAuthorizationV2(
+        this.buildWalletSessionAuthorizationInput(activeAuthority, activeAuthMethod, receipt.installedAtMs),
+      );
+      const walletSessionStatements =
+        this.options.authorizationStore.prepareWalletSessionAuthorizationV2Statements(
+          preparedWalletSession,
+        );
       const activation = await this.options.authorityStore.activatePendingAuthorityWithStatements(
         {
           pendingAuthority: authority,
@@ -467,7 +529,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
           pendingAuthMethod: authMethod,
           activeAuthMethod,
         },
-        sessionStatements,
+        [...sessionStatements, ...walletSessionStatements],
       );
       if (activation.kind === 'conflict') {
         return { kind: 'integrity_error', message: 'authority activation conflicts with another transition' };
@@ -754,6 +816,16 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>,
     issuedAtMs: number,
   ): Promise<IssuedWalletSessionAuthorizationV2> {
+    return await this.options.authorizationService.issueWalletSessionAuthorizationV2(
+      this.buildWalletSessionAuthorizationInput(authority, authMethod, issuedAtMs),
+    );
+  }
+
+  private buildWalletSessionAuthorizationInput(
+    authority: ActiveWalletAuthorityV1,
+    authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>,
+    issuedAtMs: number,
+  ): IssueWalletSessionAuthorizationV2Input {
     const tenantId = requireParsed(parseTenantId(this.options.tenantId), 'tenantId');
     const principalId = requireParsed(
       parsePrincipalId(`linked-device:${String(authority.principal.deviceId)}`),
@@ -779,7 +851,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       issuedAtMs,
       expiresAtMs: issuedAtMs + ttlMs,
     };
-    return await this.options.authorizationService.issueWalletSessionAuthorizationV2(input);
+    return input;
   }
 
   private async markInstalled(stored: StoredInstallationRow, receipt: LocalAuthorityInstallationReceiptV1): Promise<void> {
@@ -814,8 +886,67 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
 
   private async ensureSchema(): Promise<void> {
     if (this.schemaReady) return;
+    await this.options.database.exec(formatD1ExecStatement(AUTHORITY_ALLOCATION_SCHEMA_SQL));
     await this.options.database.exec(formatD1ExecStatement(INSTALLATION_SCHEMA_SQL));
     this.schemaReady = true;
+  }
+
+  private async prepareAuthorityAllocation(
+    input: CommitPendingAuthorityInputV1,
+    existing: StoredInstallationRow | null,
+  ): Promise<AuthorityAllocationPreparation> {
+    const current = await this.readAuthorityAllocation(input.linkSessionId);
+    if (current) {
+      assertAuthorityAllocationMatches(current, input, existing);
+      return { authorityId: current.authorityId, statement: null };
+    }
+    const candidate = existing?.authorityId ?? requireParsed(
+      parseWalletAuthorityId(`wallet-authority:${secureRandomBase64Url(32, 'linked-device wallet authority id')}`),
+      'authorityId',
+    );
+    const statement = this.options.database
+      .prepare(
+        `INSERT INTO linked_device_authority_allocations (
+          namespace, org_id, project_id, env_id, link_session_id,
+          authority_id, wallet_id, enrollment_id, device_id, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        this.options.scope.namespace,
+        this.options.scope.orgId,
+        this.options.scope.projectId,
+        this.options.scope.envId,
+        String(input.linkSessionId),
+        String(candidate),
+        String(input.walletId),
+        String(input.enrollmentId),
+        String(input.targetDeviceId),
+        input.nowMs,
+      );
+    return { authorityId: candidate, statement };
+  }
+
+  private async readAuthorityAllocation(
+    linkSessionId: LinkDeviceSessionId,
+  ): Promise<AuthorityAllocation | null> {
+    const row = await this.options.database
+      .prepare(
+        `SELECT authority_id, wallet_id, enrollment_id, device_id
+           FROM linked_device_authority_allocations
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?
+          LIMIT 1`,
+      )
+      .bind(
+        this.options.scope.namespace,
+        this.options.scope.orgId,
+        this.options.scope.projectId,
+        this.options.scope.envId,
+        String(linkSessionId),
+      )
+      .first<Readonly<Record<string, unknown>>>();
+    if (!row) return null;
+    return parseAuthorityAllocation(row);
   }
 
   private async buildInstallationInsertStatement(input: {
@@ -853,7 +984,10 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         input.input.targetFactor.verifiedAtMs,
         await digestJson(input.input.signerManifest),
         JSON.stringify(input.packages),
-        JSON.stringify(input.serverReservationIds),
+        JSON.stringify({
+          ed25519: input.serverReservationIds.ed25519 ?? null,
+          ecdsa_secp256k1: input.serverReservationIds.ecdsa_secp256k1 ?? null,
+        }),
         null,
         null,
         input.nowMs,
@@ -921,6 +1055,7 @@ function sharedEd25519Preparation(
   return {
     kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
     activationRequest: preparation.activationRequest,
+    participantIds: preparation.participantIds,
   };
 }
 
@@ -1000,25 +1135,6 @@ function assertPreparationActivationMatches(
   if (!mpcMaterialActivationRefsEqual(expected, actual)) {
     throw new Error('ordinary material preparation activation differs from the planned activation');
   }
-}
-
-async function deriveAuthorityId(input: VerifiedLinkInputV1): Promise<WalletAuthorityId> {
-  const digest = base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify([
-    'linked-device-authority-v1',
-    input.walletId,
-    input.enrollmentId,
-    input.linkSessionId,
-    input.targetDeviceId,
-    input.sourceAuthority.authMethodId,
-    input.sourceAuthority.authority.authorityDigestB64u,
-    input.sourceAuthority.verifiedRevocationEpoch,
-    input.targetFactor.verificationDigestB64u,
-    input.permissions,
-    input.signerManifest,
-  ])));
-  const parsed = parseWalletAuthorityId(`wauth_link_${digest}`);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
 }
 
 async function buildPendingAuthority(input: {
@@ -1138,6 +1254,8 @@ function committedEd25519Package(
   return {
     kind: 'committed_ed25519_signer_package_v1',
     materialActivation: reservation.materialActivation,
+    participantIds: reservation.participantIds,
+    activationReceipt: reservation.activationReceipt,
     deriver_a_client_package: reservation.clientMaterial.deriver_a_client_package,
     deriver_b_client_package: reservation.clientMaterial.deriver_b_client_package,
   };
@@ -1240,6 +1358,30 @@ function parseStoredInstallationRow(row: Readonly<Record<string, unknown>>): Sto
   return { linkSessionId, authorityId, walletId, authMethodId, deviceId, packageSetDigestB64u, targetFactorVerificationDigestB64u, targetFactorVerifiedAtMs, sourceManifestDigestB64u, packages, serverReservationIds, installedRecordSetDigestB64u, activatedAtMs };
 }
 
+function parseAuthorityAllocation(row: Readonly<Record<string, unknown>>): AuthorityAllocation {
+  return {
+    authorityId: requireParsed(parseWalletAuthorityId(row.authority_id), 'authority_id'),
+    walletId: requireParsed(parseWalletId(row.wallet_id), 'wallet_id'),
+    enrollmentId: requireText(row.enrollment_id, 'enrollment_id'),
+    deviceId: requireParsed(parseDeviceId(row.device_id), 'device_id'),
+  };
+}
+
+function assertAuthorityAllocationMatches(
+  allocation: AuthorityAllocation,
+  input: CommitPendingAuthorityInputV1,
+  existing: StoredInstallationRow | null,
+): void {
+  if (
+    allocation.walletId !== input.walletId ||
+    allocation.enrollmentId !== input.enrollmentId ||
+    allocation.deviceId !== input.targetDeviceId ||
+    (existing !== null && allocation.authorityId !== existing.authorityId)
+  ) {
+    throw new Error('wallet authority allocation does not match the link session');
+  }
+}
+
 async function assertStoredPackageDigest(stored: StoredInstallationRow): Promise<void> {
   if (stored.packages.authority.provenance.kind !== 'device_link') {
     throw new Error('stored authority installation provenance is invalid');
@@ -1274,10 +1416,10 @@ function parseServerReservationIds(raw: unknown): Readonly<{
     ed25519?: ServerReservationRecordV1<'ed25519'>;
     ecdsa_secp256k1?: ServerReservationRecordV1<'ecdsa_secp256k1'>;
   } = {};
-  if (record.ed25519 !== undefined) {
+  if (record.ed25519 !== undefined && record.ed25519 !== null) {
     result.ed25519 = parseEd25519ServerReservationRecord(record.ed25519);
   }
-  if (record.ecdsa_secp256k1 !== undefined) {
+  if (record.ecdsa_secp256k1 !== undefined && record.ecdsa_secp256k1 !== null) {
     result.ecdsa_secp256k1 = parseEcdsaServerReservationRecord(record.ecdsa_secp256k1);
   }
   return result;
@@ -1287,7 +1429,11 @@ function parseEd25519ServerReservationRecord(raw: unknown): ServerReservationRec
   const record = requireRecord(raw, 'Ed25519 server reservation');
   requireExactKeys(record, ['reservationId', 'preparation'], 'Ed25519 server reservation');
   const preparationRecord = requireRecord(record.preparation, 'Ed25519 reservation preparation');
-  requireExactKeys(preparationRecord, ['kind', 'activationRequest'], 'Ed25519 reservation preparation');
+  requireExactKeys(
+    preparationRecord,
+    ['kind', 'activationRequest', 'participantIds'],
+    'Ed25519 reservation preparation',
+  );
   if (preparationRecord.kind !== 'ordinary_ed25519_signer_material_reservation_preparation_v1') {
     throw new Error('Ed25519 reservation preparation kind is invalid');
   }
@@ -1300,6 +1446,7 @@ function parseEd25519ServerReservationRecord(raw: unknown): ServerReservationRec
     preparation: {
       kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
       activationRequest: parsedRequest.value,
+      participantIds: parseRouterAbEd25519YaoParticipantIdsV1(preparationRecord.participantIds),
     },
   };
 }
@@ -1342,6 +1489,11 @@ function requireExactKeys(record: Record<string, unknown>, keys: readonly string
 }
 
 function requireReservationId(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || !raw.trim()) throw new Error(`${label} is invalid`);
+  return raw;
+}
+
+function requireText(raw: unknown, label: string): string {
   if (typeof raw !== 'string' || !raw.trim()) throw new Error(`${label} is invalid`);
   return raw;
 }

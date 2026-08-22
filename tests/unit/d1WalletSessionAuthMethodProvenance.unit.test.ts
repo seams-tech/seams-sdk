@@ -22,6 +22,7 @@ import {
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import {
@@ -30,6 +31,10 @@ import {
 } from '@shared/utils/registrationIntent';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
@@ -102,7 +107,10 @@ function requiredParsed<T>(
   throw new Error(result.error.message);
 }
 
-async function buildActiveAuthorityFixture(label: string): Promise<{
+async function buildActiveAuthorityFixture(
+  label: string,
+  input: { readonly walletAuthMethodId?: WalletAuthMethodId } = {},
+): Promise<{
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly pendingAuthority: import('@shared/authorization/walletAuthority').PendingWalletAuthorityV1;
@@ -206,7 +214,8 @@ async function buildActiveAuthorityFixture(label: string): Promise<{
     state: activeDraft.state,
     activatedAtMs: activeDraft.activatedAtMs,
   });
-  const walletAuthMethodId = requiredWalletAuthMethodId(`passkey:${rpId}:${credentialIdB64u}`);
+  const walletAuthMethodId =
+    input.walletAuthMethodId ?? requiredWalletAuthMethodId(`passkey:${rpId}:${credentialIdB64u}`);
   const pendingAuthMethod = buildWalletAuthMethodRecordV2({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId,
@@ -243,8 +252,9 @@ async function seedActiveAuthority(
   database: Parameters<typeof applyD1MigrationFiles>[0],
   namespace: string,
   label: string,
+  input: { readonly walletAuthMethodId?: WalletAuthMethodId } = {},
 ): Promise<ActiveAuthorityFixture> {
-  const fixture = await buildActiveAuthorityFixture(label);
+  const fixture = await buildActiveAuthorityFixture(label, input);
   const store = new D1WalletAuthorityStore({
     database,
     scope: {
@@ -293,6 +303,47 @@ function authorityWithProvenance(
     activatedAtMs: authority.activatedAtMs,
   });
 }
+
+test('issues a registration session for the server-allocated active auth method id', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'registration-server-allocated-session';
+    const walletAuthMethodId = requiredWalletAuthMethodId(
+      'wallet-auth-method:registration-server-allocated',
+    );
+    const fixture = await seedActiveAuthority(temporary.database, namespace, 'registration', {
+      walletAuthMethodId,
+    });
+    const service = createService(temporary.database, namespace);
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: fixture.authMethod.walletId,
+      rpId: fixture.authMethod.rpId,
+      credentialIdB64u: fixture.authMethod.credentialIdB64u,
+    });
+    const canonicalAuthorityRef = await walletAuthAuthorityRef({ authority });
+    const registrationAuthorityRef = {
+      ...canonicalAuthorityRef,
+      walletAuthMethodId,
+    } as const;
+    const input = {
+      tenantId: requiredParsed(parseTenantId('tenant:registration-session')),
+      principalId: requiredParsed(parsePrincipalId('principal:registration-session')),
+      walletId: authority.walletId,
+      authority: registrationAuthorityRef,
+      mintId: requiredMintId('registration:server-allocated-session'),
+      remainingUses: 3,
+      issuedAtMs: 300,
+      expiresAtMs: 400,
+    } as const;
+
+    const issued = await service.issueReusableWalletSession(input);
+    expect(issued.session.authority.walletAuthMethodId).toBe(walletAuthMethodId);
+    await expect(service.issueReusableWalletSession(input)).resolves.toEqual(issued);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
 
 test('issues V2 Wallet Sessions only for exact active authority provenance', async () => {
   const temporary = createTemporaryD1Database();

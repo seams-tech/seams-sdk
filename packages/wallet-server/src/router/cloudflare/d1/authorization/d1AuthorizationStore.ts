@@ -65,7 +65,11 @@ import type {
 import { parseOpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
 import type { D1WalletStoreScope } from '../../../../core/d1WalletStore';
 import { d1ChangedRows, parseD1JsonColumn, type D1Row } from '../../../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../../../storage/tenantRoute';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
@@ -1005,6 +1009,40 @@ export class CloudflareD1AuthorizationStore
     readonly session: WalletSessionAuthorizationV2;
     readonly quota: ActiveWalletSessionQuota;
   }): Promise<void> {
+    const statements = this.prepareWalletSessionAuthorizationV2Statements(input);
+    const results = await this.database.batch<D1ResultLike>(statements);
+    if (results.length !== 2) {
+      throw new Error('V2 Wallet Session transaction returned incomplete results');
+    }
+    const quotaResult = results[0];
+    const sessionResult = results[1];
+    if (!quotaResult || !sessionResult) {
+      throw new Error('V2 Wallet Session transaction returned incomplete results');
+    }
+    if (d1ChangedRows(quotaResult) !== d1ChangedRows(sessionResult)) {
+      throw new Error('V2 Wallet Session transaction persisted an incomplete identity');
+    }
+    const persisted = await this.readWalletSessionAuthorizationV2ByMint({
+      expected: input.session,
+      nowMs: input.session.createdAtMs,
+    });
+    if (!persisted) {
+      throw new Error('V2 Wallet Session authorization was not persisted');
+    }
+    if (persisted.quota.remainingUses !== input.quota.remainingUses) {
+      throw new Error('V2 Wallet Session issuance replay does not match');
+    }
+  }
+
+  /**
+   * Builds the two statements used to persist one V2 Wallet Session. Callers
+   * that activate an authority may append these statements to that CAS batch
+   * so an active authority is never visible without its durable session.
+   */
+  prepareWalletSessionAuthorizationV2Statements(input: {
+    readonly session: WalletSessionAuthorizationV2;
+    readonly quota: ActiveWalletSessionQuota;
+  }): readonly [D1PreparedStatementLike, D1PreparedStatementLike] {
     requireExactWalletSessionAuthorizationV2Quota(input);
     const capabilitySubjectsJson = JSON.stringify(input.session.capabilitySubjects);
     const recordJson = JSON.stringify(input.session);
@@ -1140,28 +1178,7 @@ export class CloudflareD1AuthorizationStore
         requirePositiveInteger(input.quota.remainingUses, 'V2 quota.remainingUses'),
         requirePositiveInteger(input.quota.expiresAtMs, 'V2 quota.expiresAtMs'),
       );
-    const results = await this.database.batch<D1ResultLike>([quotaStatement, sessionStatement]);
-    if (results.length !== 2) {
-      throw new Error('V2 Wallet Session transaction returned incomplete results');
-    }
-    const quotaResult = results[0];
-    const sessionResult = results[1];
-    if (!quotaResult || !sessionResult) {
-      throw new Error('V2 Wallet Session transaction returned incomplete results');
-    }
-    if (d1ChangedRows(quotaResult) !== d1ChangedRows(sessionResult)) {
-      throw new Error('V2 Wallet Session transaction persisted an incomplete identity');
-    }
-    const persisted = await this.readWalletSessionAuthorizationV2ByMint({
-      expected: input.session,
-      nowMs: input.session.createdAtMs,
-    });
-    if (!persisted) {
-      throw new Error('V2 Wallet Session authorization was not persisted');
-    }
-    if (persisted.quota.remainingUses !== input.quota.remainingUses) {
-      throw new Error('V2 Wallet Session issuance replay does not match');
-    }
+    return [quotaStatement, sessionStatement];
   }
 
   async readWalletSessionAuthorizationV2ByMint(input: {

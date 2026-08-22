@@ -468,3 +468,68 @@ test('revokes one authority method and protects the final active wallet method',
     cleanupTemporaryD1Database(temporary.tempDir);
   }
 });
+
+test('serializes competing revocations of the final two wallet methods', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    const store = new D1WalletAuthorityStore({
+      database: temporary.database,
+      scope,
+      ensureSchema: false,
+    });
+    const first = await buildAuthorityFixture({ label: 'revoke-race-first' });
+    const second = await buildAuthorityFixture({ label: 'revoke-race-second' });
+    for (const fixture of [first, second]) {
+      await store.commitPendingAuthority({
+        authority: fixture.pendingAuthority,
+        authMethod: fixture.pendingAuthMethod,
+      });
+      await store.activatePendingAuthority({
+        pendingAuthority: fixture.pendingAuthority,
+        activeAuthority: fixture.activeAuthority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.activeAuthMethod,
+      });
+    }
+
+    const results = await Promise.all([
+      store.revokeWalletAuthMethod({
+        walletId: first.walletId,
+        authorityId: first.authorityId,
+        walletAuthMethodId: first.activeAuthMethod.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: 0,
+        requestedAtMs: 40,
+      }),
+      store.revokeWalletAuthMethod({
+        walletId: second.walletId,
+        authorityId: second.authorityId,
+        walletAuthMethodId: second.activeAuthMethod.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: 0,
+        requestedAtMs: 41,
+      }),
+    ]);
+    expect(results.filter((result) => result.kind === 'revoked_method')).toHaveLength(1);
+    expect(
+      results.filter(
+        (result) =>
+          result.kind === 'conflict' || result.kind === 'would_remove_last_wallet_auth_method',
+      ),
+    ).toHaveLength(1);
+
+    const rows = await temporary.database
+      .prepare(
+        `SELECT status
+           FROM wallet_auth_methods
+          WHERE wallet_id = ?
+          ORDER BY wallet_auth_method_id`,
+      )
+      .bind(String(first.walletId))
+      .all<{ readonly status?: unknown }>();
+    expect(rows.results).toHaveLength(2);
+    expect(rows.results.filter((row) => row.status === 'active')).toHaveLength(1);
+    expect(rows.results.filter((row) => row.status === 'revoked')).toHaveLength(1);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});

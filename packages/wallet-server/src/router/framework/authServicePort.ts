@@ -77,6 +77,7 @@ import type {
   WalletRevokeAuthMethodRequest,
   WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
+import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
   kind: 'wallet_auth_method_management';
@@ -103,8 +104,26 @@ export type StartWalletAddAuthMethodCommand = Readonly<
 >;
 
 export type RevokeWalletAuthMethodCommand = Readonly<
-  { subject: WalletAuthMethodManagementSubject } & Omit<WalletRevokeAuthMethodRequest, 'walletId'>
+  {
+    subject: WalletAuthMethodManagementSubject;
+    verifiedSource: {
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly verifiedAtMs: number;
+    };
+  } & Omit<WalletRevokeAuthMethodRequest, 'walletId'>
 >;
+
+export type WalletAuthMethodRevokeProofVerificationResult =
+  | {
+      readonly kind: 'authorized';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly verifiedAtMs: number;
+    }
+  | {
+      readonly kind: 'denied';
+      readonly code: string;
+      readonly message: string;
+    };
 
 export type WalletAddAuthMethodFinalizeAuthorizationV1 = { readonly kind: 'owner' };
 
@@ -1052,6 +1071,13 @@ export interface RouterApiWalletAuthVerificationService {
 }
 
 export interface RouterApiWalletAuthMethodService {
+  verifyWalletAuthMethodRevokeProof(input: {
+    readonly walletId: WalletId;
+    readonly targetWalletAuthMethodId: WalletAuthMethodId;
+    readonly requestedAtMs: number;
+    readonly sourceProof: WalletAuthMethodRevocationProof;
+    readonly expectedOrigin: string;
+  }): Promise<WalletAuthMethodRevokeProofVerificationResult>;
   verifyActivePasskeyAuthority(
     authority: import('@shared/utils/walletAuthAuthority').PasskeyWalletAuthAuthority,
   ): Promise<
