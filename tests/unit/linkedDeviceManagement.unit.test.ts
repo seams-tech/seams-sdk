@@ -1,398 +1,301 @@
 import { expect, test } from '@playwright/test';
-import { parseLinkedDeviceSummaryV1 } from '../../packages/shared-ts/src/device-linking/parsers';
+import { parseLinkedDeviceRevokeRequestV1 } from '../../packages/shared-ts/src/device-linking/parsers';
 import {
-  buildLaneEnrollmentManifestV1,
-  buildRevokeLaneEnrollmentV1,
-  buildRevokeSigningLaneV1,
-} from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
-import {
-  parseAuthorizedOperationId,
-  parseMpcWalletSigningQuotaId,
-  parseTenantId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-} from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import {
-  parseCorrelationId,
-  parseDigestB64u,
-} from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { parseLaneEnrollmentId } from '../../packages/shared-ts/src/signing-lanes/ids';
-import {
-  parseMpcMaterialActivationId,
-  parseMpcMaterialActivationRef,
-  parseWalletAuthMethodId,
-  parseWalletId,
-  parseWebAuthnCredentialIdB64u,
-} from '../../packages/shared-ts/src/utils/domainIds';
-import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import type { LaneAggregateRevocationRequestV1 } from '../../packages/wallet-server/src/core/signingLanes/LaneAggregateRevocationApplicationService';
+  unknownWebAuthnAuthenticatorDeviceInfo,
+} from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import {
   LinkedDeviceManagementServiceV1,
-  type LinkedDeviceManagementTargetV1,
+  type LinkedDeviceManagementSourceV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  buildRevokedLinkedDeviceAuthMethodV1,
+  buildRevokedLinkedDeviceAuthorityV1,
+  fullOwnerPermissionsForManagementFixture,
+  linkedDevicePermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 
-const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
+test('rejects a WalletAuthorityId in the exact-method revocation boundary', () => {
+  expect(() =>
+    parseLinkedDeviceRevokeRequestV1({
+      kind: 'linked_device_revoke_request_v1',
+      walletId: 'wallet:management',
+      walletAuthMethodId: 'wallet-authority:management-target',
+      requestedAtMs: 4_000,
+    }),
+  ).toThrow('must identify a WalletAuthMethodId');
+});
 
-test('lists wallet-scoped linked devices only after owner authorization', async () => {
-  const target = await buildManagementTarget();
-  const service = new LinkedDeviceManagementServiceV1({
-    projection: {
-      listLinkedDevicesV1: async ({ walletId }) =>
-        walletId === target.summary.walletId
-          ? { devices: [target.summary], ownerDevices: [], nextCursor: null }
-          : { devices: [], ownerDevices: [], nextCursor: null },
-      getLinkedDeviceV1: async () => target,
-    },
-    preparation: neverPreparation(),
-    aggregateRevocation: neverAggregate(),
-    ownerCredentialRevocation: neverOwnerCredentialRevocation(),
-    walletSessionRevocation: neverWalletSessionRevocation(),
-    localStateInvalidation: neverLocalInvalidation(),
+test('lists active wallet authorities and hides non-linked owner records after source resolution', async () => {
+  const owner = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'owner',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
   });
-
+  const target = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'target',
+    permissions: linkedDevicePermissionsForManagementFixture(),
+    provenance: 'device_link',
+    keyFamily: 'ecdsa_secp256k1',
+    sourceAuthorityId: owner.authority.authorityId,
+  });
+  const authorities = [owner.authority, target.authority];
+  const authMethods = [owner.authMethod, target.authMethod];
+  const service = new LinkedDeviceManagementServiceV1({
+    tenantId: owner.issuedSession.session.tenantId,
+    authenticator: {
+      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
+        authorizationId === owner.issuedSession.session.authorizationId
+          ? owner.issuedSession
+          : null,
+    },
+    authority: {
+      listActiveForWalletV1: async () => ({ records: authorities, nextCursor: null }),
+      readByIdV1: async (authorityId) =>
+        authorities.find((authority) => authority.authorityId === authorityId) ?? null,
+      revokeWalletAuthMethodV1: async () => {
+        throw new Error('unexpected authority revocation');
+      },
+    },
+    authMethod: {
+      listForAuthorityV1: async ({ authorityId }) =>
+        authMethods.filter((method) => method.walletAuthorityId === authorityId),
+      readByIdV1: async ({ walletAuthMethodId }) =>
+        authMethods.find((method) => method.walletAuthMethodId === walletAuthMethodId) ?? null,
+    },
+    sessions: {
+      revokeReusableWalletSessionsForAuthMethod: async () => {
+        throw new Error('unexpected session revocation');
+      },
+    },
+    credentials: {
+      readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+  });
   const result = await service.listLinkedDevicesV1(
     {
       kind: 'linked_device_list_request_v1',
-      walletId: target.summary.walletId,
+      walletId: owner.authority.walletId,
       limit: 10,
       cursor: null,
     },
-    ownerForWallet(target.summary.walletId),
+    sourceFor(owner),
     4_000,
   );
-  expect(result).toEqual({ devices: [target.summary], ownerDevices: [], nextCursor: null });
-});
 
-test('refuses a public revoke plan whose lane command does not bind the requested wallet', async () => {
-  const target = await buildManagementTarget();
-  const walletId = target.summary.walletId;
-  const laneEnrollmentId = parseLaneEnrollmentId(String(target.summary.enrollmentId)).value;
-  const operationId = target.enrollment.value.manifest.orderedChildren[0]?.operationId;
-  if (!operationId) throw new Error('fixture manifest child is missing');
-  const command = buildRevokeLaneEnrollmentV1({
-    enrollmentId: laneEnrollmentId,
-    walletId: parseWalletId('wallet:other').value,
-    manifestDigestB64u: DIGEST,
-    reason: 'user_revoked',
-    requestedAtMs: 4_000,
-  });
-  const child = target.enrollment.value.manifest.orderedChildren[0];
-  const childCommand = buildRevokeSigningLaneV1({
-    walletId,
-    walletKeyId: child.walletKeyId,
-    laneId: child.targetLaneId,
-    laneShareEpoch: child.targetLaneShareEpoch,
-    expectedRevocationEpoch: 0,
-    reason: 'user_revoked',
-    retirementCorrelationId: parseCorrelationId('correlation:management'),
-    retirementRequestDigestB64u: DIGEST,
-    retirementEffectBindingDigestB64u: DIGEST,
-    requestedAtMs: 4_000,
-  });
-  const aggregate: LaneAggregateRevocationRequestV1 = {
-    command,
-    orderedChildren: [{ curve: 'ed25519_yao', command: childCommand }],
-  };
-  let aggregateCalls = 0;
-  const service = new LinkedDeviceManagementServiceV1({
-    projection: {
-      listLinkedDevicesV1: async () => ({
-        devices: [target.summary],
-        ownerDevices: [],
-        nextCursor: null,
+  expect(result).toEqual({
+    devices: [
+      expect.objectContaining({
+        deviceId: target.authority.principal.deviceId,
+        walletId: target.authority.walletId,
+        state: 'active',
       }),
-      getLinkedDeviceV1: async () => target,
-    },
-    preparation: {
-      prepareLinkedDeviceRevocationV1: async () => ({
-        kind: 'prepared',
-        plan: {
-          target,
-          aggregate,
-          walletSessions: [
-            {
-              tenantId: parseTenantId('tenant:management').value,
-              deviceId: target.summary.deviceId,
-              authorizationId: parseWalletSessionAuthorizationId('authorization:management').value,
-              walletSessionId: parseWalletSessionId('wallet-session:management').value,
-              quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
-            },
-          ],
-          revocationEpoch: 1,
-        },
-      }),
-    },
-    aggregateRevocation: {
-      fenceLaneEnrollmentV1: async () => {
-        throw new Error('unexpected enrollment fence');
-      },
-      revokeLaneEnrollmentV1: async () => {
-        aggregateCalls += 1;
-        throw new Error('aggregate should not run for a mismatched plan');
-      },
-    },
-    walletSessionRevocation: neverWalletSessionRevocation(),
-    ownerCredentialRevocation: neverOwnerCredentialRevocation(),
-    localStateInvalidation: neverLocalInvalidation(),
-  });
-
-  await expect(
-    service.revokeLinkedDeviceV1(
-      {
-        kind: 'linked_device_revoke_request_v1',
-        walletId,
-        deviceId: target.summary.deviceId,
-        requestedAtMs: 4_000,
-      },
-      ownerForWallet(walletId),
-    ),
-  ).rejects.toThrow('linked-device revocation plan does not match its target');
-  expect(aggregateCalls).toBe(0);
-});
-
-test('fences every linked Wallet Session before retiring child lanes', async () => {
-  const target = await buildManagementTarget();
-  const walletId = target.summary.walletId;
-  const child = target.enrollment.value.manifest.orderedChildren[0];
-  if (!child) throw new Error('fixture manifest child is missing');
-  const command = buildRevokeLaneEnrollmentV1({
-    enrollmentId: parseLaneEnrollmentId(String(target.summary.enrollmentId)).value,
-    walletId,
-    manifestDigestB64u: target.summary.keyManifestDigestB64u,
-    reason: 'user_revoked',
-    requestedAtMs: 4_000,
-  });
-  const aggregate: LaneAggregateRevocationRequestV1 = {
-    command,
-    orderedChildren: [
-      {
-        curve: child.keyFamily === 'ed25519' ? 'ed25519_yao' : 'ecdsa_additive',
-        command: buildRevokeSigningLaneV1({
-          walletId,
-          walletKeyId: child.walletKeyId,
-          laneId: child.targetLaneId,
-          laneShareEpoch: child.targetLaneShareEpoch,
-          expectedRevocationEpoch: 0,
-          reason: 'user_revoked',
-          retirementCorrelationId: parseCorrelationId('correlation:management-fence'),
-          retirementRequestDigestB64u: DIGEST,
-          retirementEffectBindingDigestB64u: DIGEST,
-          requestedAtMs: 4_000,
-        }),
-      },
     ],
-  };
-  const order: string[] = [];
-  const revokedAuthorizationIds: string[] = [];
-  let releaseEnrollmentFence: (() => void) | undefined;
-  const enrollmentFenceReady = new Promise<void>((resolve) => {
-    releaseEnrollmentFence = resolve;
+    ownerDevices: [
+      expect.objectContaining({
+        walletId: owner.authority.walletId,
+      }),
+    ],
+    nextCursor: null,
   });
+});
+
+test('revokes one exact linked auth method, fences sessions, and disables its ordinary refs', async () => {
+  const owner = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'owner',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+  });
+  const target = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'target',
+    permissions: linkedDevicePermissionsForManagementFixture(),
+    provenance: 'device_link',
+    keyFamily: 'ecdsa_secp256k1',
+    sourceAuthorityId: owner.authority.authorityId,
+  });
+  const revokedAuthority = buildRevokedLinkedDeviceAuthorityV1(target.authority, 4_000);
+  const revokedMethod = buildRevokedLinkedDeviceAuthMethodV1(target.authMethod, 4_000);
+  let revocationInput: {
+    readonly walletAuthMethodId: typeof target.authMethod.walletAuthMethodId;
+    readonly authorityId: typeof target.authority.authorityId;
+    readonly expectedAuthorityRevocationEpoch: number;
+  } | null = null;
+  let fencedMethodId: typeof target.authMethod.walletAuthMethodId | null = null;
+  const deactivatedRefs: Array<{ readonly keyFamily: string; readonly activationId: string }> = [];
   const service = new LinkedDeviceManagementServiceV1({
-    projection: {
-      listLinkedDevicesV1: async () => ({
-        devices: [target.summary],
-        ownerDevices: [],
-        nextCursor: null,
-      }),
-      getLinkedDeviceV1: async () => target,
+    tenantId: owner.issuedSession.session.tenantId,
+    authenticator: {
+      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
+        authorizationId === owner.issuedSession.session.authorizationId
+          ? owner.issuedSession
+          : null,
     },
-    preparation: {
-      prepareLinkedDeviceRevocationV1: async () => ({
-        kind: 'prepared',
-        plan: {
-          target,
-          aggregate,
-          walletSessions: [
-            {
-              tenantId: parseTenantId('tenant:management').value,
-              deviceId: target.summary.deviceId,
-              authorizationId: parseWalletSessionAuthorizationId('authorization:management:first')
-                .value,
-              walletSessionId: parseWalletSessionId('wallet-session:management:first').value,
-              quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management:first').value,
-            },
-            {
-              tenantId: parseTenantId('tenant:management').value,
-              deviceId: target.summary.deviceId,
-              authorizationId: parseWalletSessionAuthorizationId('authorization:management:renewed')
-                .value,
-              walletSessionId: parseWalletSessionId('wallet-session:management:renewed').value,
-              quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management:renewed').value,
-            },
-          ],
-          revocationEpoch: 1,
-        },
-      }),
-    },
-    walletSessionRevocation: {
-      revokeLinkedDeviceWalletSessionV1: async ({ target: walletSession }) => {
-        await enrollmentFenceReady;
-        order.push('wallet_session');
-        revokedAuthorizationIds.push(String(walletSession.authorizationId));
-        return { kind: 'applied' };
-      },
-    },
-    aggregateRevocation: {
-      fenceLaneEnrollmentV1: async () => {
-        order.push('enrollment_fence');
-        releaseEnrollmentFence?.();
-        return { kind: 'applied' };
-      },
-      revokeLaneEnrollmentV1: async () => {
-        order.push('aggregate');
-        return {
-          kind: 'lane_enrollment_revocation_result_v1',
-          outcome: 'conflict',
-          enrollmentId: command.enrollmentId,
-          expectedVersion: 1,
-          actualVersion: 2,
-          requestedCommandDigestB64u: DIGEST,
-          storedCommandDigestB64u: DIGEST,
+    authority: {
+      listActiveForWalletV1: async () => ({ records: [], nextCursor: null }),
+      readByIdV1: async (authorityId) =>
+        authorityId === owner.authority.authorityId
+          ? owner.authority
+          : authorityId === target.authority.authorityId
+            ? target.authority
+            : null,
+      revokeWalletAuthMethodV1: async (input) => {
+        revocationInput = {
+          walletAuthMethodId: input.walletAuthMethodId,
+          authorityId: input.authorityId,
+          expectedAuthorityRevocationEpoch: input.expectedAuthorityRevocationEpoch,
         };
+        return { kind: 'revoked_method', authMethod: revokedMethod, authority: revokedAuthority };
       },
     },
-    ownerCredentialRevocation: neverOwnerCredentialRevocation(),
-    localStateInvalidation: neverLocalInvalidation(),
+    authMethod: {
+      listForAuthorityV1: async () => [],
+      readByIdV1: async ({ walletAuthMethodId }) =>
+        walletAuthMethodId === owner.authMethod.walletAuthMethodId
+          ? owner.authMethod
+          : walletAuthMethodId === target.authMethod.walletAuthMethodId
+            ? target.authMethod
+            : null,
+    },
+    sessions: {
+      revokeReusableWalletSessionsForAuthMethod: async ({ walletAuthMethodId }) => {
+        fencedMethodId = walletAuthMethodId;
+      },
+    },
+    credentials: {
+      readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+    materialDeactivation: {
+      deactivateOrdinarySignerMaterialV1: async ({ keyFamily, materialActivation }) => {
+        deactivatedRefs.push({
+          keyFamily,
+          activationId: String(materialActivation.activationId),
+        });
+      },
+    },
+  });
+  const result = await service.revokeLinkedDeviceV1(
+    {
+      kind: 'linked_device_revoke_request_v1',
+      walletId: target.authority.walletId,
+      walletAuthMethodId: target.authMethod.walletAuthMethodId,
+      requestedAtMs: 4_000,
+    },
+    sourceFor(owner),
+  );
+
+  expect(result).toEqual({
+    kind: 'revoked',
+    walletAuthMethodId: target.authMethod.walletAuthMethodId,
+    authorityId: target.authority.authorityId,
+    revocationEpoch: revokedAuthority.revocationEpoch,
+  });
+  expect(revocationInput).toEqual({
+    walletAuthMethodId: target.authMethod.walletAuthMethodId,
+    authorityId: target.authority.authorityId,
+    expectedAuthorityRevocationEpoch: target.authority.revocationEpoch,
+  });
+  expect(fencedMethodId).toBe(target.authMethod.walletAuthMethodId);
+  if (target.authority.signerActivations.keyFamilies[0] !== 'ecdsa_secp256k1') {
+    throw new Error('ECDSA management fixture is missing its key family');
+  }
+  if (!target.authority.signerActivations.ecdsa) {
+    throw new Error('ECDSA management fixture is missing its activation');
+  }
+  expect(deactivatedRefs).toEqual([
+    {
+      keyFamily: 'ecdsa_secp256k1',
+      activationId: String(target.authority.signerActivations.ecdsa.materialActivation.activationId),
+    },
+  ]);
+});
+
+test('replays a durable revocation and retries terminal material deactivation', async () => {
+  const owner = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'owner',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+  });
+  const target = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'target',
+    permissions: linkedDevicePermissionsForManagementFixture(),
+    provenance: 'device_link',
+    sourceAuthorityId: owner.authority.authorityId,
+  });
+  const revokedAuthority = buildRevokedLinkedDeviceAuthorityV1(target.authority, 4_000);
+  const revokedMethod = buildRevokedLinkedDeviceAuthMethodV1(target.authMethod, 4_000);
+  let sessionFenceCalls = 0;
+  let deactivationCalls = 0;
+  const service = new LinkedDeviceManagementServiceV1({
+    tenantId: owner.issuedSession.session.tenantId,
+    authenticator: {
+      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
+        authorizationId === owner.issuedSession.session.authorizationId
+          ? owner.issuedSession
+          : null,
+    },
+    authority: {
+      listActiveForWalletV1: async () => ({ records: [], nextCursor: null }),
+      readByIdV1: async (authorityId) =>
+        authorityId === owner.authority.authorityId
+          ? owner.authority
+          : authorityId === revokedAuthority.authorityId
+            ? revokedAuthority
+            : null,
+      revokeWalletAuthMethodV1: async () => {
+        throw new Error('replay must not issue a second authority CAS');
+      },
+    },
+    authMethod: {
+      listForAuthorityV1: async () => [],
+      readByIdV1: async ({ walletAuthMethodId }) =>
+        walletAuthMethodId === owner.authMethod.walletAuthMethodId
+          ? owner.authMethod
+          : walletAuthMethodId === revokedMethod.walletAuthMethodId
+            ? revokedMethod
+            : null,
+    },
+    sessions: {
+      revokeReusableWalletSessionsForAuthMethod: async () => {
+        sessionFenceCalls += 1;
+      },
+    },
+    credentials: {
+      readPasskeyDeviceInfoV1: async () => unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+    materialDeactivation: {
+      deactivateOrdinarySignerMaterialV1: async () => {
+        deactivationCalls += 1;
+      },
+    },
   });
 
   const result = await service.revokeLinkedDeviceV1(
     {
       kind: 'linked_device_revoke_request_v1',
-      walletId,
-      deviceId: target.summary.deviceId,
-      requestedAtMs: 4_000,
+      walletId: target.authority.walletId,
+      walletAuthMethodId: target.authMethod.walletAuthMethodId,
+      requestedAtMs: 5_000,
     },
-    ownerForWallet(walletId),
+    sourceFor(owner),
   );
 
-  expect(result).toEqual({ kind: 'conflict' });
-  expect(order).toEqual(['enrollment_fence', 'wallet_session', 'wallet_session', 'aggregate']);
-  expect(revokedAuthorizationIds).toEqual([
-    'authorization:management:first',
-    'authorization:management:renewed',
-  ]);
+  expect(result).toEqual({
+    kind: 'revoked',
+    walletAuthMethodId: revokedMethod.walletAuthMethodId,
+    authorityId: revokedAuthority.authorityId,
+    revocationEpoch: revokedAuthority.revocationEpoch,
+  });
+  expect(sessionFenceCalls).toBe(1);
+  expect(deactivationCalls).toBe(1);
 });
 
-function ownerForWallet(walletId: ReturnType<typeof parseWalletId>['value']) {
+function sourceFor(
+  fixture: Awaited<ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>>,
+): LinkedDeviceManagementSourceV1 {
   return {
-    walletId,
-    walletSessionId: parseWalletSessionId('wallet-session:owner').value,
-    authorizationId: parseWalletSessionAuthorizationId('authorization:owner').value,
-    expiresAtMs: 10_000,
-  };
-}
-
-function neverOwnerCredentialRevocation() {
-  return {
-    revokeLinkedDeviceOwnerCredentialV1: async () => ({ kind: 'applied' as const }),
-  };
-}
-
-function neverPreparation() {
-  return {
-    prepareLinkedDeviceRevocationV1: async () => {
-      throw new Error('unexpected revocation preparation');
-    },
-  };
-}
-
-function neverAggregate() {
-  return {
-    fenceLaneEnrollmentV1: async () => {
-      throw new Error('unexpected enrollment fence');
-    },
-    revokeLaneEnrollmentV1: async () => {
-      throw new Error('unexpected aggregate revocation');
-    },
-  };
-}
-
-function neverWalletSessionRevocation() {
-  return {
-    revokeLinkedDeviceWalletSessionV1: async () => {
-      throw new Error('unexpected Wallet Session revocation');
-    },
-  };
-}
-
-function neverLocalInvalidation() {
-  return {
-    invalidateLinkedDeviceStateV1: async () => {
-      throw new Error('unexpected local invalidation');
-    },
-  };
-}
-
-async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> {
-  const fixture = buildR103DeviceLinkFixture();
-  const binding = fixture.approval.orderedKeyBindings[0];
-  if (!binding) throw new Error('fixture key binding is missing');
-  const laneEnrollmentId = parseLaneEnrollmentId(String(fixture.approval.enrollmentId)).value;
-  const manifest = buildLaneEnrollmentManifestV1({
-    enrollmentId: laneEnrollmentId,
-    walletId: fixture.approval.walletId,
-    authorization: {
-      kind: 'linked_device_enrollment',
-      authorizedOperationId: parseAuthorizedOperationId('authorized-operation:management').value,
-      linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
-      linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
-    },
-    orderedChildren: [
-      {
-        operationId: fixture.approval.operationId,
-        walletKeyId: binding.walletKeyId,
-        keyFamily: binding.keyFamily,
-        sourceLaneId: binding.sourceLaneId,
-        sourceLaneShareEpoch: binding.sourceLaneShareEpoch,
-        sourceRevocationEpoch: binding.sourceRevocationEpoch,
-        sourceMaterialActivation: parseMpcMaterialActivationRef('activation:management').value,
-        targetLaneId: binding.targetLaneId,
-        targetLaneShareEpoch: binding.targetLaneShareEpoch,
-        targetMaterialActivationId: parseMpcMaterialActivationId('activation:management').value,
-        holderParticipantBindingDigestB64u: DIGEST,
-        signingWorkerParticipantBindingDigestB64u: DIGEST,
-      },
-    ],
-    createdAtMs: 2_000,
-    expiresAtMs: 20_000,
-  });
-  const summary = parseLinkedDeviceSummaryV1({
-    deviceId: fixture.approval.deviceId,
-    enrollmentId: fixture.approval.enrollmentId,
-    walletId: fixture.approval.walletId,
-    credential: {
-      kind: 'passkey',
-      walletAuthMethodId: parseWalletAuthMethodId('wallet-auth-method:management').value,
-      credentialIdB64u: parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(15)))
-        .value,
-      device: unknownWebAuthnAuthenticatorDeviceInfo(),
-    },
-    permission: fixture.approval.permission,
-    keyManifestDigestB64u: fixture.approval.policyDigestB64u,
-    coveredWalletKeys: [binding.walletKeyId],
-    state: 'provisioning',
-    createdAtMs: 2_000,
-    lastActivityAtMs: 2_002,
-    revocationEpoch: 0,
-  });
-  return {
-    summary,
-    enrollment: {
-      version: 1,
-      commandDigestB64u: String(DIGEST),
-      value: {
-        manifest,
-        lifecycle: {
-          state: 'active',
-          manifestDigestB64u: String(DIGEST),
-          aggregateReceiptDigestB64u: String(DIGEST),
-          activatedAtMs: 2_001,
-        },
-      },
-    },
-    products: [],
+    walletId: fixture.issuedSession.session.walletId,
+    walletSessionId: fixture.issuedSession.session.walletSessionId,
+    authorizationId: fixture.issuedSession.session.authorizationId,
+    expiresAtMs: fixture.issuedSession.session.expiresAtMs,
   };
 }

@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { parseWalletId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { handleDeviceManagement, LINKED_DEVICE_MANAGEMENT_BASE_V1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceManagement';
 import type { DeviceManagementRouteServiceV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceManagement';
@@ -78,6 +82,50 @@ test('rejects a list page larger than the server-owned maximum', async () => {
   expect(authenticated).toBe(false);
 });
 
+test('forwards one exact auth-method revoke and serializes the authority result', async () => {
+  const walletAuthMethodId = parseWalletAuthMethodId('auth-method:r103-target').value;
+  const authorityId = parseWalletAuthorityId('authority:r103-target').value;
+  const body = {
+    kind: 'linked_device_revoke_request_v1' as const,
+    walletId: String(walletId),
+    walletAuthMethodId: String(walletAuthMethodId),
+    requestedAtMs: 10_000,
+  };
+  let forwardedMethodId: string | undefined;
+  const service = managementRouteService({
+    authenticateOwnerRequestV1: async ({ pathname, bodyDigestB64u }) => ({
+      kind: 'authorized' as const,
+      body,
+      binding: requestBinding('POST', pathname, bodyDigestB64u),
+      owner: { walletId, expiresAtMs: 11_000 },
+    }),
+  });
+  service.management.revokeLinkedDeviceV1 = async (request) => {
+    forwardedMethodId = String(request.walletAuthMethodId);
+    return {
+      kind: 'revoked',
+      walletAuthMethodId,
+      authorityId,
+      revocationEpoch: 1,
+    };
+  };
+
+  const response = await invoke(service, '/target/revoke', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  expect(response.status).toBe(200);
+  expect(forwardedMethodId).toBe(String(walletAuthMethodId));
+  expect(await response.json()).toEqual({
+    ok: true,
+    kind: 'revoked',
+    walletAuthMethodId: String(walletAuthMethodId),
+    authorityId: String(authorityId),
+    revocationEpoch: 1,
+  });
+});
+
 function managementRouteService(
   overrides: Pick<DeviceManagementRouteServiceV1, 'authenticateOwnerRequestV1'>,
 ): DeviceManagementRouteServiceV1 {
@@ -114,15 +162,20 @@ function requestBinding(
 async function invoke(
   service: DeviceManagementRouteServiceV1,
   search: string,
+  options: { readonly method: 'GET' | 'POST'; readonly body?: string } = { method: 'GET' },
 ): Promise<Response> {
   const request = new Request(`https://example.test${LINKED_DEVICE_MANAGEMENT_BASE_V1}${search}`, {
-    method: 'GET',
+    method: options.method,
+    ...(options.body === undefined ? {} : { body: options.body }),
   });
   const context = {
     request,
     url: new URL(request.url),
-    pathname: LINKED_DEVICE_MANAGEMENT_BASE_V1,
-    method: 'GET',
+    pathname:
+      options.method === 'POST'
+        ? `${LINKED_DEVICE_MANAGEMENT_BASE_V1}/target/revoke`
+        : LINKED_DEVICE_MANAGEMENT_BASE_V1,
+    method: options.method,
     runtime: { kind: 'inline' as const },
     service: {},
     opts: {},
