@@ -59,6 +59,7 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
+import type { StoreNearThresholdKeyMaterialInput } from '@/core/accountData/near/keyMaterial';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeMode } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
@@ -707,6 +708,9 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   RpIdSurface &
   PasskeyLoginAssertionSurface &
+  {
+    storeNearThresholdKeyMaterial(input: StoreNearThresholdKeyMaterialInput): Promise<void>;
+  } &
   Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
     | 'storeUserData'

@@ -35,7 +35,6 @@ import {
 } from '@shared/utils/domainIds';
 import { isPlainObject } from '@shared/utils/validation';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
-import { storeNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import { persistActiveWalletSessionAuthorizationCurve } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
@@ -1005,28 +1004,23 @@ function authenticationCredentialCounter(credential: WebAuthnAuthenticationCrede
 }
 
 async function persistRecoveredNearThresholdKeyMaterial(
+  signingSurface: Pick<AccountSyncSigningSurface, 'storeNearThresholdKeyMaterial'>,
   parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
 ): Promise<void> {
-  await storeNearThresholdKeyMaterial(
-    {
-      clientDB: IndexedDBManager,
-      keyMaterialStore: IndexedDBManager,
-    },
-    {
-      nearAccountId: parsed.nearAccountId,
-      signerSlot: parsed.signerSlot,
-      publicKey: parsed.operationalPublicKey,
+  await signingSurface.storeNearThresholdKeyMaterial({
+    nearAccountId: parsed.nearAccountId,
+    signerSlot: parsed.signerSlot,
+    publicKey: parsed.operationalPublicKey,
+    relayerKeyId: parsed.relayerKeyId,
+    keyVersion: parsed.keyVersion,
+    participants: buildThresholdEd25519Participants2pV1({
+      clientParticipantId: parsed.session.participantIds[0],
+      relayerParticipantId: parsed.session.participantIds[1],
       relayerKeyId: parsed.relayerKeyId,
-      keyVersion: parsed.keyVersion,
-      participants: buildThresholdEd25519Participants2pV1({
-        clientParticipantId: parsed.session.participantIds[0],
-        relayerParticipantId: parsed.session.participantIds[1],
-        relayerKeyId: parsed.relayerKeyId,
-        clientShareDerivation: 'prf_first_v1',
-      }),
-      signerId: parsed.operationalPublicKey,
-    },
-  );
+      clientShareDerivation: 'prf_first_v1',
+    }),
+    signerId: parsed.operationalPublicKey,
+  });
 }
 
 async function persistRecoveredWalletSessionAuthorization(
@@ -1240,7 +1234,7 @@ async function syncAccountInternal(
       recovery.parsed,
       recovered.ecdsaContinuity,
     );
-    await persistRecoveredNearThresholdKeyMaterial(recovery.parsed);
+    await persistRecoveredNearThresholdKeyMaterial(context.signingEngine, recovery.parsed);
     emitSyncAccountEvent({
       onEvent: options?.onEvent,
       flowId,

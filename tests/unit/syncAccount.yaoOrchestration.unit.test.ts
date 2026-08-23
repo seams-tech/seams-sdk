@@ -786,6 +786,10 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     };
   }
 
+  async storeNearThresholdKeyMaterial(
+    _input: Parameters<AccountSyncSigningSurface['storeNearThresholdKeyMaterial']>[0],
+  ): Promise<void> {}
+
   async storeAuthenticator(): Promise<void> {}
 
   async rejoinWalletCustodyNearEd25519KeySet(

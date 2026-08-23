@@ -212,6 +212,10 @@ import {
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB';
 import type { ClientUserData } from '@/core/accountData/near/nearAccountData.types';
+import {
+  storeNearThresholdKeyMaterial,
+  type StoreNearThresholdKeyMaterialInput,
+} from '@/core/accountData/near/keyMaterial';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import {
@@ -4080,6 +4084,18 @@ export class BrowserSigningSurface {
     userData: Parameters<typeof registrationPublic.storeUserData>[1],
   ): ReturnType<typeof registrationPublic.storeUserData> {
     return registrationPublic.storeUserData(this.registrationPublicDeps, userData);
+  }
+
+  async storeNearThresholdKeyMaterial(
+    input: StoreNearThresholdKeyMaterialInput,
+  ): Promise<void> {
+    await storeNearThresholdKeyMaterial(
+      {
+        clientDB: IndexedDBManager,
+        keyMaterialStore: IndexedDBManager,
+      },
+      input,
+    );
   }
 
   getAllUsers(): ReturnType<typeof registrationPublic.getAllUsers> {
