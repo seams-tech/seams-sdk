@@ -1608,6 +1608,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueRegistrationEstablishedGrant(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly registrationAuthority: StoredRegistrationAuthority;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
@@ -1621,10 +1622,19 @@ export class CloudflareD1WalletRegistrationService {
     }
     const expiresAtMs = Math.min(input.expiresAtMs, issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS);
     const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, input.remainingUses);
+    const activeRegistration =
+      await this.walletAuthMethods.readActiveRegistrationAuthority(input.registrationAuthority);
+    if (
+      !activeRegistration ||
+      activeRegistration.authority.walletId !== input.authority.walletId ||
+      activeRegistration.walletAuthMethodId !== input.walletAuthMethodId
+    ) {
+      throw new Error('Registration founding authority is unavailable after commit');
+    }
     const authorityRef = await registrationWalletAuthAuthorityRef({
       authority: input.authority,
     });
-    return await this.authorizationService.issueReusableWalletSession({
+    const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
       tenantId: this.authorizationTenantId,
       principalId: reusableWalletSessionPrincipalId(input.authority),
       walletId: walletIdFromString(String(input.authority.walletId)),
@@ -1634,6 +1644,12 @@ export class CloudflareD1WalletRegistrationService {
       issuedAtMs,
       expiresAtMs,
     });
+    await this.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
+      reusableWalletSession,
+      authority: activeRegistration.authority,
+      walletAuthMethodId: activeRegistration.walletAuthMethodId,
+    });
+    return reusableWalletSession;
   }
 
   private async readRegistrationEstablishedGrant(input: {
@@ -1671,6 +1687,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueRegistrationEstablishedEcdsaSession(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly registrationAuthority: StoredRegistrationAuthority;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
@@ -1759,6 +1776,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueOrReuseRegistrationEstablishedEd25519Session(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly registrationAuthority: StoredRegistrationAuthority;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
@@ -3017,6 +3035,15 @@ export class CloudflareD1WalletRegistrationService {
     if (!ownerProofContext) {
       throw new Error('Registration owner proof context is unavailable');
     }
+    const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
+      args.input.registrationCeremonyId,
+    );
+    const registrationAuthority = ceremony
+      ? verifiedRegistrationCeremonyAuthority(ceremony)
+      : null;
+    if (!registrationAuthority) {
+      throw new Error('Registration authority is unavailable before finalize');
+    }
     const effectivePrepared = await this.prepareNearProvisioningOperation(
       args.input.registrationCeremonyId,
       prepared,
@@ -3048,6 +3075,7 @@ export class CloudflareD1WalletRegistrationService {
       await this.issueOrReuseRegistrationEstablishedEd25519Session({
         registrationCeremonyId: args.input.registrationCeremonyId,
         authority: finalized.authority,
+        registrationAuthority,
         walletAuthMethodId: effectivePrepared.walletAuthMethodId,
         expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -3708,6 +3736,7 @@ export class CloudflareD1WalletRegistrationService {
     const registrationEstablishedSession = await this.issueRegistrationEstablishedEcdsaSession({
       registrationCeremonyId: context.registrationCeremonyId,
       authority: commit.authority,
+      registrationAuthority: ceremonyAuthority,
       walletAuthMethodId: prepared.walletAuthMethodId,
       expiresAtMs: activated.ecdsa.bootstrap.expiresAtMs,
       remainingUses: activated.ecdsa.bootstrap.remainingUses,

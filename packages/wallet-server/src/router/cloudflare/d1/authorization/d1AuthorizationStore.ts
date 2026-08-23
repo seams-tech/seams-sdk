@@ -1019,8 +1019,16 @@ export class CloudflareD1AuthorizationStore
     if (!quotaResult || !sessionResult) {
       throw new Error('V2 Wallet Session transaction returned incomplete results');
     }
-    if (d1ChangedRows(quotaResult) !== d1ChangedRows(sessionResult)) {
-      throw new Error('V2 Wallet Session transaction persisted an incomplete identity');
+    const quotaChanges = d1ChangedRows(quotaResult);
+    const sessionChanges = d1ChangedRows(sessionResult);
+    if (quotaChanges !== sessionChanges) {
+      const reusedExactQuota =
+        quotaChanges === 0 &&
+        sessionChanges === 1 &&
+        (await this.existingWalletSessionAuthorizationV2QuotaMatches(input.quota));
+      if (!reusedExactQuota) {
+        throw new Error('V2 Wallet Session transaction persisted an incomplete identity');
+      }
     }
     const persisted = await this.readWalletSessionAuthorizationV2ByMint({
       expected: input.session,
@@ -1032,6 +1040,39 @@ export class CloudflareD1AuthorizationStore
     if (persisted.quota.remainingUses !== input.quota.remainingUses) {
       throw new Error('V2 Wallet Session issuance replay does not match');
     }
+  }
+
+  private async existingWalletSessionAuthorizationV2QuotaMatches(
+    quota: ActiveWalletSessionQuota,
+  ): Promise<boolean> {
+    const row = await this.database
+      .prepare(
+        `SELECT
+           tenant_id,
+           principal_id,
+           wallet_session_id,
+           quota_id,
+           remaining_uses,
+           lifecycle_kind,
+           expires_at_ms
+         FROM authorization_wallet_session_quotas
+        WHERE namespace = ?
+          AND tenant_id = ?
+          AND quota_id = ?
+        LIMIT 1`,
+      )
+      .bind(this.namespace, quota.tenantId, String(quota.quotaId))
+      .first<D1Row>();
+    return (
+      row !== null &&
+      row.tenant_id === String(quota.tenantId) &&
+      row.principal_id === String(quota.principalId) &&
+      row.wallet_session_id === String(quota.walletSessionId) &&
+      row.quota_id === String(quota.quotaId) &&
+      row.lifecycle_kind === 'active' &&
+      integerColumn(row.remaining_uses, 'V2 quota.remainingUses') === quota.remainingUses &&
+      integerColumn(row.expires_at_ms, 'V2 quota.expiresAtMs') === quota.expiresAtMs
+    );
   }
 
   /**
