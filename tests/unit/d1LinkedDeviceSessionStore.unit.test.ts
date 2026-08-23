@@ -41,6 +41,57 @@ test.afterEach(() => {
   temporary = undefined;
 });
 
+test('signer D1 schema accepts the awaiting source-contribution state', async () => {
+  temporary = await openDatabase();
+  const recordJson = JSON.stringify({ state: { state: 'awaiting_source_contribution' } });
+
+  await temporary.database
+    .prepare(
+      `INSERT INTO linked_device_sessions (
+         namespace, org_id, project_id, env_id, link_session_id,
+         link_public_key_b64u, device_public_key_b64u, state, record_json,
+         revision, expires_at_ms, created_at_ms, updated_at_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      'link-session:r103-schema-awaiting-source',
+      'link-public',
+      'device-public',
+      'awaiting_source_contribution',
+      recordJson,
+      1,
+      nowMs + 1_000,
+      nowMs,
+      nowMs,
+    )
+    .run();
+
+  const row = await temporary.database
+    .prepare(
+      `SELECT state, record_json
+         FROM linked_device_sessions
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ?`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      'link-session:r103-schema-awaiting-source',
+    )
+    .first<{ readonly state: string; readonly record_json: string }>();
+
+  expect(row).toEqual({
+    state: 'awaiting_source_contribution',
+    record_json: recordJson,
+  });
+});
+
 test('persists the canonical linear precommit states and replays exact claim and approval', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:r103-store-linear' });
