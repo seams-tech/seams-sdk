@@ -4,8 +4,15 @@ import {
   parseLinkedDeviceSessionClaimRequestV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
+import {
+  LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
+} from '../../../packages/shared-ts/src/device-linking/sourceContribution';
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionV1,
+  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceTargetFactorV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
@@ -68,6 +75,18 @@ function required<T>(
 
 const FIXTURE_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
 const PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(32).fill(8));
+
+function buildR103EcdsaActivation(suffix: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activationId: `activation:r103-${suffix}`,
+    capability: 'capability:r103',
+    materialOwner: 'owner:r103',
+    keyBinding: `key-binding:r103-${suffix}`,
+    lifecycleBinding: `lifecycle:r103-${suffix}`,
+    signingWorker: 'worker:r103',
+  };
+}
 
 export type R103DeviceLinkFixture = {
   readonly payload: QrLinkedDeviceSessionPayloadV5;
@@ -194,5 +213,102 @@ export function buildR103OwnerApprovalContextV1(
     keyManifestDigestB64u:
       overrides.keyManifestDigestB64u ??
       parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE'),
+  };
+}
+
+export function buildR103EcdsaSourceContributionPreparationV1(
+  fixture: R103DeviceLinkFixture,
+): LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 {
+  const compressedPublicKey = base64UrlEncode(
+    new Uint8Array([2, ...new Uint8Array(32).fill(1)]),
+  );
+  const recipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(2));
+  const secondRecipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(3));
+
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1([
+    {
+      linkSessionId: fixture.approval.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      sourceAuthorityId: 'authority:r103',
+      source: {
+        activation: buildR103EcdsaActivation('source'),
+        clientPublicKey33B64u: compressedPublicKey,
+        relayerPublicKey33B64u: compressedPublicKey,
+        thresholdPublicKey33B64u: compressedPublicKey,
+        thresholdEthereumAddress20B64u: base64UrlEncode(new Uint8Array(20).fill(5)),
+      },
+      target: {
+        activation: buildR103EcdsaActivation('target'),
+        targetDeviceId: fixture.approval.deviceId,
+        targetFactorVerificationDigestB64u: fixture.packageSetDigestB64u,
+        clientRecipientPublicKeyB64u: recipientPublicKey,
+        signingWorkerRecipientPublicKeyB64u: secondRecipientPublicKey,
+      },
+    },
+  ]);
+}
+
+export function buildR103EcdsaSourceContributionV1(
+  fixture: R103DeviceLinkFixture,
+): LinkedDeviceOrdinaryMaterialSourceContributionV1 {
+  const preparation = buildR103EcdsaSourceContributionPreparationV1(fixture)[0];
+  if (!preparation || 'kind' in preparation) {
+    throw new Error('R103 ECDSA preparation is missing');
+  }
+  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
+  if (!walletKeyId) throw new Error('R103 source wallet key is missing');
+  const sourceSigner = {
+    activation: preparation.source.activation,
+    clientPublicKey33B64u: preparation.source.clientPublicKey33B64u,
+    relayerPublicKey33B64u: preparation.source.relayerPublicKey33B64u,
+    thresholdPublicKey33B64u: preparation.source.thresholdPublicKey33B64u,
+    thresholdEthereumAddress20B64u: preparation.source.thresholdEthereumAddress20B64u,
+  };
+  const binding = {
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    source: sourceSigner,
+    target: preparation.target,
+    targetClientPublicKey33B64u: base64UrlEncode(
+      new Uint8Array([2, ...new Uint8Array(32).fill(7)]),
+    ),
+  };
+  return parseLinkedDeviceOrdinaryMaterialSourceContributionV1({
+    kind: 'linked_device_ecdsa_source_contribution_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    linkSessionId: preparation.linkSessionId,
+    enrollmentId: preparation.enrollmentId,
+    sourceAuthorityId: preparation.sourceAuthorityId,
+    walletKeyId,
+    targetDeviceId: preparation.target.targetDeviceId,
+    targetFactorVerificationDigestB64u: preparation.target.targetFactorVerificationDigestB64u,
+    sourceSigner,
+    sourceDerivation: {
+      applicationBindingDigestB64u: fixture.packageSetDigestB64u,
+      clientShareRetryCounter: 0,
+    },
+    target: preparation.target,
+    package: {
+      binding,
+      encryptedDelta: buildR103EcdsaEnvelope(
+        preparation.target.signingWorkerRecipientPublicKeyB64u,
+        11,
+      ),
+      encryptedTargetClientShare: buildR103EcdsaEnvelope(
+        preparation.target.clientRecipientPublicKeyB64u,
+        13,
+      ),
+    },
+  });
+}
+
+function buildR103EcdsaEnvelope(recipientPublicKeyB64u: string, seed: number) {
+  return {
+    kind: LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1,
+    recipientPublicKeyB64u,
+    bindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(17)),
+    encappedKeyB64u: base64UrlEncode(new Uint8Array(32).fill(seed)),
+    ciphertextB64u: base64UrlEncode(new Uint8Array(32).fill(seed + 1)),
   };
 }

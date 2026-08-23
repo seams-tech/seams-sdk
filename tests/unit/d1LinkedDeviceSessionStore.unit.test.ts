@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { buildLinkedDeviceApprovalV1 } from '@shared/device-linking/parsers';
 import {
+  buildR103EcdsaSourceContributionV1,
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,
+  buildR103EcdsaSourceContributionPreparationV1,
 } from './helpers/deviceLinkContracts.fixtures';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -41,7 +44,7 @@ test.afterEach(() => {
   temporary = undefined;
 });
 
-test('signer D1 schema accepts the awaiting source-contribution state', async () => {
+test('signer D1 schema accepts source-contribution state and transcript', async () => {
   temporary = await openDatabase();
   const recordJson = JSON.stringify({ state: { state: 'awaiting_source_contribution' } });
 
@@ -70,6 +73,27 @@ test('signer D1 schema accepts the awaiting source-contribution state', async ()
     )
     .run();
 
+  const transcriptJson = JSON.stringify({ source: 'contribution' });
+  await temporary.database
+    .prepare(
+      `INSERT INTO linked_device_session_transcripts (
+         namespace, org_id, project_id, env_id, link_session_id,
+         transcript_kind, digest_b64u, transcript_json, created_at_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      'link-session:r103-schema-awaiting-source',
+      'source_contribution',
+      'source-digest',
+      transcriptJson,
+      nowMs,
+    )
+    .run();
+
   const row = await temporary.database
     .prepare(
       `SELECT state, record_json
@@ -89,6 +113,27 @@ test('signer D1 schema accepts the awaiting source-contribution state', async ()
   expect(row).toEqual({
     state: 'awaiting_source_contribution',
     record_json: recordJson,
+  });
+
+  const transcript = await temporary.database
+    .prepare(
+      `SELECT transcript_kind, transcript_json
+         FROM linked_device_session_transcripts
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ?`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      'link-session:r103-schema-awaiting-source',
+    )
+    .first<{ readonly transcript_kind: string; readonly transcript_json: string }>();
+
+  expect(transcript).toEqual({
+    transcript_kind: 'source_contribution',
+    transcript_json: transcriptJson,
   });
 });
 
@@ -139,17 +184,18 @@ test('persists the canonical linear precommit states and replays exact claim and
   const provisioning = await service.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: approved.record.revision,
+    sourceContributionPreparation: buildR103EcdsaSourceContributionPreparationV1(fixture),
     nowMs: nowMs + 3,
   });
   expect(provisioning.outcome).toBe('applied');
-  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
-  expect(provisioning.record.state.state).toBe('provisioning');
+  if (provisioning.outcome !== 'applied') throw new Error('expected source contribution wait');
+  expect(provisioning.record.state.state).toBe('awaiting_source_contribution');
 
   const persisted = await service.getSessionV1({
     linkSessionId: fixture.payload.linkSessionId,
     nowMs: nowMs + 3,
   });
-  expect(persisted?.state.state).toBe('provisioning');
+  expect(persisted?.state.state).toBe('awaiting_source_contribution');
 });
 
 test('commits one authority/package identity, rejects mismatches, and resumes to active', async () => {
@@ -334,7 +380,7 @@ async function reachProvisioning(
   fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
 ): Promise<
   Extract<
-    Awaited<ReturnType<LinkedDeviceSessionServiceV1['recordTargetCredentialV1']>>,
+    Awaited<ReturnType<LinkedDeviceSessionServiceV1['recordSourceContributionV1']>>,
     { readonly outcome: 'applied' }
   >['record']
 > {
@@ -351,10 +397,23 @@ async function reachProvisioning(
     nowMs: nowMs + 2,
   });
   if (approved.outcome !== 'applied') throw new Error('expected approval');
-  const provisioning = await service.recordTargetCredentialV1({
+  const awaitingSourceContribution = await service.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: approved.record.revision,
+    sourceContributionPreparation: buildR103EcdsaSourceContributionPreparationV1(fixture),
     nowMs: nowMs + 3,
+  });
+  if (awaitingSourceContribution.outcome !== 'applied') {
+    throw new Error('expected source contribution wait');
+  }
+  const sourceContributionApproval = buildLinkedDeviceApprovalV1({
+    ...approval,
+    sourceContribution: [buildR103EcdsaSourceContributionV1(fixture)],
+  });
+  const provisioning = await service.recordSourceContributionV1({
+    approval: sourceContributionApproval,
+    owner: buildR103OwnerApprovalContextV1(sourceContributionApproval),
+    nowMs: nowMs + 4,
   });
   if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
   return provisioning.record;
