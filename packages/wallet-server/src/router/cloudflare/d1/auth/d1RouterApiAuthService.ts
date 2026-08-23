@@ -314,6 +314,7 @@ function createD1LinkedDeviceComposition(input: {
     'resolveActiveOwnerWalletExecutionLane'
   >;
   readonly walletAuthMethodStore: D1WalletAuthMethodStore;
+  readonly walletStore: D1WalletStore;
   readonly resolveEmailOtpAuthority: CloudflareD1WalletAuthMethodService['resolveActiveEmailOtpAuthorityForVerifiedSubject'];
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
@@ -458,12 +459,18 @@ function createD1LinkedDeviceComposition(input: {
       scope,
       now: nowV1,
     });
+    const verifiedLinkSourceReader = createD1LinkedDeviceVerifiedLinkSourceReaderV1({
+      authorizationService: input.authorizationService,
+      authorityStore,
+      authMethodStore: input.walletAuthMethodStore,
+      walletStore: input.walletStore,
+      tenantId: tenantId.value,
+    });
     const ownerAuthorizationProvider = createD1LinkedDeviceOwnerAuthorizationProviderV1({
       walletRegistration: input.walletRegistration,
       metadata: createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1({
-        tenantId: tenantId.value,
         sessionStore,
-        authorizationStore: input.authorizationStore,
+        readVerifiedSourceV1: verifiedLinkSourceReader.readVerifiedSourceV1,
         readOwnerSourceChildV1: sessionConfig.readOwnerSourceChildV1,
         nowV1,
       }),
@@ -479,12 +486,7 @@ function createD1LinkedDeviceComposition(input: {
         : { emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor) }),
     });
     const verifiedLinkBuilder = {
-      source: createD1LinkedDeviceVerifiedLinkSourceReaderV1({
-        authorizationService: input.authorizationService,
-        authorityStore,
-        authMethodStore: input.walletAuthMethodStore,
-        tenantId: tenantId.value,
-      }),
+      source: verifiedLinkSourceReader,
     };
     const authorityInstall = new D1LinkedDeviceAuthorityInstallServiceV1({
       database: input.options.database,
@@ -1763,6 +1765,7 @@ function createCloudflareD1RouterApiAuthAssembly(
       walletStore,
     }),
     walletAuthMethodStore,
+    walletStore,
     resolveEmailOtpAuthority:
       walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(walletAuthMethods),
     webAuthnStore,

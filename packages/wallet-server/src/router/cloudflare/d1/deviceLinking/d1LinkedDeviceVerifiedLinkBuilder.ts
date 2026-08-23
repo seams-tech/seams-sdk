@@ -29,6 +29,7 @@ import type {
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import type { PrincipalId } from '@shared/authorization/capabilityKinds';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { VerifiedLinkedDeviceTargetFactorEvidenceV1 } from './d1LinkedDeviceTargetCredentialProvider';
 
@@ -38,6 +39,10 @@ export type VerifiedLinkSourceReadV1 = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly signerManifest: ExactAdministeredSignerManifestV1;
+  /** The custody manifest recorded on the requested source signer. */
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly principalId: PrincipalId;
+  readonly expiresAtMs: number;
   readonly authorityDigestB64u: DigestB64u;
   readonly verifiedRevocationEpoch: number;
   readonly verifiedAtMs: number;
@@ -52,6 +57,7 @@ export type VerifiedLinkSourceReaderV1 = {
     readonly walletId: VerifiedLinkInputV1['walletId'];
     readonly walletSessionId: string;
     readonly authorizationId: string;
+    readonly keyFamily: LinkedDeviceApprovalV1['orderedOwnerSourceLaneHints'][number]['keyFamily'];
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkSourceReadV1>;
 };
@@ -77,13 +83,22 @@ export async function buildVerifiedLinkInputV1(
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('verified device linking requires an ordinary Wallet Session');
   }
+  const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[0];
+  if (!sourceLaneHint) throw new Error('verified device linking source lane hints are missing');
   const source = await input.source.readVerifiedSourceV1({
     walletId: input.registration.walletId,
     walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
     authorizationId: String(input.approval.ownerAuthorization.authorizationId),
+    keyFamily: sourceLaneHint.keyFamily,
     requestedAtMs: input.requestedAtMs,
   });
   await assertSourceRead(source, input.registration.walletId, input.requestedAtMs);
+  if (
+    !input.session.approvalTranscript ||
+    input.session.approvalTranscript.sourceKeyManifestDigestB64u !== source.keyManifestDigestB64u
+  ) {
+    throw new Error('source custody manifest digest does not match the approved Wallet Session');
+  }
   const targetFactor = await buildVerifiedTargetFactorV1({
     ...input,
     sourceAuthMethod: source.authMethod,

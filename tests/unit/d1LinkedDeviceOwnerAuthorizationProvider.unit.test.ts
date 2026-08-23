@@ -8,11 +8,20 @@ import {
   parsePrincipalId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
-  parseTenantId,
+  parseDeviceId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import { parseWalletAuthorityId } from '../../packages/shared-ts/src/utils/domainIds';
+import { parseWalletAuthMethodId, parseWalletAuthorityId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  buildActiveWalletAuthorityV1,
+  buildWalletSignerActivationSetV1,
+  computeWalletAuthorityDigestB64u,
+  computeWalletSignerActivationSetDigestB64u,
+} from '../../packages/shared-ts/src/authorization/walletAuthority';
+import { buildFullOwnerPermissionsV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { buildExactAdministeredSignerManifestV1 } from '../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/wallet-server/src/core/ThresholdService/validation';
@@ -26,7 +35,6 @@ import {
   createD1LinkedDeviceOwnerSourceChildReaderV1,
   createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
-import type { ResolvedOpaqueWalletSessionToken } from '../../packages/wallet-server/src/authorization/service';
 import { buildR103AwaitingTargetPasskeySessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildRouterAbEd25519WalletSessionClaimsFixture } from './helpers/routerAbEd25519WalletSessionClaims.fixtures';
@@ -41,13 +49,74 @@ function required<T>(
   throw new Error(result.error.message);
 }
 
-test('rebuilds owner context from persisted lane hints and opaque session identity', async () => {
+test('rebuilds owner context from the approved Wallet Session V2 projection', async () => {
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:owner-metadata' });
-  const tenantId = required(parseTenantId('org-owner-metadata'));
   const ownerAuthority = buildPasskeyWalletAuthAuthority({
     walletId: fixture.approval.walletId,
     rpId: 'owner.example.test',
     credentialIdB64u: 'owner-metadata-credential',
+  });
+  const authorityId = required(parseWalletAuthorityId('authority:owner-metadata'));
+  const deviceId = required(parseDeviceId('device:owner-metadata'));
+  const sourceHint = fixture.approval.orderedOwnerSourceLaneHints[0];
+  if (!sourceHint) throw new Error('owner metadata fixture is missing a source hint');
+  const sourceManifest = buildExactAdministeredSignerManifestV1([
+    {
+      kind: 'exact_administered_ed25519_signer_v1',
+      keyFamily: 'ed25519',
+      walletId: String(fixture.approval.walletId),
+      walletKeyId: String(sourceHint.walletKey.walletKeyId),
+      registeredPublicKeyB64u: String(sourceHint.walletKey.registeredPublicKeyB64u),
+    },
+  ]);
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: sourceManifest,
+    materialActivations: {
+      keyFamilies: ['ed25519'],
+      ed25519: sourceHint.materialActivation,
+    },
+  });
+  const signerActivationSetDigestB64u = parseDigestB64u(
+    await computeWalletSignerActivationSetDigestB64u(signerActivations),
+  );
+  const authorityWithoutDigest = buildActiveWalletAuthorityV1({
+    kind: 'wallet_authority_v1',
+    authorityId,
+    walletId: fixture.approval.walletId,
+    principal: { kind: 'owner_device', deviceId },
+    provenance: { kind: 'wallet_registration' },
+    permissions: buildFullOwnerPermissionsV1(),
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: signerActivationSetDigestB64u,
+    revocationEpoch: 0,
+    createdAtMs: 100,
+    updatedAtMs: 200,
+    state: 'active',
+    activatedAtMs: 200,
+  });
+  const authority = buildActiveWalletAuthorityV1({
+    ...authorityWithoutDigest,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityWithoutDigest),
+  });
+  const opaqueWalletAuthMethodId = required(
+    parseWalletAuthMethodId('wallet-auth-method:owner-metadata-opaque'),
+  );
+  const sourceAuthority = { ...ownerAuthority, bindingId: opaqueWalletAuthMethodId };
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: opaqueWalletAuthMethodId,
+    walletId: fixture.approval.walletId,
+    walletAuthorityId: authorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: ownerAuthority.verifier.rpId,
+    credentialIdB64u: ownerAuthority.factor.credentialIdB64u,
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(9)),
+    counter: 0,
+    createdAtMs: 100,
+    updatedAtMs: 200,
+    activatedAtMs: 200,
   });
   const binding = buildRouterAbEd25519WalletSessionClaimsFixture({
     walletId: String(fixture.approval.walletId),
@@ -82,36 +151,34 @@ test('rebuilds owner context from persisted lane hints and opaque session identi
   const linkedFixture = {
     ...fixture,
     approval,
-    packageSetDigestB64u: binding.keyManifestDigestB64u,
+    packageSetDigestB64u: fixture.packageSetDigestB64u,
   };
   const session = await buildR103AwaitingTargetPasskeySessionRecordV1(linkedFixture);
-  const lookupCurves: string[] = [];
-  const resolved: ResolvedOpaqueWalletSessionToken = {
-    kind: 'resolved_opaque_wallet_session_token',
-    curve: 'ed25519',
-    binding,
-    authorization: {
-      tenantId,
-      principalId: required(parsePrincipalId('principal:owner-metadata')),
-      walletId: binding.walletId,
-      authorityDigest: binding.keyManifestDigestB64u,
-      walletAuthMethodId: null,
-      authorizationId: binding.authorizationId,
-      walletSessionId: binding.walletSessionId,
-      quotaId: binding.quotaId,
-      expiresAtMs: binding.thresholdExpiresAtMs,
-    },
+  let sourceRequest: {
+    walletId: string;
+    walletSessionId: string;
+    authorizationId: string;
+    keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+    requestedAtMs: number;
+  } | null = null;
+  const source = {
+    authority,
+    authMethod,
+    signerManifest: sourceManifest,
+    keyManifestDigestB64u: fixture.packageSetDigestB64u,
+    principalId: required(parsePrincipalId(String(fixture.approval.walletId))),
+    expiresAtMs: 9_000,
+    authorityDigestB64u: authority.authorityDigestB64u,
+    verifiedRevocationEpoch: 0,
+    verifiedAtMs: 4_000,
   };
   const metadata = createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1({
-    tenantId,
     sessionStore: {
       getSessionV1: async () => session,
     },
-    authorizationStore: {
-      readOpaqueWalletSessionTokenByIdentity: async (input) => {
-        lookupCurves.push(input.curve);
-        return input.curve === 'ed25519' ? resolved : null;
-      },
+    readVerifiedSourceV1: async (input) => {
+      sourceRequest = input;
+      return source;
     },
     readOwnerSourceChildV1: async () => null,
     nowV1: () => 4_000,
@@ -120,19 +187,26 @@ test('rebuilds owner context from persisted lane hints and opaque session identi
   const owner = await metadata.readApprovedOwnerContextV1({
     walletId: approval.walletId,
     linkSessionId: String(approval.linkSessionId),
+    keyFamily: 'ed25519',
   });
 
-  expect(lookupCurves).toEqual(['ed25519']);
+  expect(sourceRequest).toEqual({
+    walletId: approval.walletId,
+    walletSessionId: String(binding.walletSessionId),
+    authorizationId: String(binding.authorizationId),
+    keyFamily: 'ed25519',
+    requestedAtMs: 4_000,
+  });
   expect(owner).toEqual({
     walletId: approval.walletId,
     walletSessionId: binding.walletSessionId,
     authorizationId: binding.authorizationId,
-    expiresAtMs: binding.thresholdExpiresAtMs,
+    expiresAtMs: 9_000,
     permission: buildFullOwnerDelegatedWalletAuthorityV1(),
-    keyManifestDigestB64u: binding.keyManifestDigestB64u,
+    keyManifestDigestB64u: fixture.packageSetDigestB64u,
     curve: 'ed25519',
-    authority: binding.authority,
-    authorityScope: binding.authorityScope,
+    authority: sourceAuthority,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sourceAuthority),
   });
 });
 
