@@ -376,7 +376,7 @@ async function postRouterJsonRequestV1(
   operation: string,
 ): Promise<unknown> {
   const response = await input.fetch(
-    new Request(`https://router.router-ab.internal${path}`, {
+    new Request(`https://mpc-router.router-ab.internal${path}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
