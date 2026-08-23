@@ -816,6 +816,8 @@ export class IntendedBehaviourHarness {
 
   private latestWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
 
+  private sourceWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
+
   private intendedYaoFaultInjection: IntendedYaoFaultInjectionStateV1 = { kind: 'idle' };
 
   private readonly intendedYaoFaultProofs: string[] = [];
@@ -1104,6 +1106,10 @@ export class IntendedBehaviourHarness {
     const registration = this.requireRegisteredWalletForSigning();
     const recoveryCode = this.recoveryCodes[0];
     if (!recoveryCode) throw new Error('Passkey recovery requires a captured recovery code');
+    this.sourceWalletBudgetStatusRequest = this.latestWalletBudgetStatusRequest;
+    if (!this.sourceWalletBudgetStatusRequest) {
+      throw new Error('Source Wallet Session authorization was not captured before recovery');
+    }
     await this.clearBrowserStorageForColdSync();
     await this.replaceWebAuthnVirtualAuthenticatorForRecovery();
     await this.ensureIntendedPageOpen();
@@ -1131,8 +1137,10 @@ export class IntendedBehaviourHarness {
   }
 
   async assertSourceWalletSessionRevoked(): Promise<void> {
-    const captured = this.latestWalletBudgetStatusRequest;
-    if (!captured) throw new Error('Source Wallet Session authorization was not captured');
+    const captured = this.sourceWalletBudgetStatusRequest;
+    if (!captured) {
+      throw new Error('Source Wallet Session authorization was not captured before recovery');
+    }
     const response = await this.request.post(captured.url, {
       headers: {
         Authorization: captured.authorization,
