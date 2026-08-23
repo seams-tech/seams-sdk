@@ -1,4 +1,5 @@
 import type {
+  AccountSyncSigningSurface,
   EcdsaLoginSessionSurface,
   EcdsaRegistrationSurface,
   WalletCustodyCeremonySurface,
@@ -123,6 +124,7 @@ export interface SeamsWebSigningSurface
     UnlockedEd25519ExportRootCapabilitySurface,
     WalletCustodyCeremonySurface,
     Ed25519MaterialOwnerQueueSurface,
+    Pick<AccountSyncSigningSurface, 'storeNearThresholdKeyMaterial'>,
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
     KeyExportSigningSurface {
