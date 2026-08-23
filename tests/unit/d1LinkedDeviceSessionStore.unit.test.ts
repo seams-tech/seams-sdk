@@ -322,6 +322,9 @@ function ownerAuthorization(
         claimExpiresAtMs: nowMs + 7_000,
       },
     }),
-    authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
+    authorizeOwnerApprovalV1: async () => ({
+      kind: 'authorized' as const,
+      sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
+    }),
   };
 }

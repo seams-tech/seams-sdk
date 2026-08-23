@@ -18,6 +18,7 @@ import type {
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceTargetFactorV1,
   LinkDevicePublicKeyB64u,
+  LinkedDeviceOwnerSourceLaneV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import { assertNeverLinkSessionStateV1 } from '@shared/device-linking/contracts';
@@ -85,11 +86,43 @@ export type LinkedDeviceClaimTranscriptV1 = {
   readonly value: LinkedDeviceClaimV1;
 };
 
+export type LinkedDeviceSourceKeyManifestDigestsV1 =
+  | {
+      readonly ed25519: DigestB64u;
+      readonly ecdsa_secp256k1?: never;
+    }
+  | {
+      readonly ed25519?: never;
+      readonly ecdsa_secp256k1: DigestB64u;
+    }
+  | {
+      readonly ed25519: DigestB64u;
+      readonly ecdsa_secp256k1: DigestB64u;
+    };
+
 export type LinkedDeviceApprovalTranscriptV1 = {
   readonly digestB64u: DigestB64u;
   readonly value: LinkedDeviceApprovalV1;
-  readonly sourceKeyManifestDigestB64u: DigestB64u;
+  readonly sourceKeyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
 };
+
+export function sourceKeyManifestDigestForFamilyV1(
+  digests: LinkedDeviceSourceKeyManifestDigestsV1,
+  keyFamily: LinkedDeviceOwnerSourceLaneV1['keyFamily'],
+): DigestB64u | null {
+  switch (keyFamily) {
+    case 'ed25519':
+      return digests.ed25519 ?? null;
+    case 'ecdsa_secp256k1':
+      return digests.ecdsa_secp256k1 ?? null;
+    default:
+      return assertNeverSourceKeyFamilyV1(keyFamily);
+  }
+}
+
+function assertNeverSourceKeyFamilyV1(value: never): never {
+  throw new Error(`unsupported source key family: ${String(value)}`);
+}
 
 export type LinkedDeviceSourceContributionTranscriptV1 = LinkedDeviceApprovalTranscriptV1;
 
@@ -279,7 +312,13 @@ export type LinkedDeviceOwnerAuthorizationPortV1 = {
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
     readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
-  }): Promise<{ readonly kind: 'authorized' } | LinkedDeviceOwnerAuthorizationDeniedV1>;
+  }): Promise<
+    | {
+        readonly kind: 'authorized';
+        readonly sourceKeyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
+      }
+    | LinkedDeviceOwnerAuthorizationDeniedV1
+  >;
 };
 
 export type LinkedDeviceSessionStoreV1 = {
@@ -613,7 +652,7 @@ export class LinkedDeviceSessionServiceV1 {
         approvalTranscript: {
           digestB64u: approvalDigestB64u,
           value: approval,
-          sourceKeyManifestDigestB64u: input.owner.keyManifestDigestB64u,
+          sourceKeyManifestDigestsB64u: authorization.sourceKeyManifestDigestsB64u,
         },
         revision: existing.revision + 1,
         updatedAtMs: nowMs,
@@ -715,7 +754,7 @@ export class LinkedDeviceSessionServiceV1 {
         sourceContributionTranscript: {
           digestB64u: approvalDigestB64u,
           value: approval,
-          sourceKeyManifestDigestB64u: input.owner.keyManifestDigestB64u,
+          sourceKeyManifestDigestsB64u: authorization.sourceKeyManifestDigestsB64u,
         },
         revision: existing.revision + 1,
         updatedAtMs: nowMs,
@@ -2065,15 +2104,41 @@ function parseOptionalApprovalTranscript(
 ): LinkedDeviceApprovalTranscriptV1 | undefined {
   if (raw === undefined) return undefined;
   const record = requireRecord(raw, 'approvalTranscript');
-  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestB64u']);
+  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestsB64u']);
+  const value = parseLinkedDeviceApprovalV1(record.value);
+  const sourceKeyManifestDigestsB64u = parseSourceKeyManifestDigestsV1(
+    record.sourceKeyManifestDigestsB64u,
+    'approvalTranscript.sourceKeyManifestDigestsB64u',
+  );
+  assertSourceKeyManifestDigestFamiliesMatchApprovalV1(value, sourceKeyManifestDigestsB64u);
   return {
     digestB64u: requireDigest(record.digestB64u, 'approvalTranscript.digestB64u'),
-    value: parseLinkedDeviceApprovalV1(record.value),
-    sourceKeyManifestDigestB64u: requireDigest(
-      record.sourceKeyManifestDigestB64u,
-      'approvalTranscript.sourceKeyManifestDigestB64u',
-    ),
+    value,
+    sourceKeyManifestDigestsB64u,
   };
+}
+
+function parseSourceKeyManifestDigestsV1(
+  raw: unknown,
+  field: string,
+): LinkedDeviceSourceKeyManifestDigestsV1 {
+  const record = requireRecord(raw, field);
+  const keys = Object.keys(record).sort();
+  if (keys.length === 1 && keys[0] === 'ed25519') {
+    return { ed25519: requireDigest(record.ed25519, `${field}.ed25519`) };
+  }
+  if (keys.length === 1 && keys[0] === 'ecdsa_secp256k1') {
+    return {
+      ecdsa_secp256k1: requireDigest(record.ecdsa_secp256k1, `${field}.ecdsa_secp256k1`),
+    };
+  }
+  if (keys.length === 2 && keys[0] === 'ecdsa_secp256k1' && keys[1] === 'ed25519') {
+    return {
+      ed25519: requireDigest(record.ed25519, `${field}.ed25519`),
+      ecdsa_secp256k1: requireDigest(record.ecdsa_secp256k1, `${field}.ecdsa_secp256k1`),
+    };
+  }
+  throw new Error(`${field} must contain exactly one digest for each approved source key family`);
 }
 
 function parseOptionalSourceContributionPreparation(
@@ -2088,19 +2153,41 @@ function parseOptionalSourceContributionTranscript(
 ): LinkedDeviceSourceContributionTranscriptV1 | undefined {
   if (raw === undefined) return undefined;
   const record = requireRecord(raw, 'sourceContributionTranscript');
-  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestB64u']);
+  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestsB64u']);
   const value = parseLinkedDeviceApprovalV1(record.value);
   if (!value.sourceContribution) {
     throw new Error('sourceContributionTranscript.value has no source contribution');
   }
+  const sourceKeyManifestDigestsB64u = parseSourceKeyManifestDigestsV1(
+    record.sourceKeyManifestDigestsB64u,
+    'sourceContributionTranscript.sourceKeyManifestDigestsB64u',
+  );
+  assertSourceKeyManifestDigestFamiliesMatchApprovalV1(value, sourceKeyManifestDigestsB64u);
   return {
     digestB64u: requireDigest(record.digestB64u, 'sourceContributionTranscript.digestB64u'),
     value,
-    sourceKeyManifestDigestB64u: requireDigest(
-      record.sourceKeyManifestDigestB64u,
-      'sourceContributionTranscript.sourceKeyManifestDigestB64u',
-    ),
+    sourceKeyManifestDigestsB64u,
   };
+}
+
+function assertSourceKeyManifestDigestFamiliesMatchApprovalV1(
+  approval: LinkedDeviceApprovalV1,
+  digests: LinkedDeviceSourceKeyManifestDigestsV1,
+): void {
+  const approvalHasEd25519 = approval.orderedOwnerSourceLaneHints.some(
+    (hint) => hint.keyFamily === 'ed25519',
+  );
+  const approvalHasEcdsa = approval.orderedOwnerSourceLaneHints.some(
+    (hint) => hint.keyFamily === 'ecdsa_secp256k1',
+  );
+  const digestHasEd25519 = digests.ed25519 !== undefined;
+  const digestHasEcdsa = digests.ecdsa_secp256k1 !== undefined;
+  if (
+    approvalHasEd25519 !== digestHasEd25519 ||
+    approvalHasEcdsa !== digestHasEcdsa
+  ) {
+    throw new Error('source key manifest digest families do not match approved source lanes');
+  }
 }
 
 function parseOptionalTargetFactor(raw: unknown): LinkedDeviceTargetFactorV1 | undefined {

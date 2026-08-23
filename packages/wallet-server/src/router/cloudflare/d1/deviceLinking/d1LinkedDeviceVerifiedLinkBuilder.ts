@@ -30,7 +30,10 @@ import type {
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { parseDeviceId } from '@shared/authorization/capabilityKinds';
 import type { PrincipalId } from '@shared/authorization/capabilityKinds';
-import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import {
+  sourceKeyManifestDigestForFamilyV1,
+  type LinkedDeviceSessionRecordV1,
+} from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { VerifiedLinkedDeviceTargetFactorEvidenceV1 } from './d1LinkedDeviceTargetCredentialProvider';
 
 const VERIFIED_TARGET_FACTOR_DOMAIN_V1 = 'seams/linked-device/verified-target-factor/v1';
@@ -93,10 +96,13 @@ export async function buildVerifiedLinkInputV1(
     requestedAtMs: input.requestedAtMs,
   });
   await assertSourceRead(source, input.registration.walletId, input.requestedAtMs);
-  if (
-    !input.session.approvalTranscript ||
-    input.session.approvalTranscript.sourceKeyManifestDigestB64u !== source.keyManifestDigestB64u
-  ) {
+  const approvedSourceDigest = input.session.approvalTranscript
+    ? sourceKeyManifestDigestForFamilyV1(
+        input.session.approvalTranscript.sourceKeyManifestDigestsB64u,
+        sourceLaneHint.keyFamily,
+      )
+    : null;
+  if (!approvedSourceDigest || approvedSourceDigest !== source.keyManifestDigestB64u) {
     throw new Error('source custody manifest digest does not match the approved Wallet Session');
   }
   const targetFactor = await buildVerifiedTargetFactorV1({
