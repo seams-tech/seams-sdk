@@ -140,6 +140,7 @@ export interface CloudflareD1GatewayBaseEnv
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
   readonly SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
   readonly SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
   readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
@@ -402,6 +403,7 @@ function stagingLinkedDeviceSessionComposition(
   return {
     session: {
       readOwnerSourceChildV1: sourceChildReader.readOwnerSourceChildV1,
+      targetPasskeyOrigin: requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_ORIGIN'),
       targetCredential: ({
         verifiedLinkBuilder,
         targetCredentialVerification,

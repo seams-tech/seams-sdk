@@ -244,7 +244,7 @@ test('serializes the browser ECDSA recipient in the target credential response',
   });
 });
 
-test('forwards the exact request Origin to target credential verification', async () => {
+test('target credential registration does not trust the request Origin', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:route-origin' });
   const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
@@ -280,7 +280,7 @@ test('forwards the exact request Origin to target credential verification', asyn
     },
     registeredAtMs: 2_500,
   });
-  let observedOrigin: string | undefined;
+  let registrationCalled = false;
   const routeService: DeviceLinkingRouteServiceV1 = {
     ...baseRouteService,
     sessionService: {
@@ -290,8 +290,8 @@ test('forwards the exact request Origin to target credential verification', asyn
     targetCredential: {
       ...baseRouteService.targetCredential,
       getTargetPreparationV1: async () => buildPasskeyTargetPreparationFixtureV1(),
-      registerTargetCredentialV1: async (input) => {
-        observedOrigin = input.origin;
+      registerTargetCredentialV1: async () => {
+        registrationCalled = true;
         return { outcome: 'invalid_input', message: 'verification probe' };
       },
       buildVerifiedLinkInputV1: async () => {
@@ -303,10 +303,9 @@ test('forwards the exact request Origin to target credential verification', asyn
     method: 'POST',
     pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/credential`,
     body: registration,
-    origin: 'https://target.example.test',
   });
   expect(response.status).toBe(400);
-  expect(observedOrigin).toBe('https://target.example.test');
+  expect(registrationCalled).toBe(true);
 });
 
 async function openDatabase(): Promise<TemporaryD1Database> {
@@ -352,7 +351,7 @@ function routeServiceFor(
     }),
     authenticateDeviceRequestV1: async ({ request, method, proof }) => ({
       kind: 'authorized' as const,
-      body: method === 'GET' ? null : await request.clone().json(),
+      body: method === 'GET' ? null : await request.json(),
       proof,
     }),
     targetCredential: {

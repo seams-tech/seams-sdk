@@ -70,6 +70,8 @@ export type CloudflareD1EmailOtpServerSealConfig = {
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   /** Resolves authoritative source-lane facts after the owner context is rebuilt from D1. */
   readonly readOwnerSourceChildV1: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1['readOwnerSourceChildV1'];
+  /** Exact trusted origin where the target Passkey ceremony runs. */
+  readonly targetPasskeyOrigin: string;
   readonly targetCredential: (input: {
     readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
     readonly targetCredentialVerification: LinkedDeviceTargetCredentialVerificationPortV1;

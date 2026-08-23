@@ -532,7 +532,9 @@ function createD1LinkedDeviceComposition(input: {
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
       targetCredential: sessionConfig.targetCredential({
         verifiedLinkBuilder,
-        targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(),
+        targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(
+          sessionConfig.targetPasskeyOrigin,
+        ),
         targetPlanner: ownerAuthorizationProvider.targetPlanner,
         resolveOwnerSourceChildV1:
           ownerAuthorizationProvider.ownerSourceResolver.resolveOwnerSourceChildV1,
