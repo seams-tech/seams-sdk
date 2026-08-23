@@ -36,6 +36,7 @@ CREATE TABLE linked_device_sessions_next (
       'displaying_qr',
       'claimed',
       'awaiting_target_factor',
+      'awaiting_source_contribution',
       'provisioning',
       'authority_pending_local_install',
       'active',
