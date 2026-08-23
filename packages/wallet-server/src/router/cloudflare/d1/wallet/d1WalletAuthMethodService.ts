@@ -1148,9 +1148,40 @@ export class CloudflareD1WalletAuthMethodService {
     ) {
       return null;
     }
+    const walletAuthority = await this.walletAuthorityStore.readById(record.walletAuthorityId);
+    if (
+      !walletAuthority ||
+      walletAuthority.state !== 'active' ||
+      walletAuthority.walletId !== record.walletId
+    ) {
+      return null;
+    }
     return {
       walletAuthorityId: record.walletAuthorityId,
       walletAuthMethodId: record.walletAuthMethodId,
+      authority: walletAuthority,
+      authMethod: record,
+    };
+  }
+
+  async readActiveRegistrationAuthority(authority: RegistrationAuthority): Promise<{
+    readonly authority: ActiveWalletAuthorityV1;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  } | null> {
+    const identity = await this.readActiveRegistrationIdentity(authority);
+    if (!identity) return null;
+    const walletAuthority = await this.walletAuthorityStore.readById(identity.walletAuthorityId);
+    if (
+      !walletAuthority ||
+      walletAuthority.state !== 'active' ||
+      walletAuthority.walletId !== authority.walletId ||
+      walletAuthority.authorityId !== identity.walletAuthorityId
+    ) {
+      return null;
+    }
+    return {
+      authority: walletAuthority,
+      walletAuthMethodId: identity.walletAuthMethodId,
     };
   }
 

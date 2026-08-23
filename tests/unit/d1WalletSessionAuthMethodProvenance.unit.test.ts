@@ -345,6 +345,65 @@ test('issues a registration session for the server-allocated active auth method 
   }
 });
 
+test('promotes a registration session into the exact V2 authority projection', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'registration-v2-session-promotion';
+    const walletAuthMethodId = requiredWalletAuthMethodId(
+      'wallet-auth-method:registration-v2-promotion',
+    );
+    const fixture = await seedActiveAuthority(temporary.database, namespace, 'registration-v2', {
+      walletAuthMethodId,
+    });
+    const service = createService(temporary.database, namespace);
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: fixture.authMethod.walletId,
+      rpId: fixture.authMethod.rpId,
+      credentialIdB64u: fixture.authMethod.credentialIdB64u,
+    });
+    const canonicalAuthorityRef = await walletAuthAuthorityRef({ authority });
+    const registrationAuthorityRef = {
+      ...canonicalAuthorityRef,
+      walletAuthMethodId,
+    } as const;
+    const issued = await service.issueReusableWalletSession({
+      tenantId: requiredParsed(parseTenantId('tenant:registration-v2-promotion')),
+      principalId: requiredParsed(parsePrincipalId('principal:registration-v2-promotion')),
+      walletId: authority.walletId,
+      authority: registrationAuthorityRef,
+      mintId: requiredMintId('registration:v2-promotion'),
+      remainingUses: 3,
+      issuedAtMs: 300,
+      expiresAtMs: 400,
+    });
+    const promoted =
+      await service.issueWalletSessionAuthorizationV2FromReusableSession({
+        reusableWalletSession: issued,
+        authority: fixture.authority,
+        walletAuthMethodId,
+      });
+
+    expect(promoted.session.authorizationId).toBe(issued.session.authorizationId);
+    expect(promoted.session.walletSessionId).toBe(issued.session.walletSessionId);
+    expect(promoted.session.quotaId).toBe(issued.session.quotaId);
+    expect(promoted.session.authorityId).toBe(fixture.authority.authorityId);
+    expect(promoted.session.walletAuthMethodId).toBe(walletAuthMethodId);
+    expect(promoted.session.authorityDigestB64u).toBe(fixture.authority.authorityDigestB64u);
+    await expect(
+      service.readWalletSessionAuthorizationV2ByIdentity({
+        tenantId: promoted.session.tenantId,
+        walletId: promoted.session.walletId,
+        walletSessionId: promoted.session.walletSessionId,
+        authorizationId: promoted.session.authorizationId,
+        nowMs: 301,
+      }),
+    ).resolves.toEqual(promoted);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
 test('issues V2 Wallet Sessions only for exact active authority provenance', async () => {
   const temporary = createTemporaryD1Database();
   try {
