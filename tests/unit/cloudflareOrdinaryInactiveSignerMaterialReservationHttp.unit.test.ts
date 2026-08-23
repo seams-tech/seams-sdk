@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
 } from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
@@ -8,6 +9,10 @@ import {
   buildSourcePreservingEcdsaReservationRequestFixture,
   buildSourcePreservingEd25519ReservationRequestFixture,
 } from './helpers/ordinarySourcePreservingReservation.fixtures';
+import {
+  buildOrdinaryEd25519ReservationPreparationFixture,
+  buildOrdinaryMaterialActivationFixture,
+} from './helpers/ordinarySignerMaterialReservation.fixtures';
 
 type RecordedRequestV1 = {
   readonly url: string;
@@ -122,6 +127,52 @@ test('source-preserving reservation and activation endpoints emit exact worker w
       ecdsa.preparation.sourceContribution.binding.target.activation,
     ),
     reservation_id: 'ecdsa-reservation',
+  });
+});
+
+test('Ed25519 source-preserving execution uses the MPC Router service binding', async () => {
+  const calls: RecordedRequestV1[] = [];
+  const source = buildSourcePreservingEd25519ReservationRequestFixture('http-router-execute');
+  const sourceContribution = source.preparation.sourceContribution;
+  const targetPreparation = buildOrdinaryEd25519ReservationPreparationFixture(
+    'http-router-execute-target',
+    buildOrdinaryMaterialActivationFixture('http-router-execute-target'),
+  );
+  const rawReservation = {
+    state: 'inactive',
+    reservation_id: sourceContribution.reservationId,
+    participant_ids: targetPreparation.participantIds,
+    activation_receipt: sourceContribution.activationReceipt,
+    deriver_a_client_package: sourceContribution.deriver_a_client_package,
+    deriver_b_client_package: sourceContribution.deriver_b_client_package,
+  };
+  const responseFetch = createRecordingFetch(calls, [rawReservation]);
+  const endpoint = createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1({
+    fetch: responseFetch,
+    internalServiceAuthSecret: 'internal-secret',
+  });
+
+  const result = await endpoint.executeEd25519SourcePreservingV1({
+    sourceBinding: sourceContribution.sourceBinding,
+    targetRequest: targetPreparation.activationRequest,
+    participantIds: targetPreparation.participantIds,
+  });
+
+  expect(result).toEqual(rawReservation);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe(
+    'https://mpc-router.router-ab.internal/router-ab/router/ed25519-yao/execute-source-preserving',
+  );
+  expect(calls[0]?.auth).toBe('internal-secret');
+  expect(calls[0]?.body).toEqual({
+    source_binding: sourceContribution.sourceBinding,
+    target: {
+      operation: 'registration',
+      binding: targetPreparation.activationRequest.binding,
+      deriver_a_input: targetPreparation.activationRequest.deriver_a_input,
+      deriver_b_input: targetPreparation.activationRequest.deriver_b_input,
+    },
+    participant_ids: targetPreparation.participantIds,
   });
 });
 
