@@ -493,7 +493,7 @@ CREATE TABLE linked_device_session_transcripts (
   ),
   FOREIGN KEY (namespace, org_id, project_id, env_id, link_session_id)
     REFERENCES linked_device_sessions(namespace, org_id, project_id, env_id, link_session_id),
-  CHECK (transcript_kind IN ('claim', 'approval')),
+  CHECK (transcript_kind IN ('claim', 'approval', 'source_contribution')),
   CHECK (length(digest_b64u) > 0),
   CHECK (json_valid(transcript_json)),
   CHECK (created_at_ms > 0)
