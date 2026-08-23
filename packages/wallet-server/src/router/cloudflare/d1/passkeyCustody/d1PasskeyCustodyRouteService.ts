@@ -647,6 +647,7 @@ async function prepareRecoveryForRoute(
       rpId: parsedRpId.value,
       sourceMethod,
       sourceAuthorityDigestB64u: sourceAuthority.authorityDigest,
+      expiresAtMs: prepared.reservationExpiresAtMs,
       nowMs: (assembly.nowMs ?? Date.now)(),
     });
     if (registration.kind !== 'ready') {
@@ -675,14 +676,15 @@ async function prepareRecoveryForRoute(
   }
 }
 
-async function createWalletRecoveryRegistrationOptions(input: {
-  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+export async function createWalletRecoveryRegistrationOptions(input: {
+  readonly webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'writeChallenge' | 'readBindingRows'>;
   readonly walletId: WalletId;
   readonly reservationId: RecoveryCodeReservationId;
   readonly origin: string;
   readonly rpId: WebAuthnRpId;
   readonly sourceMethod: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>;
   readonly sourceAuthorityDigestB64u: WalletAuthAuthorityRef['authorityDigest'];
+  readonly expiresAtMs: number;
   readonly nowMs: number;
 }): Promise<
   | { readonly kind: 'ready'; readonly options: WalletRecoveryRegistrationOptions }
@@ -694,7 +696,6 @@ async function createWalletRecoveryRegistrationOptions(input: {
     18,
     'wallet recovery replacement id',
   )}`;
-  const expiresAtMs = input.nowMs + RECOVERY_RESERVATION_TTL_MS;
   const sourceCredentialIdB64u = parseWebAuthnCredentialIdB64u(input.sourceMethod.credentialIdB64u);
   if (!sourceCredentialIdB64u.ok) {
     return { kind: 'unavailable', reason: 'the source passkey credential id is invalid' };
@@ -713,14 +714,14 @@ async function createWalletRecoveryRegistrationOptions(input: {
     sourceAuthorityDigestB64u: input.sourceAuthorityDigestB64u,
     sourceAuthMethodUpdatedAtMs: input.sourceMethod.updatedAtMs,
     createdAtMs: input.nowMs,
-    expiresAtMs,
+    expiresAtMs: input.expiresAtMs,
   };
   await input.webAuthnStore.writeChallenge({
     challengeId,
     challengeKind: 'recovery_registration',
     record,
     createdAtMs: input.nowMs,
-    expiresAtMs,
+    expiresAtMs: input.expiresAtMs,
   });
   const bindings = await input.webAuthnStore.readBindingRows({
     userId: String(input.walletId),
