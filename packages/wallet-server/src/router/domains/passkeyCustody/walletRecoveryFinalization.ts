@@ -3,6 +3,7 @@ import {
   parseWalletId,
   parseWebAuthnRpId,
   type WalletId,
+  type WalletAuthorityId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { buildRetiredEnvelopeLifecycle } from '@shared/passkey-custody';
@@ -48,6 +49,7 @@ export type WalletRecoveryFinalizationResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
+      readonly walletAuthorityId: WalletAuthorityId;
       readonly credential: {
         readonly credentialIdB64u: string;
         readonly credentialPublicKeyB64u: string;
@@ -370,6 +372,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   return {
     kind: 'promoted',
     storeVersion: committed.envelopeStoreVersion,
+    walletAuthorityId: walletAuthMethod.walletAuthorityId,
     credential: {
       credentialIdB64u: walletAuthMethod.credentialIdB64u,
       credentialPublicKeyB64u: walletAuthMethod.credentialPublicKeyB64u,
@@ -576,6 +579,7 @@ export async function resolveCommittedRecoveryReplayV1(
   return {
     kind: 'promoted',
     storeVersion: storedEnvelope.storeVersion,
+    walletAuthorityId: replacementMethod.walletAuthorityId,
     credential: {
       credentialIdB64u: replacementMethod.credentialIdB64u,
       credentialPublicKeyB64u: replacementMethod.credentialPublicKeyB64u,

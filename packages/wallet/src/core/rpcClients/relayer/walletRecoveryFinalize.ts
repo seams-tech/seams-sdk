@@ -12,7 +12,11 @@ import {
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
 import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWebAuthnCredentialIdB64u,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import { base64UrlDecode } from '@shared/utils/encoders';
@@ -40,6 +44,8 @@ export type WalletRecoveryFinalizeResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly walletAuthorityId: WalletAuthorityId;
       readonly credential: {
         readonly credentialIdB64u: WebAuthnCredentialIdB64u;
         readonly credentialPublicKeyB64u: string;
@@ -133,9 +139,17 @@ export async function finalizeWalletRecovery(args: {
   const body = isRecord(bodyUnknown) ? bodyUnknown : {};
   if (response.status === 200 && body.ok === true) {
     try {
-      rejectUnknownFields(body, ['ok', 'storeVersion', 'credential'], 'walletRecoveryFinalize');
+      rejectUnknownFields(
+        body,
+        ['ok', 'storeVersion', 'credential', 'walletAuthMethodId', 'walletAuthorityId'],
+        'walletRecoveryFinalize',
+      );
       const storeVersion = String(body.storeVersion || '').trim();
       if (!storeVersion) throw new Error('missing store version');
+      const walletAuthMethodId = parseWalletAuthMethodId(body.walletAuthMethodId);
+      if (!walletAuthMethodId.ok) throw new Error('missing replacement auth-method id');
+      const walletAuthorityId = parseWalletAuthorityId(body.walletAuthorityId);
+      if (!walletAuthorityId.ok) throw new Error('missing replacement wallet authority id');
       if (!isRecord(body.credential)) throw new Error('missing replacement credential');
       rejectUnknownFields(
         body.credential,
@@ -157,6 +171,8 @@ export async function finalizeWalletRecovery(args: {
       return {
         kind: 'promoted',
         storeVersion,
+        walletAuthMethodId: walletAuthMethodId.value,
+        walletAuthorityId: walletAuthorityId.value,
         credential: {
           credentialIdB64u: credentialId.value,
           credentialPublicKeyB64u,

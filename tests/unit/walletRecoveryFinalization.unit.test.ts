@@ -142,6 +142,7 @@ test('strict replay returns the committed promotion without retire failure state
   expect(result).toEqual({
     kind: 'promoted',
     storeVersion: 'v2',
+    walletAuthorityId: 'wallet-authority:recovery-test',
     credential: {
       credentialIdB64u: 'replacement-credential',
       credentialPublicKeyB64u: 'replacement-public-key',
