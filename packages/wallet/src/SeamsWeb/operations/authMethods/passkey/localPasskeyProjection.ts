@@ -16,6 +16,7 @@ import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { IndexedDBManager, type LocalWalletAuthMethodRecord } from '@/core/indexedDB';
 import type { AccountId } from '@/core/types/accountIds';
 import { upsertNearAccountProjectionRecords } from '@/core/accountData/near/accountProjection';
+import { buildNearProfileId } from '@/core/accountData/near/profileId';
 import type { ClientUserData } from '@/core/accountData/near/nearAccountData.types';
 
 /** The finalize fields this projection is built from, whichever route returned them. */
@@ -169,8 +170,8 @@ export async function persistRecoveredPasskeyLocalProjectionV1(
         revocationReason: 'wallet_recovery_replacement',
       },
     });
-    const walletProfileId = String(input.walletId);
-    await IndexedDBManager.setLastProfileStateForProfile(walletProfileId, activation.signerSlot);
+    const nearProfileId = String(buildNearProfileId(input.nearAccountId));
+    await IndexedDBManager.setLastProfileStateForProfile(nearProfileId, activation.signerSlot);
   }
 
   await retireOtherLocalPasskeys(input.walletId, authMethod.rpId, authMethod.credentialIdB64u);
