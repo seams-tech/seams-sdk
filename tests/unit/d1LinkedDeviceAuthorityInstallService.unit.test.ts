@@ -415,6 +415,33 @@ test('reads installed Ed25519 authority projections by identity and material act
       }),
     ).toBeNull();
 
+    const ecdsaByIdentity = await harness.install.readInstalledEcdsaAuthorityByIdentityV1({
+      walletId: harness.input.walletId,
+      authorityId: committed.packages.authority.authorityId,
+      walletAuthMethodId: committed.packages.authMethod.walletAuthMethodId,
+    });
+    expect(ecdsaByIdentity).toMatchObject({
+      walletId: harness.input.walletId,
+      authorityId: committed.packages.authority.authorityId,
+      walletAuthMethodId: committed.packages.authMethod.walletAuthMethodId,
+      deviceId: harness.input.targetDeviceId,
+      activatedAtMs: installed.activatedAtMs,
+    });
+    expect(ecdsaByIdentity?.materialActivation).toEqual(
+      committed.packages.signerPackages.ecdsa?.materialActivation,
+    );
+    expect(ecdsaByIdentity?.activationReceipt.binding.target.targetDeviceId).toBe(
+      harness.input.targetDeviceId,
+    );
+    const ecdsaByMaterial = await harness.install.readInstalledEcdsaAuthorityByMaterialActivationV1({
+      walletId: harness.input.walletId,
+      materialActivation: committed.packages.signerPackages.ecdsa!.materialActivation,
+    });
+    expect(ecdsaByMaterial?.authorityId).toBe(committed.packages.authority.authorityId);
+    expect(ecdsaByMaterial?.walletAuthMethodId).toBe(
+      committed.packages.authMethod.walletAuthMethodId,
+    );
+
     await setInstallationMarkers(temporary, harness.input.linkSessionId, null, null);
     await expect(
       harness.install.readInstalledEd25519AuthorityByIdentityV1({
@@ -836,7 +863,7 @@ async function buildSourceAuthority(): Promise<SourceFixture> {
         walletId,
         walletKeyId: sourceContribution.walletKeyId,
         thresholdPublicKey33B64u: sourceContribution.sourceSigner.thresholdPublicKey33B64u,
-        evmAddress: '0x1111111111111111111111111111111111111111',
+        evmAddress: '0x0505050505050505050505050505050505050505',
       },
     ],
   });
@@ -913,7 +940,7 @@ function buildTargetSigner(
         walletId,
         walletKeyId: sourceContribution.walletKeyId,
         thresholdPublicKey33B64u: sourceContribution.sourceSigner.thresholdPublicKey33B64u,
-        evmAddress: '0x2222222222222222222222222222222222222222',
+        evmAddress: '0x0505050505050505050505050505050505050505',
       },
     ],
   });

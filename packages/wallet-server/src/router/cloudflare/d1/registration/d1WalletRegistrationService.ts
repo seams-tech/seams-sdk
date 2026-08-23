@@ -85,6 +85,10 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
+  deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
+  type RouterAbEd25519YaoExportAuthorizationIdentityV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import {
   parseEd25519PublicKeyB64u,
   parseSecp256k1CompressedPublicKeyB64u,
 } from '@shared/passkey-custody/primitives';
@@ -169,7 +173,10 @@ import {
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
-import type { InstalledLinkedDeviceEd25519AuthorityProjectionV1 } from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
+import type {
+  InstalledLinkedDeviceEcdsaAuthorityProjectionV1,
+  InstalledLinkedDeviceEd25519AuthorityProjectionV1,
+} from '../deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import {
   listThresholdEcdsaKeyIdentityTargetsForUser,
   type ThresholdEcdsaKeyInventoryDiagnostics,
@@ -323,6 +330,15 @@ export type D1LinkedDeviceEd25519AuthorityReaderV1 = {
     readonly walletId: WalletId;
     readonly materialActivation: MpcMaterialActivationRef;
   }): Promise<InstalledLinkedDeviceEd25519AuthorityProjectionV1 | null>;
+  readonly readInstalledEcdsaAuthorityByIdentityV1?: (input: {
+    readonly walletId: WalletId;
+    readonly authorityId: WalletAuthorityId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }) => Promise<InstalledLinkedDeviceEcdsaAuthorityProjectionV1 | null>;
+  readonly readInstalledEcdsaAuthorityByMaterialActivationV1?: (input: {
+    readonly walletId: WalletId;
+    readonly materialActivation: MpcMaterialActivationRef;
+  }) => Promise<InstalledLinkedDeviceEcdsaAuthorityProjectionV1 | null>;
 };
 
 function sameEd25519ParticipantIds(
@@ -360,8 +376,7 @@ function linkedEd25519ProjectionMatchesSigner(input: {
     input.authority.provenance.kind === 'device_link' &&
     projection.linkSessionId === input.authority.provenance.linkSessionId &&
     projection.applicationBinding.wallet_id === input.walletId &&
-    projection.applicationBinding.near_ed25519_signing_key_id ===
-      signer.nearEd25519SigningKeyId &&
+    projection.applicationBinding.near_ed25519_signing_key_id === signer.nearEd25519SigningKeyId &&
     projection.applicationBinding.key_creation_signer_slot === signer.signerSlot &&
     projection.applicationBinding.signing_root_id === signer.signingRootId &&
     sameEd25519ParticipantIds(projection.participantIds, signer.participantIds) &&
@@ -396,7 +411,8 @@ function linkedEd25519ProjectionMatchesDescriptor(input: {
     projection.applicationBinding.wallet_id === descriptor.applicationBinding.wallet_id &&
     projection.applicationBinding.near_ed25519_signing_key_id ===
       descriptor.applicationBinding.near_ed25519_signing_key_id &&
-    projection.applicationBinding.signing_root_id === descriptor.applicationBinding.signing_root_id &&
+    projection.applicationBinding.signing_root_id ===
+      descriptor.applicationBinding.signing_root_id &&
     projection.applicationBinding.key_creation_signer_slot ===
       descriptor.applicationBinding.key_creation_signer_slot &&
     sameEd25519ParticipantIds(projection.participantIds, descriptor.participantIds) &&
@@ -420,6 +436,113 @@ function linkedEd25519ProjectionMatchesDescriptor(input: {
     descriptor.nearAccountId ===
       implicitNearAccountIdFromEd25519PublicKeyBytes(registeredPublicKeyBytes)
   );
+}
+
+function linkedEcdsaProjectionMatchesSigner(input: {
+  readonly projection: InstalledLinkedDeviceEcdsaAuthorityProjectionV1;
+  readonly signer: WalletEcdsaSignerRecord;
+}): boolean {
+  const receipt = input.projection.activationReceipt;
+  const source = receipt.binding.source;
+  const sourceScope = receipt.sourceDerivation.sourceNormalSigning.scope;
+  const capability = input.signer.walletKey.publicCapability;
+  const activation = input.signer.activationReceipt.ecdsa_activation;
+  return (
+    input.signer.walletId === input.projection.walletId &&
+    input.projection.signer.walletId === input.signer.walletId &&
+    input.projection.signer.thresholdPublicKey33B64u === source.thresholdPublicKey33B64u &&
+    input.signer.walletKey.ecdsaThresholdKeyId === sourceScope.ecdsa_threshold_key_id &&
+    input.signer.walletKey.signingRootId === sourceScope.signing_root_id &&
+    input.signer.walletKey.signingRootVersion === sourceScope.signing_root_version &&
+    input.signer.walletKey.thresholdEcdsaPublicKeyB64u === source.thresholdPublicKey33B64u &&
+    String(input.signer.walletKey.derivationClientSharePublicKey33B64u) ===
+      source.clientPublicKey33B64u &&
+    String(input.signer.walletKey.relayerVerifyingShareB64u) === source.relayerPublicKey33B64u &&
+    sameRouterAbMpcMaterialActivationRef(
+      capability.material_activation,
+      routerAbMpcMaterialActivationRefToWire(source.activation),
+    ) &&
+    capability.client_id === String(input.projection.walletId) &&
+    capability.context.application_binding_digest_b64u ===
+      sourceScope.context.application_binding_digest_b64u &&
+    capability.public_identity.context_binding_b64u ===
+      sourceScope.public_identity.context_binding_b64u &&
+    capability.public_identity.derivation_client_share_public_key33_b64u ===
+      source.clientPublicKey33B64u &&
+    capability.public_identity.server_public_key33_b64u === source.relayerPublicKey33B64u &&
+    capability.public_identity.threshold_public_key33_b64u === source.thresholdPublicKey33B64u &&
+    capability.public_identity.ethereum_address20_b64u ===
+      source.thresholdEthereumAddress20B64u &&
+    capability.public_identity.client_share_retry_counter ===
+      sourceScope.public_identity.client_share_retry_counter &&
+    capability.public_identity.server_share_retry_counter ===
+      sourceScope.public_identity.server_share_retry_counter &&
+    capability.signer_set.selected_server.server_id === sourceScope.signing_worker.server_id &&
+    capability.activation_epoch === sourceScope.activation_epoch &&
+    sameRouterAbMpcMaterialActivationRef(
+      activation.material_activation,
+      routerAbMpcMaterialActivationRefToWire(source.activation),
+    ) &&
+    activation.context.application_binding_digest_b64u ===
+      sourceScope.context.application_binding_digest_b64u &&
+    activation.public_identity.context_binding_b64u ===
+      sourceScope.public_identity.context_binding_b64u &&
+    activation.public_identity.derivation_client_share_public_key33_b64u ===
+      source.clientPublicKey33B64u &&
+    activation.public_identity.server_public_key33_b64u === source.relayerPublicKey33B64u &&
+    activation.public_identity.threshold_public_key33_b64u === source.thresholdPublicKey33B64u &&
+    activation.public_identity.ethereum_address20_b64u === source.thresholdEthereumAddress20B64u &&
+    activation.signing_worker.server_id === sourceScope.signing_worker.server_id &&
+    activation.activation_epoch === sourceScope.activation_epoch
+  );
+}
+
+async function ed25519ExportIdentityFromActiveCapability(
+  descriptor: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+): Promise<RouterAbEd25519YaoExportAuthorizationIdentityV1> {
+  return {
+    scope: {
+      lifecycle_id: descriptor.lifecycle.lifecycleId,
+      root_share_epoch: descriptor.lifecycle.rootShareEpoch,
+      account_id: descriptor.lifecycle.accountId,
+      threshold_session_id: descriptor.lifecycle.thresholdSessionId,
+      signer_set_id: descriptor.lifecycle.signerSetId,
+      signing_worker_id: descriptor.lifecycle.signingWorkerId,
+      material_activation: descriptor.materialActivation,
+    },
+    application_binding: descriptor.applicationBinding,
+    participant_ids: descriptor.participantIds,
+    registered_public_key: descriptor.registeredPublicKey,
+    state_epoch: descriptor.stateEpoch,
+    runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+      descriptor.runtimePolicyScope,
+    ),
+  };
+}
+
+async function ed25519ExportIdentityFromLinkedProjection(
+  projection: InstalledLinkedDeviceEd25519AuthorityProjectionV1,
+  descriptor: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
+): Promise<RouterAbEd25519YaoExportAuthorizationIdentityV1> {
+  const lifecycle = projection.targetBinding.lifecycle;
+  return {
+    scope: {
+      lifecycle_id: lifecycle.lifecycle_id,
+      root_share_epoch: lifecycle.root_share_epoch,
+      account_id: lifecycle.account_id,
+      threshold_session_id: lifecycle.session_id,
+      signer_set_id: lifecycle.signer_set_id,
+      signing_worker_id: lifecycle.selected_server_id,
+      material_activation: projection.targetBinding.material_activation,
+    },
+    application_binding: projection.applicationBinding,
+    participant_ids: projection.participantIds,
+    registered_public_key: projection.activationReceipt.registered_public_key,
+    state_epoch: projection.activationReceipt.state_epoch,
+    runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+      descriptor.runtimePolicyScope,
+    ),
+  };
 }
 
 async function walletRegistrationFinalizeRequestFingerprint(
@@ -1730,9 +1853,7 @@ export class CloudflareD1WalletRegistrationService {
   /** Where a ceremony's sealed custody seed and its recovery set land. */
   private readonly walletCustodyCommitStore: CloudflareD1WalletCustodyCommitStore;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
-  private readonly getLinkedDeviceEd25519AuthorityReader: () =>
-    | D1LinkedDeviceEd25519AuthorityReaderV1
-    | null;
+  private readonly getLinkedDeviceEd25519AuthorityReader: () => D1LinkedDeviceEd25519AuthorityReaderV1 | null;
 
   constructor(input: {
     readonly authorizationService: AuthorizationService;
@@ -1748,9 +1869,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly walletRegistrationCommitStore: D1WalletRegistrationCommitStore;
     readonly walletCustodyCommitStore: CloudflareD1WalletCustodyCommitStore;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
-    readonly getLinkedDeviceEd25519AuthorityReader: () =>
-      | D1LinkedDeviceEd25519AuthorityReaderV1
-      | null;
+    readonly getLinkedDeviceEd25519AuthorityReader: () => D1LinkedDeviceEd25519AuthorityReaderV1 | null;
   }) {
     this.authorizationService = input.authorizationService;
     this.authorizationTenantId = input.authorizationTenantId;
@@ -1794,8 +1913,9 @@ export class CloudflareD1WalletRegistrationService {
     }
     const expiresAtMs = Math.min(input.expiresAtMs, issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS);
     const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, input.remainingUses);
-    const activeRegistration =
-      await this.walletAuthMethods.readActiveRegistrationAuthority(input.registrationAuthority);
+    const activeRegistration = await this.walletAuthMethods.readActiveRegistrationAuthority(
+      input.registrationAuthority,
+    );
     if (
       !activeRegistration ||
       activeRegistration.authority.walletId !== input.authority.walletId ||
@@ -2033,6 +2153,7 @@ export class CloudflareD1WalletRegistrationService {
         readonly signingWorkerId: string;
         readonly participantIds: readonly [number, number];
         readonly runtimePolicyScope: RuntimePolicyScope;
+        readonly exportIdentity: RouterAbEd25519YaoExportAuthorizationIdentityV1;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   > {
@@ -2087,8 +2208,7 @@ export class CloudflareD1WalletRegistrationService {
         const active = await yaoRuntime.resolveActiveCapability({
           kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
           walletId: input.walletId,
-          nearEd25519SigningKeyId:
-            projection.applicationBinding.near_ed25519_signing_key_id,
+          nearEd25519SigningKeyId: projection.applicationBinding.near_ed25519_signing_key_id,
           signerSlot: linkedSignerSlot,
           signingWorkerId: linkedSigningWorkerId,
           participantIds: projection.participantIds,
@@ -2100,7 +2220,9 @@ export class CloudflareD1WalletRegistrationService {
             message: active.message,
           };
         }
-        if (!linkedEd25519ProjectionMatchesDescriptor({ projection, descriptor: active.capability })) {
+        if (
+          !linkedEd25519ProjectionMatchesDescriptor({ projection, descriptor: active.capability })
+        ) {
           return {
             ok: false,
             code: 'not_found',
@@ -2115,6 +2237,10 @@ export class CloudflareD1WalletRegistrationService {
           signingWorkerId: linkedSigningWorkerId,
           participantIds: projection.participantIds,
           runtimePolicyScope: active.capability.runtimePolicyScope,
+          exportIdentity: await ed25519ExportIdentityFromLinkedProjection(
+            projection,
+            active.capability,
+          ),
         };
       }
       const active = await yaoRuntime.resolveActiveCapability({
@@ -2152,6 +2278,7 @@ export class CloudflareD1WalletRegistrationService {
         signingWorkerId: signer.signingWorkerId,
         participantIds: signer.participantIds,
         runtimePolicyScope: active.capability.runtimePolicyScope,
+        exportIdentity: await ed25519ExportIdentityFromActiveCapability(active.capability),
       };
     } catch (error: unknown) {
       return {
@@ -2626,15 +2753,39 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Verified owner proof does not match the wallet authority',
         };
       }
-      if (!isPasskeyWalletAuthAuthority(authority)) {
+      let activeAuthority: {
+        readonly authority: ActiveWalletAuthorityV1;
+        readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+      };
+      if (isPasskeyWalletAuthAuthority(authority)) {
+        const verified = await this.walletAuthMethods.verifyActivePasskeyAuthority(authority);
+        if (!verified.ok) return verified;
+        activeAuthority = verified;
+      } else if (isEmailOtpWalletAuthAuthority(authority)) {
+        const resolved = await this.walletAuthMethods.resolveActiveEmailOtpAuthorityForUnlock({
+          walletId: walletIdFromString(walletId),
+          walletAuthMethodId: authority.bindingId,
+          providerUserId: authority.factor.providerUserId,
+          emailHashHex: authority.verifier.emailHashHex,
+        });
+        if (resolved.kind === 'rejected') {
+          return { ok: false, code: resolved.code, message: resolved.message };
+        }
+        if (!walletAuthAuthoritiesMatch(resolved.walletAuthAuthority, authority)) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'Verified Email OTP authority does not match the active auth method',
+          };
+        }
+        activeAuthority = resolved;
+      } else {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'Verified Ed25519 Wallet Session requires passkey authority',
+          message: 'Verified Ed25519 Wallet Session authority is invalid',
         };
       }
-      const activeAuthority = await this.walletAuthMethods.verifyActivePasskeyAuthority(authority);
-      if (!activeAuthority.ok) return activeAuthority;
       const signer = await this.getWalletStore().getEd25519SignerBySlot({
         walletId: walletIdFromString(walletId),
         signerSlot,
@@ -2739,23 +2890,78 @@ export class CloudflareD1WalletRegistrationService {
         thresholdSessionId = targetSessionId.value;
       }
       const issuedAtMs = Date.now();
-      const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
-      const reusableRemainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, remainingUses);
-      const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
-        tenantId: this.authorizationTenantId,
-        principalId: reusableWalletSessionPrincipalId(authority),
-        walletId: walletIdFromString(walletId),
-        authority: await walletAuthAuthorityRef({ authority }),
-        mintId: requireReusableWalletSessionMintId(verifiedChallengeId),
-        remainingUses: reusableRemainingUses,
-        issuedAtMs,
-        expiresAtMs,
-      });
-      await this.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
-        reusableWalletSession,
-        authority: activeAuthority.authority,
-        walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
-      });
+      let walletSessionIdentity: {
+        readonly authorizationId: WalletSessionAuthorizationId;
+        readonly walletSessionId: WalletSessionId;
+        readonly quotaId: MpcWalletSigningQuotaId;
+        readonly expiresAtMs: number;
+        readonly remainingUses: number;
+      };
+      switch (request.walletSessionIdentity.kind) {
+        case 'issue_wallet_session_v1': {
+          const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+          const reusableRemainingUses = Math.min(
+            DEFAULT_WALLET_SESSION_REMAINING_USES,
+            remainingUses,
+          );
+          const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
+            tenantId: this.authorizationTenantId,
+            principalId: reusableWalletSessionPrincipalId(authority),
+            walletId: walletIdFromString(walletId),
+            authority: await walletAuthAuthorityRef({ authority }),
+            mintId: requireReusableWalletSessionMintId(verifiedChallengeId),
+            remainingUses: reusableRemainingUses,
+            issuedAtMs,
+            expiresAtMs,
+          });
+          await this.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
+            reusableWalletSession,
+            authority: activeAuthority.authority,
+            walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+          });
+          walletSessionIdentity = {
+            authorizationId: reusableWalletSession.session.authorizationId,
+            walletSessionId: reusableWalletSession.quota.walletSessionId,
+            quotaId: reusableWalletSession.quota.quotaId,
+            expiresAtMs,
+            remainingUses: reusableRemainingUses,
+          };
+          break;
+        }
+        case 'reuse_wallet_session_v2': {
+          const requestedIdentity = request.walletSessionIdentity;
+          const existing =
+            await this.authorizationService.readWalletSessionAuthorizationV2ByIdentity({
+              tenantId: this.authorizationTenantId,
+              walletId: walletIdFromString(walletId),
+              walletSessionId: requestedIdentity.walletSessionId,
+              authorizationId: requestedIdentity.authorizationId,
+              nowMs: issuedAtMs,
+            });
+          if (
+            !existing ||
+            existing.session.authorityId !== activeAuthority.authority.authorityId ||
+            existing.session.walletAuthMethodId !== activeAuthority.authMethod.walletAuthMethodId ||
+            existing.session.authorityDigestB64u !==
+              activeAuthority.authority.authorityDigestB64u ||
+            existing.session.authorityRevocationEpoch !==
+              activeAuthority.authority.revocationEpoch ||
+            existing.session.quotaId !== requestedIdentity.quotaId ||
+            existing.session.expiresAtMs !== requestedIdentity.expiresAtMs ||
+            existing.quota.remainingUses !== requestedIdentity.remainingUses ||
+            requestedIdentity.expiresAtMs <= issuedAtMs ||
+            requestedIdentity.remainingUses < 1
+          ) {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'Linked Ed25519 Wallet Session identity is unavailable',
+            };
+          }
+          walletSessionIdentity = requestedIdentity;
+          break;
+        }
+      }
       const minted = await mintRouterAbEd25519YaoWalletSessionV1({
         opaqueWalletSessions: this.authorizationService,
         tenantId: this.authorizationTenantId,
@@ -2767,14 +2973,14 @@ export class CloudflareD1WalletRegistrationService {
           nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
           authority,
           thresholdSessionId,
-          authorizationId: reusableWalletSession.session.authorizationId,
-          walletSessionId: reusableWalletSession.quota.walletSessionId,
-          quotaId: reusableWalletSession.quota.quotaId,
+          authorizationId: walletSessionIdentity.authorizationId,
+          walletSessionId: walletSessionIdentity.walletSessionId,
+          quotaId: walletSessionIdentity.quotaId,
           participantIds,
           runtimePolicyScope: signer.runtimePolicyScope,
           keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
-          expiresAtMs,
-          remainingUses: reusableRemainingUses,
+          expiresAtMs: walletSessionIdentity.expiresAtMs,
+          remainingUses: walletSessionIdentity.remainingUses,
           proof: request.proof,
         },
       });
@@ -3337,9 +3543,7 @@ export class CloudflareD1WalletRegistrationService {
     const ceremony = await this.getRegistrationCeremonyIntentStore().getCeremony(
       args.input.registrationCeremonyId,
     );
-    const registrationAuthority = ceremony
-      ? verifiedRegistrationCeremonyAuthority(ceremony)
-      : null;
+    const registrationAuthority = ceremony ? verifiedRegistrationCeremonyAuthority(ceremony) : null;
     if (!registrationAuthority) {
       throw new Error('Registration authority is unavailable before finalize');
     }
