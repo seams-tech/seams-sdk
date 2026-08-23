@@ -3034,14 +3034,14 @@ export class SeamsWalletRepositories {
     if (!authority || authority.wallet_id !== walletId) {
       return { kind: 'integrity_error', reason: 'selected wallet authority row is invalid' };
     }
-    if (!(await walletAuthorityDigestsMatchV1(authority.record))) {
-      return { kind: 'integrity_error', reason: 'selected wallet authority digest is invalid' };
-    }
     if (authority.authority_id !== authMethod.wallet_authority_id) {
       return {
         kind: 'integrity_error',
         reason: 'auth method authority reference does not resolve exactly',
       };
+    }
+    if (!(await walletAuthorityDigestsMatchV1(authority.record))) {
+      return { kind: 'integrity_error', reason: 'selected wallet authority digest is invalid' };
     }
     return {
       kind: 'resolved',
