@@ -88,7 +88,7 @@ export function Footer(): React.JSX.Element {
             <span>Seams</span>
           </a>
           <p className="app-footer__legal">
-            Copyright © {new Date().getFullYear()} Seams, Inc. All rights reserved.
+            Copyright © {new Date().getFullYear()} Seams Technologies KK. All rights reserved.
           </p>
         </div>
 
