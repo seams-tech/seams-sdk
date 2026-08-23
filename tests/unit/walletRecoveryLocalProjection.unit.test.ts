@@ -100,6 +100,10 @@ test.describe('wallet recovery local continuity', () => {
         const signers = await IndexedDBManager.listAccountSignersByProfile({
           profileId: walletId,
         });
+        const activeSigners = await IndexedDBManager.listActiveWalletSigners({
+          walletId,
+          signerFamily: 'ed25519',
+        });
         const lastProfileState = await IndexedDBManager.getLastProfileState();
         return {
           dbName: seamsWalletDB.getDbName(),
@@ -127,6 +131,12 @@ test.describe('wallet recovery local continuity', () => {
             signerId: signer.signerId,
             signerSlot: signer.signerSlot,
             status: signer.status,
+          })),
+          activeSigners: activeSigners.map((signer) => ({
+            signerId: signer.signerId,
+            signerSlot: signer.signerSlot,
+            status: signer.status,
+            metadata: signer.metadata,
           })),
           lastProfileState,
         };
@@ -187,6 +197,17 @@ test.describe('wallet recovery local continuity', () => {
         { signerId: REPLACEMENT_CREDENTIAL_ID_B64U, signerSlot: 3, status: 'active' },
       ]),
     );
+    expect(result.activeSigners).toEqual([
+      expect.objectContaining({
+        signerId: REPLACEMENT_CREDENTIAL_ID_B64U,
+        signerSlot: 3,
+        status: 'active',
+        metadata: expect.objectContaining({
+          nearAccountId: NEAR_ACCOUNT_ID,
+          nearEd25519SigningKeyId: 'near-replacement',
+        }),
+      }),
+    ]);
     expect(result.lastProfileState).toMatchObject({
       profileId: WALLET_ID,
       activeSignerSlot: 3,

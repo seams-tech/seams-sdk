@@ -105,6 +105,7 @@ export async function upsertNearAccountProjectionRecords(args: {
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: {
         ...(existingSigner?.metadata || {}),
+        nearAccountId: userData.nearAccountId,
         nearEd25519SigningKeyId: userData.nearEd25519SigningKeyId,
         operationalPublicKey: userData.operationalPublicKey,
         passkeyCredentialId: userData.passkeyCredential?.id,
