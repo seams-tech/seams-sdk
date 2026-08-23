@@ -74,7 +74,6 @@ import { json, readJson } from '../../../framework/http';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
-import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   parseLinkDeviceSessionId,
   type LinkDeviceSessionId,
@@ -133,7 +132,6 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
-    readonly origin: string;
     readonly requestedAtMs: number;
   }): Promise<
     | {
@@ -372,8 +370,9 @@ async function handleClaim(ctx: FetchRouterApiContext, service: DeviceLinkingRou
   const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  const request = parseBoundary(() => parseLinkedDeviceSessionClaimRequestV1(rawBody));
+  const request = parseBoundary(() =>
+    parseLinkedDeviceSessionClaimRequestV1(authentication.body),
+  );
   if (request.payload.linkSessionId !== parseSessionId(rawLinkSessionId)) return invalidInputResponse('link session id does not match route');
   validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
   return claimResultResponse(await service.sessionService.claimSessionV1({ payload: request.payload, nowMs, owner: authentication.owner }));
@@ -406,8 +405,7 @@ async function handleApproval(ctx: FetchRouterApiContext, service: DeviceLinking
   const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(rawBody));
+  const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(authentication.body));
   if (approval.linkSessionId !== parseSessionId(rawLinkSessionId)) return invalidInputResponse('link session id does not match route');
   validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
   return approvalResultResponse(await service.sessionService.recordOwnerApprovalV1({ approval, nowMs, owner: authentication.owner }));
@@ -441,16 +439,15 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  const registration = parseBoundary(() => parseLinkedDeviceTargetCredentialRegistrationV1(rawBody));
+  const registration = parseBoundary(() =>
+    parseLinkedDeviceTargetCredentialRegistrationV1(authenticated.body),
+  );
   if (registration.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
-  const origin = normalizeCorsOrigin(ctx.request.headers.get('origin') ?? undefined);
-  if (!origin) return invalidInputResponse('Origin header is required and must be a valid exact origin');
   const session = authenticated.session;
   const approval = requireApproval(session);
   const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
-  const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, origin, requestedAtMs: nowMs });
+  const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, requestedAtMs: nowMs });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
   let sessionOutcome: 'applied' | 'replayed' = result.outcome;
   let recordedSession = session;
@@ -507,8 +504,7 @@ async function handleSourceContribution(
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
-  const rawBody = await readJsonBody(ctx.request);
-  const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(rawBody));
+  const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(authentication.body));
   if (approval.linkSessionId !== linkSessionId) {
     return invalidInputResponse('link session id does not match route');
   }
@@ -568,10 +564,9 @@ async function handleSourceContributionExecute(
   const router = service.sourceContributionRouter;
   if (!router) return notSupportedResponse('Ed25519 source-preserving linking is not configured');
   const preparation = requireEd25519SourceContributionPreparation(owner.session);
-  const rawTargetRequest = await readJsonBody(ctx.request);
   const targetRequest = parseBoundary(() => {
     const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-      rawTargetRequest,
+      owner.body,
     );
     if (!parsed.ok) throw new Error(parsed.message);
     return parsed.value;
@@ -608,8 +603,7 @@ async function handleEmailOtpChallenge(ctx: FetchRouterApiContext, service: Devi
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  const request = parseBoundary(() => parseEmailOtpChallengeRequest(rawBody, resend));
+  const request = parseBoundary(() => parseEmailOtpChallengeRequest(authenticated.body, resend));
   if (request.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
   const provider = service.emailOtpTargetFactor;
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
@@ -632,8 +626,9 @@ async function handleEmailOtpVerify(ctx: FetchRouterApiContext, service: DeviceL
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  const request = parseBoundary(() => parseLinkedDeviceEmailOtpChallengeVerifyRequestV1(rawBody));
+  const request = parseBoundary(() =>
+    parseLinkedDeviceEmailOtpChallengeVerifyRequestV1(authenticated.body),
+  );
   if (request.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
   const provider = service.emailOtpTargetFactor;
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
@@ -693,9 +688,10 @@ async function handleReceipt(ctx: FetchRouterApiContext, service: DeviceLinkingR
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  if (isFinalActivationAcknowledgement(rawBody)) {
-    const acknowledgement = parseBoundary(() => parseLocalAuthorityActivationFinalAckV1(rawBody));
+  if (isFinalActivationAcknowledgement(authenticated.body)) {
+    const acknowledgement = parseBoundary(() =>
+      parseLocalAuthorityActivationFinalAckV1(authenticated.body),
+    );
     if (acknowledgement.linkSessionId !== authenticated.session.linkSessionId) {
       return invalidInputResponse('activation acknowledgement session does not match this session');
     }
@@ -706,7 +702,9 @@ async function handleReceipt(ctx: FetchRouterApiContext, service: DeviceLinkingR
     });
     return new Response(null, { status: 204 });
   }
-  const receipt = parseBoundary(() => parseLocalAuthorityInstallationReceiptV1(rawBody));
+  const receipt = parseBoundary(() =>
+    parseLocalAuthorityInstallationReceiptV1(authenticated.body),
+  );
   if (receipt.deviceId !== authenticated.session.state.deviceId) return invalidInputResponse('installation receipt device does not match this session');
   const result = await service.installationReceipt.activateInstalledAuthorityV1({
     receipt,
@@ -795,8 +793,9 @@ async function handleCancel(ctx: FetchRouterApiContext, service: DeviceLinkingRo
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const rawBody = await readJsonBody(ctx.request);
-  const request = parseBoundary(() => parseLinkedDeviceSessionTransportRequestV1(rawBody));
+  const request = parseBoundary(() =>
+    parseLinkedDeviceSessionTransportRequestV1(authenticated.body),
+  );
   if (request.kind !== 'linked_device_session_cancel_unclaimed_request_v1' && request.kind !== 'linked_device_session_cancel_claimed_request_v1') return invalidInputResponse('cancel request kind is invalid');
   if (request.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
   return sessionResultResponse(await service.sessionService.cancelSessionV1({ linkSessionId: authenticated.linkSessionId, expectedRevision: authenticated.session.revision, nowMs }));

@@ -128,6 +128,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
@@ -1314,6 +1315,10 @@ function localLinkedDeviceSessionComposition(
   return {
     session: {
       readOwnerSourceChildV1: sourceChildReader.readOwnerSourceChildV1,
+      targetPasskeyOrigin: requireLocalEnvString(
+        env.LINKED_DEVICE_WEBAUTHN_ORIGIN,
+        'LINKED_DEVICE_WEBAUTHN_ORIGIN',
+      ),
       targetCredential: ({
         verifiedLinkBuilder,
         targetCredentialVerification,
@@ -1530,7 +1535,7 @@ async function runD1AdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionRe
 function requireLocalEnvString(value: unknown, field: string): string {
   const normalized = normalizeLocalString(value);
   if (!normalized) {
-    throw new Error(`${field} is required when local Router A/B public keyset is configured`);
+    throw new Error(`${field} is required`);
   }
   return normalized;
 }
