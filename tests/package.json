@@ -49,6 +49,8 @@
     "test:lite": "pnpm -C .. build:sdk-full && playwright test -c playwright.lite.config.ts --reporter=line",
     "test:inline": "pnpm -C .. build:sdk-full && playwright test --reporter=line",
     "test:e2e": "pnpm -C .. build:sdk-full && playwright test ./e2e --reporter=line",
+    "test:linked-device:unit": "playwright test -c playwright.unit.config.ts ./unit/deviceLinkingRoutes.unit.test.ts ./unit/indexedDBConsolidation.unit.test.ts ./unit/linkedDeviceUnlockRuntime.unit.test.ts ./unit/activeWalletAuthorityEcdsaLane.unit.test.ts --reporter=line",
+    "test:linked-device:representative": "SEAMS_LINKED_DEVICE_E2E=1 playwright test -c playwright.linked-device.config.ts --grep 'Passkey.*combined signer profile' --reporter=line",
     "test:linked-device": "SEAMS_LINKED_DEVICE_E2E=1 playwright test -c playwright.linked-device.config.ts --reporter=line",
     "test:intended": "pnpm run type-check:intended && pnpm run ensure:intended-google-token && SEAMS_LINKED_DEVICE_E2E=1 playwright test -c playwright.intended.config.ts --reporter=line",
     "test:intended:ci": "pnpm run type-check:intended && pnpm run ensure:intended-google-token && SEAMS_LINKED_DEVICE_E2E=1 playwright test -c playwright.intended.ci.config.ts --reporter=line",
