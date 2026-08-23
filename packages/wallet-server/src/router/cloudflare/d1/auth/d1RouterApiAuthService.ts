@@ -10,6 +10,8 @@ import type {
 import {
   parseDeviceId,
   parseMpcWalletSigningQuotaId,
+  parsePrincipalId,
+  parseReusableWalletSessionMintId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -55,14 +57,19 @@ import {
   type ExecuteSignedDelegateResult,
 } from '../../../../delegateAction';
 import type { ActionArgsWasm } from '@shared/near/actions';
-import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256BytesUtf8, sha256HexUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import type {
   AccountCreationResult,
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from '../../../../core/types';
-import type { RouterApiServiceBag } from '../../../framework/authServicePort';
+import type {
+  RouterApiServiceBag,
+  WalletUnlockEmailOtpAuthorityResolution,
+  WalletUnlockPasskeyAuthorityResolution,
+  WalletUnlockPasskeySessionResolution,
+} from '../../../framework/authServicePort';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
@@ -211,6 +218,22 @@ type CloudflareD1RouterApiLazyStoreState = {
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
 
+type LinkedDeviceEd25519AuthorityReader = Pick<
+  D1LinkedDeviceAuthorityInstallServiceV1,
+  | 'readInstalledEd25519AuthorityByIdentityV1'
+  | 'readInstalledEd25519AuthorityByMaterialActivationV1'
+>;
+
+type LinkedDeviceEd25519AuthorityReaderSlot = {
+  current: LinkedDeviceEd25519AuthorityReader | null;
+};
+
+function linkedDeviceEd25519AuthorityReaderFromSlot(
+  slot: LinkedDeviceEd25519AuthorityReaderSlot,
+): LinkedDeviceEd25519AuthorityReader | null {
+  return slot.current;
+}
+
 type CloudflareD1RouterApiAuthAssembly = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
   readonly emailOtpServerSeal: CloudflareD1EmailOtpServerSealRuntime;
@@ -226,6 +249,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletRegistrations: CloudflareD1WalletRegistrationService;
   readonly walletStore: D1WalletStore;
   readonly walletAuthMethodStore: D1WalletAuthMethodStore;
+  readonly walletAuthorityStore: D1WalletAuthorityStore;
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
@@ -241,6 +265,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly deviceLinking?: RouterApiServiceBag['deviceLinking'];
   readonly deviceManagement?: RouterApiServiceBag['deviceManagement'];
   readonly deviceLinkingOwnerAuthorization?: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
+  readonly linkedDeviceEd25519AuthorityReader?: LinkedDeviceEd25519AuthorityReader;
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -259,7 +284,11 @@ type D1WalletAuthMethodRouteServiceAssembly = Pick<
 
 type D1WalletUnlockRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'emailOtpRecoveryService' | 'webAuthnAuthService'
+  | 'authorizationService'
+  | 'emailOtpRecoveryService'
+  | 'options'
+  | 'walletAuthMethods'
+  | 'webAuthnAuthService'
 >;
 
 type D1EmailOtpRouteServiceAssembly = Pick<
@@ -283,7 +312,7 @@ type D1IdentityRouteServiceAssembly = Pick<
 
 type D1AuthorizationSessionRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'authorizationService' | 'options'
+  'authorizationService' | 'options' | 'walletAuthMethodStore' | 'walletAuthorityStore'
 >;
 
 type D1ThresholdRuntimeRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
@@ -297,7 +326,10 @@ type D1RouterAccountRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembl
 
 type D1LinkedDeviceCompositionAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'deviceLinking' | 'deviceManagement' | 'deviceLinkingOwnerAuthorization'
+  | 'deviceLinking'
+  | 'deviceManagement'
+  | 'deviceLinkingOwnerAuthorization'
+  | 'linkedDeviceEd25519AuthorityReader'
 >;
 
 function createD1LinkedDeviceComposition(input: {
@@ -306,8 +338,7 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationService: AuthorizationService;
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
-    | 'prepareWalletSessionAuthorizationV2Statements'
-    | 'readOpaqueWalletSessionTokenByIdentity'
+    'prepareWalletSessionAuthorizationV2Statements' | 'readOpaqueWalletSessionTokenByIdentity'
   >;
   readonly walletRegistration: Pick<
     RouterApiServiceBag['walletRegistration'],
@@ -347,6 +378,7 @@ function createD1LinkedDeviceComposition(input: {
   };
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
   let ownerAuthorizationRoute: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
+  let linkedDeviceEd25519AuthorityReader: LinkedDeviceEd25519AuthorityReader | undefined;
   const nowV1 = sessionConfig?.nowV1 ?? managementConfig?.nowV1 ?? Date.now;
   const ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
     authorizationSessions: input.authorizationSessions,
@@ -461,6 +493,7 @@ function createD1LinkedDeviceComposition(input: {
     });
     const verifiedLinkSourceReader = createD1LinkedDeviceVerifiedLinkSourceReaderV1({
       authorizationService: input.authorizationService,
+      ordinaryWalletSessions: input.authorizationStore,
       authorityStore,
       authMethodStore: input.walletAuthMethodStore,
       walletStore: input.walletStore,
@@ -493,6 +526,7 @@ function createD1LinkedDeviceComposition(input: {
       scope,
       authorityStore,
       authMethodStore: input.walletAuthMethodStore,
+      webAuthnStore: input.webAuthnStore,
       sessionStore: sessionComposition.sessionStore,
       sessionService: sessionComposition.sessionService,
       reservationService: createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({
@@ -506,11 +540,17 @@ function createD1LinkedDeviceComposition(input: {
       tenantId: tenantId.value,
       nowV1,
     });
+    linkedDeviceEd25519AuthorityReader = authorityInstall;
     const installationReceipt: NonNullable<DeviceLinkingRouteServiceV1['installationReceipt']> = {
-      commitPendingAuthorityV1: async ({ input: verifiedLinkInput, nowMs }) =>
+      commitPendingAuthorityV1: async ({
+        input: verifiedLinkInput,
+        nowMs,
+        ed25519ExportRootPackage,
+      }) =>
         await authorityInstall.commitPendingAuthorityV1({
           ...verifiedLinkInput,
           nowMs,
+          ed25519ExportRootPackage,
         }),
       readCommittedAuthorityPackagesV1:
         authorityInstall.readCommittedAuthorityPackagesV1.bind(authorityInstall),
@@ -540,6 +580,9 @@ function createD1LinkedDeviceComposition(input: {
           ownerAuthorizationProvider.ownerSourceResolver.resolveOwnerSourceChildV1,
       }),
       installationReceipt,
+      ...(sessionConfig.sourceContributionRouter === undefined
+        ? {}
+        : { sourceContributionRouter: sessionConfig.sourceContributionRouter }),
       nowV1,
     });
   }
@@ -550,6 +593,9 @@ function createD1LinkedDeviceComposition(input: {
     ...(ownerAuthorizationRoute === undefined
       ? {}
       : { deviceLinkingOwnerAuthorization: ownerAuthorizationRoute }),
+    ...(linkedDeviceEd25519AuthorityReader === undefined
+      ? {}
+      : { linkedDeviceEd25519AuthorityReader }),
   };
 }
 
@@ -1642,8 +1688,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
-    revokeOwnerWalletSessions: (sessionInput) =>
-      authorizationService.revokeReusableWalletSessionsForAuthMethod({
+    prepareOwnerWalletSessionRevocation: (sessionInput) =>
+      authorizationStore.prepareRevokeReusableWalletSessionsForAuthMethod({
         tenantId: authorizationTenantId.value,
         walletId: sessionInput.walletId,
         walletAuthMethodId: sessionInput.walletAuthMethodId,
@@ -1687,6 +1733,9 @@ function createCloudflareD1RouterApiAuthAssembly(
     },
   });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
+  const linkedDeviceEd25519AuthorityReaderSlot: LinkedDeviceEd25519AuthorityReaderSlot = {
+    current: null,
+  };
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     authorizationService,
     authorizationTenantId: authorizationTenantId.value,
@@ -1701,6 +1750,10 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletRegistrationCommitStore,
     walletCustodyCommitStore,
     walletAuthMethods,
+    getLinkedDeviceEd25519AuthorityReader: linkedDeviceEd25519AuthorityReaderFromSlot.bind(
+      undefined,
+      linkedDeviceEd25519AuthorityReaderSlot,
+    ),
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
     getRegistrationCeremonyIntentStore,
@@ -1775,8 +1828,12 @@ function createCloudflareD1RouterApiAuthAssembly(
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,
       options,
+      walletAuthMethodStore,
+      walletAuthorityStore,
     }),
   });
+  linkedDeviceEd25519AuthorityReaderSlot.current =
+    linkedDeviceComposition.linkedDeviceEd25519AuthorityReader ?? null;
 
   return {
     options,
@@ -1792,6 +1849,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletAuthMethods,
     walletRegistrations,
     walletAuthMethodStore,
+    walletAuthorityStore,
     walletStore,
     walletAddSigners,
     registrationIntents,
@@ -1972,6 +2030,185 @@ function createD1WalletAuthMethodRouteService(
   };
 }
 
+const LINKED_DEVICE_WALLET_SESSION_TTL_MS = 15 * 60 * 1000;
+const LINKED_DEVICE_WALLET_SESSION_REMAINING_USES = 100;
+
+type LinkedWalletUnlockAuthorityResolution =
+  | Extract<WalletUnlockPasskeyAuthorityResolution, { readonly kind: 'linked_device' }>
+  | Extract<WalletUnlockEmailOtpAuthorityResolution, { readonly kind: 'linked_device' }>;
+
+async function resolveEmailOtpAuthorityForUnlock(input: {
+  readonly walletAuthMethods: Pick<
+    CloudflareD1WalletAuthMethodService,
+    'resolveActiveEmailOtpAuthorityForUnlock'
+  >;
+  readonly emailOtpRecoveryService: Pick<
+    CloudflareD1EmailOtpRecoveryService,
+    'readEmailOtpEnrollment'
+  >;
+  readonly request: Parameters<
+    RouterApiServiceBag['walletUnlock']['resolveEmailOtpAuthorityForUnlock']
+  >[0];
+}): Promise<WalletUnlockEmailOtpAuthorityResolution> {
+  try {
+    const enrollment = await input.emailOtpRecoveryService.readEmailOtpEnrollment({
+      walletId: input.request.walletId,
+      orgId: input.request.orgId,
+    });
+    if (!enrollment.ok) {
+      return {
+        kind: 'rejected',
+        code: enrollment.code,
+        message: enrollment.message,
+      };
+    }
+    if (enrollment.enrollment.providerUserId !== input.request.providerUserId) {
+      return {
+        kind: 'rejected',
+        code: 'provider_identity_mismatch',
+        message: 'Email OTP enrollment does not match the verified provider identity',
+      };
+    }
+    const emailHashHex = await sha256HexUtf8(enrollment.enrollment.verifiedEmail);
+    return await input.walletAuthMethods.resolveActiveEmailOtpAuthorityForUnlock({
+      walletId: input.request.walletId,
+      walletAuthMethodId: input.request.walletAuthMethodId,
+      providerUserId: input.request.providerUserId,
+      emailHashHex,
+    });
+  } catch (error: unknown) {
+    return {
+      kind: 'rejected',
+      code: 'internal',
+      message: error instanceof Error ? error.message : 'Email OTP authority resolution failed',
+    };
+  }
+}
+
+async function issueWalletSessionForLinkedAuthority(input: {
+  readonly resolved: LinkedWalletUnlockAuthorityResolution;
+  readonly authorizationService: AuthorizationService;
+  readonly orgId: string;
+}): Promise<WalletUnlockPasskeySessionResolution> {
+  const tenantId = parseTenantId(input.orgId);
+  const principalId = parsePrincipalId(
+    `linked-device:${String(input.resolved.authority.principal.deviceId)}`,
+  );
+  const mintId = parseReusableWalletSessionMintId(
+    `linked-device-authority:${String(input.resolved.authority.authorityId)}`,
+  );
+  if (!tenantId.ok || !principalId.ok || !mintId.ok) {
+    return {
+      kind: 'rejected',
+      code: 'invalid_state',
+      message: 'Linked-device Wallet Session identity is invalid',
+    };
+  }
+
+  const issuedAtMs = Date.now();
+  try {
+    const sessionInput = {
+      tenantId: tenantId.value,
+      principalId: principalId.value,
+      walletId: input.resolved.authority.walletId,
+      authority: input.resolved.authority,
+      walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
+      mintId: mintId.value,
+      remainingUses: LINKED_DEVICE_WALLET_SESSION_REMAINING_USES,
+      issuedAtMs,
+      expiresAtMs: issuedAtMs + LINKED_DEVICE_WALLET_SESSION_TTL_MS,
+    };
+    const prepared =
+      await input.authorizationService.prepareWalletSessionAuthorizationV2(sessionInput);
+    const existing = await input.authorizationService.readWalletSessionAuthorizationV2ByIdentity({
+      tenantId: tenantId.value,
+      walletId: input.resolved.authority.walletId,
+      walletSessionId: prepared.session.walletSessionId,
+      authorizationId: prepared.session.authorizationId,
+      nowMs: issuedAtMs,
+    });
+    const walletSession =
+      existing ||
+      (await input.authorizationService.issueWalletSessionAuthorizationV2(sessionInput));
+    const operationCredential =
+      await input.authorizationService.issueWalletSessionAuthorizationV2OperationCredential({
+        session: walletSession.session,
+      });
+    return { kind: 'linked_device', walletSession, operationCredential };
+  } catch (error: unknown) {
+    return {
+      kind: 'rejected',
+      code: 'internal',
+      message:
+        error instanceof Error ? error.message : 'Linked-device Wallet Session issuance failed',
+    };
+  }
+}
+
+async function issueWalletSessionForPasskeyUnlock(input: {
+  readonly walletAuthMethods: Pick<
+    CloudflareD1WalletAuthMethodService,
+    'resolveActivePasskeyAuthorityForUnlock'
+  >;
+  readonly authorizationService: AuthorizationService;
+  readonly orgId: string;
+  readonly request: Parameters<
+    RouterApiServiceBag['walletUnlock']['issueWalletSessionForPasskeyUnlock']
+  >[0];
+}): Promise<WalletUnlockPasskeySessionResolution> {
+  const resolved = await input.walletAuthMethods.resolveActivePasskeyAuthorityForUnlock(
+    input.request,
+  );
+  if (resolved.kind !== 'linked_device') {
+    return resolved.kind === 'wallet_registration'
+      ? resolved
+      : {
+          kind: 'rejected',
+          code: resolved.code,
+          message: resolved.message,
+      };
+  }
+  return await issueWalletSessionForLinkedAuthority({
+    resolved,
+    authorizationService: input.authorizationService,
+    orgId: input.orgId,
+  });
+}
+
+async function issueWalletSessionForEmailOtpUnlock(input: {
+  readonly walletAuthMethods: Pick<
+    CloudflareD1WalletAuthMethodService,
+    'resolveActiveEmailOtpAuthorityForUnlock'
+  >;
+  readonly emailOtpRecoveryService: Pick<
+    CloudflareD1EmailOtpRecoveryService,
+    'readEmailOtpEnrollment'
+  >;
+  readonly authorizationService: AuthorizationService;
+  readonly request: Parameters<
+    RouterApiServiceBag['walletUnlock']['issueWalletSessionForEmailOtpUnlock']
+  >[0];
+}): Promise<WalletUnlockPasskeySessionResolution> {
+  const resolved = await resolveEmailOtpAuthorityForUnlock({
+    walletAuthMethods: input.walletAuthMethods,
+    emailOtpRecoveryService: input.emailOtpRecoveryService,
+    request: input.request,
+  });
+  if (resolved.kind === 'wallet_registration') return { kind: 'wallet_registration' };
+  if (resolved.kind === 'rejected') {
+    return {
+      kind: 'rejected',
+      code: resolved.code,
+      message: resolved.message,
+    };
+  }
+  return await issueWalletSessionForLinkedAuthority({
+    resolved,
+    authorizationService: input.authorizationService,
+    orgId: input.request.orgId,
+  });
+}
+
 function createD1WalletUnlockRouteService(
   assembly: D1WalletUnlockRouteServiceAssembly,
 ): RouterApiServiceBag['walletUnlock'] {
@@ -1993,6 +2230,26 @@ function createD1WalletUnlockRouteService(
     verifyWebAuthnLogin: assembly.webAuthnAuthService.verifyWebAuthnLogin.bind(
       assembly.webAuthnAuthService,
     ),
+    resolveEmailOtpAuthorityForUnlock: (request) =>
+      resolveEmailOtpAuthorityForUnlock({
+        walletAuthMethods: assembly.walletAuthMethods,
+        emailOtpRecoveryService: assembly.emailOtpRecoveryService,
+        request,
+      }),
+    issueWalletSessionForPasskeyUnlock: (request) =>
+      issueWalletSessionForPasskeyUnlock({
+        walletAuthMethods: assembly.walletAuthMethods,
+        authorizationService: assembly.authorizationService,
+        orgId: assembly.options.orgId,
+        request,
+      }),
+    issueWalletSessionForEmailOtpUnlock: (request) =>
+      issueWalletSessionForEmailOtpUnlock({
+        walletAuthMethods: assembly.walletAuthMethods,
+        emailOtpRecoveryService: assembly.emailOtpRecoveryService,
+        authorizationService: assembly.authorizationService,
+        request,
+      }),
   };
 }
 
@@ -2133,6 +2390,28 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.resolveOpaqueWalletSessionToken.bind(
         assembly.authorizationService,
       ),
+    readWalletSessionAuthorizationV2ByOperationCredential: async (input) => {
+      const authorization =
+        await assembly.authorizationService.readWalletSessionAuthorizationV2ByOperationCredential(
+          input,
+        );
+      if (!authorization) return null;
+      const authority = await assembly.walletAuthorityStore.readById(
+        authorization.session.authorityId,
+      );
+      const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
+        walletAuthMethodId: authorization.session.walletAuthMethodId,
+      });
+      if (!authority || authority.state !== 'active' || !authMethod || authMethod.status !== 'active') {
+        return null;
+      }
+      return {
+        authorization,
+        authority,
+        authMethod,
+        retiredAtMs: null,
+      };
+    },
     readReusableWalletSessionStatus:
       assembly.authorizationService.readReusableWalletSessionStatus.bind(
         assembly.authorizationService,
