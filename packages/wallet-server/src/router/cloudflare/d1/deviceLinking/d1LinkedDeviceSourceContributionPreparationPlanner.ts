@@ -369,9 +369,13 @@ export function linkedDeviceX25519RecipientPublicKeyB64uV1(value: string): strin
   if (!/^x25519:[0-9a-f]{64}$/.test(value)) {
     throw new Error('ECDSA client ephemeral public key is invalid');
   }
+  const prefixLength = 'x25519:'.length;
   const bytes = new Uint8Array(32);
   for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(value.slice(8 + index * 2, 10 + index * 2), 16);
+    bytes[index] = Number.parseInt(
+      value.slice(prefixLength + index * 2, prefixLength + (index + 1) * 2),
+      16,
+    );
   }
   return base64UrlEncode(bytes);
 }
