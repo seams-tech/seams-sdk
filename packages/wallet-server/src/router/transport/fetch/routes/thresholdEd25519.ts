@@ -79,7 +79,10 @@ import type {
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
-import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
+import {
+  proxyNormalSigningRequestToMpcRouter,
+  proxyOwnerLaneAdmittedNormalSigningRequest,
+} from './normalSigningRouterProxy';
 import {
   parseEmailOtpChallengeId,
   parseWalletId,
@@ -95,10 +98,7 @@ import {
   hashEmailOtpOperationBinding,
 } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
-import type {
-  RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
-  RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
-} from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
+import type { RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
 import type {
   RouterApiEmailOtpRouteService,
   RouterApiWalletAuthMethodService,
@@ -108,7 +108,6 @@ import {
   requireAuthorizedOperationReceiptString,
   requireEd25519OperationKind,
   requireExactAuthorizedOperationReceiptFields,
-  type Ed25519OperationKind,
   type Ed25519ReusableAuthorizedOperationReceipt,
 } from '../../../domains/signingOperations/ed25519AuthorizedOperationReceipt';
 
@@ -173,11 +172,63 @@ function reusableWalletSessionPrincipalSubject(authority: WalletAuthAuthority): 
   }
 }
 
+type AcceptedEd25519ReusableWalletSessionAuthorization = Extract<
+  Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+  {
+    readonly ok: true;
+    readonly kind: 'reusable_wallet_session' | 'wallet_session_operation_credential_v1';
+  }
+>;
+
+function ed25519ReusableWalletSessionIdentity(
+  authorization: AcceptedEd25519ReusableWalletSessionAuthorization,
+) {
+  if (authorization.kind === 'wallet_session_operation_credential_v1') {
+    const session = authorization.validated.context.authorization.session;
+    return {
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletSessionId: session.walletSessionId,
+      authorizationId: session.authorizationId,
+      quotaId: session.quotaId,
+    };
+  }
+  const binding = authorization.validated.binding;
+  return {
+    tenantId: requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId)),
+    principalId: requireAuthorizationValue(
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
+    ),
+    walletSessionId: binding.walletSessionId,
+    authorizationId: binding.authorizationId,
+    quotaId: binding.quotaId,
+  };
+}
+
 function buildEd25519GatewayOwnerWalletSessionBinding(
   authorization: AcceptedEd25519NormalSigningAuthorization,
 ) {
+  if (authorization.kind === 'wallet_session_operation_credential_v1') {
+    const session = authorization.validated.context.authorization.session;
+    const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
+    return {
+      kind: 'gateway_owner_wallet_session' as const,
+      subjectId: String(session.principalId),
+      accountId: String(session.walletId),
+      authorizationSessionId: String(session.authorizationId),
+      authorizationId: String(session.authorizationId),
+      walletSessionId: String(session.walletSessionId),
+      quotaId: String(session.quotaId),
+      thresholdSessionId: authorization.activeMaterial.exportIdentity.scope.threshold_session_id,
+      orgId: runtimePolicyScope.orgId,
+      projectId: runtimePolicyScope.projectId,
+      environment: runtimePolicyScope.envId,
+      signingWorkerId: authorization.activeMaterial.signingWorkerId,
+      expiresAtMs: session.expiresAtMs,
+    };
+  }
   if (authorization.kind !== 'reusable_wallet_session') {
-    throw new Error('Ed25519 Gateway owner Wallet Session requires reusable authorization');
+    throw new Error('Ed25519 Gateway owner Wallet Session requires owner authorization');
   }
   const binding = authorization.validated.binding;
   const runtimePolicyScope = binding.runtimePolicyScope;
@@ -704,10 +755,7 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
 async function authorizeEd25519ReusableWalletSessionOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: Extract<
-    Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
-    { readonly ok: true; readonly kind: 'reusable_wallet_session' }
-  >;
+  authorization: AcceptedEd25519ReusableWalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -727,25 +775,33 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
       phase: 'prepare',
       body: input.body,
-      authorization: {
-        kind: 'reusable_wallet_session',
-        binding: input.authorization.validated.binding,
-      },
+      authorization:
+        input.authorization.kind === 'wallet_session_operation_credential_v1'
+          ? {
+              kind: 'wallet_session_operation_credential_v1',
+              walletSessionId: String(
+                input.authorization.validated.context.authorization.session.walletSessionId,
+              ),
+              principalId: String(
+                input.authorization.validated.context.authorization.session.principalId,
+              ),
+              runtimePolicyScope: input.authorization.activeMaterial.runtimePolicyScope,
+            }
+          : {
+              kind: 'reusable_wallet_session',
+              binding: input.authorization.validated.binding,
+            },
       headers: Object.fromEntries(input.ctx.request.headers.entries()),
     });
     if (!('admission_candidate' in privateBody)) {
       throw new Error('Ed25519 normal-signing prepare admission is required');
     }
-    const binding = input.authorization.validated.binding;
+    const identity = ed25519ReusableWalletSessionIdentity(input.authorization);
     const nowMs = Date.now();
-    const tenantId = requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId));
-    const principalId = requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
-    );
     if (
-      tenantId !== input.ctx.service.authorizedOperations.tenantId ||
-      tenantId !== input.ctx.service.authorizationSessions.tenantId ||
-      scope.authorization.wallet_session_id !== binding.walletSessionId
+      identity.tenantId !== input.ctx.service.authorizedOperations.tenantId ||
+      identity.tenantId !== input.ctx.service.authorizationSessions.tenantId ||
+      scope.authorization.wallet_session_id !== identity.walletSessionId
     ) {
       return {
         ok: false,
@@ -766,8 +822,8 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
       digestWireB64u(input.body.display_digest, 'display_digest'),
     );
     const envelope = buildCapabilityOperationEnvelope({
-      tenantId,
-      principalId,
+      tenantId: identity.tenantId,
+      principalId: identity.principalId,
       capabilityId,
       operationId: operation.operationId,
       operation: operation.operation,
@@ -778,7 +834,7 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     );
     const outcome = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
       operation: {
-        tenantId,
+        tenantId: identity.tenantId,
         authorizedOperationId,
         auditEventId: requireAuthorizationValue(
           parseAuthorizationAuditEventId(`ed25519-operation-audit:${operation.operationId}`),
@@ -786,9 +842,9 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
         operation: envelope,
         authorization: {
           kind: 'authorization_grant',
-          authorizationGrantRef: buildAuthorizationGrantRef(binding.authorizationId),
+          authorizationGrantRef: buildAuthorizationGrantRef(identity.authorizationId),
         },
-        quota: { kind: 'consume_reusable_wallet_session', quotaId: binding.quotaId },
+        quota: { kind: 'consume_reusable_wallet_session', quotaId: identity.quotaId },
         claimedAtMs: nowMs,
       },
     });
@@ -797,18 +853,18 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
       outcome.kind !== 'operation_in_progress' &&
       outcome.kind !== 'replayed'
     ) {
-      const stepUpMaterial = await input.ctx.service.walletRegistration.resolveEd25519MaterialActivation({
-        walletId: scope.account_id,
-        materialActivation: scope.material_activation,
-      });
-      const stepUp =
-        stepUpMaterial.ok
-          ? buildRouterAbEd25519OwnerOperationStepUpPreparation({
-              scope,
-              body: input.body,
-              material: stepUpMaterial,
-            }) ?? undefined
-          : undefined;
+      const stepUpMaterial =
+        await input.ctx.service.walletRegistration.resolveEd25519MaterialActivation({
+          walletId: scope.account_id,
+          materialActivation: scope.material_activation,
+        });
+      const stepUp = stepUpMaterial.ok
+        ? (buildRouterAbEd25519OwnerOperationStepUpPreparation({
+            scope,
+            body: input.body,
+            material: stepUpMaterial,
+          }) ?? undefined)
+        : undefined;
       const failure = routerAbEd25519OwnerOperationFailureResult({
         status: outcome.kind === 'authorization_grant_rejected' ? 403 : 409,
         code: outcome.kind,
@@ -1006,10 +1062,7 @@ function buildEd25519ReusableOperationEnvelope(
 async function validateEd25519ReusableAuthorizedOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: Extract<
-    Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
-    { readonly ok: true; readonly kind: 'reusable_wallet_session' }
-  >;
+  authorization: AcceptedEd25519ReusableWalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -1024,18 +1077,14 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
     if (scope.authorization.kind !== 'reusable_wallet_session') {
       throw new Error('Reusable Wallet Session authority is required');
     }
-    const binding = input.authorization.validated.binding;
-    const tenantId = requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId));
-    const principalId = requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
-    );
+    const identity = ed25519ReusableWalletSessionIdentity(input.authorization);
     const capabilityId = requireAuthorizationValue(
       parseCapabilityId(scope.material_activation.capability),
     );
     const operationId = requireAuthorizationValue(parseCapabilityOperationId(receipt.operation_id));
     const envelope = buildCapabilityOperationEnvelope({
-      tenantId,
-      principalId,
+      tenantId: identity.tenantId,
+      principalId: identity.principalId,
       capabilityId,
       operationId,
       operation: {
@@ -1065,7 +1114,7 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
       throw new Error('Ed25519 authorized operation intent changed after prepare');
     }
     const operationResult = await input.ctx.service.authorizedOperations.readAuthorizedOperation({
-      tenantId,
+      tenantId: identity.tenantId,
       operationFingerprintDigest: fingerprint,
     });
     if (!operationResult) {
@@ -1383,8 +1432,7 @@ async function issueEd25519OperationStepUpGrant(input: {
       { status: 403 },
     );
   }
-  const authority =
-    proof.kind === 'passkey' ? proof.authority : activeAuthority.authority;
+  const authority = proof.kind === 'passkey' ? proof.authority : activeAuthority.authority;
   const operation = parseRouterAbOperationStepUpOperation(
     input.request.normalSigningRequest.intent,
   );
@@ -1766,6 +1814,13 @@ async function proxyEd25519OwnerLaneExecution(input: {
   readonly authorization: AcceptedEd25519NormalSigningAuthorization;
   readonly authorizedOperation: AuthorizedOperation;
 }): Promise<Response> {
+  if (input.authorization.kind === 'wallet_session_operation_credential_v1') {
+    return await proxyNormalSigningRequestToMpcRouter({
+      request: input.ctx.request,
+      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+      body: input.body,
+    });
+  }
   const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
   const walletId = parseWalletId(scope.account_id);
   if (!walletId.ok) {
@@ -1966,7 +2021,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
       return json(
         {
           ok: false,
-          code: ownerDecision.kind === 'denied' ? ownerDecision.denial.code : 'authorization_unavailable',
+          code:
+            ownerDecision.kind === 'denied'
+              ? ownerDecision.denial.code
+              : 'authorization_unavailable',
           message:
             ownerDecision.kind === 'denied'
               ? ownerDecision.denial.message

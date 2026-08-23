@@ -28,9 +28,7 @@ export interface RouterAbNormalSigningAbuseProvider {
 }
 
 export interface RouterAbNormalSigningAdmissionStore
-  extends
-    RouterAbNormalSigningProjectPolicyProvider,
-    RouterAbNormalSigningAbuseProvider {}
+  extends RouterAbNormalSigningProjectPolicyProvider, RouterAbNormalSigningAbuseProvider {}
 
 export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNormalSigningAdmissionStore {
   private readonly projectPolicies = new Map<string, RouterAbNormalSigningProjectPolicyDecision>();
@@ -73,12 +71,9 @@ export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNorm
   ): Promise<RouterAbNormalSigningAbuseDecision> {
     return this.abuseDecisions.get(abusePrincipalKey(input)) || { kind: 'allowed' };
   }
-
 }
 
-class DefaultRouterAbNormalSigningAdmissionAdapter
-  implements RouterAbNormalSigningAdmissionAdapter
-{
+class DefaultRouterAbNormalSigningAdmissionAdapter implements RouterAbNormalSigningAdmissionAdapter {
   constructor(
     private readonly store: RouterAbNormalSigningAdmissionStore,
     private readonly now: () => number,
@@ -88,11 +83,7 @@ class DefaultRouterAbNormalSigningAdmissionAdapter
     input: RouterAbNormalSigningAdmissionInput,
   ): Promise<RouterAbNormalSigningAdmissionResult> {
     if (input.expiresAtMs <= this.now()) {
-      return admissionFailure(
-        408,
-        'invalid_body',
-        'Router A/B normal-signing request is expired',
-      );
+      return admissionFailure(408, 'invalid_body', 'Router A/B normal-signing request is expired');
     }
 
     const projectPolicy = await this.store.evaluateProjectPolicy(input);
@@ -129,7 +120,6 @@ class DefaultRouterAbNormalSigningAdmissionAdapter
         return assertNever(abuse);
     }
   }
-
 }
 
 export function createRouterAbNormalSigningAdmissionAdapter(
@@ -158,11 +148,7 @@ export function createInMemoryRouterAbNormalSigningAdmissionAdapter(
 
 function admissionFailure(
   status: 400 | 401 | 403 | 408 | 409 | 429 | 500 | 503,
-  code:
-    | 'project_policy_rejected'
-    | 'abuse_rejected'
-    | 'rate_limited'
-    | 'invalid_body',
+  code: 'project_policy_rejected' | 'abuse_rejected' | 'rate_limited' | 'invalid_body',
   message: string,
 ): RouterAbNormalSigningAdmissionResult {
   return { ok: false, status, code, message };
@@ -184,6 +170,9 @@ function ed25519AdmissionAuthorityScopeKey(scope: ThresholdEd25519AuthorityScope
 function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): string {
   switch (input.curve) {
     case 'ed25519':
+      if (input.authorityKind === 'wallet_authority_v1') {
+        return `wallet_authority:${input.authorityId}`;
+      }
       return ed25519AdmissionAuthorityScopeKey(input.authorityScope);
     case 'ecdsa':
       return `material_activation:${input.materialActivationId}`;

@@ -2,10 +2,9 @@ import type {
   EcdsaDerivationServerBootstrapResponse,
   ThresholdRuntimePolicyScope,
 } from '../../core/types';
-import {
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../core/ThresholdService/validation';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../core/ThresholdService/validation';
 import type { RouterApiAuthorizationSessionService } from '../framework/authServicePort';
+import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../framework/authServicePort';
 import {
   type OpaqueOwnerWalletSessionBinding,
   type ResolvedOpaqueWalletSessionToken,
@@ -66,6 +65,11 @@ import {
   walletSessionFailureMessage,
   type WalletSessionFailureCode,
 } from './walletSessionFailure';
+import {
+  resolveWalletSessionAuthorizationV2Admission,
+  type WalletSessionAuthorizationV2AdmissionResult,
+  type WalletSessionAuthorizationV2RequestedOperation,
+} from '../domains/signingOperations/walletExecutionAdmission';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = {
@@ -93,6 +97,31 @@ export type OpaqueOwnerWalletSessionAdmission =
       readonly walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
       readonly resolved: ResolvedOpaqueWalletSessionToken;
     };
+
+export type WalletSessionOperationCredentialAdmission =
+  | {
+      readonly kind: 'wallet_session_operation_credential_v1';
+      readonly curve: 'ed25519';
+      readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+      readonly admission: Extract<
+        WalletSessionAuthorizationV2AdmissionResult,
+        { readonly ok: true; readonly keyFamily: 'ed25519' }
+      >;
+    }
+  | {
+      readonly kind: 'wallet_session_operation_credential_v1';
+      readonly curve: 'ecdsa';
+      readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+      readonly admission: Extract<
+        WalletSessionAuthorizationV2AdmissionResult,
+        { readonly ok: true; readonly keyFamily: 'ecdsa_secp256k1' }
+      >;
+    };
+
+export type WalletSessionOperationCredentialResolution =
+  | { readonly kind: 'not_v2' }
+  | { readonly kind: 'rejected' }
+  | { readonly kind: 'admitted'; readonly admission: WalletSessionOperationCredentialAdmission };
 
 /** Builds the route admission from the binding validated by the persistence boundary. */
 export function buildOpaqueOwnerWalletSessionAdmission(
@@ -126,6 +155,77 @@ export function buildOpaqueOwnerWalletSessionAdmission(
   }
 }
 
+export async function resolveWalletSessionOperationCredentialAdmission(input: {
+  readonly authorizationSessions: RouterApiAuthorizationSessionService;
+  readonly token: string;
+  readonly nowMs: number;
+  readonly operation:
+    | Pick<
+        Extract<WalletSessionAuthorizationV2RequestedOperation, { readonly keyFamily: 'ed25519' }>,
+        'keyFamily' | 'operationKind'
+      >
+    | Pick<
+        Extract<
+          WalletSessionAuthorizationV2RequestedOperation,
+          { readonly keyFamily: 'ecdsa_secp256k1' }
+        >,
+        'keyFamily' | 'operationKind'
+      >;
+}): Promise<WalletSessionOperationCredentialResolution> {
+  const readV2 = input.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential;
+  if (!readV2) return { kind: 'not_v2' };
+  const context = await readV2({
+    tenantId: input.authorizationSessions.tenantId,
+    token: input.token,
+    nowMs: input.nowMs,
+  });
+  if (!context) return { kind: 'not_v2' };
+  const identity = {
+    tenantId: context.authorization.session.tenantId,
+    principalId: context.authorization.session.principalId,
+    walletId: context.authorization.session.walletId,
+  };
+  const operation: WalletSessionAuthorizationV2RequestedOperation =
+    input.operation.keyFamily === 'ed25519'
+      ? { ...identity, keyFamily: 'ed25519', operationKind: input.operation.operationKind }
+      : {
+          ...identity,
+          keyFamily: 'ecdsa_secp256k1',
+          operationKind: input.operation.operationKind,
+        };
+  const admission = resolveWalletSessionAuthorizationV2Admission({
+    authorization: context.authorization.session,
+    authority: context.authority,
+    authMethod: context.authMethod,
+    operation,
+    retiredAtMs: context.retiredAtMs,
+    nowMs: input.nowMs,
+  });
+  if (!admission.ok || admission.keyFamily !== input.operation.keyFamily) {
+    return { kind: 'rejected' };
+  }
+  if (admission.keyFamily === 'ed25519') {
+    return {
+      kind: 'admitted',
+      admission: {
+        kind: 'wallet_session_operation_credential_v1',
+        curve: 'ed25519',
+        context,
+        admission,
+      },
+    };
+  }
+  return {
+    kind: 'admitted',
+    admission: {
+      kind: 'wallet_session_operation_credential_v1',
+      curve: 'ecdsa',
+      context,
+      admission,
+    },
+  };
+}
+
 export async function resolveOpaqueOwnerWalletSessionAdmission(input: {
   readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly token: string;
@@ -143,19 +243,56 @@ export async function resolveOpaqueOwnerWalletSessionAdmission(input: {
 
 export type ThresholdEd25519SessionTokenInputs =
   | {
-      ok: true;
+      readonly ok: true;
+      readonly kind: 'owner_wallet_session';
       admission: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ed25519' }>;
       binding: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ed25519' }>['binding'];
       walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
       body: PlainObject;
     }
+  | {
+      readonly ok: true;
+      readonly kind: 'wallet_session_operation_credential_v1';
+      readonly admission: Extract<
+        WalletSessionOperationCredentialAdmission,
+        { readonly curve: 'ed25519' }
+      >;
+      readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+      readonly body: PlainObject;
+    }
   | AuthorizeErr;
 
+type ThresholdEd25519LegacySessionInputs = Exclude<
+  ThresholdEd25519SessionTokenInputs,
+  { readonly kind: 'wallet_session_operation_credential_v1' }
+>;
+
+export function validateRouterAbEd25519WalletSessionTokenInputs(input: {
+  body: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  nowMs?: () => number;
+  operationKind: Extract<
+    WalletSessionAuthorizationV2RequestedOperation,
+    { readonly keyFamily: 'ed25519' }
+  >['operationKind'];
+}): Promise<ThresholdEd25519SessionTokenInputs>;
+export function validateRouterAbEd25519WalletSessionTokenInputs(input: {
+  body: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  nowMs?: () => number;
+  operationKind?: never;
+}): Promise<ThresholdEd25519LegacySessionInputs>;
 export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   nowMs?: () => number;
+  operationKind?: Extract<
+    WalletSessionAuthorizationV2RequestedOperation,
+    { readonly keyFamily: 'ed25519' }
+  >['operationKind'];
 }): Promise<ThresholdEd25519SessionTokenInputs> {
   const authorizationSessions = input.authorizationSessions;
   if (!authorizationSessions) {
@@ -169,12 +306,34 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   const token = extractBearerCredential(input.headers);
   if (!token) return walletSessionFailure('wallet_session_missing');
   const nowMs = input.nowMs || Date.now;
-  let resolved: Awaited<
-    ReturnType<RouterApiAuthorizationSessionService['resolveOpaqueWalletSessionToken']>
-  >;
+  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_v2' };
+  let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
   try {
-    resolved = await authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: authorizationSessions.tenantId,
+    if (input.operationKind !== undefined) {
+      v2Resolution = await resolveWalletSessionOperationCredentialAdmission({
+        authorizationSessions,
+        token,
+        nowMs: nowMs(),
+        operation: { keyFamily: 'ed25519', operationKind: input.operationKind },
+      });
+    }
+    if (v2Resolution.kind === 'rejected') {
+      return walletSessionFailure('wallet_session_scope_mismatch');
+    }
+    if (v2Resolution.kind === 'admitted') {
+      if (v2Resolution.admission.curve !== 'ed25519') {
+        return walletSessionFailure('wallet_session_scope_mismatch');
+      }
+      return {
+        ok: true,
+        kind: 'wallet_session_operation_credential_v1',
+        admission: v2Resolution.admission,
+        context: v2Resolution.admission.context,
+        body: isPlainObject(input.body) ? input.body : {},
+      };
+    }
+    admission = await resolveOpaqueOwnerWalletSessionAdmission({
+      authorizationSessions,
       token,
       curve: 'ed25519',
       nowMs: nowMs(),
@@ -182,8 +341,6 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   } catch {
     return walletSessionFailure('wallet_session_unavailable');
   }
-  if (!resolved) return walletSessionFailure('wallet_session_invalid');
-  const admission = resolved && buildOpaqueOwnerWalletSessionAdmission(resolved);
   if (!admission || admission.curve !== 'ed25519') {
     return {
       ok: false,
@@ -191,6 +348,7 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
       message: walletSessionFailureMessage('wallet_session_invalid'),
     };
   }
+  const resolved = admission.resolved;
   const binding = admission.binding;
   if (
     binding.walletId !== resolved.authorization.walletId ||
@@ -224,6 +382,7 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   const body = isPlainObject(input.body) ? input.body : {};
   return {
     ok: true,
+    kind: 'owner_wallet_session',
     admission,
     binding: admission.binding,
     walletSessionAuth: admission.walletSessionAuth,
@@ -234,18 +393,52 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
 export type ThresholdEcdsaSessionInputs =
   | {
       ok: true;
+      readonly kind: 'owner_wallet_session';
       admission: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ecdsa' }>;
       binding: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ecdsa' }>['binding'];
       walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
       body: PlainObject;
     }
+  | {
+      readonly ok: true;
+      readonly kind: 'wallet_session_operation_credential_v1';
+      readonly admission: WalletSessionOperationCredentialAdmission;
+      readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+      readonly body: PlainObject;
+    }
   | AuthorizeErr;
 
+type ThresholdEcdsaLegacySessionInputs = Exclude<
+  ThresholdEcdsaSessionInputs,
+  { readonly kind: 'wallet_session_operation_credential_v1' }
+>;
+
+export function validateRouterAbEcdsaDerivationWalletSessionInputs(input: {
+  body: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  nowMs?: () => number;
+  operationKind: Extract<
+    WalletSessionAuthorizationV2RequestedOperation,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >['operationKind'];
+}): Promise<ThresholdEcdsaSessionInputs>;
+export function validateRouterAbEcdsaDerivationWalletSessionInputs(input: {
+  body: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  nowMs?: () => number;
+  operationKind?: never;
+}): Promise<ThresholdEcdsaLegacySessionInputs>;
 export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   nowMs?: () => number;
+  operationKind?: Extract<
+    WalletSessionAuthorizationV2RequestedOperation,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >['operationKind'];
 }): Promise<ThresholdEcdsaSessionInputs> {
   const authorizationSessions = input.authorizationSessions;
   if (!authorizationSessions) {
@@ -259,12 +452,34 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
   const token = extractBearerCredential(input.headers);
   if (!token) return walletSessionFailure('wallet_session_missing');
   const nowMs = input.nowMs || Date.now;
-  let resolved: Awaited<
-    ReturnType<RouterApiAuthorizationSessionService['resolveOpaqueWalletSessionToken']>
-  >;
+  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_v2' };
+  let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
   try {
-    resolved = await authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: authorizationSessions.tenantId,
+    if (input.operationKind !== undefined) {
+      v2Resolution = await resolveWalletSessionOperationCredentialAdmission({
+        authorizationSessions,
+        token,
+        nowMs: nowMs(),
+        operation: { keyFamily: 'ecdsa_secp256k1', operationKind: input.operationKind },
+      });
+    }
+    if (v2Resolution.kind === 'rejected') {
+      return walletSessionFailure('wallet_session_scope_mismatch');
+    }
+    if (v2Resolution.kind === 'admitted') {
+      if (v2Resolution.admission.curve !== 'ecdsa') {
+        return walletSessionFailure('wallet_session_scope_mismatch');
+      }
+      return {
+        ok: true,
+        kind: 'wallet_session_operation_credential_v1',
+        admission: v2Resolution.admission,
+        context: v2Resolution.admission.context,
+        body: isPlainObject(input.body) ? input.body : {},
+      };
+    }
+    admission = await resolveOpaqueOwnerWalletSessionAdmission({
+      authorizationSessions,
       token,
       curve: 'ecdsa',
       nowMs: nowMs(),
@@ -272,8 +487,6 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
   } catch {
     return walletSessionFailure('wallet_session_unavailable');
   }
-  if (!resolved) return walletSessionFailure('wallet_session_invalid');
-  const admission = resolved && buildOpaqueOwnerWalletSessionAdmission(resolved);
   if (!admission || admission.curve !== 'ecdsa') {
     return {
       ok: false,
@@ -281,6 +494,7 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
       message: walletSessionFailureMessage('wallet_session_invalid'),
     };
   }
+  const resolved = admission.resolved;
   const binding = admission.binding;
   if (
     binding.walletId !== resolved.authorization.walletId ||
@@ -289,8 +503,7 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
     binding.quotaId !== resolved.authorization.quotaId ||
     binding.thresholdExpiresAtMs !== resolved.authorization.expiresAtMs ||
     resolved.authorization.walletAuthMethodId === null ||
-    binding.walletAuthAuthorityRef.walletAuthMethodId !==
-      resolved.authorization.walletAuthMethodId
+    binding.walletAuthAuthorityRef.walletAuthMethodId !== resolved.authorization.walletAuthMethodId
   ) {
     return walletSessionFailure('wallet_session_scope_mismatch');
   }
@@ -319,6 +532,7 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
   const body = isPlainObject(input.body) ? input.body : {};
   return {
     ok: true,
+    kind: 'owner_wallet_session',
     admission,
     binding: admission.binding,
     walletSessionAuth: admission.walletSessionAuth,
