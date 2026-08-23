@@ -1127,10 +1127,13 @@ async function readVerifiedSourceForTargetCredentialV1(input: {
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('verified device linking requires an ordinary Wallet Session');
   }
+  const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[0];
+  if (!sourceLaneHint) throw new Error('verified device linking source lane hints are missing');
   return await input.source.readVerifiedSourceV1({
     walletId: input.registration.walletId,
     walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
     authorizationId: String(input.approval.ownerAuthorization.authorizationId),
+    keyFamily: sourceLaneHint.keyFamily,
     requestedAtMs: input.requestedAtMs,
   });
 }
@@ -1413,10 +1416,13 @@ async function readSourceAuthMethodForTargetPreparationV1(input: {
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('linked-device target preparation requires an ordinary Wallet Session');
   }
+  const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[0];
+  if (!sourceLaneHint) throw new Error('linked-device target preparation source lane hints are missing');
   const source = await input.source.readVerifiedSourceV1({
     walletId: input.approval.walletId,
     walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
     authorizationId: String(input.approval.ownerAuthorization.authorizationId),
+    keyFamily: sourceLaneHint.keyFamily,
     requestedAtMs: input.requestedAtMs,
   });
   return source.authMethod;
