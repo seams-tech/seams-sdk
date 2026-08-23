@@ -69,6 +69,8 @@ export async function persistFinalizedPasskeyAuthMethodV1(
 
 type RecoveredPasskeyLocalProjection = {
   readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletAuthorityId: WalletAuthorityId;
   readonly rpId: string;
   readonly credentialIdB64u: string;
   readonly credentialPublicKeyB64u: string;
@@ -173,4 +175,13 @@ export async function persistRecoveredPasskeyLocalProjectionV1(
 
   await retireOtherLocalPasskeys(input.walletId, authMethod.rpId, authMethod.credentialIdB64u);
   await IndexedDBManager.upsertWalletAuthMethod(authMethod);
+  await persistSyncedPasskeyAuthMethodV2({
+    walletId: input.walletId,
+    walletAuthMethodId: input.walletAuthMethodId,
+    walletAuthorityId: input.walletAuthorityId,
+    rpId: authMethod.rpId,
+    credentialIdB64u: authMethod.credentialIdB64u,
+    credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
+    counter: authMethod.counter,
+  });
 }

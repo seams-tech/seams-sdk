@@ -19,10 +19,15 @@ import type {
 import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
 import { toAccountId } from '@/core/types/accountIds';
-import { parseWebAuthnRpId, type WalletId } from '@shared/utils/domainIds';
 import {
-  buildPasskeyWalletAuthAuthority,
+  parseWebAuthnRpId,
+  type WalletAuthMethodId,
+  type WalletId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import {
   walletAuthAuthorityRef,
+  type PasskeyWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { decodeWalletRecoveryCode } from '@shared/wallet-recovery/recoveryCodes';
@@ -69,10 +74,10 @@ type RecoveryOperationCommon = {
   readonly recoveryCodeBytes: Uint8Array;
 };
 
-type CommittedRecoveryCredential = Extract<
+type CommittedRecoveryPromotion = Extract<
   WalletRecoveryFinalizeResult,
   { readonly kind: 'promoted' }
->['credential'];
+>;
 
 type RecoveryOperation =
   | (RecoveryOperationCommon & {
@@ -97,7 +102,7 @@ type RecoveryOperation =
       readonly stage: 'promoted_pending_continuity';
       readonly replacement: WalletRecoveryReplacementCredential;
       readonly recovered: RecoveredWalletCustodyManifestV1;
-      readonly committedCredential: CommittedRecoveryCredential;
+      readonly committedPromotion: CommittedRecoveryPromotion;
     });
 
 function createReservationId(): RecoveryCodeReservationId {
@@ -164,7 +169,7 @@ function manifestRecoveredOperation(
 
 function promotedPendingContinuityOperation(
   current: Extract<RecoveryOperation, { stage: 'manifest_recovered' }>,
-  committedCredential: CommittedRecoveryCredential,
+  committedPromotion: CommittedRecoveryPromotion,
 ): Extract<RecoveryOperation, { stage: 'promoted_pending_continuity' }> {
   return {
     stage: 'promoted_pending_continuity',
@@ -176,7 +181,21 @@ function promotedPendingContinuityOperation(
     recoveryCodeBytes: current.recoveryCodeBytes,
     replacement: current.replacement,
     recovered: current.recovered,
-    committedCredential,
+    committedPromotion,
+  };
+}
+
+function recoveredPasskeyWalletAuthAuthority(input: {
+  readonly walletId: WalletId;
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: CommittedRecoveryPromotion['credential']['credentialIdB64u'];
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): PasskeyWalletAuthAuthority {
+  return {
+    walletId: input.walletId,
+    factor: { kind: 'passkey', credentialIdB64u: input.credentialIdB64u },
+    verifier: { kind: 'webauthn', rpId: input.rpId },
+    bindingId: input.walletAuthMethodId,
   };
 }
 
@@ -240,32 +259,16 @@ async function persistRecoveredLocalContinuity(input: {
   readonly operation: Extract<RecoveryOperation, { stage: 'promoted_pending_continuity' }>;
 }): Promise<void> {
   const authority = await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
+    authority: recoveredPasskeyWalletAuthAuthority({
       walletId: input.operation.walletId,
       rpId: input.operation.prepared.registration.rpId,
       credentialIdB64u: input.operation.replacement.credentialIdB64u,
+      walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
     }),
   });
-  await Promise.all([
-    ...input.operation.recovered.nearKeySets.map((recovered) =>
-      persistRecoveredNearKeySet({
-        context: input.context,
-        walletId: input.operation.walletId,
-        recovered,
-      }),
-    ),
-    ...input.operation.recovered.ecdsaKeySets.map((recovered) =>
-      persistRecoveredEcdsaKeySet({
-        context: input.context,
-        walletId: input.operation.walletId,
-        authority,
-        recovered,
-      }),
-    ),
-  ]);
 
   const replacement = input.operation.replacement;
-  const committedCredential = input.operation.committedCredential;
+  const committedCredential = input.operation.committedPromotion.credential;
   const nearProjection = input.operation.recovered.nearKeySets;
   if (nearProjection.length > 0) {
     for (const recovered of nearProjection) {
@@ -273,6 +276,8 @@ async function persistRecoveredLocalContinuity(input: {
       await persistRecoveredPasskeyLocalProjectionV1({
         kind: 'near',
         walletId: input.operation.walletId,
+        walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
+        walletAuthorityId: input.operation.committedPromotion.walletAuthorityId,
         nearAccountId: toAccountId(recovered.entry.nearAccountId),
         signerSlot: application.key_creation_signer_slot,
         nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
@@ -291,6 +296,8 @@ async function persistRecoveredLocalContinuity(input: {
     await persistRecoveredPasskeyLocalProjectionV1({
       kind: 'wallet_only',
       walletId: input.operation.walletId,
+      walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
+      walletAuthorityId: input.operation.committedPromotion.walletAuthorityId,
       signerSlot: ECDSA_ONLY_WALLET_SIGNER_SLOT,
       rpId: input.operation.prepared.registration.rpId,
       credentialIdB64u: committedCredential.credentialIdB64u,
@@ -302,6 +309,24 @@ async function persistRecoveredLocalContinuity(input: {
       },
     });
   }
+
+  await Promise.all([
+    ...input.operation.recovered.nearKeySets.map((recovered) =>
+      persistRecoveredNearKeySet({
+        context: input.context,
+        walletId: input.operation.walletId,
+        recovered,
+      }),
+    ),
+    ...input.operation.recovered.ecdsaKeySets.map((recovered) =>
+      persistRecoveredEcdsaKeySet({
+        context: input.context,
+        walletId: input.operation.walletId,
+        authority,
+        recovered,
+      }),
+    ),
+  ]);
 }
 
 export class WalletRecoveryCoordinator {
@@ -468,7 +493,7 @@ export class WalletRecoveryCoordinator {
         if (finalized.credential.credentialIdB64u !== current.replacement.credentialIdB64u) {
           return { kind: 'transport_uncertain' };
         }
-        current = promotedPendingContinuityOperation(current, finalized.credential);
+        current = promotedPendingContinuityOperation(current, finalized);
         this.#operations.set(current.recoveryOperationId, current);
       }
 
