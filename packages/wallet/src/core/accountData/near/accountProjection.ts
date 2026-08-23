@@ -70,7 +70,7 @@ export async function upsertNearAccountProjectionRecords(args: {
     throw new Error('SeamsWalletDB: signerSlot must be an integer >= 1');
   }
 
-  const profileId = requireProjectionWalletId(userData.walletId);
+  const profileId = String(buildNearProfileId(accountId));
   const chainIdKey = inferNearChainIdKey(accountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeAccountAddress(accountId);
   const signerId =
@@ -105,6 +105,7 @@ export async function upsertNearAccountProjectionRecords(args: {
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: {
         ...(existingSigner?.metadata || {}),
+        walletId: userData.walletId,
         nearAccountId: userData.nearAccountId,
         nearEd25519SigningKeyId: userData.nearEd25519SigningKeyId,
         operationalPublicKey: userData.operationalPublicKey,
