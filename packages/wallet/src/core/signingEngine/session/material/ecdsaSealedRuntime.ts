@@ -304,16 +304,36 @@ function sealedRecordBindsManifestFacts(args: {
   );
 }
 
-function authBindingFromRestore(
-  restore: ExactEcdsaMaterialRestore,
-): ExactEcdsaSealedRuntimeAuthBinding | null {
+function authBindingFromRestore(args: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly restore: ExactEcdsaMaterialRestore;
+}): ExactEcdsaSealedRuntimeAuthBinding | null {
+  const restore = args.restore;
   if (restore.source === 'email_otp') {
     const providerSubjectId = normalizedNonEmpty(restore.providerSubjectId);
     const emailHashHex = normalizedNonEmpty(restore.emailHashHex);
-    const emailOtpAuthority = restore.emailOtpAuthority;
-    return providerSubjectId && emailHashHex && emailOtpAuthority
-      ? { kind: 'email_otp', providerSubjectId, emailHashHex, emailOtpAuthority }
-      : null;
+    const sealedAuthority = restore.emailOtpAuthority;
+    const manifestAuthority = args.manifest.signer.authority;
+    if (
+      !providerSubjectId ||
+      !emailHashHex ||
+      !sealedAuthority ||
+      String(sealedAuthority.walletId) !== String(manifestAuthority.walletId) ||
+      String(sealedAuthority.factor.providerUserId) !== providerSubjectId ||
+      String(sealedAuthority.verifier.emailHashHex) !== emailHashHex
+    ) {
+      return null;
+    }
+    // The sealed record predates the V2 authority binding and may carry the
+    // deterministic pre-method id. The manifest is the correlated durable
+    // authority, so its method id is the only one valid for a new proof.
+    const emailOtpAuthority: EmailOtpWalletAuthAuthority = {
+      walletId: sealedAuthority.walletId,
+      factor: sealedAuthority.factor,
+      verifier: sealedAuthority.verifier,
+      bindingId: manifestAuthority.walletAuthMethodId,
+    };
+    return { kind: 'email_otp', providerSubjectId, emailHashHex, emailOtpAuthority };
   }
   const rpId = normalizedNonEmpty(restore.rpId);
   const credentialIdB64u = normalizedNonEmpty(restore.credentialIdB64u);
@@ -343,7 +363,7 @@ function materialRuntimeFromRecord(args: {
   readonly record: ExactEcdsaMaterialRecord;
 }): ExactEcdsaMaterialRuntime | null {
   const restore = args.record.ecdsaRestore;
-  const authBinding = authBindingFromRestore(restore);
+  const authBinding = authBindingFromRestore({ manifest: args.manifest, restore });
   const relayerUrl = normalizedNonEmpty(args.record.relayerUrl).replace(/\/+$/g, '');
   const relayerKeyId = normalizedNonEmpty(restore.relayerKeyId);
   const clientVerifyingPublicKey33B64u =

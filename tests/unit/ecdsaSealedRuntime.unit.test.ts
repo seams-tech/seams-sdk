@@ -22,6 +22,11 @@ import {
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 
 // The manifest owns the exact capability, public facts and material activation;
 // the sealed record owns session-scoped runtime state. This correlation is what
@@ -77,6 +82,46 @@ function resolveInactive(
 }
 
 test.describe('exact ECDSA sealed runtime resolution', () => {
+  test('rebinds a sealed Email OTP runtime to the manifest V2 auth-method id', async () => {
+    const walletId = toWalletId('ecdsa-manifest-fixture-wallet');
+    const baseAuthority = buildEmailOtpWalletAuthAuthority({
+      walletId,
+      provider: 'google',
+      providerUserId: `google:${String(walletId)}`,
+      emailHashHex: 'email-hash',
+    });
+    const walletAuthMethodId = parseWalletAuthMethodId(
+      `email_otp:${String(walletId)}:canonical-method`,
+    );
+    if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+    const authority = {
+      walletId: baseAuthority.walletId,
+      factor: baseAuthority.factor,
+      verifier: baseAuthority.verifier,
+      bindingId: walletAuthMethodId.value,
+    };
+    const authorityRef = await walletAuthAuthorityRef({ authority });
+    const manifest = ecdsaCapabilityActivationLookupFixture({ authority: authorityRef }).manifest;
+    const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
+    const resolution = resolveExactEcdsaSealedRuntime({
+      manifest,
+      walletId,
+      chainTarget: record.ecdsaRestore.chainTarget,
+      sealedRecords: [record],
+    });
+
+    expect(resolution.kind).toBe('resolved');
+    if (resolution.kind !== 'resolved') return;
+    expect(resolution.runtime.authBinding.kind).toBe('email_otp');
+    if (resolution.runtime.authBinding.kind !== 'email_otp') return;
+    expect(resolution.runtime.authBinding.emailOtpAuthority.bindingId).toBe(
+      walletAuthMethodId.value,
+    );
+    await expect(
+      walletAuthAuthorityRef({ authority: resolution.runtime.authBinding.emailOtpAuthority }),
+    ).resolves.toEqual(manifest.signer.authority);
+  });
+
   test('resolves runtime facts from the sealed record bound to the manifest material', () => {
     const manifest = activeManifest();
     const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
