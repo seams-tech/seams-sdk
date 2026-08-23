@@ -11,10 +11,7 @@ import {
 } from '@shared/authorization/capabilityKinds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  mpcMaterialActivationRefsEqual,
-  parseWalletKeyId,
-} from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual, parseWalletKeyId } from '@shared/utils/domainIds';
 import type { ExactAdministeredSignerV1 } from '@shared/device-linking/delegatedActivationPlan';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -148,11 +145,18 @@ function sourceSignerForFamilyV1(input: {
       return false;
     }
   });
-  if (matches.length !== 1) {
+  if (matches.length === 0) {
     throw new Error(`source ${input.keyFamily} signer identity is unavailable or ambiguous`);
   }
   const signer = matches[0];
   if (!signer) throw new Error(`source ${input.keyFamily} signer identity is unavailable`);
+  // ECDSA stores one row per chain target; the authority identity is wallet-wide.
+  const keyManifestDigestB64u = parseDigestB64u(signer.custodyKeyManifestDigestB64u);
+  for (const duplicate of matches.slice(1)) {
+    if (parseDigestB64u(duplicate.custodyKeyManifestDigestB64u) !== keyManifestDigestB64u) {
+      throw new Error(`source ${input.keyFamily} signer identity is unavailable or ambiguous`);
+    }
+  }
   return signer;
 }
 
@@ -170,7 +174,9 @@ function sourceSignerIdentityMatchesV1(
       expected.walletKeyId === walletKeyId.value &&
       expected.registeredPublicKeyB64u ===
         base64UrlEncode(
-          Uint8Array.from(signer.activeYaoCapability.activationResult.public_receipt.registered_public_key),
+          Uint8Array.from(
+            signer.activeYaoCapability.activationResult.public_receipt.registered_public_key,
+          ),
         )
     );
   }
@@ -180,7 +186,9 @@ function sourceSignerIdentityMatchesV1(
     signingRootId: signer.walletKey.signingRootId,
     signingRootVersion: signer.walletKey.signingRootVersion,
   });
-  const walletKeyId = parseWalletKeyId(`wallet-key:ecdsa:${signer.walletId}:${evmFamilySigningKeySlotId}`);
+  const walletKeyId = parseWalletKeyId(
+    `wallet-key:ecdsa:${signer.walletId}:${evmFamilySigningKeySlotId}`,
+  );
   if (!walletKeyId.ok) return false;
   return (
     expected.walletKeyId === walletKeyId.value &&
