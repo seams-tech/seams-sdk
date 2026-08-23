@@ -5,24 +5,27 @@ import {
 } from '@shared/authorization/delegatedAuthority';
 import {
   buildActiveWalletAuthorityV1,
+  buildPendingWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
   type ActiveWalletAuthorityV1,
+  type PendingWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
+import {
+  parseOrdinaryEcdsaSignerMaterialWorkerReservationV1,
+  OrdinaryInactiveSignerMaterialReservationServiceV1,
+} from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 import type {
   OrdinaryEcdsaSignerMaterialWorkerReservationV1,
   OrdinaryEcdsaSignerMaterialReservationRequestV1,
   OrdinaryInactiveSignerMaterialReservationWorkerPortV1,
 } from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
-import { OrdinaryInactiveSignerMaterialReservationServiceV1 } from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
-import type {
-  PasskeyWalletAuthMethodDraftV1,
-} from '@shared/utils/registrationIntent';
+import type { PasskeyWalletAuthMethodDraftV1 } from '@shared/utils/registrationIntent';
 import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import {
   AuthorizationService,
@@ -35,12 +38,19 @@ import {
   parseExactAdministeredSignerManifestV1,
 } from '@shared/device-linking/delegatedActivationPlan';
 import type { VerifiedLinkInputV1 } from '@shared/device-linking/contracts';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
-  buildOrdinaryEcdsaClientMaterialFixture,
-  buildOrdinaryEcdsaReservationPreparationFixture,
-} from './helpers/ordinarySignerMaterialReservation.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+  buildR103DeviceLinkFixture,
+  buildR103EcdsaSourceContributionPreparationV1,
+  buildR103EcdsaSourceContributionV1,
+  buildR103OwnerApprovalContextV1,
+} from './helpers/deviceLinkContracts.fixtures';
+import {
+  computeCommittedSignerPackageSetDigestB64u,
+  parseCommittedAuthorityPackagesV1,
+  parseCommittedSignerPackageSetV1,
+} from '@shared/device-linking/committedSignerPackages';
+import { buildLinkedDeviceApprovalV1 } from '@shared/device-linking/parsers';
+import { buildSourcePreservingEd25519ReservationRequestFixture } from './helpers/ordinarySourcePreservingReservation.fixtures';
 import {
   D1LinkedDeviceAuthorityInstallServiceV1,
   type D1LinkedDeviceAuthorityInstallServiceOptionsV1,
@@ -54,6 +64,9 @@ import {
   type D1WalletAuthorityStoreScope,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import type { WebAuthnCredentialBindingRecord } from '../../packages/wallet-server/src/core/WebAuthnCredentialBindingStore';
+import { testWebAuthnCredentialBindingRecord } from './helpers/webauthnAuthenticatorListing.fixtures';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -61,16 +74,13 @@ import {
   listD1MigrationFiles,
   type TemporaryD1Database,
 } from '../helpers/sqliteD1';
-import { base64UrlEncode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  parseDeviceId,
-} from '@shared/authorization/capabilityKinds';
-import {
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-} from '@shared/utils/domainIds';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
@@ -86,6 +96,7 @@ const scope: D1WalletAuthorityStoreScope & D1LinkedDeviceSessionScopeV1 = {
 const nowMs = 3_000;
 
 type HarnessOptions = {
+  readonly deviceId?: string;
   readonly authorizationService?: Pick<
     AuthorizationService,
     'prepareWalletSessionAuthorizationV2' | 'issueWalletSessionAuthorizationV2'
@@ -101,11 +112,12 @@ test('allocates one opaque authority id and replays the persisted id', async () 
     const harness = await buildHarness(temporary, source, 'r103-authority-id');
 
     const first = await harness.install.commitPendingAuthorityV1(harness.input);
-    expect(first.kind).toBe('committed');
+    expect(first.kind, first.kind === 'invalid_input' ? first.message : undefined).toBe(
+      'committed',
+    );
     if (first.kind !== 'committed') throw new Error('expected first authority commit');
     const authorityId = String(first.packages.authority.authorityId);
     expect(authorityId.startsWith('wallet-authority:')).toBe(true);
-
     const allocation = await temporary.database
       .prepare(
         `SELECT authority_id
@@ -124,7 +136,9 @@ test('allocates one opaque authority id and replays the persisted id', async () 
     expect(allocation?.authority_id).toBe(authorityId);
 
     const replay = await harness.install.commitPendingAuthorityV1(harness.input);
-    expect(replay.kind).toBe('replayed');
+    expect(replay.kind, replay.kind === 'invalid_input' ? replay.message : undefined).toBe(
+      'replayed',
+    );
     if (replay.kind !== 'replayed') throw new Error('expected authority replay');
     expect(String(replay.packages.authority.authorityId)).toBe(authorityId);
 
@@ -161,8 +175,12 @@ test('allocates a fresh authority id when the same physical device relinks', asy
 
     const first = await firstHarness.install.commitPendingAuthorityV1(firstHarness.input);
     const second = await secondHarness.install.commitPendingAuthorityV1(secondHarness.input);
-    expect(first.kind).toBe('committed');
-    expect(second.kind).toBe('committed');
+    expect(first.kind, first.kind === 'invalid_input' ? first.message : undefined).toBe(
+      'committed',
+    );
+    expect(second.kind, second.kind === 'invalid_input' ? second.message : undefined).toBe(
+      'committed',
+    );
     if (first.kind !== 'committed' || second.kind !== 'committed') {
       throw new Error('expected both link sessions to commit');
     }
@@ -203,7 +221,8 @@ test('rolls back authority activation, converges on retry, and accepts the final
         prepareWalletSessionAuthorizationV2Statements: (
           input: PreparedWalletSessionAuthorizationV2,
         ) => {
-          const statements = authorizationStore.prepareWalletSessionAuthorizationV2Statements(input);
+          const statements =
+            authorizationStore.prepareWalletSessionAuthorizationV2Statements(input);
           if (!failNextWalletSessionStatement) return statements;
           failNextWalletSessionStatement = false;
           const [quotaStatement] = statements;
@@ -220,7 +239,9 @@ test('rolls back authority activation, converges on retry, and accepts the final
     });
 
     const committed = await harness.install.commitPendingAuthorityV1(harness.input);
-    expect(committed.kind).toBe('committed');
+    expect(committed.kind, committed.kind === 'invalid_input' ? committed.message : undefined).toBe(
+      'committed',
+    );
     if (committed.kind !== 'committed') throw new Error('expected pending authority commit');
     const installedAtMs = nowMs + 1;
     const receipt = {
@@ -231,9 +252,7 @@ test('rolls back authority activation, converges on retry, and accepts the final
       deviceId: harness.input.targetDeviceId,
       packageSetDigestB64u: committed.packages.packageSetDigestB64u,
       installedActivationRefs: committed.packages.authority.signerActivations,
-      installedRecordSetDigestB64u: parseDigestB64u(
-        base64UrlEncode(new Uint8Array(32).fill(89)),
-      ),
+      installedRecordSetDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(89))),
       targetFactorVerificationDigestB64u: harness.input.targetFactor.verificationDigestB64u,
       installedAtMs,
     };
@@ -265,7 +284,9 @@ test('rolls back authority activation, converges on retry, and accepts the final
       receipt,
       nowMs: installedAtMs,
     });
-    expect(replay.kind).toBe('active');
+    expect(replay.kind, replay.kind === 'integrity_error' ? replay.message : undefined).toBe(
+      'active',
+    );
     if (replay.kind !== 'active') throw new Error('expected activation replay to converge');
     expect(replay.outcome).toBe('activated');
     expect(replay.authority.state).toBe('active');
@@ -280,6 +301,49 @@ test('rolls back authority activation, converges on retry, and accepts the final
       ),
     ).toBe(1);
     expect(await readWalletSessionQuotaCount(temporary.database)).toBe(1);
+    if (replay.authMethod.kind !== 'passkey') {
+      throw new Error('expected linked-device activation fixture to use a passkey');
+    }
+    const binding = await harness.webAuthnStore.readBindingByCredential({
+      rpId: String(replay.authMethod.rpId),
+      credentialIdB64u: String(replay.authMethod.credentialIdB64u),
+    });
+    expect(binding).toMatchObject({
+      nearAccountId: harness.sourceBinding.nearAccountId,
+      nearEd25519SigningKeyId: harness.sourceBinding.nearEd25519SigningKeyId,
+      signerSlot: harness.sourceBinding.signerSlot,
+      publicKey: harness.sourceBinding.publicKey,
+    });
+    const authenticator = await temporary.database
+      .prepare(
+        `SELECT credential_public_key_b64u, counter, device_info_json
+           FROM webauthn_authenticators
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND user_id = ?
+            AND credential_id_b64u = ?
+          LIMIT 1`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(receipt.walletId),
+        String(replay.authMethod.credentialIdB64u),
+      )
+      .first<{
+        readonly credential_public_key_b64u?: unknown;
+        readonly counter?: unknown;
+        readonly device_info_json?: unknown;
+      }>();
+    expect(authenticator).toMatchObject({
+      credential_public_key_b64u: replay.authMethod.credentialPublicKeyB64u,
+      counter: replay.authMethod.counter,
+    });
+    expect(authenticator?.device_info_json).toBeTruthy();
     await harness.install.acknowledgeLocalAuthorityActivationV1({
       acknowledgement: {
         kind: 'local_authority_activation_final_ack_v1',
@@ -292,7 +356,105 @@ test('rolls back authority activation, converges on retry, and accepts the final
       session: replay.session,
       requestedAtMs: installedAtMs,
     });
-    await expect(harness.sessionStore.getSessionV1(harness.input.linkSessionId)).resolves.toBeNull();
+    await expect(
+      harness.sessionStore.getSessionV1(harness.input.linkSessionId),
+    ).resolves.toBeNull();
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('reads installed Ed25519 authority projections by identity and material activation', async () => {
+  const temporary = await openDatabase();
+  try {
+    const source = await buildSourceAuthority();
+    const harness = await buildHarness(temporary, source, 'r103');
+    const committed = await harness.install.commitPendingAuthorityV1(harness.input);
+    expect(committed.kind).toBe('committed');
+    if (committed.kind !== 'committed') throw new Error('expected pending authority commit');
+    const edRequest = buildSourcePreservingEd25519ReservationRequestFixture('r103-ed25519');
+    const installed = await installCombinedEd25519ProjectionRow(
+      temporary,
+      harness,
+      committed.packages,
+      edRequest,
+    );
+
+    const byIdentity = await harness.install.readInstalledEd25519AuthorityByIdentityV1({
+      walletId: harness.input.walletId,
+      authorityId: committed.packages.authority.authorityId,
+      walletAuthMethodId: committed.packages.authMethod.walletAuthMethodId,
+    });
+    expect(byIdentity).toMatchObject({
+      walletId: harness.input.walletId,
+      authorityId: committed.packages.authority.authorityId,
+      walletAuthMethodId: committed.packages.authMethod.walletAuthMethodId,
+      targetSessionId: edRequest.preparation.targetBinding.lifecycle.session_id,
+      participantIds: [1, 2],
+      activatedAtMs: installed.activatedAtMs,
+      installedRecordSetDigestB64u: installed.installedRecordSetDigestB64u,
+    });
+    expect(byIdentity?.materialActivation.activationId).toBe(
+      edRequest.plannedActivationRef.activationId,
+    );
+    expect(byIdentity?.targetBinding.session_id).toEqual(
+      edRequest.preparation.targetBinding.session_id,
+    );
+
+    const byMaterial = await harness.install.readInstalledEd25519AuthorityByMaterialActivationV1({
+      walletId: harness.input.walletId,
+      materialActivation: edRequest.plannedActivationRef,
+    });
+    expect(byMaterial?.authorityId).toBe(committed.packages.authority.authorityId);
+    expect(byMaterial?.walletAuthMethodId).toBe(committed.packages.authMethod.walletAuthMethodId);
+    expect(
+      await harness.install.readInstalledEd25519AuthorityByIdentityV1({
+        walletId: harness.input.walletId,
+        authorityId: committed.packages.authority.authorityId,
+        walletAuthMethodId: parseWalletAuthMethodId('wallet-auth-method:missing').value,
+      }),
+    ).toBeNull();
+
+    await setInstallationMarkers(temporary, harness.input.linkSessionId, null, null);
+    await expect(
+      harness.install.readInstalledEd25519AuthorityByIdentityV1({
+        walletId: harness.input.walletId,
+        authorityId: committed.packages.authority.authorityId,
+        walletAuthMethodId: committed.packages.authMethod.walletAuthMethodId,
+      }),
+    ).resolves.toBeNull();
+    await setInstallationMarkers(
+      temporary,
+      harness.input.linkSessionId,
+      installed.installedRecordSetDigestB64u,
+      installed.activatedAtMs,
+    );
+
+    const ambiguousHarness = await buildHarness(temporary, source, 'r103-ambiguous', {
+      deviceId: 'device:r103-ambiguous',
+    });
+    const ambiguousCommitted = await ambiguousHarness.install.commitPendingAuthorityV1(
+      ambiguousHarness.input,
+    );
+    expect(
+      ambiguousCommitted.kind,
+      ambiguousCommitted.kind === 'invalid_input' ? ambiguousCommitted.message : undefined,
+    ).toBe('committed');
+    if (ambiguousCommitted.kind !== 'committed') {
+      throw new Error('expected ambiguous pending authority commit');
+    }
+    await installCombinedEd25519ProjectionRow(
+      temporary,
+      ambiguousHarness,
+      ambiguousCommitted.packages,
+      edRequest,
+    );
+    await expect(
+      harness.install.readInstalledEd25519AuthorityByMaterialActivationV1({
+        walletId: harness.input.walletId,
+        materialActivation: edRequest.plannedActivationRef,
+      }),
+    ).resolves.toBeNull();
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -315,11 +477,13 @@ async function buildHarness(
   readonly authorityStore: D1WalletAuthorityStore;
   readonly authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'>;
   readonly sessionStore: D1LinkedDeviceSessionStoreV1;
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly sourceBinding: WebAuthnCredentialBindingRecord;
 }> {
   const fixture = buildR103DeviceLinkFixture({
     linkSessionId: `link-session:${label}`,
     enrollmentId: `enrollment:${label}`,
-    deviceId: 'device:r103',
+    deviceId: options.deviceId ?? 'device:r103',
   });
   const sessionStore = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
@@ -328,17 +492,17 @@ async function buildHarness(
   });
   await reachProvisioning(sessionService, fixture);
 
-  const targetSigner = buildTargetSigner(String(source.authority.walletId), label);
+  const sourceContribution = buildR103EcdsaSourceContributionV1(fixture);
+  if (sourceContribution.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('R103 source contribution fixture has the wrong family');
+  }
+  const sourceContributionPreparation = buildR103EcdsaSourceContributionPreparationV1(fixture);
+  const ecdsaPreparation = sourceContributionPreparation[0];
+  if (!ecdsaPreparation || 'kind' in ecdsaPreparation) {
+    throw new Error('R103 ECDSA source contribution preparation is missing');
+  }
+  const targetSigner = buildTargetSigner(String(source.authority.walletId), sourceContribution);
   const targetManifest = buildExactAdministeredSignerManifestV1([targetSigner]);
-  const targetActivation = buildMpcMaterialActivationRefFixture(
-    `target-${label}`,
-    String(source.authority.walletId),
-    `worker:target-${label}`,
-  );
-  const targetPreparation = buildOrdinaryEcdsaReservationPreparationFixture(
-    `target-${label}`,
-    targetActivation,
-  );
   const input: VerifiedLinkInputV1 & { readonly nowMs: number } = {
     nowMs,
     walletId: source.authority.walletId,
@@ -355,17 +519,21 @@ async function buildHarness(
     targetFactor: {
       kind: 'verified_passkey_target_v1',
       authMethod: targetPasskeyDraft(source.authority.walletId, label),
-      verificationDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(49))),
+      verificationDigestB64u: sourceContribution.targetFactorVerificationDigestB64u,
       verifiedAtMs: nowMs,
     },
     permissions: buildSigningOnlyPermissionsV1(),
     signerManifest: targetManifest,
+    ed25519ExportRootPackage: null,
+    sourceContribution: [sourceContribution],
     ordinarySignerMaterialRecipientRequests: [
       {
         kind: 'ordinary_ecdsa_signer_material_recipient_request_v1',
         keyFamily: 'ecdsa_secp256k1',
         walletKeyId: targetSigner.walletKeyId,
-        clientEphemeralPublicKey: targetPreparation.registrationRequest.client_ephemeral_public_key,
+        clientEphemeralPublicKey: x25519PublicKeyFromB64u(
+          ecdsaPreparation.target.clientRecipientPublicKeyB64u,
+        ),
       },
     ],
   };
@@ -374,10 +542,32 @@ async function buildHarness(
     database: temporary.database,
     ...scope,
   });
+  const webAuthnStore = new CloudflareD1WebAuthnStore({
+    database: temporary.database,
+    ...scope,
+  });
+  const sourceBinding = testWebAuthnCredentialBindingRecord({
+    credentialIdB64u: String(source.authMethod.credentialIdB64u),
+    userId: String(source.authMethod.walletId),
+    rpId: String(source.authMethod.rpId),
+    signerSlot: 7,
+    publicKey: 'ed25519:linked-source-public',
+    createdAtMs: source.authMethod.createdAtMs,
+    updatedAtMs: source.authMethod.updatedAtMs,
+  });
+  const existingSourceBinding = await webAuthnStore.readBindingByCredential({
+    rpId: String(sourceBinding.rpId),
+    credentialIdB64u: String(sourceBinding.credentialIdB64u),
+  });
+  if (!existingSourceBinding) {
+    await webAuthnStore.prepareCredentialBindingInsertStatement(sourceBinding).run();
+  }
   const authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'> = {
     readByIdV2: async (input) =>
       (await walletAuthMethodStore.readByIdV2(input)) ??
-      (input.walletAuthMethodId === source.authMethod.walletAuthMethodId ? source.authMethod : null),
+      (input.walletAuthMethodId === source.authMethod.walletAuthMethodId
+        ? source.authMethod
+        : null),
   };
   const reservationService = new OrdinaryInactiveSignerMaterialReservationServiceV1(
     new EcdsaReservationWorkerFixture(),
@@ -387,6 +577,7 @@ async function buildHarness(
     scope,
     authorityStore,
     authMethodStore,
+    webAuthnStore,
     sessionStore,
     sessionService: {
       getSessionV1: async ({ linkSessionId, nowMs: requestedAtMs }) =>
@@ -414,7 +605,175 @@ async function buildHarness(
     authorityStore,
     authMethodStore,
     sessionStore,
+    webAuthnStore,
+    sourceBinding,
   };
+}
+
+async function installCombinedEd25519ProjectionRow(
+  temporary: TemporaryD1Database,
+  harness: Awaited<ReturnType<typeof buildHarness>>,
+  basePackages: ReturnType<typeof parseCommittedAuthorityPackagesV1>,
+  edRequest: ReturnType<typeof buildSourcePreservingEd25519ReservationRequestFixture>,
+): Promise<{
+  readonly installedRecordSetDigestB64u: DigestB64u;
+  readonly activatedAtMs: number;
+}> {
+  if (
+    basePackages.authority.signerActivations.keyFamilies.length !== 1 ||
+    basePackages.authority.signerActivations.keyFamilies[0] !== 'ecdsa_secp256k1' ||
+    basePackages.signerPackages.keyFamilies.length !== 1 ||
+    basePackages.signerPackages.keyFamilies[0] !== 'ecdsa_secp256k1' ||
+    !basePackages.authority.signerActivations.ecdsa ||
+    !basePackages.signerPackages.ecdsa
+  ) {
+    throw new Error('projection fixture requires an ECDSA base package');
+  }
+  const edSource = edRequest.preparation.sourceContribution;
+  const edManifest = parseExactAdministeredSignerManifestV1({
+    kind: 'exact_administered_signer_manifest_v1',
+    keyFamilies: ['ed25519'],
+    signers: [
+      {
+        ...edRequest.signer,
+        walletId: harness.input.walletId,
+        walletKeyId: 'wallet-key:r103-ed25519',
+        registeredPublicKeyB64u: edSource.sourceRegisteredPublicKeyB64u,
+      },
+    ],
+  });
+  const edSigner = edManifest.signers[0];
+  if (!edSigner || edSigner.keyFamily !== 'ed25519') {
+    throw new Error('projection Ed25519 signer fixture is invalid');
+  }
+  const combinedManifest = buildExactAdministeredSignerManifestV1([
+    edSigner,
+    basePackages.authority.signerActivations.ecdsa.signer,
+  ]);
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: combinedManifest,
+    materialActivations: {
+      keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+      ed25519: edRequest.plannedActivationRef,
+      ecdsa: basePackages.authority.signerActivations.ecdsa.materialActivation,
+    },
+  });
+  const edPackages = parseCommittedSignerPackageSetV1({
+    kind: 'committed_signer_package_set_v1',
+    keyFamilies: ['ed25519'],
+    ed25519: {
+      kind: 'committed_ed25519_signer_package_v1',
+      materialActivation: edRequest.plannedActivationRef,
+      targetBinding: edRequest.preparation.targetBinding,
+      applicationBinding: {
+        ...edRequest.preparation.applicationBinding,
+        wallet_id: String(harness.input.walletId),
+      },
+      participantIds: edSource.participantIds,
+      activationReceipt: edSource.activationReceipt,
+      deriver_a_client_package: edSource.deriver_a_client_package,
+      deriver_b_client_package: edSource.deriver_b_client_package,
+    },
+  });
+  if (!edPackages.ed25519) throw new Error('projection Ed25519 package is missing');
+  const signerPackages = parseCommittedSignerPackageSetV1({
+    kind: 'committed_signer_package_set_v1',
+    keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+    ed25519: edPackages.ed25519,
+    ecdsa: basePackages.signerPackages.ecdsa,
+  });
+  const sourceManifestDigestB64u = parseDigestB64u(
+    base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(combinedManifest))),
+  );
+  if (basePackages.authority.provenance.kind !== 'device_link') {
+    throw new Error('projection fixture authority provenance is invalid');
+  }
+  const packageSetDigestB64u = await computeCommittedSignerPackageSetDigestB64u({
+    authorityId: basePackages.authority.authorityId,
+    walletId: basePackages.authority.walletId,
+    enrollmentId: basePackages.authority.provenance.enrollmentId,
+    linkSessionId: basePackages.authority.provenance.linkSessionId,
+    deviceId: basePackages.authority.principal.deviceId,
+    authMethodId: basePackages.authMethod.walletAuthMethodId,
+    permissions: basePackages.authority.permissions,
+    sourceManifestDigestB64u,
+    signerPackages,
+    ed25519ExportRootPackageDigestB64u: null,
+    targetFactorVerificationDigestB64u: harness.input.targetFactor.verificationDigestB64u,
+  });
+  const authorityWithoutDigest: PendingWalletAuthorityV1 = {
+    ...basePackages.authority,
+    signerActivations,
+    signerActivationSetDigestB64u:
+      await computeWalletSignerActivationSetDigestB64u(signerActivations),
+    authorityDigestB64u: packageSetDigestB64u,
+    localInstallPackageSetDigestB64u: packageSetDigestB64u,
+  };
+  const authority = buildPendingWalletAuthorityV1({
+    ...authorityWithoutDigest,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityWithoutDigest),
+  });
+  const packages = parseCommittedAuthorityPackagesV1({
+    kind: 'committed_authority_packages_v1',
+    authority,
+    authMethod: basePackages.authMethod,
+    signerPackages,
+    ed25519ExportRootPackage: null,
+    packageSetDigestB64u,
+  });
+  const installedRecordSetDigestB64u = parseDigestB64u(
+    base64UrlEncode(new Uint8Array(32).fill(91)),
+  );
+  const activatedAtMs = nowMs + 1;
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_authority_installations
+          SET package_set_digest_b64u = ?, source_manifest_digest_b64u = ?, packages_json = ?,
+              installed_record_set_digest_b64u = ?, activated_at_ms = ?, updated_at_ms = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ?`,
+    )
+    .bind(
+      String(packageSetDigestB64u),
+      String(sourceManifestDigestB64u),
+      JSON.stringify(packages),
+      String(installedRecordSetDigestB64u),
+      activatedAtMs,
+      activatedAtMs,
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(harness.input.linkSessionId),
+    )
+    .run();
+  return { installedRecordSetDigestB64u, activatedAtMs };
+}
+
+async function setInstallationMarkers(
+  temporary: TemporaryD1Database,
+  linkSessionId: VerifiedLinkInputV1['linkSessionId'],
+  installedRecordSetDigestB64u: DigestB64u | null,
+  activatedAtMs: number | null,
+): Promise<void> {
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_authority_installations
+          SET installed_record_set_digest_b64u = ?, activated_at_ms = ?, updated_at_ms = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ?`,
+    )
+    .bind(
+      installedRecordSetDigestB64u === null ? null : String(installedRecordSetDigestB64u),
+      activatedAtMs,
+      nowMs + 2,
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(linkSessionId),
+    )
+    .run();
 }
 
 async function readWalletSessionAuthorizationCount(
@@ -463,6 +822,10 @@ type SourceFixture = {
 
 async function buildSourceAuthority(): Promise<SourceFixture> {
   const walletId = parseWalletId('wallet:r103').value;
+  const sourceContribution = buildR103EcdsaSourceContributionV1(buildR103DeviceLinkFixture());
+  if (sourceContribution.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('R103 source contribution fixture has the wrong family');
+  }
   const sourceSigner = parseExactAdministeredSignerManifestV1({
     kind: 'exact_administered_signer_manifest_v1',
     keyFamilies: ['ecdsa_secp256k1'],
@@ -471,17 +834,13 @@ async function buildSourceAuthority(): Promise<SourceFixture> {
         kind: 'exact_administered_ecdsa_signer_v1',
         keyFamily: 'ecdsa_secp256k1',
         walletId,
-        walletKeyId: 'wallet-key:r103-source',
-        thresholdPublicKey33B64u: base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(7)])),
+        walletKeyId: sourceContribution.walletKeyId,
+        thresholdPublicKey33B64u: sourceContribution.sourceSigner.thresholdPublicKey33B64u,
         evmAddress: '0x1111111111111111111111111111111111111111',
       },
     ],
   });
-  const sourceActivation = buildMpcMaterialActivationRefFixture(
-    'source-r103',
-    String(walletId),
-    'worker:source-r103',
-  );
+  const sourceActivation = sourceContribution.sourceSigner.activation;
   const signerActivations = buildWalletSignerActivationSetV1({
     manifest: sourceSigner,
     materialActivations: {
@@ -489,15 +848,17 @@ async function buildSourceAuthority(): Promise<SourceFixture> {
       ecdsa: sourceActivation,
     },
   });
-  const signerActivationSetDigestB64u = await computeWalletSignerActivationSetDigestB64u(
-    signerActivations,
-  );
-  const authorityId = parseWalletAuthorityId('authority:r103-source').value;
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
+  const authorityId = sourceContribution.sourceAuthorityId;
   const authorityDraft = {
     kind: 'wallet_authority_v1' as const,
     authorityId,
     walletId,
-    principal: { kind: 'owner_device' as const, deviceId: parseDeviceId('device:r103-source').value },
+    principal: {
+      kind: 'owner_device' as const,
+      deviceId: parseDeviceId('device:r103-source').value,
+    },
     provenance: { kind: 'wallet_registration' as const },
     permissions: buildFullOwnerPermissionsV1(),
     signerActivations,
@@ -535,7 +896,13 @@ async function buildSourceAuthority(): Promise<SourceFixture> {
   return { authority, authMethod };
 }
 
-function buildTargetSigner(walletId: string, label: string) {
+function buildTargetSigner(
+  walletId: string,
+  sourceContribution: Extract<
+    ReturnType<typeof buildR103EcdsaSourceContributionV1>,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >,
+) {
   const manifest = parseExactAdministeredSignerManifestV1({
     kind: 'exact_administered_signer_manifest_v1',
     keyFamilies: ['ecdsa_secp256k1'],
@@ -544,8 +911,8 @@ function buildTargetSigner(walletId: string, label: string) {
         kind: 'exact_administered_ecdsa_signer_v1',
         keyFamily: 'ecdsa_secp256k1',
         walletId,
-        walletKeyId: `wallet-key:r103-target-${label}`,
-        thresholdPublicKey33B64u: base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(11)])),
+        walletKeyId: sourceContribution.walletKeyId,
+        thresholdPublicKey33B64u: sourceContribution.sourceSigner.thresholdPublicKey33B64u,
         evmAddress: '0x2222222222222222222222222222222222222222',
       },
     ],
@@ -555,7 +922,17 @@ function buildTargetSigner(walletId: string, label: string) {
   return signer;
 }
 
-function targetPasskeyDraft(walletId: ActiveWalletAuthorityV1['walletId'], label: string): PasskeyWalletAuthMethodDraftV1 {
+function x25519PublicKeyFromB64u(value: string): string {
+  return `x25519:${Array.from(base64UrlDecode(value), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')}`;
+}
+
+function targetPasskeyDraft(
+  walletId: ActiveWalletAuthorityV1['walletId'],
+  label: string,
+): PasskeyWalletAuthMethodDraftV1 {
+  const credentialSeed = 71 + label.length;
   return {
     version: 'wallet_auth_method_v2',
     walletAuthMethodId: parseWalletAuthMethodId(`wallet-auth-method:r103-target-${label}`).value,
@@ -564,7 +941,7 @@ function targetPasskeyDraft(walletId: ActiveWalletAuthorityV1['walletId'], label
     kind: 'passkey',
     rpId: parseWebAuthnRpId('r103.example.test').value,
     credentialIdB64u: parseWebAuthnCredentialIdB64u(
-      base64UrlEncode(new Uint8Array(32).fill(71)),
+      base64UrlEncode(new Uint8Array(32).fill(credentialSeed)),
     ).value,
     credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(65).fill(73)),
     counter: 0,
@@ -605,7 +982,10 @@ async function reachProvisioning(
       walletSessionId: 'wallet-session:r103-test',
       authorizationId: 'authorization:r103-test',
       expiresAtMs: nowMs + 7_000,
-      permission: { kind: 'delegated_wallet_authority_v1', permissions: buildFullOwnerPermissionsV1() },
+      permission: {
+        kind: 'delegated_wallet_authority_v1',
+        permissions: buildFullOwnerPermissionsV1(),
+      },
       curve: 'ecdsa',
       keyManifestDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(79))),
     },
@@ -618,7 +998,10 @@ async function reachProvisioning(
       walletSessionId: 'wallet-session:r103-test',
       authorizationId: 'authorization:r103-test',
       expiresAtMs: approval.expiresAtMs,
-      permission: { kind: 'delegated_wallet_authority_v1', permissions: buildFullOwnerPermissionsV1() },
+      permission: {
+        kind: 'delegated_wallet_authority_v1',
+        permissions: buildFullOwnerPermissionsV1(),
+      },
       curve: 'ecdsa',
       keyManifestDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(79))),
     },
@@ -629,9 +1012,24 @@ async function reachProvisioning(
   const provisioning = await service.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: approved.record.revision,
+    sourceContributionPreparation: buildR103EcdsaSourceContributionPreparationV1(fixture),
     nowMs: nowMs + 3,
   });
-  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning linked-device session');
+  if (provisioning.outcome !== 'applied') {
+    throw new Error('expected source contribution linked-device session');
+  }
+  const sourceContributionApproval = buildLinkedDeviceApprovalV1({
+    ...approval,
+    sourceContribution: [buildR103EcdsaSourceContributionV1(fixture)],
+  });
+  const contributed = await service.recordSourceContributionV1({
+    approval: sourceContributionApproval,
+    owner: buildR103OwnerApprovalContextV1(sourceContributionApproval),
+    nowMs: nowMs + 4,
+  });
+  if (contributed.outcome !== 'applied') {
+    throw new Error('expected provisioning linked-device session');
+  }
 }
 
 class EcdsaReservationWorkerFixture implements OrdinaryInactiveSignerMaterialReservationWorkerPortV1 {
@@ -642,19 +1040,59 @@ class EcdsaReservationWorkerFixture implements OrdinaryInactiveSignerMaterialRes
   async reserveInactiveEcdsaSignerMaterialV1(
     request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
   ): Promise<OrdinaryEcdsaSignerMaterialWorkerReservationV1> {
-    return {
+    const sourceNormalSigning = request.preparation.sourceDerivation.sourceNormalSigning;
+    const sourceScope = sourceNormalSigning.scope;
+    const binding = request.preparation.sourceContribution.binding;
+    const targetNormalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1({
+      kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+      scope: {
+        wallet_id: sourceScope.wallet_id,
+        ecdsa_threshold_key_id: sourceScope.ecdsa_threshold_key_id,
+        signing_root_id: sourceScope.signing_root_id,
+        signing_root_version: sourceScope.signing_root_version,
+        context: sourceScope.context,
+        public_identity: {
+          ...sourceScope.public_identity,
+          derivation_client_share_public_key33_b64u: binding.targetClientPublicKey33B64u,
+          server_public_key33_b64u: binding.source.relayerPublicKey33B64u,
+        },
+        material_activation: routerAbMpcMaterialActivationRefToWire(binding.target.activation),
+        signing_worker: {
+          server_id: binding.target.activation.signingWorker,
+          key_epoch: sourceScope.signing_worker.key_epoch,
+          recipient_encryption_key: x25519PublicKeyFromB64u(
+            binding.target.signingWorkerRecipientPublicKeyB64u,
+          ),
+        },
+        activation_epoch: sourceScope.activation_epoch,
+      },
+    });
+    return parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(request, {
       kind: 'ordinary_ecdsa_signer_material_worker_reservation_v1',
       keyFamily: 'ecdsa_secp256k1',
       state: 'inactive',
       signer: request.signer,
       materialActivation: request.plannedActivationRef,
-      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture(
-        'authority-install',
-        request.preparation.registrationRequest.client_ephemeral_public_key,
-        request.preparation.registrationRequest.signer_set.signer_a.key_epoch,
-      ),
-      serverMaterialReservationId: 'server-reservation:authority-install',
-    };
+      activationReceipt: {
+        state: 'inactive',
+        binding,
+        sourceDerivation: request.preparation.sourceDerivation,
+        targetRelayerPublicKey33B64u: binding.source.relayerPublicKey33B64u,
+        thresholdPublicKey33B64u: request.signer.thresholdPublicKey33B64u,
+        thresholdEthereumAddress20B64u: binding.source.thresholdEthereumAddress20B64u,
+        normalSigning: targetNormalSigning,
+      },
+      clientMaterial: {
+        kind: 'ordinary_ecdsa_client_material_v1',
+        encryptedTargetClientShare:
+          request.preparation.sourceContribution.encryptedTargetClientShare,
+      },
+      serverMaterial: {
+        kind: 'ordinary_ecdsa_inactive_server_material_v1',
+        reservationId: 'server-reservation:authority-install',
+        encryptedTargetServerShare: request.preparation.sourceContribution.encryptedDelta,
+      },
+    });
   }
 }
 
