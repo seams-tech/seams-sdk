@@ -1454,25 +1454,29 @@ type PresignPriorityTicket = {
   release: () => void;
 };
 
+// Workers cannot safely resolve a Promise created by another request context.
+function resolvePresignPriorityTurn(resolve: (value: void | PromiseLike<void>) => void): void {
+  setTimeout(resolve, 5);
+}
+
+function waitForPresignPriorityTurn(): Promise<void> {
+  return new Promise(resolvePresignPriorityTurn);
+}
+
 class PresignPriorityGate {
   private foregroundInFlight = 0;
   private backgroundInFlight = 0;
-  private readonly backgroundQueue: Array<{
-    resolve: (ticket: PresignPriorityTicket) => void;
-  }> = [];
 
   async acquire(trafficClass: PresignTrafficClass): Promise<PresignPriorityTicket> {
     if (trafficClass === 'foreground') {
       this.foregroundInFlight += 1;
       return this.createTicket('foreground');
     }
-    if (this.canRunBackgroundNow()) {
-      this.backgroundInFlight += 1;
-      return this.createTicket('background');
+    while (!this.canRunBackgroundNow()) {
+      await waitForPresignPriorityTurn();
     }
-    return await new Promise((resolve) => {
-      this.backgroundQueue.push({ resolve });
-    });
+    this.backgroundInFlight += 1;
+    return this.createTicket('background');
   }
 
   private createTicket(trafficClass: PresignTrafficClass): PresignPriorityTicket {
@@ -1486,21 +1490,12 @@ class PresignPriorityGate {
         } else {
           this.backgroundInFlight = Math.max(0, this.backgroundInFlight - 1);
         }
-        this.drainBackgroundQueue();
       },
     };
   }
 
   private canRunBackgroundNow(): boolean {
     return this.foregroundInFlight === 0 && this.backgroundInFlight === 0;
-  }
-
-  private drainBackgroundQueue(): void {
-    if (!this.canRunBackgroundNow()) return;
-    const next = this.backgroundQueue.shift();
-    if (!next) return;
-    this.backgroundInFlight += 1;
-    next.resolve(this.createTicket('background'));
   }
 }
 
