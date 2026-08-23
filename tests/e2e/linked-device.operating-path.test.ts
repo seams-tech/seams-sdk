@@ -1121,7 +1121,7 @@ type BrowserPasskeyRevocationInput = {
   readonly actorCredentialIdB64u: string;
   readonly endpoint: string;
   readonly rpId: string;
-  readonly targetCredentialIdB64u: string;
+  readonly target: unknown;
 };
 
 type BrowserPasskeyRevocationResult = {
@@ -1430,11 +1430,7 @@ async function revokePasskeyOwnerInBrowser(
         credential: serializableCredential.toJSON(),
         expectedChallengeDigestB64u,
       },
-      target: {
-        kind: 'passkey',
-        rpId: input.rpId,
-        credentialIdB64u: input.targetCredentialIdB64u,
-      },
+      target: input.target,
     }),
     headers: { 'content-type': 'application/json' },
     method: 'POST',
@@ -1471,9 +1467,33 @@ async function attemptRevokeOwner(
     actorCredentialIdB64u: actor.credentialIdB64u,
     endpoint,
     rpId: actor.rpId,
-    targetCredentialIdB64u: target.credentialIdB64u,
+    target: {
+      kind: 'passkey',
+      rpId: target.rpId,
+      credentialIdB64u: target.credentialIdB64u,
+    },
   });
   return result;
+}
+
+async function attemptRejectedRevocationTarget(
+  page: Page,
+  actor: OwnerCredentialSnapshot,
+  target: unknown,
+): Promise<BrowserPasskeyRevocationResult> {
+  const endpoint = `${actor.routerOrigin}/wallets/${encodeURIComponent(actor.walletId)}/auth-methods/revoke`;
+  return await page.evaluate(revokePasskeyOwnerInBrowser, {
+    actorCredentialIdB64u: actor.credentialIdB64u,
+    endpoint,
+    rpId: actor.rpId,
+    target,
+  });
+}
+
+function assertRejectedRevocationTarget(result: BrowserPasskeyRevocationResult): void {
+  const body = requireRecord(result.body, 'rejected auth-method target response');
+  expect(result.status).toBeGreaterThanOrEqual(400);
+  expect(body.ok).toBe(false);
 }
 
 function isSuccessfulRevocation(result: BrowserPasskeyRevocationResult): boolean {
@@ -2279,8 +2299,25 @@ test('Device 1 revokes Device 2 while preserving wallet identity and owner opera
       .map((entry) => `${entry.publicKey.toLowerCase()}:${entry.address.toLowerCase()}`)
       .sort();
     expect(device2EcdsaKeys).toEqual(pair.owner.publicIdentity.ecdsaKeys);
+    const actor = ownerCredentialSnapshot(pair.owner);
+    assertRejectedRevocationTarget(
+      await attemptRejectedRevocationTarget(pair.ownerPage, actor, {
+        kind: 'authority_id',
+        authorityId: pair.activation.authorityId,
+      }),
+    );
+    assertRejectedRevocationTarget(
+      await attemptRejectedRevocationTarget(pair.ownerPage, actor, [
+        {
+          kind: 'passkey',
+          rpId: pair.device2.rpId,
+          credentialIdB64u: pair.device2.credentialIdB64u,
+        },
+      ]),
+    );
+    await assertPasskeyInventoryLoaded(pair.ownerPage, 2);
     await lockWallet(pair.device2Page);
-    await revokeOwner(pair.ownerPage, ownerCredentialSnapshot(pair.owner), pair.device2);
+    await revokeOwner(pair.ownerPage, actor, pair.device2);
     await assertRevokedOwnerCannotUnlock(pair.device2Page);
     await linkedSigning(pair.ownerPage, pair.ownerDiagnostics);
   } finally {
