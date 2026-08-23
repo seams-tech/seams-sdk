@@ -82,6 +82,8 @@
     "test:lite": "pnpm -C tests test:lite",
     "test:inline": "pnpm -C tests test:inline",
     "test:e2e": "pnpm -C tests test:e2e",
+    "test:linked-device:unit": "pnpm -C tests test:linked-device:unit",
+    "test:linked-device:representative": "pnpm -C tests test:linked-device:representative",
     "test:linked-device": "pnpm -C tests test:linked-device",
     "test:intended": "pnpm -C tests test:intended",
     "test:intended:ci": "pnpm -C tests test:intended:ci",

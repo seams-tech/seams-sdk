@@ -3,6 +3,7 @@ import {
   DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
   handleDeviceLinking,
   targetCredentialResultResponse,
+  type DeviceLinkingEd25519SourcePreservingRouterPortV1,
   type DeviceLinkingRouteServiceV1,
 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinking';
 import type {
@@ -28,8 +29,16 @@ import {
   parseLinkedDeviceTargetCredentialRegistrationV1,
 } from '@shared/device-linking/parsers';
 import {
+  buildSourcePreservingEd25519ReservationRequestFixture,
   buildSourcePreservingEcdsaReservationRequestFixture,
 } from './helpers/ordinarySourcePreservingReservation.fixtures';
+import {
+  parseLinkedDeviceEd25519SourcePreservingReservationV1,
+  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
+} from '@shared/device-linking/sourceContribution';
+import {
+  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   applyD1MigrationFiles,
@@ -307,6 +316,186 @@ test('target credential registration does not trust the request Origin', async (
   expect(response.status).toBe(400);
   expect(registrationCalled).toBe(true);
 });
+
+test('executes an Ed25519 linked-device source contribution and returns the parsed reservation', async () => {
+  const boundary = await prepareEd25519SourceContributionExecuteBoundary('route-execute');
+  const routeService = routeServiceFor(boundary.sessionService, boundary.fixture, 3_000, {
+    sourceContributionRouter: new SourceContributionRouterStub(boundary.rawReservation),
+  });
+
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: boundary.pathname,
+    body: boundary.targetRequest,
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(boundary.expectedReservation);
+});
+
+test('preserves an Ed25519 source-contribution Router error in the exact 500 body', async () => {
+  const boundary = await prepareEd25519SourceContributionExecuteBoundary(
+    'route-execute-upstream-error',
+  );
+  const upstreamMessage =
+    'Ed25519 source-preserving Router execution failed with HTTP 502';
+  const routeService = routeServiceFor(boundary.sessionService, boundary.fixture, 3_000, {
+    sourceContributionRouter: new SourceContributionRouterStub(new Error(upstreamMessage)),
+  });
+
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: boundary.pathname,
+    body: boundary.targetRequest,
+  });
+
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({
+    ok: false,
+    code: 'internal',
+    message: upstreamMessage,
+  });
+});
+
+class SourceContributionRouterStub implements DeviceLinkingEd25519SourcePreservingRouterPortV1 {
+  constructor(private readonly result: unknown) {}
+
+  async executeEd25519SourcePreservingV1(): Promise<unknown> {
+    if (this.result instanceof Error) throw this.result;
+    return this.result;
+  }
+}
+
+async function prepareEd25519SourceContributionExecuteBoundary(label: string) {
+  temporary = await openDatabase();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: `link-session:${label}`,
+    enrollmentId: `linked-enrollment:${label}`,
+    deviceId: `linked-device:${label}`,
+  });
+  const sessionService = buildSessionService(fixture);
+  const reservationRequest = buildSourcePreservingEd25519ReservationRequestFixture(label);
+  const sourceContribution = reservationRequest.preparation.sourceContribution;
+  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
+  if (!walletKeyId) throw new Error('fixture source wallet key is missing');
+  const sourceContributionPreparation =
+    parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1([
+      {
+        kind: 'linked_device_ed25519_source_contribution_preparation_v1',
+        linkSessionId: fixture.payload.linkSessionId,
+        enrollmentId: fixture.approval.enrollmentId,
+        sourceAuthorityId: sourceContribution.sourceAuthorityId,
+        walletKeyId,
+        targetDeviceId: fixture.approval.deviceId,
+        targetFactorVerificationDigestB64u: fixture.packageSetDigestB64u,
+        sourceBinding: sourceContribution.sourceBinding,
+        targetAdmission: {
+          binding: sourceContribution.targetBinding,
+          keyset: {
+            deriver_a_input_public_key: new Array<number>(32).fill(31),
+            deriver_b_input_public_key: new Array<number>(32).fill(47),
+            signing_worker_recipient_public_key: new Array<number>(32).fill(63),
+          },
+        },
+        applicationBinding: reservationRequest.preparation.applicationBinding,
+        sourceRevocationEpoch: 0,
+        participantIds: sourceContribution.participantIds,
+        targetMaterialActivation: sourceContribution.targetMaterialActivation,
+        targetClientRecipientPublicKeyB64u:
+          sourceContribution.targetClientRecipientPublicKeyB64u,
+        targetSigningWorkerRecipientPublicKeyB64u:
+          sourceContribution.targetSigningWorkerRecipientPublicKeyB64u,
+        sourceRegisteredPublicKeyB64u: sourceContribution.sourceRegisteredPublicKeyB64u,
+      },
+    ]);
+  const preparation = sourceContributionPreparation[0];
+  if (!preparation || !('kind' in preparation)) {
+    throw new Error('fixture Ed25519 source contribution preparation is missing');
+  }
+  const targetRequest = buildEd25519SourceContributionTargetRequest(
+    sourceContribution.targetBinding,
+  );
+  const rawReservation = {
+    state: 'inactive',
+    reservation_id: sourceContribution.reservationId,
+    participant_ids: sourceContribution.participantIds,
+    activation_receipt: sourceContribution.activationReceipt,
+    deriver_a_client_package: sourceContribution.deriver_a_client_package,
+    deriver_b_client_package: sourceContribution.deriver_b_client_package,
+  };
+
+  const created = await sessionService.createUnclaimedSessionV1({
+    payload: fixture.payload,
+    nowMs: 1_000,
+  });
+  if (created.outcome !== 'applied') throw new Error('fixture session creation failed');
+  const owner = buildR103OwnerApprovalContextV1(fixture.approval);
+  const claimed = await sessionService.claimSessionV1({
+    payload: fixture.payload,
+    owner,
+    nowMs: 1_500,
+  });
+  if (claimed.outcome !== 'applied') throw new Error('fixture session claim failed');
+  const approved = await sessionService.recordOwnerApprovalV1({
+    approval: fixture.approval,
+    owner,
+    nowMs: 2_000,
+  });
+  if (approved.outcome !== 'applied') throw new Error('fixture owner approval failed');
+  const recorded = await sessionService.recordTargetCredentialV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: approved.record.revision,
+    sourceContributionPreparation,
+    nowMs: 2_500,
+  });
+  if (
+    recorded.outcome !== 'applied' ||
+    recorded.record.state.state !== 'awaiting_source_contribution'
+  ) {
+    throw new Error('fixture source contribution preparation was not recorded');
+  }
+
+  return {
+    fixture,
+    sessionService,
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/source-contribution/execute`,
+    targetRequest,
+    rawReservation,
+    expectedReservation: parseLinkedDeviceEd25519SourcePreservingReservationV1(
+      rawReservation,
+    ),
+  };
+}
+
+function buildEd25519SourceContributionTargetRequest(
+  binding: ReturnType<
+    typeof buildSourcePreservingEd25519ReservationRequestFixture
+  >['preparation']['sourceContribution']['targetBinding'],
+) {
+  const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1({
+    binding,
+    deriver_a_input: {
+      kind: 'activation',
+      deriver: 'deriver_a',
+      operation: 'registration',
+      session: binding.session_id,
+      stable_context_binding: binding.stable_key_context_binding,
+      encapsulated_key: new Array<number>(32).fill(71),
+      ciphertext: new Array<number>(32).fill(73),
+    },
+    deriver_b_input: {
+      kind: 'activation',
+      deriver: 'deriver_b',
+      operation: 'registration',
+      session: binding.session_id,
+      stable_context_binding: binding.stable_key_context_binding,
+      encapsulated_key: new Array<number>(32).fill(79),
+      ciphertext: new Array<number>(32).fill(83),
+    },
+  });
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
+}
 
 async function openDatabase(): Promise<TemporaryD1Database> {
   const database = createTemporaryD1Database();
