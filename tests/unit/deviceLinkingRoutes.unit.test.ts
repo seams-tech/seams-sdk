@@ -380,7 +380,10 @@ function ownerAuthorization(
         claimExpiresAtMs: fixture.payload.expiresAtMs,
       },
     }),
-    authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
+    authorizeOwnerApprovalV1: async () => ({
+      kind: 'authorized' as const,
+      sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
+    }),
   };
 }
 

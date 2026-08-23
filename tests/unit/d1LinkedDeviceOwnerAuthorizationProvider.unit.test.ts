@@ -35,6 +35,8 @@ import {
   createD1LinkedDeviceOwnerSourceChildReaderV1,
   createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
+import { sourceKeyManifestDigestForFamilyV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
+import { parseLinkedDeviceSessionRecordV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import { buildR103AwaitingTargetPasskeySessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildRouterAbEd25519WalletSessionClaimsFixture } from './helpers/routerAbEd25519WalletSessionClaims.fixtures';
@@ -331,4 +333,31 @@ test('resolves the approved Ed25519 source child from the wallet signer projecti
     nearEd25519SigningKeyId: projected.projection.walletKey.nearEd25519SigningKeyId,
     keyCreationSignerSlot: projected.projection.walletKey.keyCreationSignerSlot,
   });
+});
+
+test('selects distinct custody digests by approved source key family', () => {
+  const ed25519 = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(1)));
+  const ecdsa = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(2)));
+  const digests = { ed25519, ecdsa_secp256k1: ecdsa };
+
+  expect(sourceKeyManifestDigestForFamilyV1(digests, 'ed25519')).toBe(ed25519);
+  expect(sourceKeyManifestDigestForFamilyV1(digests, 'ecdsa_secp256k1')).toBe(ecdsa);
+});
+
+test('rejects transcript digest families absent from approved source lanes', async () => {
+  const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:digest-family-boundary' });
+  const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
+  if (!session.approvalTranscript) throw new Error('fixture approval transcript is missing');
+  const ed25519 = fixture.packageSetDigestB64u;
+  const ecdsa = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(3)));
+
+  expect(() =>
+    parseLinkedDeviceSessionRecordV1({
+      ...session,
+      approvalTranscript: {
+        ...session.approvalTranscript,
+        sourceKeyManifestDigestsB64u: { ed25519, ecdsa_secp256k1: ecdsa },
+      },
+    }),
+  ).toThrow(/digest families do not match approved source lanes/);
 });

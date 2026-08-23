@@ -45,7 +45,7 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     approvalTranscript: {
       digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
       value: fixture.approval,
-      sourceKeyManifestDigestB64u: fixture.packageSetDigestB64u,
+      sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     },
     targetFactor: fixture.approval.targetFactor,
     authorityId: authorityId.value,
@@ -119,7 +119,7 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
     approvalTranscript: {
       digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
       value: fixture.approval,
-      sourceKeyManifestDigestB64u: fixture.packageSetDigestB64u,
+      sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     },
     targetFactor: fixture.approval.targetFactor,
     createdAtMs: fixture.payload.issuedAtMs,
