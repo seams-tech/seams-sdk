@@ -179,7 +179,7 @@ test('allocates a fresh authority id when the same physical device relinks', asy
   }
 });
 
-test('rolls back authority activation and converges with a prepared Wallet Session on retry', async () => {
+test('rolls back authority activation, converges on retry, and accepts the final acknowledgement', async () => {
   const temporary = await openDatabase();
   try {
     const source = await buildSourceAuthority();
@@ -271,6 +271,7 @@ test('rolls back authority activation and converges with a prepared Wallet Sessi
     expect(replay.authority.state).toBe('active');
     expect(replay.authMethod.status).toBe('active');
     expect(replay.session.state.state).toBe('active');
+    expect(replay.session.packageSetDigestB64u).toBe(committed.packages.packageSetDigestB64u);
     expect(
       await readWalletSessionAuthorizationCount(
         temporary.database,
@@ -279,6 +280,19 @@ test('rolls back authority activation and converges with a prepared Wallet Sessi
       ),
     ).toBe(1);
     expect(await readWalletSessionQuotaCount(temporary.database)).toBe(1);
+    await harness.install.acknowledgeLocalAuthorityActivationV1({
+      acknowledgement: {
+        kind: 'local_authority_activation_final_ack_v1',
+        linkSessionId: harness.input.linkSessionId,
+        authorityId: replay.authority.authorityId,
+        packageSetDigestB64u: committed.packages.packageSetDigestB64u,
+        authorizationId: replay.walletSession.session.authorizationId,
+        acknowledgedAtMs: installedAtMs,
+      },
+      session: replay.session,
+      requestedAtMs: installedAtMs,
+    });
+    await expect(harness.sessionStore.getSessionV1(harness.input.linkSessionId)).resolves.toBeNull();
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -377,9 +391,7 @@ async function buildHarness(
     sessionService: {
       getSessionV1: async ({ linkSessionId, nowMs: requestedAtMs }) =>
         await sessionService.getSessionV1({ linkSessionId, nowMs: requestedAtMs }),
-      deleteActiveSessionV1: async () => {
-        throw new Error('active-session deletion is outside this commit test');
-      },
+      deleteActiveSessionV1: sessionService.deleteActiveSessionV1.bind(sessionService),
     },
     reservationService,
     materialActivation: options.materialActivation ?? {

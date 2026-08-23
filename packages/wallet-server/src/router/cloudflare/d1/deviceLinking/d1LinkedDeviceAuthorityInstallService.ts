@@ -579,7 +579,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     if (
       acknowledgement.linkSessionId !== session.linkSessionId ||
       acknowledgement.authorityId !== session.state.authorityId ||
-      acknowledgement.packageSetDigestB64u !== session.state.packageSetDigestB64u
+      acknowledgement.packageSetDigestB64u !== session.packageSetDigestB64u
     ) {
       throw new Error('active authority acknowledgement identity does not match the session');
     }
