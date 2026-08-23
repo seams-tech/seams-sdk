@@ -229,8 +229,8 @@ export function CompanyPage(): React.JSX.Element {
                 Legal entity
               </p>
               <p className="company-legal__copy">
-                Seams Technologies KK, Tokyo, Japan. Copyright © {new Date().getFullYear()} Seams
-                Technologies KK. All rights reserved.
+                Seams Technologies KK — Tokyo, Japan. Copyright © {new Date().getFullYear()}. All
+                rights reserved.
               </p>
             </div>
           </section>
