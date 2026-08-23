@@ -547,6 +547,8 @@ type CapturedWalletBudgetStatusRequest = {
   authorization: string;
   contentType: string;
   body: string;
+  walletSessionId: string;
+  quotaId: string;
 };
 
 type AuthoritativeWalletBudgetReplay =
@@ -1148,11 +1150,22 @@ export class IntendedBehaviourHarness {
       },
       data: captured.body,
     });
-    if (response.status() !== 401 && response.status() !== 403) {
+    const status = response.status();
+    if (status === 401 || status === 403) {
+      this.recordService('source Wallet Session authorization rejected after recovery');
+      return;
+    }
+    if (status !== 200) {
       throw new Error(
-        `Source Wallet Session remained usable after recovery (${response.status()})`,
+        `Source Wallet Session revocation check returned HTTP ${status}`,
       );
     }
+    const responseText = await response.text();
+    assertRevokedWalletBudgetStatus({
+      responseText,
+      walletSessionId: captured.walletSessionId,
+      quotaId: captured.quotaId,
+    });
     this.recordService('source Wallet Session authorization rejected after recovery');
   }
 
@@ -4129,6 +4142,8 @@ function captureWalletBudgetStatusRequest(
   const body = request.postData();
   if (!authorization.startsWith('Bearer ') || !body) return null;
 
+  let walletSessionId: string;
+  let quotaId: string;
   try {
     const parsed: unknown = JSON.parse(body);
     const requestBody = requireRecord(parsed, 'wallet budget status request body');
@@ -4138,6 +4153,8 @@ function captureWalletBudgetStatusRequest(
       typeof requestBody.quotaId !== 'string'
     )
       return null;
+    walletSessionId = requestBody.walletSessionId;
+    quotaId = requestBody.quotaId;
   } catch {
     return null;
   }
@@ -4147,7 +4164,36 @@ function captureWalletBudgetStatusRequest(
     authorization,
     contentType,
     body,
+    walletSessionId,
+    quotaId,
   };
+}
+
+function assertRevokedWalletBudgetStatus(args: {
+  responseText: string;
+  walletSessionId: string;
+  quotaId: string;
+}): void {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(args.responseText);
+  } catch {
+    throw new Error('Revoked wallet session status response must be valid JSON');
+  }
+  const response = requireRecord(raw, 'revoked wallet session status response');
+  if (response.ok !== true || response.status !== 'invalid') {
+    throw new Error(
+      `Source Wallet Session remained usable after recovery (${String(response.status)})`,
+    );
+  }
+  const walletSessionId = requireString(
+    response.walletSessionId,
+    'revoked wallet session status walletSessionId',
+  );
+  const quotaId = requireString(response.quotaId, 'revoked wallet session status quotaId');
+  if (walletSessionId !== args.walletSessionId || quotaId !== args.quotaId) {
+    throw new Error('Revoked wallet session status did not match the captured session');
+  }
 }
 
 function parseAuthoritativeWalletBudgetStatus(args: {
