@@ -60,7 +60,7 @@ export class D1LinkedDeviceEmailOtpGrantStoreV1 {
         String(parsed.walletAuthMethodId),
         parsed.authorityDigestB64u,
         parsed.challengeId,
-        JSON.stringify(parsed),
+        serializeGrantForD1(parsed),
         parsed.issuedAtMs,
         parsed.expiresAtMs,
       )
@@ -70,7 +70,11 @@ export class D1LinkedDeviceEmailOtpGrantStoreV1 {
   async readByIdV1(grantId: string): Promise<LinkedDeviceEmailOtpGrantRecordV1 | null> {
     const row = await this.database
       .prepare(
-        `SELECT record_json FROM ${GRANT_TABLE}
+        `SELECT json_set(
+                  json_remove(record_json, '$.linkedOwnerAuthMethodId'),
+                  '$.walletAuthMethodId',
+                  linked_owner_auth_method_id
+                ) AS record_json FROM ${GRANT_TABLE}
           WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
             AND grant_id = ? LIMIT 1`,
       )
@@ -114,6 +118,11 @@ export class D1LinkedDeviceEmailOtpGrantStoreV1 {
       this.database.prepare(GRANT_CAS_GUARD_SQL),
     ];
   }
+}
+
+function serializeGrantForD1(record: LinkedDeviceEmailOtpGrantRecordV1): string {
+  const { walletAuthMethodId, ...persisted } = record;
+  return JSON.stringify({ ...persisted, linkedOwnerAuthMethodId: walletAuthMethodId });
 }
 
 function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {

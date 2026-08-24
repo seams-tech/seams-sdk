@@ -1104,6 +1104,9 @@ async function createLocalRouterApiHandler(
               routerApiService.emailOtp,
               routerApiService.walletAuthMethods,
               routerApiService.authorizedOperations,
+              routerApiService.walletRegistration.resolveEd25519MaterialActivation.bind(
+                routerApiService.walletRegistration,
+              ),
             ),
           },
         }
@@ -1324,11 +1327,13 @@ function localLinkedDeviceSessionComposition(
         targetCredentialVerification,
         targetPlanner,
         resolveOwnerSourceChildV1,
+        emailOtpGrants,
       }) =>
         new D1LinkedDeviceTargetCredentialProviderV1({
           database: env.SIGNER_DB,
           scope,
           verifier: targetCredentialVerification,
+          ...(emailOtpGrants === undefined ? {} : { emailOtpGrants }),
           planner: targetPlanner,
           sourceContributionPreparationPlanner:
             createD1LinkedDeviceSourceContributionPreparationPlannerV1({
@@ -1353,11 +1358,12 @@ function localLinkedDeviceSessionComposition(
           internalServiceAuthSecret,
         }),
       },
-      sourceContributionRouter:
-        createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1({
+      sourceContributionRouter: createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1(
+        {
           fetch: serviceFetch,
           internalServiceAuthSecret,
-        }),
+        },
+      ),
     },
   };
 }
@@ -1627,16 +1633,10 @@ function localSigningWorkerRecipientPublicKeyB64u(env: LocalD1DevEnv): string {
       'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY is required for linked-device sessions',
     );
   }
-  return localX25519PublicKeyB64u(
-    publicKey,
-    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
-  );
+  return localX25519PublicKeyB64u(publicKey, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY');
 }
 
-function localDeriverInputPublicKeyB64u(
-  env: LocalD1DevEnv,
-  role: 'a' | 'b',
-): string {
+function localDeriverInputPublicKeyB64u(env: LocalD1DevEnv, role: 'a' | 'b'): string {
   const configuredPublicKey = normalizeLocalString(
     role === 'a'
       ? env.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY
@@ -1661,9 +1661,10 @@ function localX25519PublicKeyB64u(value: string, label: string): string {
   if (!/^x25519:[0-9a-f]{64}$/.test(value)) {
     throw new Error(`${label} must use x25519:<64 lowercase hex chars> encoding`);
   }
+  const hex = value.slice('x25519:'.length);
   const bytes = new Uint8Array(32);
   for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(value.slice(8 + index * 2, 10 + index * 2), 16);
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
   return base64UrlEncode(bytes);
 }
