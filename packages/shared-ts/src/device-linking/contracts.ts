@@ -540,25 +540,6 @@ export type LinkedDeviceSessionTransportEventV1 = {
   readonly emittedAtMs: number;
 };
 
-/** Authenticated relay projection returned to the device that owns a session. */
-export type LinkedDeviceSessionProjectionV1 = {
-  readonly kind: 'linked_device_session_projection_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
-  readonly revision: number;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-} & (
-  | {
-      readonly state: LinkedDeviceSessionUnclaimedState;
-      readonly deviceId?: never;
-    }
-  | {
-      readonly state: Exclude<LinkedDeviceSessionState, LinkedDeviceSessionUnclaimedState>;
-      readonly deviceId: LinkedDeviceId;
-    }
-);
-
 export type LinkedDevicePendingSessionStateV1 = Extract<
   LinkSessionStateV1,
   {

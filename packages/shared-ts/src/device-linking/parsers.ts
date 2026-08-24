@@ -82,9 +82,7 @@ import {
   type LinkedDeviceOwnerSourceLaneV1,
   type LinkedDeviceSessionClaimRequestV1,
   type LinkedDeviceSessionClaimV1,
-  type LinkedDeviceSessionProjectionV1,
   type LinkedDeviceSessionState,
-  type LinkedDeviceSessionUnclaimedState,
   type LinkedDeviceSessionTransportEventV1,
   type LinkSessionProjectionV1,
   type LinkPrecommitFailureV1,
@@ -262,16 +260,6 @@ const WEBAUTHN_REGISTRATION_FIELDS = [
   'attestationObjectB64u',
   'transports',
 ] as const;
-const SESSION_PROJECTION_BASE_FIELDS = [
-  'kind',
-  'linkSessionId',
-  'qrPayload',
-  'revision',
-  'createdAtMs',
-  'updatedAtMs',
-  'state',
-] as const;
-const SESSION_PROJECTION_CLAIMED_FIELDS = [...SESSION_PROJECTION_BASE_FIELDS, 'deviceId'] as const;
 const APPROVAL_PENDING_FIELDS = ['outcome', 'state'] as const;
 const APPROVAL_REPLAY_FIELDS = ['outcome', 'replay'] as const;
 const APPROVAL_REPLAY_PENDING_FIELDS = ['state', 'session'] as const;
@@ -1254,56 +1242,6 @@ function parseStateRecord(record: UnknownRecord): LinkedDeviceSessionState {
 
 export function parseLinkedDeviceSessionState(raw: unknown): LinkedDeviceSessionState {
   return parseStateRecord(requireRecord(raw, 'LinkedDeviceSessionState'));
-}
-
-function isUnclaimedSessionState(
-  state: LinkedDeviceSessionState,
-): state is Extract<
-  LinkedDeviceSessionState,
-  { readonly state: LinkedDeviceSessionUnclaimedState['state'] }
-> {
-  return (
-    state.state === 'displaying_qr' ||
-    state.state === 'expired_unclaimed' ||
-    state.state === 'cancelled_unclaimed'
-  );
-}
-
-export function parseLinkedDeviceSessionProjectionV1(
-  raw: unknown,
-): LinkedDeviceSessionProjectionV1 {
-  const initial = requireRecord(raw, 'LinkedDeviceSessionProjectionV1');
-  const state = parseLinkedDeviceSessionState(initial.state);
-  const record = exactRecord(
-    initial,
-    isUnclaimedSessionState(state)
-      ? SESSION_PROJECTION_BASE_FIELDS
-      : SESSION_PROJECTION_CLAIMED_FIELDS,
-    'LinkedDeviceSessionProjectionV1',
-  );
-  if (record.kind !== 'linked_device_session_projection_v1') {
-    throw new Error('LinkedDeviceSessionProjectionV1.kind is invalid');
-  }
-  const base = {
-    kind: 'linked_device_session_projection_v1' as const,
-    linkSessionId: parseSessionId(
-      record.linkSessionId,
-      'LinkedDeviceSessionProjectionV1.linkSessionId',
-    ),
-    qrPayload: parseQrLinkedDeviceSessionPayloadV5(record.qrPayload),
-    revision: parseNonNegativeSafeInteger(
-      record.revision,
-      'LinkedDeviceSessionProjectionV1.revision',
-    ),
-    createdAtMs: parseUnixTime(record.createdAtMs, 'LinkedDeviceSessionProjectionV1.createdAtMs'),
-    updatedAtMs: parseUnixTime(record.updatedAtMs, 'LinkedDeviceSessionProjectionV1.updatedAtMs'),
-  } as const;
-  if (isUnclaimedSessionState(state)) return { ...base, state };
-  return {
-    ...base,
-    state,
-    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceSessionProjectionV1.deviceId'),
-  };
 }
 
 const LINK_SESSION_PROJECTION_FIELDS = [
