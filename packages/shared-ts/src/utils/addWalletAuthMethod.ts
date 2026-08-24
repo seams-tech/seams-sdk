@@ -36,16 +36,27 @@ import type {
   PasskeyWalletAuthMethodDraftV1,
   WalletAuthMethodRecordV2,
 } from './registrationIntent';
+import type { WalletAuthMethod } from './signerDomain';
 
 /**
  * The factor family a method belongs to.
  *
- * Derived from the canonical record rather than written out as its own literal
- * union: a hand-written `'passkey' | 'email_otp'` is a second, unversioned
- * declaration of the same domain fact, and the auth-method domain guard fails
- * on one for exactly that reason.
+ * This is the repo's existing `WalletAuthMethod`, not a new type: a
+ * hand-written `'passkey' | 'email_otp'` would be a second, unversioned
+ * declaration of the same domain fact, which is what the auth-method domain
+ * guard fails on. The alias exists only to name the role the value plays in an
+ * addition — which family a branch fills in — and the assertion below keeps it
+ * from drifting from the canonical record's own discriminant.
  */
-export type WalletAuthMethodFamilyV1 = WalletAuthMethodRecordV2['kind'];
+export type WalletAuthMethodFamilyV1 = WalletAuthMethod;
+
+type FamilyMatchesRecordKind = WalletAuthMethodRecordV2['kind'] extends WalletAuthMethodFamilyV1
+  ? WalletAuthMethodFamilyV1 extends WalletAuthMethodRecordV2['kind']
+    ? true
+    : never
+  : never;
+const familyMatchesRecordKind: FamilyMatchesRecordKind = true;
+void familyMatchesRecordKind;
 
 /**
  * The two exhaustive branches. The name reads source-to-target, which is the
