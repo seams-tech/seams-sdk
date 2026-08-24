@@ -221,17 +221,42 @@ with the three Email OTP cells.
   creates, and the failure turned a working Device 2 unlock into a failing one.
   Writing that wallet record too would add more registration-era scaffolding to
   a seedless installation.
-  The remaining candidate keeps R103E's exact-identity rule without new legacy
-  records: the linked device already persists its Email provider subject on the
-  Ed25519 public capability lane reference (`auth.kind === 'email_otp'` carries
-  `providerSubjectId`), keyed by the same exact material activation the owner
-  scope is resolving. Both Email owner-scope resolvers —
-  `ownerLaneScope.emailOtpWalletAuthAuthorityFromLocalFactor` and
-  `browserSigningSurfaceAssembly.resolveExactWalletAuthAuthority` — could build
-  the authority from the V2 record plus that provider subject when no legacy
-  local factor row matches. That path needs its own verification: the resulting
-  authority digest must equal the one the server derives from the wallet's
-  Email enrollment, or every authenticated request will fail its binding check.
+  The resolution taken (`32760ed60`): the owner scope prefers registration's
+  local factor record where it exists and otherwise builds the authority from
+  the V2 record plus the verified provider subject the installation already
+  persisted on its own Ed25519 lanes, requiring exactly one such subject per
+  wallet. No new record is written, and the existing authority-digest assertion
+  still runs, so a subject that does not reproduce the session's digest fails
+  closed rather than authorizing anything. Device 2's client-side owner scope
+  now resolves.
+
+### Current open boundary: Email export names no exact method
+
+Classified `production_regression`. With the owner scope resolved, Device 2's
+NEAR export reaches the server and is refused with `unauthorized: Wallet
+requires one exact active Email OTP authority`. This is the third instance of
+the same escaped defect — a wallet-wide Email selector that cannot survive
+linking — after the revocation challenge and the operation-bound challenge
+route.
+
+`routerAbEd25519YaoExport` resolves its Email authority through
+`resolveActiveEmailOtpAuthorityForVerifiedSubject({walletId, providerUserId})`,
+which requires exactly one active Email method. Its Passkey sibling resolves
+the exact credential (`resolveActivePasskeyAuthorityForVerifiedCredential`),
+so only the Email branch is ambiguous. The Email branch of
+`RouterAbEd25519YaoExportAdmissionAuthorization` carries `providerSubjectId`,
+`challengeId`, and `otpCode` — no method identity — and
+`authorizeEmailOtpExportAdmission` derives its `ownerProofBindingDigest` from
+whichever authority that resolver returned.
+
+Required repair, following the plan's identity rule rather than another
+inference: add the exact `walletAuthMethodId` to the Email branch of that
+admission authorization, send it from the export client (which already holds it
+as `OwnerLaneScope.ownerAuthority.walletAuthMethodId`), and resolve that exact
+method on the server the way unlock does, verifying it matches the presented
+provider subject and wallet. Because this adds a required identity field to an
+authorization boundary, it also needs the route-boundary test this ledger
+already mandates: wrong-wallet, wrong-kind, and revoked-method rejection.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
