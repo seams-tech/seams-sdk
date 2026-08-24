@@ -49,6 +49,8 @@ import type {
   EmailOtpThresholdEcdsaLoginResult,
 } from '../../session/emailOtp/ecdsaLogin';
 import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
+import type { EmailOtpAuthoritySelector } from '../../workerManager/workerTypes';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { EcdsaCommittedLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
@@ -73,6 +75,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
     ) => Promise<EmailOtpTransactionSigningChallenge>;
     loginWithEcdsaCapabilityInternal: (args: {
       walletSession: WalletSessionRef;
+      authoritySelector: EmailOtpAuthoritySelector;
       subjectId?: never;
       chainTarget: ThresholdEcdsaChainTarget;
       emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -431,6 +434,13 @@ async function runFencedEmailOtpSigningSessionRefresh(input: {
   }
   const refreshed = await input.deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
     walletSession: input.args.walletSession,
+    authoritySelector: {
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: String(
+        (await walletAuthAuthorityRef({ authority: emailOtpBinding.emailOtpAuthority }))
+          .walletAuthMethodId,
+      ),
+    },
     chainTarget: input.args.chainTarget,
     emailOtpAuthPolicy: 'session',
     emailOtpAuthReason: 'sign',

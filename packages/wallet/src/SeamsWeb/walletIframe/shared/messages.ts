@@ -1278,6 +1278,7 @@ export type PMGetExactWalletSessionStatePayload =
 
 export interface PMEmailOtpChallengePayload {
   walletId: string;
+  walletAuthMethodId?: string;
   relayUrl?: string;
   operation?: WalletEmailOtpLoginOperation;
   operationFingerprintDigest?: DigestB64u;

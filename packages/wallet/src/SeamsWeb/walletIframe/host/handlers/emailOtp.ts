@@ -289,9 +289,11 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_REQUEST_EMAIL_OTP_CHALLENGE: async (req: Req<'PM_REQUEST_EMAIL_OTP_CHALLENGE'>) => {
       assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
-      const { walletId, relayUrl, operation, operationFingerprintDigest } = req.payload!;
+      const { walletId, walletAuthMethodId, relayUrl, operation, operationFingerprintDigest } =
+        req.payload!;
       const result = await pm.auth.requestEmailOtpChallenge({
         walletId,
+        ...(walletAuthMethodId ? { walletAuthMethodId } : {}),
         ...(relayUrl ? { relayUrl } : {}),
         ...(operation ? { operation } : {}),
         ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),

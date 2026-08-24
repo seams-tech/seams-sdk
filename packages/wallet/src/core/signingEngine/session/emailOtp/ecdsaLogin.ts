@@ -37,6 +37,7 @@ import type {
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
+  EmailOtpAuthoritySelector,
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWorkerSessionHandleOperation,
 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -403,7 +404,7 @@ function emailOtpEcdsaScopeForAuthoritySource(args: {
   authorityRef: WalletAuthAuthorityRef;
 }): EmailOtpEcdsaScopeSelector {
   if (args.source.kind === 'selected_v2' && !args.runtimePolicyScope) {
-    throw new Error('Email OTP selected V2 authority requires exact runtime policy scope');
+    return { kind: 'exact_authority', authorityRef: args.authorityRef };
   }
   if (!args.runtimePolicyScope) return { kind: 'durable_manifest' };
   return {
@@ -415,6 +416,7 @@ function emailOtpEcdsaScopeForAuthoritySource(args: {
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
+  authoritySelector: EmailOtpAuthoritySelector;
   subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -1234,6 +1236,12 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
   });
   return await ports.loginWithEcdsaCapabilityInternal({
     walletSession: args.walletSession,
+    authoritySelector: {
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: String(
+        (await walletAuthAuthorityRef({ authority: committedLane.authority })).walletAuthMethodId,
+      ),
+    },
     chainTarget: args.chainTarget,
     emailOtpAuthPolicy,
     emailOtpAuthReason: 'sign',
@@ -1467,6 +1475,7 @@ async function runEmailOtpEcdsaCapability(
   const unlockArgs = exportInput
     ? {
         walletSession: args.walletSession,
+        authoritySelector: args.authoritySelector,
         relayUrl,
         groupId,
         verification: requireEmailOtpExplicitExportUnsealGrant(
@@ -1479,6 +1488,7 @@ async function runEmailOtpEcdsaCapability(
       }
     : {
         walletSession: args.walletSession,
+        authoritySelector: args.authoritySelector,
         relayUrl,
         groupId,
         verification: {

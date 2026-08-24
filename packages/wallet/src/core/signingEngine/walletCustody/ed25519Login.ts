@@ -1,7 +1,9 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EmailOtpAuthoritySelector } from '@/core/signingEngine/workerManager/workerTypes';
 
 export type LoginWithEmailOtpWalletCustodyEd25519Args = {
   walletSession: WalletSessionRef;
+  authoritySelector: EmailOtpAuthoritySelector;
   /**
    * Email OTP provider subject id (e.g. `google:<sub>`). Carried as its own
    * field so it is never conflated with the wallet-scoped

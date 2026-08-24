@@ -871,6 +871,7 @@ type WalletEmailOtpFactorReleaseRequest = {
   | { readonly kind: 'wallet_session' }
   | {
       readonly kind: 'email_otp';
+      readonly walletAuthMethodId?: unknown;
       readonly challengeId: unknown;
       readonly otpCode: unknown;
       readonly operation: WalletEmailOtpOperation;
@@ -894,8 +895,9 @@ function parseWalletEmailOtpFactorReleaseRequest(
               'operation',
               'otpCode',
               'walletId',
+              ...(Object.hasOwn(value, 'walletAuthMethodId') ? ['walletAuthMethodId'] : []),
               'workerEphemeralPublicKey65B64u',
-            ]
+            ].sort()
           : null;
   if (!expectedFields || Object.keys(value).sort().join(',') !== expectedFields.join(',')) {
     throw new Error('Email OTP factor release body has invalid fields');
@@ -920,6 +922,9 @@ function parseWalletEmailOtpFactorReleaseRequest(
   return {
     kind: 'email_otp',
     walletId: value.walletId,
+    ...(Object.hasOwn(value, 'walletAuthMethodId')
+      ? { walletAuthMethodId: value.walletAuthMethodId }
+      : {}),
     challengeId: value.challengeId,
     otpCode: value.otpCode,
     operation: operation.operation,
@@ -1009,11 +1014,29 @@ export async function handleWalletEmailOtpFactorRelease(
         );
       }
       const origin = requestOrigin(ctx.request);
-      const authority =
-        await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-          walletId: walletId.value,
-          providerUserId: enrollment.enrollment.providerUserId,
-        });
+      const requestedWalletAuthMethodId =
+        body.walletAuthMethodId === undefined
+          ? null
+          : parseWalletAuthMethodId(body.walletAuthMethodId);
+      if (requestedWalletAuthMethodId && !requestedWalletAuthMethodId.ok) {
+        return json(
+          { ok: false, code: 'invalid_body', message: 'walletAuthMethodId is invalid' },
+          { status: 400 },
+        );
+      }
+      const authority = requestedWalletAuthMethodId?.ok
+        ? normalizeWalletEmailOtpUnlockAuthority(
+            await ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+              walletId: walletId.value,
+              orgId: orgId.value,
+              walletAuthMethodId: requestedWalletAuthMethodId.value,
+              providerUserId: enrollment.enrollment.providerUserId,
+            }),
+          )
+        : await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+            walletId: walletId.value,
+            providerUserId: enrollment.enrollment.providerUserId,
+          });
       if (!authority.ok) return json(authority, { status: 403 });
       const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
         walletId: walletId.value,

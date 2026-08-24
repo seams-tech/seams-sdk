@@ -106,6 +106,7 @@ void signingCapabilityWithoutCommittedLane;
 
 const validCapabilityLoginWithExplicitProvider: LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession,
+  authoritySelector: { kind: 'wallet' },
   chainTarget,
   otpCode: '123456',
   routePlan,

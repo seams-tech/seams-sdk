@@ -574,7 +574,7 @@ function ownerProofAuthSource(
       if (!providerSubject.ok) throw new Error(providerSubject.error.message);
       return {
         kind: 'oidc_provider',
-        providerId: 'oidc',
+        providerId: providerSubject.value.startsWith('google:') ? 'google_oidc' : 'oidc',
         providerSubject: providerSubject.value,
       };
     }
