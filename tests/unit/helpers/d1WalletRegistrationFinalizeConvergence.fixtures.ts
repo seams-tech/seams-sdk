@@ -68,13 +68,13 @@ import { parseDeviceId } from '../../../packages/shared-ts/src/authorization/cap
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
+  parseThresholdEd25519SessionId,
   parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabilityFixtures';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
-import { StaticWalletSessionAdapter } from './routerAbEd25519YaoRegistrationBridge.fixtures';
 
 const TEST_SCOPE = {
   namespace: 'registration-finalize-convergence',
@@ -103,7 +103,6 @@ type DeterministicNearCredentials = {
 
 export type FinalizeConvergenceFault =
   | 'activation_consume_response_loss'
-  | 'session_mint_response_loss'
   | 'wallet_commit_response_loss'
   | 'capability_install_response_loss'
   | 'ceremony_delete_response_loss'
@@ -112,7 +111,6 @@ export type FinalizeConvergenceFault =
 
 type YaoFault =
   | 'activation_consume_response_loss'
-  | 'session_mint_response_loss'
   | 'capability_install_response_loss';
 
 function bytes(seed: number, length = 32): number[] {
@@ -595,18 +593,6 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return result;
   }
 
-  async replayActivatedRegistration(
-    input: Parameters<
-      RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
-    >[0],
-  ): Promise<
-    Awaited<
-      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']>
-    >
-  > {
-    return await this.delegate.replayActivatedRegistration(input);
-  }
-
   async installRegistrationFinalizeCapability(
     input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']
@@ -641,16 +627,6 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['resolveActiveCapability']>>
   > {
     return await this.delegate.resolveActiveCapability(input);
-  }
-
-  async mintWalletSession(
-    input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']>[0],
-  ): Promise<
-    Awaited<ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['mintWalletSession']>>
-  > {
-    const result = await this.delegate.mintWalletSession(input);
-    this.throwAfter('session_mint_response_loss');
-    return result;
   }
 
   private throwAfter(fault: YaoFault): void {
@@ -868,7 +844,6 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
   if (!admitted.ok) throw new Error(admitted.message);
   const executed = await registration.execute(executeRequest);
   if (!executed.ok) throw new Error(executed.message);
-  const session = new StaticWalletSessionAdapter();
   const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
     backend,
     state.recovery,
@@ -932,7 +907,6 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     ),
     exportService,
     exportAuthorization,
-    session,
   });
   return {
     runtime: new FailureInjectingYaoRuntime(composition.runtime),
@@ -1077,7 +1051,6 @@ async function createFinalizeConvergenceHarnessForMode(
     arm: (fault) => {
       switch (fault) {
         case 'activation_consume_response_loss':
-        case 'session_mint_response_loss':
         case 'capability_install_response_loss':
           yao.runtime.arm(fault);
           return;

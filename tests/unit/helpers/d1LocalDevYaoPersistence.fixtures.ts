@@ -46,7 +46,6 @@ import type { CloudflareServiceBindingFetcher } from '../../../packages/wallet-c
 import localD1DevWorker from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import {
   UnavailableRouterAbEd25519YaoRegistrationBackend,
-  UnusedSessionAdapter,
 } from './routerAbEd25519YaoRegistrationBridge.fixtures';
 import { buildRouterAbEd25519WalletSessionClaimsFixture } from './routerAbEd25519WalletSessionClaims.fixtures';
 
@@ -365,7 +364,6 @@ export async function bindLocalYaoRegistrationIntent(input: {
   });
   const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
     signingWorkerId: SIGNING_WORKER_ID,
-    session: new UnusedSessionAdapter(),
     store,
     registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
   });

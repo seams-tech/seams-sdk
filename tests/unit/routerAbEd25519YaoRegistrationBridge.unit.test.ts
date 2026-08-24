@@ -16,7 +16,6 @@ import {
   OneConflictRegistrationBridgePartitionStore,
   RegistrationSideEffectMemoryStore,
   UnavailableRouterAbEd25519YaoRegistrationBackend,
-  UnusedSessionAdapter,
 } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
 const REQUEST_FINGERPRINT = 'I1f3l6f4R6TT7IqKCMGEjU0RiRkmphAMYj6QJfG5UvQ';
@@ -316,7 +315,6 @@ test.describe('registration side-effect persistence bridge', () => {
     const store = new OneConflictRegistrationBridgePartitionStore(delegate);
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: 'signing-worker-bridge',
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
@@ -351,7 +349,6 @@ test.describe('registration side-effect persistence bridge', () => {
     let fallbackReads = 0;
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: 'signing-worker-bridge',
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
       loadPersistedActiveCapability: async () => {
@@ -378,7 +375,6 @@ test.describe('registration side-effect persistence bridge', () => {
     const store = new AlwaysConflictRegistrationBridgePartitionStore(delegate);
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: 'signing-worker-bridge',
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
     });
