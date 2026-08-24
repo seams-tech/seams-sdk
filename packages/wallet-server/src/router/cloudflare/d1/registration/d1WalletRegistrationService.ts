@@ -2923,6 +2923,11 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       let thresholdSessionId = descriptor.lifecycle.thresholdSessionId;
+      /* A linked device shares the wallet's public signer identity but holds
+         its own fresh material, so the capability it receives must name its
+         own activation and threshold session rather than the founding ones the
+         shared active descriptor carries. */
+      let issuedCapability = descriptor;
       if (activeAuthority.authority.provenance.kind === 'device_link') {
         const linkedDeviceReader = this.getLinkedDeviceEd25519AuthorityReader();
         const projection = linkedDeviceReader
@@ -2960,6 +2965,11 @@ export class CloudflareD1WalletRegistrationService {
           };
         }
         thresholdSessionId = targetSessionId.value;
+        issuedCapability = {
+          ...descriptor,
+          materialActivation: linkedEd25519ProjectionMaterialActivationWire(projection),
+          lifecycle: { ...descriptor.lifecycle, thresholdSessionId: targetSessionId.value },
+        };
       }
       const issuedAtMs = Date.now();
       let walletSessionIdentity: {
@@ -3058,7 +3068,7 @@ export class CloudflareD1WalletRegistrationService {
       });
       if (!minted.ok) return minted;
       const session = minted.session;
-      return { ok: true, session, capability: descriptor };
+      return { ok: true, session, capability: issuedCapability };
     } catch (error: unknown) {
       return {
         ok: false,
