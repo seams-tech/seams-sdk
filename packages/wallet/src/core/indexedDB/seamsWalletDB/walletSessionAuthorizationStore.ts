@@ -38,14 +38,22 @@ import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
 import type {
   ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
   WalletCapabilitySubjectV1,
 } from '@shared/device-linking/contracts';
-export type { ActiveWalletSessionV1, WalletCapabilitySubjectV1 } from '@shared/device-linking/contracts';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
+export type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+  WalletCapabilitySubjectV1,
+} from '@shared/device-linking/contracts';
 
 export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
   'wallet_session_authorization_v3' as const;
 export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4 =
   'wallet_session_authorization_v4' as const;
+export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5 =
+  'wallet_session_authorization_v5' as const;
 
 export type WalletSessionAuthorizationToken = OpaqueWalletSessionToken;
 
@@ -619,6 +627,14 @@ type StoredExactWalletSessionAuthorizationRow = {
   readonly record: WalletSessionAuthorizationRecordV4;
 };
 
+type StoredExactWalletSessionAuthorizationRowV5 = Omit<
+  StoredExactWalletSessionAuthorizationRow,
+  'record_version'
+> & {
+  readonly record_version: typeof WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5;
+  readonly operation_credential: WalletSessionOperationCredentialV1;
+};
+
 const EXACT_ACTIVE_FIELDS = [
   'kind',
   'walletId',
@@ -645,6 +661,7 @@ const EXACT_STORED_ROW_FIELDS = [
   'expires_at_ms',
   'record',
 ] as const;
+const EXACT_STORED_ROW_V5_FIELDS = [...EXACT_STORED_ROW_FIELDS, 'operation_credential'] as const;
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -869,6 +886,18 @@ export function toStoredExactWalletSessionAuthorizationRow(
   };
 }
 
+export function toStoredExactWalletSessionAuthorizationRowV5(
+  record: ActiveWalletSessionV1,
+  operationCredential: WalletSessionOperationCredentialV1,
+): StoredExactWalletSessionAuthorizationRowV5 {
+  const stored = toStoredExactWalletSessionAuthorizationRow(record);
+  return {
+    ...stored,
+    record_version: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5,
+    operation_credential: parseWalletSessionOperationCredentialV1(operationCredential),
+  };
+}
+
 export function parseStoredExactWalletSessionAuthorizationRow(
   value: unknown,
 ): WalletSessionAuthorizationRecordV4 | null {
@@ -890,6 +919,49 @@ export function parseStoredExactWalletSessionAuthorizationRow(
     return null;
   }
   return record;
+}
+
+export function parseStoredExactWalletSessionAuthorizationWithOperationCredential(value: unknown): {
+  readonly record: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+} | null {
+  if (!isRecord(value) || !hasExactFields(value, EXACT_STORED_ROW_V5_FIELDS)) return null;
+  if (value.record_version !== WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5) return null;
+  const record = parseExactWalletSessionRecord(value.record);
+  if (
+    !record ||
+    record.kind !== 'active_wallet_session_v1' ||
+    value.wallet_session_id !== record.authorizationId ||
+    value.wallet_id !== record.walletId ||
+    value.wallet_authority_id !== record.authorityId ||
+    value.wallet_auth_method_id !== record.authMethodId ||
+    value.authority_digest_b64u !== record.authorityDigestB64u ||
+    value.authority_revocation_epoch !== record.authorityRevocationEpoch ||
+    value.status !== 'active' ||
+    value.issued_at_ms !== record.issuedAtMs ||
+    value.expires_at_ms !== record.expiresAtMs
+  ) {
+    return null;
+  }
+  const operationCredential = parseWalletSessionOperationCredentialV1(value.operation_credential);
+  return { record, operationCredential };
+}
+
+function parseStoredExactWalletSessionAuthorizationRecord(
+  value: unknown,
+): WalletSessionAuthorizationRecordV4 | null {
+  return (
+    parseStoredExactWalletSessionAuthorizationWithOperationCredential(value)?.record ??
+    parseStoredExactWalletSessionAuthorizationRow(value)
+  );
+}
+
+function isStoredExactWalletSessionAuthorizationRow(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.record_version === WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4 ||
+      value.record_version === WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5)
+  );
 }
 
 function found<TProjection extends WalletSessionAuthorizationProjection>(
@@ -927,6 +999,7 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(parsed.walletId);
       for (const raw of rows) {
+        if (isStoredExactWalletSessionAuthorizationRow(raw)) continue;
         const current = parseStoredRow(raw);
         if (!current) {
           tx.abort();
@@ -969,7 +1042,9 @@ export class WalletSessionAuthorizationRepository {
     const store = tx.objectStore(STORE);
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
-      const projections = rows.map(parseStoredRow);
+      const projections = rows
+        .filter((row) => !isStoredExactWalletSessionAuthorizationRow(row))
+        .map(parseStoredRow);
       if (projections.some((projection) => projection === null)) {
         tx.abort();
         throw new Error('Stored Wallet Session authorization projection is corrupt');
@@ -1031,7 +1106,9 @@ export class WalletSessionAuthorizationRepository {
     const store = tx.objectStore(STORE);
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
-      const projections = rows.map(parseStoredRow);
+      const projections = rows
+        .filter((row) => !isStoredExactWalletSessionAuthorizationRow(row))
+        .map(parseStoredRow);
       if (projections.some((projection) => projection === null)) {
         tx.abort();
         throw new Error('Stored Wallet Session authorization projection is corrupt');
@@ -1107,7 +1184,9 @@ export class WalletSessionAuthorizationRepository {
     try {
       const db = await this.manager.getDB();
       const rows = await db.getAllFromIndex(STORE, SEAMS_WALLET_INDEXES.walletId, walletId);
-      const projections = rows.map(parseStoredRow);
+      const projections = rows
+        .filter((row) => !isStoredExactWalletSessionAuthorizationRow(row))
+        .map(parseStoredRow);
       if (projections.some((projection) => projection === null)) {
         return { kind: 'corrupt' };
       }
@@ -1133,11 +1212,109 @@ export class WalletSessionAuthorizationRepository {
     return parsed;
   }
 
+  async writeExactWithOperationCredential(input: {
+    readonly record: ActiveWalletSessionV1;
+    readonly operationCredential: WalletSessionOperationCredentialV1;
+  }): Promise<ActiveWalletSessionV1> {
+    const parsed = parseExactWalletSessionRecord(input.record);
+    if (!parsed || parsed.kind !== 'active_wallet_session_v1') {
+      throw new Error('Active Wallet Session v1 is invalid');
+    }
+    const operationCredential = parseWalletSessionOperationCredentialV1(input.operationCredential);
+    const incoming = toStoredExactWalletSessionAuthorizationRowV5(parsed, operationCredential);
+    const db = await this.manager.getDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    try {
+      const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(parsed.walletId);
+      for (const raw of rows) {
+        if (
+          !isStoredExactWalletSessionAuthorizationRow(raw) ||
+          !isRecord(raw) ||
+          raw.wallet_authority_id !== parsed.authorityId ||
+          raw.wallet_auth_method_id !== parsed.authMethodId
+        ) {
+          continue;
+        }
+        const current = parseStoredExactWalletSessionAuthorizationRecord(raw);
+        if (!current) {
+          tx.abort();
+          throw new Error('Stored Wallet Session authorization v4 is corrupt');
+        }
+        if (
+          current.kind !== 'active_wallet_session_v1' ||
+          current.authorizationId === parsed.authorizationId
+        ) {
+          continue;
+        }
+        await store.put(
+          toStoredExactWalletSessionAuthorizationRow(
+            retireWalletSessionV1({
+              active: current,
+              reason: 'replaced',
+              retiredAtMs: Math.max(parsed.issuedAtMs, current.issuedAtMs),
+            }),
+          ),
+        );
+      }
+      await store.put(incoming);
+      await tx.done;
+      return parsed;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
+  }
+
   async readExact(
     authorizationId: WalletSessionAuthorizationId,
   ): Promise<WalletSessionAuthorizationRecordV4 | null> {
     const db = await this.manager.getDB();
-    return parseStoredExactWalletSessionAuthorizationRow(await db.get(STORE, authorizationId));
+    const raw = await db.get(STORE, authorizationId);
+    return parseStoredExactWalletSessionAuthorizationRecord(raw);
+  }
+
+  async readExactWithOperationCredential(input: {
+    readonly walletId: WalletId;
+    readonly authorityId: WalletAuthorityId;
+    readonly authMethodId: WalletAuthMethodId;
+  }): Promise<{
+    readonly record: ActiveWalletSessionV1;
+    readonly operationCredential: WalletSessionOperationCredentialV1;
+  } | null> {
+    const db = await this.manager.getDB();
+    const rows = await db.getAllFromIndex(STORE, SEAMS_WALLET_INDEXES.walletId, input.walletId);
+    let match: {
+      readonly record: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    } | null = null;
+    for (const raw of rows) {
+      if (
+        !isRecord(raw) ||
+        raw.record_version !== WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5 ||
+        raw.wallet_id !== input.walletId ||
+        raw.wallet_authority_id !== input.authorityId ||
+        raw.wallet_auth_method_id !== input.authMethodId
+      ) {
+        continue;
+      }
+      let parsed: {
+        readonly record: ActiveWalletSessionV1;
+        readonly operationCredential: WalletSessionOperationCredentialV1;
+      } | null;
+      try {
+        parsed = parseStoredExactWalletSessionAuthorizationWithOperationCredential(raw);
+      } catch {
+        throw new Error('Stored Wallet Session authorization v5 is corrupt');
+      }
+      if (!parsed) throw new Error('Stored Wallet Session authorization v5 is corrupt');
+      if (match) throw new Error('Multiple exact Wallet Sessions with operation credentials found');
+      match = parsed;
+    }
+    return match;
   }
 
   async readExactActiveForWallet(input: {
@@ -1149,7 +1326,8 @@ export class WalletSessionAuthorizationRepository {
     const rows = await db.getAllFromIndex(STORE, SEAMS_WALLET_INDEXES.walletId, input.walletId);
     let active: ActiveWalletSessionV1 | null = null;
     for (const raw of rows) {
-      const record = parseStoredExactWalletSessionAuthorizationRow(raw);
+      if (!isStoredExactWalletSessionAuthorizationRow(raw)) continue;
+      const record = parseStoredExactWalletSessionAuthorizationRecord(raw);
       if (!record) throw new Error('Stored Wallet Session authorization v4 is corrupt');
       if (
         record.kind !== 'active_wallet_session_v1' ||
@@ -1162,6 +1340,47 @@ export class WalletSessionAuthorizationRepository {
       active = record;
     }
     return active;
+  }
+
+  async retireExactActiveForWallet(args: {
+    readonly walletId: WalletId;
+    readonly reason: WalletSessionAuthorizationRetirementReason;
+    readonly retiredAtMs: number;
+  }): Promise<readonly RetiredWalletSessionV1[]> {
+    if (!isNonNegativeSafeInteger(args.retiredAtMs)) {
+      throw new Error('Wallet Session v1 retirement time is invalid');
+    }
+    const db = await this.manager.getDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const retired: RetiredWalletSessionV1[] = [];
+    try {
+      const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(args.walletId);
+      for (const raw of rows) {
+        if (!isStoredExactWalletSessionAuthorizationRow(raw)) continue;
+        const current = parseStoredExactWalletSessionAuthorizationRecord(raw);
+        if (!current) {
+          tx.abort();
+          throw new Error('Stored Wallet Session authorization v4 is corrupt');
+        }
+        if (current.kind !== 'active_wallet_session_v1') continue;
+        const next = retireWalletSessionV1({
+          active: current,
+          reason: args.reason,
+          retiredAtMs: args.retiredAtMs,
+        });
+        await store.put(toStoredExactWalletSessionAuthorizationRow(next));
+        retired.push(next);
+      }
+      await tx.done;
+      return retired;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      await settleAbortedTransaction(tx);
+      throw error;
+    }
   }
 
   async replaceExactActive(args: {
@@ -1181,7 +1400,7 @@ export class WalletSessionAuthorizationRepository {
     try {
       const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
       for (const raw of rows) {
-        const current = parseStoredExactWalletSessionAuthorizationRow(raw);
+        const current = parseStoredExactWalletSessionAuthorizationRecord(raw);
         if (!current) {
           tx.abort();
           throw new Error('Stored Wallet Session authorization v4 is corrupt');
