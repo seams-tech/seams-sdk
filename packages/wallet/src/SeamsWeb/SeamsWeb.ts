@@ -2371,6 +2371,7 @@ export class SeamsWeb {
           kind: 'selected',
           walletAuthMethodId: String(foundingMethod.walletAuthMethodId),
           execution: 'ordinary',
+          keyFamilies: authority.signerActivations.keyFamilies,
         };
       }
       case 'selected':
@@ -2381,6 +2382,7 @@ export class SeamsWeb {
             resolution.selection.authority.provenance.kind === 'device_link'
               ? 'linked'
               : 'ordinary',
+          keyFamilies: resolution.selection.authority.signerActivations.keyFamilies,
         };
       case 'rejected':
         return { kind: 'rejected', message: resolution.message };
