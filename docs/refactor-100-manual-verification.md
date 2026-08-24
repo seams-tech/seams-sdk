@@ -21,7 +21,7 @@ recover an old passkey's PRF/private material or an Email OTP device secret.
 Refactor 114 replaces the current recovery operation with code-only recovery
 for wallets that have exactly one active Passkey owner method. It atomically
 replaces that method and envelope, then uses normal Passkey login to create a
-fresh Wallet Session. Refactor 109A owns later multi-auth recovery policy.
+fresh Wallet Session. Refactor 109C owns later multi-auth recovery policy.
 
 ## Source Audit
 

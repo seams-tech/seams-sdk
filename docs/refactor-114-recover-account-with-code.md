@@ -15,7 +15,7 @@ that Passkey through the existing login path.
 The recovery code is the sole recovery authorization. Recovery is available
 only when the wallet has exactly one active owner auth method, that method is a
 Passkey, and its binding matches the requested RP. Every refusal uses the same
-user-facing message. R109A will define recovery policy for multi-auth wallets.
+user-facing message. R109C will define recovery policy for multi-auth wallets.
 
 R114 reuses the existing recovery-code reservation, custody ceremony, complete
 key-manifest reconstruction, WebAuthn registration, possession verification,
@@ -445,7 +445,7 @@ settings flow before enabling the code-only prepare route.
 
 ## Non-Goals
 
-- Multi-auth sibling preservation or replacement policy; R109A owns it.
+- Multi-auth sibling preservation or replacement policy; R109C owns it.
 - Email, social, contact, or help-desk recovery.
 - A recovery grant, general factor kind, independent session mint, React form,
   or new hosted outcome method.
