@@ -18,6 +18,7 @@ import {
   buildOrdinaryMaterialActivationFixture,
 } from './helpers/ordinarySignerMaterialReservation.fixtures';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 
 test('serializes server preparations with the browser recipient request', async () => {
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:target-boundary' });
@@ -52,13 +53,23 @@ test('serializes server preparations with the browser recipient request', async 
       verificationDigestB64u: digest,
       verifiedAtMs: 2_000,
     },
-    ordinarySignerMaterialPreparations: [preparation],
+    ordinarySignerMaterialPreparations: [
+      {
+        linkSessionId: preparation.sourceContribution.binding.linkSessionId,
+        enrollmentId: preparation.sourceContribution.binding.enrollmentId,
+        sourceAuthorityId: preparation.sourceContribution.binding.sourceAuthorityId,
+        source: preparation.sourceContribution.binding.source,
+        target: preparation.sourceContribution.binding.target,
+      },
+    ],
     ordinarySignerMaterialRecipientRequests: [
       {
         kind: 'ordinary_ecdsa_signer_material_recipient_request_v1',
         keyFamily: 'ecdsa_secp256k1',
         walletKeyId,
-        clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
+        clientEphemeralPublicKey: x25519PublicKeyFromB64u(
+          preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+        ),
       },
     ],
     keyManifestDigestB64u: digest,
@@ -80,11 +91,23 @@ test('serializes server preparations with the browser recipient request', async 
   expect(body.session).not.toHaveProperty('deviceId');
   expect(body.targetCredential.ordinarySignerMaterialRecipientRequests).toEqual([
     expect.objectContaining({
-      clientEphemeralPublicKey: preparation.registrationRequest.client_ephemeral_public_key,
+      clientEphemeralPublicKey: x25519PublicKeyFromB64u(
+        preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+      ),
     }),
   ]);
   expect(body.targetCredential).not.toHaveProperty('recipientPrivateKey');
 });
+
+function x25519PublicKeyFromB64u(value: string): string {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 32 || base64UrlEncode(bytes) !== value) {
+    throw new Error('target ECDSA recipient key is invalid');
+  }
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return `x25519:${hex}`;
+}
 
 test('registration rejects private recipient material and activation choices', () => {
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:target-boundary-reject' });

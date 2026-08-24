@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
   OrdinaryInactiveSignerMaterialReservationServiceV1,
+  parseOrdinaryEcdsaSignerMaterialWorkerReservationV1,
+  parseOrdinaryEd25519SignerMaterialWorkerReservationV1,
   type OrdinaryEd25519SignerMaterialReservationRequestV1,
   type OrdinaryEd25519SignerMaterialWorkerReservationV1,
   type OrdinaryEcdsaSignerMaterialReservationRequestV1,
@@ -10,7 +12,7 @@ import {
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { CommittedEcdsaSignerPackageV1 } from '../../packages/shared-ts/src/device-linking/committedSignerPackages';
 import {
-  buildOrdinaryEcdsaClientMaterialFixture,
+  buildOrdinaryEcdsaActivationReceiptFixture,
   buildOrdinaryEcdsaSignerFixture,
   buildOrdinaryEd25519ActivationReceiptFixture,
   buildOrdinaryEd25519ClientMaterialFixture,
@@ -44,20 +46,20 @@ class IdempotentWorkerFixture implements OrdinaryInactiveSignerMaterialReservati
     const key = activationKey(input.plannedActivationRef);
     const existing = this.ed25519Reservations.get(key);
     if (existing) return existing;
-    const reservation: OrdinaryEd25519SignerMaterialWorkerReservationV1 = {
+    const reservation = parseOrdinaryEd25519SignerMaterialWorkerReservationV1(input, {
       kind: 'ordinary_ed25519_signer_material_worker_reservation_v1',
       keyFamily: 'ed25519',
       state: 'inactive',
       signer: input.signer,
       materialActivation: this.activationOverride ?? input.plannedActivationRef,
-      participantIds: input.preparation.participantIds,
+      participantIds: input.preparation.sourceContribution.participantIds,
       clientMaterial: buildOrdinaryEd25519ClientMaterialFixture('ed25519'),
       activationReceipt: buildOrdinaryEd25519ActivationReceiptFixture(
         'ed25519',
         this.activationOverride ?? input.plannedActivationRef,
       ),
       serverMaterialReservationId: this.serverReservationId,
-    };
+    });
     this.ed25519Reservations.set(key, reservation);
     return reservation;
   }
@@ -69,19 +71,23 @@ class IdempotentWorkerFixture implements OrdinaryInactiveSignerMaterialReservati
     const key = activationKey(input.plannedActivationRef);
     const existing = this.ecdsaReservations.get(key);
     if (existing) return existing;
-    const reservation: OrdinaryEcdsaSignerMaterialWorkerReservationV1 = {
+    const reservation = parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(input, {
       kind: 'ordinary_ecdsa_signer_material_worker_reservation_v1',
       keyFamily: 'ecdsa_secp256k1',
       state: 'inactive',
       signer: input.signer,
       materialActivation: this.activationOverride ?? input.plannedActivationRef,
-      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture(
-        'ecdsa',
-        input.preparation.registrationRequest.client_ephemeral_public_key,
-        input.preparation.registrationRequest.signer_set.signer_a.key_epoch,
-      ),
-      serverMaterialReservationId: this.serverReservationId,
-    };
+      activationReceipt: buildOrdinaryEcdsaActivationReceiptFixture(input.preparation, input.signer),
+      clientMaterial: {
+        kind: 'ordinary_ecdsa_client_material_v1',
+        encryptedTargetClientShare: input.preparation.sourceContribution.encryptedTargetClientShare,
+      },
+      serverMaterial: {
+        kind: 'ordinary_ecdsa_inactive_server_material_v1',
+        reservationId: this.serverReservationId,
+        encryptedTargetServerShare: input.preparation.sourceContribution.encryptedDelta,
+      },
+    });
     this.ecdsaReservations.set(key, reservation);
     return reservation;
   }
@@ -115,7 +121,7 @@ test('reserves inactive Ed25519 material and reuses the exact activation reserva
   );
 });
 
-test('reserves inactive ECDSA material in the committed role-envelope shape', async () => {
+test('reserves inactive ECDSA material in the committed source-contribution shape', async () => {
   const worker = new IdempotentWorkerFixture();
   const service = new OrdinaryInactiveSignerMaterialReservationServiceV1(worker);
   const request: OrdinaryEcdsaSignerMaterialReservationRequestV1 = {
@@ -132,19 +138,23 @@ test('reserves inactive ECDSA material in the committed role-envelope shape', as
   const result = await service.reserveOrdinaryInactiveSignerMaterialV1(request);
 
   expect(worker.ecdsaCalls).toHaveLength(1);
+  if (result.keyFamily !== 'ecdsa_secp256k1') throw new Error('ECDSA reservation has the wrong family');
   expect(result.keyFamily).toBe('ecdsa_secp256k1');
   expect(result.clientMaterial.kind).toBe('ordinary_ecdsa_client_material_v1');
-  expect(result.clientMaterial.deriver_a_client_package.recipient_role).toBe('signer_a');
-  expect(result.clientMaterial.deriver_b_client_package.recipient_role).toBe('signer_b');
+  expect(result.clientMaterial.encryptedTargetClientShare.recipientPublicKeyB64u).toBe(
+    request.preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+  );
   expect(result.serverMaterial.reservationId).toBe('server-reservation-1');
 
   const committed: CommittedEcdsaSignerPackageV1 = {
     kind: 'committed_ecdsa_signer_package_v1',
     materialActivation: result.materialActivation,
-    deriver_a_client_package: result.clientMaterial.deriver_a_client_package,
-    deriver_b_client_package: result.clientMaterial.deriver_b_client_package,
+    encryptedTargetClientShare: result.clientMaterial.encryptedTargetClientShare,
+    activationReceipt: result.activationReceipt,
   };
-  expect(committed.deriver_a_client_package.recipient_role).toBe('signer_a');
+  expect(committed.encryptedTargetClientShare.recipientPublicKeyB64u).toBe(
+    request.preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+  );
 });
 
 test('rejects a worker response for a different planned activation reference', async () => {

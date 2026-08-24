@@ -10,7 +10,11 @@ import {
   type LinkedDeviceSessionRecordV1,
 } from '../../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import { parseWalletAuthorityId } from '../../../packages/shared-ts/src/utils/domainIds';
-import type { R103DeviceLinkFixture } from './deviceLinkContracts.fixtures';
+import {
+  buildR103EcdsaSourceContributionPreparationV1,
+  buildR103EcdsaSourceContributionV1,
+  type R103DeviceLinkFixture,
+} from './deviceLinkContracts.fixtures';
 
 export async function buildR103ActiveLinkedDeviceSessionRecordV1(
   fixture: R103DeviceLinkFixture,
@@ -27,6 +31,10 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     claimedAtMs: 1_500,
     claimExpiresAtMs: fixture.payload.expiresAtMs,
   });
+  const sourceContributionPreparation = buildR103EcdsaSourceContributionPreparationV1(fixture);
+  const sourceContribution = buildR103EcdsaSourceContributionV1(fixture);
+  const approval = { ...fixture.approval, sourceContribution: [sourceContribution] as const };
+  const approvalDigest = await computeLinkedDeviceApprovalDigestV1(approval);
   const record = parseLinkedDeviceSessionRecordV1({
     version: 'linked_device_session_v1',
     linkSessionId: fixture.payload.linkSessionId,
@@ -43,13 +51,19 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
       value: claim,
     },
     approvalTranscript: {
-      digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
-      value: fixture.approval,
+      digestB64u: approvalDigest,
+      value: approval,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     },
     targetFactor: fixture.approval.targetFactor,
     authorityId: authorityId.value,
     packageSetDigestB64u: fixture.packageSetDigestB64u,
+    sourceContributionPreparation,
+    sourceContributionTranscript: {
+      digestB64u: approvalDigest,
+      value: approval,
+      sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
+    },
     createdAtMs: fixture.payload.issuedAtMs,
     updatedAtMs: 9_000,
   });

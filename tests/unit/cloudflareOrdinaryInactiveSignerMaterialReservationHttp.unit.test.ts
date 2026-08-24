@@ -12,6 +12,7 @@ import {
   buildSourcePreservingEd25519ReservationRequestFixture,
 } from './helpers/ordinarySourcePreservingReservation.fixtures';
 import {
+  buildOrdinaryEd25519ActivationExecuteRequestFixture,
   buildOrdinaryEd25519ReservationPreparationFixture,
   buildOrdinaryMaterialActivationFixture,
 } from './helpers/ordinarySignerMaterialReservation.fixtures';
@@ -139,10 +140,14 @@ test('Ed25519 source-preserving execution uses the MPC Router service binding', 
     'http-router-execute-target',
     buildOrdinaryMaterialActivationFixture('http-router-execute-target'),
   );
+  const targetRequest = buildOrdinaryEd25519ActivationExecuteRequestFixture(
+    'http-router-execute-target',
+    targetPreparation.targetBinding,
+  );
   const rawReservation = {
     state: 'inactive',
     reservation_id: sourceContribution.reservationId,
-    participant_ids: targetPreparation.participantIds,
+    participant_ids: targetPreparation.sourceContribution.participantIds,
     activation_receipt: sourceContribution.activationReceipt,
     deriver_a_client_package: sourceContribution.deriver_a_client_package,
     deriver_b_client_package: sourceContribution.deriver_b_client_package,
@@ -155,8 +160,8 @@ test('Ed25519 source-preserving execution uses the MPC Router service binding', 
 
   const result = await endpoint.executeEd25519SourcePreservingV1({
     sourceBinding: sourceContribution.sourceBinding,
-    targetRequest: targetPreparation.activationRequest,
-    participantIds: targetPreparation.participantIds,
+    targetRequest,
+    participantIds: targetPreparation.sourceContribution.participantIds,
   });
 
   expect(result).toEqual(rawReservation);
@@ -169,11 +174,11 @@ test('Ed25519 source-preserving execution uses the MPC Router service binding', 
     source_binding: sourceContribution.sourceBinding,
     target: {
       operation: 'registration',
-      binding: targetPreparation.activationRequest.binding,
-      deriver_a_input: targetPreparation.activationRequest.deriver_a_input,
-      deriver_b_input: targetPreparation.activationRequest.deriver_b_input,
+      binding: targetRequest.binding,
+      deriver_a_input: targetRequest.deriver_a_input,
+      deriver_b_input: targetRequest.deriver_b_input,
     },
-    participant_ids: targetPreparation.participantIds,
+    participant_ids: targetPreparation.sourceContribution.participantIds,
   });
 });
 
