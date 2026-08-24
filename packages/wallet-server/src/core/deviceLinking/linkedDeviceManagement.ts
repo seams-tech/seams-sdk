@@ -174,8 +174,16 @@ export class LinkedDeviceManagementServiceV1 {
       if (authority.provenance.kind === 'device_link') {
         if (activeMethods.length === 0) continue;
         devices.push(await this.buildLinkedDeviceSummaryV1(authority, activeMethods[0]));
-      } else if (request.cursor === null && activeMethods.length > 0) {
-        ownerDevices.push(await this.buildOwnerDeviceSummaryV1(authority, activeMethods[0]));
+      } else if (request.cursor === null) {
+        /* One entry per active method, not per authority. R109C puts both
+           factor families on one founding authority, and the settings surface
+           has to name each of them exactly — to decide which family is still
+           missing, and to offer removal of one while its sibling stays. A
+           projection that stopped at the first method made the second
+           invisible and unremovable. */
+        for (const activeMethod of activeMethods) {
+          ownerDevices.push(await this.buildOwnerDeviceSummaryV1(authority, activeMethod));
+        }
       }
     }
     return {
@@ -370,6 +378,7 @@ export class LinkedDeviceManagementServiceV1 {
   ): Promise<OwnerDeviceSummaryV1> {
     return {
       walletId: authority.walletId,
+      walletAuthorityId: authority.authorityId,
       credential: await credentialMetadataV1(
         this.options.credentials,
         authority.walletId,

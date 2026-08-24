@@ -628,6 +628,16 @@ export type LinkedDeviceListRequestV1 = {
  */
 export type OwnerDeviceSummaryV1 = {
   readonly walletId: WalletId;
+  /**
+   * The authority this method belongs to.
+   *
+   * R109C puts both factor families on one founding authority and lists one
+   * entry per active method, so a reader needs this to group the entries it was
+   * given — to decide which family is still missing on THIS authority, and to
+   * know which sibling would remain if one were removed. Grouping by wallet
+   * instead would fold in every linked device's methods.
+   */
+  readonly walletAuthorityId: WalletAuthorityId;
   readonly credential: LinkedOwnerCredentialMetadataV1;
   readonly createdAtMs: number;
   readonly lastActivityAtMs: number;
