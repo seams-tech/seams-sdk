@@ -95,6 +95,13 @@ import type {
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
 } from '../threshold/ed25519/yaoClient';
+
+export type EmailOtpAuthoritySelector =
+  | { readonly kind: 'wallet' }
+  | {
+      readonly kind: 'wallet_auth_method';
+      readonly walletAuthMethodId: string;
+    };
 import {
   ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
@@ -327,6 +334,11 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       readonly ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
       readonly walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
+      /** The export-root custody an unlock derives, for the unlocked capability. */
+      readonly ed25519ExportRootCustody: {
+        readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+        readonly factorSecret32: Uint8Array;
+      };
       readonly emailOtpSessionHandle?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
@@ -787,6 +799,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
+      authoritySelector: EmailOtpAuthoritySelector;
       userId: string;
       groupId: string;
       routePlan: EmailOtpRoutePlan;
@@ -927,6 +940,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       readonly relayUrl: string;
       readonly walletId: string;
+      readonly walletAuthMethodId: string;
       readonly orgId: string;
       readonly providerSubjectId: string;
       readonly nearAccountId: string;

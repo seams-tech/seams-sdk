@@ -2505,6 +2505,7 @@ type EmailOtpUnlockCompletionMaterial =
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
       walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
+      walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
     }
   | {
       kind: 'wallet_unlock_capabilities';
@@ -3415,6 +3416,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             ...(openedEd25519Material
               ? { walletCustodyEd25519Material: openedEd25519Material }
               : {}),
+            walletCustodyEnvelope: walletCustody.envelope,
           };
         }
         if (!ed25519YaoBootstrap) {
@@ -3658,7 +3660,11 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         metadata: RouterAbEd25519YaoActiveClientMetadataV1;
         ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
         walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
-        clientSecret32?: never;
+        /* An Ed25519-only unlock carries the same export-root custody a
+           combined unlock returns, so the main thread can establish the
+           unlocked export-root capability. */
+        clientSecret32: Uint8Array;
+        walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
         ed25519YaoRecovery?: never;
       }
     | {
@@ -3790,7 +3796,9 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           ed25519YaoRecovery: unlocked.ed25519YaoRecovery,
         };
       }
-      case 'ed25519_yao_capability':
+      case 'ed25519_yao_capability': {
+        const ownedClientSecret32 = clientSecret32;
+        clientSecret32 = null;
         return {
           kind: 'ed25519_yao_capability',
           ...commonResult,
@@ -3800,7 +3808,10 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           ...(unlocked.walletCustodyEd25519Material
             ? { walletCustodyEd25519Material: unlocked.walletCustodyEd25519Material }
             : {}),
+          clientSecret32: ownedClientSecret32,
+          walletCustodyEnvelope: unlocked.walletCustodyEnvelope,
         };
+      }
       case 'wallet_unlock_capabilities': {
         const ownedClientSecret32 = clientSecret32;
         clientSecret32 = null;
@@ -6795,21 +6806,29 @@ self.addEventListener('message', async (event: MessageEvent) => {
               throw new Error('Email OTP wallet unlock material branch changed');
             }
             try {
-              postToMainThread({
-                id: msg.id,
-                ok: true,
-                result: {
-                  kind: 'ed25519_yao_capability',
-                  recovery,
-                  activeClientHandle: result.activeClientHandle,
-                  metadata: result.metadata,
-                  ed25519YaoCapability: result.ed25519YaoCapability,
-                  ...(result.walletCustodyEd25519Material
-                    ? { walletCustodyEd25519Material: result.walletCustodyEd25519Material }
-                    : {}),
+              postToMainThread(
+                {
+                  id: msg.id,
+                  ok: true,
+                  result: {
+                    kind: 'ed25519_yao_capability',
+                    recovery,
+                    activeClientHandle: result.activeClientHandle,
+                    metadata: result.metadata,
+                    ed25519YaoCapability: result.ed25519YaoCapability,
+                    ...(result.walletCustodyEd25519Material
+                      ? { walletCustodyEd25519Material: result.walletCustodyEd25519Material }
+                      : {}),
+                    ed25519ExportRootCustody: {
+                      existingEnvelope: result.walletCustodyEnvelope,
+                      factorSecret32: result.clientSecret32,
+                    },
+                  },
                 },
-              });
+                [result.clientSecret32.buffer],
+              );
             } catch (error) {
+              if (result.clientSecret32.byteLength > 0) result.clientSecret32.fill(0);
               removeEmailOtpEd25519YaoActiveClient(result.activeClientHandle);
               deleteEmailOtpEd25519YaoWarmFactor(
                 result.ed25519YaoCapability.capability.materialActivation,

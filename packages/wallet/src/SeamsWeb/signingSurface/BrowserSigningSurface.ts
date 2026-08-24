@@ -6258,7 +6258,7 @@ export class BrowserSigningSurface {
         throw error;
       }
     }
-    return await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+    const signer = await this.activateEmailOtpEd25519CustodyCapabilityInternal({
       commitQueue: 'acquire',
       walletSession: args.walletSession,
       providerSubject: projection.providerSubject,
@@ -6271,6 +6271,36 @@ export class BrowserSigningSurface {
       metadata: unlock.metadata,
       authoritySource: 'cold_unlock',
     });
+    /* The unlock derived this wallet's Yao Client export root, so the runtime
+       holds the scoped export capability an owner needs to export and to grant
+       `export_keys` when linking. It binds to the session the activation above
+       just persisted. */
+    try {
+      const authorization = await walletSessionAuthorizations.readActiveForWallet(
+        args.walletSession.walletId,
+      );
+      if (authorization.kind === 'found') {
+        await establishUnlockedExportRootCapabilityWithWorkerV1(
+          this.walletCustodyCeremonyTransportV1(),
+          {
+            existingEnvelope: unlock.ed25519ExportRootCustody.existingEnvelope,
+            existingFactorSecret: unlock.ed25519ExportRootCustody.factorSecret32,
+            walletId: String(args.walletSession.walletId),
+            walletAuthMethodId: String(authorization.projection.authority.walletAuthMethodId),
+            walletSessionId: String(authorization.projection.walletSessionId),
+            expiresAtMs: authorization.projection.expiresAtMs,
+          },
+        );
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[SigningEngine][email-otp] unlocked Ed25519 export-root capability was not established:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    } finally {
+      unlock.ed25519ExportRootCustody.factorSecret32.fill(0);
+    }
+    return signer;
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {
