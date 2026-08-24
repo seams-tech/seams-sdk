@@ -298,6 +298,7 @@ const LINKED_OWNER_EMAIL_OTP_CREDENTIAL_FIELDS = ['kind', 'walletAuthMethodId'] 
 const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId', 'limit', 'cursor'] as const;
 const OWNER_DEVICE_SUMMARY_FIELDS = [
   'walletId',
+  'walletAuthorityId',
   'credential',
   'createdAtMs',
   'lastActivityAtMs',
@@ -727,6 +728,11 @@ export function parseOwnerDeviceSummaryV1(raw: unknown): OwnerDeviceSummaryV1 {
   const record = exactRecord(raw, OWNER_DEVICE_SUMMARY_FIELDS, 'OwnerDeviceSummaryV1');
   return {
     walletId: parseWallet(record.walletId, 'OwnerDeviceSummaryV1.walletId'),
+    walletAuthorityId: parseId(
+      parseWalletAuthorityId,
+      record.walletAuthorityId,
+      'OwnerDeviceSummaryV1.walletAuthorityId',
+    ),
     credential: parseLinkedOwnerCredentialMetadata(
       record.credential,
       'OwnerDeviceSummaryV1.credential',
