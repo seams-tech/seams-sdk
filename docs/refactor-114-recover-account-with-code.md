@@ -346,7 +346,7 @@ server.
 
 Update the form copy to:
 
-> Enter one recovery code to create a new passkey for your wallet.
+> Enter a recovery code to recover your wallet.
 
 Map every server refusal to:
 

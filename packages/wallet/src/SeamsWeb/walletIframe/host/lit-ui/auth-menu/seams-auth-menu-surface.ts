@@ -1048,9 +1048,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private renderRecovery(viewModel: AuthMenuRecoveryViewModel): TemplateResult {
     if (viewModel.stage === 'enter_code') {
       const statusMessage = viewModel.status.kind === 'recoverable' ? viewModel.status.message : '';
-      const feedbackMessage =
-        viewModel.recoveryCodeError ??
-        (statusMessage || 'Enter a recovery code to recover your wallet.');
+      const feedbackMessage = viewModel.recoveryCodeError ?? statusMessage;
       const feedbackIsError = viewModel.recoveryCodeError !== null;
       return html`
         ${this.renderHeader(viewModel)}
