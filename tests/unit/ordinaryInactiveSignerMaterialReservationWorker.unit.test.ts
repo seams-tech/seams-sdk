@@ -14,8 +14,9 @@ import type {
   OrdinaryEd25519SignerMaterialReservationRequestV1,
 } from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
 import {
-  buildOrdinaryEcdsaClientMaterialFixture,
+  buildOrdinaryEcdsaActivationReceiptFixture,
   buildOrdinaryEcdsaSignerFixture,
   buildOrdinaryEd25519ActivationReceiptFixture,
   buildOrdinaryEd25519ClientMaterialFixture,
@@ -51,7 +52,8 @@ class ReservationEndpointFixture
       state: 'inactive',
       signer: input.signer,
       materialActivation: input.plannedActivationRef,
-      participantIds: this.ed25519ParticipantIds ?? input.preparation.participantIds,
+      participantIds:
+        this.ed25519ParticipantIds ?? input.preparation.sourceContribution.participantIds,
       clientMaterial: buildOrdinaryEd25519ClientMaterialFixture('worker-ed25519'),
       activationReceipt: buildOrdinaryEd25519ActivationReceiptFixture(
         'worker-ed25519',
@@ -71,13 +73,21 @@ class ReservationEndpointFixture
       state: 'inactive',
       signer: input.signer,
       materialActivation: input.plannedActivationRef,
-      clientMaterial: buildOrdinaryEcdsaClientMaterialFixture(
-        'worker-ecdsa',
-        this.ecdsaRecipientPublicKey ??
-          input.preparation.registrationRequest.client_ephemeral_public_key,
-        input.preparation.registrationRequest.signer_set.signer_a.key_epoch,
-      ),
-      serverMaterialReservationId: 'server-reservation-ecdsa',
+      activationReceipt: buildOrdinaryEcdsaActivationReceiptFixture(input.preparation, input.signer),
+      clientMaterial: {
+        kind: 'ordinary_ecdsa_client_material_v1',
+        encryptedTargetClientShare: {
+          ...input.preparation.sourceContribution.encryptedTargetClientShare,
+          recipientPublicKeyB64u:
+            this.ecdsaRecipientPublicKey ??
+            input.preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+        },
+      },
+      serverMaterial: {
+        kind: 'ordinary_ecdsa_inactive_server_material_v1',
+        reservationId: 'server-reservation-ecdsa',
+        encryptedTargetServerShare: input.preparation.sourceContribution.encryptedDelta,
+      },
     };
   }
 
@@ -121,13 +131,13 @@ test('ordinary Ed25519 reservation retries by exact activation ref without a sec
   expect(endpoint.ed25519Calls).toHaveLength(1);
   expect(first).toEqual(second);
   expect(first.state).toBe('inactive');
-  expect(first.serverMaterialReservationId).toBe('server-reservation-ed25519');
+  expect(first.serverMaterial.reservationId).toBe('server-reservation-ed25519');
   expect(first.activationReceipt.material_activation.activation_id).toBe(
     request.plannedActivationRef.activationId,
   );
 });
 
-test('ordinary ECDSA reservation keeps the exact inactive role envelopes', async () => {
+test('ordinary ECDSA reservation keeps the exact inactive source-contribution envelopes', async () => {
   const endpoint = new ReservationEndpointFixture();
   const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
   const request = ecdsaRequest('ecdsa', 'activation');
@@ -138,18 +148,21 @@ test('ordinary ECDSA reservation keeps the exact inactive role envelopes', async
   expect(endpoint.ecdsaCalls).toHaveLength(1);
   expect(replay).toEqual(result);
   expect(result.state).toBe('inactive');
-  expect(result.clientMaterial.deriver_a_client_package.recipient_role).toBe('signer_a');
-  expect(result.clientMaterial.deriver_b_client_package.recipient_role).toBe('signer_b');
-  expect(result.serverMaterialReservationId).toBe('server-reservation-ecdsa');
+  expect(result.clientMaterial.encryptedTargetClientShare.recipientPublicKeyB64u).toBe(
+    request.preparation.sourceContribution.binding.target.clientRecipientPublicKeyB64u,
+  );
+  expect(result.serverMaterial.reservationId).toBe('server-reservation-ecdsa');
 });
 
 test('ordinary ECDSA reservation rejects a Deriver-recipient package', async () => {
-  const endpoint = new ReservationEndpointFixture(`x25519:${'11'.repeat(32)}`);
+  const endpoint = new ReservationEndpointFixture(
+    base64UrlEncode(new Uint8Array(32).fill(11)),
+  );
   const worker = new CloudflareOrdinaryInactiveSignerMaterialReservationWorkerV1(endpoint);
   const request = ecdsaRequest('ecdsa-deriver-recipient', 'activation');
 
   await expect(worker.reserveInactiveEcdsaSignerMaterialV1(request)).rejects.toThrow(
-    'browser client recipient',
+    'client share recipient does not match',
   );
 });
 
@@ -186,7 +199,7 @@ test('ordinary reservation service composes with the validated worker adapter', 
   expect(result.state).toBe('inactive');
   expect(result.serverMaterial.reservationId).toBe('server-reservation-ecdsa');
   expect(result).not.toHaveProperty('activatedAtMs');
-  expect(result).not.toHaveProperty('activationReceipt');
+  expect(result.activationReceipt.state).toBe('inactive');
 });
 
 test('unavailable ordinary reservation worker fails closed without an activation fallback', async () => {
