@@ -67,6 +67,8 @@ not complete a behavioral item.
 - [x] The Passkey-to-Passkey ECDSA-only profile completes linking, exact
   authority activation, independent reload/unlock on both devices, ordinary
   ECDSA export, Arc/EVM signing, and revocation: 1/1 in 56.0 seconds.
+- [x] Manual Email OTP owner confirmation completes an immediate unlock →
+  Tempo-first transaction after stale opaque presign recovery.
 
 ### Open completion gates
 
@@ -139,8 +141,8 @@ with the three Email OTP cells.
   pool and made Tempo succeed. Classified `production_regression`. The signer
   now invalidates that pool generation, refills once, and retries only when no
   client signature share was produced (`pool_entry_unavailable`). Wallet
-  typecheck and diff-check pass; immediate unlock → Tempo manual confirmation
-  remains open.
+  typecheck, SDK build, and diff-check pass; immediate unlock → Tempo-first
+  manual confirmation succeeds.
 - Email/Ed25519 progress: the Ed25519-only Email cell now registers, unlocks
   the owner, links Device 2, activates its authority, reloads Device 2 twice,
   and fails at Device 2's unlock after reload. Every failure was
