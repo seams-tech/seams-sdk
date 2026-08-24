@@ -213,6 +213,15 @@ test.describe('wallet-host Lit auth menu surface', () => {
     );
 
     const codeInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-code]`);
+    const recoveryFeedback = page.locator(`${AUTH_MENU_TAG} #w3a-recovery-code-feedback`);
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-title`)).toHaveCSS('text-align', 'center');
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-subhead`)).toHaveCSS('text-align', 'center');
+    await expect(recoveryFeedback).toHaveText('Enter a recovery code to recover your wallet.');
+    await expect(recoveryFeedback).toHaveCSS('margin', '4px');
+    await expect(
+      page.locator(`${AUTH_MENU_TAG} .w3a-header + #w3a-recovery-code-feedback`),
+    ).toHaveCount(1);
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-form`)).toHaveCSS('gap', '8px');
     await expect(codeInput).toHaveAttribute('aria-invalid', 'false');
     await expect(codeInput).toHaveCSS('font-size', '16px');
     await expect(page.locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`)).toBeEnabled();
@@ -236,7 +245,11 @@ test.describe('wallet-host Lit auth menu surface', () => {
       },
     );
     await expect(codeInput).toBeFocused();
-    await expect(codeInput).toHaveAttribute('aria-describedby', 'w3a-recovery-code-error');
+    await expect(codeInput).toHaveAttribute('aria-describedby', 'w3a-recovery-code-feedback');
+    await expect(recoveryFeedback).toHaveCount(1);
+    await expect(recoveryFeedback).toHaveText('Enter a recovery code.');
+    await expect(recoveryFeedback).toHaveClass(/w3a-recovery-error/);
+    await expect(recoveryFeedback).toHaveAttribute('aria-hidden', 'false');
 
     await page.evaluate(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
