@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { IndexedDBManager } from '@/core/indexedDB';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import { type EmailOtpRoutePlan } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -70,6 +72,19 @@ const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
   'signing-session-seal-kek-test-r1',
 );
+const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
+
+async function resolveMissingSelectedWalletAuthorityFixture(): Promise<ResolveSelectedWalletAuthorityResultV1> {
+  return { kind: 'missing_selection' };
+}
+
+function installCanonicalAuthoritySelectionFixture(): void {
+  IndexedDBManager.resolveSelectedWalletAuthority = resolveMissingSelectedWalletAuthorityFixture;
+}
+
+function restoreCanonicalAuthoritySelectionFixture(): void {
+  IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
+}
 
 function emailOtpEcdsaUnlockWorkerResult(call: any) {
   const fixture = createEcdsaSessionActivationFixture({
@@ -77,10 +92,13 @@ function emailOtpEcdsaUnlockWorkerResult(call: any) {
     chain: 'tempo',
     sessionId: 'ecdsa-session',
   });
-  const requestedActivation = call.request.payload.material?.ecdsaSessionActivation;
+  const material = call.request.payload.material;
+  const requestedSessionPolicy = material?.ecdsaSessionPolicy;
   return {
     kind: 'ecdsa',
-    operation: requestedActivation ? 'wallet_unlock' : call.request.payload.material.operation,
+    operation: requestedSessionPolicy
+      ? 'wallet_unlock'
+      : material.ecdsaSessionHandleBinding.operation,
     recovery: {
       challengeId: 'challenge-1',
       enrollmentSealKeyVersion: 'email-v1',
@@ -90,16 +108,15 @@ function emailOtpEcdsaUnlockWorkerResult(call: any) {
       unlockSignatureB64u: 'unlock-signature',
     },
     emailOtpSessionHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
-    ...(requestedActivation
+    ...(requestedSessionPolicy
       ? {
           ecdsaSession: {
             ...fixture.response,
-            public_capability: requestedActivation.public_capability,
             session: {
               ...fixture.response.session,
-              threshold_session_id: requestedActivation.session_policy.threshold_session_id,
-              remaining_uses: requestedActivation.session_policy.remaining_uses,
-              expires_at_ms: Date.now() + requestedActivation.session_policy.ttl_ms,
+              threshold_session_id: requestedSessionPolicy.session_policy.threshold_session_id,
+              remaining_uses: requestedSessionPolicy.session_policy.remaining_uses,
+              expires_at_ms: Date.now() + requestedSessionPolicy.session_policy.ttl_ms,
             },
           },
         }
@@ -1061,11 +1078,20 @@ async function emailOtpLoginManifestFixture(args: {
       keyHandle: args.keyHandle,
       signingRootId: `${args.runtimePolicyScope.projectId}:${args.runtimePolicyScope.envId}`,
       signingRootVersion: args.runtimePolicyScope.signingRootVersion,
+      authority: buildEmailOtpWalletAuthAuthority({
+        walletId: TEST_SUBJECT_ID,
+        provider: 'google',
+        providerUserId: 'google:subject',
+        emailHashHex: 'email-hash',
+      }),
     })
   ).manifest;
 }
 
 test.describe('EmailOtpWalletSessionCoordinator', () => {
+  test.beforeAll(installCanonicalAuthoritySelectionFixture);
+  test.afterAll(restoreCanonicalAuthoritySelectionFixture);
+
   test('normalizes warm-session status requests and maps worker failures', async () => {
     const invalid = createCoordinator();
     await expect(
@@ -1225,6 +1251,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
     const result = await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
+      authoritySelector: { kind: 'wallet' },
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
@@ -1326,6 +1353,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
+      authoritySelector: { kind: 'wallet' },
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
@@ -1375,6 +1403,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
+      authoritySelector: { kind: 'wallet' },
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
@@ -1443,6 +1472,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
+      authoritySelector: { kind: 'wallet' },
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
@@ -1533,6 +1563,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     await expect(
       coordinator.loginWithEcdsaCapabilityInternal({
         walletSession: TEST_WALLET_SESSION,
+        authoritySelector: { kind: 'wallet' },
         chainTarget: TEMPO_CHAIN_TARGET,
         challengeId: 'challenge-1',
         otpCode: '123456',
@@ -1583,6 +1614,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
+      authoritySelector: { kind: 'wallet' },
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',

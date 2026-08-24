@@ -544,6 +544,7 @@ test.describe('D1 authorization core', () => {
           relayerKeyId: signer.walletKey.relayerKeyId,
           participantIds: signer.walletKey.participantIds,
           runtimePolicyScope: material.runtimePolicyScope,
+          routerAbEcdsaDerivationNormalSigning: normalSigning,
         }),
       });
       expect(first).toMatchObject({ ok: true, admission: { kind: 'claimed' } });
@@ -597,6 +598,7 @@ test.describe('D1 authorization core', () => {
           relayerKeyId: signer.walletKey.relayerKeyId,
           participantIds: signer.walletKey.participantIds,
           runtimePolicyScope: material.runtimePolicyScope,
+          routerAbEcdsaDerivationNormalSigning: normalSigning,
         }),
       });
       expect(retry).toMatchObject({ ok: true, admission: { kind: 'operation_in_progress' } });

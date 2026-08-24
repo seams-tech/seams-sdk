@@ -424,6 +424,7 @@ export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
     keyHandle?: string;
     signingRootId?: string;
     signingRootVersion?: string;
+    authority?: WalletAuthAuthority;
   },
 ): Promise<{
   readonly authority: WalletAuthAuthority;
@@ -432,7 +433,8 @@ export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
 }> {
   const walletId = overrides?.walletId ?? walletIdFromString('ecdsa-manifest-fixture-wallet');
   const authority =
-    factor === 'passkey'
+    overrides?.authority ??
+    (factor === 'passkey'
       ? buildPasskeyWalletAuthAuthority({
           walletId,
           rpId: 'example.localhost',
@@ -443,10 +445,10 @@ export async function canonicalEvmFamilyEcdsaSigningCapabilityFixture(
           provider: 'google',
           providerUserId: `google:${String(walletId)}`,
           emailHashHex: 'email-hash',
-        });
+        }));
   const authorityRef = await walletAuthAuthorityRef({ authority });
   const lookup = activeLookupFromFixture(
-    ecdsaCapabilityActivationFixture({ authority: authorityRef, ...overrides }),
+    ecdsaCapabilityActivationFixture({ ...overrides, authority: authorityRef }),
   );
   const manifest = lookup.manifest;
   const material = buildPersistedEcdsaRoleLocalMaterial({
