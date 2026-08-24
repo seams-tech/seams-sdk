@@ -8,7 +8,7 @@
 }
 
 # App (Vite dev server)
-{$SEAMS_APP_CADDY_ADDRESS:localhost} {
+{$SEAMS_APP_CADDY_ADDRESS:localhost:9443} {
 	tls internal
 	encode gzip
 	header Permissions-Policy "publickey-credentials-get=(self \"https://localhost:8443\"), publickey-credentials-create=(self \"https://localhost:8443\"), clipboard-read=(self \"https://localhost:8443\"), clipboard-write=(self \"https://localhost:8443\")"
@@ -41,7 +41,7 @@
 }
 
 # Docs host (VitePress dev server)
-{$SEAMS_DOCS_CADDY_ADDRESS:docs.localhost} {
+{$SEAMS_DOCS_CADDY_ADDRESS:docs.localhost:9447} {
 	tls internal
 	encode gzip
 	reverse_proxy localhost:5222
