@@ -138,6 +138,27 @@ An earlier reading of this file recorded the opposite — that owner-method
 removal already worked, because `revokeDevice` handles owner cards. It does
 handle them; nothing reaches it.
 
+### The unit suite cannot gate R109C
+
+`npx playwright test -c playwright.unit.config.ts --list` from `tests/` reports
+**26 collection errors** and collects zero tests. The failures are unresolvable
+imports across unrelated files — missing fixture exports such as
+`activeLinkedDeviceWalletSessionFixture`,
+`selectWalletHostOwnerSourceLaneCandidatesV1`, and
+`parseDerivedEmailOtpRecoveryKeyId`. This branch has touched exactly one file
+under `tests/`, so the condition is pre-existing on `dev`.
+
+Because one unresolvable import aborts collection for every file, `pnpm
+test:unit` reports failure regardless of what R109C does, and a green unit
+suite is not an available gate. Targeted single-file runs do work and are what
+this ledger cites throughout.
+
+Repairing the other 25 is a test-only project of its own and is deliberately
+not attempted here: `AGENTS.md` forbids fixture-repair loops, and none of these
+imports is R109C's to own. `tests/unit/emailOtpRegistrationRoute.unit.test.ts`
+was repaired only because its two dead route imports were discovered while
+verifying R109C's own Email OTP path.
+
 ### Demonstrated R103E defect: revocation never revokes the custody envelope
 
 `revokePasskeyFactorAtomically`
