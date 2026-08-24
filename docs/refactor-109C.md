@@ -7,6 +7,67 @@ Status: implementation-ready. Depends on Refactor 103E.
 R109C is the sole implementation authority for same-device auth-method
 addition. Refactor 109D remains the separate device-linking plan.
 
+## Live implementation ledger
+
+Implementation branch `codex/refactor-109c`, based on `dev` at `ff395dfe1`.
+R103E's closure edit was already committed on `dev` in `ff395dfe1`, so this
+branch adds no separate documentation commit for it.
+
+A checkpoint is marked done only when the named command was run and reported
+green. Green lower-tier evidence does not close a product transition; only a
+real browser flow does.
+
+### Phase 0 — revocation prerequisite
+
+- [x] Exact method revocation runs through the composed D1 path and protects
+      the wallet's final active method. Command:
+      `npx playwright test -c playwright.unit.config.ts ./unit/linkedDeviceManagement.unit.test.ts ./unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts ./unit/d1WalletAuthorityStore.unit.test.ts`
+      from `tests/`, 11 passed. The green cases are: revokes one authority
+      method and protects the final active wallet method; rolls back method
+      revocation when an atomic session fence fails; serializes competing
+      revocations of the final two wallet methods; add-auth commit rejects a
+      source method revoked after ceremony start; rejects a `WalletAuthorityId`
+      in the exact-method revocation boundary; rejects a fresh proof from the
+      target auth method itself; revokes one exact linked auth method, fences
+      sessions, and disables its ordinary refs; replays a durable revocation
+      and retries terminal material deactivation.
+- [x] Authority-ID and self-proof revocation requests are rejected — the first
+      two cases above own exactly that boundary.
+- [x] Real-browser owner-UI revocation with the exact method, revoked-session
+      rejection at signing, revoked-method unlock rejection, and the surviving
+      owner operation are recorded green in `docs/refactor-103E.md`'s
+      verification ledger and are not re-run here.
+
+Four tests in `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`
+fail on `dev` before any R109C change, with `Passkey wallet authority is not
+active for this wallet`, `Missing ownerProofBindingDigest`, `Missing
+webauthn_authentication.id/rawId`, and `the verified passkey has no active
+wallet custody envelope`. All four are inline hand-written setup fixtures that
+predate R103E's authority, owner-proof-binding, and custody-envelope
+requirements — the lowest-authority tier in `AGENTS.md`. They are recorded here
+as the Phase 4 fixture worklist rather than repaired now, because repairing
+them before either product transition works is exactly the stale-fixture loop
+the plan forbids.
+
+`tests/scripts/check-auth-method-domain-boundaries.mjs` also fails on `dev`
+before any R109C change: five source files carry unallowlisted binary auth
+fallbacks and one allowlist entry is stale. R109C adds no new occurrence; the
+guard's disposition is Phase 4 work.
+
+### Phase 1 — shared contract and thin SDK entry points
+
+- [x] Two-branch internal contract with branded identities, branch builders,
+      admission, and negative type fixtures:
+      `packages/shared-ts/src/utils/addWalletAuthMethod.ts` and its
+      `.typecheck.ts`. Command: `npx tsc --noEmit` in `packages/shared-ts`,
+      clean.
+
+The plan named `tests/typecheck/` for the negative fixtures. That directory is
+covered by no `tsconfig` in the repo, so nothing compiles it; the fixtures live
+beside the contract in `packages/shared-ts/src/utils/`, which
+`packages/wallet/tsconfig.json` does include and `pnpm type-check:sdk`
+therefore enforces.
+
 ## Goal
 
 Give an authenticated user one **Add authentication method** product action:
