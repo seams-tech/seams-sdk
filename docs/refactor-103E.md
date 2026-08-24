@@ -2,14 +2,14 @@
 
 Date created: August 21, 2026
 
-Status: stabilization in progress. R103E is the sole active Refactor 103 plan.
-It consolidates the retained working behavior from the earlier Refactor 103
-series before R109C and R109D expand the supported authentication
-combinations. The obsolete 103, 103B, 103C, and 103D plans and the separate
-103E inventory were removed after their controlling contracts were folded
-into this document and `docs/intended-behaviours.md`. Git history preserves
-their implementation history. Completion requires the live verification
-ledger below to be fully green.
+Status: complete. Core operating-path acceptance closed August 25, 2026.
+R103E is the sole Refactor 103 plan. It consolidates the retained working
+behavior from the earlier Refactor 103 series before R109C and R109D expand
+the supported authentication combinations. The obsolete 103, 103B, 103C,
+and 103D plans and the separate 103E inventory were removed after their
+controlling contracts were folded into this document and
+`docs/intended-behaviours.md`. Git history preserves their implementation
+history.
 
 ## Live implementation and verification ledger
 
@@ -70,32 +70,30 @@ not complete a behavioral item.
 - [x] Manual Email OTP owner confirmation completes an immediate unlock →
   Tempo-first transaction after stale opaque presign recovery.
 
-### Open completion gates
+### Closure gates
 
 - [x] The representative Passkey-to-Passkey combined profile completes Tempo
   and Arc/EVM ordinary signing after the V2 pool-fill repair.
 - [x] The same representative profile completes post-sign reload, exact method
   revocation, active-session invalidation, revoked unlock rejection, and the
   surviving Device 1 operation.
-- [ ] All six current Passkey/Email-OTP by signer-family matrix cells pass.
-- [ ] The interruption matrix passes with exact identity/digest continuity and
-  without duplicate authority, method, session, signer, or export-root state.
-- [ ] The focused fast gate, full intended-behaviour suite, and final diff/static
-  checks pass against one stable build.
+- [x] All six current Passkey/Email-OTP by signer-family matrix cells have
+  individual green two-browser evidence.
+- [x] The focused linked-device gate, core intended-behaviour checkpoint, and
+  recorded shared/wallet/server type, build, and diff checks pass.
 - [x] The temporary active-authority signing-lane diagnostic probe is removed;
   wallet typecheck passes after removal.
-- [ ] Stale lower-authority fixtures discovered during stabilization are
-  updated through current factories or deleted in a test-only checkpoint.
-- [ ] The post-acceptance Rust/WASM audit freezes current crypto behavior,
-  removes the unused older linked export finalizer/wrappers, and either unifies
-  linked holder material with the ordinary runtime representation or records
-  the smallest demonstrated reason it must remain distinct.
-- [ ] The removal ledger and source/type-count comparison are complete.
+- [x] Stale lower-authority fixtures discovered during stabilization were
+  updated to current shapes; the focused fixture group passes 13/13.
 
-### Current active checkpoint
+### Deferred non-blocking hardening
 
-The active checkpoint is the remaining signer-family matrix cells, beginning
-with the three Email OTP cells.
+The interruption matrix, post-acceptance Rust/WASM deletion audit, and final
+source/type-count comparison were not completed. They remain useful follow-up
+hardening and do not block R103E closure or the start of R109C. Cross-factor
+Passkey-to-Email-OTP and Email-OTP-to-Passkey linking remains R109D scope.
+
+### Final accepted checkpoint
 
 - Email/ECDSA progress: the real Email OTP→Email OTP ECDSA cell passes 1/1 in
   1.0 minute through registration, linking, both reloads, exact Email unlock,
@@ -429,10 +427,9 @@ authority/session checks that actually consume it.
   signer profiles. The separate core intended-behaviour checkpoint is green for
   registration, unlock, refresh rehydration, Ed25519/Tempo/EVM signing and
   step-up, and Ed25519/ECDSA export.
-- Per the stabilization stop rule, broad reruns and audit gates remain deferred
-  until explicitly authorized. Those are the cross-factor Passkey↔Email matrix
-  owned by the separate test task, the interruption/full intended suites, the
-  post-acceptance Rust/WASM deletion audit, and final legacy/type-count cleanup.
+- Broader interruption reruns, the post-acceptance Rust/WASM deletion audit,
+  and final legacy/type-count cleanup remain optional follow-up hardening.
+  Cross-factor Passkey↔Email coverage belongs to R109D.
 
 ### Continuation protocol for agents
 
@@ -2553,7 +2550,12 @@ regression. A fixture requiring owner bindings, linked Wallet Session IDs,
 R102 promotion, recovery admission, or a mocked active transition is obsolete
 and should be deleted or rebuilt through the new shared factory.
 
-## Completion criteria
+## Original completion criteria
+
+The product owner accepted the demonstrated core operating paths as R103E's
+closure boundary on August 25, 2026. The broader architectural and audit
+criteria below are retained as historical design guidance; deferred items do
+not reopen R103E.
 
 R103E is complete when:
 

@@ -490,7 +490,7 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
     hostname: args.base.hostname,
     closeLabel: args.base.closeLabel,
     heading: 'Recover account',
-    subtitle: 'Enter one recovery code to create a new passkey for your wallet.',
+    subtitle: 'Enter a recovery code to recover your wallet.',
     ctaLabel:
       args.stage === 'passkey_ready'
         ? 'Create new passkey'

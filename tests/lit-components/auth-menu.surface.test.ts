@@ -71,7 +71,7 @@ function recoveryEntryViewModel(
     kind: 'recovery',
     mode: 'login',
     heading: 'Recover account',
-    subtitle: 'Enter one recovery code to create a new passkey for your wallet.',
+    subtitle: 'Enter a recovery code to recover your wallet.',
     ctaLabel: 'Continue',
     showProgress: true,
     enabledExternalProviders: [],
@@ -215,8 +215,10 @@ test.describe('wallet-host Lit auth menu surface', () => {
     const codeInput = page.locator(`${AUTH_MENU_TAG} [data-recovery-code]`);
     const recoveryFeedback = page.locator(`${AUTH_MENU_TAG} #w3a-recovery-code-feedback`);
     await expect(page.locator(`${AUTH_MENU_TAG} .w3a-title`)).toHaveCSS('text-align', 'center');
-    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-subhead`)).toHaveCSS('text-align', 'center');
-    await expect(recoveryFeedback).toHaveText('Enter a recovery code to recover your wallet.');
+    const recoverySubhead = page.locator(`${AUTH_MENU_TAG} .w3a-subhead`);
+    await expect(recoverySubhead).toHaveText('Enter a recovery code to recover your wallet.');
+    await expect(recoverySubhead).toHaveCSS('text-align', 'center');
+    await expect(recoveryFeedback).toBeEmpty();
     await expect(recoveryFeedback).toHaveCSS('margin', '4px');
     await expect(
       page.locator(`${AUTH_MENU_TAG} .w3a-header + #w3a-recovery-code-feedback`),
