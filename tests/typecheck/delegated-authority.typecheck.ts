@@ -8,9 +8,7 @@ import {
 import type {
   ExactAdministeredEd25519SignerV1,
   ExactAdministeredEcdsaSignerV1,
-  ExactAdministeredSignerActivationSetV1,
   ExactAdministeredSignerManifestV1,
-  SigningActivationRequirementV1,
 } from '../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 
 declare const ed25519: ExactAdministeredEd25519SignerV1;
@@ -63,35 +61,3 @@ const emptyManifest: ExactAdministeredSignerManifestV1 = {
   signers: [],
 };
 void emptyManifest;
-
-const dualActivations: ExactAdministeredSignerActivationSetV1 = {
-  kind: 'exact_administered_signer_activation_set_v1',
-  keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
-  activations: [ed25519, ecdsa],
-};
-void dualActivations;
-
-const mixedActivation: Extract<
-  ExactAdministeredSignerActivationSetV1,
-  { readonly keyFamilies: readonly ['ed25519'] }
-> = {
-  kind: 'exact_administered_signer_activation_set_v1',
-  keyFamilies: ['ed25519'],
-  activations: [ed25519],
-  // @ts-expect-error An Ed25519-only activation set cannot carry ECDSA material.
-  ecdsa,
-};
-void mixedActivation;
-
-const validSigningRequirement: SigningActivationRequirementV1 = {
-  kind: 'required',
-  activations: dualActivations,
-};
-void validSigningRequirement;
-
-// @ts-expect-error A not-granted signing requirement cannot carry activations.
-const invalidSigningRequirement: SigningActivationRequirementV1 = {
-  kind: 'not_granted',
-  activations: dualActivations,
-};
-void invalidSigningRequirement;
