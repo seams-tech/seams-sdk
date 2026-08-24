@@ -5864,6 +5864,17 @@ function parseEmailOtpPasskeyRegistrationSummary(
   return { kind: 'webauthn_add_auth_method_registration_v1', rpId: rpId.value };
 }
 
+/**
+ * The request id alone, recovered from a message this worker refused to parse,
+ * so a rejected request can be answered instead of leaving its caller to time
+ * out with nothing to report.
+ */
+function workerRequestIdFromRawMessage(raw: unknown): string | null {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  if (!obj) return null;
+  return normalizeOptionalTrimmedString(obj.id) || null;
+}
+
 function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   if (!obj) return null;
@@ -6377,7 +6388,14 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       }
       rejectUnknownEmailOtpYaoFields(
         lane,
-        ['walletId', 'providerSubjectId', 'nearAccountId', 'nearEd25519SigningKeyId', 'signerSlot'],
+        [
+          'walletId',
+          'providerSubjectId',
+          'walletAuthMethodId',
+          'nearAccountId',
+          'nearEd25519SigningKeyId',
+          'signerSlot',
+        ],
         `${type}.lane`,
       );
       rejectUnknownEmailOtpYaoFields(
@@ -6427,7 +6445,27 @@ setTimeout(() => {
 }, 0);
 
 self.addEventListener('message', async (event: MessageEvent) => {
-  const msg = parseEmailOtpWorkerRequest(event.data);
+  /* Parsing sat outside the try below, so a rejected field threw past the
+     responder and the caller waited out its whole timeout with no error
+     anywhere. A request that cannot be parsed still has to answer. */
+  let msg: ReturnType<typeof parseEmailOtpWorkerRequest>;
+  try {
+    msg = parseEmailOtpWorkerRequest(event.data);
+  } catch (error) {
+    const err = asWorkerErrorPayload(error);
+    const requestId = workerRequestIdFromRawMessage(event.data);
+    console.error('[EmailOtpWorker] rejected an unparsable request', err.message);
+    if (requestId !== null) {
+      postToMainThread({
+        id: requestId,
+        ok: false,
+        error: err.message,
+        ...(err.code ? { code: err.code } : {}),
+        ...(err.coreCode ? { coreCode: err.coreCode } : {}),
+      });
+    }
+    return;
+  }
   if (!msg) return;
 
   try {
