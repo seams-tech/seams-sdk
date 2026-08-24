@@ -588,8 +588,14 @@ export class CloudflareD1WalletAuthMethodService {
           };
         }
         if (storedAuth.auth.kind === 'email_otp') {
-          const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+          /* By the exact method the caller named, not by 'the wallet's only
+             active Email method'. Linking gives one wallet several active
+             Email methods sharing its verified address, so the wallet-wide
+             resolver cannot survive it — the same shape as the three escaped
+             defects R103E repaired. */
+          const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedMethod({
             walletId: String(walletId),
+            walletAuthMethodId: String(storedAuth.auth.authorityRef.walletAuthMethodId),
             providerUserId: storedAuth.auth.providerUserId,
           });
           if (!authority.ok) return authority;
@@ -1228,8 +1234,11 @@ export class CloudflareD1WalletAuthMethodService {
       return { ok: false, code: 'not_found', message: 'wallet has no active auth methods' };
     }
     if (input.auth.kind === 'email_otp') {
-      const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+      /* Exact method, for the same reason as the start branch above: a wallet
+         with a linked device has more than one active Email method. */
+      const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedMethod({
         walletId: String(input.walletId),
+        walletAuthMethodId: String(input.auth.authorityRef.walletAuthMethodId),
         providerUserId: input.auth.providerUserId,
       });
       if (!authority.ok) return authority;
