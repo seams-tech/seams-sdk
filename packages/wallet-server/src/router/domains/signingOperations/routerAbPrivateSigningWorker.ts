@@ -4270,6 +4270,21 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
         ),
       };
     }
+    if (
+      !sameRouterAbEcdsaDerivationNormalSigningScopeV1(
+        v2Admission.request.scope,
+        activeMaterial.routerAbEcdsaDerivationNormalSigning.scope,
+      )
+    ) {
+      return {
+        ok: false,
+        result: routerAbStepUpError(
+          403,
+          'wallet_session_scope_mismatch',
+          'Wallet Session V2 scope does not match the active material',
+        ),
+      };
+    }
     const admissionDecision = await evaluateRouterAbNormalSigningAdmission({
       adapter: input.admissionAdapter,
       curve: 'ecdsa',

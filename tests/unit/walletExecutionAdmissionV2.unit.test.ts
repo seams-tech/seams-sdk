@@ -53,6 +53,7 @@ import {
 } from '@shared/authorization/operationFingerprint';
 import type { AuthorizedOperation } from '../../packages/wallet-server/src/authorization/domain';
 import {
+  authorizeRouterAbEcdsaDerivationNormalSigningRoute,
   authorizeRouterAbEd25519NormalSigningRoute,
   type RouterAbNormalSigningAdmissionAdapter,
 } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
@@ -76,6 +77,10 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 type SignerFamily = 'ed25519' | 'ecdsa_secp256k1' | 'both';
@@ -387,6 +392,36 @@ class Ed25519MaterialActivationFixture {
   }
 }
 
+class EcdsaMaterialActivationFixture {
+  readonly runtimePolicyScope: RuntimePolicyScope = {
+    orgId: 'org:admission',
+    projectId: 'project:admission',
+    envId: 'env:admission',
+    signingRootVersion: 'root:admission',
+  };
+  calls = 0;
+
+  constructor(
+    private readonly materialActivation: RouterAbMpcMaterialActivationRefWire,
+    private readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1,
+  ) {}
+
+  async resolveEcdsaMaterialActivation(
+    _input: Parameters<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']>[0],
+  ): ReturnType<RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation']> {
+    this.calls += 1;
+    return {
+      ok: true,
+      materialActivation: this.materialActivation,
+      keyHandle: 'key-handle:admission',
+      relayerKeyId: 'relayer-key:admission',
+      participantIds: [11, 29],
+      runtimePolicyScope: this.runtimePolicyScope,
+      routerAbEcdsaDerivationNormalSigning: this.normalSigning,
+    };
+  }
+}
+
 class AllowingNormalSigningAdmission implements RouterAbNormalSigningAdmissionAdapter {
   calls = 0;
 
@@ -477,6 +512,77 @@ function buildEd25519ExportIdentityFixture(
     state_epoch: 1,
     runtime_policy_binding: new Array<number>(32).fill(4),
   };
+}
+
+function buildEcdsaNormalSigningStateFixture(
+  materialActivation: RouterAbMpcMaterialActivationRefWire,
+  walletId: WalletId,
+  label: string,
+): RouterAbEcdsaDerivationNormalSigningStateV1 {
+  return {
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: String(walletId),
+      ecdsa_threshold_key_id: `ecdsa-threshold-key:admission-${label}`,
+      signing_root_id: `signing-root:admission-${label}`,
+      signing_root_version: `signing-root-version:admission-${label}`,
+      context: {
+        application_binding_digest_b64u: parseDigestB64u(
+          base64UrlEncode(new Uint8Array(32).fill(21)),
+        ),
+      },
+      public_identity: {
+        context_binding_b64u: base64UrlEncode(new Uint8Array(32).fill(22)),
+        derivation_client_share_public_key33_b64u: base64UrlEncode(
+          new Uint8Array([2, ...new Uint8Array(32).fill(23)]),
+        ),
+        server_public_key33_b64u: base64UrlEncode(
+          new Uint8Array([2, ...new Uint8Array(32).fill(24)]),
+        ),
+        threshold_public_key33_b64u: base64UrlEncode(
+          new Uint8Array([2, ...new Uint8Array(32).fill(25)]),
+        ),
+        ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(26)),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      material_activation: materialActivation,
+      signing_worker: {
+        server_id: materialActivation.signing_worker,
+        key_epoch: `key-epoch:admission-${label}`,
+        recipient_encryption_key: `x25519:${'27'.repeat(32)}`,
+      },
+      activation_epoch: `activation-epoch:admission-${label}`,
+    },
+  };
+}
+
+function buildEcdsaNormalSigningRequestFixture(input: {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly label: string;
+}): ReturnType<typeof buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1> {
+  const signingDigest32 = new Uint8Array(32).fill(11);
+  return buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+    scope: input.normalSigning.scope,
+    requestId: `request:admission-${input.label}`,
+    operationId: `operation:admission-${input.label}`,
+    operationDigests: {
+      lane_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(10)),
+      intent_digest_b64u: base64UrlEncode(signingDigest32),
+      display_digest_b64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+    },
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: String(input.session.walletSessionId),
+    },
+    materialActivation: input.materialActivation,
+    clientPresignatureId: `presignature:admission-${input.label}`,
+    expiresAtMs: Date.now() + 30_000,
+    signingDigest32,
+    clientRerandomizationCommitment32: new Uint8Array(32).fill(13),
+  });
 }
 
 async function buildEd25519AuthorizedOperationFixture(input: {
@@ -838,6 +944,92 @@ test('ordinary ECDSA admission consumes exact V2 credentials and rejects active-
     code: 'wallet_session_scope_mismatch',
     message: expect.any(String),
   });
+});
+
+test('ordinary ECDSA V2 admission rejects exact normal-signing scope drift before downstream admission', async () => {
+  const authority = await buildAuthority('ecdsa_secp256k1', 'normal-scope');
+  const authMethod = buildAuthMethod(authority, 'normal-scope', 'active');
+  const session = buildSession({
+    authority,
+    authMethodId: authMethod.walletAuthMethodId,
+    label: 'normal-scope',
+    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(authority),
+    authorityDigestB64u: authority.authorityDigestB64u,
+    authorityRevocationEpoch: authority.revocationEpoch,
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    authority.signerActivations.ecdsa.materialActivation,
+  );
+  const normalSigning = buildEcdsaNormalSigningStateFixture(
+    materialActivation,
+    authority.walletId,
+    'normal-scope',
+  );
+  const materialResolver = new EcdsaMaterialActivationFixture(
+    materialActivation,
+    normalSigning,
+  );
+  const authorizationSessions = new WalletSessionAuthorizationV2Fixture(
+    buildAdmissionContext({ authority, authMethod, session }),
+  );
+  const admissionAdapter = new AllowingNormalSigningAdmission();
+  const body = buildEcdsaNormalSigningRequestFixture({
+    session,
+    normalSigning,
+    materialActivation,
+    label: 'normal-scope',
+  });
+
+  const admitted = await authorizeRouterAbEcdsaDerivationNormalSigningRoute({
+    body,
+    rawBody: body,
+    headers: { authorization: 'Bearer exact-v2-token' },
+    session: null,
+    authorizedOperations: null,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEcdsaMaterialActivation:
+      materialResolver.resolveEcdsaMaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+  expect(admitted).toMatchObject({
+    ok: true,
+    kind: 'wallet_session_operation_credential_v1',
+  });
+  expect(admissionAdapter.calls).toBe(1);
+
+  const driftedBody = {
+    ...body,
+    scope: {
+      ...body.scope,
+      signing_root_version: `${body.scope.signing_root_version}-drift`,
+    },
+  };
+  const rejected = await authorizeRouterAbEcdsaDerivationNormalSigningRoute({
+    body: driftedBody,
+    rawBody: driftedBody,
+    headers: { authorization: 'Bearer exact-v2-token' },
+    session: null,
+    authorizedOperations: null,
+    authorizationSessions,
+    admissionAdapter,
+    resolveEcdsaMaterialActivation:
+      materialResolver.resolveEcdsaMaterialActivation.bind(materialResolver),
+    phase: 'prepare',
+  });
+  expect(rejected).toMatchObject({
+    ok: false,
+    result: {
+      status: 403,
+      body: {
+        ok: false,
+        code: 'wallet_session_scope_mismatch',
+      },
+    },
+  });
+  expect(materialResolver.calls).toBe(2);
+  expect(admissionAdapter.calls).toBe(1);
 });
 
 test('ordinary Ed25519 admission consumes exact V2 credentials and rejects active-state drift', async () => {
