@@ -1558,13 +1558,13 @@ async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
             bindingId: authMethod.walletAuthMethodId,
           },
         })
-      : parseWalletAuthAuthorityRef({
-          kind: 'wallet_auth_authority_ref',
-          walletId: authority.walletId,
-          authorityDigest: authority.authorityDigestB64u,
-          walletAuthMethodId: authMethod.walletAuthMethodId,
-        });
-  if (!authorizationId.ok || !thresholdSessionId || !authorityRef) {
+      : args.authorization.authority;
+  if (
+    !authorizationId.ok ||
+    !thresholdSessionId ||
+    authorityRef.walletId !== args.walletId ||
+    authorityRef.walletAuthMethodId !== authMethod.walletAuthMethodId
+  ) {
     throw new Error('[SigningEngine][near] exact linked Wallet Session identity is invalid');
   }
   return buildActiveWalletSessionAuthorizationProjection({
@@ -3002,17 +3002,21 @@ export class BrowserSigningSurface {
           walletId: parsedWalletId.value,
           materialActivation: authority.signerActivations.ecdsa.materialActivation,
         });
-        const authorityRef = parseWalletAuthAuthorityRef({
-          kind: 'wallet_auth_authority_ref',
-          walletId: authority.walletId,
-          walletAuthMethodId: authMethod.walletAuthMethodId,
-          authorityDigest: authority.authorityDigestB64u,
-        });
         if (
           !holderRuntime ||
-          !authorityRef ||
           holderRuntime.authorityId !== authority.authorityId ||
           !isEmailOtpWalletAuthAuthority(holderRuntime.factorAuthority)
+        ) {
+          throw new Error(
+            '[SigningEngine] selected linked Email OTP authority has no exact ECDSA holder runtime',
+          );
+        }
+        const authorityRef = await walletAuthAuthorityRef({
+          authority: holderRuntime.factorAuthority,
+        });
+        if (
+          authorityRef.walletId !== parsedWalletId.value ||
+          authorityRef.walletAuthMethodId !== authMethod.walletAuthMethodId
         ) {
           throw new Error(
             '[SigningEngine] selected linked Email OTP authority has no exact ECDSA holder runtime',

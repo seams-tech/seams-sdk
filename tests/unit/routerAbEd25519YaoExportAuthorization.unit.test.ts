@@ -5,6 +5,8 @@ import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
+  deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
+  deriveRouterAbEd25519YaoExportConfirmationDigestV1,
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
   type RouterAbEd25519YaoExportAdmissionReceiptV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
@@ -139,12 +141,57 @@ function admissionRequest(
   };
 }
 
+/** The exact Email OTP method a linked export names in its admission. */
+const LINKED_EXPORT_METHOD_ID = 'wallet-auth-method:linked-export';
+
 function admissionAuthorization() {
   return {
     kind: 'email_otp_factor' as const,
     providerSubjectId: 'google:linked-export-owner',
+    walletAuthMethodId: LINKED_EXPORT_METHOD_ID,
     challengeId: 'linked-export-challenge',
     otpCode: '123456',
+  };
+}
+
+/**
+ * `expiredAuthorization` fails the lifetime gate, which sits ahead of every
+ * identity and factor check. A request that must reach the named-method
+ * resolver needs a live window and both real digests.
+ */
+async function liveAdmissionRequest(
+  identity: RouterAbEd25519YaoExportAuthorizationIdentityV1,
+  nowMs: number,
+): Promise<RouterAbEd25519YaoExportAdmissionRequestV1> {
+  const nonce = bytes(3);
+  const issuedAtMs = nowMs - 1_000;
+  const expiresAtMs = nowMs + 58_000;
+  const confirmationDigest = await deriveRouterAbEd25519YaoExportConfirmationDigestV1({
+    identity,
+    nonce,
+    issuedAtMs,
+    expiresAtMs,
+  });
+  const authorizationDigest = await deriveRouterAbEd25519YaoExportAuthorizationDigestV1({
+    identity,
+    confirmationDigest,
+    nonce,
+    issuedAtMs,
+    expiresAtMs,
+    authority: {
+      kind: 'email_otp',
+      providerSubjectId: admissionAuthorization().providerSubjectId,
+    },
+  });
+  return {
+    ...identity,
+    authorization: {
+      confirmation_digest: confirmationDigest,
+      authorization_digest: authorizationDigest,
+      nonce,
+      issued_at_ms: issuedAtMs,
+      expires_at_ms: expiresAtMs,
+    },
   };
 }
 
@@ -278,6 +325,7 @@ class TargetMaterialActivationResolver {
 
 function exportAuthorizationAdapter(
   targetIdentity: RouterAbEd25519YaoExportAuthorizationIdentityV1,
+  emailOtpAuthority?: RouterApiWalletAuthMethodService['resolveActiveEmailOtpAuthorityForVerifiedMethod'],
 ): RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter {
   const tenantId = parseTenantId('org-linked-export');
   if (!tenantId.ok) throw new Error(tenantId.error.message);
@@ -291,10 +339,11 @@ function exportAuthorizationAdapter(
   const walletAuthMethods: Pick<
     RouterApiWalletAuthMethodService,
     | 'resolveActivePasskeyAuthorityForVerifiedCredential'
-    | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
+    | 'resolveActiveEmailOtpAuthorityForVerifiedMethod'
   > = {
     resolveActivePasskeyAuthorityForVerifiedCredential: unavailableAsyncDependency,
-    resolveActiveEmailOtpAuthorityForVerifiedSubject: unavailableAsyncDependency,
+    resolveActiveEmailOtpAuthorityForVerifiedMethod:
+      emailOtpAuthority ?? unavailableAsyncDependency,
   };
   const authorizedOperations: RouterApiAuthorizedOperationService = {
     tenantId: tenantId.value,
@@ -319,6 +368,7 @@ function exportAuthorizationAdapter(
 async function authorizeAdmission(
   adapter: RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter,
   body: RouterAbEd25519YaoExportAdmissionRequestV1,
+  authorizationOverride?: Partial<ReturnType<typeof admissionAuthorization>>,
 ): Promise<ExportAuthorizationResult> {
   return await adapter.authorize({
     kind: 'admit',
@@ -326,12 +376,7 @@ async function authorizeAdmission(
       method: 'POST',
     }),
     body,
-    authorization: {
-      kind: 'email_otp_factor',
-      providerSubjectId: 'google:linked-export-owner',
-      challengeId: 'linked-export-challenge',
-      otpCode: '123456',
-    },
+    authorization: { ...admissionAuthorization(), ...(authorizationOverride ?? {}) },
     expectedOrigin: ROUTER_ORIGIN,
   });
 }
@@ -633,4 +678,86 @@ test('terminal export receipt replay is idempotent without the active projection
   expect(replay).toEqual(first);
   expect(backend.admitCalls).toBe(1);
   expect(capabilities.calls).toBe(1);
+});
+
+
+/**
+ * The export admission names one exact Email OTP method, and the authorization
+ * digest binds only the provider subject — so the server's own resolver is the
+ * sole thing standing between a well-formed request and admission. These cover
+ * the rejections that named field exists to make possible: a method belonging
+ * to another wallet, a method that is not an Email OTP method, and a revoked
+ * one. Each is refused, each is refused under the resolver's own code, and none
+ * of them reaches the export backend.
+ */
+test('linked Ed25519 export admission refuses a named method the resolver will not vouch for', async () => {
+  const targetIdentity = await exportIdentityFixture(
+    'boundary-target',
+    materialActivation('boundary-target'),
+    4,
+  );
+  const liveRequest = await liveAdmissionRequest(targetIdentity, Date.now());
+
+  const rejections = [
+    {
+      label: 'a method owned by another wallet',
+      code: 'wallet_auth_method_not_found',
+      message: 'Named Email OTP method is not active for this wallet',
+    },
+    {
+      label: 'a method that is not an Email OTP method',
+      code: 'wallet_auth_method_kind_mismatch',
+      message: 'Named wallet auth method is not an Email OTP method',
+    },
+    {
+      label: 'a revoked method',
+      code: 'wallet_auth_method_revoked',
+      message: 'Named Email OTP method is revoked',
+    },
+  ] as const;
+
+  for (const rejection of rejections) {
+    const resolved: Array<{ walletId: string; walletAuthMethodId: unknown }> = [];
+    const adapter = exportAuthorizationAdapter(targetIdentity, async (input) => {
+      resolved.push({
+        walletId: String(input.walletId),
+        walletAuthMethodId: input.walletAuthMethodId,
+      });
+      return { ok: false, code: rejection.code, message: rejection.message };
+    });
+
+    const result = await authorizeAdmission(adapter, liveRequest);
+
+    expect(result, `${rejection.label} must not authorize the export`).toMatchObject({
+      ok: false,
+      status: 403,
+      code: rejection.code,
+    });
+    expect(resolved, `${rejection.label} must be judged by its exact named method`).toEqual([
+      { walletId: WALLET_ID, walletAuthMethodId: LINKED_EXPORT_METHOD_ID },
+    ]);
+  }
+});
+
+test('linked Ed25519 export admission resolves the named method, not the wallet', async () => {
+  const targetIdentity = await exportIdentityFixture(
+    'named-method-target',
+    materialActivation('named-method-target'),
+    5,
+  );
+  const liveRequest = await liveAdmissionRequest(targetIdentity, Date.now());
+  const otherDeviceMethodId = 'wallet-auth-method:other-linked-device';
+
+  const resolved: unknown[] = [];
+  const adapter = exportAuthorizationAdapter(targetIdentity, async (input) => {
+    resolved.push(input.walletAuthMethodId);
+    return { ok: false, code: 'wallet_auth_method_not_found', message: 'not active' };
+  });
+
+  await authorizeAdmission(adapter, liveRequest, { walletAuthMethodId: otherDeviceMethodId });
+
+  /* Two linked devices share one wallet and one verified email; only the named
+     method distinguishes them, so the request's own value must be what is
+     resolved. */
+  expect(resolved).toEqual([otherDeviceMethodId]);
 });

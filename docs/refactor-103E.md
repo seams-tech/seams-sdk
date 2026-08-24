@@ -257,9 +257,9 @@ lane payload), and the server resolves that exact active method through a new
 `resolveActiveEmailOtpAuthorityForVerifiedMethod`, verifying it against the
 presented provider subject and wallet. The refusal is gone.
 
-**Still owed for this change**: the route-boundary test this ledger mandates
-for every new required identity field — wrong-wallet, wrong-kind, and
-revoked-method rejection at the export admission boundary.
+The required route-boundary coverage is green, 5/5. It proves exact-method
+selection plus wrong-wallet, wrong-kind, and revoked-method rejection before
+the export backend is called.
 
 ### Resolved: the linked Ed25519 export hang was a self-inflicted silent worker rejection
 
@@ -310,17 +310,29 @@ for the export challenge and the admit, and requires that admit to present the
 same challenge id the fresh `export_key` challenge issued, proving the export
 consumed that exact authorization rather than any export-scoped one.
 
-### Current open boundary: linked NEAR signing after export
+### Resolved: linked NEAR signing preserved the wrong authority digest
 
-Classified `production_regression`, not yet root-caused. With export working,
-the Ed25519 cell advances to NEAR signing and fails with
-`[SigningEngine][near] reusable Wallet Session authorization is unavailable`
-(`flows/signNear/signNear.ts:600`, via `requireNearReusableAuthorizationExpiry`).
-The signing preparation's authorization is `authorization_required` rather than
-`authorized`. Note the linked ECDSA device signs Tempo and Arc successfully
-after its EVM export, so this is specific to the Ed25519/NEAR lane. The same
-`activeAuthorizationMatchesEd25519Lane` gate described below governs whether a
-lane is `authorized`, so start there.
+Classified `production_regression`. The linked Wallet Session correctly stored
+the factor-bound `WalletAuthAuthorityRef`. Signing rebuilt that reference with
+the full V2 Wallet Authority digest. Both values are valid digests with distinct
+domains, so parsing succeeded and the later exact authorization comparison
+failed. NEAR signing now retains the verified factor authority after the exact
+V5 authority/session checks.
+
+The focused Email OTP→Email OTP Ed25519 cell is green, 1/1 in 46.8 seconds. It
+covers linking, two Device 2 reloads, exact unlock, NEAR export with fresh OTP
+step-up, NEAR signing, owner-UI revocation, immediate invalidation of the open
+Device 2 session, revoked-method unlock rejection, and the surviving owner
+operation. Two final assertion failures were `valid_test_needs_update`: the UI
+now disables NEAR signing immediately after revocation, and current exact-method
+unlock rejection says the proof does not identify an active wallet auth method.
+
+Files changed at this boundary:
+
+- `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`;
+- `tests/e2e/linked-device.operating-path.test.ts`.
+
+Current open gate: the Email OTP→Email OTP combined signer-profile cell.
 
 ### Previously open, now superseded: linked Ed25519 export does not complete
 
