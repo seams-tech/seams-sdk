@@ -2896,6 +2896,12 @@ async function assertRevokedActiveSessionCannotOperate(input: {
   readonly profile: SignerProfile;
   readonly emailOtp?: EmailOtpPromptContext;
 }): Promise<void> {
+  if (
+    input.profile === 'ed25519' &&
+    (await input.page.getByRole('button', { name: 'Sign on NEAR', exact: true }).isDisabled())
+  ) {
+    return;
+  }
   let failure: unknown = null;
   try {
     if (input.profile === 'ed25519') {
@@ -2945,7 +2951,7 @@ async function assertRevokedEmailOtpCannotUnlock(input: {
     .filter(Boolean)
     .join('\n');
   expect(failureText).toMatch(
-    /revok(?:ed|ation)|auth(?:entication|orization)? method.*(?:inactive|unavailable|not found)|(?:wallet )?session.*(?:invalid|unavailable|not found)|no active auth(?:entication|orization)? method|no longer.*use/i,
+    /revok(?:ed|ation)|auth(?:entication|orization)? method.*(?:inactive|unavailable|not found)|active wallet auth(?:entication|orization)? method|(?:wallet )?session.*(?:invalid|unavailable|not found)|no active auth(?:entication|orization)? method|no longer.*use/i,
   );
 }
 

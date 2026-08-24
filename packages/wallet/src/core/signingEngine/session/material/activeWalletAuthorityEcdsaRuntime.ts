@@ -34,10 +34,12 @@ import type {
   EmailOtpWalletAuthAuthority,
   PasskeyWalletAuthAuthority,
   WalletAuthAuthority,
+  WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -54,11 +56,7 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
-import {
-  resolveExactWalletAuthAuthority,
-  type ActiveWalletAuthMethodV2,
-  type OwnerLaneScopeStores,
-} from '../identity/ownerLaneScope';
+import type { ActiveWalletAuthMethodV2 } from '../identity/ownerLaneScope';
 import {
   resolveLinkedEcdsaHolderRuntimeV1,
   type LinkedEcdsaHolderRuntimeV1,
@@ -95,6 +93,7 @@ export type ActiveWalletAuthorityEcdsaRuntimeV1 = ActiveWalletAuthorityEcdsaAuth
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: ActiveWalletAuthorityV1['authorityDigestB64u'];
+  readonly factorAuthorityRef: WalletAuthAuthorityRef;
   readonly authorityRevocationEpoch: number;
   readonly walletSessionId: WalletSessionOperationCredentialV1['walletSessionId'];
   readonly operationCredential: WalletSessionOperationCredentialV1;
@@ -291,7 +290,7 @@ function linkedMaterialTargetFactorMatches(args: {
   return (
     target.kind === 'email_otp' &&
     target.emailHashHex === args.authMethod.emailHashHex &&
-    target.registrationAuthorityId === args.authMethod.walletAuthorityId
+    target.registrationAuthorityId === args.authMethod.registrationAuthorityId
   );
 }
 
@@ -307,16 +306,6 @@ function exactSessionCapability(args: {
       mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
   );
   return matches.length === 1;
-}
-
-function ownerLaneScopeStores(): OwnerLaneScopeStores {
-  return {
-    getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
-    listWalletAuthMethodsForWallet:
-      IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
-    getWalletPasskeyAuthenticator:
-      IndexedDBManager.getWalletPasskeyAuthenticator.bind(IndexedDBManager),
-  };
 }
 
 function exactNormalSigningMaterialActivation(
@@ -356,6 +345,8 @@ function exactHolderRuntime(args: {
     runtime.walletId !== args.walletId ||
     runtime.authorityId !== args.authority.authorityId ||
     runtime.walletAuthMethodId !== args.authMethod.walletAuthMethodId ||
+    runtime.factorAuthority.walletId !== args.walletId ||
+    runtime.factorAuthority.bindingId !== args.authMethod.walletAuthMethodId ||
     runtime.ecdsaThresholdKeyId !== args.ecdsaThresholdKeyId ||
     !mpcMaterialActivationRefsEqual(runtime.materialActivation, args.materialActivation) ||
     !linkedMaterialTargetFactorMatches({ material: args.material, authMethod: args.authMethod }) ||
@@ -434,6 +425,15 @@ async function buildActiveRuntime(args: {
   if (key.ecdsaThresholdKeyId !== args.holderRuntime.ecdsaThresholdKeyId) {
     return blocked('normal_signing_identity_mismatch');
   }
+  let factorAuthorityRef: WalletAuthAuthorityRef;
+  try {
+    factorAuthorityRef = await walletAuthAuthorityRef({ authority: args.factorAuthority });
+  } catch (error: unknown) {
+    return blocked(
+      'authority_identity_mismatch',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   if (args.selected.authMethod.kind === 'passkey') {
     const auth = {
       kind: 'passkey' as const,
@@ -463,6 +463,7 @@ async function buildActiveRuntime(args: {
       authorityId: args.selected.authority.authorityId,
       walletAuthMethodId: args.selected.authMethod.walletAuthMethodId,
       authorityDigestB64u: args.selected.authority.authorityDigestB64u,
+      factorAuthorityRef,
       authorityRevocationEpoch: args.selected.authority.revocationEpoch,
       walletSessionId: args.operationCredential.walletSessionId,
       operationCredential: args.operationCredential,
@@ -500,6 +501,7 @@ async function buildActiveRuntime(args: {
     authorityId: args.selected.authority.authorityId,
     walletAuthMethodId: args.selected.authMethod.walletAuthMethodId,
     authorityDigestB64u: args.selected.authority.authorityDigestB64u,
+    factorAuthorityRef,
     authorityRevocationEpoch: args.selected.authority.revocationEpoch,
     walletSessionId: args.operationCredential.walletSessionId,
     operationCredential: args.operationCredential,
@@ -652,19 +654,7 @@ export async function resolveActiveWalletAuthorityEcdsaRuntimeV1(
   if (!exactSessionCapability({ session, capability: requiredCapability, materialActivation })) {
     return blocked('wallet_session_capability_mismatch');
   }
-  const ownerScopeStores = ownerLaneScopeStores();
-  let factorAuthority: WalletAuthAuthority;
-  try {
-    factorAuthority = await resolveExactWalletAuthAuthority({
-      authMethod: selected.authMethod,
-      stores: ownerScopeStores,
-    });
-  } catch (error: unknown) {
-    return blocked(
-      'authority_identity_mismatch',
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  const factorAuthority = holderRuntime.factorAuthority;
   const runtime = await buildActiveRuntime({
     selected,
     session,

@@ -1787,8 +1787,9 @@ function ownerAuthorityMatchesLane(
   if (!ownerAuthority) return true;
   if (lane.curve === 'ecdsa' && lane.source === 'active_wallet_authority') {
     return (
-      lane.runtime.walletAuthMethodId === ownerAuthority.walletAuthMethodId &&
-      String(lane.runtime.authorityDigestB64u) === String(ownerAuthority.authorityDigest)
+      lane.runtime.factorAuthorityRef.walletAuthMethodId === ownerAuthority.walletAuthMethodId &&
+      String(lane.runtime.factorAuthorityRef.authorityDigest) ===
+        String(ownerAuthority.authorityDigest)
     );
   }
   if (lane.curve === 'ecdsa' && lane.source === 'canonical_capability') {
