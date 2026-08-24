@@ -995,6 +995,8 @@ export interface EmailOtpWorkerOperationMap {
       lane: {
         walletId: string;
         providerSubjectId: string;
+        /** The exact method this export acts as; linked wallets have several. */
+        walletAuthMethodId: string;
         nearAccountId: string;
         nearEd25519SigningKeyId: string;
         signerSlot: number;

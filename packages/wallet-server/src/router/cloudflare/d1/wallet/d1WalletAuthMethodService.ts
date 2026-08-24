@@ -1526,6 +1526,67 @@ export class CloudflareD1WalletAuthMethodService {
     }
   }
 
+  /**
+   * The exact active Email OTP authority a caller names. Several methods can
+   * share one wallet's verified email once a device is linked, so an operation
+   * that knows its method must resolve by that identity instead of asking for
+   * the wallet's only one.
+   */
+  async resolveActiveEmailOtpAuthorityForVerifiedMethod(input: {
+    readonly walletId: string;
+    readonly walletAuthMethodId: string;
+    readonly providerUserId: string;
+  }): Promise<
+    { readonly ok: true; readonly authority: EmailOtpWalletAuthAuthority } | WalletAuthMethodError
+  > {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const providerUserId = toOptionalTrimmedString(input.providerUserId);
+    const parsedMethodId = parseWalletAuthMethodId(input.walletAuthMethodId);
+    if (!walletId || !providerUserId || !parsedMethodId.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Verified Email OTP authority identity is required',
+      };
+    }
+    const record = await this.getWalletAuthMethodStore().readByIdV2({
+      walletAuthMethodId: parsedMethodId.value,
+    });
+    if (
+      !record ||
+      record.kind !== 'email_otp' ||
+      record.status !== 'active' ||
+      String(record.walletId) !== walletId
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Named Email OTP method is not active for this wallet',
+      };
+    }
+    const provider: EmailOtpProvider = providerUserId.startsWith('google:') ? 'google' : 'email';
+    try {
+      return {
+        ok: true,
+        authority: bindEmailOtpAuthorityToMethod(
+          buildEmailOtpWalletAuthAuthority({
+            walletId,
+            provider,
+            providerUserId,
+            emailHashHex: record.emailHashHex,
+          }),
+          record.walletAuthMethodId,
+        ),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: errorMessage(error) || 'Stored Email OTP authority is invalid',
+      };
+    }
+  }
+
   async findDuplicateAuthority(
     authority: RegistrationAuthority,
   ): Promise<WalletAuthMethodError | null> {

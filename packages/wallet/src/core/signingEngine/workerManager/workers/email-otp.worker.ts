@@ -528,6 +528,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
   relayUrl: string;
   walletId: string;
   providerSubjectId: string;
+  walletAuthMethodId: string;
   challengeId: string;
   otpCode: string;
   nearAccountId: string;
@@ -605,6 +606,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
       authorization: {
         kind: 'email_otp_factor',
         providerSubjectId: args.providerSubjectId,
+        walletAuthMethodId: args.walletAuthMethodId,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
       },
@@ -6400,6 +6402,10 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           lane: {
             walletId: readString(lane.walletId, `${type}.lane.walletId`),
             providerSubjectId: readString(lane.providerSubjectId, `${type}.lane.providerSubjectId`),
+            walletAuthMethodId: readString(
+              lane.walletAuthMethodId,
+              `${type}.lane.walletAuthMethodId`,
+            ),
             nearAccountId: readString(lane.nearAccountId, `${type}.lane.nearAccountId`),
             nearEd25519SigningKeyId: readString(
               lane.nearEd25519SigningKeyId,
@@ -7005,6 +7011,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             relayUrl: resolutionState.relayUrl,
             walletId: resolutionState.walletId,
             providerSubjectId: resolutionState.providerSubjectId,
+            walletAuthMethodId: msg.payload.lane.walletAuthMethodId,
             challengeId: msg.payload.challengeId,
             otpCode: msg.payload.otpCode,
             nearAccountId: msg.payload.lane.nearAccountId,

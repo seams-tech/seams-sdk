@@ -267,6 +267,10 @@ export type RouterAbEd25519YaoExportAdmissionAuthorization =
   | {
       readonly kind: 'email_otp_factor';
       readonly providerSubjectId: string;
+      /* Several active methods can share one wallet's verified email once a
+         device is linked, so the exact method must be named here the way the
+         Passkey branch names its exact credential. */
+      readonly walletAuthMethodId: string;
       readonly challengeId: string;
       readonly otpCode: string;
       readonly webauthnAuthentication?: never;
@@ -1417,7 +1421,7 @@ async function authorizeExportAdmission(args: {
   readonly walletAuthMethods: Pick<
     RouterApiWalletAuthMethodService,
     | 'resolveActivePasskeyAuthorityForVerifiedCredential'
-    | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
+    | 'resolveActiveEmailOtpAuthorityForVerifiedMethod'
   >;
   readonly authorizedOperations: RouterApiAuthorizedOperationService;
 }): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
@@ -1521,8 +1525,11 @@ async function authorizeExportAdmission(args: {
     });
     return recorded;
   }
-  const authority = await args.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+  /* The exact method the request names, not the wallet's only one: linking
+     gives a wallet several active Email methods sharing its verified email. */
+  const authority = await args.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedMethod({
     walletId: String(walletId.value),
+    walletAuthMethodId: args.input.authorization.walletAuthMethodId,
     providerUserId: args.input.authorization.providerSubjectId,
   });
   if (!authority.ok)
@@ -1750,7 +1757,7 @@ export class RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter implements R
     private readonly walletAuthMethods: Pick<
       RouterApiWalletAuthMethodService,
       | 'resolveActivePasskeyAuthorityForVerifiedCredential'
-      | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
+      | 'resolveActiveEmailOtpAuthorityForVerifiedMethod'
     >,
     private readonly authorizedOperations: RouterApiAuthorizedOperationService,
     private readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'],
@@ -1916,6 +1923,7 @@ function parseEmailOtpExportAdmissionAuthorization(
   const unexpectedField = firstUnexpectedField(authorization, [
     'kind',
     'providerSubjectId',
+    'walletAuthMethodId',
     'challengeId',
     'otpCode',
   ]);
@@ -1938,11 +1946,18 @@ function parseEmailOtpExportAdmissionAuthorization(
   if (typeof authorization.otpCode !== 'string' || !authorization.otpCode.trim()) {
     return { ok: false, message: 'otpCode is required' };
   }
+  if (
+    typeof authorization.walletAuthMethodId !== 'string' ||
+    !authorization.walletAuthMethodId.trim()
+  ) {
+    return { ok: false, message: 'walletAuthMethodId is required' };
+  }
   return {
     ok: true,
     value: {
       kind: 'email_otp_factor',
       providerSubjectId,
+      walletAuthMethodId: authorization.walletAuthMethodId.trim(),
       challengeId: authorization.challengeId.trim(),
       otpCode: authorization.otpCode.trim(),
     },

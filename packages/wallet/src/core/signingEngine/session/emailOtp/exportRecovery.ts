@@ -338,6 +338,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         lane: {
           walletId: String(walletId),
           providerSubjectId: args.exportContext.lane.auth.providerSubjectId,
+          walletAuthMethodId: String(args.exportContext.authorization.authority.walletAuthMethodId),
           nearAccountId: String(args.exportContext.lane.signer.account.nearAccountId),
           nearEd25519SigningKeyId: String(args.exportContext.lane.signer.nearEd25519SigningKeyId),
           signerSlot: args.exportContext.lane.signer.signerSlot,
@@ -439,6 +440,10 @@ async function exportEcdsaKeyWithFreshLoginAuthorization(
 ): Promise<EmailOtpEcdsaExportArtifact> {
   const result = await args.prepareEcdsaExportCapability({
     walletSession: args.walletSession,
+    authoritySelector: {
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: String(args.authority.walletAuthMethodId),
+    },
     chainTarget: args.chainTarget,
     relayUrl: args.relayUrl,
     emailOtpAuthPolicy: 'per_operation',

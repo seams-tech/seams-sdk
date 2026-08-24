@@ -1189,6 +1189,18 @@ export interface RouterApiWalletAuthMethodService {
     | { readonly ok: true; readonly authority: EmailOtpWalletAuthAuthority }
     | { readonly ok: false; readonly code: string; readonly message: string }
   >;
+  /** The exact active Email OTP authority a caller names, for operations that
+      know their method. Linking gives a wallet several active Email methods
+      sharing its verified email, so those operations must not ask for the
+      wallet's only one. */
+  resolveActiveEmailOtpAuthorityForVerifiedMethod(input: {
+    readonly walletId: string;
+    readonly walletAuthMethodId: string;
+    readonly providerUserId: string;
+  }): Promise<
+    | { readonly ok: true; readonly authority: EmailOtpWalletAuthAuthority }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   createAddAuthMethodIntent(input: {
     command: CreateAddAuthMethodIntentCommand;
     orgId: string;
