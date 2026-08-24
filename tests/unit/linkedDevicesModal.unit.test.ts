@@ -276,8 +276,10 @@ test.describe('linked devices modal lifecycle', () => {
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
     await expect(dialog.getByText('Device 1 · Original passkey')).toBeVisible();
     await expect(dialog.getByText('Device 2 · Linked passkey')).toBeVisible();
-    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(2);
-    await expect(dialog.getByText(/Original device — manage it/)).toBeVisible();
+    await expect(dialog.getByText('Original device', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(1);
+    await expect(dialog.getByText(/These devices can use this wallet/)).toHaveCount(0);
+    await expect(dialog.getByText(/manage it from that device/)).toHaveCount(0);
     await expect(
       dialog.getByRole('button', { name: /Remove Device 1, Original passkey/ }),
     ).toHaveCount(0);

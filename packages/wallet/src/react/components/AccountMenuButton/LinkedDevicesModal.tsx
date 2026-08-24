@@ -256,7 +256,7 @@ function deviceStanding(view: WalletDeviceView): {
   readonly label: string;
   readonly tone: 'active' | 'pending' | 'off';
 } {
-  if (view.kind === 'owner') return { label: 'Can use this wallet', tone: 'active' };
+  if (view.kind === 'owner') return { label: 'Original device', tone: 'active' };
   switch (view.device.state) {
     case 'active':
       return { label: 'Can use this wallet', tone: 'active' };
@@ -567,7 +567,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="w3a-linked-devices-modal-title"
-          aria-describedby="w3a-linked-devices-modal-description"
           tabIndex={-1}
         >
           <button
@@ -582,9 +581,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           <h2 id="w3a-linked-devices-modal-title" className="w3a-linked-devices-modal-title">
             Your devices
           </h2>
-          <p id="w3a-linked-devices-modal-description" className="w3a-linked-devices-modal-note">
-            These devices can use this wallet. Remove any you don&apos;t recognize.
-          </p>
 
           <div className="w3a-linked-devices-modal-body">
             {loadState.kind === 'loading' || loadState.kind === 'idle' ? (
@@ -659,11 +655,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                       <div className="w3a-linked-devices-modal-item-detail">
                         Last used {friendlyDay(viewLastActivityAtMs(view), Date.now())}
                       </div>
-                      {view.kind === 'owner' ? (
-                        <div className="w3a-linked-devices-modal-item-detail">
-                          Original device — manage it from that device&apos;s wallet settings.
-                        </div>
-                      ) : awaitingEmailOtp && revokeState.kind === 'email_otp' ? (
+                      {view.kind === 'owner' ? null : awaitingEmailOtp &&
+                        revokeState.kind === 'email_otp' ? (
                         <form
                           className="w3a-linked-devices-modal-otp-form"
                           onSubmit={(event) => {
