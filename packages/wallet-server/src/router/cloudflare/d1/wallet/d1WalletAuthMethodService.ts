@@ -998,8 +998,30 @@ export class CloudflareD1WalletAuthMethodService {
         return response;
       }
 
-      const duplicate = await this.findDuplicateAuthority(ceremony.authority);
-      if (duplicate) return duplicate;
+      /* Authority-scoped, not wallet-wide. `findDuplicateAuthority` asks
+         whether the WALLET already has an active Email OTP method for this
+         address, which is the right question at registration and the wrong one
+         here: R103E gives every linked device its own Email OTP method sharing
+         the wallet's verified address, so the wallet-wide answer would reject
+         R109C's addition on any wallet that has ever linked a device. What
+         must be unique is one active Email OTP method per authority, and this
+         repeats at activation the admission the start already made. */
+      const authorityEmailOtpMethods = (
+        await this.getWalletAuthMethodStore().listForWalletV2({ walletId })
+      )
+        .filter(isActiveWalletAuthMethodRecordV2)
+        .filter(
+          (method) =>
+            method.kind === 'email_otp' &&
+            method.walletAuthorityId === ceremony.sourceWalletAuthorityId,
+        );
+      if (authorityEmailOtpMethods.length > 0) {
+        return {
+          ok: false,
+          code: 'already_configured',
+          message: 'Wallet authority already has an active email_otp auth method',
+        };
+      }
       if (request.webauthnRegistration !== undefined) {
         return {
           ok: false,
