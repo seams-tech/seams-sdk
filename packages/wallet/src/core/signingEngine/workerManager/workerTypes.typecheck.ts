@@ -504,6 +504,7 @@ declare const emailOtpEcdsaWalletUnlockMaterial: EmailOtpEcdsaWalletUnlockMateri
 const emailOtpWalletUnlockPayload: EmailOtpWalletUnlockPayload = {
   relayUrl: 'https://relay.example',
   walletId: 'wallet.testnet',
+  authoritySelector: { kind: 'wallet' },
   userId: 'wallet.testnet',
   verification: {
     kind: 'otp',
@@ -533,6 +534,7 @@ const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   lane: {
     walletId: 'wallet.testnet',
     providerSubjectId: 'google:subject',
+    walletAuthMethodId: 'wallet-auth-method:export',
     nearAccountId: 'alice.testnet',
     nearEd25519SigningKeyId: 'near-key-1',
     signerSlot: 1,

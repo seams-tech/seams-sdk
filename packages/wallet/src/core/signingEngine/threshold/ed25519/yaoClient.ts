@@ -148,6 +148,8 @@ export type RouterAbEd25519YaoExportFreshAuthorizationV1 =
   | {
       kind: 'email_otp_factor';
       providerSubjectId: string;
+      /** The exact method this export acts as; linked wallets have several. */
+      walletAuthMethodId: string;
       challengeId: string;
       otpCode: string;
       webauthnAuthentication?: never;
@@ -205,6 +207,7 @@ export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
         authorization: {
           kind: 'email_otp_factor',
           providerSubjectId: args.authorization.providerSubjectId,
+          walletAuthMethodId: args.authorization.walletAuthMethodId,
           challengeId: args.authorization.challengeId,
           otpCode: args.authorization.otpCode,
         },
