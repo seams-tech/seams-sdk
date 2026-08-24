@@ -2858,23 +2858,10 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Verified Ed25519 Wallet Session authority is invalid',
         };
       }
-      /* The authenticated authority names its own Ed25519 activation, and a
-         linked device's activation is not the founding one. Resolving by
-         wallet and slot returns the registration signer for every authority,
-         so a linked device received a capability for material it does not
-         hold. Resolve the exact activation first and keep the slot lookup only
-         for an authority that carries no Ed25519 activation. */
-      const authorityEd25519Activation =
-        activeAuthority.authority.signerActivations.ed25519?.materialActivation;
-      const signer = authorityEd25519Activation
-        ? await this.getWalletStore().getEd25519SignerByMaterialActivation({
-            walletId: walletIdFromString(walletId),
-            materialActivation: routerAbMpcMaterialActivationRefToWire(authorityEd25519Activation),
-          })
-        : await this.getWalletStore().getEd25519SignerBySlot({
-            walletId: walletIdFromString(walletId),
-            signerSlot,
-          });
+      const signer = await this.getWalletStore().getEd25519SignerBySlot({
+        walletId: walletIdFromString(walletId),
+        signerSlot,
+      });
       const firstParticipantId = signer?.participantIds[0];
       const secondParticipantId = signer?.participantIds[1];
       if (
@@ -3573,6 +3560,21 @@ export class CloudflareD1WalletRegistrationService {
     };
   }
 
+  private async registrationOwnerProof(input: {
+    readonly registrationCeremonyId: string;
+    readonly authMethod: WalletRegistrationFinalizeAuthMethod;
+    readonly authority: WalletAuthAuthority;
+  }): Promise<Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>> {
+    const context = await this.readRegistrationOwnerProofContext(input.registrationCeremonyId);
+    if (!context) throw new Error('Registration owner proof context is unavailable');
+    return await buildRegistrationOwnerProof({
+      ...input,
+      tenantId: this.authorizationTenantId,
+      expectedOrigin: context.expectedOrigin,
+      expiresAtMs: Math.min(context.expiresAtMs, Date.now() + DEFAULT_WALLET_SESSION_TTL_MS),
+    });
+  }
+
   private async prepareNearProvisioningOperation(
     registrationCeremonyId: string,
     allocated?: D1WalletRegistrationOperationPreparedV1,
@@ -4244,12 +4246,6 @@ export class CloudflareD1WalletRegistrationService {
         message: 'browser-verified clientActivation is required for this signer plan',
       };
     }
-    const ownerProofContext = await this.readRegistrationOwnerProofContext(
-      context.registrationCeremonyId,
-    );
-    if (!ownerProofContext) {
-      throw new Error('Registration owner proof context is unavailable');
-    }
     const activated = await this.activateWalletRegistrationEcdsa(
       {
         registrationCeremonyId: context.registrationCeremonyId,
@@ -4324,16 +4320,10 @@ export class CloudflareD1WalletRegistrationService {
       bootstrap: activated.ecdsa.bootstrap,
       runtimePolicyScope,
       keyManifestDigestB64u: commit.custodyKeyManifestDigestB64u,
-      proof: await buildRegistrationOwnerProof({
+      proof: await this.registrationOwnerProof({
         registrationCeremonyId: context.registrationCeremonyId,
         authMethod: commit.authMethod,
         authority: commit.authority,
-        tenantId: this.authorizationTenantId,
-        expectedOrigin: ownerProofContext.expectedOrigin,
-        expiresAtMs: Math.min(
-          ownerProofContext.expiresAtMs,
-          Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
-        ),
       }),
     });
     return {
