@@ -7101,13 +7101,34 @@ function nearWalletSubjectsEqual(
 async function resolveLinkedNearOperationalPublicKey(
   subject: Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }>,
 ): Promise<string | null> {
-  const selection = await resolveLinkedDevicePasskeyAuthoritySelection(String(subject.walletId));
-  if (!selection) return null;
+  /* Factor-agnostic on purpose: both supported factors install linked devices,
+     and the checks below already require an active device-link authority whose
+     resolved NEAR subject equals the one asked about. */
+  const parsedWalletId = parseWalletId(String(subject.walletId));
+  if (!parsedWalletId.ok) return null;
+  const walletId = parsedWalletId.value;
+  let resolved: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
+  try {
+    resolved = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  } catch {
+    return null;
+  }
+  if (resolved.kind !== 'resolved') return null;
+  const { selection, authMethod, authority } = resolved;
+  if (
+    linkedDeviceUnlockIdentityMismatchLabels({ walletId, selection, authMethod, authority }).length >
+      0 ||
+    authMethod.status !== 'active' ||
+    authority.state !== 'active' ||
+    authority.provenance.kind !== 'device_link'
+  ) {
+    return null;
+  }
   const resolvedSubject = await resolveLinkedDeviceNearUnlockSubject({
-    walletId: selection.walletId,
-    authMethod: selection.authMethod,
-    authority: selection.authority,
-    signerMaterials: selection.signerMaterials,
+    walletId,
+    authMethod,
+    authority,
+    signerMaterials: resolved.signerMaterials,
   });
   if (
     resolvedSubject.kind !== 'resolved' ||
@@ -7115,7 +7136,7 @@ async function resolveLinkedNearOperationalPublicKey(
   ) {
     return null;
   }
-  const activation = selection.authority.signerActivations.ed25519;
+  const activation = authority.signerActivations.ed25519;
   if (!activation) return null;
   return `ed25519:${base58Encode(base64UrlDecode(activation.signer.registeredPublicKeyB64u))}`;
 }
@@ -7155,11 +7176,12 @@ async function resolveWalletSessionAppIdentity(
     resolveWalletSessionAppIdentityForWallet(context, resolvedWalletId),
   ]);
   const persistedOperationalPublicKey = selectNearOperationalPublicKeyForLogin(userData);
+  /* A linked device has no local registration profile to carry the operational
+     public key, whichever source resolved its subjects, so fall back to its
+     exact device-link authority whenever a NEAR subject is present. */
   const nearOperationalPublicKey =
     persistedOperationalPublicKey ||
-    (nearSubject && readResolution.source === 'local_wallet_authority'
-      ? await resolveLinkedNearOperationalPublicKey(nearSubject)
-      : null);
+    (nearSubject ? await resolveLinkedNearOperationalPublicKey(nearSubject) : null);
   return {
     ...base,
     nearAccountId: resolvedNearAccountId,
