@@ -13,6 +13,7 @@ export function nearPasskeyAccountProjectionFixture(args: {
     loginDisplayName: args.walletId,
     signerSlot: 1,
     operationalPublicKey: args.operationalPublicKey,
+    nearEd25519SigningKeyId: `near-ed25519:${args.nearAccountId}`,
     passkeyCredential: {
       id: args.credentialId,
       rawId: args.credentialId,

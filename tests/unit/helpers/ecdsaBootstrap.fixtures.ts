@@ -16,6 +16,7 @@ import {
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -242,6 +243,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const walletSessionId = requireBootstrapAuthorizationId(
     parseWalletSessionId(`ecdsa-bootstrap-wallet-session:${sessionId}`),
   );
+  const authorizationId = requireBootstrapAuthorizationId(
+    parseWalletSessionAuthorizationId(`ecdsa-bootstrap-authorization:${sessionId}`),
+  );
   const quotaId = requireBootstrapAuthorizationId(
     parseMpcWalletSigningQuotaId(`ecdsa-bootstrap-quota:${sessionId}`),
   );
@@ -376,6 +380,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       authorizationSessionId: requireBootstrapAuthorizationId(
         parseEcdsaAuthorizationSessionId(`ecdsa-bootstrap-authorization-session:${sessionId}`),
       ),
+      authorizationId,
       walletSessionId,
       quotaId,
       expiresAtMs,
@@ -448,6 +453,7 @@ export function createEcdsaSessionActivationFixture(args: {
       public_capability: binding.publicFacts.publicCapability,
       session: {
         authorization_session_id: bootstrap.session.authorizationSessionId,
+        authorization_id: bootstrap.session.authorizationId,
         threshold_session_id: bootstrap.session.thresholdSessionId,
         wallet_session_id: bootstrap.session.walletSessionId,
         quota_id: bootstrap.session.quotaId,

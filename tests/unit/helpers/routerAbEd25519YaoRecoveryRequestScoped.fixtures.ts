@@ -692,8 +692,15 @@ function fixtureBackendUnavailable(): RouterAbEd25519YaoRecoveryBackendResult {
   };
 }
 
-function requireParsed<T>(parsed: { ok: true; value: T } | { ok: false; message: string }): T {
-  if (!parsed.ok) throw new Error(parsed.message);
+function requireParsed<T>(
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly message: string }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!parsed.ok) {
+    throw new Error('message' in parsed ? parsed.message : parsed.error.message);
+  }
   return parsed.value;
 }
 

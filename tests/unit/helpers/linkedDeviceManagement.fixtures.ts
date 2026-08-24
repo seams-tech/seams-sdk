@@ -40,6 +40,7 @@ import {
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type MpcMaterialActivationRef,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
@@ -295,6 +296,6 @@ export function linkedDevicePermissionsForManagementFixture(): CanonicalDelegate
   return buildSigningOnlyDelegatedWalletAuthorityV1().permissions;
 }
 
-export function parseManagementMaterialActivationRef(raw: string) {
+export function parseManagementMaterialActivationRef(raw: string): MpcMaterialActivationRef {
   return required(parseMpcMaterialActivationRef(raw));
 }

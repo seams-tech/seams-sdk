@@ -296,7 +296,7 @@ export function canonicalEcdsaAvailableLane(args: {
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
-}): ConcreteAvailableEcdsaSigningLane {
+}): Extract<ConcreteAvailableEcdsaSigningLane, { source: 'canonical_capability' }> {
   const keyId = args.ecdsaThresholdKeyId || 'shared-ecdsa-key';
   const walletId = args.walletId || AVAILABLE_LANES_WALLET_ID;
   const authMethod = args.authMethod || 'passkey';
@@ -390,7 +390,7 @@ export function canonicalEcdsaAvailableLane(args: {
 
 export function authorizationRequiredCanonicalEcdsaAvailableLane(
   args: Parameters<typeof canonicalEcdsaAvailableLane>[0],
-): ConcreteAvailableEcdsaSigningLane {
+): Extract<ConcreteAvailableEcdsaSigningLane, { source: 'canonical_capability' }> {
   const authorized = canonicalEcdsaAvailableLane(args);
   const base = {
     capability: authorized.capability,
