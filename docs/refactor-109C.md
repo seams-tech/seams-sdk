@@ -109,6 +109,53 @@ These were read directly and change the size of the remaining work. The plan's
   escaped defects R103E repaired. R109C must use the exact-method resolver
   `resolveActiveEmailOtpAuthorityForVerifiedMethod` that R103E already added.
 
+### Inventory defects that block the product contract
+
+Found while mapping Phase 3, and each one is load-bearing for "derive the
+available add action from exact active methods".
+
+- **Only the first active method per authority is projected.**
+  `packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement.ts:176-178`
+  builds both the linked-device and owner summaries from `activeMethods[0]`, so
+  an authority holding both families renders as one card and the sibling is
+  invisible. `docs/intended-behaviours.md` already says inventory is derived
+  from active authorities "and their exact auth methods", plural, so this is a
+  defect against the accepted contract rather than a new R109C requirement.
+- **`OwnerDeviceSummaryV1` carries no `walletAuthorityId`**
+  (`packages/shared-ts/src/device-linking/contracts.ts:629`), so a client cannot
+  scope "the methods on this authority" and cannot decide the add action
+  correctly for a wallet that also has linked devices.
+- **Owner methods cannot be removed.** The card's remove control is gated off
+  owner cards in `LinkedDevicesModal.tsx:658`, and the server refuses any
+  revoke whose target authority provenance is not `device_link`
+  (`linkedDeviceManagement.ts:239`). R109C requires each method to be removable
+  once its sibling is active, so both gates have to go. This widens which
+  authorities a user-facing revoke may target; it adds no second revocation
+  model — the target is still one exact `WalletAuthMethodId` with a fresh
+  sibling proof, and the D1 final-method guard is untouched.
+
+An earlier reading of this file recorded the opposite — that owner-method
+removal already worked, because `revokeDevice` handles owner cards. It does
+handle them; nothing reaches it.
+
+### The authority digest has two different brands
+
+`AddWalletAuthMethodSourceV1.authorityDigestB64u` is a `DigestB64u`. The active
+Wallet Session projection's `authority.authorityDigest` is a
+`WalletAuthorityBindingDigest` — a different value and a different brand. The
+correct source is `WalletAuthorityV1.authorityDigestB64u`. The branding makes
+the substitution a compile error, which is the point, but the two names are
+close enough to be worth stating.
+
+### Scope note: the entry-point plumbing is a surface change
+
+Adding `registration.addEmailOtp` touches thirteen files in
+`packages/wallet/src` — the public capability, the two facades, the iframe
+client router, the message contract, the request router, the runtime context,
+the host handler — because every one of them enumerates request kinds
+explicitly. That is a planned Phase 1/2 surface change, not one localized
+defect, so the "more than five files" stop condition does not apply to it.
+
 ### Deferred: the `0013` provider-identity migration
 
 `docs/refactor-109D-multi-auth-linking.md` specifies
