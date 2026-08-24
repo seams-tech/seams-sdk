@@ -14,6 +14,7 @@ export * from './paillier';
 export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';
 export * from './addAuthMethodRegistration';
+export * from './addWalletAuthMethod';
 export * from './registrationIntent';
 export * from './domainIds';
 export * from './webauthnDeviceInfo';
