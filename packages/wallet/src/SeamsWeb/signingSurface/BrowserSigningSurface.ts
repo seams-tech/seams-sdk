@@ -197,6 +197,7 @@ import {
   buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import {
   buildActiveNearEd25519WalletSessionAuthorization,
   buildAuthorizationRequiredNearEd25519YaoSigningPreparation,
@@ -2893,6 +2894,8 @@ export class BrowserSigningSurface {
         readonly walletId: string;
         readonly credentialId: string;
       }) => IndexedDBManager.getWalletPasskeyAuthenticator(input),
+      readEmailOtpProviderSubjectForWallet: (id: string) =>
+        readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, id),
     };
     const selected = await IndexedDBManager.resolveSelectedWalletAuthority(
       String(parsedWalletId.value),
