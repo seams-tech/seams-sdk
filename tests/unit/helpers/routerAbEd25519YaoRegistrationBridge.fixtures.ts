@@ -129,32 +129,6 @@ export class RegistrationSideEffectMemoryStore<
   }
 }
 
-export class UnusedSessionAdapter implements SessionAdapter {
-  async signJwt(): Promise<string> {
-    throw new Error('Session signing is outside this fixture');
-  }
-
-  async verifyJwt(): Promise<never> {
-    throw new Error('Session verification is outside this fixture');
-  }
-
-  async parse(): Promise<never> {
-    throw new Error('Session parsing is outside this fixture');
-  }
-
-  buildSetCookie(): string {
-    throw new Error('Cookie building is outside this fixture');
-  }
-
-  buildClearCookie(): string {
-    throw new Error('Cookie clearing is outside this fixture');
-  }
-
-  async refresh(): Promise<never> {
-    throw new Error('Session refresh is outside this fixture');
-  }
-}
-
 export class StaticWalletSessionAdapter implements SessionAdapter {
   async signJwt(): Promise<string> {
     return 'registration.wallet.session';

@@ -16,7 +16,6 @@ import {
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 import {
   UnavailableRouterAbEd25519YaoRegistrationBackend,
-  UnusedSessionAdapter,
 } from './routerAbEd25519YaoRegistrationBridge.fixtures';
 
 export type RouterAbEd25519YaoExistingWalletD1Fixture = {
@@ -118,7 +117,6 @@ export async function createRouterAbEd25519YaoExistingWalletD1Fixture(
     const loader = new PersistedCapabilityLoader(walletStore);
     const runtime = createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
       signingWorkerId: input.capability.admissionRequest.scope.signing_worker_id,
-      session: new UnusedSessionAdapter(),
       store,
       registrationBackend: new UnavailableRouterAbEd25519YaoRegistrationBackend(),
       loadPersistedActiveCapability: loader.load.bind(loader),
