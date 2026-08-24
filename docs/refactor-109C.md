@@ -68,6 +68,72 @@ beside the contract in `packages/shared-ts/src/utils/`, which
 `packages/wallet/tsconfig.json` does include and `pnpm type-check:sdk`
 therefore enforces.
 
+### Architecture facts established before implementation
+
+These were read directly and change the size of the remaining work. The plan's
+"Current gap" section understates how much R103E already built.
+
+- **The custody reseal is already factor-agnostic; no Rust or WASM change is
+  needed.** `passkey_custody_open_wallet_seed_v1` in
+  `wasm/near_signer/src/passkey_custody_wasm.rs:237` documents itself as "the
+  second-factor enrolment path: a wallet with an Email OTP factor gains a
+  passkey, or the reverse" — R109C's operation exactly — and
+  `reseal_wallet_custody_seed_under_new_factor_v1` in
+  `crates/signer-core/src/passkey_custody.rs:685` rejects only a changed wallet
+  or binding, with the message "a reseal may change only the factor and the
+  envelope id". The KEK and AAD are derived from the replacement factor and
+  binding, so an `email_otp` replacement factor is already supported. The
+  worker op is named `linkWalletCustodyPasskey`, but its payload takes an
+  envelope whose factor is the full union plus an opaque replacement binding
+  JSON; only the name is passkey-specific.
+- **The D1 service already accepts an Email OTP source for a Passkey target.**
+  `resolveAddAuthMethodExistingAuth` in
+  `packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService.ts:1078`
+  resolves the Email OTP authority, verifies its authority ref, and checks the
+  enrollment; `resolveActiveAddAuthMethodSource` resolves the V2 method for
+  that branch; and `startWalletAddAuthMethod` already handles
+  `storedAuth.auth.kind === 'email_otp'` inside its Passkey-target branch. The
+  refusal is one layer up: `parseWalletAddAuthMethodStartBody` admits only
+  `webauthn_assertion` and `wallet_session`, and the `wallet_session` branch of
+  `handleRouterApiWalletAddAuthMethodStart` requires
+  `authority.factor?.kind === 'passkey'`. `email_otp_to_passkey` is therefore a
+  route-boundary change, not a service rewrite.
+- **The Email-OTP-owned Wallet Session already names its exact source method.**
+  `EmailOtpWalletAuthAuthority.bindingId` is a `WalletAuthMethodId`
+  (`packages/shared-ts/src/utils/walletAuthAuthority.ts:66`), so the route can
+  supply the exact source method without inference.
+- **One remaining wallet-wide Email selector sits in the addition path.** The
+  add-auth-method start resolves its Email authority through
+  `resolveActiveEmailOtpAuthorityForVerifiedSubject`, which requires exactly one
+  active Email method for the wallet. That is the same shape as the three
+  escaped defects R103E repaired. R109C must use the exact-method resolver
+  `resolveActiveEmailOtpAuthorityForVerifiedMethod` that R103E already added.
+
+### Deferred: the `0013` provider-identity migration
+
+`docs/refactor-109D-multi-auth-linking.md` specifies
+`0013_r109c_multi_auth_email_cardinality.sql` — a migration named for R109C but
+documented in the R109D plan — which would replace the Email V2 branch's
+`registrationAuthorityId` with a canonical `provider` / `providerUserId` pair
+and add a per-authority Email cardinality index. R103E's
+"Relationship to R109C" assigns the canonical provider-identity branches to
+R109C; this plan's own text does not mention a schema change at all.
+
+It is deferred, deliberately. R103E's migration `0011` dropped
+`wallet_auth_methods_v2_email_uidx` so linked devices could each hold an Email
+method for one address, and R103E worked around the missing provider identity
+by reading the verified provider subject from the installation's own Ed25519
+lanes, requiring exactly one such subject per wallet. On a single device with
+one Email method that assumption still holds, which is the only configuration
+R109C creates — the assumption breaks for R109D's linked devices, not here.
+R109C's activation guard is a conditional insert that succeeds only while the
+target family is absent, so the race is closed transactionally without the
+index.
+
+If a real browser flow shows the missing provider identity blocking R109C, this
+decision is wrong and the migration comes back into scope; that is a schema
+change worth pausing for rather than absorbing.
+
 ## Goal
 
 Give an authenticated user one **Add authentication method** product action:
