@@ -839,9 +839,12 @@ export type WalletAddAuthMethodStartResponse =
       ok: true;
       addAuthMethodCeremonyId: string;
       intent: AddAuthMethodIntentV1;
-      custodyEnvelope?: never;
+      /* R109C: the Email OTP target reseals the wallet's existing seed under
+         its new factor, so this branch carries the source envelope too. Only
+         the created-credential options are passkey-specific. */
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       registration?: never;
-      addAuthMethodCeremonyExpiresAtMs?: never;
+      addAuthMethodCeremonyExpiresAtMs: number;
     };
 
 export type WalletAddAuthMethodFinalizeResponse =
@@ -882,8 +885,29 @@ export function parseWalletAddAuthMethodStartResponse(args: {
   });
   const intent = requireExactAddAuthMethodIntent(record.intent, args.expectedIntent);
   if (args.expectedIntent.authMethod.kind === 'email_otp') {
-    assertExactResponseKeys(record, ['ok', 'addAuthMethodCeremonyId', 'intent'], responseName);
-    return { ok: true, addAuthMethodCeremonyId, intent };
+    assertExactResponseKeys(
+      record,
+      [
+        'ok',
+        'addAuthMethodCeremonyId',
+        'intent',
+        'custodyEnvelope',
+        'addAuthMethodCeremonyExpiresAtMs',
+      ],
+      responseName,
+    );
+    return {
+      ok: true,
+      addAuthMethodCeremonyId,
+      intent,
+      custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
+      addAuthMethodCeremonyExpiresAtMs: requireResponseSafeInteger({
+        responseName,
+        field: 'addAuthMethodCeremonyExpiresAtMs',
+        value: record.addAuthMethodCeremonyExpiresAtMs,
+        minimum: 1,
+      }),
+    };
   }
   assertExactResponseKeys(
     record,
@@ -3719,6 +3743,15 @@ export async function finalizeWalletAddAuthMethod(
         custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       }
     | {
+        /* R109C's Email OTP target: verified by its one-use grant, so the body
+           carries the resealed envelope and no created credential. */
+        relayerUrl: string;
+        walletId: WalletId;
+        addAuthMethodCeremonyId: string;
+        webauthnRegistration?: never;
+        custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      }
+    | {
         relayerUrl: string;
         walletId: WalletId;
         addAuthMethodCeremonyId: string;
@@ -3729,13 +3762,18 @@ export async function finalizeWalletAddAuthMethod(
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-auth-method finalize');
   const body =
-    args.webauthnRegistration !== undefined && args.custodyEnvelope !== undefined
-      ? {
-          addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
-          webauthnRegistration: args.webauthnRegistration,
-          custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(args.custodyEnvelope),
-        }
-      : { addAuthMethodCeremonyId: args.addAuthMethodCeremonyId };
+    args.custodyEnvelope === undefined
+      ? { addAuthMethodCeremonyId: args.addAuthMethodCeremonyId }
+      : args.webauthnRegistration === undefined
+        ? {
+            addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
+            custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(args.custodyEnvelope),
+          }
+        : {
+            addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
+            webauthnRegistration: args.webauthnRegistration,
+            custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(args.custodyEnvelope),
+          };
   return await postJson<WalletAddAuthMethodFinalizeResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/finalize`,

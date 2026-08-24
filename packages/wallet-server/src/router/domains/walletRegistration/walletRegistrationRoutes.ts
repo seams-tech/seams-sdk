@@ -1572,12 +1572,29 @@ function parseWalletAddAuthMethodFinalizeRequest(
   if (!addAuthMethodCeremonyId.ok) return addAuthMethodCeremonyId;
   const hasRegistration = Object.prototype.hasOwnProperty.call(body, 'webauthnRegistration');
   const hasEnvelope = Object.prototype.hasOwnProperty.call(body, 'custodyEnvelope');
-  if (hasRegistration !== hasEnvelope) {
+  if (hasRegistration && !hasEnvelope) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'webauthnRegistration and custodyEnvelope must be provided together',
+      message: 'a WebAuthn registration must be finalized with its custody envelope',
     };
+  }
+  if (!hasRegistration && hasEnvelope) {
+    /* R109C's Email OTP target: the factor was verified by its one-use grant
+       rather than by a created credential, so the body carries the resealed
+       envelope alone. Requiring the pair here would refuse the exact request
+       the finalize service now demands for this branch. */
+    try {
+      return {
+        ok: true,
+        value: {
+          addAuthMethodCeremonyId: addAuthMethodCeremonyId.value,
+          custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(body.custodyEnvelope),
+        },
+      };
+    } catch {
+      return { ok: false, code: 'invalid_body', message: 'custodyEnvelope is invalid' };
+    }
   }
   if (hasRegistration) {
     try {
