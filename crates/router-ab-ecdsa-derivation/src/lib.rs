@@ -16,8 +16,8 @@ pub use shared::derive::{
     derive_ecdsa_lane_delta_v1, derive_relayer_share, derive_relayer_share_for_client_public,
     ecdsa_lane_client_public_key_from_share32_v1, public_transcript_digest,
     rebind_ecdsa_lane_relayer_share_bytes_v1, rebind_ecdsa_lane_relayer_share_v1,
-    reconstruct_export_key, sample_ecdsa_lane_client_share_v1, ClientRoleShare,
-    EcdsaLaneClientShare, EcdsaLaneDelta, EcdsaLanePublicIdentityBindingV1,
-    EcdsaLaneRelayerRebindV1, PublicIdentity, RelayerRoleShare,
+    reconstruct_ecdsa_additive_export_key_v1, reconstruct_export_key,
+    sample_ecdsa_lane_client_share_v1, ClientRoleShare, EcdsaLaneClientShare, EcdsaLaneDelta,
+    EcdsaLanePublicIdentityBindingV1, EcdsaLaneRelayerRebindV1, PublicIdentity, RelayerRoleShare,
 };
 pub use wire::{AllowedOutputKind, ServerEvalOperation};

@@ -1798,64 +1798,6 @@ function requireLinkedDeviceEcdsaHolderMaterial(
   return material;
 }
 
-function linkedHolderExportRecipientPublicKey(material: EcdsaLinkedHolderMaterialV1): string {
-  const method = Reflect.get(material, 'export_recipient_public_key');
-  if (typeof method !== 'function') {
-    throw new Error('linked ECDSA holder export recipient method is unavailable');
-  }
-  const recipientPublicKey = Reflect.apply(method, material, []);
-  if (typeof recipientPublicKey !== 'string' || recipientPublicKey.trim().length === 0) {
-    throw new Error('linked ECDSA holder export recipient is invalid');
-  }
-  return recipientPublicKey;
-}
-
-function linkedHolderFinalizeExport(
-  material: EcdsaLinkedHolderMaterialV1,
-  inputJson: string,
-): string {
-  const method = Reflect.get(material, 'finalize_export');
-  if (typeof method !== 'function') {
-    throw new Error('linked ECDSA holder export finalization method is unavailable');
-  }
-  const exportArtifactJson = Reflect.apply(method, material, [inputJson]);
-  if (typeof exportArtifactJson !== 'string' || exportArtifactJson.trim().length === 0) {
-    throw new Error('linked ECDSA holder export artifact is invalid');
-  }
-  return exportArtifactJson;
-}
-
-function getLinkedDeviceEcdsaHolderExportRecipientPublicKey(payload: unknown): {
-  readonly holderHandleId: string;
-  readonly recipientPublicKey: string;
-} {
-  const record = requireRecordPayload(payload);
-  const holderHandleId = readNonEmptyString(record, 'holderHandleId');
-  const recipientPublicKey = linkedHolderExportRecipientPublicKey(
-    requireLinkedDeviceEcdsaHolderMaterial(holderHandleId),
-  );
-  return { holderHandleId, recipientPublicKey };
-}
-
-function finalizeLinkedDeviceEcdsaHolderExport(payload: unknown): {
-  readonly holderHandleId: string;
-  readonly exportArtifactJson: string;
-} {
-  const record = requireRecordPayload(payload);
-  const holderHandleId = readNonEmptyString(record, 'holderHandleId');
-  const inputJson = record.exportFinalizationInputJson;
-  if (typeof inputJson !== 'string' || inputJson.trim().length === 0) {
-    throw new Error(
-      'ECDSA DERIVATION client worker request is missing exportFinalizationInputJson',
-    );
-  }
-  const exportArtifactJson = linkedHolderFinalizeExport(
-    requireLinkedDeviceEcdsaHolderMaterial(holderHandleId),
-    inputJson,
-  );
-  return { holderHandleId, exportArtifactJson };
-}
-
 function holderBuildOrdinaryExportRequest(
   material: EcdsaLinkedHolderMaterialV1,
   inputJson: string,
@@ -2014,8 +1956,6 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
     case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
     case EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial:
-    case EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey:
-    case EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport:
     case EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest:
     case EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport:
       await initializeEcdsaDerivationClientWasm();
@@ -2162,16 +2102,6 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.DisposeLinkedDeviceEcdsaHolderMaterialsSuccess,
         payload: disposeLinkedDeviceEcdsaHolderMaterials(payload),
       };
-    case EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey:
-      return {
-        type: EcdsaDerivationClientCustomResponseType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess,
-        payload: getLinkedDeviceEcdsaHolderExportRecipientPublicKey(payload),
-      };
-    case EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport:
-      return {
-        type: EcdsaDerivationClientCustomResponseType.FinalizeLinkedDeviceEcdsaHolderExportSuccess,
-        payload: finalizeLinkedDeviceEcdsaHolderExport(payload),
-      };
     case EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest:
       return {
         type: EcdsaDerivationClientCustomResponseType.CreateEcdsaHolderOrdinaryExportRequestSuccess,
@@ -2213,8 +2143,6 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
     case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
     case EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial:
-    case EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey:
-    case EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport:
     case EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials:
     case EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest:
     case EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport:

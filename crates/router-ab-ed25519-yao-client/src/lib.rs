@@ -999,7 +999,7 @@ fn open_client_package(
     .map_err(|_| ClientActivationError::HpkeFailed)
 }
 
-fn verify_public_relation(
+pub(crate) fn verify_public_relation(
     client_scalar_share: &[u8; 32],
     participant_ids: [u16; 2],
     receipt: &router_ab_core::RouterAbEd25519YaoActivationPublicReceiptV1,

@@ -20,13 +20,7 @@ pub(crate) fn finalize_encrypted_client_proof_input_v1(
     input: FinalizeEncryptedClientProofBundlesInputV1,
     private_key: &[u8; 32],
 ) -> Result<[u8; 32], String> {
-    match input.kind {
-        FinalizeEncryptedClientProofBundlesKindV1::FinalizeEncryptedClientProofBundlesV1 => {}
-    }
-    let signer_a = open_client_wire_bundle(input.bundles.signer_a, private_key)?;
-    let signer_b = open_client_wire_bundle(input.bundles.signer_b, private_key)?;
-    let pair =
-        pair_ecdsa_opened_client_proof_bundles_v1(signer_a, signer_b).map_err(protocol_error)?;
+    let pair = open_client_proof_pair(input, private_key)?;
     let context = pair.prf_context().map_err(protocol_error)?;
     finalize_ecdsa_prf_two_party_output_v1(
         &context,
@@ -34,6 +28,47 @@ pub(crate) fn finalize_encrypted_client_proof_input_v1(
         &pair.signer_b().role_bound_proof,
     )
     .map_err(protocol_error)
+}
+
+pub(crate) fn verify_encrypted_client_proof_input_for_export(
+    input: FinalizeEncryptedClientProofBundlesInputV1,
+    private_key: &[u8; 32],
+    expected_transcript_digest: [u8; 32],
+    expected_recipient_identity: &str,
+) -> Result<(), String> {
+    let pair = open_client_proof_pair(input, private_key)?;
+    if pair.signer_a().transcript_digest != expected_transcript_digest
+        || pair.signer_b().transcript_digest != expected_transcript_digest
+        || pair.signer_a().recipient_identity != expected_recipient_identity
+        || pair.signer_b().recipient_identity != expected_recipient_identity
+    {
+        return Err(
+            "Router A/B ECDSA client proof bundles do not match the export request recipient"
+                .to_owned(),
+        );
+    }
+    let context = pair.prf_context().map_err(protocol_error)?;
+    let mut output = finalize_ecdsa_prf_two_party_output_v1(
+        &context,
+        &pair.signer_a().role_bound_proof,
+        &pair.signer_b().role_bound_proof,
+    )
+    .map_err(protocol_error)?;
+    use zeroize::Zeroize;
+    output.zeroize();
+    Ok(())
+}
+
+fn open_client_proof_pair(
+    input: FinalizeEncryptedClientProofBundlesInputV1,
+    private_key: &[u8; 32],
+) -> Result<router_ab_ecdsa_client_protocol::EcdsaOpenedClientProofBundlePairV1, String> {
+    match input.kind {
+        FinalizeEncryptedClientProofBundlesKindV1::FinalizeEncryptedClientProofBundlesV1 => {}
+    }
+    let signer_a = open_client_wire_bundle(input.bundles.signer_a, private_key)?;
+    let signer_b = open_client_wire_bundle(input.bundles.signer_b, private_key)?;
+    pair_ecdsa_opened_client_proof_bundles_v1(signer_a, signer_b).map_err(protocol_error)
 }
 
 fn open_client_wire_bundle(

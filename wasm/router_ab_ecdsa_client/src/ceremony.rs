@@ -141,29 +141,10 @@ impl RouterAbEcdsaClientCeremonyV1 {
 
     /// Builds a strict explicit client-export request.
     pub fn build_explicit_export_request(&mut self, input_json: &str) -> Result<String, JsValue> {
-        let input: ExplicitExportRequestInputV1 = parse_json(input_json)?;
-        let header = self.post_registration_header(
-            &input.common,
-            EcdsaPostRegistrationCeremonyV1::ExplicitExport,
-            EcdsaPostRegistrationRecipientV1::ClientProofBundles {
-                client_ephemeral_public_key: self.active_keypair()?.public_key().to_owned(),
-            },
-            EcdsaPostRegistrationOperationV1::ExplicitExport {
-                authorization_kind: input.authorization.kind_label().to_owned(),
-                authorization_id: input
-                    .authorization
-                    .authorization_id()
-                    .map_err(|error| JsValue::from_str(error))?
-                    .to_owned(),
-                material_activation: parse_material_activation(&input.material_activation)?,
-                authorization_digest_b64u: input.export_authorization_digest_b64u.clone(),
-                nonce: input.export_nonce.clone(),
-            },
-        )?;
-        let request = self.build_post_request(header, &input.common.deriver_recipient_keys)?;
-        self.explicit_export_request_digest =
-            Some(request.digest().map_err(protocol_error).map_err(js_error)?);
-        serialize_export_request(input, request, self.active_keypair()?.public_key())
+        let (serialized, digest, _transcript_digest) =
+            build_explicit_export_request_with_keypair(input_json, self.active_keypair()?)?;
+        self.explicit_export_request_digest = Some(digest);
+        Ok(serialized)
     }
 
     /// Builds a strict SigningWorker activation-refresh request.
@@ -325,6 +306,63 @@ impl RouterAbEcdsaClientCeremonyV1 {
         self.activation_refresh_request_digest.take();
         self.keypair.take();
     }
+}
+
+/// Builds one ordinary explicit-export request using an already-held recipient
+/// keypair. The private key remains borrowed inside WASM for the full build.
+pub(crate) fn build_explicit_export_request_with_keypair(
+    input_json: &str,
+    keypair: &EcdsaClientEphemeralKeyPairV1,
+) -> Result<(String, [u8; 32], [u8; 32]), JsValue> {
+    let input: ExplicitExportRequestInputV1 = parse_json(input_json)?;
+    let context = parse_context(&input.common.context)?;
+    let public_identity = parse_public_identity(&context, &input.common.public_identity)?;
+    let lifecycle = EcdsaPostRegistrationLifecycleV1::from_wire(
+        EcdsaPostRegistrationCeremonyV1::ExplicitExport,
+        input.common.lifecycle.clone().into(),
+    )
+    .map_err(protocol_error)
+    .map_err(js_error)?;
+    let header = EcdsaPostRegistrationHeaderV1::new(EcdsaPostRegistrationHeaderInputV1 {
+        context,
+        lifecycle,
+        public_identity,
+        signer_set: parse_signer_set(&input.common.signer_set)?,
+        router_id: input.common.router_id.clone(),
+        client_id: input.common.client_id.clone(),
+        recipient: EcdsaPostRegistrationRecipientV1::ClientProofBundles {
+            client_ephemeral_public_key: keypair.public_key().to_owned(),
+        },
+        operation: EcdsaPostRegistrationOperationV1::ExplicitExport {
+            authorization_kind: input.authorization.kind_label().to_owned(),
+            authorization_id: input
+                .authorization
+                .authorization_id()
+                .map_err(JsValue::from_str)?
+                .to_owned(),
+            material_activation: parse_material_activation(&input.material_activation)?,
+            authorization_digest_b64u: input.export_authorization_digest_b64u.clone(),
+            nonce: input.export_nonce.clone(),
+        },
+        expires_at_ms: input.common.expires_at_ms,
+    })
+    .map_err(protocol_error)
+    .map_err(js_error)?;
+    let request = build_ecdsa_post_registration_request_v1(
+        header,
+        parse_recipient_keys(&input.common.deriver_recipient_keys)?,
+        random_seal_seeds()?,
+    )
+    .map_err(protocol_error)
+    .map_err(js_error)?;
+    let digest = request.digest().map_err(protocol_error).map_err(js_error)?;
+    let transcript_digest = request
+        .header()
+        .transcript_digest()
+        .map_err(protocol_error)
+        .map_err(js_error)?;
+    let serialized = serialize_export_request(input, request, keypair.public_key())?;
+    Ok((serialized, digest, transcript_digest))
 }
 
 /// Worker-owned plaintext produced by opening one committed ECDSA role pair.
@@ -1331,6 +1369,7 @@ mod tests {
             "material-activation-1"
         );
 
+        let operation_step_up_authorization_id = b64u(&[0x52; 32]);
         let operation_step_up_input = ExplicitExportRequestInputV1 {
             common: test_post_common(test_lifecycle(
                 "export-step-up-lifecycle-1",
@@ -1339,7 +1378,7 @@ mod tests {
                 "root-epoch-1",
             )),
             authorization: NormalSigningAuthorizationInputV1::OperationStepUp {
-                authorization_id: b64u(&[0x52; 32]),
+                authorization_id: operation_step_up_authorization_id.clone(),
             },
             material_activation: MaterialActivationRefInputV1 {
                 kind: "mpc_material_activation_ref".to_owned(),
@@ -1353,10 +1392,14 @@ mod tests {
             export_authorization_digest_b64u: b64u(&[0x53; 32]),
             export_nonce: "export-step-up-nonce-1".to_owned(),
         };
+        let mut operation_step_up_input_json =
+            serde_json::to_value(&operation_step_up_input).expect("operation step-up input value");
+        operation_step_up_input_json["authorization"]["authorization_id"] =
+            Value::String(operation_step_up_authorization_id);
         let operation_step_up_export = parse_output(
             ceremony
                 .build_explicit_export_request(
-                    &serde_json::to_string(&operation_step_up_input)
+                    &serde_json::to_string(&operation_step_up_input_json)
                         .expect("operation step-up export input JSON"),
                 )
                 .expect("operation step-up export request"),

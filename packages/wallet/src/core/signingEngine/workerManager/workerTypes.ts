@@ -824,7 +824,11 @@ export interface EmailOtpWorkerOperationMap {
       otpCode: string;
       requestedCapabilities:
         | { readonly kind: 'none' }
-        | { readonly kind: 'ed25519_yao'; readonly signerSlot: number; readonly remainingUses: number };
+        | {
+            readonly kind: 'ed25519_yao';
+            readonly signerSlot: number;
+            readonly remainingUses: number;
+          };
     };
     result: {
       readonly kind: 'linked_email_otp_wallet_unlock_v1';
@@ -1205,8 +1209,6 @@ export const EcdsaDerivationClientCustomRequestType = {
   PrepareLinkedDeviceEcdsaSourceContribution: 70_022,
   StoreLinkedDeviceEcdsaHolderMaterial: 70_023,
   DisposeLinkedDeviceEcdsaHolderMaterials: 70_024,
-  GetLinkedDeviceEcdsaHolderExportRecipientPublicKey: 70_025,
-  FinalizeLinkedDeviceEcdsaHolderExport: 70_026,
   CreateEcdsaHolderOrdinaryExportRequest: 70_027,
   FinalizeEcdsaHolderOrdinaryExport: 70_028,
 } as const;
@@ -1235,8 +1237,6 @@ export const EcdsaDerivationClientCustomResponseType = {
   PrepareLinkedDeviceEcdsaSourceContributionSuccess: 70_122,
   StoreLinkedDeviceEcdsaHolderMaterialSuccess: 70_123,
   DisposeLinkedDeviceEcdsaHolderMaterialsSuccess: 70_124,
-  GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess: 70_125,
-  FinalizeLinkedDeviceEcdsaHolderExportSuccess: 70_126,
   CreateEcdsaHolderOrdinaryExportRequestSuccess: 70_127,
   FinalizeEcdsaHolderOrdinaryExportSuccess: 70_128,
 } as const;
@@ -1288,33 +1288,6 @@ export type DisposeLinkedDeviceEcdsaHolderMaterialsResponseV1 = {
   readonly payload:
     | { readonly kind: 'all'; readonly holderHandleId?: never }
     | { readonly kind: 'one'; readonly holderHandleId: string };
-  readonly diagnostics?: WorkerResponseDiagnostics;
-};
-
-export type GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyRequestV1 = {
-  readonly holderHandleId: string;
-};
-
-export type GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyResponseV1 = {
-  readonly type: typeof EcdsaDerivationClientCustomResponseType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess;
-  readonly payload: {
-    readonly holderHandleId: string;
-    readonly recipientPublicKey: string;
-  };
-  readonly diagnostics?: WorkerResponseDiagnostics;
-};
-
-export type FinalizeLinkedDeviceEcdsaHolderExportRequestV1 = {
-  readonly holderHandleId: string;
-  readonly exportFinalizationInputJson: string;
-};
-
-export type FinalizeLinkedDeviceEcdsaHolderExportResponseV1 = {
-  readonly type: typeof EcdsaDerivationClientCustomResponseType.FinalizeLinkedDeviceEcdsaHolderExportSuccess;
-  readonly payload: {
-    readonly holderHandleId: string;
-    readonly exportArtifactJson: string;
-  };
   readonly diagnostics?: WorkerResponseDiagnostics;
 };
 
@@ -1632,14 +1605,6 @@ type EcdsaDerivationClientCustomOperationMap = {
     payload: DisposeLinkedDeviceEcdsaHolderMaterialsRequestV1;
     result: DisposeLinkedDeviceEcdsaHolderMaterialsResponseV1;
   };
-  [EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey]: {
-    payload: GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyRequestV1;
-    result: GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyResponseV1;
-  };
-  [EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport]: {
-    payload: FinalizeLinkedDeviceEcdsaHolderExportRequestV1;
-    result: FinalizeLinkedDeviceEcdsaHolderExportResponseV1;
-  };
   [EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest]: {
     payload: CreateEcdsaHolderOrdinaryExportRequestWorkerV1;
     result: CreateEcdsaHolderOrdinaryExportResponseWorkerV1;
@@ -1805,14 +1770,6 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
 
 export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,
-> = EcdsaDerivationWorkerOperationRequest<T>;
-
-export type EcdsaLinkedHolderMaterialOperationType =
-  | typeof EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey
-  | typeof EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport;
-
-export type EcdsaDerivationLinkedHolderMaterialOperationRequest<
-  T extends EcdsaLinkedHolderMaterialOperationType,
 > = EcdsaDerivationWorkerOperationRequest<T>;
 
 export type EcdsaHolderOrdinaryExportOperationType =
