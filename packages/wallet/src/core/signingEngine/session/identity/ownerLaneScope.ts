@@ -172,6 +172,19 @@ export function buildExactPasskeyOwnerLaneScope(args: {
   };
 }
 
+export function buildExactEcdsaPasskeyOwnerLaneScope(args: {
+  readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'passkey' }>;
+}): Extract<OwnerLaneScope, { readonly keyFamily: 'ecdsa' }> {
+  return {
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(args.authMethod.rpId),
+      credentialIdB64u: args.authMethod.credentialIdB64u,
+    },
+    keyFamily: 'ecdsa',
+  };
+}
+
 async function passkeyOwnerLaneScope(args: {
   readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'passkey' }>;
   readonly stores: OwnerLaneScopeStores;

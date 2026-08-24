@@ -51,6 +51,14 @@ export type OwnerLaneScope =
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.passkey }>;
       signerSlot: number;
+      keyFamily?: never;
+      linkedOwner?: never;
+      ownerAuthority?: never;
+    }
+  | {
+      auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.passkey }>;
+      keyFamily: 'ecdsa';
+      signerSlot?: never;
       linkedOwner?: never;
       ownerAuthority?: never;
     }
