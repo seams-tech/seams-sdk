@@ -73,6 +73,10 @@ import {
   parseRouterAbMpcMaterialActivationRef,
   parseRouterAbNormalSigningAuthorization,
 } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   requireOpaqueWalletSessionToken,
@@ -2097,6 +2101,109 @@ async function releaseEmailOtpFactorSecret(
     zeroizeBytes(sharedSecret);
     zeroizeBytes(aad);
     zeroizeBytes(factorSecret32);
+  }
+}
+
+async function unlockLinkedEmailOtpWallet(
+  args: EmailOtpWorkerOperationMap['unlockLinkedEmailOtpWallet']['payload'],
+): Promise<EmailOtpWorkerOperationMap['unlockLinkedEmailOtpWallet']['result']> {
+  await ensureEvmCryptoWasm();
+  const relayUrl = readString(args.relayUrl, 'relayUrl');
+  const walletId = readString(args.walletId, 'walletId');
+  const walletAuthMethodId = readString(args.walletAuthMethodId, 'walletAuthMethodId');
+  const challengeId = readString(args.challengeId, 'challengeId');
+  const otpCode = readString(args.otpCode, 'otpCode');
+  const released = await releaseEmailOtpFactorSecret({
+    relayUrl,
+    walletId,
+    challengeId,
+    otpCode,
+    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    kind: 'email_otp',
+    sessionAuth: undefined,
+  });
+  let factorSecret32: Uint8Array | null = released.factorSecret32;
+  let challengeDigest32: Uint8Array | null = null;
+  let unlockPrivateKey32: Uint8Array | null = null;
+  let unlockPublicKey33: Uint8Array | null = null;
+  let unlockSignature65: Uint8Array | null = null;
+  try {
+    const unlockChallenge = await postEmailOtpJson({
+      relayUrl,
+      route: '/wallet/unlock/challenge',
+      body: {
+        unlockBackend: 'email_otp',
+        walletId,
+        walletAuthMethodId,
+      },
+    });
+    const unlockChallengeId = readString(unlockChallenge.challengeId, 'challengeId');
+    const unlockChallengeB64u = readString(
+      unlockChallenge.challengeB64u,
+      'challengeB64u',
+    );
+    challengeDigest32 = base64UrlDecode(unlockChallengeB64u);
+    if (challengeDigest32.length !== 32) {
+      throw new Error('wallet/unlock/challenge challengeB64u must decode to 32 bytes');
+    }
+    if (!factorSecret32) {
+      throw new Error('Email OTP factor release did not return a factor secret');
+    }
+    unlockPrivateKey32 = await deriveEmailOtpUnlockAuthSeedInWorker({
+      clientSecret32: factorSecret32,
+      walletId,
+    });
+    unlockPublicKey33 = secp256k1_private_key_32_to_public_key_33(
+      unlockPrivateKey32,
+    ) as Uint8Array;
+    unlockSignature65 = sign_secp256k1_recoverable(
+      challengeDigest32,
+      unlockPrivateKey32,
+    ) as Uint8Array;
+    const verified = await postEmailOtpJson({
+      relayUrl,
+      route: '/wallet/unlock/verify',
+      body: {
+        unlockBackend: 'email_otp',
+        walletId,
+        walletAuthMethodId,
+        challengeId: unlockChallengeId,
+        unlockProof: {
+          publicKey: base64UrlEncode(unlockPublicKey33),
+          signature: base64UrlEncode(unlockSignature65),
+        },
+        requestedCapabilities: args.requestedCapabilities,
+      },
+    });
+    const walletSession = parseActiveWalletSessionV1(verified.walletSession);
+    const operationCredential = parseWalletSessionOperationCredentialV1(
+      verified.operationCredential,
+    );
+    if (
+      String(walletSession.walletId) !== walletId ||
+      String(walletSession.authMethodId) !== walletAuthMethodId
+    ) {
+      throw new Error('Email OTP linked Wallet Session identity changed');
+    }
+    const ed25519YaoCapability =
+      args.requestedCapabilities.kind === 'ed25519_yao'
+        ? parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability)
+        : undefined;
+    const ownedFactorSecret32 = factorSecret32;
+    factorSecret32 = null;
+    return {
+      kind: 'linked_email_otp_wallet_unlock_v1',
+      factorSecret32: ownedFactorSecret32,
+      walletSession,
+      operationCredential,
+      ...(ed25519YaoCapability ? { ed25519YaoCapability } : {}),
+    };
+  } finally {
+    zeroizeBytes(factorSecret32);
+    zeroizeBytes(challengeDigest32);
+    zeroizeBytes(unlockPrivateKey32);
+    zeroizeBytes(unlockPublicKey33);
+    zeroizeBytes(unlockSignature65);
   }
 }
 
@@ -5890,6 +5997,72 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           material: parseEmailOtpWalletUnlockMaterialRequest(payload.material),
         },
       };
+    case 'unlockLinkedEmailOtpWallet': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'walletAuthMethodId',
+          'challengeId',
+          'otpCode',
+          'requestedCapabilities',
+        ],
+        type,
+      );
+      const requestedCapabilities = workerPayloadObject(payload.requestedCapabilities);
+      if (!requestedCapabilities) {
+        throw new Error('unlockLinkedEmailOtpWallet.requestedCapabilities is required');
+      }
+      const capabilityKind = readString(
+        requestedCapabilities.kind,
+        `${type}.requestedCapabilities.kind`,
+      );
+      const parsedCapabilities = (() => {
+        switch (capabilityKind) {
+          case 'none':
+            rejectUnknownEmailOtpYaoFields(
+              requestedCapabilities,
+              ['kind'],
+              `${type}.requestedCapabilities`,
+            );
+            return { kind: 'none' as const };
+          case 'ed25519_yao': {
+            rejectUnknownEmailOtpYaoFields(
+              requestedCapabilities,
+              ['kind', 'signerSlot', 'remainingUses'],
+              `${type}.requestedCapabilities`,
+            );
+            return {
+              kind: 'ed25519_yao' as const,
+              signerSlot: normalizePositiveInteger(requestedCapabilities.signerSlot) || 0,
+              remainingUses: normalizePositiveInteger(requestedCapabilities.remainingUses) || 0,
+            };
+          }
+          default:
+            return null;
+        }
+      })();
+      if (
+        !parsedCapabilities ||
+        (parsedCapabilities.kind === 'ed25519_yao' &&
+          (parsedCapabilities.signerSlot <= 0 || parsedCapabilities.remainingUses <= 0))
+      ) {
+        throw new Error('unlockLinkedEmailOtpWallet.requestedCapabilities is invalid');
+      }
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          walletAuthMethodId: readString(payload.walletAuthMethodId, 'walletAuthMethodId'),
+          challengeId: readString(payload.challengeId, 'challengeId'),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          requestedCapabilities: parsedCapabilities,
+        },
+      };
+    }
     case 'getEmailOtpWarmSessionStatus':
     case 'clearEmailOtpWarmSessionMaterial':
       return {
@@ -6206,6 +6379,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ...(sessionAuth ? { sessionAuth } : {}),
           body: {
             walletId: readString(msg.payload.walletId, 'walletId'),
+            ...(msg.payload.walletAuthMethodId
+              ? {
+                  walletAuthMethodId: readString(
+                    msg.payload.walletAuthMethodId,
+                    'walletAuthMethodId',
+                  ),
+                }
+              : {}),
             otpChannel: EMAIL_OTP_CHANNEL,
             operation: routePlan.operation,
             ...(msg.payload.operationFingerprintDigest
@@ -6567,6 +6748,19 @@ self.addEventListener('message', async (event: MessageEvent) => {
           default:
             return assertNeverEmailOtpWorker(result);
         }
+      }
+      case 'unlockLinkedEmailOtpWallet': {
+        const result = await unlockLinkedEmailOtpWallet(msg.payload);
+        try {
+          postToMainThread(
+            { id: msg.id, ok: true, result },
+            [result.factorSecret32.buffer],
+          );
+        } catch (error: unknown) {
+          result.factorSecret32.fill(0);
+          throw error;
+        }
+        return;
       }
       case 'getEmailOtpWarmSessionStatus': {
         postToMainThread({

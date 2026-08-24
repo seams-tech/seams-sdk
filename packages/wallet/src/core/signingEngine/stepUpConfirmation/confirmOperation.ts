@@ -48,6 +48,12 @@ type WarmSessionSigningConfirmationAuthParams = {
   emailOtpPrompt?: never;
 };
 
+type ActiveWalletAuthoritySigningConfirmationAuthParams = {
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'active_wallet_authority' }>;
+  webauthnChallenge?: never;
+  emailOtpPrompt?: never;
+};
+
 type PasskeySigningConfirmationAuthParams = {
   signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
   webauthnChallenge?: WebAuthnChallenge;
@@ -62,12 +68,14 @@ type EmailOtpSigningConfirmationAuthParams = {
 
 type OrchestrateSigningConfirmationAuthParams =
   | WarmSessionSigningConfirmationAuthParams
+  | ActiveWalletAuthoritySigningConfirmationAuthParams
   | PasskeySigningConfirmationAuthParams
   | EmailOtpSigningConfirmationAuthParams;
 
 type OrchestrateIntentDigestSigningConfirmationAuthParams =
   | (PasskeySigningConfirmationAuthParams & { webauthnChallenge: WebAuthnChallenge })
   | WarmSessionSigningConfirmationAuthParams
+  | ActiveWalletAuthoritySigningConfirmationAuthParams
   | EmailOtpSigningConfirmationAuthParams;
 
 export function buildSigningConfirmationAuthParams(args: {
@@ -77,6 +85,10 @@ export function buildSigningConfirmationAuthParams(args: {
 }): OrchestrateSigningConfirmationAuthParams {
   switch (args.signingAuthPlan.kind) {
     case SigningAuthPlanKinds.WarmSession:
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+      };
+    case SigningAuthPlanKinds.ActiveWalletAuthority:
       return {
         signingAuthPlan: args.signingAuthPlan,
       };
@@ -285,6 +297,11 @@ function validateSigningConfirmationAuthRoute(request: OrchestrateSigningConfirm
   };
   switch (request.signingAuthPlan.kind) {
     case SigningAuthPlanKinds.WarmSession:
+      if (raw.emailOtpPrompt !== undefined || raw.webauthnChallenge !== undefined) {
+        throw new Error('[SigningConfirmation] auth_method_route_mismatch');
+      }
+      return;
+    case SigningAuthPlanKinds.ActiveWalletAuthority:
       if (raw.emailOtpPrompt !== undefined || raw.webauthnChallenge !== undefined) {
         throw new Error('[SigningConfirmation] auth_method_route_mismatch');
       }

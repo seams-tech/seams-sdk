@@ -45,13 +45,17 @@ import type {
 } from './deviceLinkingPorts';
 import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
+import type { WalletAuthenticationState } from '@/core/types/seams';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 import {
   acceptLinkedDeviceEd25519ExportRootV1,
   discardLinkedDeviceEd25519ExportRootRecipientV1,
   publishLinkedDeviceEd25519ExportRootRecipientV1,
 } from './deviceLinkingTargetEd25519ExportRoot';
-import type { DeviceLinkingEd25519ExportRootRecipientHandleV1 } from './deviceLinkingEd25519ExportRoot';
+import {
+  buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1,
+  type DeviceLinkingEd25519ExportRootRecipientHandleV1,
+} from './deviceLinkingEd25519ExportRoot';
 import type { DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 } from './deviceLinkingOrdinaryMaterialWorker';
 import { activateLinkedAuthorityV1 } from './deviceLinkingAuthorityInstallation';
 import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
@@ -61,12 +65,36 @@ import {
   buildEd25519YaoClientRootBinding,
   buildPasskeyEnvelopeFactor,
 } from '@shared/passkey-custody';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parsePasskeyEnvelopeId, type PasskeyEnvelopeId } from '@shared/utils/domainIds';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
 };
+
+type GetLinkedDeviceAuthenticationContext = () => DeviceLinkingWebContext;
+
+function linkedDeviceWalletAuthenticationState(
+  walletSession: ActiveWalletSessionV1,
+  registration: LinkedDeviceTargetCredentialRegistrationResultV1,
+): Extract<WalletAuthenticationState, { readonly kind: 'authenticated' }> {
+  switch (registration.targetFactor.kind) {
+    case 'verified_passkey_target_v1':
+      return {
+        kind: 'authenticated',
+        walletId: walletSession.walletId,
+        authMethod: WALLET_AUTH_METHODS.passkey,
+      };
+    case 'verified_email_otp_target_v1':
+      return {
+        kind: 'authenticated',
+        walletId: walletSession.walletId,
+        authMethod: WALLET_AUTH_METHODS.emailOtp,
+      };
+    default:
+      return registration.targetFactor satisfies never;
+  }
+}
 
 type AwaitingTargetFactorStateV1 = Extract<
   LinkSessionStateV1,
@@ -321,24 +349,10 @@ function createExportRootEnvelopeIdV1(): PasskeyEnvelopeId {
   return parsed.value;
 }
 
-function exportRootBindingJsonV1(input: {
-  readonly walletId: PasskeyCustodyEnvelopeRecord['walletId'];
-  readonly envelopeId: ReturnType<typeof createExportRootEnvelopeIdV1>;
-  readonly factor: PasskeyCustodyEnvelopeRecord['factor'];
-  readonly binding: PasskeyCustodyEnvelopeRecord['binding'];
-}): string {
-  return JSON.stringify({
-    walletId: input.walletId,
-    envelopeId: input.envelopeId,
-    factor: input.factor,
-    envelopeRevision: 1,
-    binding: input.binding,
-  });
-}
-
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
   private readonly ports: Device2LinkingFlowPortsV1;
+  private readonly getAuthenticationContext: GetLinkedDeviceAuthenticationContext | null;
   private readonly flowId: string;
   private session: DeviceLinkingSession | null = null;
   private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
@@ -364,10 +378,15 @@ export class LinkDeviceFlow {
   private readonly handledStates = new Set<LinkSessionStateV1['state']>();
   private sessionEventQueue: Promise<void> = Promise.resolve();
 
-  constructor(options: StartDevice2LinkingFlowArgs, ports: Device2LinkingFlowPortsV1) {
+  constructor(
+    options: StartDevice2LinkingFlowArgs,
+    ports: Device2LinkingFlowPortsV1,
+    getAuthenticationContext: GetLinkedDeviceAuthenticationContext | null = null,
+  ) {
     this.options = options;
     this.flowId = createFlowId();
     this.ports = ports;
+    this.getAuthenticationContext = getAuthenticationContext;
   }
 
   async generateQR(): Promise<StartDevice2LinkingFlowResults> {
@@ -1090,11 +1109,12 @@ export class LinkDeviceFlow {
           ed25519ExportRoot: this.ports.ed25519ExportRoot,
           transport: this.requireAuthenticatedTransport(),
           recipient,
-          replacementEnvelopeBindingJson: exportRootBindingJsonV1({
+          replacementEnvelope: buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1({
             walletId: context.preparation.walletId,
             envelopeId,
             factor,
             binding,
+            createdAtMs: Date.now(),
           }),
           replacementFactorSecret: new Uint8Array(factorSecret),
           expiresAtMs: Math.min(
@@ -1408,11 +1428,12 @@ export class LinkDeviceFlow {
           ed25519ExportRoot: this.ports.ed25519ExportRoot,
           transport: authenticatedTransport,
           recipient,
-          replacementEnvelopeBindingJson: exportRootBindingJsonV1({
+          replacementEnvelope: buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1({
             walletId: preparation.walletId,
             envelopeId,
             factor,
             binding,
+            createdAtMs: Date.now(),
           }),
           replacementFactorSecret: credential.factorSecret,
           expiresAtMs: Math.min(preparation.expiresAtMs, this.session.qrData.expiresAtMs),
@@ -1557,6 +1578,10 @@ export class LinkDeviceFlow {
   ): Promise<void> {
     this.assertCurrentRun(runEpoch);
     const session = this.requireSessionV1();
+    const registration = this.targetCredentialRegistrationResult;
+    if (!registration || registration.walletId !== walletSession.walletId) {
+      throw new Error('linked-device activation identity is unavailable');
+    }
     this.session = {
       ...session,
       state: {
@@ -1566,11 +1591,18 @@ export class LinkDeviceFlow {
         activatedAtMs: walletSession.issuedAtMs,
       },
     };
+    this.getAuthenticationContext?.().signingEngine.setWalletAuthenticated(
+      linkedDeviceWalletAuthenticationState(walletSession, registration),
+    );
     this.emit({
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
       message: 'Device link active',
-      data: { role: 'display' },
+      walletId: String(walletSession.walletId),
+      data: {
+        role: 'display',
+        enrollmentId: String(registration.enrollmentId),
+      },
       interaction: { kind: 'qr_display', overlay: 'hide' },
     });
     await this.cleanupCompletedLocalResources();
@@ -1901,7 +1933,7 @@ export class DeviceLinkingDomain {
       if (this.activeDeviceLinkFlow) {
         throw new Error('Device-link QR flow is already running');
       }
-      const flow = new LinkDeviceFlow(args, this.deps.ports);
+      const flow = new LinkDeviceFlow(args, this.deps.ports, this.deps.getContext);
       this.activeDeviceLinkFlow = flow;
       try {
         return await flow.generateQR();

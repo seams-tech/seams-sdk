@@ -34,6 +34,7 @@ void exportLaneWithThresholdSessionId;
 
 const walletSessionAuthorizedMaterial: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
+  source: 'canonical_capability',
   chainTarget,
   publicFacts,
   runtimePolicyScope,
@@ -66,6 +67,7 @@ void freshRouteAuthReadyWithLooseRecord;
 
 const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   kind: 'fresh_passkey_needs_authorization',
+  source: 'canonical_capability',
   chainTarget,
   publicFacts,
   runtimePolicyScope,

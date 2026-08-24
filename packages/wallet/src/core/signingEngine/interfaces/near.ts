@@ -10,6 +10,7 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { NearSigningRuntimeDeps } from './runtime';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { NearAccountRef, NearCommandSubject } from './ecdsaChainTarget';
 import type {
   EmailOtpStepUpAuthorization,
@@ -149,6 +150,7 @@ export type NearEmailOtpEd25519OperationStepUpCapabilityPreparation =
     };
 
 export type NearEd25519YaoMaterialExecutor = {
+  resolveSigningKeyMaterial: () => Promise<ThresholdEd25519KeyMaterial>;
   resolve: (
     preparation: NearEd25519YaoSigningPreparation,
   ) => Promise<NearEd25519YaoOperationMaterial>;

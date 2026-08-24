@@ -154,7 +154,7 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
-export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 = {
+type RouterAbEd25519YaoVerifiedWalletUnlockRequestBaseV1 = {
   readonly walletId: string;
   readonly signerSlot: number;
   readonly remainingUses: number;
@@ -162,6 +162,22 @@ export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 = {
   readonly authority: WalletAuthAuthority;
   readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
 };
+
+export type RouterAbEd25519YaoWalletSessionIdentityV1 =
+  | { readonly kind: 'issue_wallet_session_v1' }
+  | {
+      readonly kind: 'reuse_wallet_session_v2';
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
+    };
+
+export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 =
+  RouterAbEd25519YaoVerifiedWalletUnlockRequestBaseV1 & {
+    readonly walletSessionIdentity: RouterAbEd25519YaoWalletSessionIdentityV1;
+  };
 
 export type RouterAbEd25519YaoVerifiedWalletUnlockResponseV1 =
   | {

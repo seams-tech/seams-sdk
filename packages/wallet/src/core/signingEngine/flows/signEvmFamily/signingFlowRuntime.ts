@@ -11,6 +11,7 @@ import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilySte
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import {
   attachReusableEcdsaWalletSessionAuthorization,
+  buildActiveWalletAuthorityReadySecp256k1Material,
   resolveHydratedSecp256k1SigningMaterial,
 } from './readySecp256k1Material';
 import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
@@ -50,6 +51,35 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
 import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
+import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
+import {
+  resolveActiveWalletAuthorityEcdsaRuntimeV1,
+  type ActiveWalletAuthorityEcdsaSigningAuthPlan,
+  type ActiveWalletAuthorityEcdsaRuntimeV1,
+} from '../../session/material/activeWalletAuthorityEcdsaRuntime';
+import type { TransactionSigningIntent } from '../../session/operationState/transactionState';
+
+export type ActiveWalletAuthorityEvmFamilyFlowRuntime = {
+  readonly runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
+  readonly intent: TransactionSigningIntent;
+  readonly confirmationAuthPlan: ActiveWalletAuthorityEcdsaSigningAuthPlan;
+};
+
+export function buildActiveWalletAuthorityConfirmationAuthPlan(
+  runtime: ActiveWalletAuthorityEcdsaRuntimeV1,
+): ActiveWalletAuthorityEcdsaSigningAuthPlan {
+  return {
+    kind: 'active_wallet_authority',
+    method: runtime.auth.kind,
+    accountId: String(runtime.walletId),
+    intent: 'transaction_sign',
+    curve: 'ecdsa',
+    walletSessionId: runtime.operationCredential.walletSessionId,
+    authorityId: runtime.authorityId,
+    authMethodId: runtime.walletAuthMethodId,
+    expiresAtMs: runtime.session.expiresAtMs,
+  };
+}
 
 function signerAuthMethodForWalletAuthority(authority: WalletAuthAuthority): SignerAuthMethod {
   switch (authority.factor.kind) {
@@ -89,6 +119,33 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
     throw new Error('[SigningEngine] EVM-family signing requires relayerUrl');
   }
   return relayerUrl;
+}
+
+async function resolveCurrentActiveWalletAuthorityRuntime(args: {
+  readonly prepared: ActiveWalletAuthorityEcdsaRuntimeV1;
+  readonly signer: ReturnType<typeof requireEvmFamilyEcdsaSigner>;
+}): Promise<ActiveWalletAuthorityEcdsaRuntimeV1> {
+  const current = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
+    walletId: args.signer.walletId,
+    chainTarget: args.signer.chainTarget,
+    requiredCapability: 'sign',
+    materialActivation: args.signer.materialActivation,
+  });
+  if (current.kind !== 'resolved') {
+    throw new Error(`[SigningEngine] active Wallet Authority ECDSA runtime is ${current.reason}`);
+  }
+  const runtime = current.runtime;
+  if (
+    runtime.authorityId !== args.prepared.authorityId ||
+    runtime.walletAuthMethodId !== args.prepared.walletAuthMethodId ||
+    runtime.authorityDigestB64u !== args.prepared.authorityDigestB64u ||
+    runtime.authorityRevocationEpoch !== args.prepared.authorityRevocationEpoch ||
+    runtime.walletSessionId !== args.prepared.walletSessionId ||
+    runtime.publicFacts.keyHandle !== args.signer.keyHandle
+  ) {
+    throw new Error('[SigningEngine] active Wallet Authority ECDSA runtime was replaced');
+  }
+  return runtime;
 }
 
 async function readPersistedOwnerWalletSessionToken(walletId: WalletId): Promise<string | null> {
@@ -292,6 +349,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   // authorizes it. Everything below is resolved from wallet, chain target and
   // material activation.
   getEcdsaSigningLaneIdentity: () => ExactEcdsaSigningLaneIdentity;
+  activeWalletAuthority?: ActiveWalletAuthorityEvmFamilyFlowRuntime;
 }) {
   const [Secp256k1Engine, WebAuthnP256Engine] = await Promise.all([
     loadSecp256k1EngineCtor(),
@@ -309,19 +367,27 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           'ECDSA signing material hydration',
         )
       : undefined;
-  const capability = resolvedSigner
-    ? await args.deps.resolveCanonicalEcdsaSigningCapability({
-        walletId: resolvedSigner.walletId,
-        chainTarget: resolvedSigner.chainTarget,
-        materialActivation: resolvedSigner.materialActivation,
-      })
-    : undefined;
-  const activeAuthorization = resolvedSigner
-    ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(resolvedSigner.walletId)
-    : null;
-  const persistedOwnerWalletSessionToken = resolvedSigner
-    ? readPersistedOwnerWalletSessionToken(resolvedSigner.walletId)
-    : Promise.resolve(null);
+  if (args.activeWalletAuthority && !resolvedSigner) {
+    throw new Error(
+      '[SigningEngine] active Wallet Authority runtime requires a threshold ECDSA signer',
+    );
+  }
+  const capability =
+    resolvedSigner && !args.activeWalletAuthority
+      ? await args.deps.resolveCanonicalEcdsaSigningCapability({
+          walletId: resolvedSigner.walletId,
+          chainTarget: resolvedSigner.chainTarget,
+          materialActivation: resolvedSigner.materialActivation,
+        })
+      : undefined;
+  const activeAuthorization =
+    resolvedSigner && !args.activeWalletAuthority
+      ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(resolvedSigner.walletId)
+      : null;
+  const persistedOwnerWalletSessionToken =
+    resolvedSigner && !args.activeWalletAuthority
+      ? readPersistedOwnerWalletSessionToken(resolvedSigner.walletId)
+      : Promise.resolve(null);
   const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined = capability
     ? {
         ...(args.emailOtpSigningForFlow ? { emailOtpSigning: args.emailOtpSigningForFlow } : {}),
@@ -367,6 +433,64 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       }
     : undefined;
 
+  const secp256k1Engine = new Secp256k1Engine({
+    getRpId: () => ctx.touchIdPrompt.getRpId(),
+    workerCtx,
+    shouldAbort: args.shouldAbort,
+  });
+  const activeWalletAuthority = args.activeWalletAuthority;
+  const activeWalletAuthorityAuthorization =
+    activeWalletAuthority && resolvedSigner
+      ? {
+          kind: 'active_wallet_authority' as const,
+          confirmationAuthPlan: activeWalletAuthority.confirmationAuthPlan,
+          sign: async (input: {
+            readonly requestId: string;
+            readonly operationId: string;
+            readonly operationDigests: OperationDigestSet;
+            readonly signingDigest32: Uint8Array;
+          }) => {
+            if (String(activeWalletAuthority.intent.operationId) !== input.operationId) {
+              throw new Error(
+                '[SigningEngine] active Wallet Authority signing operation identity changed',
+              );
+            }
+            return await runSerializedEcdsaMaterialUse(
+              {
+                deps: args.deps,
+                walletId: resolvedSigner.walletId,
+                materialActivation: resolvedSigner.materialActivation,
+                ...(args.shouldAbort ? { shouldAbort: args.shouldAbort } : {}),
+              },
+              async () => {
+                const runtime = await resolveCurrentActiveWalletAuthorityRuntime({
+                  prepared: activeWalletAuthority.runtime,
+                  signer: resolvedSigner,
+                });
+                const readyMaterial = buildActiveWalletAuthorityReadySecp256k1Material({
+                  authorityRuntime: runtime,
+                  chainTarget: resolvedSigner.chainTarget,
+                  relayerUrl,
+                });
+                return await secp256k1Engine.signReady(
+                  {
+                    kind: 'digest',
+                    algorithm: 'secp256k1',
+                    digest32: input.signingDigest32,
+                  },
+                  readyMaterial,
+                  {
+                    intent: activeWalletAuthority.intent,
+                    authPlan: activeWalletAuthority.confirmationAuthPlan,
+                  },
+                  input.operationDigests,
+                );
+              },
+            );
+          },
+        }
+      : undefined;
+
   const flowArgs = {
     ctx,
     touchConfirm: args.deps.touchConfirm,
@@ -374,11 +498,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     walletId,
     onEvent: args.onEvent,
     engines: {
-      secp256k1: new Secp256k1Engine({
-        getRpId: () => ctx.touchIdPrompt.getRpId(),
-        workerCtx,
-        shouldAbort: args.shouldAbort,
-      }),
+      secp256k1: secp256k1Engine,
       webauthnP256: new WebAuthnP256Engine(workerCtx),
     },
     ...(resolvedSigner && capability
@@ -405,6 +525,9 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               workerCtx,
             }),
         }
+      : {}),
+    ...(activeWalletAuthorityAuthorization
+      ? { authorization: activeWalletAuthorityAuthorization }
       : {}),
     ...(args.signingSessionPlan ? { signingSessionPlan: args.signingSessionPlan } : {}),
     ...(args.signingOperation ? { signingOperation: args.signingOperation } : {}),

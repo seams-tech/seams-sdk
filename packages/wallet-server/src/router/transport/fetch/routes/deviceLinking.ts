@@ -196,6 +196,7 @@ export type DeviceLinkingInstallationReceiptPortV1 = {
   commitPendingAuthorityV1(input: {
     readonly input: VerifiedLinkInputV1;
     readonly nowMs: number;
+    readonly ed25519ExportRootPackage: CommittedAuthorityPackagesV1['ed25519ExportRootPackage'];
   }): Promise<CommitPendingAuthorityResultV1>;
   readCommittedAuthorityPackagesV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
@@ -537,9 +538,22 @@ async function handleSourceContribution(
     approval: finalApproval,
     requestedAtMs: nowMs,
   });
+  const exportRootTransfer = await service.ed25519ExportRoot?.readTransferV1(linkSessionId);
+  const ed25519ExportRootPackage =
+    exportRootTransfer?.state === 'sealed' ? exportRootTransfer.package : null;
+  const keyFamilies = verifiedLinkInput.signerManifest.keyFamilies;
+  const requiresEd25519ExportRoot = keyFamilies[0] === 'ed25519';
+  if (requiresEd25519ExportRoot !== (ed25519ExportRootPackage !== null)) {
+    return invalidInputResponse(
+      requiresEd25519ExportRoot
+        ? 'linked-device Ed25519 export-root package is unavailable'
+        : 'linked-device export-root package has no Ed25519 signer',
+    );
+  }
   const committed = await installationReceipt.commitPendingAuthorityV1({
     input: verifiedLinkInput,
     nowMs,
+    ed25519ExportRootPackage,
   });
   if (committed.kind === 'invalid_input') return invalidInputResponse(committed.message);
   if (committed.kind === 'conflict') {
@@ -595,7 +609,7 @@ async function handleSourceContributionExecute(
       'source-preserving reservation participant ids do not match the persisted preparation',
     );
   }
-  return json(reservation, { status: 200 });
+  return json(rawReservation, { status: 200 });
 }
 
 async function handleEmailOtpChallenge(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number, resend: boolean): Promise<Response> {
@@ -733,6 +747,7 @@ function installationResultResponse(result: D1ActivateInstalledAuthorityResultV1
           authority: result.authority,
           authMethod: result.authMethod,
           walletSession: activeWalletSessionWireV1(result.walletSession),
+          operationCredential: result.operationCredential,
         } satisfies WireActivateInstalledAuthorityResultV1,
         { status: 200 },
       );

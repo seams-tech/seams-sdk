@@ -1,8 +1,8 @@
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 
-export type Secp256k1EngineCtor = new (opts: unknown) => unknown;
-export type WebAuthnP256EngineCtor = new (workerCtx: unknown) => unknown;
+export type Secp256k1EngineCtor = typeof import('./signers/secp256k1').Secp256k1Engine;
+export type WebAuthnP256EngineCtor = typeof import('./signers/webauthnP256').WebAuthnP256Engine;
 export type SignEvmWithUiConfirmFn = (args: unknown) => Promise<EvmSignedResult>;
 export type SignEvmFamilyWithUiConfirmForTempoFn = (
   args: unknown,
@@ -17,7 +17,7 @@ let signEvmFamilyWithUiConfirmForTempoPromise: Promise<SignEvmFamilyWithUiConfir
 export async function loadSecp256k1EngineCtor(): Promise<Secp256k1EngineCtor> {
   if (!secp256k1EngineCtorPromise) {
     secp256k1EngineCtorPromise = import('./signers/secp256k1').then(
-      (mod) => mod.Secp256k1Engine as Secp256k1EngineCtor,
+      (mod) => mod.Secp256k1Engine,
     );
   }
   return await secp256k1EngineCtorPromise;
@@ -26,7 +26,7 @@ export async function loadSecp256k1EngineCtor(): Promise<Secp256k1EngineCtor> {
 export async function loadWebAuthnP256EngineCtor(): Promise<WebAuthnP256EngineCtor> {
   if (!webAuthnP256EngineCtorPromise) {
     webAuthnP256EngineCtorPromise = import('./signers/webauthnP256').then(
-      (mod) => mod.WebAuthnP256Engine as WebAuthnP256EngineCtor,
+      (mod) => mod.WebAuthnP256Engine,
     );
   }
   return await webAuthnP256EngineCtorPromise;

@@ -2,7 +2,10 @@ import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   parseWalletId,
   parseWebAuthnRpId,
+  parseWebAuthnCredentialIdB64u,
+  parseWalletAuthMethodId,
   type WalletId,
+  type WalletAuthMethodId,
   type WalletAuthorityId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -10,13 +13,14 @@ import { buildRetiredEnvelopeLifecycle } from '@shared/passkey-custody';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import {
-  walletAuthMethodId,
-  type WalletAuthMethodRecord,
-} from '../../../core/d1WalletAuthMethodStore';
+  buildWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
@@ -49,12 +53,13 @@ export type WalletRecoveryFinalizationResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
-      readonly walletAuthorityId: WalletAuthorityId;
       readonly credential: {
         readonly credentialIdB64u: string;
         readonly credentialPublicKeyB64u: string;
         readonly counter: number;
       };
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly walletAuthorityId: WalletAuthorityId;
     }
   | { readonly kind: 'refused'; readonly reason: string }
   | { readonly kind: 'conflict'; readonly reason: string }
@@ -64,6 +69,57 @@ export type WalletRecoveryFinalizationResult =
 function requireWalletId(value: unknown): WalletId {
   const parsed = parseWalletId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
+
+function isActiveWalletAuthMethodRecordV2(
+  method: WalletAuthMethodRecordV2,
+): method is Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
+  return method.status === 'active';
+}
+
+function isActivePasskeyWalletAuthMethodRecordV2(
+  method: WalletAuthMethodRecordV2,
+): method is ActivePasskeyWalletAuthMethodRecordV2 {
+  return method.kind === 'passkey' && method.status === 'active';
+}
+
+function requireActivePasskeyWalletAuthMethodRecordV2(
+  method: WalletAuthMethodRecordV2,
+): ActivePasskeyWalletAuthMethodRecordV2 {
+  if (!isActivePasskeyWalletAuthMethodRecordV2(method)) {
+    throw new Error('recovery replacement auth method must be active passkey V2');
+  }
+  return method;
+}
+
+function passkeyWalletAuthAuthorityForMethod(
+  method: ActivePasskeyWalletAuthMethodRecordV2,
+): PasskeyWalletAuthAuthority {
+  return {
+    walletId: method.walletId,
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: method.credentialIdB64u,
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: method.rpId,
+    },
+    bindingId: method.walletAuthMethodId,
+  };
+}
+
+function freshRecoveryWalletAuthMethodId() {
+  const parsed = parseWalletAuthMethodId(
+    `wallet-auth-method:${secureRandomBase64Url(32, 'recovery wallet auth method id')}`,
+  );
+  if (!parsed.ok) throw new Error('recovery wallet auth method id generation failed');
   return parsed.value;
 }
 
@@ -150,11 +206,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     };
   }
   const sourceAuthorityRef = await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId,
-      rpId: sourceAuthMethod.rpId,
-      credentialIdB64u: sourceAuthMethod.credentialIdB64u,
-    }),
+    authority: passkeyWalletAuthAuthorityForMethod(sourceAuthMethod),
   });
   if (sourceAuthorityRef.authorityDigest !== challenge.sourceAuthorityDigestB64u) {
     return {
@@ -230,6 +282,15 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: 'the replacement envelope is bound to a different credential',
     };
   }
+  const replacementCredentialIdB64u = parseWebAuthnCredentialIdB64u(
+    verifiedRegistration.credential.credentialIdB64u,
+  );
+  if (!replacementCredentialIdB64u.ok) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement credential id is invalid',
+    };
+  }
 
   const existingAuthenticator = await input.webAuthnStore.readAuthenticator({
     userId: String(input.walletId),
@@ -282,18 +343,23 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     }),
     updatedAtMs: input.nowMs,
   };
-  const walletAuthMethod: WalletAuthMethodRecord = {
-    version: 'wallet_auth_method_v1',
-    kind: 'passkey',
-    status: 'active',
-    walletId,
-    rpId: parsedRpId.value,
-    credentialIdB64u: verifiedRegistration.credential.credentialIdB64u,
-    credentialPublicKeyB64u: verifiedRegistration.credential.credentialPublicKeyB64u,
-    counter: verifiedRegistration.credential.counter,
-    createdAtMs: input.nowMs,
-    updatedAtMs: input.nowMs,
-  };
+  const walletAuthMethod = requireActivePasskeyWalletAuthMethodRecordV2(
+    buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: freshRecoveryWalletAuthMethodId(),
+      walletId,
+      walletAuthorityId: sourceAuthMethod.walletAuthorityId,
+      kind: 'passkey',
+      status: 'active',
+      rpId: parsedRpId.value,
+      credentialIdB64u: replacementCredentialIdB64u.value,
+      credentialPublicKeyB64u: verifiedRegistration.credential.credentialPublicKeyB64u,
+      counter: verifiedRegistration.credential.counter,
+      createdAtMs: input.nowMs,
+      updatedAtMs: input.nowMs,
+      activatedAtMs: input.nowMs,
+    }),
+  );
   const authenticatorCommit = buildRecoveryAuthenticatorCommit({
     sourceBinding,
     userId: String(input.walletId),
@@ -351,6 +417,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     sourceEnvelope,
     expectedSourceEnvelopeVersion: sourceEnvelopeLookup.storeVersion,
     sourceAuthMethod: {
+      expected: sourceAuthMethod,
       record: revokedWalletAuthMethodRecord(sourceAuthMethod, input.nowMs),
       expectedUpdatedAtMs: sourceAuthMethod.updatedAtMs,
       revokedAtMs: input.nowMs,
@@ -372,12 +439,13 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   return {
     kind: 'promoted',
     storeVersion: committed.envelopeStoreVersion,
-    walletAuthorityId: walletAuthMethod.walletAuthorityId,
     credential: {
       credentialIdB64u: walletAuthMethod.credentialIdB64u,
       credentialPublicKeyB64u: walletAuthMethod.credentialPublicKeyB64u,
       counter: walletAuthMethod.counter,
     },
+    walletAuthMethodId: walletAuthMethod.walletAuthMethodId,
+    walletAuthorityId: walletAuthMethod.walletAuthorityId,
   };
 }
 
@@ -385,14 +453,18 @@ async function sourceAuthMethodForChallenge(input: {
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
   readonly walletId: WalletId;
   readonly challenge: WebAuthnRecoveryRegistrationChallengeRecord;
-}): Promise<Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }> | null> {
-  const methods = await input.walletCustodyCommits.listWalletAuthMethods(input.walletId);
-  const active = methods.filter((method) => method.status === 'active');
-  if (active.length !== 1) return null;
-  const method = active[0];
-  if (!method || method.kind !== 'passkey') return null;
+}): Promise<ActivePasskeyWalletAuthMethodRecordV2 | null> {
+  const method = await input.walletCustodyCommits.readWalletAuthMethodById(
+    input.challenge.sourceWalletAuthMethodId,
+  );
   if (
-    String(walletAuthMethodId(method)) !== String(input.challenge.sourceWalletAuthMethodId) ||
+    !method ||
+    !isActivePasskeyWalletAuthMethodRecordV2(method) ||
+    method.walletId !== input.walletId
+  ) {
+    return null;
+  }
+  if (
     method.rpId !== input.challenge.rpId ||
     method.credentialIdB64u !== input.challenge.sourceCredentialIdB64u ||
     method.updatedAtMs !== input.challenge.sourceAuthMethodUpdatedAtMs
@@ -403,21 +475,36 @@ async function sourceAuthMethodForChallenge(input: {
 }
 
 function revokedWalletAuthMethodRecord(
-  record: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>,
+  record: ActivePasskeyWalletAuthMethodRecordV2,
   revokedAtMs: number,
-): Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }> {
-  return {
-    version: record.version,
-    kind: 'passkey',
-    status: 'revoked',
-    walletId: record.walletId,
-    rpId: record.rpId,
-    credentialIdB64u: record.credentialIdB64u,
-    credentialPublicKeyB64u: record.credentialPublicKeyB64u,
-    counter: record.counter,
-    createdAtMs: record.createdAtMs,
-    updatedAtMs: revokedAtMs,
-  };
+): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey'; readonly status: 'revoked' }> {
+  return requireRevokedPasskeyWalletAuthMethodRecordV2(
+    buildWalletAuthMethodRecordV2({
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: record.walletAuthMethodId,
+      walletId: record.walletId,
+      walletAuthorityId: record.walletAuthorityId,
+      kind: 'passkey',
+      status: 'revoked',
+      rpId: record.rpId,
+      credentialIdB64u: record.credentialIdB64u,
+      credentialPublicKeyB64u: record.credentialPublicKeyB64u,
+      counter: record.counter,
+      createdAtMs: record.createdAtMs,
+      updatedAtMs: revokedAtMs,
+      activatedAtMs: record.activatedAtMs,
+      revokedAtMs,
+    }),
+  );
+}
+
+function requireRevokedPasskeyWalletAuthMethodRecordV2(
+  method: WalletAuthMethodRecordV2,
+): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey'; readonly status: 'revoked' }> {
+  if (method.kind !== 'passkey' || method.status !== 'revoked') {
+    throw new Error('recovery source revocation must be a revoked passkey V2 record');
+  }
+  return method;
 }
 
 type RecoveryReplayResolution =
@@ -536,11 +623,17 @@ export async function resolveCommittedRecoveryReplayV1(
   }
 
   const methods = await input.walletCustodyCommits.listWalletAuthMethods(walletId);
-  const activeMethods = methods.filter((method) => method.status === 'active');
-  const replacementMethod = activeMethods.length === 1 ? activeMethods[0] : undefined;
+  const replacementCandidate = await input.walletCustodyCommits.readPasskeyWalletAuthMethod({
+    rpId,
+    credentialIdB64u,
+  });
+  const replacementMethod =
+    replacementCandidate && isActivePasskeyWalletAuthMethodRecordV2(replacementCandidate)
+      ? replacementCandidate
+      : undefined;
   if (
     !replacementMethod ||
-    replacementMethod.kind !== 'passkey' ||
+    replacementMethod.walletId !== walletId ||
     replacementMethod.rpId !== rpId ||
     replacementMethod.credentialIdB64u !== credentialIdB64u ||
     replacementMethod.credentialPublicKeyB64u !== authenticator.credentialPublicKeyB64u ||
@@ -553,7 +646,7 @@ export async function resolveCommittedRecoveryReplayV1(
     if (
       await input.walletCustodyCommits.hasActiveWalletSessionsForAuthMethod({
         walletId,
-        walletAuthMethodId: String(walletAuthMethodId(method)),
+        walletAuthMethodId: method.walletAuthMethodId,
       })
     ) {
       return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
@@ -579,12 +672,13 @@ export async function resolveCommittedRecoveryReplayV1(
   return {
     kind: 'promoted',
     storeVersion: storedEnvelope.storeVersion,
-    walletAuthorityId: replacementMethod.walletAuthorityId,
     credential: {
       credentialIdB64u: replacementMethod.credentialIdB64u,
       credentialPublicKeyB64u: replacementMethod.credentialPublicKeyB64u,
       counter: replacementMethod.counter,
     },
+    walletAuthMethodId: replacementMethod.walletAuthMethodId,
+    walletAuthorityId: replacementMethod.walletAuthorityId,
   };
 }
 
@@ -612,7 +706,7 @@ function buildRecoveryAuthenticatorCommit(input: {
     readonly credentialPublicKeyB64u: string;
     readonly counter: number;
   };
-  readonly walletAuthMethod: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>;
+  readonly walletAuthMethod: ActivePasskeyWalletAuthMethodRecordV2;
   readonly nowMs: number;
   readonly challengeDeleteStatement: D1PreparedStatementLike;
 }): WalletRecoveryAuthenticatorCommit {

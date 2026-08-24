@@ -7,17 +7,31 @@ import {
   resolvePasskeyEd25519YaoExportContextWithRuntimeV1,
 } from '../../packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
-  buildPasskeyEd25519SealedSessionRecordFixture,
-} from './helpers/sealedSigningSession.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+  parseWalletAuthMethodId,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { buildPasskeyEd25519SealedSessionRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildMpcMaterialActivationRefFixture,
+  buildWalletAuthAuthorityRefForAuthorityFixture,
+} from './helpers/ecdsaMaterialRef.fixtures';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildActiveWalletSessionAuthorizationProjection,
+  walletSessionTokenForCurve,
+} from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 const NOW_MS = 1_900_000_000_000;
 const WALLET_ID = 'wallet-expiry-boundary';
@@ -27,6 +41,72 @@ const RELAYER_URL = 'https://relay.example.test';
 
 if (typeof indexedDB === 'undefined') {
   configureIndexedDB({ mode: 'disabled' });
+}
+
+function requireFixture<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
+  if (!result.ok) throw new Error('invalid exact Passkey authority fixture');
+  return result.value;
+}
+
+function exactPasskeyAuthorityForRecord(
+  record: CurrentEd25519SealedSessionRecord,
+): WalletAuthAuthority {
+  return {
+    walletId: requireFixture(parseWalletId(record.walletId)),
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: requireFixture(
+        parseWebAuthnCredentialIdB64u(record.ed25519Restore.credentialIdB64u),
+      ),
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: requireFixture(parseWebAuthnRpId(record.ed25519Restore.rpId)),
+    },
+    bindingId: requireFixture(parseWalletAuthMethodId('wallet-auth-method:ed25519-sealed-runtime')),
+  };
+}
+
+function exactPasskeyAuthorityRefForRecord(
+  record: CurrentEd25519SealedSessionRecord,
+): WalletAuthAuthorityRef {
+  return buildWalletAuthAuthorityRefForAuthorityFixture(exactPasskeyAuthorityForRecord(record));
+}
+
+function buildExactPasskeyAuthorizationProjectionFixture(
+  record: CurrentEd25519SealedSessionRecord,
+  args: {
+    readonly authorizationId?: string;
+    readonly walletSessionId?: string;
+    readonly quotaId?: string;
+    readonly authorizationExpiresAtMs?: number;
+  } = {},
+) {
+  const authority = exactPasskeyAuthorityForRecord(record);
+  return buildActiveWalletSessionAuthorizationProjection({
+    walletId: authority.walletId,
+    walletSessionId: requireFixture(
+      parseWalletSessionId(
+        args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`,
+      ),
+    ),
+    quotaId: requireFixture(
+      parseMpcWalletSigningQuotaId(args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`),
+    ),
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: {
+        authorizationId:
+          args.authorizationId ??
+          `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
+        walletSessionToken: `opaque-wallet-session-token:${record.thresholdSessionIds.ed25519}`,
+        thresholdSessionId: record.thresholdSessionIds.ed25519,
+      },
+    },
+    authMethod: 'passkey',
+    authority: exactPasskeyAuthorityRefForRecord(record),
+    expiresAtMs: args.authorizationExpiresAtMs ?? record.expiresAtMs,
+  });
 }
 
 function buildSealedRecord(input: {
@@ -72,6 +152,8 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
     {
       readExactEd25519SealedSession: async () => record,
       readPasskeyCustodySessionEnvelope: missingPasskeyCustodyEnvelope,
+      resolveExactPasskeyWalletAuthAuthorityRef: async () =>
+        exactPasskeyAuthorityRefForRecord(record),
       readActiveWalletSessionAuthorization: unexpectedAuthorizationRead,
       nowMs: () => NOW_MS,
     },
@@ -81,18 +163,14 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
 
 async function warmBootstrapResponse(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
-  readonly authorization: ReturnType<typeof buildPasskeyEd25519AuthorizationProjectionFixture>;
+  readonly authorization: ReturnType<typeof buildExactPasskeyAuthorizationProjectionFixture>;
   readonly capabilityThresholdSessionId: string;
   readonly capabilityAccountId?: string;
   readonly materialActivation?: MpcMaterialActivationRef;
   readonly responseThresholdSessionId?: string;
 }): Promise<Record<string, unknown>> {
   const restore = args.record.ed25519Restore;
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: args.record.walletId,
-    rpId: restore.rpId,
-    credentialIdB64u: restore.credentialIdB64u,
-  });
+  const authority = exactPasskeyAuthorityForRecord(args.record);
   return {
     kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
     walletId: args.record.walletId,
@@ -106,7 +184,7 @@ async function warmBootstrapResponse(args: {
     thresholdExpiresAtMs: args.authorization.expiresAtMs,
     participantIds: [...restore.participantIds],
     authority,
-    authorityRef: await walletAuthAuthorityRef({ authority }),
+    authorityRef: exactPasskeyAuthorityRefForRecord(args.record),
     authorityScope: { kind: 'passkey_rp', rpId: restore.rpId },
     runtimePolicyScope: restore.runtimePolicyScope,
     routerAbNormalSigning: restore.routerAbNormalSigning,
@@ -169,18 +247,19 @@ test('unexpired passkey material with no uses remains distinct from expiry', asy
 
 test('passkey sealed restore uses the current active authorization bearer', async () => {
   const record = buildSealedRecord({ expiresAtMs: NOW_MS + 60_000, remainingUses: 1 });
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
-  const currentJwt = authorization.walletSessionJwt;
+  const authorization = buildExactPasskeyAuthorizationProjectionFixture(record);
+  const currentToken = walletSessionTokenForCurve(authorization, 'ed25519');
 
   const resolved = await requirePasskeyEd25519RestoreAuthorization({
     record,
     authorizationRead: { kind: 'found', projection: authorization },
+    expectedAuthorityRef: exactPasskeyAuthorityRefForRecord(record),
     nowMs: NOW_MS,
   });
 
   expect(record).not.toHaveProperty('walletSessionJwt');
   expect(record.ed25519Restore).not.toHaveProperty('walletSessionJwt');
-  expect(resolved?.walletSessionJwt).toBe(currentJwt);
+  expect(resolved ? walletSessionTokenForCurve(resolved, 'ed25519') : null).toBe(currentToken);
 });
 
 test('warm recovery accepts a renewed Wallet Session threshold with the owner custody envelope', async () => {
@@ -200,8 +279,8 @@ test('warm recovery accepts a renewed Wallet Session threshold with the owner cu
     remainingUses: 1,
     materialActivation: record.ed25519Restore.materialActivation,
   });
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(renewedRecord, {
-    authorizationSessionId: 'authorization:renewed',
+  const authorization = buildExactPasskeyAuthorizationProjectionFixture(renewedRecord, {
+    authorizationId: 'authorization:renewed',
     walletSessionId: 'wallet-session:renewed',
     quotaId: 'quota:renewed',
     authorizationExpiresAtMs: NOW_MS + 120_000,
@@ -248,6 +327,8 @@ test('warm recovery accepts a renewed Wallet Session threshold with the owner cu
             kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
           },
         }),
+      resolveExactPasskeyWalletAuthAuthorityRef: async () =>
+        exactPasskeyAuthorityRefForRecord(record),
       readActiveWalletSessionAuthorization: async () => ({
         kind: 'found',
         projection: authorization,
@@ -265,7 +346,7 @@ test('warm recovery accepts a renewed Wallet Session threshold with the owner cu
 
 test('warm recovery rejects identity and material substitutions', async () => {
   const record = buildSealedRecord({ expiresAtMs: NOW_MS + 60_000, remainingUses: 1 });
-  const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
+  const authorization = buildExactPasskeyAuthorizationProjectionFixture(record);
   const substitutions = [
     {
       label: 'identity',
@@ -313,6 +394,8 @@ test('warm recovery rejects identity and material substitutions', async () => {
         {
           readExactEd25519SealedSession: async () => record,
           readPasskeyCustodySessionEnvelope: missingPasskeyCustodyEnvelope,
+          resolveExactPasskeyWalletAuthAuthorityRef: async () =>
+            exactPasskeyAuthorityRefForRecord(record),
           readActiveWalletSessionAuthorization: async () => ({
             kind: 'found',
             projection: authorization,

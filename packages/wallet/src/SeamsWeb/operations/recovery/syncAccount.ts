@@ -78,7 +78,7 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { persistFinalizedPasskeyAuthMethodV1 } from '@/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection';
+import { replaceActiveWalletAuthorityEd25519MaterialActivationV1 } from '@shared/authorization/walletAuthority';
 
 export type { SyncAccountResult };
 
@@ -722,6 +722,16 @@ async function recoverAndCommitPasskeyEd25519Unlock(
     if (!mpcMaterialActivationRefsEqual(activated.materialActivation, recoveredActivation)) {
       throw new Error('Passkey Ed25519 registry activation changed during recovery commit');
     }
+    const recoveredAuthority =
+      await replaceActiveWalletAuthorityEd25519MaterialActivationV1({
+        authority: input.parsed.foundingAuthority,
+        materialActivation: activated.materialActivation,
+        updatedAtMs: Date.now(),
+      });
+    await IndexedDBManager.persistFoundingWalletAuthority({
+      authority: recoveredAuthority,
+      authMethod: input.parsed.foundingAuthMethod,
+    });
     await input.sessionPersistence.upsertEd25519YaoPublicCapabilityLaneReference(
       passkeyEd25519YaoLaneReferenceFromRecovery({
         walletSessionState: recovery.walletSessionState,
@@ -962,8 +972,7 @@ async function persistRecoveredPasskey(input: {
   if (existingAuthenticator) {
     if (
       existingAuthenticator.signerSlot !== parsed.signerSlot ||
-      base64UrlEncode(existingAuthenticator.credentialPublicKey) !==
-        parsed.credentialPublicKeyB64u
+      base64UrlEncode(existingAuthenticator.credentialPublicKey) !== parsed.credentialPublicKeyB64u
     ) {
       throw new Error('Stored linked passkey authenticator does not match account sync');
     }
@@ -980,27 +989,10 @@ async function persistRecoveredPasskey(input: {
     });
   }
 
-  await persistFinalizedPasskeyAuthMethodV1({
-    walletId: parsed.walletId,
-    rpId: input.context.signingEngine.getRpId(),
-    credentialIdB64u: parsed.credentialIdB64u,
-    credentialPublicKeyB64u: parsed.credentialPublicKeyB64u,
-    counter: authenticationCredentialCounter(input.credential),
+  await IndexedDBManager.persistFoundingWalletAuthority({
+    authority: parsed.foundingAuthority,
+    authMethod: parsed.foundingAuthMethod,
   });
-}
-
-function authenticationCredentialCounter(credential: WebAuthnAuthenticationCredential): number {
-  const authenticatorData = base64UrlDecode(credential.response.authenticatorData);
-  const counterOffset = 33;
-  const counterByteLength = 4;
-  if (authenticatorData.byteLength < counterOffset + counterByteLength) {
-    throw new Error('Account sync assertion authenticator data has no signature counter');
-  }
-  return new DataView(
-    authenticatorData.buffer,
-    authenticatorData.byteOffset,
-    authenticatorData.byteLength,
-  ).getUint32(counterOffset, false);
 }
 
 async function persistRecoveredNearThresholdKeyMaterial(

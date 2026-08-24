@@ -4,8 +4,13 @@ import type { AuthMenuAccountOption } from '../lit-ui/auth-menu/auth-menu-domain
 
 export function loginAccountOptions(
   recentUnlocks: GetRecentUnlocksResult | null,
+  localPasskeyWalletIds: readonly string[] = [],
 ): AuthMenuAccountOption[] {
   const byWalletId = new Map<string, AuthMenuAccountOption>();
+  for (const walletIdValue of localPasskeyWalletIds) {
+    const walletId = String(walletIdValue || '').trim();
+    if (walletId) byWalletId.set(walletId, { walletId, displayName: walletId });
+  }
   for (const account of recentUnlocks?.accounts ?? []) {
     if (
       account.authMethod !== WALLET_AUTH_METHODS.passkey &&

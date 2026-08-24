@@ -7,7 +7,7 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
+import { buildEmailOtpAuthContextForCanonicalWallet } from '../identity/laneIdentity';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
@@ -139,7 +139,7 @@ const validWalletSessionReconnectBootstrap = {
 } satisfies EcdsaBootstrapRequest;
 void validWalletSessionReconnectBootstrap;
 
-const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+const emailOtpAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
   walletId: 'wallet.testnet',
   emailHashHex: 'email-hash',
   policy: 'session',

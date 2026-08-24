@@ -21,17 +21,28 @@ import {
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { routerApiEmailOtpRouteService } from '../../../framework/authServicePort';
+import {
+  routerApiEmailOtpRouteService,
+  type WalletUnlockEmailOtpAuthorityResolution,
+} from '../../../framework/authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOutboxRoute,
   handleEmailOtpRegistrationSealRoute,
   sealEmailOtpFactorSecretForWorker,
 } from '../../../domains/emailOtp/emailOtpRouteHandlers';
-import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
+import {
+  parseOrgId,
+  parseProviderSubject,
+  parseWalletAuthMethodId,
+  parseWalletId,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  type WalletEmailOtpLoginOperation,
   type WalletEmailOtpOperation,
 } from '@shared/utils/emailOtpDomain';
 import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../../domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
@@ -59,7 +70,8 @@ import {
 } from '../../../../authorization/domain';
 import type { OpaqueWalletSessionCurve } from '../../../../authorization/service';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 const HOSTED_WALLET_EXCHANGE_TTL_MS = 5 * 60 * 1000;
 
@@ -90,6 +102,99 @@ function requiredExchangeOrigin(record: Record<string, unknown>, field: string):
 
 function requestOrigin(request: Request): SessionOrigin {
   return parseSessionOrigin(request.headers.get('origin'));
+}
+
+type WalletEmailOtpChallengeSelector =
+  | {
+      readonly kind: 'wallet';
+      readonly walletId: WalletId;
+    }
+  | {
+      readonly kind: 'method';
+      readonly walletId: WalletId;
+      readonly walletAuthMethodId: WalletAuthMethodId;
+    };
+
+type ParsedWalletEmailOtpChallengeRequest = {
+  readonly selector: WalletEmailOtpChallengeSelector;
+  readonly operation: WalletEmailOtpLoginOperation;
+  readonly operationFingerprintDigest?: DigestB64u;
+};
+
+type WalletEmailOtpChallengeAuthorityResolution =
+  | {
+      readonly ok: true;
+      readonly authority: EmailOtpWalletAuthAuthority;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+    };
+
+function parseWalletEmailOtpChallengeRequest(value: unknown): ParsedWalletEmailOtpChallengeRequest {
+  if (!isPlainObject(value)) throw new Error('Expected JSON object body');
+  const fields = Object.keys(value).sort().join(',');
+  const hasWalletAuthMethodId =
+    fields === 'operation,otpChannel,walletAuthMethodId,walletId' ||
+    fields === 'operation,operationFingerprintDigest,otpChannel,walletAuthMethodId,walletId';
+  const isWalletLevel =
+    fields === 'operation,otpChannel,walletId' ||
+    fields === 'operation,operationFingerprintDigest,otpChannel,walletId';
+  if (!hasWalletAuthMethodId && !isWalletLevel) {
+    throw new Error(
+      'Email OTP challenge body must contain walletId, otpChannel, operation, and optionally walletAuthMethodId and operationFingerprintDigest',
+    );
+  }
+
+  const parsedWalletId = parseWalletId(value.walletId);
+  if (!parsedWalletId.ok) throw new Error(parsedWalletId.error.message);
+  const parsedOperation = parseWalletEmailOtpLoginOperation(value.operation);
+  if (!parsedOperation.ok) throw new Error(parsedOperation.message);
+  if (value.otpChannel !== EMAIL_OTP_CHANNEL) {
+    throw new Error('otpChannel must be email_otp');
+  }
+
+  const operationFingerprintDigest = Object.hasOwn(value, 'operationFingerprintDigest')
+    ? parseDigestB64u(value.operationFingerprintDigest)
+    : undefined;
+  if (hasWalletAuthMethodId) {
+    const parsedWalletAuthMethodId = parseWalletAuthMethodId(value.walletAuthMethodId);
+    if (!parsedWalletAuthMethodId.ok) {
+      throw new Error(parsedWalletAuthMethodId.error.message);
+    }
+    return {
+      selector: {
+        kind: 'method',
+        walletId: parsedWalletId.value,
+        walletAuthMethodId: parsedWalletAuthMethodId.value,
+      },
+      operation: parsedOperation.operation,
+      ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),
+    };
+  }
+  return {
+    selector: { kind: 'wallet', walletId: parsedWalletId.value },
+    operation: parsedOperation.operation,
+    ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),
+  };
+}
+
+function normalizeWalletEmailOtpUnlockAuthority(
+  resolution: WalletUnlockEmailOtpAuthorityResolution,
+): WalletEmailOtpChallengeAuthorityResolution {
+  switch (resolution.kind) {
+    case 'active_authority':
+      return { ok: true, authority: resolution.walletAuthAuthority };
+    case 'rejected':
+      return { ok: false, code: resolution.code, message: resolution.message };
+  }
+  resolution satisfies never;
+  return {
+    ok: false,
+    code: 'internal',
+    message: 'Email OTP authority resolution is invalid',
+  };
 }
 
 function hostedWalletExchangeFailure(result: { readonly kind: string }): {
@@ -659,12 +764,20 @@ export async function handleWalletUnlockChallenge(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/challenge') return null;
-  const body = await readJson(ctx.request);
+  const body = walletUnlockBodyWithAuthoritativeOrgId(
+    await readJson(ctx.request),
+    ctx.service.authorizedOperations.tenantId,
+  );
   const response = await handleWalletUnlockChallengeRoute({
     body,
     service: ctx.service.walletUnlock,
   });
   return json(response.body, { status: response.status });
+}
+
+function walletUnlockBodyWithAuthoritativeOrgId(body: unknown, orgId: string): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  return { ...body, orgId };
 }
 
 export async function handleWalletEmailOtpChallenge(
@@ -673,22 +786,10 @@ export async function handleWalletEmailOtpChallenge(
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/challenge') return null;
   const origin = ctx.request.headers.get('origin');
   let requestOrigin: SessionOrigin;
-  let body: Record<string, unknown>;
+  let request: ParsedWalletEmailOtpChallengeRequest;
   try {
     requestOrigin = parseSessionOrigin(origin);
-    const raw = await readJson(ctx.request);
-    if (!isPlainObject(raw)) throw new Error('Expected JSON object body');
-    const keys = Object.keys(raw).sort();
-    const exactFields = keys.join(',');
-    if (
-      exactFields !== 'operation,otpChannel,walletId' &&
-      exactFields !== 'operation,operationFingerprintDigest,otpChannel,walletId'
-    ) {
-      throw new Error(
-        'Email OTP challenge body must contain walletId, otpChannel, operation, and optionally operationFingerprintDigest',
-      );
-    }
-    body = raw;
+    request = parseWalletEmailOtpChallengeRequest(await readJson(ctx.request));
   } catch (error: unknown) {
     return json(
       {
@@ -699,61 +800,41 @@ export async function handleWalletEmailOtpChallenge(
       { status: 400 },
     );
   }
-  const parsedWalletId = parseWalletId(body.walletId);
-  const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
-  if (!parsedWalletId.ok || !parsedOperation.ok || body.otpChannel !== EMAIL_OTP_CHANNEL) {
-    return json(
-      {
-        ok: false,
-        code: 'invalid_body',
-        message: !parsedWalletId.ok
-          ? parsedWalletId.error.message
-          : !parsedOperation.ok
-            ? parsedOperation.message
-            : 'otpChannel must be email_otp',
-      },
-      { status: 400 },
-    );
-  }
-  const walletId = parsedWalletId.value;
-  let operationFingerprintDigest: string | undefined;
-  try {
-    operationFingerprintDigest =
-      body.operationFingerprintDigest === undefined
-        ? undefined
-        : parseDigestB64u(body.operationFingerprintDigest);
-  } catch (error: unknown) {
-    return json(
-      {
-        ok: false,
-        code: 'invalid_body',
-        message: error instanceof Error ? error.message : 'operationFingerprintDigest is invalid',
-      },
-      { status: 400 },
-    );
-  }
+  const walletId = request.selector.walletId;
   const orgId = ctx.service.authorizedOperations.tenantId;
   const enrollment = await ctx.service.emailOtp.readActiveEmailOtpEnrollment({ walletId, orgId });
   if (!enrollment.ok) {
     return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
   }
-  const authority =
-    await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-      walletId,
-      providerUserId: enrollment.enrollment.providerUserId,
-    });
-  if (!authority.ok) return json(authority, { status: 403 });
+  const authorityResolution =
+    request.selector.kind === 'wallet'
+      ? await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+          walletId,
+          providerUserId: enrollment.enrollment.providerUserId,
+        })
+      : normalizeWalletEmailOtpUnlockAuthority(
+          await ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+            walletId,
+            orgId,
+            walletAuthMethodId: request.selector.walletAuthMethodId,
+            providerUserId: enrollment.enrollment.providerUserId,
+          }),
+        );
+  if (!authorityResolution.ok) return json(authorityResolution, { status: 403 });
+  const authority = authorityResolution.authority;
   const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
     walletId,
     providerUserId: enrollment.enrollment.providerUserId,
     orgId,
-    operation: parsedOperation.operation,
+    operation: request.operation,
     requestOrigin,
     audience: requestOrigin,
-    authorityRef: await walletAuthAuthorityRef({ authority: authority.authority }),
-    ...(operationFingerprintDigest ? { operationFingerprintDigest } : {}),
+    authorityRef: await walletAuthAuthorityRef({ authority }),
+    ...(request.operationFingerprintDigest
+      ? { operationFingerprintDigest: request.operationFingerprintDigest }
+      : {}),
   });
-  if (parsedOperation.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+  if (request.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION) {
     const policy = await authorizeEmailOtpExportPolicy(ctx.opts, {
       operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
       phase: 'challenge',
@@ -776,7 +857,7 @@ export async function handleWalletEmailOtpChallenge(
     ownerProofBindingDigest,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
     requestOrigin,
-    operation: parsedOperation.operation,
+    operation: request.operation,
     reuseActiveChallenge: true,
   });
   return json(result, { status: result.ok ? 200 : emailOtpStatusCode(result.code) });
@@ -1024,7 +1105,10 @@ export async function handleWalletUnlockVerify(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/unlock/verify') return null;
-  const body = await readJson(ctx.request);
+  const body = walletUnlockBodyWithAuthoritativeOrgId(
+    await readJson(ctx.request),
+    ctx.service.authorizedOperations.tenantId,
+  );
   let ecdsaSession: WalletUnlockEcdsaSessionContext;
   try {
     ecdsaSession = walletUnlockEcdsaSessionContext(ctx, body);

@@ -29,6 +29,7 @@ import {
   parseDeviceLinkingCommittedResumeV1,
   type DeviceLinkingCommittedResumeV1,
 } from './deviceLinkingResume';
+import { rememberLinkedWalletDiscoveryId } from './linkedWalletDiscovery';
 
 export type DeviceLinkingSealedAuthorityRecordsV1 = {
   readonly signerMaterials: readonly [
@@ -200,11 +201,13 @@ export async function finalizeLocalAuthorityActivationV1(input: {
     authority: input.active.authority,
     authMethod: input.active.authMethod,
     walletSession: input.active.walletSession,
+    operationCredential: input.active.operationCredential,
     expectedLockGeneration: input.expectedLockGeneration,
   };
   const result = await input.indexedDB.finalizeLocalAuthorityActivation(finalization);
   switch (result.kind) {
     case 'finalized':
+      rememberLinkedWalletDiscoveryId(input.active.authority.walletId);
       return;
     case 'stale_lock_generation':
       throw new Error(

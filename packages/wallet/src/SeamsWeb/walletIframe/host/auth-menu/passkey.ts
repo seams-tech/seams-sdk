@@ -9,8 +9,11 @@ import type {
   SeamsWebBaseContext,
 } from '@/SeamsWeb/signingSurface/ports';
 import {
+  resolveLinkedDevicePasskeyAuthoritySelection,
   resolveLinkedDeviceUnlockSubjectSet,
+  unlockLinkedDevicePasskey,
   unlockResolvedWalletSubjectSet,
+  type LinkedDevicePasskeyAuthoritySelection,
 } from '@/SeamsWeb/operations/auth/login';
 import { clearHostedWalletSessions } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import {
@@ -57,16 +60,26 @@ export function createHostedPasskeyContext(input: HostedPasskeyContextInput): Ho
   };
 }
 
-export type HostedPasskeyLoginPrepared = Readonly<{
-  readonly kind: 'hosted_passkey_login_prepared_v1';
+type HostedPasskeyLoginPreparedBase = Readonly<{
   readonly authMenuSessionId: HostedAuthMenuSessionId;
   readonly requestId: WalletIframeRequestId;
   readonly walletId: WalletId;
-  readonly subjectSet: WalletUnlockSubjectSet;
   readonly expiresAtMs: number;
   readonly cancellation: HostedPasskeyPreparationCancellation;
   readonly [hostedPasskeyLoginPreparedBrand]: true;
 }>;
+
+export type HostedPasskeyLoginPrepared =
+  | (HostedPasskeyLoginPreparedBase & {
+      readonly kind: 'hosted_passkey_owner_login_prepared_v1';
+      readonly subjectSet: WalletUnlockSubjectSet;
+      readonly selection?: never;
+    })
+  | (HostedPasskeyLoginPreparedBase & {
+      readonly kind: 'hosted_passkey_linked_authority_login_prepared_v1';
+      readonly selection: LinkedDevicePasskeyAuthoritySelection;
+      readonly subjectSet?: never;
+    });
 
 export type HostedPasskeyAccountSyncPrepared = Readonly<{
   readonly kind: 'hosted_passkey_account_sync_prepared_v1';
@@ -156,6 +169,27 @@ export async function prepareHostedPasskeyLogin(args: {
 }): Promise<HostedPasskeyPrepared> {
   throwIfCancelled(args.cancellation);
   const walletId = walletIdFromString(args.walletId);
+  const linkedSelection = await resolveLinkedDevicePasskeyAuthoritySelection(String(walletId));
+  if (linkedSelection) {
+    throwIfCancelled(args.cancellation);
+    const prepared: HostedPasskeyLoginPrepared = Object.freeze({
+      kind: 'hosted_passkey_linked_authority_login_prepared_v1',
+      ...preparationIdentity(args),
+      walletId,
+      selection: linkedSelection,
+      expiresAtMs: Date.now() + HOSTED_PASSKEY_PREPARATION_TTL_MS,
+      cancellation: args.cancellation,
+      [hostedPasskeyLoginPreparedBrand]: true as const,
+    });
+    hostedPasskeyPreparationStates.set(prepared, {
+      context: args.context,
+      loginOptions: {},
+      syncOptions: {},
+      lifecycle: 'ready',
+      authority: null,
+    });
+    return prepared;
+  }
   const resolution = await resolveWalletUnlockSubjectSet({
     walletId: String(walletId),
     requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
@@ -175,7 +209,7 @@ export async function prepareHostedPasskeyLogin(args: {
   }
   throwIfCancelled(args.cancellation);
   const prepared: HostedPasskeyLoginPrepared = Object.freeze({
-    kind: 'hosted_passkey_login_prepared_v1',
+    kind: 'hosted_passkey_owner_login_prepared_v1',
     ...preparationIdentity(args),
     walletId,
     subjectSet,
@@ -305,11 +339,14 @@ export async function completeHostedPasskeyLogin(
         callerOnEvent?.(event);
       },
     };
-    const result = await unlockResolvedWalletSubjectSet(
-      state.context,
-      prepared.subjectSet,
-      loginOptions,
-    );
+    const result =
+      prepared.kind === 'hosted_passkey_linked_authority_login_prepared_v1'
+        ? await unlockLinkedDevicePasskey(
+            state.context,
+            String(prepared.walletId),
+            loginOptions,
+          )
+        : await unlockResolvedWalletSubjectSet(state.context, prepared.subjectSet, loginOptions);
     if (!result.success) clearHostedWalletSessions();
     return { result, cancelledByUser };
   } finally {

@@ -13,6 +13,7 @@ import type {
 } from '@/core/signingEngine/interfaces/signing';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import {
+  isActiveWalletAuthoritySigningAuthPlan,
   isWarmSessionSigningAuthPlan,
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
@@ -323,9 +324,9 @@ export type OwnerEvmFamilySigningAuthorization = {
   readonly kind: 'owner';
 };
 
-export type LinkedDeviceEvmFamilySigningAuthorization = {
-  readonly kind: 'linked_device';
-  readonly confirmationAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+export type ActiveWalletAuthorityEvmFamilySigningAuthorization = {
+  readonly kind: 'active_wallet_authority';
+  readonly confirmationAuthPlan: Extract<SigningAuthPlan, { kind: 'active_wallet_authority' }>;
   readonly sign: (input: {
     readonly requestId: string;
     readonly operationId: string;
@@ -336,7 +337,7 @@ export type LinkedDeviceEvmFamilySigningAuthorization = {
 
 export type EvmFamilySigningAuthorization =
   | OwnerEvmFamilySigningAuthorization
-  | LinkedDeviceEvmFamilySigningAuthorization;
+  | ActiveWalletAuthorityEvmFamilySigningAuthorization;
 
 export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   ctx: UiConfirmContext;
@@ -375,9 +376,9 @@ async function resolvePreparedEvmFamilyAuthorization(input: {
   readonly explicitAuthErrorLabel: 'EVM' | 'Tempo';
 }): Promise<EvmFamilyPreparedStepUpAuth> {
   switch (input.authorization.kind) {
-    case 'linked_device':
+    case 'active_wallet_authority':
       return {
-        kind: 'warm_session',
+        kind: 'active_wallet_authority',
         confirmationAuthPayload: {
           signingAuthPlan: input.authorization.confirmationAuthPlan,
         },
@@ -395,19 +396,18 @@ async function resolvePreparedEvmFamilyAuthorization(input: {
   }
 }
 
-function buildPendingLinkedDeviceConfirmationRequest<
+function buildPendingActiveWalletAuthorityConfirmationRequest<
   TRequest,
   TResult extends object,
 >(args: {
-  config: EvmFamilyUiConfirmFlowConfig<
-    TRequest & { senderSignatureAlgorithm: string },
-    TResult
-  >;
+  config: EvmFamilyUiConfirmFlowConfig<TRequest & { senderSignatureAlgorithm: string }, TResult>;
   input: SignEvmFamilyWithUiConfirmArgs<TRequest>;
   sessionId: string;
 }): ConfirmIntentDigestSigningOperationRequest {
-  if (args.input.authorization.kind !== 'linked_device') {
-    throw new Error('[chains] pending linked-device confirmation requires linked authorization');
+  if (args.input.authorization.kind !== 'active_wallet_authority') {
+    throw new Error(
+      '[chains] pending active Wallet Authority confirmation requires exact authorization',
+    );
   }
   return {
     ctx: { touchConfirm: args.input.touchConfirm },
@@ -451,14 +451,19 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         throw new Error(
           '[chains] threshold ECDSA transaction signing requires an explicit auth plan',
         );
-      case 'linked_device':
+      case 'active_wallet_authority':
         break;
       default:
         assertNeverEvmFamilySigningAuthorization(input.authorization);
     }
   }
-  const authMethod = signingAuthPlan
-    ? resolveSigningConfirmationAuthMethod(signingAuthPlan)
+  const confirmationSigningAuthPlan =
+    signingAuthPlan ??
+    (input.authorization.kind === 'active_wallet_authority'
+      ? input.authorization.confirmationAuthPlan
+      : null);
+  const authMethod = confirmationSigningAuthPlan
+    ? resolveSigningConfirmationAuthMethod(confirmationSigningAuthPlan)
     : 'passkey';
   const emitProgress = (
     event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'>,
@@ -646,7 +651,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       displayModel,
     };
   })();
-  if (input.authorization.kind === 'linked_device') {
+  if (input.authorization.kind === 'active_wallet_authority') {
     registerIntentDigestPreparation({
       requestId: sessionId,
       preparation: intentPreparationTask.then(intentDigestPreparationFromEvmIntent),
@@ -742,14 +747,14 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   };
 
   const runShowConfirmationCommand = async (): Promise<void> => {
-    if (input.authorization.kind === 'linked_device') {
+    if (input.authorization.kind === 'active_wallet_authority') {
       emitProgress({
         phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
         status: 'waiting_for_user',
         interaction: { kind: 'transaction_confirmation', overlay: 'show' },
       });
       input.onConfirmationDisplayed?.();
-      const pendingConfirmationRequest = buildPendingLinkedDeviceConfirmationRequest({
+      const pendingConfirmationRequest = buildPendingActiveWalletAuthorityConfirmationRequest({
         config,
         input,
         sessionId,
@@ -774,19 +779,30 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         requiredSignatureUses: config.requiredSignatureUsesForRequest(input.request),
         explicitAuthErrorLabel: config.explicitAuthErrorLabel,
       });
-      if (!isWarmSessionSigningAuthPlan(stepUp.confirmationAuthPayload.signingAuthPlan)) {
-        throw new Error('[chains] linked-device signing requires a warm-session auth plan');
+      if (
+        !isWarmSessionSigningAuthPlan(stepUp.confirmationAuthPayload.signingAuthPlan) &&
+        !isActiveWalletAuthoritySigningAuthPlan(stepUp.confirmationAuthPayload.signingAuthPlan)
+      ) {
+        throw new Error('[chains] active Wallet Authority signing requires a session auth plan');
       }
       preparedStepUpAuth = stepUp;
+      const confirmationAuthPlan = stepUp.confirmationAuthPayload.signingAuthPlan;
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
         status: 'succeeded',
         interaction: { kind: 'none', overlay: 'none' },
-        data: {
-          thresholdSessionId: stepUp.confirmationAuthPayload.signingAuthPlan.thresholdSessionId,
-          expiresAtMs: stepUp.confirmationAuthPayload.signingAuthPlan.expiresAtMs,
-          remainingUses: stepUp.confirmationAuthPayload.signingAuthPlan.remainingUses,
-        },
+        data: isActiveWalletAuthoritySigningAuthPlan(confirmationAuthPlan)
+          ? {
+              walletSessionId: String(confirmationAuthPlan.walletSessionId),
+              expiresAtMs: confirmationAuthPlan.expiresAtMs,
+              authorityId: String(confirmationAuthPlan.authorityId),
+              authMethodId: String(confirmationAuthPlan.authMethodId),
+            }
+          : {
+              thresholdSessionId: confirmationAuthPlan.thresholdSessionId,
+              expiresAtMs: confirmationAuthPlan.expiresAtMs,
+              remainingUses: confirmationAuthPlan.remainingUses,
+            },
       });
       notifyAuthSideEffectStarted('auth_confirmed');
       emitProgress({
@@ -821,16 +837,27 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     });
     preparedStepUpAuth = stepUp;
     const confirmationAuthPayload = stepUp.confirmationAuthPayload;
-    if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
+    if (
+      isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan) ||
+      isActiveWalletAuthoritySigningAuthPlan(confirmationAuthPayload.signingAuthPlan)
+    ) {
+      const confirmationAuthPlan = confirmationAuthPayload.signingAuthPlan;
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
         status: 'succeeded',
         interaction: { kind: 'none', overlay: 'none' },
-        data: {
-          thresholdSessionId: confirmationAuthPayload.signingAuthPlan.thresholdSessionId,
-          expiresAtMs: confirmationAuthPayload.signingAuthPlan.expiresAtMs,
-          remainingUses: confirmationAuthPayload.signingAuthPlan.remainingUses,
-        },
+        data: isActiveWalletAuthoritySigningAuthPlan(confirmationAuthPlan)
+          ? {
+              walletSessionId: String(confirmationAuthPlan.walletSessionId),
+              expiresAtMs: confirmationAuthPlan.expiresAtMs,
+              authorityId: String(confirmationAuthPlan.authorityId),
+              authMethodId: String(confirmationAuthPlan.authMethodId),
+            }
+          : {
+              thresholdSessionId: confirmationAuthPlan.thresholdSessionId,
+              expiresAtMs: confirmationAuthPlan.expiresAtMs,
+              remainingUses: confirmationAuthPlan.remainingUses,
+            },
       });
     }
     const confirmationRequestBase = {
@@ -921,7 +948,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
           throw new Error('[chains] threshold ECDSA operation must be prepared before signing');
         }
         break;
-      case 'linked_device':
+      case 'active_wallet_authority':
         break;
       default:
         assertNeverEvmFamilySigningAuthorization(input.authorization);
@@ -969,10 +996,12 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
           displayModel: intentPrepared.displayModel,
         });
         switch (input.authorization.kind) {
-          case 'linked_device': {
+          case 'active_wallet_authority': {
             const operationId = input.signingOperation?.operationId;
             if (!operationId) {
-              throw new Error('[chains] linked-device ECDSA signing requires an operation id');
+              throw new Error(
+                '[chains] active Wallet Authority ECDSA signing requires an operation id',
+              );
             }
             signatures.push(
               await input.authorization.sign({

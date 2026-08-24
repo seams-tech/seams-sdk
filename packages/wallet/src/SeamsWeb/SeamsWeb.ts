@@ -45,7 +45,10 @@ import {
   RegistrationEventPhase,
   UnlockEventPhase,
 } from '@/core/types/sdkSentEvents';
-import { readNearProvisioningState } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
+import {
+  awaitNearProvisioningInFlight,
+  readNearProvisioningState,
+} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -117,6 +120,7 @@ import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWal
 import {
   isConcreteAvailableSigningLane,
   type AvailableSigningLanes,
+  type ConcreteAvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   walletCustodyCeremonyTransportFromWorkerContextV1,
@@ -205,8 +209,13 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
 import {
   beginGoogleEmailOtpWalletAuth,
+  type GoogleEmailOtpLinkedUnlockSelection,
   type GoogleEmailOtpWalletAuthDeps,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
+import {
+  resolveLinkedDeviceEmailOtpAuthoritySelection,
+  unlockLinkedDeviceEmailOtpWallet,
+} from '@/SeamsWeb/operations/auth/login';
 import {
   buildWalletCustodyPasskeyFactorProof,
   rotateWalletRecoveryCodes,
@@ -863,13 +872,15 @@ function ownerSourceLaneCandidateKeyV1(candidate: WalletHostOwnerSourceLaneCandi
 
 function collectWalletHostOwnerSourceLaneCandidatesV1(
   available: AvailableSigningLanes,
+  hasActiveEd25519Material: (lane: ConcreteAvailableEd25519SigningLane) => boolean,
 ): readonly WalletHostOwnerSourceLaneCandidateV1[] {
   const candidates = new Map<string, WalletHostOwnerSourceLaneCandidateV1>();
   for (const lane of available.candidates.ed25519.near) {
     if (
       !isConcreteAvailableSigningLane(lane) ||
       lane.curve !== 'ed25519' ||
-      lane.state !== 'ready'
+      (lane.state !== 'ready' &&
+        (lane.state !== 'restorable' || !hasActiveEd25519Material(lane)))
     ) {
       continue;
     }
@@ -944,12 +955,21 @@ async function readWalletHostOwnerSourceLaneHintsV1(args: {
   readonly relayerUrl: string;
   readonly projection: ActiveWalletSessionAuthorizationProjection;
 }): Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]> {
+  await awaitNearProvisioningInFlight(args.projection.walletId);
   const ownerScope = await args.signingEngine.resolveActiveOwnerLaneScope(args.projection.walletId);
   const available = await args.signingEngine.readOwnerScopedSigningLanes({
     walletId: args.projection.walletId,
     ownerScope,
   });
-  const candidates = collectWalletHostOwnerSourceLaneCandidatesV1(available);
+  const candidates = collectWalletHostOwnerSourceLaneCandidatesV1(
+    available,
+    (lane) =>
+      args.signingEngine.hasActiveNearEd25519YaoMaterial({
+        walletId: lane.walletId,
+        nearAccountId: lane.nearAccountId,
+        materialActivation: lane.materialActivation,
+      }),
+  );
   if (candidates.length === 0) {
     throw new Error('Wallet-host owner source lanes are unavailable');
   }
@@ -990,7 +1010,10 @@ function createWalletHostOwnerApprovalUpdatesV1(args: {
 
 type WalletHostEcdsaSourceMetadataSigningSurfaceV1 = Pick<
   BrowserSigningSurface,
-  'readWalletAuthenticationState' | 'resolveActiveOwnerLaneScope' | 'readOwnerScopedSigningLanes'
+  | 'hasActiveNearEd25519YaoMaterial'
+  | 'readWalletAuthenticationState'
+  | 'resolveActiveOwnerLaneScope'
+  | 'readOwnerScopedSigningLanes'
 >;
 
 function createWalletHostEcdsaSourceContributionMetadataReaderV1(args: {
@@ -1896,6 +1919,7 @@ export class SeamsWeb {
 
   private async requestEmailOtpChallengeDomain(args: {
     walletId: string;
+    walletAuthMethodId?: string;
     relayUrl?: string;
     operation?: WalletEmailOtpLoginOperation;
     operationFingerprintDigest?: DigestB64u;
@@ -1926,6 +1950,7 @@ export class SeamsWeb {
       const result = await requestEmailOtpChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
+        ...(args.walletAuthMethodId ? { walletAuthMethodId: args.walletAuthMethodId } : {}),
         ...(args.operation ? { operation: args.operation } : {}),
         ...(args.operationFingerprintDigest
           ? { operationFingerprintDigest: args.operationFingerprintDigest }
@@ -2212,6 +2237,10 @@ export class SeamsWeb {
         loginWithEmailOtpEcdsaCapability: this.loginWithEmailOtpEcdsaCapabilityDomain.bind(this),
         loginWithEmailOtpEd25519YaoCapability:
           this.loginWithEmailOtpEd25519YaoCapabilityDomain.bind(this),
+        resolveLinkedEmailOtpWalletAuth:
+          this.resolveLinkedEmailOtpWalletAuthDomain.bind(this),
+        loginWithLinkedEmailOtpWallet:
+          this.loginWithLinkedEmailOtpWalletDomain.bind(this),
         getWalletSession: this.getGoogleEmailOtpWalletSessionDomain.bind(this),
       },
       args,
@@ -2228,6 +2257,57 @@ export class SeamsWeb {
       projectEnvironmentId: this.configs.registration.projectEnvironmentId,
       publishableKey: this.configs.registration.publishableKey,
       ...(args.restartRegistrationOffer === true ? { restartRegistrationOffer: true } : {}),
+    });
+  }
+
+  private async resolveLinkedEmailOtpWalletAuthDomain(args: {
+    walletId: string;
+    email: string;
+    providerSubjectId: string;
+  }): Promise<GoogleEmailOtpLinkedUnlockSelection> {
+    const emailHashHex = await this.emailOtpEmailHashHex(args.email);
+    const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
+      walletIdInput: args.walletId,
+      emailHashHex,
+      provider: 'google',
+      providerSubjectId: args.providerSubjectId,
+    });
+    switch (resolution.kind) {
+      case 'none':
+        return { kind: 'none' };
+      case 'selected':
+        return {
+          kind: 'selected',
+          walletAuthMethodId: String(resolution.selection.authMethod.walletAuthMethodId),
+        };
+      case 'rejected':
+        return { kind: 'rejected', message: resolution.message };
+      default:
+        resolution satisfies never;
+        throw new Error('Linked Email OTP authority resolution is invalid');
+    }
+  }
+
+  private async loginWithLinkedEmailOtpWalletDomain(args: {
+    walletId: string;
+    walletAuthMethodId: string;
+    email: string;
+    providerSubjectId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl: string;
+  }): Promise<void> {
+    const emailHashHex = await this.emailOtpEmailHashHex(args.email);
+    await unlockLinkedDeviceEmailOtpWallet({
+      context: this.getContext(),
+      walletIdInput: args.walletId,
+      emailHashHex,
+      walletAuthMethodId: args.walletAuthMethodId,
+      providerSubjectId: args.providerSubjectId,
+      provider: 'google',
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+      relayUrl: args.relayUrl,
     });
   }
 
@@ -2536,6 +2616,7 @@ export class SeamsWeb {
         timingStartedAtMs,
       );
       timingStartedAtMs = nowMs();
+      const ownerAuthority = result.authorization.authority;
       const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
@@ -2543,6 +2624,10 @@ export class SeamsWeb {
           auth: {
             kind: 'email_otp',
             providerSubjectId: args.providerIdentity.providerSubjectId,
+          },
+          ownerAuthority: {
+            walletAuthMethodId: ownerAuthority.walletAuthMethodId,
+            authorityDigest: ownerAuthority.authorityDigest,
           },
         },
         requiredTargets: [

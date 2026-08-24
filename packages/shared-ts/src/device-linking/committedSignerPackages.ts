@@ -32,9 +32,13 @@ import {
 import {
   parseRouterAbEd25519YaoEncryptedPackageV1,
   parseRouterAbEd25519YaoActivationPublicReceiptV1,
+  parseRouterAbEd25519YaoApplicationBindingFactsV1,
+  parseRouterAbEd25519YaoCeremonyBindingV1,
   parseRouterAbEd25519YaoParticipantIdsV1,
+  type RouterAbEd25519YaoApplicationBindingFactsV1,
   type RouterAbEd25519YaoActivationPublicReceiptV1,
   type RouterAbEd25519YaoActivationClientPackageV1,
+  type RouterAbEd25519YaoCeremonyBindingV1,
 } from '../utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefFromWire } from '../utils/routerAbNormalSigningIdentity';
 
@@ -45,6 +49,8 @@ const COMMITTED_SIGNER_PACKAGE_SET_DOMAIN_V1 =
 export type CommittedEd25519SignerPackageV1 = {
   readonly kind: 'committed_ed25519_signer_package_v1';
   readonly materialActivation: MpcMaterialActivationRef;
+  readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
+  readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
   readonly participantIds: readonly [number, number];
   readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
   readonly deriver_a_client_package: RouterAbEd25519YaoActivationClientPackageV1<'deriver_a'>;
@@ -277,6 +283,8 @@ function parseEd25519Package(raw: unknown): CommittedEd25519SignerPackageV1 {
     [
       'kind',
       'materialActivation',
+      'targetBinding',
+      'applicationBinding',
       'participantIds',
       'activationReceipt',
       'deriver_a_client_package',
@@ -288,6 +296,10 @@ function parseEd25519Package(raw: unknown): CommittedEd25519SignerPackageV1 {
     throw new Error('CommittedEd25519SignerPackageV1.kind is invalid');
   }
   const materialActivation = parseActivation(record.materialActivation, 'materialActivation');
+  const targetBinding = parseRouterAbEd25519YaoCeremonyBindingV1(record.targetBinding);
+  const applicationBinding = parseRouterAbEd25519YaoApplicationBindingFactsV1(
+    record.applicationBinding,
+  );
   const activationReceipt = parseRouterAbEd25519YaoActivationPublicReceiptV1(
     record.activationReceipt,
   );
@@ -298,6 +310,14 @@ function parseEd25519Package(raw: unknown): CommittedEd25519SignerPackageV1 {
     )
   ) {
     throw new Error('CommittedEd25519SignerPackageV1 activation receipt does not match material');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      routerAbMpcMaterialActivationRefFromWire(targetBinding.material_activation),
+    )
+  ) {
+    throw new Error('CommittedEd25519SignerPackageV1 target binding does not match material');
   }
   const deriverA = parseEd25519ClientPackage(
     record.deriver_a_client_package,
@@ -318,6 +338,8 @@ function parseEd25519Package(raw: unknown): CommittedEd25519SignerPackageV1 {
   return {
     kind: 'committed_ed25519_signer_package_v1',
     materialActivation,
+    targetBinding,
+    applicationBinding,
     participantIds: parseRouterAbEd25519YaoParticipantIdsV1(record.participantIds),
     activationReceipt,
     deriver_a_client_package: deriverA,

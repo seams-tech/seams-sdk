@@ -6,24 +6,16 @@ import type {
   LinkedDeviceEcdsaSourceDerivationV1,
 } from '@shared/device-linking/sourceContribution';
 import type { LinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking/contracts';
-import {
-  parseLinkedDeviceEd25519SourcePreservingReservationV1,
-} from '@shared/device-linking/sourceContribution';
-import type {
-  MpcMaterialActivationRef,
-  WalletKeyId,
-} from '@shared/utils/domainIds';
+import { parseLinkedDeviceEd25519SourcePreservingReservationV1 } from '@shared/device-linking/sourceContribution';
+import type { MpcMaterialActivationRef, WalletKeyId } from '@shared/utils/domainIds';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  deriveRouterAbEd25519YaoApplicationBindingDigestV1,
-} from '@shared/utils/routerAbEd25519Yao';
+import { parseEcdsaThresholdKeyId } from '../session/keyMaterialBrands';
+import { deriveRouterAbEd25519YaoApplicationBindingDigestV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { ActiveEcdsaCapabilityManifest } from '../session/material/ecdsaCapabilityManifest';
 import { prepareLinkedDeviceEcdsaSourceContributionWasm } from '../threshold/crypto/ecdsaDerivationClientWasm';
-import {
-  openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1,
-} from '../threshold/crypto/ed25519YaoLaneWasm';
+import { openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1 } from '../threshold/crypto/ed25519YaoLaneWasm';
 import type { WorkerOperationContext } from './executeWorkerOperation';
 import type {
   DeviceLinkingEd25519SourceContributionPortV1,
@@ -71,14 +63,17 @@ export function createDeviceLinkingEcdsaSourceContributionMetadataReaderV1(
     return {
       walletKeyId: ownerLane.walletKey.walletKeyId,
       sourceDerivation: {
-        applicationBindingDigestB64u:
-          parseDigestB64u(
-            manifest.durableMaterial.routerAbEcdsaDerivationNormalSigning.scope.context
-              .application_binding_digest_b64u,
-          ),
+        applicationBindingDigestB64u: parseDigestB64u(
+          manifest.durableMaterial.routerAbEcdsaDerivationNormalSigning.scope.context
+            .application_binding_digest_b64u,
+        ),
         clientShareRetryCounter:
           manifest.durableMaterial.routerAbEcdsaDerivationNormalSigning.scope.public_identity
             .client_share_retry_counter,
+        ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
+          manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId,
+        ),
+        sourceNormalSigning: manifest.durableMaterial.routerAbEcdsaDerivationNormalSigning,
       },
     };
   };
@@ -92,9 +87,7 @@ function assertExactEcdsaSourceMetadataContextV1(input: {
   if (input.ownerLane.keyFamily !== 'ecdsa_secp256k1') {
     throw new Error('ECDSA source metadata resolved a non-ECDSA owner lane');
   }
-  if (
-    !mpcMaterialActivationRefsEqual(input.ownerLane.materialActivation, input.sourceActivation)
-  ) {
+  if (!mpcMaterialActivationRefsEqual(input.ownerLane.materialActivation, input.sourceActivation)) {
     throw new Error('ECDSA owner source lane activation does not match preparation');
   }
   if (
@@ -235,8 +228,7 @@ async function produceEcdsaSourceContributionV1(input: {
     sourceAuthorityId: input.preparation.sourceAuthorityId,
     walletKeyId: metadata.walletKeyId,
     targetDeviceId: input.preparation.target.targetDeviceId,
-    targetFactorVerificationDigestB64u:
-      input.preparation.target.targetFactorVerificationDigestB64u,
+    targetFactorVerificationDigestB64u: input.preparation.target.targetFactorVerificationDigestB64u,
     sourceSigner: input.preparation.source,
     sourceDerivation: metadata.sourceDerivation,
     target: input.preparation.target,

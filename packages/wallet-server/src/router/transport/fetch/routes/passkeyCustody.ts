@@ -1110,6 +1110,7 @@ export async function handleWalletRecoveryFinalize(
           ok: true,
           storeVersion: result.storeVersion,
           credential: result.credential,
+          walletAuthMethodId: result.walletAuthMethodId,
           walletAuthorityId: result.walletAuthorityId,
         },
       });

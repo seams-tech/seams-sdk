@@ -76,6 +76,11 @@ type GoogleEmailOtpProviderResolutionRequest<
   restartRegistrationOffer: boolean;
 };
 
+export type GoogleEmailOtpLinkedUnlockSelection =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'selected'; readonly walletAuthMethodId: string }
+  | { readonly kind: 'rejected'; readonly message: string };
+
 type GoogleSessionState = {
   idToken: string;
   walletId: WalletId;
@@ -86,6 +91,7 @@ type GoogleSessionState = {
   mode: GoogleEmailOtpWalletAuthResolvedMode;
   registrationAttemptId?: string;
   expiresAtMs: number;
+  linkedEmailOtpSelection?: Extract<GoogleEmailOtpLinkedUnlockSelection, { kind: 'selected' }>;
 };
 
 export type GoogleEmailOtpWalletAuthDeps = {
@@ -95,6 +101,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
   ): Promise<GoogleEmailOtpProviderResolution>;
   requestEmailOtpChallenge(args: {
     walletId: string;
+    walletAuthMethodId?: string;
     relayUrl?: string;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
@@ -106,6 +113,20 @@ export type GoogleEmailOtpWalletAuthDeps = {
   loginWithEmailOtpEd25519YaoCapability(
     args: GoogleLoginEmailOtpEd25519YaoCapabilityArgs,
   ): Promise<void>;
+  resolveLinkedEmailOtpWalletAuth?(args: {
+    walletId: string;
+    email: string;
+    providerSubjectId: string;
+  }): Promise<GoogleEmailOtpLinkedUnlockSelection>;
+  loginWithLinkedEmailOtpWallet?(args: {
+    walletId: string;
+    walletAuthMethodId: string;
+    email: string;
+    providerSubjectId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl: string;
+  }): Promise<void>;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
 
@@ -347,6 +368,31 @@ function resolveSessionState(input: {
   };
 }
 
+async function selectLinkedEmailOtpWalletAuth(args: {
+  deps: GoogleEmailOtpWalletAuthDeps;
+  state: GoogleSessionState;
+}): Promise<GoogleSessionState> {
+  if (args.state.mode !== 'login' || !args.deps.resolveLinkedEmailOtpWalletAuth) {
+    return args.state;
+  }
+  const selection = await args.deps.resolveLinkedEmailOtpWalletAuth({
+    walletId: String(args.state.walletId),
+    email: args.state.emailHint,
+    providerSubjectId: args.state.providerSubject,
+  });
+  switch (selection.kind) {
+    case 'none':
+      return args.state;
+    case 'selected':
+      return { ...args.state, linkedEmailOtpSelection: selection };
+    case 'rejected':
+      throw new Error(selection.message);
+    default:
+      selection satisfies never;
+      throw new Error('Google Email OTP linked auth selection is invalid');
+  }
+}
+
 function rotateOfferCandidate(args: {
   offer: GoogleEmailOtpRegistrationOffer;
   currentWalletId: WalletId;
@@ -378,6 +424,9 @@ async function requestLoginChallenge(args: {
 }): Promise<ActiveChallenge> {
   const result = await args.deps.requestEmailOtpChallenge({
     walletId: args.state.walletId,
+    ...(args.state.linkedEmailOtpSelection
+      ? { walletAuthMethodId: args.state.linkedEmailOtpSelection.walletAuthMethodId }
+      : {}),
     ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
     ...(args.onEvent ? { onEvent: args.onEvent as (event: UnlockFlowEvent) => void } : {}),
   });
@@ -553,6 +602,7 @@ export async function beginGoogleEmailOtpWalletAuth(
       requestedMode: input.mode,
       resolution,
     });
+    sessionState = await selectLinkedEmailOtpWalletAuth({ deps, state: sessionState });
   } catch (error: unknown) {
     return fail(classifyGoogleEmailOtpVerificationError(error), error);
   }
@@ -800,14 +850,29 @@ function createGoogleEmailOtpWalletLoginFlow(
           configs: deps.configs,
           policy: args.input.ecdsaTargets,
         });
-        await loginWithConfiguredTargets({
-          deps,
-          state: args.state,
-          input: args.input,
-          challenge: args.challenge,
-          otpCode,
-          targets: requiredTargets,
-        });
+        if (args.state.linkedEmailOtpSelection) {
+          if (!deps.loginWithLinkedEmailOtpWallet) {
+            throw new Error('Exact linked Email OTP wallet unlock is unavailable');
+          }
+          await deps.loginWithLinkedEmailOtpWallet({
+            walletId: String(args.state.walletId),
+            walletAuthMethodId: args.state.linkedEmailOtpSelection.walletAuthMethodId,
+            email: args.state.emailHint,
+            providerSubjectId: args.state.providerSubject,
+            challengeId: args.challenge.challengeId,
+            otpCode,
+            relayUrl: relayerUrlFromInput({ deps, input: args.input }),
+          });
+        } else {
+          await loginWithConfiguredTargets({
+            deps,
+            state: args.state,
+            input: args.input,
+            challenge: args.challenge,
+            otpCode,
+            targets: requiredTargets,
+          });
+        }
         liveness.burn();
         const session = await assertLoggedIn(deps, args.state.walletId);
         return ok({ walletId: args.state.walletId, mode: 'login', session });

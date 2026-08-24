@@ -11,6 +11,8 @@ import './ProfileDropdown.css';
 
 interface ProfileDropdownWithRefs extends Omit<ProfileDropdownProps, 'menuItemsRef'> {
   menuItemsRef: React.MutableRefObject<(HTMLElement | null)[]>;
+  canExportNearKey: boolean;
+  canExportEvmKeys: boolean;
   // Transaction settings props
   currentConfirmConfig?: ConfirmationConfig | null;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
@@ -39,6 +41,8 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       accountsOpen = false,
       exportKeysOpen = false,
       exportLoadingChain = null,
+      canExportNearKey,
+      canExportEvmKeys,
       onExportChain,
       walletId,
       theme = 'dark',
@@ -104,6 +108,8 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
                   <ExportKeysSection
                     isOpen={exportKeysOpen}
                     loadingChain={exportLoadingChain}
+                    canExportNearKey={canExportNearKey}
+                    canExportEvmKeys={canExportEvmKeys}
                     onSelectChain={onExportChain}
                     style={{ ['--stagger-item-n' as any]: index }}
                   />

@@ -109,6 +109,10 @@ function emailLinkedDeviceStage(stage: string): void {
   console.info(`[email-linked-device] ${stage}`);
 }
 
+function passkeyLinkedDeviceStage(stage: string): void {
+  console.info(`[passkey-linked-device] ${stage}`);
+}
+
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new Error(`${label} must be an object`);
   return value;
@@ -512,6 +516,7 @@ type LinkedDeviceFailureListeners = {
   readonly source: LinkedDeviceFailureSource;
   readonly response: (response: Response) => void;
   readonly pageError: (error: Error) => void;
+  readonly console: (message: ConsoleMessage) => void;
 };
 
 function linkedDeviceResponsePath(response: Response): string | null {
@@ -556,9 +561,11 @@ class LinkedDeviceFailureMonitor {
     for (const source of sources) {
       const response = this.handleResponse.bind(this, source);
       const pageError = this.handlePageError.bind(this, source);
+      const console = this.handleConsole.bind(this, source);
       source.page.on('response', response);
       source.page.on('pageerror', pageError);
-      this.listeners.push({ source, response, pageError });
+      source.page.on('console', console);
+      this.listeners.push({ source, response, pageError, console });
     }
   }
 
@@ -570,6 +577,7 @@ class LinkedDeviceFailureMonitor {
     for (const listener of this.listeners) {
       listener.source.page.off('response', listener.response);
       listener.source.page.off('pageerror', listener.pageError);
+      listener.source.page.off('console', listener.console);
     }
     this.listeners.length = 0;
   }
@@ -593,6 +601,22 @@ class LinkedDeviceFailureMonitor {
       source,
       `[${source.label}:pageerror] ${linkedDeviceFailureErrorText(error)}`,
     );
+  }
+
+  private handleConsole(source: LinkedDeviceFailureSource, message: ConsoleMessage): void {
+    const text = conciseLinkedDeviceFailureText(message.text());
+    if (
+      message.type() !== 'error' ||
+      (!text.includes('[Device2Linking] failed') &&
+        !text.includes('[SeamsAuthMenu:login] Error') &&
+        !text.includes('[DemoPage][TempoSignError]') &&
+        !text.includes('[DemoPage][TempoWalletSessionExpired]') &&
+        !text.includes('[DemoPage][TempoPreflightFailure]') &&
+        !text.includes('wallet_iframe_surface_busy'))
+    ) {
+      return;
+    }
+    this.reportFailure(source, `[${source.label}:console] ${text}`);
   }
 
   private reportFailure(source: LinkedDeviceFailureSource, diagnostic: string): void {
@@ -749,6 +773,39 @@ function directRegistrationSdkModulePath(): string {
   return `/@fs/${modulePath}`;
 }
 
+function indexedDbSdkModulePath(): string {
+  return `${appOrigin}/@fs/${path.join(
+    directRegistrationRepoRoot(),
+    'packages/wallet/dist/esm/core/indexedDB/index.js',
+  )}`;
+}
+
+async function resolveSelectedWalletAuthorityInBrowser(input: {
+  readonly modulePath: string;
+  readonly walletId: string;
+}): Promise<unknown> {
+  const { IndexedDBManager } = await import(input.modulePath);
+  return await IndexedDBManager.resolveSelectedWalletAuthority(input.walletId);
+}
+
+async function readSelectedWalletAuthorityResolution(
+  page: Page,
+  walletId: string,
+): Promise<unknown> {
+  await walletFrame(page);
+  const frame = page.frames().find((candidate) => candidate.url().includes('/wallet-service'));
+  if (!frame) throw new Error('Wallet service frame is unavailable');
+  return await frame.evaluate(resolveSelectedWalletAuthorityInBrowser, {
+    modulePath: indexedDbSdkModulePath(),
+    walletId,
+  });
+}
+
+function assertSelectedWalletAuthorityResolved(resolution: unknown, boundary: string): void {
+  const record = requireRecord(resolution, boundary);
+  expect(record.kind, `${boundary}: ${JSON.stringify(resolution)}`).toBe('resolved');
+}
+
 async function directRegisterWalletInBrowser(input: {
   readonly authMethod: DirectRegistrationAuthMethod;
   readonly projectEnvironmentId: string;
@@ -808,7 +865,8 @@ async function registerWalletWithSignerProfileInBrowser(
   page: Page,
   input: DirectRegistrationInput,
 ): Promise<void> {
-  await page.goto(`${appOrigin}/@vite/client`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${appOrigin}/seams-v9/manifest.txt`, { waitUntil: 'load' });
+  await expect(page.locator('iframe.w3a-wallet-overlay')).toHaveCount(0);
   const registration = page.evaluate(directRegisterWalletInBrowser, {
     ...input,
     sdkModulePath: directRegistrationSdkModulePath(),
@@ -1069,6 +1127,13 @@ async function openProfileMenu(page: Page): Promise<Locator> {
   return menu;
 }
 
+async function closeProfileMenu(page: Page): Promise<void> {
+  const profile = page.locator('.w3a-profile-button-morphable');
+  if ((await profile.getAttribute('data-state')) !== 'open') return;
+  await profile.locator('.w3a-user-account-button-trigger').click();
+  await expect(profile).toHaveAttribute('data-state', 'closed');
+}
+
 async function assertOwnerProfileRows(page: Page): Promise<Locator> {
   const menu = await openProfileMenu(page);
   for (const label of LINKED_DEVICE_PROFILE_ROWS) {
@@ -1122,16 +1187,22 @@ async function assertSignerProfileActions(page: Page, profile: SignerProfile): P
   const arcTab = page.getByRole('tab', { name: 'Arc', exact: true });
   if (profile === 'ecdsa') {
     await expect(tempoTab).toBeVisible();
+    await expect(tempoTab).toBeEnabled();
     await expect(arcTab).toBeVisible();
+    await expect(arcTab).toBeEnabled();
     await assertUnavailableAction(nearTab, 'NEAR signing must be unavailable for ECDSA-only');
   } else if (profile === 'ed25519') {
     await expect(nearTab).toBeVisible();
+    await expect(nearTab).toBeEnabled();
     await assertUnavailableAction(tempoTab, 'Tempo signing must be unavailable for Ed25519-only');
     await assertUnavailableAction(arcTab, 'Arc signing must be unavailable for Ed25519-only');
   } else {
     await expect(nearTab).toBeVisible();
+    await expect(nearTab).toBeEnabled();
     await expect(tempoTab).toBeVisible();
+    await expect(tempoTab).toBeEnabled();
     await expect(arcTab).toBeVisible();
+    await expect(arcTab).toBeEnabled();
   }
 }
 
@@ -1585,14 +1656,40 @@ async function waitForLinkedDeviceActive(
   }
 }
 
-async function confirmWalletSigning(page: Page): Promise<void> {
+async function walletSigningFrameDiagnostics(page: Page): Promise<string> {
+  const diagnostics: string[] = [];
+  for (const frame of page.frames()) {
+    const body = await frame
+      .locator('body')
+      .innerText()
+      .then(conciseLinkedDeviceFailureText)
+      .catch(() => '<unavailable>');
+    diagnostics.push(`${frame.url() || '<no-url>'}: ${body}`);
+  }
+  return diagnostics.join('\n');
+}
+
+function walletSigningConfirmButton(page: Page): Locator {
   const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
-  await iframe.waitFor({ state: 'attached', timeout: 60_000 });
-  const frame = iframe.contentFrame();
-  const confirm = frame
+  return iframe
+    .contentFrame()
     .locator('#w3a-confirm-portal button.btn-confirm, #w3a-confirm-portal button.confirm')
     .first();
-  await confirm.waitFor({ state: 'visible', timeout: 60_000 });
+}
+
+async function confirmWalletSigning(page: Page, diagnostics: readonly string[]): Promise<void> {
+  const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
+  await iframe.waitFor({ state: 'attached', timeout: 60_000 });
+  const confirm = walletSigningConfirmButton(page);
+  try {
+    await confirm.waitFor({ state: 'visible', timeout: linkedDeviceTransitionTimeoutMs });
+  } catch (error: unknown) {
+    const visibleFailure = await readVisibleHostedAuthFailure(page);
+    throw new Error(
+      `Wallet signing confirmation did not appear.\nVisible failure: ${visibleFailure ?? '<none>'}\n${diagnostics.join('\n')}\nFrames:\n${await walletSigningFrameDiagnostics(page)}`,
+      { cause: error },
+    );
+  }
   await confirm.click();
 }
 
@@ -1632,6 +1729,71 @@ async function requireSuccessfulRouterResponse(
   );
 }
 
+async function clickAndConfirmPasskeySigning(input: {
+  readonly page: Page;
+  readonly trigger: Locator;
+  readonly diagnostics: readonly string[];
+}): Promise<void> {
+  await input.trigger.click();
+  await confirmWalletSigning(input.page, input.diagnostics);
+}
+
+async function completePasskeySigning(input: {
+  readonly page: Page;
+  readonly trigger: Locator;
+  readonly response: Promise<Response>;
+  readonly diagnostics: readonly string[];
+}): Promise<void> {
+  const responseTask = requireSuccessfulRouterResponse(input.response, input.diagnostics);
+  void responseTask.catch(ignoreSigningResponseFailure);
+  await clickAndConfirmPasskeySigning(input);
+  await responseTask;
+}
+
+function ignoreSigningResponseFailure(): undefined {
+  return undefined;
+}
+
+function clickEnabledTempoFundingButton(element: Element): boolean {
+  if (!(element instanceof HTMLButtonElement)) return false;
+  if (element.disabled || element.textContent?.trim() !== 'Fund Tempo Account') return false;
+  element.click();
+  return true;
+}
+
+async function clickAndCompleteEmailOtpSigning(input: {
+  readonly page: Page;
+  readonly trigger: Locator;
+  readonly emailOtp: EmailOtpPromptContext;
+  readonly task: Promise<void>;
+}): Promise<void> {
+  await input.trigger.click();
+  await completeEmailOtpPromptsUntil({
+    page: input.page,
+    ...input.emailOtp,
+    task: input.task,
+  });
+}
+
+async function completeEmailOtpSigning(input: {
+  readonly page: Page;
+  readonly trigger: Locator;
+  readonly response: Promise<Response>;
+  readonly diagnostics: readonly string[];
+  readonly emailOtp: EmailOtpPromptContext;
+}): Promise<void> {
+  const task = requireSuccessfulRouterResponse(input.response, input.diagnostics);
+  await Promise.all([
+    task,
+    clickAndCompleteEmailOtpSigning({
+      page: input.page,
+      trigger: input.trigger,
+      emailOtp: input.emailOtp,
+      task,
+    }),
+  ]);
+}
+
 async function linkedSigning(
   page: Page,
   diagnostics: readonly string[],
@@ -1656,36 +1818,60 @@ async function linkedSigning(
   await tempoFunding.waitFor({ state: 'visible', timeout: 60_000 });
   if ((await tempoFunding.textContent())?.trim() === 'Fund Tempo Account') {
     await expect(tempoFunding).toBeEnabled({ timeout: 120_000 });
-    const fundingSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
-    await tempoFunding.click();
-    if (emailOtp) {
-      await completeEmailOtpPromptsUntil({
-        page,
-        ...emailOtp,
-        task: requireSuccessfulRouterResponse(fundingSigned, diagnostics),
-      });
-    } else {
-      await confirmWalletSigning(page);
-      await requireSuccessfulRouterResponse(fundingSigned, diagnostics);
+    const fundingClicked = await tempoFunding.evaluate(clickEnabledTempoFundingButton);
+    if (fundingClicked) {
+      const fundingSigned = waitForEcdsaSigningOutcome(page);
+      const fundingReady = expect(tempoFunding)
+        .toHaveText('Tempo Account Funded', { timeout: 180_000 })
+        .then(() => ({ kind: 'ready_without_signing' as const }));
+      if (emailOtp) {
+        const responseTask = requireSuccessfulRouterResponse(fundingSigned, diagnostics).then(
+          () => ({ kind: 'signed' as const }),
+        );
+        void responseTask.catch(ignoreSigningResponseFailure);
+        await completeEmailOtpPromptsUntil({
+          page,
+          ...emailOtp,
+          task: Promise.race([responseTask, fundingReady]),
+        });
+      } else {
+        const confirm = walletSigningConfirmButton(page);
+        const interaction = await Promise.race([
+          confirm
+            .waitFor({ state: 'visible', timeout: linkedDeviceTransitionTimeoutMs })
+            .then(() => ({ kind: 'confirmation' as const })),
+          fundingReady,
+        ]);
+        if (interaction.kind === 'confirmation') {
+          const responseTask = requireSuccessfulRouterResponse(fundingSigned, diagnostics);
+          void responseTask.catch(ignoreSigningResponseFailure);
+          await confirm.click();
+          await responseTask;
+        }
+      }
+      await expect(tempoFunding).toHaveText('Tempo Account Funded', { timeout: 180_000 });
+      await expect(tempoFunding).toBeDisabled();
     }
-    await expect(tempoFunding).toHaveText('Tempo Account Funded', { timeout: 180_000 });
-    await expect(tempoFunding).toBeDisabled();
-    return;
   }
   const tempoSign = page.getByRole('button', { name: 'Sign on Tempo', exact: true });
   await tempoSign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(tempoSign).toBeEnabled({ timeout: 120_000 });
-  const tempoSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
-  await tempoSign.click();
+  const tempoSigned = waitForEcdsaSigningOutcome(page);
   if (emailOtp) {
-    await completeEmailOtpPromptsUntil({
+    await completeEmailOtpSigning({
       page,
-      ...emailOtp,
-      task: requireSuccessfulRouterResponse(tempoSigned, diagnostics),
+      trigger: tempoSign,
+      response: tempoSigned,
+      diagnostics,
+      emailOtp,
     });
   } else {
-    await confirmWalletSigning(page);
-    await requireSuccessfulRouterResponse(tempoSigned, diagnostics);
+    await completePasskeySigning({
+      page,
+      trigger: tempoSign,
+      response: tempoSigned,
+      diagnostics,
+    });
   }
 }
 
@@ -1698,6 +1884,28 @@ function isNearFinalSignResponse(response: Response): boolean {
   );
 }
 
+function isSigningFailureResponse(response: Response): boolean {
+  if (response.ok() || response.request().method() !== 'POST') return false;
+  const pathname = new URL(response.url()).pathname;
+  return (
+    pathname.startsWith('/router-ab/ed25519/') ||
+    pathname.startsWith('/router-ab/ecdsa-derivation/')
+  );
+}
+
+function waitForEcdsaSigningOutcome(page: Page): Promise<Response> {
+  return page.waitForResponse(
+    (response) => isEcdsaFinalSignResponse(response) || isSigningFailureResponse(response),
+    { timeout: 180_000 },
+  );
+}
+
+function isSigningOutcomeForChain(chain: 'Arc' | 'NEAR', response: Response): boolean {
+  const isFinalResponse =
+    chain === 'Arc' ? isEcdsaFinalSignResponse(response) : isNearFinalSignResponse(response);
+  return isFinalResponse || isSigningFailureResponse(response);
+}
+
 /** One greeting transaction on the Arc (EVM) or NEAR tab of the active demo. */
 async function greetingSigning(
   page: Page,
@@ -1705,26 +1913,30 @@ async function greetingSigning(
   diagnostics: readonly string[],
   emailOtp?: EmailOtpPromptContext,
 ): Promise<void> {
+  if (!emailOtp) passkeyLinkedDeviceStage(`waiting for ${chain} signing controls`);
   const tab = page.getByRole('tab', { name: chain, exact: true });
-  await tab.waitFor({ state: 'visible', timeout: 120_000 });
-  await tab.click();
+  await tab.waitFor({ state: 'visible', timeout: linkedDeviceTransitionTimeoutMs });
+  if (!emailOtp) passkeyLinkedDeviceStage(`${chain} tab visible`);
+  await tab.click({ timeout: 10_000 });
   const sign = page.getByRole('button', { name: `Sign on ${chain}`, exact: true });
-  await sign.waitFor({ state: 'visible', timeout: 60_000 });
-  await expect(sign).toBeEnabled({ timeout: 120_000 });
-  const signed = page.waitForResponse(
-    chain === 'Arc' ? isEcdsaFinalSignResponse : isNearFinalSignResponse,
-    { timeout: 180_000 },
-  );
-  await sign.click();
+  await sign.waitFor({ state: 'visible', timeout: linkedDeviceTransitionTimeoutMs });
+  if (!emailOtp) passkeyLinkedDeviceStage(`${chain} sign button visible`);
+  await expect(sign).toBeEnabled({ timeout: linkedDeviceTransitionTimeoutMs });
+  if (!emailOtp) passkeyLinkedDeviceStage(`${chain} signing controls enabled`);
+  const signed = page.waitForResponse(isSigningOutcomeForChain.bind(null, chain), {
+    timeout: 180_000,
+  });
   if (emailOtp) {
-    await completeEmailOtpPromptsUntil({
+    await completeEmailOtpSigning({
       page,
-      ...emailOtp,
-      task: requireSuccessfulRouterResponse(signed, diagnostics),
+      trigger: sign,
+      response: signed,
+      diagnostics,
+      emailOtp,
     });
   } else {
-    await confirmWalletSigning(page);
-    await requireSuccessfulRouterResponse(signed, diagnostics);
+    await completePasskeySigning({ page, trigger: sign, response: signed, diagnostics });
+    passkeyLinkedDeviceStage(`${chain} signing confirmed`);
   }
 }
 
@@ -2097,20 +2309,8 @@ function isRevokedWalletUnlockResponse(response: Response): boolean {
   return (
     response.request().method() === 'POST' &&
     new URL(response.url()).pathname === '/wallet/unlock/verify' &&
-    response.status() === 409
-  );
-}
-
-function isRevokedLinkedSessionSealResponse(response: Response): boolean {
-  return (
-    response.request().method() === 'POST' &&
-    new URL(response.url()).pathname === '/wallet-session/seal/apply-server-seal' &&
     !response.ok()
   );
-}
-
-function isRevokedOwnerUnlockResponse(response: Response): boolean {
-  return isRevokedWalletUnlockResponse(response) || isRevokedLinkedSessionSealResponse(response);
 }
 
 function isEcdsaExportResponse(response: Response): boolean {
@@ -2327,6 +2527,8 @@ async function exportOwnerKey(
   await expect(viewer.getByRole('heading', { name: 'Exported Keys', exact: true })).toBeHidden({
     timeout: 10_000,
   });
+  await closeProfileMenu(page);
+  await expect(menu).toBeHidden();
   return { accountId: identity.accountId, entries: identity.entries };
 }
 
@@ -2522,24 +2724,17 @@ async function assertRevokedOwnerCannotUnlock(page: Page): Promise<void> {
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   await unlock.waitFor({ state: 'visible', timeout: 30_000 });
-  const rejected = page.waitForResponse(isRevokedOwnerUnlockResponse, { timeout: 30_000 });
+  const rejected = page.waitForResponse(isRevokedWalletUnlockResponse, { timeout: 30_000 });
   await unlock.click();
   const response = await rejected;
-  if (isRevokedWalletUnlockResponse(response)) {
-    const failure = requireRecord(await response.json(), 'revoked owner wallet unlock response');
-    expect(failure).toMatchObject({
-      ok: false,
-      code: 'custody_envelope_unavailable',
-      message: 'Passkey wallet custody is unavailable',
-    });
-  } else {
-    const failure = requireRecord(await response.json(), 'revoked linked-session seal response');
-    expect(failure).toMatchObject({
-      ok: false,
-      code: 'wallet_session_invalid',
-      message: 'Wallet Session is invalid',
-    });
-  }
+  const failure = requireRecord(await response.json(), 'revoked owner wallet unlock response');
+  expect(failure).toMatchObject({
+    ok: false,
+    verified: false,
+    code: 'unknown_credential',
+    message: 'Credential is not active for this wallet',
+    unlockBackend: 'passkey',
+  });
   await expect(page.locator('.w3a-profile-button-morphable')).toBeHidden();
   await expect(unlock).toBeVisible();
 }
@@ -2604,6 +2799,7 @@ async function readLinkedDeviceInventory(
   await dialog.waitFor({ state: 'visible', timeout: 30_000 });
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
+  await closeProfileMenu(page);
   return parsed;
 }
 
@@ -2697,6 +2893,7 @@ async function assertLinkedDeviceInventoryLoaded(page: Page): Promise<void> {
   await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
+  await closeProfileMenu(page);
 }
 
 async function assertPasskeyInventoryLoaded(page: Page, expectedCardCount: number): Promise<void> {
@@ -2708,6 +2905,7 @@ async function assertPasskeyInventoryLoaded(page: Page, expectedCardCount: numbe
   );
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
+  await closeProfileMenu(page);
 }
 
 async function revokeLinkedEmailDeviceFromUi(
@@ -2962,12 +3160,12 @@ async function setupEmailLinkedOwnerPair(
       profile === 'combined'
         ? await registerEmailOwner(ownerPage, ownerContext)
         : await registerEmailOwnerForProfile(ownerPage, ownerContext, profile);
+    await assertSignerProfileActions(ownerPage, profile);
     const ownerLocalAuthorityBeforeLink = await readLocalAuthoritySnapshot(
       ownerPage,
       publicIdentity.walletId,
     );
     emailLinkedDeviceStage('opening Device 2 QR');
-    await assertSignerProfileActions(ownerPage, profile);
     linkedDeviceFailureMonitor = new LinkedDeviceFailureMonitor([
       { diagnostics: ownerDiagnostics, label: 'owner', page: ownerPage },
       { diagnostics: device2Diagnostics, label: 'device2', page: device2Page },
@@ -3201,6 +3399,10 @@ async function setupEmailLinkedOwnerPair(
     await linkedDeviceFailureMonitor.race(
       waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics, profile),
     );
+    assertSelectedWalletAuthorityResolved(
+      await readSelectedWalletAuthorityResolution(device2Page, owner.publicIdentity.walletId),
+      'Device 2 selected authority before reload',
+    );
     linkedDeviceFailureMonitor.stop();
     const inventoryBeforeReload = await readActiveLinkedDeviceInventory(ownerPage);
     expect(inventoryBeforeReload.deviceId).toBe(String(targetCredential.deviceId));
@@ -3283,6 +3485,7 @@ async function setupLinkedOwnerPair(
   browser: Browser,
   profile: SignerProfile = 'combined',
 ): Promise<LinkedOwnerPair> {
+  passkeyLinkedDeviceStage(`creating ${profile} browser contexts`);
   const ownerContext = await browser.newContext({ ignoreHTTPSErrors: true });
   const device2Context = await browser.newContext({ ignoreHTTPSErrors: true });
   await ownerContext.route(/https:\/\/[^/]*(?:near\.org|fastnear\.com)\//, fulfillNearRpc);
@@ -3329,15 +3532,17 @@ async function setupLinkedOwnerPair(
         device2Diagnostics.push(`[device2:${message.type()}] ${text}`);
       }
     });
+    passkeyLinkedDeviceStage(`registering ${profile} owner`);
     const owner =
       profile === 'combined'
         ? await registerOwner(ownerPage, ownerDiagnostics)
         : await registerPasskeyOwnerForProfile(ownerPage, profile);
+    passkeyLinkedDeviceStage(`${profile} owner registered`);
+    await assertSignerProfileActions(ownerPage, profile);
     const ownerLocalAuthorityBeforeLink = await readLocalAuthoritySnapshot(
       ownerPage,
       owner.publicIdentity.walletId,
     );
-    await assertSignerProfileActions(ownerPage, profile);
     linkedDeviceFailureMonitor = new LinkedDeviceFailureMonitor([
       { diagnostics: ownerDiagnostics, label: 'owner', page: ownerPage },
       { diagnostics: device2Diagnostics, label: 'device2', page: device2Page },
@@ -3346,6 +3551,7 @@ async function setupLinkedOwnerPair(
       ownerPage.locator('.w3a-profile-button-morphable .w3a-user-account-button-trigger').click(),
     );
 
+    passkeyLinkedDeviceStage('opening Device 2 QR');
     const created = device2Page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname.endsWith('/wallet/device-linking/v1/sessions') &&
@@ -3396,6 +3602,7 @@ async function setupLinkedOwnerPair(
     const ownerCredentialAssertionsBeforeLinking = ownerCredentialAssertedEvents.length;
     const ownerCredentialCreationsBeforeLinking = ownerCredentialAddedEvents.length;
     await linkedDeviceFailureMonitor.race(openOwnerScanner(ownerPage, qrDataUrl));
+    passkeyLinkedDeviceStage('Device 1 scanned Device 2 QR');
     const claimResult = await linkedDeviceFailureMonitor.race(claimed);
     if (claimResult.kind === 'timeout') {
       throw new Error(`Device 1 did not claim the linked session. ${ownerDiagnostics.join('\n')}`, {
@@ -3522,7 +3729,11 @@ async function setupLinkedOwnerPair(
     await linkedDeviceFailureMonitor.race(
       waitForLinkedDeviceActive(device2Page, device2Diagnostics, ownerDiagnostics, profile),
     );
-    linkedDeviceFailureMonitor.stop();
+    passkeyLinkedDeviceStage('Device 2 authority active');
+    assertSelectedWalletAuthorityResolved(
+      await readSelectedWalletAuthorityResolution(device2Page, owner.publicIdentity.walletId),
+      'Device 2 selected authority before reload',
+    );
     const activation: LinkedActivationSnapshot = {
       authMethodId: String(committed.authMethod.walletAuthMethodId),
       authorizationId: String(activated.walletSession.authorizationId),
@@ -3543,6 +3754,7 @@ async function setupLinkedOwnerPair(
     await ownerPage.reload({ waitUntil: 'domcontentloaded' });
     await lockWallet(ownerPage);
     await unlockLinkedPasskeyWallet(ownerPage, ownerDiagnostics, profile);
+    passkeyLinkedDeviceStage('Device 1 reload unlock complete');
     await assertSignerProfileActions(ownerPage, profile);
     const ownerLocalAuthorityAfterLink = await readLocalAuthoritySnapshot(
       ownerPage,
@@ -3557,9 +3769,19 @@ async function setupLinkedOwnerPair(
       rpId: owner.rpId,
     };
     await device2Page.reload({ waitUntil: 'domcontentloaded' });
-    await unlockLinkedPasskeyWallet(device2Page, device2Diagnostics, profile);
+    assertSelectedWalletAuthorityResolved(
+      await readSelectedWalletAuthorityResolution(device2Page, owner.publicIdentity.walletId),
+      'Device 2 selected authority after reload',
+    );
+    await linkedDeviceFailureMonitor.race(
+      unlockLinkedPasskeyWallet(device2Page, device2Diagnostics, profile),
+    );
     await lockWallet(device2Page);
-    await unlockLinkedPasskeyWallet(device2Page, device2Diagnostics, profile);
+    await linkedDeviceFailureMonitor.race(
+      unlockLinkedPasskeyWallet(device2Page, device2Diagnostics, profile),
+    );
+    passkeyLinkedDeviceStage('Device 2 double reload unlock complete');
+    linkedDeviceFailureMonitor.stop();
     await assertSignerProfileActions(device2Page, profile);
     const device2WalletId = await readActiveWalletId(device2Page);
     expect(device2WalletId).toBe(owner.publicIdentity.walletId);
@@ -3594,14 +3816,17 @@ async function assertPasskeySignerProfilePath(
   pair: LinkedOwnerPair,
   profile: SignerProfile,
 ): Promise<void> {
+  passkeyLinkedDeviceStage(`${profile} linked pair ready`);
   await assertSignerProfileActions(pair.device2Page, profile);
   await assertPasskeyInventoryLoaded(pair.ownerPage, 2);
   if (profile !== 'ecdsa') {
     const near = requireNearIdentity(pair.owner.publicIdentity);
     const exported = await exportPasskeyOwnerKey(pair, 'near');
+    passkeyLinkedDeviceStage('Device 2 NEAR export complete');
     expect(exported.accountId).toBe(near.accountId);
     expect(exported.entries.map((entry) => entry.publicKey)).toEqual([near.publicKey]);
     await greetingSigning(pair.device2Page, 'NEAR', pair.device2Diagnostics);
+    passkeyLinkedDeviceStage('Device 2 NEAR signing complete');
   }
   if (profile !== 'ed25519') {
     const exported = await exportPasskeyOwnerKey(pair, 'evm');
@@ -3619,6 +3844,7 @@ async function assertPasskeySignerProfilePath(
   await assertSignerProfileActions(pair.device2Page, profile);
 
   await revokeOwner(pair.ownerPage, ownerCredentialSnapshot(pair.owner), pair.device2);
+  passkeyLinkedDeviceStage('Device 1 revoked Device 2');
   await assertPasskeyInventoryLoaded(pair.ownerPage, 1);
   await assertLinkedDeviceRetired(pair.ownerPage, pair.activation);
   await assertRevokedActiveSessionCannotOperate({

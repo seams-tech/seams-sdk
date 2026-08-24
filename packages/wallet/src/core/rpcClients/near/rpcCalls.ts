@@ -48,6 +48,12 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
+  parseActiveWalletSessionV1,
+  parseWalletSessionOperationCredentialV1,
+  type ActiveWalletSessionV1,
+  type WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
+import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
@@ -680,6 +686,90 @@ export async function verifyPasskeyWalletUnlock(
     };
   } catch (error: unknown) {
     return { success: false, error: errorMessage(error) || 'Failed to verify wallet unlock' };
+  }
+}
+
+export type LinkedDevicePasskeyWalletSessionUnlockInput = {
+  readonly challengeId: string;
+  readonly webauthn_authentication: WebAuthnAuthenticationCredential;
+  readonly ed25519SessionRequest:
+    | { readonly kind: 'not_requested' }
+    | { readonly kind: 'requested'; readonly remainingUses: number };
+  readonly expected_origin?: string;
+};
+
+export type LinkedDevicePasskeyWalletSessionUnlockResult =
+  | {
+      readonly success: false;
+      readonly error: string;
+    }
+  | {
+      readonly success: true;
+      readonly walletSession: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+      readonly ed25519Session: PasskeyWalletUnlockEd25519Session | null;
+    };
+
+/**
+ * Verifies a linked-device passkey and returns the exact ordinary Wallet
+ * Session issued for its persisted V2 authority. Custody/session bootstrap
+ * belongs to the caller's local material opener.
+ */
+export async function verifyLinkedDevicePasskeyWalletSession(
+  relayServerUrl: string,
+  input: LinkedDevicePasskeyWalletSessionUnlockInput,
+): Promise<LinkedDevicePasskeyWalletSessionUnlockResult> {
+  try {
+    const challengeId = requireTrimmedString(input.challengeId, 'challengeId');
+    const expectedOrigin = String(input.expected_origin || '').trim();
+    const body: Record<string, unknown> = {
+      unlockBackend: 'passkey',
+      challengeId,
+      webauthn_authentication: redactCredentialExtensionOutputs(input.webauthn_authentication),
+      ed25519SessionRequest: input.ed25519SessionRequest,
+      ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+    };
+    const response = await fetch(joinNormalizedUrl(relayServerUrl, '/wallet/unlock/verify'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify(body),
+    });
+    const dataJson: unknown = await response.json().catch(() => ({}));
+    const data: Record<string, unknown> = isObject(dataJson) ? dataJson : {};
+    if (!response.ok || data.ok !== true) {
+      return {
+        success: false,
+        error:
+          typeof data.message === 'string'
+            ? data.message
+            : `Wallet Session unlock failed (HTTP ${response.status})`,
+      };
+    }
+    if (data.walletCustody !== undefined && data.walletCustody !== null) {
+      throw new Error('Linked passkey unlock returned custody data');
+    }
+    if (data.ecdsaSession !== undefined && data.ecdsaSession !== null) {
+      throw new Error('Linked passkey unlock returned an ECDSA activation');
+    }
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
+      throw new Error('Linked passkey unlock omitted the requested Ed25519 Wallet Session');
+    }
+    if (input.ed25519SessionRequest.kind === 'not_requested' && ed25519Session) {
+      throw new Error('Linked passkey unlock returned an unrequested Ed25519 Wallet Session');
+    }
+    return {
+      success: true,
+      walletSession: parseActiveWalletSessionV1(data.walletSession),
+      operationCredential: parseWalletSessionOperationCredentialV1(data.operationCredential),
+      ed25519Session,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: errorMessage(error) || 'Failed to verify linked passkey Wallet Session',
+    };
   }
 }
 

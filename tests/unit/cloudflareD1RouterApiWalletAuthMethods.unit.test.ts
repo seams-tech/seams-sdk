@@ -16,7 +16,11 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import { type RouterAbEcdsaVerifiedClientActivationFactsV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  parseWalletAuthMethodId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
@@ -53,6 +57,14 @@ const TEST_ECDSA_MATERIAL_ACTIVATION = fixtureRouterAbEcdsaMaterialActivation(
 
 function yaoBytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
+}
+
+function requiredDomainValue<T>(
+  result: { readonly ok: true; readonly value: T } | { readonly ok: false },
+  field: string,
+): T {
+  if (!result.ok) throw new Error(`Test ${field} is invalid`);
+  return result.value;
 }
 
 async function reopenAddSignerFinalizeCompletionAsStaleClaim(input: {
@@ -322,6 +334,10 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     const currentQuotaId = 'wallet-quota-current';
     const rpId = 'example.com';
     const credentialIdB64u = 'passkey-budget-refresh-credential';
+    const walletAuthMethodId = requiredDomainValue(
+      parseWalletAuthMethodId('wallet-auth-method:passkey-budget-refresh'),
+      'walletAuthMethodId',
+    );
     const participantIds = [1, 2] as const;
     const runtimePolicyScope = normalizeRuntimePolicyScope({
       orgId: scope.orgId,
@@ -329,11 +345,21 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       envId: scope.envId,
       signingRootVersion: 'root-v1',
     });
-    const authority = buildPasskeyWalletAuthAuthority({
+    const authority = {
       walletId,
-      rpId,
-      credentialIdB64u,
-    });
+      factor: {
+        kind: 'passkey' as const,
+        credentialIdB64u: requiredDomainValue(
+          parseWebAuthnCredentialIdB64u(credentialIdB64u),
+          'credentialIdB64u',
+        ),
+      },
+      verifier: {
+        kind: 'webauthn' as const,
+        rpId: requiredDomainValue(parseWebAuthnRpId(rpId), 'rpId'),
+      },
+      bindingId: walletAuthMethodId,
+    };
     const activeYao = buildEd25519YaoCapabilityFixture({
       walletId,
       nearAccountId,
@@ -376,9 +402,9 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       database,
       ...scope,
       record: {
-        version: 'wallet_auth_method_v1',
         kind: 'passkey',
-        status: 'active',
+        walletAuthMethodId,
+        walletAuthorityId: 'wallet-authority:passkey-budget-refresh',
         walletId,
         rpId,
         credentialIdB64u,
@@ -434,7 +460,7 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
         verifiedChallengeId: 'passkey-budget-refresh-challenge',
       },
     });
-    expect(refreshed).toMatchObject({
+    expect(refreshed, JSON.stringify(refreshed)).toMatchObject({
       ok: true,
       walletId,
       thresholdSessionId: currentThresholdSessionId,
@@ -469,9 +495,9 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       database,
       ...scope,
       record: {
-        version: 'wallet_auth_method_v1',
         kind: 'passkey',
-        status: 'active',
+        walletAuthMethodId: 'wallet-auth-method:add-auth-existing-passkey',
+        walletAuthorityId: 'wallet-authority:add-auth-wallet',
         walletId,
         rpId,
         credentialIdB64u: 'existing-passkey-credential',
@@ -523,7 +549,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       sessionHash: intent.addAuthMethodIntentDigestB64u,
       appSessionVersion,
     });
-    expect(challenge.ok).toBe(true);
+    expect(challenge.ok, JSON.stringify(challenge)).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
     const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
       challengeId: challenge.challenge.challengeId,
@@ -593,6 +619,9 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       },
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
     });
+    if (!finalized.ok) throw new Error(`Expected add-auth finalization: ${finalized.message}`);
+    const addedWalletAuthMethodId = String(finalized.authority.bindingId);
+    expect(addedWalletAuthMethodId).toMatch(/^wallet-auth-method:/);
     expect(finalized).toEqual({
       ok: true,
       walletId,
@@ -607,7 +636,7 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           kind: 'email_otp_wallet_auth_method',
           emailHashHex,
         },
-        bindingId: `email_otp:${walletId}:${emailHashHex}`,
+        bindingId: addedWalletAuthMethodId,
       },
       authMethod: {
         kind: 'email_otp',
@@ -618,10 +647,12 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       readWalletAuthMethodRecord({
         database,
         ...scope,
-        walletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
+        walletAuthMethodId: addedWalletAuthMethodId,
       }),
     ).resolves.toMatchObject({
-      version: 'wallet_auth_method_v1',
+      version: 'wallet_auth_method_v2',
+      walletAuthMethodId: addedWalletAuthMethodId,
+      walletAuthorityId: 'wallet-authority:add-auth-wallet',
       kind: 'email_otp',
       status: 'active',
       walletId,
@@ -715,7 +746,9 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
         },
       },
     });
-    if (!started.ok || !started.ecdsa) throw new Error('Expected ECDSA add-signer start');
+    if (!started.ok || !started.ecdsa) {
+      throw new Error(`Expected ECDSA add-signer start: ${JSON.stringify(started)}`);
+    }
     expect(started.ecdsa.strictRegistration.registration_purpose).toBe('wallet_add_signer');
 
     const strictRequest = buildFixtureRouterAbEcdsaStrictRegistrationRequest(
@@ -878,9 +911,9 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
       database,
       ...scope,
       record: {
-        version: 'wallet_auth_method_v1',
         kind: 'passkey',
-        status: 'active',
+        walletAuthMethodId: 'wallet-auth-method:ed25519-add-signer',
+        walletAuthorityId: 'wallet-authority:ed25519-add-signer',
         walletId,
         rpId,
         credentialIdB64u,

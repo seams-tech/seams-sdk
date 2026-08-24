@@ -9,7 +9,7 @@ import {
   buildEmailOtpEcdsaReadyPersistInput,
   emailOtpEcdsaPublicationChainTargets,
 } from '@/core/signingEngine/session/emailOtp/ecdsaPublication';
-import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForCanonicalWallet } from '@/core/signingEngine/session/identity/laneIdentity';
 
 const tempoTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
@@ -22,7 +22,7 @@ const evmTarget = thresholdEcdsaChainTargetFromChainFamily({
   networkSlug: 'arc-testnet',
 });
 
-const sessionLoginAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+const sessionLoginAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
   policy: 'session',
   retention: 'session',
   reason: 'login',
@@ -32,7 +32,7 @@ const sessionLoginAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
   emailHashHex: 'email-hash-wallet-testnet',
 });
 
-const singleUseSignAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+const singleUseSignAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
   policy: 'per_operation',
   retention: 'single_use',
   walletId: 'wallet.testnet',

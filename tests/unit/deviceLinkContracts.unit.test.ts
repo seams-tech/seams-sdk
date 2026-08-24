@@ -12,12 +12,104 @@ import {
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { parseLinkedDeviceSessionStateV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import { parseWalletAuthorityId } from '@shared/utils/domainIds';
+import {
+  buildActiveWalletSessionV1,
+  parseStoredExactWalletSessionAuthorizationWithOperationCredential,
+  toStoredExactWalletSessionAuthorizationRowV5,
+} from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  parseLinkedDeviceApprovalResultV1,
   parseLinkSessionProjectionV1,
   parseLinkSessionStateV1,
   parseLinkSessionTransportEventV1,
+  parseWalletSessionOperationCredentialV1,
 } from '../../packages/shared-ts/src/device-linking/parsers';
 
 test.describe('R103E link-session contracts', () => {
+  test('parses only high-entropy opaque operation credentials with their session binding', () => {
+    const token = `wst_${'a'.repeat(43)}`;
+    const credential = parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token,
+      walletSessionId: 'wallet-session:credential-parser',
+    });
+    expect(credential).toEqual({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token,
+      walletSessionId: 'wallet-session:credential-parser',
+    });
+    expect(() =>
+      parseWalletSessionOperationCredentialV1({
+        kind: 'opaque_wallet_session_operation_credential_v1',
+        token: 'wst_short',
+        walletSessionId: 'wallet-session:credential-parser',
+      }),
+    ).toThrow();
+    expect(() =>
+      parseWalletSessionOperationCredentialV1({ kind: credential.kind, token }),
+    ).toThrow();
+    expect(() =>
+      parseWalletSessionOperationCredentialV1({
+        kind: 'signed_wallet_session_operation_credential_v1',
+        token,
+        walletSessionId: 'wallet-session:credential-parser',
+      }),
+    ).toThrow();
+    expect(() =>
+      parseWalletSessionOperationCredentialV1({
+        kind: credential.kind,
+        token,
+        walletSessionId: 'wallet-session:credential-parser',
+        signature: 'legacy-signed-credential',
+      }),
+    ).toThrow();
+  });
+
+  test('round-trips the opaque operation credential in the exact persisted session row', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const sourceLane = fixture.approval.orderedOwnerSourceLaneHints[0];
+    if (!sourceLane) throw new Error('R103 fixture source lane is missing');
+    const walletSessionId = parseWalletSessionId('wallet-session:persisted-credential');
+    const authorizationId = parseWalletSessionAuthorizationId('authorization:persisted-credential');
+    const authorityId = parseWalletAuthorityId('authority:persisted-credential');
+    if (!walletSessionId.ok || !authorizationId.ok || !authorityId.ok) {
+      throw new Error('R103 persistence identifiers are invalid');
+    }
+    const record = buildActiveWalletSessionV1({
+      walletId: fixture.approval.walletId,
+      authorityId: authorityId.value,
+      authMethodId: sourceLane.lane.walletAuthMethodId,
+      authorizationId: authorizationId.value,
+      authorityDigestB64u: fixture.packageSetDigestB64u,
+      authorityRevocationEpoch: 0,
+      capabilitySubjects: [
+        {
+          kind: 'sign',
+          keyFamily: 'ed25519',
+          materialActivation: sourceLane.materialActivation,
+        },
+      ],
+      issuedAtMs: 2_100,
+      expiresAtMs: 10_000,
+    });
+    const operationCredential = parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token: `wst_${'b'.repeat(43)}`,
+      walletSessionId: walletSessionId.value,
+    });
+    const stored = toStoredExactWalletSessionAuthorizationRowV5(record, operationCredential);
+
+    expect(
+      parseStoredExactWalletSessionAuthorizationWithOperationCredential(
+        JSON.parse(JSON.stringify(stored)),
+      ),
+    ).toEqual({ record, operationCredential });
+  });
+
   test('round-trips the QR payload through its strict wire parser', () => {
     const fixture = buildR103DeviceLinkFixture();
     const serialized = serializeQrLinkedDeviceSessionPayloadV5(fixture.payload);
@@ -53,10 +145,12 @@ test.describe('R103E link-session contracts', () => {
 
     expect(claimDigest).toBe(await computeLinkedDeviceSessionClaimDigestV1(claim));
     expect(approvalDigest).toBe(await computeLinkedDeviceApprovalDigestV1(fixture.approval));
-    expect(await computeLinkedDeviceApprovalDigestV1({
-      ...fixture.approval,
-      expiresAtMs: fixture.approval.expiresAtMs - 1,
-    })).not.toBe(approvalDigest);
+    expect(
+      await computeLinkedDeviceApprovalDigestV1({
+        ...fixture.approval,
+        expiresAtMs: fixture.approval.expiresAtMs - 1,
+      }),
+    ).not.toBe(approvalDigest);
   });
 
   test('accepts only the linear lifecycle states and rejects committed cancellation facts', () => {
@@ -144,5 +238,27 @@ test.describe('R103E link-session contracts', () => {
         cancelledAtMs: 3_000,
       }),
     ).toThrow();
+  });
+
+  test('parses approval responses through the compact linear session state', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const pending = {
+      state: 'awaiting_target_factor' as const,
+      deviceId: String(fixture.approval.deviceId),
+    };
+
+    expect(parseLinkedDeviceApprovalResultV1({ outcome: 'pending', state: pending })).toEqual({
+      outcome: 'pending',
+      state: pending,
+    });
+    expect(
+      parseLinkedDeviceApprovalResultV1({
+        outcome: 'replayed',
+        replay: { state: 'pending', session: pending },
+      }),
+    ).toEqual({
+      outcome: 'replayed',
+      replay: { state: 'pending', session: pending },
+    });
   });
 });

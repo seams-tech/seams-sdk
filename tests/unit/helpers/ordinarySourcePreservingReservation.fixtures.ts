@@ -9,6 +9,9 @@ import {
   LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1,
 } from '@shared/device-linking/sourceContribution';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildMpcMaterialActivationRef,
   parseCapabilityInstanceRef,
@@ -19,9 +22,7 @@ import {
   parseMpcSigningWorkerRef,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import {
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
-} from '@shared/utils/routerAbEd25519Yao';
+import { parseRouterAbEd25519YaoCeremonyBindingV1 } from '@shared/utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   OrdinaryEcdsaSignerMaterialReservationRequestV1,
@@ -33,15 +34,12 @@ export function buildSourcePreservingEd25519ReservationRequestFixture(
 ): OrdinaryEd25519SignerMaterialReservationRequestV1 {
   const sourceActivation = buildActivation(label, 'source');
   const targetActivation = buildFreshActivation(sourceActivation, `${label}-target`);
-  const sourceBinding = buildEd25519Binding(sourceActivation, label);
-  const targetBinding = buildEd25519Binding(targetActivation, label);
-  const targetRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1({
-    binding: targetBinding,
-    deriver_a_input: buildEd25519Input('deriver_a', targetBinding, 11),
-    deriver_b_input: buildEd25519Input('deriver_b', targetBinding, 13),
-  });
-  if (!targetRequest.ok) throw new Error(targetRequest.message);
-
+  const sourceBinding = parseRouterAbEd25519YaoCeremonyBindingV1(
+    buildEd25519Binding(sourceActivation, label),
+  );
+  const targetBinding = parseRouterAbEd25519YaoCeremonyBindingV1(
+    buildEd25519Binding(targetActivation, label),
+  );
   const sourceContribution = parseLinkedDeviceOrdinaryMaterialSourceContributionV1({
     kind: 'linked_device_ed25519_source_contribution_v1',
     keyFamily: 'ed25519',
@@ -55,13 +53,30 @@ export function buildSourcePreservingEd25519ReservationRequestFixture(
     targetClientRecipientPublicKeyB64u: encodedBytes(32, 23),
     targetSigningWorkerRecipientPublicKeyB64u: encodedBytes(32, 25),
     sourceBinding,
-    delivery: {
-      deriver_a: buildEd25519Delivery('deriver_a', targetBinding, 31),
-      deriver_b: buildEd25519Delivery('deriver_b', targetBinding, 37),
+    reservationId: `ed25519-reservation:${label}`,
+    targetBinding,
+    activationReceipt: {
+      transcript: bytes(32, 41),
+      registered_public_key: bytes(32, 53),
+      joined_client_commitment: bytes(32, 55),
+      joined_signing_worker_commitment: bytes(32, 57),
+      signing_worker_verifying_share: bytes(32, 59),
+      state_epoch: 1,
+      material_activation: routerAbMpcMaterialActivationRefToWire(targetActivation),
     },
     participantIds: [1, 2],
-    deriver_a_client_package: buildEd25519Package('activation_client', 'deriver_a', targetBinding, 41),
-    deriver_b_client_package: buildEd25519Package('activation_client', 'deriver_b', targetBinding, 47),
+    deriver_a_client_package: buildEd25519Package(
+      'activation_client',
+      'deriver_a',
+      targetBinding,
+      41,
+    ),
+    deriver_b_client_package: buildEd25519Package(
+      'activation_client',
+      'deriver_b',
+      targetBinding,
+      41,
+    ),
     sourceRegisteredPublicKeyB64u: encodedBytes(32, 53),
   });
   if (sourceContribution.keyFamily !== 'ed25519') {
@@ -76,7 +91,13 @@ export function buildSourcePreservingEd25519ReservationRequestFixture(
     preparation: {
       kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1',
       sourceContribution,
-      targetRequest: targetRequest.value,
+      targetBinding,
+      applicationBinding: {
+        wallet_id: `wallet:${label}`,
+        near_ed25519_signing_key_id: `near-signing-key:${label}`,
+        signing_root_id: `signing-root:${label}`,
+        key_creation_signer_slot: 1,
+      },
     },
   };
 }
@@ -91,6 +112,35 @@ export function buildSourcePreservingEcdsaReservationRequestFixture(
   const thresholdPublicKey = encodedBytes(33, 65, 2);
   const clientRecipient = encodedBytes(32, 67);
   const signingWorkerRecipient = encodedBytes(32, 69);
+  const ecdsaThresholdKeyId = parseSdkEcdsaDerivationThresholdKeyId('ecdsa-threshold-key:r103');
+  const sourceNormalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1({
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: sourceActivation.materialOwner,
+      ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+      signing_root_id: `signing-root:${label}`,
+      signing_root_version: `signing-root-version:${label}`,
+      context: {
+        application_binding_digest_b64u: encodedBytes(32, 89),
+      },
+      public_identity: {
+        context_binding_b64u: encodedBytes(32, 91),
+        derivation_client_share_public_key33_b64u: sourcePublicKey,
+        server_public_key33_b64u: relayerPublicKey,
+        threshold_public_key33_b64u: thresholdPublicKey,
+        ethereum_address20_b64u: encodedBytes(20, 71),
+        client_share_retry_counter: 2,
+        server_share_retry_counter: 3,
+      },
+      material_activation: routerAbMpcMaterialActivationRefToWire(sourceActivation),
+      signing_worker: {
+        server_id: sourceActivation.signingWorker,
+        key_epoch: `signing-worker-key-epoch:${label}`,
+        recipient_encryption_key: `x25519:${'ab'.repeat(32)}`,
+      },
+      activation_epoch: `root-share-epoch:${label}`,
+    },
+  });
   const binding = {
     linkSessionId: `link-session:${label}`,
     enrollmentId: `linked-enrollment:${label}`,
@@ -125,8 +175,10 @@ export function buildSourcePreservingEcdsaReservationRequestFixture(
     preparation: {
       kind: 'ordinary_ecdsa_signer_material_reservation_preparation_v1',
       sourceDerivation: {
-        applicationBindingDigestB64u: encodedBytes(32, 89),
+        applicationBindingDigestB64u: parseDigestB64u(encodedBytes(32, 89)),
         clientShareRetryCounter: 2,
+        ecdsaThresholdKeyId,
+        sourceNormalSigning,
       },
       sourceContribution,
     },
@@ -220,35 +272,6 @@ function buildEd25519Binding(
     session_id: bytes(32, 107),
     stable_key_context_binding: bytes(32, 109),
     material_activation: routerAbMpcMaterialActivationRefToWire(activation),
-  };
-}
-
-function buildEd25519Input(
-  deriver: 'deriver_a' | 'deriver_b',
-  binding: Record<string, unknown>,
-  seed: number,
-): Record<string, unknown> {
-  return {
-    kind: 'activation',
-    deriver,
-    operation: 'registration',
-    session: binding.session_id,
-    stable_context_binding: binding.stable_key_context_binding,
-    encapsulated_key: bytes(32, seed),
-    ciphertext: bytes(32, seed + 1),
-  };
-}
-
-function buildEd25519Delivery(
-  deriver: 'deriver_a' | 'deriver_b',
-  binding: Record<string, unknown>,
-  seed: number,
-): Record<string, unknown> {
-  return {
-    binding,
-    client_commitment: bytes(32, seed),
-    signing_worker_commitment: bytes(32, seed + 1),
-    package: buildEd25519Package('activation_signing_worker', deriver, binding, seed + 2),
   };
 }
 

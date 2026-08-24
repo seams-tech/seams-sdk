@@ -72,7 +72,7 @@ export type EvmFamilyThresholdEcdsaStepUp =
     };
 
 type EvmFamilyPreparedStepUpAuthBase = {
-  kind: 'warm_session' | 'email_otp' | 'passkey';
+  kind: 'warm_session' | 'active_wallet_authority' | 'email_otp' | 'passkey';
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };
 };
 
@@ -80,6 +80,13 @@ export type EvmFamilyWarmSessionStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
   kind: 'warm_session';
   confirmationAuthPayload: {
     signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+  };
+};
+
+export type EvmFamilyActiveWalletAuthorityStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
+  kind: 'active_wallet_authority';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'active_wallet_authority' }>;
   };
 };
 
@@ -100,6 +107,7 @@ export type EvmFamilyPasskeyStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
 
 export type EvmFamilyPreparedStepUpAuth =
   | EvmFamilyWarmSessionStepUpAuth
+  | EvmFamilyActiveWalletAuthorityStepUpAuth
   | EvmFamilyEmailOtpStepUpAuth
   | EvmFamilyPasskeyStepUpAuth;
 

@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildActiveWalletAuthorityV1,
   buildPendingWalletAuthorityV1,
+  buildRevokedWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
@@ -31,6 +32,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -91,6 +93,10 @@ function requiredWalletAuthMethodId(value: string) {
   const parsed = parseWalletAuthMethodId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+async function digestOpaqueCredentialForTest(value: string): Promise<DigestB64u> {
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(value)));
 }
 
 type ActiveAuthorityFixture = {
@@ -285,6 +291,7 @@ function authorityWithProvenance(
   authority: ActiveWalletAuthorityV1,
   authorityDigestB64u: DigestB64u,
   revocationEpoch: number,
+  updatedAtMs = authority.updatedAtMs,
 ): ActiveWalletAuthorityV1 {
   return buildActiveWalletAuthorityV1({
     kind: authority.kind,
@@ -298,7 +305,7 @@ function authorityWithProvenance(
     authorityDigestB64u,
     revocationEpoch,
     createdAtMs: authority.createdAtMs,
-    updatedAtMs: authority.updatedAtMs,
+    updatedAtMs,
     state: authority.state,
     activatedAtMs: authority.activatedAtMs,
   });
@@ -377,12 +384,11 @@ test('promotes a registration session into the exact V2 authority projection', a
       issuedAtMs: 300,
       expiresAtMs: 400,
     });
-    const promoted =
-      await service.issueWalletSessionAuthorizationV2FromReusableSession({
-        reusableWalletSession: issued,
-        authority: fixture.authority,
-        walletAuthMethodId,
-      });
+    const promoted = await service.issueWalletSessionAuthorizationV2FromReusableSession({
+      reusableWalletSession: issued,
+      authority: fixture.authority,
+      walletAuthMethodId,
+    });
 
     expect(promoted.session.authorizationId).toBe(issued.session.authorizationId);
     expect(promoted.session.walletSessionId).toBe(issued.session.walletSessionId);
@@ -474,6 +480,273 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
         nowMs: 301,
       }),
     ).rejects.toThrow(/retired/);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('issues and rereads one exact operation credential, refusing wrong, rotated, revoked, and expired bindings', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'wallet-session-v2-operation-credential';
+    const service = createService(temporary.database, namespace);
+    const fixture = await seedActiveAuthority(
+      temporary.database,
+      namespace,
+      'operation-credential',
+    );
+    const input = {
+      tenantId: requiredParsed(parseTenantId('tenant:v2-operation-credential')),
+      principalId: requiredParsed(parsePrincipalId('principal:v2-operation-credential')),
+      walletId: fixture.authority.walletId,
+      authority: fixture.authority,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:v2-operation-credential'),
+      remainingUses: 3,
+      issuedAtMs: 300,
+      expiresAtMs: 400,
+    } as const;
+    const issued = await service.issueWalletSessionAuthorizationV2(input);
+
+    const credential = await service.issueWalletSessionAuthorizationV2OperationCredential({
+      session: issued.session,
+    });
+    expect(credential.kind).toBe('opaque_wallet_session_operation_credential_v1');
+    expect(credential.token).toMatch(/^wst_[A-Za-z0-9_-]{43}$/);
+    expect(credential.walletSessionId).toBe(issued.session.walletSessionId);
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT operation_credential_hash
+             FROM wallet_session_authorizations_v2
+            WHERE namespace = ? AND tenant_id = ? AND authorization_id = ?`,
+        )
+        .bind(namespace, input.tenantId, String(issued.session.authorizationId))
+        .first<{ readonly operation_credential_hash?: unknown }>(),
+    ).resolves.toEqual({
+      operation_credential_hash: await digestOpaqueCredentialForTest(credential.token),
+    });
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: input.tenantId,
+        token: credential.token,
+        nowMs: 301,
+      }),
+    ).resolves.toEqual(issued);
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: input.tenantId,
+        token: `${credential.token}x`,
+        nowMs: 301,
+      }),
+    ).resolves.toBeNull();
+
+    const rotated = await service.issueWalletSessionAuthorizationV2OperationCredential({
+      session: issued.session,
+    });
+    expect(rotated.token).not.toBe(credential.token);
+    expect(rotated.walletSessionId).toBe(credential.walletSessionId);
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: input.tenantId,
+        token: credential.token,
+        nowMs: 301,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: input.tenantId,
+        token: rotated.token,
+        nowMs: 301,
+      }),
+    ).resolves.toEqual(issued);
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: input.tenantId,
+        token: rotated.token,
+        nowMs: issued.session.expiresAtMs,
+      }),
+    ).rejects.toThrow(/expired/);
+
+    const revokedAuthorityDigest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(99)));
+    const revokedAuthority = buildRevokedWalletAuthorityV1({
+      kind: 'wallet_authority_v1',
+      authorityId: fixture.authority.authorityId,
+      walletId: fixture.authority.walletId,
+      principal: fixture.authority.principal,
+      provenance: fixture.authority.provenance,
+      permissions: fixture.authority.permissions,
+      signerActivations: fixture.authority.signerActivations,
+      signerActivationSetDigestB64u: fixture.authority.signerActivationSetDigestB64u,
+      authorityDigestB64u: revokedAuthorityDigest,
+      revocationEpoch: fixture.authority.revocationEpoch + 1,
+      createdAtMs: fixture.authority.createdAtMs,
+      updatedAtMs: 401,
+      state: 'revoked' as const,
+      activatedAtMs: fixture.authority.activatedAtMs,
+      revokedAtMs: 401,
+    });
+    await temporary.database
+      .prepare(
+        `UPDATE wallet_authorities
+            SET lifecycle_state = ?,
+                authority_digest_b64u = ?,
+                revocation_epoch = ?,
+                record_json = ?,
+                updated_at_ms = ?,
+                revoked_at_ms = ?
+          WHERE namespace = ? AND authority_id = ?`,
+      )
+      .bind(
+        revokedAuthority.state,
+        String(revokedAuthority.authorityDigestB64u),
+        revokedAuthority.revocationEpoch,
+        JSON.stringify(revokedAuthority),
+        revokedAuthority.updatedAtMs,
+        revokedAuthority.revokedAtMs,
+        namespace,
+        String(revokedAuthority.authorityId),
+      )
+      .run();
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: input.tenantId,
+        token: rotated.token,
+        nowMs: 301,
+      }),
+    ).rejects.toThrow(/provenance|active/);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('refreshes an established V2 Wallet Session against an upgraded active authority without rotating identity', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'wallet-session-v2-authority-refresh';
+    const walletAuthMethodId = requiredWalletAuthMethodId(
+      'wallet-auth-method:v2-authority-refresh',
+    );
+    const fixture = await seedActiveAuthority(temporary.database, namespace, 'authority-refresh', {
+      walletAuthMethodId,
+    });
+    const service = createService(temporary.database, namespace);
+    const walletAuthAuthority = buildPasskeyWalletAuthAuthority({
+      walletId: fixture.authMethod.walletId,
+      rpId: fixture.authMethod.rpId,
+      credentialIdB64u: fixture.authMethod.credentialIdB64u,
+    });
+    const canonicalAuthorityRef = await walletAuthAuthorityRef({
+      authority: walletAuthAuthority,
+    });
+    const reusableAuthorityRef = {
+      ...canonicalAuthorityRef,
+      walletAuthMethodId,
+    } as const;
+    const reusableWalletSession = await service.issueReusableWalletSession({
+      tenantId: requiredParsed(parseTenantId('tenant:v2-authority-refresh')),
+      principalId: requiredParsed(parsePrincipalId('principal:v2-authority-refresh')),
+      walletId: fixture.authority.walletId,
+      authority: reusableAuthorityRef,
+      mintId: requiredMintId('unlock:v2-authority-refresh'),
+      remainingUses: 3,
+      issuedAtMs: 300,
+      expiresAtMs: 400,
+    });
+    const established = await service.issueWalletSessionAuthorizationV2FromReusableSession({
+      reusableWalletSession,
+      authority: fixture.authority,
+      walletAuthMethodId,
+    });
+    const operationCredential = await service.issueWalletSessionAuthorizationV2OperationCredential({
+      session: established.session,
+    });
+
+    const upgradedAuthority = authorityWithProvenance(
+      fixture.authority,
+      parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(71))),
+      fixture.authority.revocationEpoch,
+      401,
+    );
+    await temporary.database
+      .prepare(
+        `UPDATE wallet_authorities
+            SET lifecycle_state = ?,
+                authority_digest_b64u = ?,
+                revocation_epoch = ?,
+                record_json = ?,
+                updated_at_ms = ?
+          WHERE namespace = ? AND authority_id = ?`,
+      )
+      .bind(
+        upgradedAuthority.state,
+        String(upgradedAuthority.authorityDigestB64u),
+        upgradedAuthority.revocationEpoch,
+        JSON.stringify(upgradedAuthority),
+        upgradedAuthority.updatedAtMs,
+        namespace,
+        String(upgradedAuthority.authorityId),
+      )
+      .run();
+
+    await expect(
+      service.readWalletSessionAuthorizationV2ByIdentity({
+        tenantId: established.session.tenantId,
+        walletId: established.session.walletId,
+        walletSessionId: established.session.walletSessionId,
+        authorizationId: established.session.authorizationId,
+        nowMs: 301,
+      }),
+    ).rejects.toThrow(/provenance/);
+
+    const refreshed = await service.refreshWalletSessionAuthorizationV2FromReusableSession({
+      reusableWalletSession,
+      authority: upgradedAuthority,
+      walletAuthMethodId,
+    });
+
+    expect({
+      tenantId: refreshed.session.tenantId,
+      principalId: refreshed.session.principalId,
+      walletId: refreshed.session.walletId,
+      authorityId: refreshed.session.authorityId,
+      walletAuthMethodId: refreshed.session.walletAuthMethodId,
+      mintId: refreshed.session.mintId,
+      authorizationId: refreshed.session.authorizationId,
+      walletSessionId: refreshed.session.walletSessionId,
+      quotaId: refreshed.session.quotaId,
+    }).toEqual({
+      tenantId: established.session.tenantId,
+      principalId: established.session.principalId,
+      walletId: established.session.walletId,
+      authorityId: established.session.authorityId,
+      walletAuthMethodId: established.session.walletAuthMethodId,
+      mintId: established.session.mintId,
+      authorizationId: established.session.authorizationId,
+      walletSessionId: established.session.walletSessionId,
+      quotaId: established.session.quotaId,
+    });
+    expect(refreshed.session.authorityDigestB64u).toBe(upgradedAuthority.authorityDigestB64u);
+    expect(refreshed.session.authorityRevocationEpoch).toBe(upgradedAuthority.revocationEpoch);
+    expect(refreshed.quota).toEqual(established.quota);
+    await expect(
+      service.readWalletSessionAuthorizationV2ByOperationCredential({
+        tenantId: refreshed.session.tenantId,
+        token: operationCredential.token,
+        nowMs: 301,
+      }),
+    ).resolves.toEqual(refreshed);
+    await expect(
+      service.readWalletSessionAuthorizationV2ByIdentity({
+        tenantId: refreshed.session.tenantId,
+        walletId: refreshed.session.walletId,
+        walletSessionId: refreshed.session.walletSessionId,
+        authorizationId: refreshed.session.authorizationId,
+        nowMs: 301,
+      }),
+    ).resolves.toEqual(refreshed);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

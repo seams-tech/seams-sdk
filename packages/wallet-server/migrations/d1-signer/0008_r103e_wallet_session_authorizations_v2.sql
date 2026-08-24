@@ -35,6 +35,7 @@ CREATE TABLE wallet_session_authorizations_v2 (
   issued_at_ms INTEGER NOT NULL,
   expires_at_ms INTEGER NOT NULL,
   retired_at_ms INTEGER,
+  operation_credential_hash TEXT,
   record_json TEXT NOT NULL,
   PRIMARY KEY (namespace, org_id, project_id, env_id, tenant_id, authorization_id),
   UNIQUE (namespace, org_id, project_id, env_id, tenant_id, mint_id),
@@ -81,6 +82,7 @@ CREATE TABLE wallet_session_authorizations_v2 (
   CHECK (issued_at_ms > 0),
   CHECK (expires_at_ms > issued_at_ms),
   CHECK (retired_at_ms IS NULL OR retired_at_ms >= issued_at_ms),
+  CHECK (operation_credential_hash IS NULL OR length(operation_credential_hash) > 0),
   CHECK (length(record_json) > 0 AND json_valid(record_json)),
   CHECK (COALESCE(json_extract(record_json, '$.kind') = 'wallet_session_authorization_v2', 0)),
   CHECK (COALESCE(json_extract(record_json, '$.tenantId') = tenant_id, 0)),
@@ -131,3 +133,9 @@ CREATE INDEX wallet_session_authorizations_v2_expiry_idx
     namespace, org_id, project_id, env_id, tenant_id,
     expires_at_ms, retired_at_ms
   );
+
+CREATE UNIQUE INDEX wallet_session_authorizations_v2_operation_credential_uidx
+  ON wallet_session_authorizations_v2 (
+    namespace, org_id, project_id, env_id, tenant_id, operation_credential_hash
+  )
+  WHERE operation_credential_hash IS NOT NULL;

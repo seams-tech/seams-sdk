@@ -205,6 +205,10 @@ export async function signNep413Message({
 }: NearNep413Payload): Promise<InternalSignNep413MessageResult> {
   const selectionAuth =
     selection.kind === 'authorized' ? selection.selectedLane.auth : selection.candidate.auth;
+  const selectedSignerSlot =
+    selection.kind === 'authorized'
+      ? selection.selectedLane.identity.signer.signerSlot
+      : selection.candidate.signerSlot;
   const operationId = payload.operationId;
   const relayerUrl = ctx.relayerUrl;
   const nearAccountId = nearAccount.accountId;
@@ -272,9 +276,10 @@ export async function signNep413Message({
     };
   }
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
-    ctx,
+    materialExecutor: yaoMaterialExecutor,
     nearAccount,
-    signerSlot: payload.signerSlot,
+    signerSlot: selectedSignerSlot,
+    requestedSignerSlot: payload.signerSlot,
     operationLabel: 'NEP-413 signing',
   });
   const signingContext = validateAndPrepareNep413SigningContext({

@@ -18,6 +18,7 @@ import {
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { parseRootShareEpoch } from '../../packages/shared-ts/src/utils/domainIds';
+import { createRouterAbEcdsaStrictPostRegistrationPort } from '../../packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import {
   parseRouterAbNormalSigningAuthorization,
@@ -237,6 +238,80 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     ).toThrow();
   });
 
+  test('strict ECDSA export forwards the admitted registration material source', async () => {
+    const request = parseRouterAbEcdsaDerivationExplicitExportRequestV1(
+      explicitExportRequest('evm.export_key'),
+    );
+    const forwardedRequests: Request[] = [];
+    const port = createRouterAbEcdsaStrictPostRegistrationPort({
+      router: {
+        fetch: async (input) => {
+          forwardedRequests.push(new Request(input));
+          return new Response('{}', { status: 200 });
+        },
+      },
+      tokenIssuer: {
+        issue: async () => 'token',
+        issueRequest: async () => 'token',
+        publicJwks: () => ({ keys: [] }),
+      },
+      tokenScope: {
+        orgId: 'org_abcdefgh1234',
+        projectId: 'project-fixture',
+        environment: 'local',
+      },
+      topology: {
+        routerId: request.router_id,
+        signerSet: request.signer_set,
+        deriverRecipientKeys: {
+          deriver_a: {
+            role: 'signer_a',
+            key_epoch: 'epoch-a',
+            public_key: `x25519:${'a'.repeat(64)}`,
+          },
+          deriver_b: {
+            role: 'signer_b',
+            key_epoch: 'epoch-b',
+            public_key: `x25519:${'b'.repeat(64)}`,
+          },
+        },
+      },
+    });
+
+    const result = await port.explicitExport({
+      request,
+      requestDigestB64u: b64u(42, 32),
+      authority: {
+        subjectId: request.client_id,
+        sessionId: request.lifecycle.session_id,
+        accountId: request.lifecycle.account_id,
+        expiresAtMs: request.expires_at_ms,
+        keyHandle: 'key-handle-1',
+        authorization: { kind: 'operation_step_up' },
+        normalSigningScope,
+        privateAuthorization: {
+          kind: 'operation_step_up',
+          evidenceSetDigest: b64u(43, 32),
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    const forwardedRequest = forwardedRequests[0];
+    if (!forwardedRequest) throw new Error('strict ECDSA export did not reach the Router');
+    const forwarded = await forwardedRequest.json();
+    expect(forwarded).toMatchObject({
+      material_source: {
+        kind: 'registration_activation',
+        lookup: {
+          account_id: normalSigningScope.wallet_id,
+          material_activation_id: normalSigningScope.material_activation.activation_id,
+          signing_worker_id: normalSigningScope.signing_worker.server_id,
+        },
+      },
+    });
+  });
+
   test('SigningWorker export binding preserves the verified step-up protocol label', () => {
     const binding = {
       wallet_id: WALLET_ID,
@@ -396,6 +471,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     const parsed = parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
       ok: true,
       kind: 'verified_step_up',
+      operation_kind: 'evm.sign_transaction',
       authorization: {
         kind: 'operation_step_up',
         evidence_set_digest: evidenceSetDigest,
@@ -419,6 +495,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     const parsed = parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
       ok: true,
       kind: 'verified_step_up',
+      operation_kind: 'evm.sign_transaction',
       authorization: {
         kind: 'operation_step_up',
         evidence_set_digest: evidenceSetDigest,
@@ -440,6 +517,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1({
         ok: true,
         kind: 'verified_step_up',
+        operation_kind: 'evm.sign_transaction',
         authorization: {
           kind: 'operation_step_up',
           evidence_set_digest: evidenceSetDigest,
@@ -454,6 +532,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     const response = {
       ok: true,
       kind: 'verified_step_up',
+      operation_kind: 'evm.sign_transaction' as const,
       authorization: {
         kind: 'operation_step_up',
         evidence_set_digest: b64u(32, 32),
@@ -521,7 +600,6 @@ test.describe('ECDSA operation step-up session failures', () => {
   test('an expired session becomes a typed failure with actionable copy', async () => {
     const error = await issueEcdsaOperationStepUpAuthorization({
       relayerUrl: 'https://relay.test',
-      sessionAuth: { kind: 'app_session_cookie' },
       request: stepUpRequest,
       fetchImpl: respondWith(
         'wallet_session_expired',
@@ -543,7 +621,6 @@ test.describe('ECDSA operation step-up session failures', () => {
   test('a non-session failure stays an untyped error', async () => {
     const error = await issueEcdsaOperationStepUpAuthorization({
       relayerUrl: 'https://relay.test',
-      sessionAuth: { kind: 'app_session_cookie' },
       request: stepUpRequest,
       fetchImpl: respondWith(
         'unauthorized',

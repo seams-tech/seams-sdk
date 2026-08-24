@@ -993,6 +993,7 @@ export class D1WalletAuthorityStore {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expectedAuthorityRevocationEpoch: number;
     readonly requestedAtMs: number;
+    readonly sessionRevocationStatements?: readonly D1PreparedStatementLike[];
   }): Promise<WalletAuthorityRevocationResultV1> {
     await this.ensureSchema();
     const expectedEpoch = requireNonNegativeInteger(
@@ -1066,6 +1067,7 @@ export class D1WalletAuthorityStore {
     const statements: D1PreparedStatementLike[] = [
       methodUpdate,
       prepareAuthorityCasGuard(this.database),
+      ...(input.sessionRevocationStatements ?? []),
       this.database
         .prepare(
           `UPDATE wallet_authorities

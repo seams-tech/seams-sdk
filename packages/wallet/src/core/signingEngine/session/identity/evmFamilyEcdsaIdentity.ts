@@ -189,7 +189,14 @@ export type ThresholdEcdsaRoleLocalWorkerShare = {
   material: ThresholdEcdsaRoleLocalWorkerMaterial;
 };
 
-export type ThresholdEcdsaSignerClientShare = ThresholdEcdsaRoleLocalWorkerShare;
+export type ThresholdEcdsaLinkedHolderWorkerShare = {
+  readonly kind: 'linked_holder_worker_share';
+  readonly holderHandleId: string;
+};
+
+export type ThresholdEcdsaSignerClientShare =
+  | ThresholdEcdsaRoleLocalWorkerShare
+  | ThresholdEcdsaLinkedHolderWorkerShare;
 
 export type HydratedEcdsaSignerTransport = {
   readonly kind: 'threshold_ecdsa_signer_transport';

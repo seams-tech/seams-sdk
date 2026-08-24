@@ -233,6 +233,8 @@ export function resolveSigningConfirmationAuthMethod(
       return 'email_otp';
     case SigningAuthPlanKind.WarmSession:
       return 'warm_session';
+    case SigningAuthPlanKind.ActiveWalletAuthority:
+      return 'warm_session';
     case SigningAuthPlanKind.PasskeyReauth:
       return 'passkey';
     default: {

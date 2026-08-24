@@ -6,9 +6,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import { type PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
 import { mapToRetryableNonceStateError } from './errors';
-import {
-  type EvmFamilyManagedNonceReservation,
-} from './events';
+import { type EvmFamilyManagedNonceReservation } from './events';
 import {
   releaseEvmFamilyNonceReservation,
   type EvmFamilyNonceLifecycleDeps,
@@ -27,6 +25,7 @@ import {
 } from './evmNonceLifecycle';
 import { loadSignEvmWithUiConfirm, loadSignEvmFamilyWithUiConfirmForTempo } from './signerLoader';
 import { reserveManagedTempoNonceForRequest } from './tempoNonceLifecycle';
+import type { ActiveWalletAuthorityEcdsaSigningAuthPlan } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
 
 type EvmFamilyTransactionExecutorDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyNonceLifecycleDeps &
@@ -34,10 +33,8 @@ type EvmFamilyTransactionExecutorDeps = EvmFamilyAccountMetadataDeps &
 
 type EvmFamilySigningFlowArgs = object & {
   readonly authorization?: {
-    readonly kind: 'linked_device';
-    readonly confirmationAuthPlan: import('@/core/signingEngine/stepUpConfirmation/types').SigningAuthPlan & {
-      readonly kind: 'warmSession';
-    };
+    readonly kind: 'active_wallet_authority';
+    readonly confirmationAuthPlan: ActiveWalletAuthorityEcdsaSigningAuthPlan;
     readonly sign: (input: {
       readonly requestId: string;
       readonly operationId: string;

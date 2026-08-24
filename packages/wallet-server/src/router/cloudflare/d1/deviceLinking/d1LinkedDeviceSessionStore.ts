@@ -44,6 +44,14 @@ export type D1LinkedDeviceSessionStoreOptionsV1 = {
 
 const SESSION_TABLE = 'linked_device_sessions';
 const TRANSCRIPT_TABLE = 'linked_device_session_transcripts';
+const SESSION_SCOPED_TABLES = [
+  'linked_device_email_otp_grants',
+  'linked_device_ed25519_export_root_transfers',
+  'linked_device_request_proof_nonces',
+  TRANSCRIPT_TABLE,
+  'linked_device_target_commit_reservations',
+  'linked_device_target_credentials',
+] as const;
 const SESSION_CAS_GUARD_SQL = `INSERT INTO linked_device_session_cas_guard (guard_id)
 SELECT 1 WHERE changes() = 0`;
 
@@ -517,13 +525,11 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       return conflictResult(input.expectedRevision, current);
     }
     await this.database.batch([
-      this.database
-        .prepare(
-          `DELETE FROM ${TRANSCRIPT_TABLE}
-             WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
-               AND link_session_id = ?`,
-        )
-        .bind(...scopeValues(this.scope), String(input.linkSessionId)),
+      ...buildSessionScopedDeleteStatements({
+        database: this.database,
+        scope: this.scope,
+        linkSessionId: input.linkSessionId,
+      }),
       this.database
         .prepare(
           `DELETE FROM ${SESSION_TABLE}
@@ -768,6 +774,22 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
   }
 }
 
+function buildSessionScopedDeleteStatements(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1LinkedDeviceSessionScopeV1;
+  readonly linkSessionId: LinkDeviceSessionId;
+}): D1PreparedStatementLike[] {
+  return SESSION_SCOPED_TABLES.map((table) =>
+    input.database
+      .prepare(
+        `DELETE FROM ${table}
+           WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+             AND link_session_id = ?`,
+      )
+      .bind(...scopeValues(input.scope), String(input.linkSessionId)),
+  );
+}
+
 function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSessionScopeV1 {
   return {
     namespace: requiredScope(scope.namespace, 'namespace'),
@@ -895,9 +917,8 @@ function sameSourceContribution(
 ): boolean {
   return Boolean(
     record.sourceContributionTranscript &&
-      record.sourceContributionTranscript.digestB64u === digest &&
-      alphabetizeStringify(record.sourceContributionTranscript.value) ===
-        alphabetizeStringify(value),
+    record.sourceContributionTranscript.digestB64u === digest &&
+    alphabetizeStringify(record.sourceContributionTranscript.value) === alphabetizeStringify(value),
   );
 }
 

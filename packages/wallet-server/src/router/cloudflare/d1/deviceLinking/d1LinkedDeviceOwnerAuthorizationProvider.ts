@@ -684,8 +684,8 @@ function createOwnerAuthorizationPortV1(
         input.approval.permission,
       );
       if (attenuationError) return denied('unauthorized', attenuationError);
-      if (!isApprovalSession(input.session)) {
-        return denied('invalid', 'linked-device approval session is not owner-claimed');
+      if (!isOwnerApprovalAuthorizationSession(input.session)) {
+        return denied('invalid', 'linked-device approval session is outside its owner phase');
       }
       if (
         input.session.claimTranscript.value.walletId !== input.owner.walletId ||
@@ -1086,13 +1086,23 @@ function denied(
   return { kind: 'denied', code, message };
 }
 
-function isApprovalSession(
+function isOwnerApprovalAuthorizationSession(
   session: LinkedDeviceSessionRecordV1,
 ): session is Extract<
   LinkedDeviceSessionRecordV1,
-  { readonly state: { readonly state: 'claimed' } }
+  {
+    readonly state: {
+      readonly state: 'claimed' | 'awaiting_source_contribution';
+    };
+  }
 > {
-  return session.state.state === 'claimed' && session.claimTranscript !== undefined;
+  switch (session.state.state) {
+    case 'claimed':
+    case 'awaiting_source_contribution':
+      return true;
+    default:
+      return false;
+  }
 }
 
 function requireNonEmpty<T>(values: readonly T[], label: string): readonly [T, ...T[]] {

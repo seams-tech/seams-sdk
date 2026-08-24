@@ -3,7 +3,9 @@ import {
   createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1,
   createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1,
+  createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1,
 } from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
+import { parseOrdinaryEcdsaSignerMaterialWorkerReservationV1 } from '../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   buildSourcePreservingEcdsaReservationRequestFixture,
@@ -26,26 +28,6 @@ test('source-preserving reservation and activation endpoints emit exact worker w
   const ed25519 = buildSourcePreservingEd25519ReservationRequestFixture();
   const ecdsa = buildSourcePreservingEcdsaReservationRequestFixture();
   const responses: unknown[] = [
-    {
-      state: 'inactive',
-      reservation_id: 'ed25519-http-reservation',
-      participant_ids: ed25519.preparation.sourceContribution.participantIds,
-      activation_receipt: {
-        transcript: ed25519.preparation.sourceContribution.delivery.deriver_a.package.transcript,
-        registered_public_key: ed25519.preparation.sourceContribution.delivery.deriver_a.package.transcript,
-        joined_client_commitment:
-          ed25519.preparation.sourceContribution.delivery.deriver_a.client_commitment,
-        joined_signing_worker_commitment:
-          ed25519.preparation.sourceContribution.delivery.deriver_a.signing_worker_commitment,
-        signing_worker_verifying_share:
-          ed25519.preparation.sourceContribution.delivery.deriver_a.package.transcript,
-        state_epoch: 1,
-        material_activation:
-          ed25519.preparation.sourceContribution.delivery.deriver_a.binding.material_activation,
-      },
-      deriver_a_client_package: ed25519.preparation.sourceContribution.deriver_a_client_package,
-      deriver_b_client_package: ed25519.preparation.sourceContribution.deriver_b_client_package,
-    },
     { ok: true },
     {
       state: 'inactive',
@@ -66,35 +48,60 @@ test('source-preserving reservation and activation endpoints emit exact worker w
         ecdsa.preparation.sourceContribution.binding.source.thresholdEthereumAddress20B64u,
       encrypted_target_client_share:
         ecdsa.preparation.sourceContribution.encryptedTargetClientShare,
-      encrypted_target_server_share:
-        ecdsa.preparation.sourceContribution.encryptedDelta,
+      encrypted_target_server_share: ecdsa.preparation.sourceContribution.encryptedDelta,
     },
     { ok: true },
   ];
   const responseFetch = createRecordingFetch(calls, responses);
-  const responseReservationEndpoint = createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1({
-    fetch: responseFetch,
-    internalServiceAuthSecret: 'internal-secret',
-  });
-  const responseActivationEndpoint = createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1({
-    fetch: responseFetch,
-    internalServiceAuthSecret: 'internal-secret',
+  const responseReservationEndpoint =
+    createCloudflareOrdinaryInactiveSignerMaterialReservationEndpointV1({
+      fetch: responseFetch,
+      internalServiceAuthSecret: 'internal-secret',
+    });
+  const responseActivationEndpoint =
+    createCloudflareOrdinaryInactiveSignerMaterialActivationEndpointV1({
+      fetch: responseFetch,
+      internalServiceAuthSecret: 'internal-secret',
+    });
+  const reservationService = createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({
+    endpoint: responseReservationEndpoint,
   });
 
-  await responseReservationEndpoint.reserveInactiveEd25519SignerMaterialV1(ed25519);
+  const ed25519Reservation =
+    await reservationService.reserveOrdinaryInactiveSignerMaterialV1(ed25519);
   await responseActivationEndpoint.activateInactiveEd25519SignerMaterialV1({
     sourceContribution: ed25519.preparation.sourceContribution,
     reservationId: 'ed25519-reservation',
   });
-  await responseReservationEndpoint.reserveInactiveEcdsaSignerMaterialV1(ecdsa);
+  const ecdsaReservation =
+    await responseReservationEndpoint.reserveInactiveEcdsaSignerMaterialV1(ecdsa);
+  const parsedEcdsaReservation = parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
+    ecdsa,
+    ecdsaReservation,
+  );
   await responseActivationEndpoint.activateInactiveEcdsaSignerMaterialV1({
     preparation: ecdsa.preparation,
     reservationId: 'ecdsa-reservation',
   });
 
-  expect(calls).toHaveLength(4);
+  expect(parsedEcdsaReservation.activationReceipt.normalSigning.scope).toEqual(
+    expect.objectContaining({
+      wallet_id: ecdsa.preparation.sourceDerivation.sourceNormalSigning.scope.wallet_id,
+      ecdsa_threshold_key_id:
+        ecdsa.preparation.sourceDerivation.sourceNormalSigning.scope.ecdsa_threshold_key_id,
+      signing_root_id: ecdsa.preparation.sourceDerivation.sourceNormalSigning.scope.signing_root_id,
+      signing_root_version:
+        ecdsa.preparation.sourceDerivation.sourceNormalSigning.scope.signing_root_version,
+      context: ecdsa.preparation.sourceDerivation.sourceNormalSigning.scope.context,
+      activation_epoch:
+        ecdsa.preparation.sourceDerivation.sourceNormalSigning.scope.activation_epoch,
+    }),
+  );
+  expect(ed25519Reservation.serverMaterial.reservationId).toBe(
+    ed25519.preparation.sourceContribution.reservationId,
+  );
+  expect(calls).toHaveLength(3);
   expect(calls.map((call) => call.url)).toEqual([
-    'https://signing-worker.router-ab.internal/router-ab/signing-worker/ed25519-yao/reserve-inactive-source-preserving',
     'https://signing-worker.router-ab.internal/router-ab/signing-worker/ed25519-yao/activate-reservation',
     'https://signing-worker.router-ab.internal/router-ab/signing-worker/ecdsa-derivation/reserve-inactive-source-preserving',
     'https://signing-worker.router-ab.internal/router-ab/signing-worker/ecdsa-derivation/activate-reservation',
@@ -105,24 +112,18 @@ test('source-preserving reservation and activation endpoints emit exact worker w
   }
 
   expect(calls[0]?.body).toEqual({
-    source_binding: ed25519.preparation.sourceContribution.sourceBinding,
-    delivery: ed25519.preparation.sourceContribution.delivery,
-    participant_ids: ed25519.preparation.sourceContribution.participantIds,
-    deriver_a_client_package: ed25519.preparation.sourceContribution.deriver_a_client_package,
-    deriver_b_client_package: ed25519.preparation.sourceContribution.deriver_b_client_package,
-  });
-  expect(calls[1]?.body).toEqual({
-    binding: ed25519.preparation.sourceContribution.delivery.deriver_a.binding,
+    binding: ed25519.preparation.sourceContribution.targetBinding,
     reservation_id: 'ed25519-reservation',
   });
-  expect(calls[2]?.body).toEqual({
+  expect(calls[1]?.body).toEqual({
     source_derivation: {
-      application_binding_digest_b64u: ecdsa.preparation.sourceDerivation.applicationBindingDigestB64u,
+      application_binding_digest_b64u:
+        ecdsa.preparation.sourceDerivation.applicationBindingDigestB64u,
       client_share_retry_counter: ecdsa.preparation.sourceDerivation.clientShareRetryCounter,
     },
     source_contribution: ecdsa.preparation.sourceContribution,
   });
-  expect(calls[3]?.body).toEqual({
+  expect(calls[2]?.body).toEqual({
     material_activation: routerAbMpcMaterialActivationRefToWire(
       ecdsa.preparation.sourceContribution.binding.target.activation,
     ),
@@ -176,7 +177,10 @@ test('Ed25519 source-preserving execution uses the MPC Router service binding', 
   });
 });
 
-function createRecordingFetch(calls: RecordedRequestV1[], responses: readonly unknown[] = [{ ok: true }]): typeof fetch {
+function createRecordingFetch(
+  calls: RecordedRequestV1[],
+  responses: readonly unknown[] = [{ ok: true }],
+): typeof fetch {
   let responseIndex = 0;
   return async (input, init) => {
     const request = new Request(input, init);

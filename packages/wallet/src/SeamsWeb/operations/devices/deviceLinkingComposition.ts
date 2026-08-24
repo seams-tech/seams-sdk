@@ -87,6 +87,7 @@ export function createDeviceLinkingFlowPortsV1(
     authorityInstallation,
     readExpectedLockGenerationV1: async (walletId) => {
       const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+      if (selected.kind === 'missing_selection') return 0;
       if (selected.kind !== 'resolved') {
         throw new Error(`selected wallet authority is unavailable: ${selected.kind}`);
       }

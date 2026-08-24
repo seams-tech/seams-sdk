@@ -22,7 +22,7 @@ test.describe('registration-established Wallet Session projection', () => {
       ...invalidBootstrap,
       session: {
         ...invalidBootstrap.session,
-        jwt: 'malformed-wallet-session-jwt',
+        walletSessionToken: '',
       },
     };
     const result = await page.evaluate(
@@ -31,23 +31,13 @@ test.describe('registration-established Wallet Session projection', () => {
           createSeamsTestWalletDbName,
           SeamsWalletDBManager,
           WalletSessionAuthorizationRepository,
-          buildActiveWalletSessionAuthorizationProjection,
         } = await import(indexedDbPath);
         const {
           persistActiveWalletSessionAuthorizationFromEcdsaBootstrap,
           persistActiveWalletSessionAuthorizationFromRegistration,
         } = await import(projectionPath);
 
-        const encode = (value: unknown): string => {
-          const bytes = new TextEncoder().encode(JSON.stringify(value));
-          let binary = '';
-          for (const byte of bytes) binary += String.fromCharCode(byte);
-          return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-        };
-        const walletSessionJwt = (
-          kind:
-            | 'router_ab_ecdsa_derivation_wallet_session_v1'
-            | 'router_ab_ed25519_wallet_session_v1',
+        const walletSessionToken = (
           identity: {
             walletId: string;
             seamsSessionId: string;
@@ -57,25 +47,8 @@ test.describe('registration-established Wallet Session projection', () => {
             expiresAtMs: number;
           },
           iat?: number,
-          authorizationKind:
-            | 'owner_wallet_session'
-            | 'linked_device_wallet_session' = 'owner_wallet_session',
         ): string => {
-          const payload = {
-            kind,
-            authorizationKind,
-            walletId: identity.walletId,
-            authorizationId: identity.authorizationId,
-            walletSessionId: identity.walletSessionId,
-            quotaId: identity.quotaId,
-            sid: identity.seamsSessionId,
-            ...(kind === 'router_ab_ecdsa_derivation_wallet_session_v1'
-              ? { authorizationSessionId: identity.seamsSessionId }
-              : {}),
-            thresholdExpiresAtMs: identity.expiresAtMs,
-            ...(iat === undefined ? {} : { iat }),
-          };
-          return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.fixture`;
+          return `wst:registration:${identity.walletId}:${iat ?? 'initial'}`;
         };
         const identity = (walletId: string) => ({
           walletId,
@@ -89,6 +62,7 @@ test.describe('registration-established Wallet Session projection', () => {
           kind: 'wallet_auth_authority_ref',
           walletId,
           authorityDigest,
+          walletAuthMethodId: `passkey:${walletId}:fixture`,
         });
         const ecdsaRegistrationSession = (
           sessionIdentity: ReturnType<typeof identity>,
@@ -100,11 +74,9 @@ test.describe('registration-established Wallet Session projection', () => {
           tokens: {
             kind: 'evm_family_ecdsa',
             ecdsa: {
-              walletSessionJwt: walletSessionJwt(
-                'router_ab_ecdsa_derivation_wallet_session_v1',
-                sessionIdentity,
-                iat,
-              ),
+              sessionKind: 'opaque',
+              walletSessionToken: walletSessionToken(sessionIdentity, iat),
+              thresholdSessionId: sessionIdentity.seamsSessionId,
             },
           },
         });
@@ -115,10 +87,9 @@ test.describe('registration-established Wallet Session projection', () => {
           tokens: {
             kind: 'near_ed25519',
             ed25519: {
-              walletSessionJwt: walletSessionJwt(
-                'router_ab_ed25519_wallet_session_v1',
-                sessionIdentity,
-              ),
+              sessionKind: 'opaque',
+              walletSessionToken: walletSessionToken(sessionIdentity),
+              thresholdSessionId: sessionIdentity.seamsSessionId,
             },
           },
         });
@@ -153,8 +124,8 @@ test.describe('registration-established Wallet Session projection', () => {
             merged.kind === 'found' &&
             merged.projection.walletSessionTokens.kind === 'near_ed25519_and_evm_family_ecdsa'
               ? {
-                  ed25519: merged.projection.walletSessionTokens.ed25519.walletSessionJwt,
-                  ecdsa: merged.projection.walletSessionTokens.ecdsa.walletSessionJwt,
+                  ed25519: merged.projection.walletSessionTokens.ed25519.walletSessionToken,
+                  ecdsa: merged.projection.walletSessionTokens.ecdsa.walletSessionToken,
                 }
               : null;
           const mergedTokenPresence = mergedTokens
@@ -171,8 +142,8 @@ test.describe('registration-established Wallet Session projection', () => {
             reissued.kind === 'found' &&
             reissued.projection.walletSessionTokens.kind === 'near_ed25519_and_evm_family_ecdsa'
               ? {
-                  ed25519: reissued.projection.walletSessionTokens.ed25519.walletSessionJwt,
-                  ecdsa: reissued.projection.walletSessionTokens.ecdsa.walletSessionJwt,
+                  ed25519: reissued.projection.walletSessionTokens.ed25519.walletSessionToken,
+                  ecdsa: reissued.projection.walletSessionTokens.ecdsa.walletSessionToken,
                 }
               : null;
           const reissuedTokenState =
@@ -209,29 +180,6 @@ test.describe('registration-established Wallet Session projection', () => {
           const edOnlyKind =
             edOnly.kind === 'found' ? edOnly.projection.walletSessionTokens.kind : 'missing';
 
-          let linkedTokenMessage = '';
-          try {
-            const linkedIdentity = identity('registration-linked-token-wallet');
-            buildActiveWalletSessionAuthorizationProjection({
-              ...linkedIdentity,
-              authMethod: 'passkey',
-              authority: passkeyAuthority(linkedIdentity.walletId, 'BA'),
-              walletSessionTokens: {
-                kind: 'near_ed25519',
-                ed25519: {
-                  walletSessionJwt: walletSessionJwt(
-                    'router_ab_ed25519_wallet_session_v1',
-                    linkedIdentity,
-                    undefined,
-                    'linked_device_wallet_session',
-                  ),
-                },
-              },
-            });
-          } catch (error: unknown) {
-            linkedTokenMessage = error instanceof Error ? error.message : String(error);
-          }
-
           let invalidRestoreMessage = '';
           try {
             await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(repository, {
@@ -254,7 +202,6 @@ test.describe('registration-established Wallet Session projection', () => {
             mismatchMessage,
             afterMismatchKind,
             edOnlyKind,
-            linkedTokenMessage,
             invalidRestoreMessage,
             invalidRestoreProjection: afterInvalidRestore.kind,
           };
@@ -277,8 +224,7 @@ test.describe('registration-established Wallet Session projection', () => {
       mismatchMessage: 'Wallet Session authorization identity does not match the active projection',
       afterMismatchKind: 'near_ed25519_and_evm_family_ecdsa',
       edOnlyKind: 'near_ed25519',
-      linkedTokenMessage: 'Wallet Session authorization projection is invalid',
-      invalidRestoreMessage: 'Wallet Session JWT identity does not match the activated session',
+      invalidRestoreMessage: 'walletSessionToken is required',
       invalidRestoreProjection: 'missing',
     });
   });

@@ -34,9 +34,7 @@ import {
   parseCapabilityOperationId,
   parsePrincipalId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  buildCapabilityOperationEnvelope,
-} from '@shared/authorization/operationFingerprint';
+import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import {
   parseEmailOtpChallengeId,
   parseWalletId,
@@ -45,10 +43,12 @@ import {
 } from '@shared/utils/domainIds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { WalletAuthAuthority, WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -65,6 +65,7 @@ import type {
   RouterApiAuthorizedOperationService,
   RouterApiEmailOtpRouteService,
   RouterApiWalletAuthMethodService,
+  RouterApiWalletRegistrationService,
   RouterApiWebAuthnService,
 } from '../../../framework/authServicePort';
 import { json, readJson } from '../../../framework/http';
@@ -283,7 +284,7 @@ export type RouterAbEd25519YaoExportAuthorizationInput =
       readonly kind: 'execute';
       readonly request: Request;
       readonly body: RouterAbEd25519YaoExportExecuteRequestV1;
-  };
+    };
 
 export type RouterAbEd25519YaoExportEmailOtpFactorReleaseV1 = {
   readonly kind: 'email_otp_login_grant';
@@ -490,6 +491,42 @@ function exportIdentity(
     registered_public_key: request.registered_public_key,
     state_epoch: request.state_epoch,
     runtime_policy_binding: request.runtime_policy_binding,
+  };
+}
+
+async function resolveActiveExportAuthorizationIdentity(input: {
+  readonly body: RouterAbEd25519YaoExportAdmissionRequestV1;
+  readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
+}): Promise<RouterAbEd25519YaoExportAuthorizationIdentityResolutionResult> {
+  const thresholdSessionId = parseThresholdEd25519SessionId(input.body.scope.threshold_session_id);
+  if (!thresholdSessionId.ok) {
+    return authorizationFailure({
+      status: 403,
+      code: 'invalid_body',
+      message: thresholdSessionId.error.message,
+    });
+  }
+  const activeMaterial = await input.resolveEd25519MaterialActivation({
+    walletId: input.body.application_binding.wallet_id,
+    materialActivation: input.body.scope.material_activation,
+  });
+  if (!activeMaterial.ok) {
+    return authorizationFailure({
+      status: activeMaterial.code === 'internal' ? 503 : 403,
+      code: activeMaterial.code,
+      message: activeMaterial.message,
+    });
+  }
+  if (!equalWire(activeMaterial.exportIdentity, exportIdentity(input.body))) {
+    return authorizationFailure({
+      status: 403,
+      code: 'active_identity_mismatch',
+      message: 'Ed25519 Yao export does not match the active material identity',
+    });
+  }
+  return {
+    ok: true,
+    authorizationIdentity: { thresholdSessionId: thresholdSessionId.value },
   };
 }
 
@@ -706,6 +743,12 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     return current?.authorizationIdentity ?? null;
   }
 
+  authorizationRequiresActiveIdentity(
+    request: RouterAbEd25519YaoExportAdmissionRequestV1,
+  ): boolean {
+    return this.state.exports.get(exportKey(request))?.kind === 'authorized';
+  }
+
   commitAuthorizeExport(
     input: RouterAbEd25519YaoExportAuthorizationCommitInputV1,
   ): RouterAbEd25519YaoExportAuthorizationResult {
@@ -810,18 +853,29 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     const runtimePolicyBinding = await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
       active.capability.runtimePolicyScope,
     );
-    if (
-      !activeCapabilityIdentityMatchesExportScope(request, active.capability) ||
-      !exactApplicationBinding(request.application_binding, active.capability.applicationBinding) ||
-      !exactParticipants(request.participant_ids, active.capability.participantIds) ||
-      !equalBytes(request.registered_public_key, active.capability.registeredPublicKey) ||
-      request.state_epoch !== active.capability.stateEpoch ||
-      !equalBytes(request.runtime_policy_binding, runtimePolicyBinding)
-    ) {
+    const scopeMatches = activeCapabilityIdentityMatchesExportScope(request, active.capability);
+    const applicationMatches = exactApplicationBinding(
+      request.application_binding,
+      active.capability.applicationBinding,
+    );
+    const participantsMatch = exactParticipants(
+      request.participant_ids,
+      active.capability.participantIds,
+    );
+    const publicKeyMatches = equalBytes(
+      request.registered_public_key,
+      active.capability.registeredPublicKey,
+    );
+    const stateEpochMatches = request.state_epoch === active.capability.stateEpoch;
+    const runtimePolicyMatches = equalBytes(request.runtime_policy_binding, runtimePolicyBinding);
+    if (!applicationMatches || !participantsMatch || !publicKeyMatches || !runtimePolicyMatches) {
       const rejected = failure({
         status: 409,
         code: 'active_identity_mismatch',
-        message: 'Ed25519 Yao export does not match the exact active key capability',
+        message:
+          'Ed25519 Yao export does not match the exact active key capability ' +
+          `(scope=${scopeMatches}, application=${applicationMatches}, participants=${participantsMatch}, ` +
+          `publicKey=${publicKeyMatches}, stateEpoch=${stateEpochMatches}, runtimePolicy=${runtimePolicyMatches})`,
       });
       this.storeAdmissionFailure(current, rejected);
       return { kind: 'failed', failure: rejected };
@@ -1207,9 +1261,7 @@ function exportPasskeyCredentialId(
 ): string | null {
   switch (authorization.kind) {
     case 'passkey': {
-      const parsed = webAuthnCredentialIdB64uFromCredential(
-        authorization.webauthnAuthentication,
-      );
+      const parsed = webAuthnCredentialIdB64uFromCredential(authorization.webauthnAuthentication);
       return parsed.ok ? parsed.credentialIdB64u : null;
     }
     case 'email_otp_factor':
@@ -1255,11 +1307,13 @@ function authorizeExportExecution(
 }
 
 async function authorizePasskeyExportAdmission(args: {
-  readonly authority: Extract<WalletAuthAuthority, { readonly factor: { readonly kind: 'passkey' } }>;
+  readonly authority: Extract<
+    WalletAuthAuthority,
+    { readonly factor: { readonly kind: 'passkey' } }
+  >;
   readonly input: ExportAdmissionAuthorizationInput;
   readonly confirmationDigest: readonly number[];
   readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
-  readonly walletAuthMethods: Pick<RouterApiWalletAuthMethodService, 'verifyActivePasskeyAuthority'>;
 }): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
   if (args.input.authorization.kind !== 'passkey') {
     return authorizationFailure({
@@ -1271,15 +1325,16 @@ async function authorizePasskeyExportAdmission(args: {
   const credentialId = webAuthnCredentialIdB64uFromCredential(
     args.input.authorization.webauthnAuthentication,
   );
-  if (!credentialId.ok || credentialId.credentialIdB64u !== args.authority.factor.credentialIdB64u) {
+  if (
+    !credentialId.ok ||
+    credentialId.credentialIdB64u !== args.authority.factor.credentialIdB64u
+  ) {
     return authorizationFailure({
       status: 403,
       code: 'export_webauthn_credential_mismatch',
       message: 'Fresh export assertion used a different passkey credential',
     });
   }
-  const active = await args.walletAuthMethods.verifyActivePasskeyAuthority(args.authority);
-  if (!active.ok) return authorizationFailure({ status: 403, code: active.code, message: active.message });
   const verified = await args.webAuthn.verifyWebAuthnAuthenticationLite({
     userId: String(args.authority.walletId),
     rpId: args.authority.verifier.rpId,
@@ -1298,7 +1353,10 @@ async function authorizePasskeyExportAdmission(args: {
 }
 
 async function authorizeEmailOtpExportAdmission(args: {
-  readonly authority: Extract<WalletAuthAuthority, { readonly factor: { readonly kind: 'email_otp' } }>;
+  readonly authority: Extract<
+    WalletAuthAuthority,
+    { readonly factor: { readonly kind: 'email_otp' } }
+  >;
   readonly input: ExportAdmissionAuthorizationInput;
   readonly tenantId: string;
   readonly emailOtp: Pick<RouterApiEmailOtpRouteService, 'verifyEmailOtpChallenge'>;
@@ -1358,7 +1416,8 @@ async function authorizeExportAdmission(args: {
   readonly emailOtp: Pick<RouterApiEmailOtpRouteService, 'verifyEmailOtpChallenge'>;
   readonly walletAuthMethods: Pick<
     RouterApiWalletAuthMethodService,
-    'verifyActivePasskeyAuthority' | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
+    | 'resolveActivePasskeyAuthorityForVerifiedCredential'
+    | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
   >;
   readonly authorizedOperations: RouterApiAuthorizedOperationService;
 }): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
@@ -1404,10 +1463,7 @@ async function authorizeExportAdmission(args: {
     nonce: authorization.nonce,
     issuedAtMs: authorization.issued_at_ms,
     expiresAtMs: authorization.expires_at_ms,
-    authority: exportAuthorizationDigestAuthority(
-      args.input.authorization,
-      passkeyCredentialId,
-    ),
+    authority: exportAuthorizationDigestAuthority(args.input.authorization, passkeyCredentialId),
   });
   if (
     !equalBytes(expectedConfirmation, authorization.confirmation_digest) ||
@@ -1421,18 +1477,34 @@ async function authorizeExportAdmission(args: {
   }
   if (args.input.authorization.kind === 'passkey') {
     const rpId = parseWebAuthnRpId(new URL(args.input.expectedOrigin).hostname);
-    if (!rpId.ok) return authorizationFailure({ status: 403, code: 'invalid_origin', message: rpId.error.message });
-    const authority = buildPasskeyWalletAuthAuthority({
+    if (!rpId.ok)
+      return authorizationFailure({
+        status: 403,
+        code: 'invalid_origin',
+        message: rpId.error.message,
+      });
+    const credentialId = parseWebAuthnCredentialIdB64u(passkeyCredentialId);
+    if (!credentialId.ok) {
+      return authorizationFailure({
+        status: 403,
+        code: 'invalid_body',
+        message: credentialId.error.message,
+      });
+    }
+    const active = await args.walletAuthMethods.resolveActivePasskeyAuthorityForVerifiedCredential({
       walletId: walletId.value,
       rpId: rpId.value,
-      credentialIdB64u: requireString(passkeyCredentialId),
+      credentialIdB64u: credentialId.value,
     });
+    if (!active.ok) {
+      return authorizationFailure({ status: 403, code: active.code, message: active.message });
+    }
+    const authority = active.authority;
     const checked = await authorizePasskeyExportAdmission({
       authority,
       input: args.input,
       confirmationDigest: authorization.confirmation_digest,
       webAuthn: args.webAuthn,
-      walletAuthMethods: args.walletAuthMethods,
     });
     if (!checked.ok) return checked;
     const recorded = await recordFreshExportProof({
@@ -1440,7 +1512,9 @@ async function authorizeExportAdmission(args: {
       authority,
       authorizedOperations: args.authorizedOperations,
       assertionDigest: base64UrlEncode(
-        await sha256BytesUtf8(alphabetizeStringify(args.input.authorization.webauthnAuthentication)),
+        await sha256BytesUtf8(
+          alphabetizeStringify(args.input.authorization.webauthnAuthentication),
+        ),
       ),
       verifiedAtMs: nowMs,
       expiresAtMs: authorization.expires_at_ms,
@@ -1451,7 +1525,8 @@ async function authorizeExportAdmission(args: {
     walletId: String(walletId.value),
     providerUserId: args.input.authorization.providerSubjectId,
   });
-  if (!authority.ok) return authorizationFailure({ status: 403, code: authority.code, message: authority.message });
+  if (!authority.ok)
+    return authorizationFailure({ status: 403, code: authority.code, message: authority.message });
   const checked = await authorizeEmailOtpExportAdmission({
     authority: authority.authority,
     input: args.input,
@@ -1484,12 +1559,19 @@ async function recordFreshExportProof(args: {
   readonly challengeId?: string;
 }): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
   const walletId = parseWalletId(args.input.body.application_binding.wallet_id);
-  if (!walletId.ok) return authorizationFailure({ status: 403, code: 'invalid_body', message: walletId.error.message });
+  if (!walletId.ok)
+    return authorizationFailure({
+      status: 403,
+      code: 'invalid_body',
+      message: walletId.error.message,
+    });
   const authorizationIdentitySuffix = base64UrlEncode(
     Uint8Array.from(args.input.body.authorization.authorization_digest),
   );
   const principalId = parsePrincipalId(`ed25519-export:${walletId.value}`);
-  const capabilityId = parseCapabilityId(String(args.input.body.scope.material_activation.capability));
+  const capabilityId = parseCapabilityId(
+    String(args.input.body.scope.material_activation.capability),
+  );
   const operationId = parseCapabilityOperationId(
     `ed25519-export:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
@@ -1519,7 +1601,8 @@ async function recordFreshExportProof(args: {
     return authorizationFailure({
       status: 403,
       code: 'export_authorization_invalid',
-      message: error instanceof Error ? error.message : 'Ed25519 Yao export proof digest is invalid',
+      message:
+        error instanceof Error ? error.message : 'Ed25519 Yao export proof digest is invalid',
     });
   }
   let factorId: ReturnType<typeof parseAuthFactorId>;
@@ -1588,38 +1671,38 @@ async function recordFreshExportProof(args: {
   switch (args.authority.factor.kind) {
     case 'passkey':
       factor = buildVerifiedWalletOperationPasskeyFactorResult({
-          tenantId: args.authorizedOperations.tenantId,
-          principalId: principalId.value,
-          walletId: walletId.value,
-          requestOrigin,
-          audience: requestOrigin,
-          factorId: factorId.value,
-          authorityRef,
-          operation,
-          credentialIdB64u: args.authority.factor.credentialIdB64u,
-          assertionDigest: requireDigest(assertionDigest),
-          verifiedAtMs: args.verifiedAtMs,
-          expiresAtMs: args.expiresAtMs,
-        });
+        tenantId: args.authorizedOperations.tenantId,
+        principalId: principalId.value,
+        walletId: walletId.value,
+        requestOrigin,
+        audience: requestOrigin,
+        factorId: factorId.value,
+        authorityRef,
+        operation,
+        credentialIdB64u: args.authority.factor.credentialIdB64u,
+        assertionDigest: requireDigest(assertionDigest),
+        verifiedAtMs: args.verifiedAtMs,
+        expiresAtMs: args.expiresAtMs,
+      });
       break;
     case 'email_otp':
       if (!challengeId?.ok) {
         throw new Error('Email OTP export challenge id is required');
       }
       factor = buildVerifiedWalletOperationEmailOtpFactorResult({
-          tenantId: args.authorizedOperations.tenantId,
-          principalId: principalId.value,
-          walletId: walletId.value,
-          requestOrigin,
-          audience: requestOrigin,
-          factorId: factorId.value,
-          authorityRef,
-          operation,
-          challengeId: challengeId.value,
-          verificationReceiptDigest: digest,
-          verifiedAtMs: args.verifiedAtMs,
-          expiresAtMs: args.expiresAtMs,
-        });
+        tenantId: args.authorizedOperations.tenantId,
+        principalId: principalId.value,
+        walletId: walletId.value,
+        requestOrigin,
+        audience: requestOrigin,
+        factorId: factorId.value,
+        authorityRef,
+        operation,
+        challengeId: challengeId.value,
+        verificationReceiptDigest: digest,
+        verifiedAtMs: args.verifiedAtMs,
+        expiresAtMs: args.expiresAtMs,
+      });
       break;
   }
   const evidence = await args.authorizedOperations.recordVerifiedWalletOperationFactorEvidenceSet({
@@ -1666,9 +1749,11 @@ export class RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter implements R
     private readonly emailOtp: Pick<RouterApiEmailOtpRouteService, 'verifyEmailOtpChallenge'>,
     private readonly walletAuthMethods: Pick<
       RouterApiWalletAuthMethodService,
-      'verifyActivePasskeyAuthority' | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
+      | 'resolveActivePasskeyAuthorityForVerifiedCredential'
+      | 'resolveActiveEmailOtpAuthorityForVerifiedSubject'
     >,
     private readonly authorizedOperations: RouterApiAuthorizedOperationService,
+    private readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'],
   ) {}
 
   async authorize(
@@ -1676,9 +1761,11 @@ export class RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter implements R
   ): Promise<RouterAbEd25519YaoExportAuthorizationAdapterResult> {
     switch (input.kind) {
       case 'admit': {
-        const thresholdSessionId = parseThresholdEd25519SessionId(input.body.scope.threshold_session_id);
-        if (!thresholdSessionId.ok) return authorizationFailure({ status: 403, code: 'invalid_body', message: thresholdSessionId.error.message });
-        const authorizationIdentity = { thresholdSessionId: thresholdSessionId.value };
+        const activeIdentity = await resolveActiveExportAuthorizationIdentity({
+          body: input.body,
+          resolveEd25519MaterialActivation: this.resolveEd25519MaterialActivation,
+        });
+        if (!activeIdentity.ok) return activeIdentity;
         const checked = await authorizeExportAdmission({
           input,
           webAuthn: this.webAuthn,
@@ -1689,7 +1776,7 @@ export class RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter implements R
         return checked.ok
           ? {
               ok: true,
-              authorizationIdentity,
+              authorizationIdentity: activeIdentity.authorizationIdentity,
               ...(checked.factorRelease ? { factorRelease: checked.factorRelease } : {}),
             }
           : checked;
@@ -1698,7 +1785,12 @@ export class RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter implements R
         const thresholdSessionId = parseThresholdEd25519SessionId(
           input.body.binding.ceremony.lifecycle.session_id,
         );
-        if (!thresholdSessionId.ok) return authorizationFailure({ status: 403, code: 'invalid_body', message: thresholdSessionId.error.message });
+        if (!thresholdSessionId.ok)
+          return authorizationFailure({
+            status: 403,
+            code: 'invalid_body',
+            message: thresholdSessionId.error.message,
+          });
         const authorizationIdentity = { thresholdSessionId: thresholdSessionId.value };
         const checked = authorizeExportExecution(input, authorizationIdentity);
         return checked.ok ? { ok: true, authorizationIdentity } : checked;
@@ -1725,16 +1817,10 @@ export class RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter implements R
     if (!parsed.ok) {
       return authorizationFailure({ status: 403, code: 'invalid_body', message: parsed.message });
     }
-    const thresholdSessionId = parseThresholdEd25519SessionId(
-      parsed.protocol.scope.threshold_session_id,
-    );
-    return thresholdSessionId.ok
-      ? { ok: true, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } }
-      : authorizationFailure({
-          status: 403,
-          code: 'invalid_body',
-          message: thresholdSessionId.error.message,
-        });
+    return await resolveActiveExportAuthorizationIdentity({
+      body: parsed.protocol,
+      resolveEd25519MaterialActivation: this.resolveEd25519MaterialActivation,
+    });
   }
 }
 

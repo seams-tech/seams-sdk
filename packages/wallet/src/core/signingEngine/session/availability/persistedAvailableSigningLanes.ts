@@ -18,12 +18,18 @@ import {
   ed25519AvailableLaneIdentityKey,
   ecdsaAvailableLaneIdentityKey,
   readAvailableSigningLanes,
+  activeWalletAuthorityAvailableLaneFromProjection,
   type ReadAvailableSigningLanesForSigningInput,
   type ReadAvailableSigningLanesInput,
   type ReadAvailableSigningLanesPorts,
   type AvailableSigningLanes,
   type ConcreteAvailableEcdsaSigningLane,
 } from './availableSigningLanes';
+import {
+  resolveActiveWalletAuthorityEcdsaRuntimeV1,
+  type ActiveWalletAuthorityEcdsaLaneProjectionV1,
+  type ResolveActiveWalletAuthorityEcdsaRuntimeV1Input,
+} from '../material/activeWalletAuthorityEcdsaRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   Ed25519YaoPublicCapabilityLaneReferenceStorePort,
@@ -41,6 +47,8 @@ import {
   isPasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 
+export type EcdsaLaneCapability = 'sign' | 'export_keys';
+
 export type PersistedAvailableSigningLanesDeps = {
   ed25519YaoPublicCapabilityLanes?: Ed25519YaoPublicCapabilityLaneReferenceStorePort;
   isEd25519YaoPublicCapabilityActive?: (
@@ -54,6 +62,11 @@ export type PersistedAvailableSigningLanesDeps = {
     chainTargets: readonly ThresholdEcdsaChainTarget[];
     authMethod?: SignerAuthMethod;
   }) => Promise<readonly EvmFamilyEcdsaSigningCapabilityAvailability[]>;
+  resolveActiveWalletAuthorityEcdsaRuntimeV1?: (
+    args: ResolveActiveWalletAuthorityEcdsaRuntimeV1Input & {
+      readonly requiredCapability: EcdsaLaneCapability;
+    },
+  ) => ReturnType<typeof resolveActiveWalletAuthorityEcdsaRuntimeV1>;
 };
 
 function canonicalEcdsaLaneFromCapability(args: {
@@ -144,6 +157,7 @@ export async function readPersistedAvailableSigningLanes(
   return await readPersistedAvailableSigningLanesForTargets(deps, {
     ...args,
     ecdsaChainTargets,
+    requiredEcdsaCapability: 'sign',
   });
 }
 
@@ -158,6 +172,7 @@ export async function readOwnerScopedAvailableSigningLanes(
     readonly walletId: WalletId | string;
     readonly ownerScope: OwnerLaneScope;
     readonly ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+    readonly requiredEcdsaCapability: EcdsaLaneCapability;
     readonly nowMs?: number;
   },
 ): Promise<AvailableSigningLanes> {
@@ -166,6 +181,7 @@ export async function readOwnerScopedAvailableSigningLanes(
     authMethod: signingLaneAuthMethod(args.ownerScope.auth),
     ownerScope: args.ownerScope,
     ecdsaChainTargets: args.ecdsaChainTargets,
+    requiredEcdsaCapability: args.requiredEcdsaCapability,
     ...(args.nowMs !== undefined ? { nowMs: args.nowMs } : {}),
   });
 }
@@ -184,6 +200,7 @@ export async function readPersistedAvailableSigningLanesForSigning(
     return await readPersistedAvailableSigningLanesForTargets(deps, {
       ...availableLanesArgs,
       ecdsaChainTargets: [...ecdsaChainTargetsByKey.values()],
+      requiredEcdsaCapability: 'sign',
     });
   }
   const { curve, ...availableLanesArgs } = args;
@@ -227,6 +244,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
   deps: PersistedAvailableSigningLanesDeps,
   args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'> & {
     ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+    requiredEcdsaCapability: EcdsaLaneCapability;
   },
 ): Promise<AvailableSigningLanes> {
   const walletId = String(toWalletId(args.walletId)).trim();
@@ -298,6 +316,30 @@ export async function readPersistedAvailableSigningLanesForTargets(
           }
         }
         return lanes;
+      },
+      listActiveWalletAuthorityEcdsaLanesForWallet: async ({
+        walletId: recordWalletId,
+        chainTargets,
+      }) => {
+        const resolveRuntime =
+          deps.resolveActiveWalletAuthorityEcdsaRuntimeV1 ??
+          resolveActiveWalletAuthorityEcdsaRuntimeV1;
+        const projections = await Promise.all(
+          chainTargets.map(async (chainTarget) => {
+            const result = await resolveRuntime({
+              walletId: toWalletId(recordWalletId),
+              chainTarget,
+              requiredCapability: args.requiredEcdsaCapability,
+            });
+            return result.kind === 'resolved' && result.lane ? result.lane : null;
+          }),
+        );
+        return projections
+          .filter(
+            (projection): projection is ActiveWalletAuthorityEcdsaLaneProjectionV1 =>
+              projection !== null,
+          )
+          .map(activeWalletAuthorityAvailableLaneFromProjection);
       },
     },
   );

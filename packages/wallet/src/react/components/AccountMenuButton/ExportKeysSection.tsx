@@ -6,6 +6,8 @@ import './ExportKeysSection.css';
 export interface ExportKeysSectionProps {
   isOpen?: boolean;
   loadingChain: ExportChain | null;
+  canExportNearKey: boolean;
+  canExportEvmKeys: boolean;
   onSelectChain: (chain: ExportChain) => void;
   className?: string;
   style?: React.CSSProperties;
@@ -21,6 +23,8 @@ const EXPORT_ROWS: Array<{ chain: ExportChain; label: string; description: strin
 export const ExportKeysSection: React.FC<ExportKeysSectionProps> = ({
   isOpen = false,
   loadingChain,
+  canExportNearKey,
+  canExportEvmKeys,
   onSelectChain,
   className,
   style,
@@ -48,7 +52,9 @@ export const ExportKeysSection: React.FC<ExportKeysSectionProps> = ({
               key={row.chain}
               type="button"
               className="w3a-export-keys-row"
-              disabled={isBusy}
+              disabled={
+                isBusy || (row.chain === 'near' ? !canExportNearKey : !canExportEvmKeys)
+              }
               tabIndex={isOpen ? 0 : -1}
               onClick={(e) => {
                 e.stopPropagation();

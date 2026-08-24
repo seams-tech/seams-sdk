@@ -62,6 +62,7 @@ test.describe('D1 authorization core', () => {
         tenantId: 'tenant-wallet-session',
         principalId: 'principal-wallet-session',
         walletId: 'wallet-session-wallet',
+        walletAuthMethodId: 'wallet-auth-method:wallet-session',
         credentialIdB64u: 'credential-wallet-session',
         rpId: 'example.test',
         origin: 'https://app.example.test',
@@ -109,6 +110,7 @@ test.describe('D1 authorization core', () => {
         tenantId: 'tenant-wallet-session-timestamp-replay',
         principalId: 'principal-wallet-session-timestamp-replay',
         walletId: 'wallet-session-timestamp-replay-wallet',
+        walletAuthMethodId: 'wallet-auth-method:wallet-session-timestamp-replay',
         credentialIdB64u: 'credential-wallet-session-timestamp-replay',
         rpId: 'example.test',
         origin: 'https://app.example.test',
@@ -151,6 +153,7 @@ test.describe('D1 authorization core', () => {
         tenantId: 'tenant-wallet-session',
         principalId: 'principal-wallet-session',
         walletId: 'wallet-session-wallet',
+        walletAuthMethodId: 'wallet-auth-method:wallet-session-second',
         credentialIdB64u: 'credential-wallet-session',
         rpId: 'example.test',
         origin: 'https://app.example.test',
@@ -202,6 +205,7 @@ test.describe('D1 authorization core', () => {
         tenantId: 'tenant-wallet-session-status',
         principalId: 'principal-wallet-session-status',
         walletId: 'wallet-session-status-wallet',
+        walletAuthMethodId: 'wallet-auth-method:wallet-session-status',
         credentialIdB64u: 'credential-wallet-session-status',
         rpId: 'example.test',
         origin: 'https://app.example.test',
@@ -279,6 +283,7 @@ test.describe('D1 authorization core', () => {
         tenantId: 'tenant-wallet-session-conflict',
         principalId: 'principal-wallet-session-conflict',
         walletId: 'wallet-session-conflict-wallet',
+        walletAuthMethodId: 'wallet-auth-method:wallet-session-conflict',
         credentialIdB64u: 'credential-wallet-session-conflict',
         rpId: 'example.test',
         origin: 'https://app.example.test',
@@ -855,6 +860,7 @@ test.describe('D1 authorization core', () => {
         tenantId: 'tenant-hosted-wallet-exchange',
         principalId: 'principal-hosted-wallet-exchange',
         walletId: 'wallet-hosted-wallet-exchange',
+        walletAuthMethodId: 'wallet-auth-method:hosted-wallet-exchange',
         credentialIdB64u: 'credential-hosted-wallet-exchange',
         rpId: 'example.test',
         origin: 'https://app.example.test',
@@ -973,7 +979,6 @@ test.describe('D1 authorization core', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
-
 });
 
 function createService(

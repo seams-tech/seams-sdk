@@ -125,12 +125,9 @@ function sealedRecordEmailOtpSessionAuthContext(
 ): ThresholdEcdsaEmailOtpSessionAuthContext {
   return buildEmailOtpAuthContextForWalletAuthMethod({
     policy: 'session',
-    walletId: toWalletId(authority.walletId),
-    emailHashHex: authority.verifier.emailHashHex,
+    authority,
     retention: 'session',
     reason: 'login',
-    provider: authority.factor.provider,
-    providerUserId: authority.factor.providerUserId,
   });
 }
 

@@ -4,9 +4,10 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthorityRef,
+  type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import { parseSignerSlot } from '@shared/utils/signerSlot';
+import { parseSignerSlot, type SignerSlot } from '@shared/utils/signerSlot';
 import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import { toRpId } from './evmFamilyEcdsaIdentity';
 import type { OwnerLaneScope } from './signingLaneAuthBinding';
@@ -19,6 +20,11 @@ export type OwnerLaneScopeStores = {
     credentialId: string;
   }): Promise<{ readonly credentialId: string; readonly signerSlot: number } | null>;
 };
+
+export type ActiveWalletAuthMethodV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly status: 'active' }
+>;
 
 export class OwnerLaneScopeIntegrityError extends Error {
   constructor(message: string) {
@@ -97,6 +103,42 @@ function emailOtpWalletAuthAuthorityFromLocalFactor(args: {
   return authority;
 }
 
+function assertExactFactorAuthorityBinding(args: {
+  readonly authMethod: ActiveWalletAuthMethodV2;
+  readonly authority: WalletAuthAuthority;
+}): WalletAuthAuthority {
+  if (
+    args.authority.walletId !== args.authMethod.walletId ||
+    args.authority.bindingId !== args.authMethod.walletAuthMethodId
+  ) {
+    throw new OwnerLaneScopeIntegrityError(
+      'active wallet auth method does not have an exact factor authority binding',
+    );
+  }
+  return args.authority;
+}
+
+export async function resolveExactWalletAuthAuthority(args: {
+  readonly authMethod: ActiveWalletAuthMethodV2;
+  readonly stores: OwnerLaneScopeStores;
+}): Promise<WalletAuthAuthority> {
+  if (args.authMethod.kind === 'passkey') {
+    return assertExactFactorAuthorityBinding({
+      authMethod: args.authMethod,
+      authority: passkeyWalletAuthAuthorityFromV2Record(args.authMethod),
+    });
+  }
+  return assertExactFactorAuthorityBinding({
+    authMethod: args.authMethod,
+    authority: emailOtpWalletAuthAuthorityFromLocalFactor({
+      authMethod: args.authMethod,
+      localMethods: await args.stores.listWalletAuthMethodsForWallet(
+        String(args.authMethod.walletId),
+      ),
+    }),
+  });
+}
+
 async function assertOwnerAuthorityRefMatches(args: {
   readonly expected: WalletAuthAuthorityRef;
   readonly authority: PasskeyWalletAuthAuthority | EmailOtpWalletAuthAuthority;
@@ -114,6 +156,66 @@ async function assertOwnerAuthorityRefMatches(args: {
       )})`,
     );
   }
+}
+
+export function buildExactPasskeyOwnerLaneScope(args: {
+  readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'passkey' }>;
+  readonly signerSlot: SignerSlot;
+}): Extract<OwnerLaneScope, { readonly auth: { readonly kind: 'passkey' } }> {
+  return {
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(args.authMethod.rpId),
+      credentialIdB64u: args.authMethod.credentialIdB64u,
+    },
+    signerSlot: args.signerSlot,
+  };
+}
+
+async function passkeyOwnerLaneScope(args: {
+  readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'passkey' }>;
+  readonly stores: OwnerLaneScopeStores;
+}): Promise<Extract<OwnerLaneScope, { readonly auth: { readonly kind: 'passkey' } }>> {
+  const authenticator = await args.stores.getWalletPasskeyAuthenticator({
+    walletId: String(args.authMethod.walletId),
+    credentialId: args.authMethod.credentialIdB64u,
+  });
+  if (!authenticator || authenticator.credentialId !== args.authMethod.credentialIdB64u) {
+    throw new OwnerLaneScopeIntegrityError(
+      'active Passkey auth method has no exact local authenticator',
+    );
+  }
+  const signerSlot = parseSignerSlot(authenticator.signerSlot, { min: 1 });
+  if (signerSlot === null) {
+    throw new OwnerLaneScopeIntegrityError('local authenticator signer slot is invalid');
+  }
+  return buildExactPasskeyOwnerLaneScope({ authMethod: args.authMethod, signerSlot });
+}
+
+export async function resolveExactOwnerLaneScope(args: {
+  readonly authMethod: ActiveWalletAuthMethodV2;
+  readonly stores: OwnerLaneScopeStores;
+}): Promise<OwnerLaneScope> {
+  if (args.authMethod.kind === 'passkey') {
+    return await passkeyOwnerLaneScope({ authMethod: args.authMethod, stores: args.stores });
+  }
+  const authority = emailOtpWalletAuthAuthorityFromLocalFactor({
+    authMethod: args.authMethod,
+    localMethods: await args.stores.listWalletAuthMethodsForWallet(
+      String(args.authMethod.walletId),
+    ),
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  return {
+    auth: {
+      kind: 'email_otp',
+      providerSubjectId: String(authority.factor.providerUserId),
+    },
+    ownerAuthority: {
+      walletAuthMethodId: authorityRef.walletAuthMethodId,
+      authorityDigest: authorityRef.authorityDigest,
+    },
+  };
 }
 
 /**
@@ -145,6 +247,10 @@ export async function resolveOwnerLaneScope(args: {
         kind: 'email_otp',
         providerSubjectId: String(authority.factor.providerUserId),
       },
+      ownerAuthority: {
+        walletAuthMethodId: args.authorityRef.walletAuthMethodId,
+        authorityDigest: args.authorityRef.authorityDigest,
+      },
     };
   }
   const resolvedAuthority = passkeyWalletAuthAuthorityFromV2Record(authMethod);
@@ -152,25 +258,5 @@ export async function resolveOwnerLaneScope(args: {
     expected: args.authorityRef,
     authority: resolvedAuthority,
   });
-  const authenticator = await args.stores.getWalletPasskeyAuthenticator({
-    walletId,
-    credentialId: authMethod.credentialIdB64u,
-  });
-  if (!authenticator || authenticator.credentialId !== authMethod.credentialIdB64u) {
-    throw new OwnerLaneScopeIntegrityError(
-      'active Passkey auth method has no exact local authenticator',
-    );
-  }
-  const signerSlot = parseSignerSlot(authenticator.signerSlot, { min: 1 });
-  if (signerSlot === null) {
-    throw new OwnerLaneScopeIntegrityError('local authenticator signer slot is invalid');
-  }
-  return {
-    auth: {
-      kind: 'passkey',
-      rpId: toRpId(authMethod.rpId),
-      credentialIdB64u: authMethod.credentialIdB64u,
-    },
-    signerSlot,
-  };
+  return await passkeyOwnerLaneScope({ authMethod, stores: args.stores });
 }

@@ -68,7 +68,9 @@ function assertLocalOnlyExportRequestSubject(request: UserConfirmRequest): void 
   switch (subject.kind) {
     case 'near_wallet':
       if (!isString(subject.nearAccountId) || !subject.nearAccountId.trim()) {
-        throw new Error('Invalid secure confirm request: near export subject requires nearAccountId');
+        throw new Error(
+          'Invalid secure confirm request: near export subject requires nearAccountId',
+        );
       }
       return;
     case 'evm_wallet':
@@ -191,9 +193,29 @@ function assertNearTransactionFundingRequest(payload: Record<string, unknown>): 
 
 function isSigningAuthPlan(value: unknown): value is SigningAuthPlan {
   if (!isObject(value)) return false;
-  const plan = value as { kind?: unknown; method?: unknown };
+  const plan = value as {
+    kind?: unknown;
+    method?: unknown;
+    walletSessionId?: unknown;
+    authorityId?: unknown;
+    authMethodId?: unknown;
+    expiresAtMs?: unknown;
+  };
   if (plan.kind === SigningAuthPlanKind.WarmSession) {
     return plan.method === 'passkey' || plan.method === 'email_otp';
+  }
+  if (plan.kind === SigningAuthPlanKind.ActiveWalletAuthority) {
+    return (
+      (plan.method === 'passkey' || plan.method === 'email_otp') &&
+      typeof plan.walletSessionId === 'string' &&
+      plan.walletSessionId.length > 0 &&
+      typeof plan.authorityId === 'string' &&
+      plan.authorityId.length > 0 &&
+      typeof plan.authMethodId === 'string' &&
+      plan.authMethodId.length > 0 &&
+      typeof plan.expiresAtMs === 'number' &&
+      Number.isSafeInteger(plan.expiresAtMs)
+    );
   }
   if (plan.kind === SigningAuthPlanKind.PasskeyReauth) return plan.method === 'passkey';
   if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) return plan.method === 'email_otp';

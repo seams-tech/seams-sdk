@@ -49,7 +49,8 @@ export type WalletUnlockSubjectSetResolution =
 
 export type WalletIdentitySource =
   | 'profile_projection'
-  | 'host_last_used_profile';
+  | 'host_last_used_profile'
+  | 'local_wallet_authority';
 
 export type WalletIdentityResolveFailure =
   | 'missing_wallet_profile'

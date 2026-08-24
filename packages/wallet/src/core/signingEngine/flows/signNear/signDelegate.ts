@@ -252,6 +252,10 @@ export async function runNearDelegateActionSigning({
 }> {
   const selectionAuth =
     selection.kind === 'authorized' ? selection.selectedLane.auth : selection.candidate.auth;
+  const selectedSignerSlot =
+    selection.kind === 'authorized'
+      ? selection.selectedLane.identity.signer.signerSlot
+      : selection.candidate.signerSlot;
   const nearAccountId = toAccountId(nearAccount.accountId);
   const relayerUrl = ctx.relayerUrl;
 
@@ -335,9 +339,10 @@ export async function runNearDelegateActionSigning({
     interaction: { kind: 'none', overlay: 'none' },
   });
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
-    ctx,
+    materialExecutor: yaoMaterialExecutor,
     nearAccount,
-    signerSlot,
+    signerSlot: selectedSignerSlot,
+    requestedSignerSlot: signerSlot,
     operationLabel: 'delegate signing',
     warnings,
   });

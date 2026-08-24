@@ -54,6 +54,14 @@ export function readNearProvisioningState(walletId: WalletId): NearProvisioningS
   return entries.get(String(walletId))?.state ?? null;
 }
 
+export async function awaitNearProvisioningInFlight(
+  walletId: WalletId,
+): Promise<NearProvisioningState | null> {
+  const entry = entries.get(String(walletId));
+  if (!entry) return null;
+  return entry.inFlight ? await entry.inFlight : entry.state;
+}
+
 export function publishNearProvisioningState(
   walletId: WalletId,
   state: NearProvisioningState,

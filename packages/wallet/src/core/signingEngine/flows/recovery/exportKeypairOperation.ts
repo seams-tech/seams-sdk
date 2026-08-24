@@ -11,6 +11,7 @@ import {
   type FreshPasskeyEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import {
+  exportThresholdEcdsaKeyWithActiveWalletAuthority,
   exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth,
   exportThresholdEcdsaKeyWithFreshPasskeyAuthorization,
   type EcdsaExportFlowDeps,
@@ -64,15 +65,18 @@ type ExportedKeySchemes = Array<'ed25519' | 'secp256k1'>;
 type ExportKeypairResult = { accountId: string; exportedSchemes: ExportedKeySchemes };
 
 type PreparedEcdsaExport =
-  {
-    readonly kind: 'canonical_capability';
-    readonly exportLane: ExactEcdsaExportLane;
-    readonly exportMaterial: FreshEmailOtpEcdsaExportMaterial | FreshPasskeyEcdsaExportMaterial;
-  };
+  | {
+      readonly kind: 'canonical_capability';
+      readonly exportLane: Extract<ExactEcdsaExportLane, { source: 'canonical_capability' }>;
+      readonly exportMaterial: FreshEmailOtpEcdsaExportMaterial | FreshPasskeyEcdsaExportMaterial;
+    }
+  | {
+      readonly kind: 'active_wallet_authority';
+      readonly exportLane: Extract<ExactEcdsaExportLane, { source: 'active_wallet_authority' }>;
+      readonly exportMaterial: Extract<EcdsaExportMaterial, { source: 'active_wallet_authority' }>;
+    };
 
-type KeyExportAttempt =
-  | { readonly kind: 'initial' }
-  | { readonly kind: 'fresh_auth_retry' };
+type KeyExportAttempt = { readonly kind: 'initial' } | { readonly kind: 'fresh_auth_retry' };
 
 function authorizationWithExpiry(
   state: WalletSessionAuthorizationState,
@@ -148,13 +152,22 @@ async function prepareEcdsaExport(
     deps.ecdsa.sessionStore,
     exportLane,
   );
+  if (exportLane.source === 'active_wallet_authority') {
+    if (exportMaterial.source !== 'active_wallet_authority') {
+      throw new Error('[SigningEngine][ecdsa-export] active lane material source changed');
+    }
+    return { kind: 'active_wallet_authority', exportLane, exportMaterial };
+  }
+  if (exportMaterial.source !== 'canonical_capability') {
+    throw new Error('[SigningEngine][ecdsa-export] canonical lane material source changed');
+  }
   return { kind: 'canonical_capability', exportLane, exportMaterial };
 }
 
 function exportAuthorizationWalletSessionId(
   lane: Awaited<ReturnType<typeof resolveEcdsaSessionForExport>> | undefined,
 ): string | undefined {
-  if (!lane?.authorization) return undefined;
+  if (!lane || lane.source !== 'canonical_capability' || !lane.authorization) return undefined;
   return lane.authorization.projection.walletSessionId;
 }
 
@@ -182,8 +195,7 @@ function emitEcdsaExportFailureDiagnostics(args: {
       ...(exportAuthorizationWalletSessionId(args.exportLane)
         ? { walletSessionId: exportAuthorizationWalletSessionId(args.exportLane) }
         : {}),
-      materialActivationId:
-        args.exportLane?.laneIdentity.signer.materialActivation.activationId,
+      materialActivationId: args.exportLane?.laneIdentity.signer.materialActivation.activationId,
       freshAuthRetrySideEffectState: 'not_applicable',
       error:
         args.error instanceof Error ? args.error.message : String(args.error || 'unknown error'),
@@ -197,6 +209,19 @@ async function executePreparedEcdsaExport(
   prepared: PreparedEcdsaExport,
 ): Promise<ExportKeypairResult> {
   const walletId = toWalletId(args.walletSession.walletId);
+  if (prepared.kind === 'active_wallet_authority') {
+    return await exportThresholdEcdsaKeyWithActiveWalletAuthority(deps.ecdsa, {
+      walletId,
+      exportLane: prepared.exportLane,
+      material: prepared.exportMaterial,
+      options: {
+        variant: args.options.variant,
+        theme: args.options.theme,
+      },
+      flowId: args.flowId,
+      onEvent: args.options.onEvent,
+    });
+  }
   if (prepared.exportMaterial.kind === 'fresh_email_otp_route_auth_ready') {
     return await exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(deps.ecdsa, {
       walletId,

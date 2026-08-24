@@ -1,13 +1,9 @@
-import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  getLastLoggedInSignerSlot,
-  parseSignerSlot,
-} from '@/core/signingEngine/webauthnAuth/device/signerSlot';
+import type { NearEd25519YaoMaterialExecutor } from '@/core/signingEngine/interfaces/near';
+import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 
 export type ResolvedNearSigningMaterials = {
   nearAccountId: AccountId;
@@ -17,34 +13,35 @@ export type ResolvedNearSigningMaterials = {
 };
 
 export async function resolveNearSigningMaterials(args: {
-  ctx: NearSigningRuntimeDeps;
+  materialExecutor: NearEd25519YaoMaterialExecutor;
   nearAccount: NearAccountRef;
-  signerSlot?: number;
+  signerSlot: number;
+  requestedSignerSlot?: number;
   operationLabel: string;
   warnings?: string[];
 }): Promise<ResolvedNearSigningMaterials> {
   const nearAccountId = toAccountId(args.nearAccount.accountId);
-  const relayerUrl = args.ctx.relayerUrl;
   const warnings = args.warnings ?? [];
 
-  const parsedSignerSlot = parseSignerSlot(args.signerSlot, { min: 1 });
-  if (args.signerSlot !== undefined && parsedSignerSlot === null) {
+  const resolvedSignerSlot = parseSignerSlot(args.signerSlot, { min: 1 });
+  if (resolvedSignerSlot === null) {
     throw new Error(`Invalid signerSlot for ${args.operationLabel}: ${args.signerSlot}`);
   }
-  const resolvedSignerSlot =
-    parsedSignerSlot ??
-    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.nearKeyMaterialStore));
+  if (args.requestedSignerSlot !== undefined) {
+    const requestedSignerSlot = parseSignerSlot(args.requestedSignerSlot, { min: 1 });
+    if (requestedSignerSlot === null || requestedSignerSlot !== resolvedSignerSlot) {
+      throw new Error(
+        `Requested signerSlot does not match the selected signing lane for ${args.operationLabel}`,
+      );
+    }
+  }
 
-  const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
-    {
-      clientDB: args.ctx.nearKeyMaterialStore,
-      keyMaterialStore: args.ctx.nearKeyMaterialStore,
-    },
-    nearAccountId,
-    resolvedSignerSlot,
-  );
-  if (!thresholdKeyMaterial) {
-    throw new Error('[SigningEngine] threshold key material is unavailable');
+  const thresholdKeyMaterial = await args.materialExecutor.resolveSigningKeyMaterial();
+  if (
+    thresholdKeyMaterial.nearAccountId !== nearAccountId ||
+    thresholdKeyMaterial.signerSlot !== resolvedSignerSlot
+  ) {
+    throw new Error('[SigningEngine] threshold key material does not match the selected lane');
   }
   return {
     nearAccountId,

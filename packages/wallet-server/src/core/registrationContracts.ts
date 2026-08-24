@@ -7,6 +7,7 @@ import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecd
 import type { WalletAuthMethodId, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type {
   WalletAuthAuthority,
@@ -55,6 +56,7 @@ import type {
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
   WalletAuthMethodRecord,
+  WalletAuthMethodRecordV2,
   WalletAuthMethodRevocationProof,
   WalletId,
 } from '@shared/utils/registrationIntent';
@@ -848,6 +850,8 @@ type WalletRegistrationFinalizeResponseBase = {
   ok: true;
   walletId: WalletId;
   authority: WalletAuthAuthority;
+  foundingAuthority: ActiveWalletAuthorityV1;
+  foundingAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
   /**
    * What became of this leg's custody commit. Absent when no custody payload

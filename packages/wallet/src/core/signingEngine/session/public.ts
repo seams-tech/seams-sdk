@@ -100,6 +100,7 @@ export async function readOwnerScopedSigningLanes(
     walletId: args.walletId,
     ownerScope: args.ownerScope,
     ecdsaChainTargets: deps.getConfiguredEcdsaChainTargets(),
+    requiredEcdsaCapability: 'sign',
   });
 }
 

@@ -26,6 +26,7 @@ import { parseD1RegistrationIntent } from '../../packages/wallet-server/src/rout
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   parseOrgId,
+  parseWalletAuthMethodId,
   parseProviderSubject,
   parseWebAuthnRpId,
   parseWalletId,
@@ -105,8 +106,6 @@ import {
   readWebAuthnAuthenticatorRow,
   insertNearPublicKey,
   insertSignerWallet,
-  testWalletAuthMethodIdentity,
-  insertWalletAuthMethod,
   readWalletAuthMethodRecord,
   readSignerWalletRecord,
   readWalletSignerRecord,
@@ -1279,7 +1278,6 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       projectId: scope.projectId,
       envId: scope.envId,
     });
-
     const challenge = await service.walletUnlock.createEmailOtpUnlockChallenge({
       walletId: 'email-wallet.testnet',
       orgId: scope.orgId,
@@ -1333,6 +1331,60 @@ test('Cloudflare D1 Router API auth service verifies Email OTP unlock proofs onc
       ok: true,
       required: true,
       walletId: 'email-wallet.testnet',
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Email OTP unlock rejects a selected auth method outside the verified enrollment identity', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    await insertEmailOtpEnrollment({ database, ...scope });
+    await database
+      .prepare(
+        `UPDATE email_otp_wallet_enrollments
+            SET record_json = json_set(record_json, '$.serverSealedFactorCiphertextB64u', ?)
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND wallet_id = ?`,
+      )
+      .bind(
+        'server-sealed-factor',
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        'email-wallet.testnet',
+      )
+      .run();
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+    });
+    const walletAuthMethodId = parseWalletAuthMethodId('wallet-auth-method:email-selected');
+    if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+
+    await expect(
+      service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+        walletId: 'email-wallet.testnet',
+        orgId: scope.orgId,
+        walletAuthMethodId: walletAuthMethodId.value,
+        providerUserId: 'google:email-user',
+      }),
+    ).resolves.toEqual({
+      kind: 'rejected',
+      code: 'unauthorized',
+      message: 'Verified Email OTP does not identify an active wallet auth method',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

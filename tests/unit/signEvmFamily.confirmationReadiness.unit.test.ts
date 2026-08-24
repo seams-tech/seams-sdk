@@ -13,7 +13,9 @@ import {
   type EvmFamilyUiConfirmFlowConfig,
   type SignEvmFamilyWithUiConfirmArgs,
 } from '@/core/signingEngine/flows/signEvmFamily/signingFlow';
-import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
+import type { ActiveWalletAuthorityEcdsaSigningAuthPlan } from '@/core/signingEngine/session/material/activeWalletAuthorityEcdsaRuntime';
+import { parseWalletSessionId } from '@shared/authorization/capabilityKinds';
+import { parseWalletAuthMethodId, parseWalletAuthorityId } from '@shared/utils/domainIds';
 import type { SigningIntent } from '@/core/signingEngine/interfaces/signing';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import type { UiConfirmContext } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
@@ -39,17 +41,26 @@ function deferred<T>(): {
   return { promise, resolve: resolvePromise };
 }
 
-function linkedDeviceWarmSessionPlan(): Extract<SigningAuthPlan, { kind: 'warmSession' }> {
+function required<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (result.ok) return result.value;
+  throw new Error(result.error.message);
+}
+
+function activeWalletAuthorityPlan(): ActiveWalletAuthorityEcdsaSigningAuthPlan {
   return {
-    kind: 'warmSession',
+    kind: 'active_wallet_authority',
     method: 'passkey',
     accountId: 'linked-wallet',
     intent: 'transaction_sign',
     curve: 'ecdsa',
-    thresholdSessionId: 'linked-threshold-session',
-    retention: 'session',
+    walletSessionId: required(parseWalletSessionId('wallet-session:linked-wallet')),
+    authorityId: required(parseWalletAuthorityId('authority:linked-wallet')),
+    authMethodId: required(parseWalletAuthMethodId('auth-method:linked-wallet')),
     expiresAtMs: Date.now() + 60_000,
-    remainingUses: 1,
   };
 }
 
@@ -89,7 +100,7 @@ function testIntent(
   }));
 }
 
-test('linked EVM confirmation is requested before exact intent preparation completes', async () => {
+test('active Wallet Authority EVM confirmation is requested before intent preparation completes', async () => {
   const intentGate = deferred<void>();
   const intentBuildStarted = deferred<void>();
   const confirmationStarted = deferred<Record<string, unknown>>();
@@ -124,6 +135,17 @@ test('linked EVM confirmation is requested before exact intent preparation compl
       expect(request.kind).toBe('intentDigest');
       expect(request.intentDigest).toBe(PENDING_INTENT_DIGEST);
       expect(request.challengeB64u).toBe(PENDING_CHALLENGE_B64U);
+      expect(request.signingAuthPlan).toMatchObject({
+        kind: 'active_wallet_authority',
+        walletSessionId: 'wallet-session:linked-wallet',
+        authorityId: 'authority:linked-wallet',
+        authMethodId: 'auth-method:linked-wallet',
+      });
+      expect(request.signingAuthPlan).not.toHaveProperty('session');
+      expect(request.signingAuthPlan).not.toHaveProperty('operationCredential');
+      expect(request.signingAuthPlan).not.toHaveProperty('runtime');
+      expect(request.signingAuthPlan).not.toHaveProperty('thresholdSessionId');
+      expect(request.signingAuthPlan).not.toHaveProperty('remainingUses');
       const preparation = consumeIntentDigestPreparation(String(request.sessionId));
       expect(preparation).toBeDefined();
       const prepared = await preparation!;
@@ -154,8 +176,8 @@ test('linked EVM confirmation is requested before exact intent preparation compl
     },
     thresholdEcdsaStepUp: { kind: 'not_required' },
     authorization: {
-      kind: 'linked_device',
-      confirmationAuthPlan: linkedDeviceWarmSessionPlan(),
+      kind: 'active_wallet_authority',
+      confirmationAuthPlan: activeWalletAuthorityPlan(),
       sign: async () => new Uint8Array(65).fill(8),
     },
     onConfirmationDisplayed: () => {

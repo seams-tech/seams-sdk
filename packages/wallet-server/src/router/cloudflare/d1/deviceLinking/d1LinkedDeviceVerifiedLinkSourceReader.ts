@@ -8,6 +8,8 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type TenantId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -16,6 +18,11 @@ import type { ExactAdministeredSignerV1 } from '@shared/device-linking/delegated
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { AuthorizationService } from '../../../../authorization/service';
+import type {
+  OpaqueWalletSessionCurve,
+  ResolvedOpaqueWalletSessionToken,
+} from '../../../../authorization/service';
+import type { WalletSessionAuthorizationV2 } from '../../../../authorization/domain';
 import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import type {
   WalletEcdsaSignerRecord,
@@ -23,6 +30,8 @@ import type {
 } from '../../../../core/WalletStore';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import type { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
+import type { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type {
   VerifiedLinkSourceReadV1,
   VerifiedLinkSourceReaderV1,
@@ -32,6 +41,10 @@ export function createD1LinkedDeviceVerifiedLinkSourceReaderV1(input: {
   readonly authorizationService: Pick<
     AuthorizationService,
     'readWalletSessionAuthorizationV2ByIdentity'
+  >;
+  readonly ordinaryWalletSessions: Pick<
+    CloudflareD1AuthorizationStore,
+    'readOpaqueWalletSessionTokenByIdentity'
   >;
   readonly authorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
   readonly authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'>;
@@ -48,46 +61,36 @@ export function createD1LinkedDeviceVerifiedLinkSourceReaderV1(input: {
       if (!walletSessionId.ok || !authorizationId.ok) {
         throw new Error('source Wallet Session identity is invalid');
       }
-      const issued = await input.authorizationService.readWalletSessionAuthorizationV2ByIdentity({
+      const sourceSession = await resolveSourceWalletSessionV1({
+        authorizationService: input.authorizationService,
+        ordinaryWalletSessions: input.ordinaryWalletSessions,
         tenantId: input.tenantId,
         walletId: request.walletId,
         walletSessionId: walletSessionId.value,
         authorizationId: authorizationId.value,
+        keyFamily: request.keyFamily,
         nowMs: request.requestedAtMs,
       });
-      if (!issued) throw new Error('source Wallet Session V2 is unavailable');
-      const session = issued.session;
-      if (
-        session.walletId !== request.walletId ||
-        session.walletSessionId !== walletSessionId.value ||
-        session.authorizationId !== authorizationId.value
-      ) {
-        throw new Error('source Wallet Session V2 identity changed');
-      }
-      if (session.expiresAtMs <= request.requestedAtMs) {
-        throw new Error('source Wallet Session V2 is expired');
-      }
-      const authority = await input.authorityStore.readById(session.authorityId);
-      if (!authority || authority.state !== 'active') {
-        throw new Error('source Wallet Authority is not active');
-      }
-      const authMethod = await input.authMethodStore.readByIdV2({
-        walletAuthMethodId: session.walletAuthMethodId,
-      });
+      const walletAuthMethodId = sourceWalletAuthMethodIdV1(sourceSession);
+      const authMethod = await input.authMethodStore.readByIdV2({ walletAuthMethodId });
       if (!authMethod || authMethod.status !== 'active') {
         throw new Error('source Wallet Auth Method is not active');
       }
-      if (
-        authMethod.walletId !== session.walletId ||
-        authMethod.walletAuthorityId !== session.authorityId ||
-        authority.authorityDigestB64u !== session.authorityDigestB64u ||
-        authority.revocationEpoch !== session.authorityRevocationEpoch
-      ) {
+      const authorityId =
+        sourceSession.kind === 'wallet_session_v2'
+          ? sourceSession.session.authorityId
+          : authMethod.walletAuthorityId;
+      const authority = await input.authorityStore.readById(authorityId);
+      if (!authority || authority.state !== 'active') {
+        throw new Error('source Wallet Authority is not active');
+      }
+      if (authMethod.walletId !== request.walletId || authMethod.walletAuthorityId !== authorityId) {
         throw new Error('source Wallet Auth Method authority provenance is invalid');
       }
+      assertSourceSessionAuthorityV1(sourceSession, authority);
       const [ed25519Signers, ecdsaSigners] = await Promise.all([
-        input.walletStore.listEd25519SignersForWallet({ walletId: session.walletId }),
-        input.walletStore.listEcdsaSignersForWallet({ walletId: session.walletId }),
+        input.walletStore.listEd25519SignersForWallet({ walletId: request.walletId }),
+        input.walletStore.listEcdsaSignersForWallet({ walletId: request.walletId }),
       ]);
       const signer = sourceSignerForFamilyV1({
         authority,
@@ -99,14 +102,135 @@ export function createD1LinkedDeviceVerifiedLinkSourceReaderV1(input: {
         authMethod,
         signerManifest: signerManifestFromAuthority(authority),
         keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
-        principalId: session.principalId,
-        expiresAtMs: session.expiresAtMs,
-        authorityDigestB64u: session.authorityDigestB64u,
-        verifiedRevocationEpoch: session.authorityRevocationEpoch,
+        principalId: sourceSessionPrincipalIdV1(sourceSession),
+        expiresAtMs: sourceSessionExpiresAtMsV1(sourceSession),
+        authorityDigestB64u: authority.authorityDigestB64u,
+        verifiedRevocationEpoch: authority.revocationEpoch,
         verifiedAtMs: request.requestedAtMs,
       } satisfies VerifiedLinkSourceReadV1;
     },
   };
+}
+
+type SourceWalletSessionV1 =
+  | {
+      readonly kind: 'wallet_session_v2';
+      readonly session: WalletSessionAuthorizationV2;
+    }
+  | {
+      readonly kind: 'ordinary_wallet_session';
+      readonly session: ResolvedOpaqueWalletSessionToken;
+    };
+
+async function resolveSourceWalletSessionV1(input: {
+  readonly authorizationService: Pick<
+    AuthorizationService,
+    'readWalletSessionAuthorizationV2ByIdentity'
+  >;
+  readonly ordinaryWalletSessions: Pick<
+    CloudflareD1AuthorizationStore,
+    'readOpaqueWalletSessionTokenByIdentity'
+  >;
+  readonly tenantId: TenantId;
+  readonly walletId: Parameters<VerifiedLinkSourceReaderV1['readVerifiedSourceV1']>[0]['walletId'];
+  readonly walletSessionId: WalletSessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly keyFamily: LinkedDeviceOwnerSourceLaneV1['keyFamily'];
+  readonly nowMs: number;
+}): Promise<SourceWalletSessionV1> {
+  const issued = await input.authorizationService.readWalletSessionAuthorizationV2ByIdentity({
+    tenantId: input.tenantId,
+    walletId: input.walletId,
+    walletSessionId: input.walletSessionId,
+    authorizationId: input.authorizationId,
+    nowMs: input.nowMs,
+  });
+  if (issued) {
+    const session = issued.session;
+    if (
+      session.walletId !== input.walletId ||
+      session.walletSessionId !== input.walletSessionId ||
+      session.authorizationId !== input.authorizationId ||
+      session.expiresAtMs <= input.nowMs
+    ) {
+      throw new Error('source Wallet Session V2 identity changed or expired');
+    }
+    return { kind: 'wallet_session_v2', session };
+  }
+
+  const curve: OpaqueWalletSessionCurve =
+    input.keyFamily === 'ed25519' ? 'ed25519' : 'ecdsa';
+  const ordinary = await input.ordinaryWalletSessions.readOpaqueWalletSessionTokenByIdentity({
+    tenantId: input.tenantId,
+    walletSessionId: input.walletSessionId,
+    curve,
+    nowMs: input.nowMs,
+  });
+  if (!ordinary) throw new Error('source Wallet Session is unavailable');
+  const binding = ordinary.binding;
+  if (
+    ordinary.curve !== curve ||
+    ordinary.authorization.walletId !== input.walletId ||
+    ordinary.authorization.walletSessionId !== input.walletSessionId ||
+    ordinary.authorization.authorizationId !== input.authorizationId ||
+    ordinary.authorization.expiresAtMs <= input.nowMs ||
+    binding.walletId !== input.walletId ||
+    binding.walletSessionId !== input.walletSessionId ||
+    binding.authorizationId !== input.authorizationId
+  ) {
+    throw new Error('source ordinary Wallet Session identity changed or expired');
+  }
+  const authorityRef =
+    binding.curve === 'ed25519'
+      ? await walletAuthAuthorityRef({ authority: binding.authority })
+      : binding.walletAuthAuthorityRef;
+  if (String(authorityRef.authorityDigest) !== String(ordinary.authorization.authorityDigest)) {
+    throw new Error('source ordinary Wallet Session authority changed');
+  }
+  if (
+    ordinary.authorization.walletAuthMethodId !== null &&
+    ordinary.authorization.walletAuthMethodId !== authorityRef.walletAuthMethodId
+  ) {
+    throw new Error('source ordinary Wallet Session auth method changed');
+  }
+  return { kind: 'ordinary_wallet_session', session: ordinary };
+}
+
+function sourceWalletAuthMethodIdV1(source: SourceWalletSessionV1) {
+  switch (source.kind) {
+    case 'wallet_session_v2':
+      return source.session.walletAuthMethodId;
+    case 'ordinary_wallet_session':
+      return source.session.binding.curve === 'ed25519'
+        ? source.session.binding.authority.bindingId
+        : source.session.binding.walletAuthAuthorityRef.walletAuthMethodId;
+  }
+}
+
+function sourceSessionPrincipalIdV1(source: SourceWalletSessionV1) {
+  return source.kind === 'wallet_session_v2'
+    ? source.session.principalId
+    : source.session.authorization.principalId;
+}
+
+function sourceSessionExpiresAtMsV1(source: SourceWalletSessionV1): number {
+  return source.kind === 'wallet_session_v2'
+    ? source.session.expiresAtMs
+    : source.session.authorization.expiresAtMs;
+}
+
+function assertSourceSessionAuthorityV1(
+  source: SourceWalletSessionV1,
+  authority: ActiveWalletAuthorityV1,
+): void {
+  if (source.kind === 'ordinary_wallet_session') return;
+  if (
+    source.session.authorityId !== authority.authorityId ||
+    source.session.authorityDigestB64u !== authority.authorityDigestB64u ||
+    source.session.authorityRevocationEpoch !== authority.revocationEpoch
+  ) {
+    throw new Error('source Wallet Session V2 authority provenance is invalid');
+  }
 }
 
 function sourceSignerForFamilyV1(input: {

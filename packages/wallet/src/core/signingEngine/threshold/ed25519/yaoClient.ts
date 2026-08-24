@@ -20,6 +20,7 @@ import {
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   parseRouterAbEd25519YaoExportResultV1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
+  type RouterAbEd25519YaoActivationPublicReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
@@ -254,6 +255,12 @@ export type RouterAbEd25519YaoImportLocalMaterialInputV1 = {
   ownedPasskeyPrfFirst: Uint8Array;
   binding: Uint8Array;
   sealed: RouterAbEd25519YaoSealedLocalMaterialV1;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+};
+
+export type RouterAbEd25519YaoImportLinkedMaterialInputV1 = {
+  ownedClientScalarShare: Uint8Array;
+  publicReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
 };
 
@@ -946,6 +953,40 @@ function importVerifiedActiveClient(
   }
 }
 
+function importVerifiedLinkedActiveClient(
+  input: RouterAbEd25519YaoImportLinkedMaterialInputV1,
+): WasmRouterAbEd25519YaoActiveClientV1 {
+  let activated: WasmActivatedClientV1 | null = null;
+  try {
+    activated = WasmActivatedClientV1.import_linked_material(
+      requireBytes32(input.ownedClientScalarShare, 'linked-device Ed25519 Client share'),
+      input.metadata.participantIds[0],
+      input.metadata.participantIds[1],
+      JSON.stringify(input.publicReceipt),
+    );
+    if (
+      activated.state_epoch() !== input.metadata.stateEpoch ||
+      !equalBytes(activated.registered_public_key(), input.metadata.registeredPublicKey) ||
+      !equalBytes(
+        input.publicReceipt.signing_worker_verifying_share,
+        input.metadata.signingWorkerVerifyingShare,
+      )
+    ) {
+      throw new Error('linked-device Ed25519 material metadata does not match its receipt');
+    }
+    return new WasmRouterAbEd25519YaoActiveClientV1({
+      [ACTIVE_CLIENT_CONSTRUCTION]: true,
+      metadata: input.metadata,
+      activated,
+    });
+  } catch (error) {
+    activated?.free();
+    throw error;
+  } finally {
+    input.ownedClientScalarShare.fill(0);
+  }
+}
+
 function openVerifiedCustodyCacheActiveClient(
   input: RouterAbEd25519YaoOpenCustodyCacheInputV1,
 ): WasmRouterAbEd25519YaoActiveClientV1 {
@@ -1002,6 +1043,12 @@ export class RouterAbEd25519YaoClientV1 {
     input: RouterAbEd25519YaoImportLocalMaterialInputV1,
   ): RouterAbEd25519YaoActiveClientV1 {
     return importVerifiedActiveClient(input);
+  }
+
+  importLinkedMaterial(
+    input: RouterAbEd25519YaoImportLinkedMaterialInputV1,
+  ): RouterAbEd25519YaoActiveClientV1 {
+    return importVerifiedLinkedActiveClient(input);
   }
 
   /**

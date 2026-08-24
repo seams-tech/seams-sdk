@@ -13,6 +13,7 @@ import type {
 import type { NonceLeaseRef } from '../interfaces/nonceLease';
 import type { WalletSessionFailure } from '../session/lifecycle/walletSessionFailure';
 import type { NearOperationStepUpPreparationRef } from '../interfaces/operationStepUpPreparation';
+import type { ActiveWalletAuthorityEcdsaSigningAuthPlan } from '../session/material/activeWalletAuthorityEcdsaRuntime';
 
 export interface UserConfirmProgressEvent {
   requestId: string;
@@ -124,6 +125,7 @@ export type SigningAuthMode = 'webauthn' | 'warmSession' | 'emailOtp';
 
 export const SigningAuthPlanKind = {
   WarmSession: 'warmSession',
+  ActiveWalletAuthority: 'active_wallet_authority',
   PasskeyReauth: 'passkeyReauth',
   EmailOtpReauth: 'emailOtpReauth',
 } as const;
@@ -155,6 +157,7 @@ export type SigningAuthPlan =
       expiresAtMs: number;
       remainingUses: number;
     }
+  | ActiveWalletAuthorityEcdsaSigningAuthPlan
   | {
       kind: typeof SigningAuthPlanKind.PasskeyReauth;
       method: 'passkey';
@@ -194,6 +197,12 @@ export function isWarmSessionSigningAuthPlan(
   return plan?.kind === SigningAuthPlanKind.WarmSession;
 }
 
+export function isActiveWalletAuthoritySigningAuthPlan(
+  plan: Pick<SigningAuthPlan, 'kind'> | null | undefined,
+): plan is Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.ActiveWalletAuthority }> {
+  return plan?.kind === SigningAuthPlanKind.ActiveWalletAuthority;
+}
+
 export function isPasskeySigningAuthPlan(
   plan: Pick<SigningAuthPlan, 'kind'> | null | undefined,
 ): plan is Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.PasskeyReauth }> {
@@ -208,6 +217,7 @@ export function isEmailOtpSigningAuthPlan(
 
 export function signingAuthModeFromSigningAuthPlan(plan: SigningAuthPlan): SigningAuthMode {
   if (plan.kind === SigningAuthPlanKind.WarmSession) return 'warmSession';
+  if (plan.kind === SigningAuthPlanKind.ActiveWalletAuthority) return 'warmSession';
   if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) return 'emailOtp';
   return 'webauthn';
 }

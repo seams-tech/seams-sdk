@@ -8,6 +8,7 @@ import type {
 import {
   walletSessionAuthorizations,
   walletSessionAuthorizationIdForCurve,
+  walletSessionThresholdSessionIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -169,31 +170,26 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
   };
 }
 
-function walletAuthAuthorityRefsMatch(
-  left: WalletAuthAuthorityRef,
-  right: WalletAuthAuthorityRef,
-): boolean {
-  return left.walletId === right.walletId && left.authorityDigest === right.authorityDigest;
-}
-
 export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
   nowMs: number;
 }): Promise<ResolvedRouterAbEd25519WalletSessionState> {
   const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
-  const authorizationId = walletSessionAuthorizationIdForCurve(
-    args.authorization,
-    'ed25519',
-  );
-  const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(args.runtime);
+  const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
+  const exactAuthority = await ed25519SealedRuntimeAuthorityRef({
+    runtime: args.runtime,
+    walletAuthMethodId: args.authorization.authority.walletAuthMethodId,
+  });
   const expiresAtMs = Math.min(args.runtime.expiresAtMs, args.authorization.expiresAtMs);
   if (
     !walletSessionToken ||
     !authorizationId ||
     args.authorization.walletId !== args.runtime.walletId ||
     args.authorization.authMethod !== args.runtime.auth.kind ||
-    !walletAuthAuthorityRefsMatch(args.authorization.authority, expectedAuthority) ||
+    exactAuthority.walletId !== args.runtime.walletId ||
+    exactAuthority.walletAuthMethodId !== args.authorization.authority.walletAuthMethodId ||
+    exactAuthority.authorityDigest !== args.authorization.authority.authorityDigest ||
     expiresAtMs <= args.nowMs
   ) {
     throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
@@ -227,7 +223,7 @@ export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(ar
       rpId: args.runtime.factor.rpId,
       credentialIdB64u: args.runtime.factor.credentialIdB64u,
       relayerUrl: args.runtime.relayerUrl,
-      authority: expectedAuthority,
+      authority: exactAuthority,
       signingWalletSession: signingWalletSession.value,
     });
   }
@@ -239,7 +235,7 @@ export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(ar
       providerSubjectId: args.runtime.auth.providerSubjectId,
       signerSlot: args.runtime.signerSlot,
       relayerUrl: args.runtime.relayerUrl,
-      authority: expectedAuthority,
+      authority: exactAuthority,
       signingWalletSession: signingWalletSession.value,
     });
   }
@@ -268,8 +264,9 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
   const state = args.state;
   const authorization = args.authorization;
   const walletId = state.signingLane.identity.signer.account.wallet.walletId;
-  const walletSessionToken = walletSessionTokenForCurve(authorization, 'ed25519');
+  const walletSessionToken = state.signingWalletSession.auth.walletSessionToken;
   const authorizationId = walletSessionAuthorizationIdForCurve(authorization, 'ed25519');
+  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(authorization, 'ed25519');
   const signer = state.signingLane.identity.signer;
   const effectiveExpiresAtMs = Math.min(
     state.signingWalletSession.expiresAtMs,
@@ -278,10 +275,15 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
   if (
     !walletSessionToken ||
     !authorizationId ||
+    !thresholdSessionId ||
     authorization.walletId !== walletId ||
     authorization.authority.walletId !== walletId ||
     authorization.authority.authorityDigest !== state.authority.authorityDigest ||
     authorization.authMethod !== signingLaneAuthMethod(state.signingLane.auth) ||
+    authorization.walletSessionId !== state.walletSessionId ||
+    authorization.quotaId !== state.quotaId ||
+    authorizationId !== state.signingWalletSession.authorizationId ||
+    thresholdSessionId !== state.thresholdSessionId ||
     effectiveExpiresAtMs <= args.nowMs ||
     !Number.isSafeInteger(effectiveExpiresAtMs)
   ) {
@@ -291,9 +293,9 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
     walletId: String(signer.account.wallet.walletId),
     nearAccountId: String(signer.account.nearAccountId),
     nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
-    walletSessionId: String(authorization.walletSessionId),
-    authorizationId: String(authorizationId),
-    quotaId: String(authorization.quotaId),
+    walletSessionId: String(state.walletSessionId),
+    authorizationId: String(state.signingWalletSession.authorizationId),
+    quotaId: String(state.quotaId),
     thresholdSessionId: String(state.thresholdSessionId),
     remainingUses: state.remainingUses,
     expiresAtMs: effectiveExpiresAtMs,

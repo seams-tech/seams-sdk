@@ -19,7 +19,11 @@ test('resolves Email OTP unlock material from the active capability manifest', a
   const existing = await resolveEmailOtpExistingEcdsaKey({
     walletId: manifest.signer.walletId,
     chainTarget: publicFacts.chainTarget,
-    scope: { kind: 'exact', runtimePolicyScope },
+    scope: {
+      kind: 'exact',
+      runtimePolicyScope,
+      authorityRef: manifest.signer.authority,
+    },
     keyHandle: String(publicFacts.keyHandle),
     listActiveEcdsaCapabilityManifestsForWallet: async () => [manifest],
   });
@@ -52,7 +56,11 @@ test('resolves shared Email OTP unlock material for a sibling target membership'
   const existing = await resolveEmailOtpExistingEcdsaKey({
     walletId: manifest.signer.walletId,
     chainTarget: siblingTarget,
-    scope: { kind: 'exact', runtimePolicyScope },
+    scope: {
+      kind: 'exact',
+      runtimePolicyScope,
+      authorityRef: manifest.signer.authority,
+    },
     keyHandle: String(publicFacts.keyHandle),
     listActiveEcdsaCapabilityManifestsForWallet: async () => [manifest],
   });
@@ -72,7 +80,11 @@ test('does not synthesize Email OTP unlock material without an active manifest',
   const existing = await resolveEmailOtpExistingEcdsaKey({
     walletId: manifest.signer.walletId,
     chainTarget: publicFacts.chainTarget,
-    scope: { kind: 'exact', runtimePolicyScope },
+    scope: {
+      kind: 'exact',
+      runtimePolicyScope,
+      authorityRef: manifest.signer.authority,
+    },
     keyHandle: String(publicFacts.keyHandle),
     listActiveEcdsaCapabilityManifestsForWallet: async () => [],
   });

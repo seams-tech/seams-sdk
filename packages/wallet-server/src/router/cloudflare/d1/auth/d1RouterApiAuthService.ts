@@ -28,6 +28,11 @@ import {
   parseNearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
@@ -1988,6 +1993,10 @@ function createD1WalletAuthMethodRouteService(
     verifyActivePasskeyAuthority: assembly.walletAuthMethods.verifyActivePasskeyAuthority.bind(
       assembly.walletAuthMethods,
     ),
+    resolveActivePasskeyAuthorityForVerifiedCredential:
+      assembly.walletAuthMethods.resolveActivePasskeyAuthorityForVerifiedCredential.bind(
+        assembly.walletAuthMethods,
+      ),
     verifyActiveEmailOtpAuthority: assembly.walletAuthMethods.verifyActiveEmailOtpAuthority.bind(
       assembly.walletAuthMethods,
     ),
@@ -2033,9 +2042,28 @@ function createD1WalletAuthMethodRouteService(
 const LINKED_DEVICE_WALLET_SESSION_TTL_MS = 15 * 60 * 1000;
 const LINKED_DEVICE_WALLET_SESSION_REMAINING_USES = 100;
 
-type LinkedWalletUnlockAuthorityResolution =
-  | Extract<WalletUnlockPasskeyAuthorityResolution, { readonly kind: 'linked_device' }>
-  | Extract<WalletUnlockEmailOtpAuthorityResolution, { readonly kind: 'linked_device' }>;
+type ActiveWalletUnlockAuthorityResolution =
+  | Extract<WalletUnlockPasskeyAuthorityResolution, { readonly kind: 'active_authority' }>
+  | Extract<WalletUnlockEmailOtpAuthorityResolution, { readonly kind: 'active_authority' }>;
+
+async function walletAuthAuthorityRefForActiveUnlock(
+  resolved: ActiveWalletUnlockAuthorityResolution,
+): Promise<WalletAuthAuthorityRef> {
+  if ('walletAuthAuthority' in resolved) {
+    return await walletAuthAuthorityRef({ authority: resolved.walletAuthAuthority });
+  }
+  const authority = buildPasskeyWalletAuthAuthority({
+    walletId: resolved.authMethod.walletId,
+    rpId: resolved.authMethod.rpId,
+    credentialIdB64u: resolved.authMethod.credentialIdB64u,
+  });
+  return await walletAuthAuthorityRef({
+    authority: {
+      ...authority,
+      bindingId: resolved.authMethod.walletAuthMethodId,
+    },
+  });
+}
 
 async function resolveEmailOtpAuthorityForUnlock(input: {
   readonly walletAuthMethods: Pick<
@@ -2085,18 +2113,19 @@ async function resolveEmailOtpAuthorityForUnlock(input: {
   }
 }
 
-async function issueWalletSessionForLinkedAuthority(input: {
-  readonly resolved: LinkedWalletUnlockAuthorityResolution;
+async function issueWalletSessionForActiveAuthority(input: {
+  readonly resolved: ActiveWalletUnlockAuthorityResolution;
   readonly authorizationService: AuthorizationService;
   readonly orgId: string;
+  readonly verifiedChallengeId: string;
 }): Promise<WalletUnlockPasskeySessionResolution> {
   const tenantId = parseTenantId(input.orgId);
   const principalId = parsePrincipalId(
-    `linked-device:${String(input.resolved.authority.principal.deviceId)}`,
+    'walletAuthAuthority' in input.resolved
+      ? input.resolved.walletAuthAuthority.factor.providerUserId
+      : String(input.resolved.authority.walletId),
   );
-  const mintId = parseReusableWalletSessionMintId(
-    `linked-device-authority:${String(input.resolved.authority.authorityId)}`,
-  );
+  const mintId = parseReusableWalletSessionMintId(input.verifiedChallengeId);
   if (!tenantId.ok || !principalId.ok || !mintId.ok) {
     return {
       kind: 'rejected',
@@ -2107,34 +2136,27 @@ async function issueWalletSessionForLinkedAuthority(input: {
 
   const issuedAtMs = Date.now();
   try {
-    const sessionInput = {
+    const reusableWalletSession = await input.authorizationService.issueReusableWalletSession({
       tenantId: tenantId.value,
       principalId: principalId.value,
       walletId: input.resolved.authority.walletId,
-      authority: input.resolved.authority,
-      walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
+      authority: await walletAuthAuthorityRefForActiveUnlock(input.resolved),
       mintId: mintId.value,
       remainingUses: LINKED_DEVICE_WALLET_SESSION_REMAINING_USES,
       issuedAtMs,
       expiresAtMs: issuedAtMs + LINKED_DEVICE_WALLET_SESSION_TTL_MS,
-    };
-    const prepared =
-      await input.authorizationService.prepareWalletSessionAuthorizationV2(sessionInput);
-    const existing = await input.authorizationService.readWalletSessionAuthorizationV2ByIdentity({
-      tenantId: tenantId.value,
-      walletId: input.resolved.authority.walletId,
-      walletSessionId: prepared.session.walletSessionId,
-      authorizationId: prepared.session.authorizationId,
-      nowMs: issuedAtMs,
     });
     const walletSession =
-      existing ||
-      (await input.authorizationService.issueWalletSessionAuthorizationV2(sessionInput));
+      await input.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
+        reusableWalletSession,
+        authority: input.resolved.authority,
+        walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
+      });
     const operationCredential =
       await input.authorizationService.issueWalletSessionAuthorizationV2OperationCredential({
         session: walletSession.session,
       });
-    return { kind: 'linked_device', walletSession, operationCredential };
+    return { kind: 'active_authority', walletSession, operationCredential };
   } catch (error: unknown) {
     return {
       kind: 'rejected',
@@ -2159,19 +2181,21 @@ async function issueWalletSessionForPasskeyUnlock(input: {
   const resolved = await input.walletAuthMethods.resolveActivePasskeyAuthorityForUnlock(
     input.request,
   );
-  if (resolved.kind !== 'linked_device') {
-    return resolved.kind === 'wallet_registration'
-      ? resolved
-      : {
-          kind: 'rejected',
-          code: resolved.code,
-          message: resolved.message,
-      };
+  if (resolved.kind !== 'active_authority') {
+    return {
+      kind: 'rejected',
+      code: resolved.code,
+      message: resolved.message,
+    };
   }
-  return await issueWalletSessionForLinkedAuthority({
+  if (resolved.authority.provenance.kind === 'wallet_registration') {
+    return { kind: 'wallet_registration' };
+  }
+  return await issueWalletSessionForActiveAuthority({
     resolved,
     authorizationService: input.authorizationService,
     orgId: input.orgId,
+    verifiedChallengeId: input.request.verifiedChallengeId,
   });
 }
 
@@ -2194,7 +2218,6 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
     emailOtpRecoveryService: input.emailOtpRecoveryService,
     request: input.request,
   });
-  if (resolved.kind === 'wallet_registration') return { kind: 'wallet_registration' };
   if (resolved.kind === 'rejected') {
     return {
       kind: 'rejected',
@@ -2202,10 +2225,11 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
       message: resolved.message,
     };
   }
-  return await issueWalletSessionForLinkedAuthority({
+  return await issueWalletSessionForActiveAuthority({
     resolved,
     authorizationService: input.authorizationService,
     orgId: input.request.orgId,
+    verifiedChallengeId: input.request.verifiedChallengeId,
   });
 }
 
@@ -2402,7 +2426,12 @@ function createD1AuthorizationSessionRouteService(
       const authMethod = await assembly.walletAuthMethodStore.readByIdV2({
         walletAuthMethodId: authorization.session.walletAuthMethodId,
       });
-      if (!authority || authority.state !== 'active' || !authMethod || authMethod.status !== 'active') {
+      if (
+        !authority ||
+        authority.state !== 'active' ||
+        !authMethod ||
+        authMethod.status !== 'active'
+      ) {
         return null;
       }
       return {

@@ -582,11 +582,34 @@ function strictPostRegistrationForwardBodyJson(
           authorization: input.authority.authorization,
           normal_signing_scope: input.authority.normalSigningScope,
         },
+        material_source: registrationMaterialSourceForEcdsaScope(
+          input.authority.normalSigningScope,
+        ),
         private_authorization: privateExportAuthorizationWire(input.authority.privateAuthorization),
       });
     case 'post_registration_proof':
       return JSON.stringify(input.request);
   }
+}
+
+function registrationMaterialSourceForEcdsaScope(
+  scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+): {
+  readonly kind: 'registration_activation';
+  readonly lookup: {
+    readonly account_id: string;
+    readonly material_activation_id: string;
+    readonly signing_worker_id: string;
+  };
+} {
+  return {
+    kind: 'registration_activation',
+    lookup: {
+      account_id: scope.wallet_id,
+      material_activation_id: scope.material_activation.activation_id,
+      signing_worker_id: scope.signing_worker.server_id,
+    },
+  };
 }
 
 function privateExportAuthorizationWire(

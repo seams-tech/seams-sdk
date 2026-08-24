@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
+import type { SeamsWeb } from '@/SeamsWeb';
 import type { SeamsWebContext } from '@/SeamsWeb/signingSurface/types';
+import { AuthMenuController } from '@/SeamsWeb/walletIframe/host/auth-menu/controller';
 import {
   cancelHostedPasskeyPreparation,
   prepareHostedPasskeyAccountSync,
-  prepareHostedPasskeyLogin,
   startHostedPasskeyAccountSyncCredential,
 } from '@/SeamsWeb/walletIframe/host/auth-menu/passkey';
 import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
@@ -149,7 +150,10 @@ test.describe('hosted auth-menu passkey continuation', () => {
   test('uses verified account sync when a recent local wallet has no readable capability subject', async () => {
     const originalFetch = globalThis.fetch;
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    const originalResolveSelectedWalletAuthority =
+      IndexedDBManager.resolveSelectedWalletAuthority;
     const walletId = 'river-garden-2fprg7';
+    const resolvedWalletIds: string[] = [];
     globalThis.fetch = async () =>
       new Response(
         JSON.stringify({
@@ -171,16 +175,31 @@ test.describe('hosted auth-menu passkey continuation', () => {
     IndexedDBManager.listActiveWalletSigners = async () => {
       throw new Error('local capability projection is unavailable');
     };
+    IndexedDBManager.resolveSelectedWalletAuthority = async (requestedWalletId) => {
+      resolvedWalletIds.push(requestedWalletId);
+      return { kind: 'missing_selection' };
+    };
     try {
       const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary('auth-menu-local-repair-test');
       if (!authMenuSessionId) throw new Error('auth-menu session fixture is invalid');
-      const prepared = await prepareHostedPasskeyLogin({
-        context: contextForPreparedAccountSync([]),
-        walletId,
-        authMenuSessionId,
-        requestId: walletIframeRequestIdFromBoundary('auth-menu-local-repair-request'),
-        cancellation: { kind: 'abort_signal', signal: new AbortController().signal },
+      const controller = new AuthMenuController({
+        getSeamsWeb: () =>
+          ({ getContext: () => contextForPreparedAccountSync([]) }) as unknown as SeamsWeb,
+        getAppearance: () => APPEARANCE,
+        send: () => {},
       });
+      const prepared = await Reflect.apply(
+        Reflect.get(controller, 'prepareLogin'),
+        controller,
+        [
+          walletIframeRequestIdFromBoundary('auth-menu-local-repair-request'),
+          authMenuSessionId,
+          { kind: 'abort_signal', signal: new AbortController().signal },
+          null,
+          { walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null },
+          { kind: 'wallet_sync', walletId: walletIdFromString(walletId) },
+        ],
+      );
 
       expect(prepared).toMatchObject({
         kind: 'hosted_passkey_account_sync_prepared_v1',
@@ -192,9 +211,11 @@ test.describe('hosted auth-menu passkey continuation', () => {
           },
         },
       });
+      expect(resolvedWalletIds).toEqual([walletId, walletId]);
       cancelHostedPasskeyPreparation(prepared);
     } finally {
       IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+      IndexedDBManager.resolveSelectedWalletAuthority = originalResolveSelectedWalletAuthority;
       globalThis.fetch = originalFetch;
     }
   });

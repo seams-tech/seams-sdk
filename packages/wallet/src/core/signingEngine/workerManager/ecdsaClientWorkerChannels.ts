@@ -4,6 +4,7 @@ import type {
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
   RouterAbEcdsaDerivationExplicitExportRequestV1,
   RouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
+  RouterAbEcdsaExplicitExportForwardedResponseV1,
   RouterAbEcdsaOperationStepUpPreparationV1Wire,
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationRecipientKeysV1,
@@ -499,6 +500,38 @@ export type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1 = {
 export type CloseRouterAbEcdsaPostRegistrationCeremonyResultV1 = {
   readonly kind: 'router_ab_ecdsa_post_registration_ceremony_closed_v1';
   readonly ceremonyId: string;
+};
+
+/** Ordinary post-unlock export request preparation on one holder-owned share. */
+export type CreateEcdsaHolderOrdinaryExportRequestV1 = {
+  readonly kind: 'create_ecdsa_holder_ordinary_export_request_v1';
+  readonly holderHandleId: string;
+  readonly request: RouterAbEcdsaExplicitExportRequestFactsV1;
+};
+
+export type CreateEcdsaHolderOrdinaryExportResultV1 = {
+  readonly kind: 'ecdsa_holder_ordinary_export_request_created_v1';
+  readonly holderHandleId: string;
+  readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+  readonly requestDigestB64u: string;
+};
+
+/** Standard forwarded response plus the exact binding derived from the active authority. */
+export type FinalizeEcdsaHolderOrdinaryExportRequestV1 = {
+  readonly kind: 'finalize_ecdsa_holder_ordinary_export_v1';
+  readonly holderHandleId: string;
+  readonly requestDigestB64u: string;
+  readonly expectedBinding: RouterAbEcdsaSigningWorkerExportShareBindingV1;
+  readonly forwardedResponse: RouterAbEcdsaExplicitExportForwardedResponseV1;
+};
+
+export type FinalizeEcdsaHolderOrdinaryExportResultV1 = {
+  readonly kind: 'ecdsa_holder_ordinary_export_finalized_v1';
+  readonly holderHandleId: string;
+  readonly artifactKind: 'ecdsa-derivation-secp256k1-export';
+  readonly publicKeyHex: string;
+  readonly privateKeyHex: string;
+  readonly ethereumAddress: string;
 };
 
 type ParsedWorkerChannelControl = {

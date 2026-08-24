@@ -21,6 +21,10 @@ export type PreparedEcdsaOperationStepUp = {
   readonly challengeB64u: string;
 };
 
+export type EcdsaOperationStepUpTransport =
+  | { readonly kind: 'legacy_cookie' }
+  | { readonly kind: 'wallet_session_bearer'; readonly token: string };
+
 function requireResponseRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('ECDSA operation step-up response must be an object');
@@ -107,9 +111,9 @@ export function buildEcdsaOperationStepUpPreparation(args: {
   };
 }
 
-export async function prepareEcdsaOperationStepUp(args: Parameters<
-  typeof buildEcdsaOperationStepUpPreparation
->[0]): Promise<PreparedEcdsaOperationStepUp> {
+export async function prepareEcdsaOperationStepUp(
+  args: Parameters<typeof buildEcdsaOperationStepUpPreparation>[0],
+): Promise<PreparedEcdsaOperationStepUp> {
   const operation = buildEcdsaOperationStepUpPreparation(args);
   return {
     operation,
@@ -139,13 +143,24 @@ export async function issueEcdsaOperationStepUpAuthorization(args: {
   readonly relayerUrl: string;
   readonly request: RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire;
   readonly fetchImpl?: typeof fetch;
+  readonly transport?: EcdsaOperationStepUpTransport;
 }): Promise<RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire> {
   const request = parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1(args.request);
   const fetchImpl = args.fetchImpl ?? globalThis.fetch;
   if (typeof fetchImpl !== 'function') {
     throw new Error('fetch is unavailable for ECDSA operation step-up');
   }
-  const response = await fetchImpl(operationStepUpEndpoint(args.relayerUrl), {
+  if (
+    args.transport?.kind === 'wallet_session_bearer' &&
+    args.transport.token.trim().length === 0
+  ) {
+    throw new Error('Wallet Session operation credential is required for ECDSA operation step-up');
+  }
+  const authenticatedFetch =
+    args.transport?.kind === 'wallet_session_bearer'
+      ? fetchWithWalletSessionBearer(fetchImpl, args.transport.token)
+      : fetchImpl;
+  const response = await authenticatedFetch(operationStepUpEndpoint(args.relayerUrl), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -170,4 +185,12 @@ export async function issueEcdsaOperationStepUpAuthorization(args: {
     throw new Error(`ECDSA operation step-up failed: ${message}`);
   }
   return parseEcdsaOperationStepUpAuthorizationResponse(body);
+}
+
+function fetchWithWalletSessionBearer(fetchImpl: typeof fetch, token: string): typeof fetch {
+  return async (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    return await fetchImpl(input, { ...init, headers });
+  };
 }

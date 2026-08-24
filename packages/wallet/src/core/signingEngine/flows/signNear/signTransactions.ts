@@ -311,9 +311,10 @@ async function runNearAuthorizationRequiredTransactionSigning(
     throw new Error('[SigningEngine][near] production signing session coordinator is required');
   }
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
-    ctx,
+    materialExecutor: yaoMaterialExecutor,
     nearAccount,
-    signerSlot,
+    signerSlot: candidate.signerSlot,
+    requestedSignerSlot: signerSlot,
     operationLabel: 'signing',
     warnings,
   });
@@ -587,9 +588,10 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     interaction: { kind: 'none', overlay: 'none' },
   });
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
-    ctx,
+    materialExecutor: yaoMaterialExecutor,
     nearAccount,
-    signerSlot,
+    signerSlot: ed25519SigningBoundary.signingLane.identity.signer.signerSlot,
+    requestedSignerSlot: signerSlot,
     operationLabel: 'signing',
     warnings,
   });

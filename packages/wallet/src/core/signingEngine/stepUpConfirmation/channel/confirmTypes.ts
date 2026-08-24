@@ -230,6 +230,12 @@ type NearTransactionSigningPayload = SignTransactionPayloadBase & { signingKind:
         emailOtpPrompt?: never;
       }
     | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'active_wallet_authority' }>;
+        nearFundingRequest: NearFundingRequest;
+        webauthnChallenge?: never;
+        emailOtpPrompt?: never;
+      }
+    | {
         signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
         nearFundingRequest: NearFundingRequest;
         webauthnChallenge?: WebAuthnChallenge;
@@ -249,6 +255,11 @@ type NearDelegateSigningPayload = SignTransactionPayloadBase & {
 } & (
     | {
         signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+        webauthnChallenge?: never;
+        emailOtpPrompt?: never;
+      }
+    | {
+        signingAuthPlan: Extract<SigningAuthPlan, { kind: 'active_wallet_authority' }>;
         webauthnChallenge?: never;
         emailOtpPrompt?: never;
       }

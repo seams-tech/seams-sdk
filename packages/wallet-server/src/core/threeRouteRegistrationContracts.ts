@@ -16,6 +16,7 @@ import type {
   WalletRegistrationEcdsaActivationResponse,
 } from './registrationContracts';
 import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 
 /**
  * Refactor 94C: the three-route registration wire contract, frozen at the
@@ -48,11 +49,12 @@ export type SignedSetupPayloadB64u = string & { readonly [signedSetupPayloadBran
 
 /* Reused pieces, named once so route shapes below stay readable. Indexed
    access keeps them bound to the canonical definitions. */
-type SetupEd25519Work = Extract<WalletRegistrationStartResponse, { kind: 'near_ed25519' }> extends {
-  ed25519: infer T;
-}
-  ? T
-  : never;
+type SetupEd25519Work =
+  Extract<WalletRegistrationStartResponse, { kind: 'near_ed25519' }> extends {
+    ed25519: infer T;
+  }
+    ? T
+    : never;
 type ActivateIdempotencyKey = WalletRegistrationFinalizeRequest['idempotencyKey'];
 type FinalizeRequestBase = WalletRegistrationFinalizeRequest;
 type EcdsaFinalizeSuccess = Extract<
@@ -96,6 +98,7 @@ type WalletRegistrationSetupSuccessBase = {
   ok: true;
   registrationCeremonyId: string;
   walletId: string;
+  walletAuthMethodId: WalletAuthMethodId;
   /** The WebAuthn create challenge; the client signs exactly this. */
   registrationIntentDigestB64u: string;
   intent: WalletRegistrationStartRequest['intent'];
@@ -165,17 +168,17 @@ export type RespondEcdsaRegistrationWorkV2 = {
 export type WalletRegistrationRespondRequestV2 = WalletRegistrationRespondAuthorityProofV2 &
   (
     | (WalletRegistrationRespondRequestBaseV2 & {
-      kind: 'evm_family_ecdsa';
-      ecdsa: RespondEcdsaRegistrationWorkV2;
-    })
+        kind: 'evm_family_ecdsa';
+        ecdsa: RespondEcdsaRegistrationWorkV2;
+      })
     | (WalletRegistrationRespondRequestBaseV2 & {
-      kind: 'near_ed25519_and_evm_family_ecdsa';
-      ecdsa: RespondEcdsaRegistrationWorkV2;
-    })
+        kind: 'near_ed25519_and_evm_family_ecdsa';
+        ecdsa: RespondEcdsaRegistrationWorkV2;
+      })
     | (WalletRegistrationRespondRequestBaseV2 & {
-      kind: 'near_ed25519';
-      ecdsa?: never;
-    })
+        kind: 'near_ed25519';
+        ecdsa?: never;
+      })
   );
 
 /**
@@ -322,7 +325,12 @@ type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> :
  */
 export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Ed25519FinalizeSuccess,
-  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
+  | 'ed25519'
+  | 'resolvedAccount'
+  | 'accountProvisioning'
+  | 'authorityScope'
+  | 'foundingAuthority'
+  | 'foundingAuthMethod'
 > & {
   nearProvisioning: { status: 'near_pending' };
   ed25519?: never;
@@ -371,10 +379,7 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
   signedSetup: SignedSetupPayloadB64u;
   /** Its own key: this commit is a separate effect from activate's. */
   idempotencyKey: ActivateIdempotencyKey;
-  ed25519: Extract<
-    WalletRegistrationFinalizeRequest,
-    { kind: 'near_ed25519' }
-  >['ed25519'];
+  ed25519: Extract<WalletRegistrationFinalizeRequest, { kind: 'near_ed25519' }>['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
 };
 

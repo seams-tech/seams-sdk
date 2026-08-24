@@ -6,6 +6,7 @@ import {
   type CorrelationId,
 } from '@shared/utils/canonicalPrimitives';
 import {
+  parseWalletAuthMethodId,
   parseThresholdEd25519SessionId,
   parseWebAuthnRpId,
   type WebAuthnRpId,
@@ -161,7 +162,7 @@ import type { PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult as Ema
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
-  buildEmailOtpAuthContextForWalletAuthMethod,
+  buildEmailOtpAuthContext,
   emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProvider,
   emailOtpAuthContextProviderUserId,
@@ -170,6 +171,7 @@ import {
 import {
   buildEmailOtpWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
   type EmailOtpProvider,
   type EmailOtpWalletAuthAuthority,
@@ -385,6 +387,7 @@ export async function establishPasskeyRegistrationEd25519ExportRootCapability(ar
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly passkeyPrfFirstB64u: string;
   readonly walletId: string;
+  readonly walletAuthMethodId: string;
   readonly walletSessionId: string;
   readonly expiresAtMs: number;
 }): Promise<void> {
@@ -396,6 +399,7 @@ export async function establishPasskeyRegistrationEd25519ExportRootCapability(ar
     }),
     passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
     walletId: args.walletId,
+    walletAuthMethodId: args.walletAuthMethodId,
     walletSessionId: args.walletSessionId,
     expiresAtMs: args.expiresAtMs,
   });
@@ -1282,24 +1286,14 @@ function emailOtpProviderFromRegistrationProof(proof: EmailOtpRegistrationProof)
 
 async function buildRegistrationEmailOtpAuthContext(args: {
   configs: SeamsConfigsReadonly;
-  walletId: WalletId;
-  email: string;
-  provider: EmailOtpProvider;
-  providerSubject: string;
+  authority: EmailOtpWalletAuthAuthority;
 }): Promise<ThresholdEcdsaEmailOtpAuthContext> {
   const policy = args.configs.signing.emailOtp.authPolicy;
-  const providerUserId = String(args.providerSubject || '').trim();
-  if (!providerUserId) {
-    throw new Error('Email OTP registration auth context requires providerSubject');
-  }
-  return buildEmailOtpAuthContextForWalletAuthMethod({
+  return buildEmailOtpAuthContext({
     policy,
-    walletId: args.walletId,
-    emailHashHex: await emailOtpEmailHashHex(args.email),
     retention: 'session',
     reason: 'login',
-    provider: args.provider,
-    providerUserId,
+    authority: args.authority,
   });
 }
 
@@ -1349,6 +1343,8 @@ type RegistrationPersistencePlan = {
   walletId: WalletId;
   auth: RegistrationPersistenceAuth;
   ecdsa: RegistrationPersistenceEcdsa;
+  foundingAuthority: WalletRegistrationFinalizeResponse['foundingAuthority'];
+  foundingAuthMethod: WalletRegistrationFinalizeResponse['foundingAuthMethod'];
 };
 
 async function buildRegistrationPersistenceAuth(args: {
@@ -1386,18 +1382,25 @@ async function buildRegistrationPersistenceAuth(args: {
       if (!isEmailOtpWalletAuthAuthority(args.finalized.authority)) {
         throw new Error('Email OTP registration finalize returned a different authority');
       }
+      if (args.finalized.foundingAuthMethod.kind !== 'email_otp') {
+        throw new Error('Email OTP registration finalize returned a different founding method');
+      }
+      const authority = parseEmailOtpWalletAuthAuthority({
+        ...args.finalized.authority,
+        bindingId: args.finalized.foundingAuthMethod.walletAuthMethodId,
+      });
+      if (!authority) {
+        throw new Error('Email OTP registration finalize returned an invalid exact authority');
+      }
       return {
         kind: 'email_otp',
         email,
         registrationAuthorityId,
         emailOtpAuthContext: await buildRegistrationEmailOtpAuthContext({
           configs: args.configs,
-          walletId: args.walletId,
-          email,
-          provider: args.finalized.authority.factor.provider,
-          providerSubject,
+          authority,
         }),
-        authority: args.finalized.authority,
+        authority,
       };
     }
     default:
@@ -1931,7 +1934,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
         bootstrap: registrationBootstrap,
         activatedThresholdSessionId: activated.ecdsa.bootstrap.thresholdSessionId,
         roleLocalMaterial: finalized.roleLocalMaterial,
-        authority: finalized.authority,
+        authority: await walletAuthAuthorityRef({ authority: activated.authority }),
         materialActivation: finalized.materialActivation,
         clientPublicFacts: finalized.publicFacts,
         publicCapability: finalized.publicCapability,
@@ -1958,6 +1961,8 @@ function finalizeResponseViewFromActivatedEcdsa(
   const {
     walletId,
     authority,
+    foundingAuthority,
+    foundingAuthMethod,
     registrationDiagnostics,
     rpId,
     authMethod,
@@ -1969,6 +1974,8 @@ function finalizeResponseViewFromActivatedEcdsa(
     ok: true as const,
     walletId,
     authority,
+    foundingAuthority,
+    foundingAuthMethod,
     ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
     ...(custodyKeyManifestDigestB64u !== undefined ? { custodyKeyManifestDigestB64u } : {}),
     kind: 'evm_family_ecdsa' as const,
@@ -1988,13 +1995,30 @@ function buildRegistrationPersistencePlan(args: {
   walletId: WalletId;
   auth: RegistrationPersistenceAuth;
   ecdsa: RegistrationPersistenceEcdsa;
+  foundingAuthority: WalletRegistrationFinalizeResponse['foundingAuthority'];
+  foundingAuthMethod: WalletRegistrationFinalizeResponse['foundingAuthMethod'];
 }): RegistrationPersistencePlan {
   return {
     kind: 'registration_persistence_plan_v1',
     walletId: args.walletId,
     auth: args.auth,
     ecdsa: args.ecdsa,
+    foundingAuthority: args.foundingAuthority,
+    foundingAuthMethod: args.foundingAuthMethod,
   };
+}
+
+async function registrationPersistenceWalletSessionAuthority(
+  plan: RegistrationPersistencePlan,
+): Promise<WalletAuthAuthorityRef> {
+  switch (plan.auth.kind) {
+    case 'passkey':
+      return plan.ecdsa.session.authority;
+    case 'email_otp':
+      return walletAuthAuthorityRef({ authority: plan.auth.authority });
+    default:
+      return assertNever(plan.auth);
+  }
 }
 
 async function finalizeRegistrationEcdsaSessions(args: {
@@ -2057,6 +2081,10 @@ async function persistRegistrationEcdsaPlan(args: {
       plan: args.plan,
       walletKeys,
     });
+    await IndexedDBManager.persistFoundingWalletAuthority({
+      authority: args.plan.foundingAuthority,
+      authMethod: args.plan.foundingAuthMethod,
+    });
   } finally {
     args.registrationTiming.record(
       'ecdsaRegistrationLocalRecordPersistenceMs',
@@ -2064,7 +2092,7 @@ async function persistRegistrationEcdsaPlan(args: {
     );
   }
   await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
-    authority: args.plan.ecdsa.session.authority,
+    authority: await registrationPersistenceWalletSessionAuthority(args.plan),
     authMethod: registrationPersistenceAuthMethod(args.plan.auth),
     session: args.plan.ecdsa.session.registrationEstablishedSession,
   });
@@ -2431,8 +2459,12 @@ async function commitDeferredEd25519Registration(args: {
       ),
       signerSlot: finalized.ed25519.signerSlot,
     });
+    await IndexedDBManager.persistFoundingWalletAuthority({
+      authority: finalized.foundingAuthority,
+      authMethod: finalized.foundingAuthMethod,
+    });
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
-      authority: args.plan.ecdsa.session.authority,
+      authority: await walletAuthAuthorityRef({ authority: finalized.authority }),
       authMethod: registrationPersistenceAuthMethod(auth),
       session: finalized.registrationEstablishedSession,
     });
@@ -2782,29 +2814,41 @@ async function registerEcdsaOrMixedWallet(
       };
     }
 
+    const setupWalletAuthMethodId = parseWalletAuthMethodId(setup.walletAuthMethodId);
+    if (!setupWalletAuthMethodId.ok) {
+      throw new Error(
+        `Registration setup auth-method identity is invalid: ${setupWalletAuthMethodId.error.message}`,
+      );
+    }
     let materialAuthority: WalletAuthAuthorityRef;
     if (args.authMethod.kind === 'passkey') {
       if (!passkeyAuthority) {
         throw new Error('ECDSA registration is missing its verified passkey authority');
       }
       materialAuthority = await walletAuthAuthorityRef({
-        authority: passkeyWalletAuthAuthorityFromCredential({
-          walletId,
-          rpId: args.authMethod.rpId,
-          credential: passkeyAuthority.credential,
-        }),
+        authority: {
+          ...passkeyWalletAuthAuthorityFromCredential({
+            walletId,
+            rpId: args.authMethod.rpId,
+            credential: passkeyAuthority.credential,
+          }),
+          bindingId: setupWalletAuthMethodId.value,
+        },
       });
     } else {
       if (!emailOtpProvider) {
         throw new Error('Email OTP registration is missing its verified provider');
       }
       materialAuthority = await walletAuthAuthorityRef({
-        authority: buildEmailOtpWalletAuthAuthority({
-          walletId,
-          provider: emailOtpProvider,
-          providerUserId: emailOtpProviderSubject,
-          emailHashHex: await emailOtpEmailHashHex(emailOtpEmail),
-        }),
+        authority: {
+          ...buildEmailOtpWalletAuthAuthority({
+            walletId,
+            provider: emailOtpProvider,
+            providerUserId: emailOtpProviderSubject,
+            emailHashHex: await emailOtpEmailHashHex(emailOtpEmail),
+          }),
+          bindingId: setupWalletAuthMethodId.value,
+        },
       });
     }
 
@@ -2916,6 +2960,8 @@ async function registerEcdsaOrMixedWallet(
     const persistencePlan = buildRegistrationPersistencePlan({
       walletId: toWalletId(finalized.walletId),
       auth: persistenceAuth,
+      foundingAuthority: finalized.foundingAuthority,
+      foundingAuthMethod: finalized.foundingAuthMethod,
       ecdsa: buildRegistrationPersistenceEcdsa({
         session: ecdsaSession,
         walletKeys,
@@ -2953,6 +2999,7 @@ async function registerEcdsaOrMixedWallet(
         commit: ceremony.walletCustody.commitPayload,
         passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
         walletId: String(walletId),
+        walletAuthMethodId: String(persistencePlan.foundingAuthMethod.walletAuthMethodId),
         walletSessionId: String(registrationSession.walletSessionId),
         expiresAtMs: registrationSession.expiresAtMs,
       });
@@ -3364,6 +3411,10 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     if (stored.signerSlot !== finalized.ed25519.signerSlot) {
       throw new Error('Ed25519 Yao registration persisted a different signer slot');
     }
+    await IndexedDBManager.persistFoundingWalletAuthority({
+      authority: finalized.foundingAuthority,
+      authMethod: finalized.foundingAuthMethod,
+    });
     const materialFacts = registrationEd25519MaterialFacts({
       deferredNear: responded.ed25519,
       finalized: finalized.ed25519,
@@ -3407,12 +3458,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     });
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
       authority: await walletAuthAuthorityRef({
-        authority: buildEmailOtpWalletAuthAuthority({
-          walletId: finalized.walletId,
-          provider: emailOtpAuthContextProvider(persistenceAuth.emailOtpAuthContext),
-          providerUserId: emailOtpAuthContextProviderUserId(persistenceAuth.emailOtpAuthContext),
-          emailHashHex: emailOtpAuthContextEmailHashHex(persistenceAuth.emailOtpAuthContext),
-        }),
+        authority: persistenceAuth.authority,
       }),
       authMethod: 'email_otp',
       session: finalized.registrationEstablishedSession,
@@ -3708,6 +3754,10 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     if (stored.signerSlot !== finalized.ed25519.signerSlot) {
       throw new Error('Ed25519 Yao registration persisted a different signer slot');
     }
+    await IndexedDBManager.persistFoundingWalletAuthority({
+      authority: finalized.foundingAuthority,
+      authMethod: finalized.foundingAuthMethod,
+    });
     await context.signingEngine.activateAuthenticatedWalletState({
       walletId: finalized.walletId,
       nearAccountId: toAccountId(finalized.ed25519.nearAccountId),
@@ -3770,11 +3820,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       walletSessionAuthorizations,
       {
         authority: await walletAuthAuthorityRef({
-          authority: passkeyWalletAuthAuthorityFromCredential({
-            walletId: finalized.walletId,
-            rpId: finalizedPasskey.rpId,
-            credential: passkeyAuthority.credential,
-          }),
+          authority: finalized.authority,
         }),
         authMethod: 'passkey',
         session: finalized.registrationEstablishedSession,
@@ -3789,6 +3835,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       commit: established.commitPayload,
       passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
       walletId: String(finalized.walletId),
+      walletAuthMethodId: String(finalized.foundingAuthMethod.walletAuthMethodId),
       walletSessionId: String(registrationAuthorization.walletSessionId),
       expiresAtMs: registrationAuthorization.expiresAtMs,
     });

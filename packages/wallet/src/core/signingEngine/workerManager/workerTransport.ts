@@ -271,7 +271,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private readonly pendingByKind = new Map<SignerWorkerKind, Map<string, PendingEntry>>();
   private readonly messageHandlers = new Map<SignerWorkerKind, (event: MessageEvent) => void>();
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
-  private derivationPresignConnected = false;
+  private presignAuthorityKind:
+    | 'role_local_derivation_handle'
+    | 'linked_holder_signing_material'
+    | null = null;
   private presignOnlineConnected = false;
   private ecdsaRegistrationCryptoPrewarmPromise: Promise<{
     kind: 'succeeded' | 'failed';
@@ -666,9 +669,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     const authorityKind = this.parsePresignAuthorityKind(request.payload);
     switch (authorityKind) {
       case 'role_local_derivation_handle':
-        this.connectDerivationPresignChannel(presignWorker);
+        this.connectDerivationPresignChannel(presignWorker, authorityKind);
         return;
       case 'linked_holder_signing_material':
+        this.connectDerivationPresignChannel(presignWorker, authorityKind);
         return;
       default:
         authorityKind satisfies never;
@@ -704,26 +708,33 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     return channel.port2;
   }
 
-  private connectDerivationPresignChannel(presignWorker: Worker): void {
-    if (this.derivationPresignConnected) return;
+  private connectDerivationPresignChannel(
+    presignWorker: Worker,
+    authorityKind: 'role_local_derivation_handle' | 'linked_holder_signing_material',
+  ): void {
+    if (this.presignAuthorityKind === authorityKind) return;
     clearAllRouterAbEcdsaDerivationClientPresignatures();
     const derivationWorker = this.getOrCreateWorker('ecdsaDerivationClient');
     const channel = new MessageChannel();
+    const controlKind =
+      authorityKind === 'role_local_derivation_handle'
+        ? EcdsaClientWorkerControlKind.AttachDerivationToPresign
+        : EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign;
     derivationWorker.postMessage(
       {
-        kind: EcdsaClientWorkerControlKind.AttachDerivationToPresign,
+        kind: controlKind,
         port: channel.port1,
       },
       [channel.port1],
     );
     presignWorker.postMessage(
       {
-        kind: EcdsaClientWorkerControlKind.AttachDerivationToPresign,
+        kind: controlKind,
         port: channel.port2,
       },
       [channel.port2],
     );
-    this.derivationPresignConnected = true;
+    this.presignAuthorityKind = authorityKind;
   }
 
   private connectPresignOnlineChannel(): void {
@@ -1105,10 +1116,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private resetWorker(kind: SignerWorkerKind): void {
     if (kind === 'ecdsaDerivationClient') {
-      this.derivationPresignConnected = false;
+      this.presignAuthorityKind = null;
       this.resetWorker('ecdsaPresignClient');
     } else if (kind === 'ecdsaPresignClient') {
-      this.derivationPresignConnected = false;
+      this.presignAuthorityKind = null;
       this.presignOnlineConnected = false;
       this.resetWorker('ecdsaOnlineClient');
       this.terminateWorkerOnly('ecdsaDerivationClient');

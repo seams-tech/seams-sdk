@@ -1517,7 +1517,7 @@ export type RegistrationSignerSetSelectionFromPlanOptions = {
 };
 
 const REGISTRATION_NEAR_ED25519_KEY_PURPOSE = 'near_tx';
-const REGISTRATION_NEAR_ED25519_KEY_VERSION = 'router-ab-ed25519-yao-v1';
+export const NEAR_ED25519_YAO_KEY_VERSION_V1 = 'router-ab-ed25519-yao-v1';
 export const REGISTRATION_NEAR_ED25519_YAO_DERIVATION_VERSION = 1;
 
 export function registrationSignerBranchKeyFromString(value: string): RegistrationSignerBranchKey {
@@ -1593,7 +1593,7 @@ function registrationSignerPlanBranchFromRequest(
         signerSlot: signer.signerSlot,
         participantIds: signer.participantIds,
         keyPurpose: REGISTRATION_NEAR_ED25519_KEY_PURPOSE,
-        keyVersion: REGISTRATION_NEAR_ED25519_KEY_VERSION,
+        keyVersion: NEAR_ED25519_YAO_KEY_VERSION_V1,
         derivationVersion: signer.derivationVersion,
       };
     case 'evm_family_ecdsa':

@@ -38,6 +38,14 @@ import {
   type RouterAbEd25519YaoActivationClientPackageV1,
 } from '../utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefFromWire } from '../utils/routerAbNormalSigningIdentity';
+import {
+  parseSdkEcdsaDerivationThresholdKeyId,
+  type EcdsaThresholdKeyId,
+} from '../threshold/ecdsaDerivationRoleLocalBootstrap';
+import {
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+} from '../utils/routerAbEcdsaDerivation';
 
 /** Exact discriminator accepted by the ECDSA source-contribution core. */
 export const LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1 =
@@ -47,6 +55,8 @@ export const LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_ENVELOPE_KIND_V1 =
 export type LinkedDeviceEcdsaSourceDerivationV1 = {
   readonly applicationBindingDigestB64u: DigestB64u;
   readonly clientShareRetryCounter: number;
+  readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  readonly sourceNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
 /** Public ECDSA source identity copied from the family protocol wire. */
@@ -131,6 +141,7 @@ export type LinkedDeviceEcdsaSourcePreservingActivationReceiptV1 = {
   readonly targetRelayerPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
   readonly thresholdPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
   readonly thresholdEthereumAddress20B64u: string;
+  readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
 
 /** Final ECDSA contribution returned by Device 1's worker boundary. */
@@ -746,7 +757,12 @@ export function parseLinkedDeviceEcdsaSourceDerivationV1(
 ): LinkedDeviceEcdsaSourceDerivationV1 {
   const record = exactRecord(
     raw,
-    ['applicationBindingDigestB64u', 'clientShareRetryCounter'],
+    [
+      'applicationBindingDigestB64u',
+      'clientShareRetryCounter',
+      'ecdsaThresholdKeyId',
+      'sourceNormalSigning',
+    ],
     'linked-device ECDSA source derivation',
   );
   const clientShareRetryCounter = record.clientShareRetryCounter;
@@ -757,12 +773,30 @@ export function parseLinkedDeviceEcdsaSourceDerivationV1(
   ) {
     throw new Error('linked-device ECDSA source derivation retry counter is invalid');
   }
+  const applicationBindingDigestB64u = parseDigestField(
+    record.applicationBindingDigestB64u,
+    'sourceDerivation.applicationBindingDigestB64u',
+  );
+  const sourceNormalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(
+    record.sourceNormalSigning,
+  );
+  const ecdsaThresholdKeyId = parseSdkEcdsaDerivationThresholdKeyId(
+    record.ecdsaThresholdKeyId,
+  );
+  if (
+    sourceNormalSigning.scope.context.application_binding_digest_b64u !==
+      applicationBindingDigestB64u ||
+    sourceNormalSigning.scope.public_identity.client_share_retry_counter !==
+      clientShareRetryCounter ||
+    sourceNormalSigning.scope.ecdsa_threshold_key_id !== ecdsaThresholdKeyId
+  ) {
+    throw new Error('linked-device ECDSA source derivation differs from normal signing');
+  }
   return {
-    applicationBindingDigestB64u: parseDigestField(
-      record.applicationBindingDigestB64u,
-      'sourceDerivation.applicationBindingDigestB64u',
-    ),
+    applicationBindingDigestB64u,
     clientShareRetryCounter,
+    ecdsaThresholdKeyId,
+    sourceNormalSigning,
   };
 }
 
@@ -778,30 +812,116 @@ export function parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1(
       'targetRelayerPublicKey33B64u',
       'thresholdPublicKey33B64u',
       'thresholdEthereumAddress20B64u',
+      'normalSigning',
     ],
     'linked-device ECDSA source-preserving activation receipt',
   );
   if (record.state !== 'inactive') {
     throw new Error('linked-device ECDSA source-preserving activation receipt is not inactive');
   }
+  const binding = parseLinkedDeviceEcdsaSourceContributionBindingV1(record.binding);
+  const sourceDerivation = parseLinkedDeviceEcdsaSourceDerivationV1(record.sourceDerivation);
+  const targetRelayerPublicKey33B64u = parseSecp256k1CompressedPublicKeyB64u(
+    record.targetRelayerPublicKey33B64u,
+    'targetRelayerPublicKey33B64u',
+  );
+  const thresholdPublicKey33B64u = parseSecp256k1CompressedPublicKeyB64u(
+    record.thresholdPublicKey33B64u,
+    'thresholdPublicKey33B64u',
+  );
+  const thresholdEthereumAddress20B64u = parseFixedBase64(
+    record.thresholdEthereumAddress20B64u,
+    20,
+    'thresholdEthereumAddress20B64u',
+  );
+  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(
+    record.normalSigning,
+  );
+  assertLinkedDeviceEcdsaNormalSigningReceipt({
+    binding,
+    sourceDerivation,
+    targetRelayerPublicKey33B64u,
+    thresholdPublicKey33B64u,
+    thresholdEthereumAddress20B64u,
+    normalSigning,
+  });
   return {
     state: 'inactive',
-    binding: parseLinkedDeviceEcdsaSourceContributionBindingV1(record.binding),
-    sourceDerivation: parseLinkedDeviceEcdsaSourceDerivationV1(record.sourceDerivation),
-    targetRelayerPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
-      record.targetRelayerPublicKey33B64u,
-      'targetRelayerPublicKey33B64u',
-    ),
-    thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
-      record.thresholdPublicKey33B64u,
-      'thresholdPublicKey33B64u',
-    ),
-    thresholdEthereumAddress20B64u: parseFixedBase64(
-      record.thresholdEthereumAddress20B64u,
-      20,
-      'thresholdEthereumAddress20B64u',
-    ),
+    binding,
+    sourceDerivation,
+    targetRelayerPublicKey33B64u,
+    thresholdPublicKey33B64u,
+    thresholdEthereumAddress20B64u,
+    normalSigning,
   };
+}
+
+function assertLinkedDeviceEcdsaNormalSigningReceipt(input: {
+  readonly binding: LinkedDeviceEcdsaSourceContributionBindingV1;
+  readonly sourceDerivation: LinkedDeviceEcdsaSourceDerivationV1;
+  readonly targetRelayerPublicKey33B64u: string;
+  readonly thresholdPublicKey33B64u: string;
+  readonly thresholdEthereumAddress20B64u: string;
+  readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+}): void {
+  const source = input.sourceDerivation.sourceNormalSigning.scope;
+  const target = input.normalSigning.scope;
+  if (
+    !mpcMaterialActivationRefsEqual(
+      routerAbMpcMaterialActivationRefFromWire(source.material_activation),
+      input.binding.source.activation,
+    ) ||
+    !mpcMaterialActivationRefsEqual(
+      routerAbMpcMaterialActivationRefFromWire(target.material_activation),
+      input.binding.target.activation,
+    ) ||
+    source.wallet_id !== target.wallet_id ||
+    source.wallet_id !== input.binding.source.activation.materialOwner ||
+    target.wallet_id !== input.binding.target.activation.materialOwner ||
+    source.ecdsa_threshold_key_id !== target.ecdsa_threshold_key_id ||
+    source.signing_root_id !== target.signing_root_id ||
+    source.signing_root_version !== target.signing_root_version ||
+    source.context.application_binding_digest_b64u !==
+      target.context.application_binding_digest_b64u ||
+    source.activation_epoch !== target.activation_epoch ||
+    source.public_identity.derivation_client_share_public_key33_b64u !==
+      input.binding.source.clientPublicKey33B64u ||
+    source.public_identity.server_public_key33_b64u !==
+      input.binding.source.relayerPublicKey33B64u ||
+    source.public_identity.threshold_public_key33_b64u !==
+      input.binding.source.thresholdPublicKey33B64u ||
+    source.public_identity.ethereum_address20_b64u !==
+      input.binding.source.thresholdEthereumAddress20B64u ||
+    target.public_identity.context_binding_b64u !== source.public_identity.context_binding_b64u ||
+    target.public_identity.derivation_client_share_public_key33_b64u !==
+      input.binding.targetClientPublicKey33B64u ||
+    target.public_identity.server_public_key33_b64u !==
+      input.targetRelayerPublicKey33B64u ||
+    target.public_identity.threshold_public_key33_b64u !== input.thresholdPublicKey33B64u ||
+    target.public_identity.ethereum_address20_b64u !== input.thresholdEthereumAddress20B64u ||
+    target.public_identity.client_share_retry_counter !==
+      source.public_identity.client_share_retry_counter ||
+    target.public_identity.server_share_retry_counter !==
+      source.public_identity.server_share_retry_counter ||
+    target.signing_worker.server_id !== input.binding.target.activation.signingWorker ||
+    target.signing_worker.key_epoch !== source.signing_worker.key_epoch ||
+    target.signing_worker.recipient_encryption_key !==
+      routerAbX25519PublicKeyFromB64u(
+        input.binding.target.signingWorkerRecipientPublicKeyB64u,
+      )
+  ) {
+    throw new Error('linked-device ECDSA normal signing state differs from its activation receipt');
+  }
+}
+
+function routerAbX25519PublicKeyFromB64u(value: string): string {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 32 || base64UrlEncode(bytes) !== value) {
+    throw new Error('linked-device signing-worker recipient key is invalid');
+  }
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return `x25519:${hex}`;
 }
 
 function parseEd25519ClientPackage(

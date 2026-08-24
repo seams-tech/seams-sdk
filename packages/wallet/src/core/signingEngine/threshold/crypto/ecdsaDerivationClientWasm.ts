@@ -11,6 +11,10 @@ import {
   EcdsaPresignClientResponseType,
   type EcdsaDerivationRoleLocalMaterialOperationRequest,
   type EcdsaDerivationRoleLocalMaterialOperationType,
+  type EcdsaDerivationLinkedHolderMaterialOperationRequest,
+  type EcdsaLinkedHolderMaterialOperationType,
+  type EcdsaDerivationHolderOrdinaryExportOperationRequest,
+  type EcdsaHolderOrdinaryExportOperationType,
   type EcdsaDerivationWorkerOperationRequest,
   type EcdsaDerivationWorkerOperationResult,
   type EcdsaDerivationWorkerOperationType,
@@ -29,6 +33,10 @@ import type {
   CreateRouterAbEcdsaPostRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
+  CreateEcdsaHolderOrdinaryExportRequestV1,
+  CreateEcdsaHolderOrdinaryExportResultV1,
+  FinalizeEcdsaHolderOrdinaryExportRequestV1,
+  FinalizeEcdsaHolderOrdinaryExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
   PrepareLinkedDeviceEcdsaSourceContributionResultV1,
   SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
@@ -127,6 +135,34 @@ async function requestEcdsaDerivationRoleLocalMaterialOperation<
 >(args: {
   workerCtx: WorkerOperationContext;
   request: EcdsaDerivationRoleLocalMaterialOperationRequest<T>;
+}): Promise<EcdsaDerivationWorkerOperationResult<T>> {
+  type TransportType = Extract<T, EcdsaDerivationWorkerOperationType>;
+  return (await executeWorkerOperation<'ecdsaDerivationClient', TransportType>({
+    ctx: args.workerCtx,
+    kind: 'ecdsaDerivationClient',
+    request: args.request as EcdsaDerivationWorkerOperationRequest<TransportType>,
+  })) as EcdsaDerivationWorkerOperationResult<T>;
+}
+
+async function requestEcdsaLinkedHolderMaterialOperation<
+  T extends EcdsaLinkedHolderMaterialOperationType,
+>(args: {
+  workerCtx: WorkerOperationContext;
+  request: EcdsaDerivationLinkedHolderMaterialOperationRequest<T>;
+}): Promise<EcdsaDerivationWorkerOperationResult<T>> {
+  type TransportType = Extract<T, EcdsaDerivationWorkerOperationType>;
+  return (await executeWorkerOperation<'ecdsaDerivationClient', TransportType>({
+    ctx: args.workerCtx,
+    kind: 'ecdsaDerivationClient',
+    request: args.request as EcdsaDerivationWorkerOperationRequest<TransportType>,
+  })) as EcdsaDerivationWorkerOperationResult<T>;
+}
+
+async function requestEcdsaHolderOrdinaryExportOperation<
+  T extends EcdsaHolderOrdinaryExportOperationType,
+>(args: {
+  workerCtx: WorkerOperationContext;
+  request: EcdsaDerivationHolderOrdinaryExportOperationRequest<T>;
 }): Promise<EcdsaDerivationWorkerOperationResult<T>> {
   type TransportType = Extract<T, EcdsaDerivationWorkerOperationType>;
   return (await executeWorkerOperation<'ecdsaDerivationClient', TransportType>({
@@ -701,6 +737,281 @@ export async function thresholdEcdsaLinkedHolderPresignSessionInitWasm(input: {
     throw new Error('Linked holder ECDSA presign returned a different authority');
   }
   return asEcdsaDerivationPresignProgress(response.payload.progress);
+}
+
+export async function createEcdsaHolderOrdinaryExportRequestWasm(input: {
+  readonly holderHandleId: string;
+  readonly request: CreateEcdsaHolderOrdinaryExportRequestV1['request'];
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<CreateEcdsaHolderOrdinaryExportResultV1> {
+  if (input.holderHandleId.trim().length === 0) {
+    throw new Error('ECDSA holder handle must be non-empty');
+  }
+  const response = await requestEcdsaHolderOrdinaryExportOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        kind: 'create_ecdsa_holder_ordinary_export_request_v1',
+        holderHandleId: input.holderHandleId,
+        request: input.request,
+      },
+      transfer: [],
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.CreateEcdsaHolderOrdinaryExportRequestSuccess
+  ) {
+    throw new Error('ECDSA holder ordinary-export request preparation failed');
+  }
+  if (response.payload.holderHandleId !== input.holderHandleId) {
+    throw new Error('ECDSA holder ordinary-export request returned a different holder');
+  }
+  if (response.payload.requestDigestB64u.trim().length === 0) {
+    throw new Error('ECDSA holder ordinary-export request digest is empty');
+  }
+  return response.payload;
+}
+
+export async function finalizeEcdsaHolderOrdinaryExportWasm(input: {
+  readonly holderHandleId: string;
+  readonly requestDigestB64u: FinalizeEcdsaHolderOrdinaryExportRequestV1['requestDigestB64u'];
+  readonly expectedBinding: FinalizeEcdsaHolderOrdinaryExportRequestV1['expectedBinding'];
+  readonly forwardedResponse: FinalizeEcdsaHolderOrdinaryExportRequestV1['forwardedResponse'];
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<FinalizeEcdsaHolderOrdinaryExportResultV1> {
+  if (input.holderHandleId.trim().length === 0) {
+    throw new Error('ECDSA holder handle must be non-empty');
+  }
+  if (input.requestDigestB64u !== input.expectedBinding.export_request_digest_b64u) {
+    throw new Error('ECDSA holder ordinary-export request digest differs from its binding');
+  }
+  const response = await requestEcdsaHolderOrdinaryExportOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        kind: 'finalize_ecdsa_holder_ordinary_export_v1',
+        holderHandleId: input.holderHandleId,
+        requestDigestB64u: input.requestDigestB64u,
+        expectedBinding: input.expectedBinding,
+        forwardedResponse: input.forwardedResponse,
+      },
+      transfer: [],
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.FinalizeEcdsaHolderOrdinaryExportSuccess
+  ) {
+    throw new Error('ECDSA holder ordinary-export finalization failed');
+  }
+  if (response.payload.holderHandleId !== input.holderHandleId) {
+    throw new Error('ECDSA holder ordinary-export finalization returned a different holder');
+  }
+  return response.payload;
+}
+
+export async function storeLinkedDeviceEcdsaHolderMaterialWasm(input: {
+  holderHandleId: string;
+  ownedSigningShare32: Uint8Array;
+  activationReceiptJson: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<{ readonly holderHandleId: string }> {
+  if (input.holderHandleId.trim().length === 0) {
+    throw new Error('Linked holder ECDSA handle must be non-empty');
+  }
+  if (input.ownedSigningShare32.byteLength !== 32) {
+    throw new Error('Linked holder ECDSA signing share must contain 32 bytes');
+  }
+  if (input.activationReceiptJson.trim().length === 0) {
+    throw new Error('Linked holder ECDSA activation receipt must be non-empty');
+  }
+  const ownedSigningShare32 = input.ownedSigningShare32.slice();
+  try {
+    const response = await executeWorkerOperation({
+      kind: 'ecdsaDerivationClient',
+      ctx: input.workerCtx,
+      request: {
+        type: EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial,
+        timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+        payload: {
+          holderHandleId: input.holderHandleId,
+          ownedSigningShare32: ownedSigningShare32.buffer,
+          activationReceiptJson: input.activationReceiptJson,
+        },
+        transfer: [ownedSigningShare32.buffer],
+      },
+    });
+    if (
+      response.type !==
+      EcdsaDerivationClientCustomResponseType.StoreLinkedDeviceEcdsaHolderMaterialSuccess
+    ) {
+      throw new Error('Linked holder ECDSA material import failed');
+    }
+    if (response.payload.holderHandleId !== input.holderHandleId) {
+      throw new Error('Linked holder ECDSA material import returned a different handle');
+    }
+    return response.payload;
+  } finally {
+    if (ownedSigningShare32.byteLength > 0) ownedSigningShare32.fill(0);
+  }
+}
+
+export async function getLinkedDeviceEcdsaHolderExportRecipientPublicKeyWasm(input: {
+  readonly holderHandleId: string;
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<{
+  readonly holderHandleId: string;
+  readonly recipientPublicKey: string;
+}> {
+  if (input.holderHandleId.trim().length === 0) {
+    throw new Error('Linked holder ECDSA handle must be non-empty');
+  }
+  const response = await requestEcdsaLinkedHolderMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: { holderHandleId: input.holderHandleId },
+      transfer: [],
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess
+  ) {
+    throw new Error('Linked holder ECDSA export recipient lookup failed');
+  }
+  if (response.payload.holderHandleId !== input.holderHandleId) {
+    throw new Error('Linked holder ECDSA export recipient returned a different handle');
+  }
+  if (response.payload.recipientPublicKey.trim().length === 0) {
+    throw new Error('Linked holder ECDSA export recipient is empty');
+  }
+  return response.payload;
+}
+
+export async function finalizeLinkedDeviceEcdsaHolderExportWasm(input: {
+  readonly holderHandleId: string;
+  readonly exportFinalizationInputJson: string;
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<{
+  readonly holderHandleId: string;
+  readonly exportArtifactJson: string;
+}> {
+  if (input.holderHandleId.trim().length === 0) {
+    throw new Error('Linked holder ECDSA handle must be non-empty');
+  }
+  if (input.exportFinalizationInputJson.trim().length === 0) {
+    throw new Error('Linked holder ECDSA export finalization input must be non-empty');
+  }
+  const response = await requestEcdsaLinkedHolderMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        holderHandleId: input.holderHandleId,
+        exportFinalizationInputJson: input.exportFinalizationInputJson,
+      },
+      transfer: [],
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.FinalizeLinkedDeviceEcdsaHolderExportSuccess
+  ) {
+    throw new Error('Linked holder ECDSA export finalization failed');
+  }
+  if (response.payload.holderHandleId !== input.holderHandleId) {
+    throw new Error('Linked holder ECDSA export finalization returned a different handle');
+  }
+  if (response.payload.exportArtifactJson.trim().length === 0) {
+    throw new Error('Linked holder ECDSA export finalization returned an empty artifact');
+  }
+  return response.payload;
+}
+
+async function disposeLinkedDeviceEcdsaHolderMaterialsWasm(input: {
+  readonly disposal:
+    | { readonly kind: 'all'; readonly holderHandleId?: never }
+    | { readonly kind: 'one'; readonly holderHandleId: string };
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  const response = await executeWorkerOperation({
+    kind: 'ecdsaDerivationClient',
+    ctx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.disposal,
+      transfer: [],
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.DisposeLinkedDeviceEcdsaHolderMaterialsSuccess
+  ) {
+    throw new Error('Linked holder ECDSA material disposal failed');
+  }
+  if (response.payload.kind !== input.disposal.kind) {
+    throw new Error('Linked holder ECDSA material disposal returned a different scope');
+  }
+  if (
+    input.disposal.kind === 'one' &&
+    response.payload.kind === 'one' &&
+    response.payload.holderHandleId !== input.disposal.holderHandleId
+  ) {
+    throw new Error('Linked holder ECDSA material disposal returned a different handle');
+  }
+}
+
+export async function destroyLinkedDeviceEcdsaHolderMaterialWasm(input: {
+  readonly holderHandleId: string;
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  if (input.holderHandleId.trim().length === 0) {
+    throw new Error('Linked holder ECDSA handle must be non-empty');
+  }
+  await disposeLinkedDeviceEcdsaHolderMaterialsWasm({
+    disposal: { kind: 'one', holderHandleId: input.holderHandleId },
+    workerCtx: input.workerCtx,
+  });
+}
+
+export async function destroyLinkedDeviceEcdsaHolderMaterialsWasm(input: {
+  readonly holderHandleIds: readonly string[];
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  let cleanupFailed = false;
+  let firstCleanupError: unknown;
+  for (const holderHandleId of input.holderHandleIds) {
+    try {
+      await destroyLinkedDeviceEcdsaHolderMaterialWasm({
+        holderHandleId,
+        workerCtx: input.workerCtx,
+      });
+    } catch (error: unknown) {
+      if (!cleanupFailed) {
+        cleanupFailed = true;
+        firstCleanupError = error;
+      }
+    }
+  }
+  if (cleanupFailed) throw firstCleanupError;
+}
+
+export async function clearLinkedDeviceEcdsaHolderMaterialsWasm(input: {
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<void> {
+  await disposeLinkedDeviceEcdsaHolderMaterialsWasm({
+    disposal: { kind: 'all' },
+    workerCtx: input.workerCtx,
+  });
 }
 
 export async function thresholdEcdsaRoleLocalPresignSessionStepWasm(input: {

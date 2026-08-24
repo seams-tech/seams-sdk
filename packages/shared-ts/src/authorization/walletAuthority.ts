@@ -11,6 +11,7 @@ import {
   type DeviceId,
 } from './capabilityKinds';
 import {
+  buildExactAdministeredSignerManifestV1,
   parseExactAdministeredSignerManifestV1,
   type ExactAdministeredEd25519SignerV1,
   type ExactAdministeredEcdsaSignerV1,
@@ -149,6 +150,47 @@ export type PendingWalletAuthorityV1 = Extract<
 >;
 export type ActiveWalletAuthorityV1 = Extract<WalletAuthorityV1, { readonly state: 'active' }>;
 export type RevokedWalletAuthorityV1 = Extract<WalletAuthorityV1, { readonly state: 'revoked' }>;
+
+export type Ed25519WalletSignerActivationSetV1 = Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ed25519'] }
+>;
+export type EcdsaWalletSignerActivationSetV1 = Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ecdsa_secp256k1'] }
+>;
+export type CombinedWalletSignerActivationSetV1 = Extract<
+  WalletSignerActivationSetV1,
+  { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
+>;
+
+export type ActiveEd25519WalletAuthorityV1 = Omit<
+  ActiveWalletAuthorityV1,
+  'signerActivations'
+> & {
+  readonly signerActivations: Ed25519WalletSignerActivationSetV1;
+};
+export type ActiveEcdsaWalletAuthorityV1 = Omit<ActiveWalletAuthorityV1, 'signerActivations'> & {
+  readonly signerActivations: EcdsaWalletSignerActivationSetV1;
+};
+export type ActiveCombinedWalletAuthorityV1 = Omit<
+  ActiveWalletAuthorityV1,
+  'signerActivations'
+> & {
+  readonly signerActivations: CombinedWalletSignerActivationSetV1;
+};
+
+export function isCombinedWalletSignerActivationSetV1(
+  value: WalletSignerActivationSetV1,
+): value is CombinedWalletSignerActivationSetV1 {
+  return isBothFamilyActivationSet(value);
+}
+
+export function isActiveEcdsaWalletAuthorityV1(
+  value: ActiveWalletAuthorityV1,
+): value is ActiveEcdsaWalletAuthorityV1 {
+  return isEcdsaOnlyActivationSet(value.signerActivations);
+}
 
 export function buildWalletEd25519SignerActivationV1(input: {
   readonly signer: ExactAdministeredEd25519SignerV1;
@@ -346,6 +388,92 @@ export function buildPendingWalletAuthorityV1(input: PendingWalletAuthorityV1): 
 }
 
 export function buildActiveWalletAuthorityV1(input: ActiveWalletAuthorityV1): ActiveWalletAuthorityV1 {
+  validateWalletAuthorityV1(input);
+  return {
+    kind: 'wallet_authority_v1',
+    authorityId: input.authorityId,
+    walletId: input.walletId,
+    principal: input.principal,
+    provenance: input.provenance,
+    permissions: input.permissions,
+    signerActivations: input.signerActivations,
+    signerActivationSetDigestB64u: input.signerActivationSetDigestB64u,
+    authorityDigestB64u: input.authorityDigestB64u,
+    revocationEpoch: input.revocationEpoch,
+    createdAtMs: input.createdAtMs,
+    updatedAtMs: input.updatedAtMs,
+    state: 'active',
+    activatedAtMs: input.activatedAtMs,
+  };
+}
+
+export async function replaceActiveWalletAuthorityEd25519MaterialActivationV1(input: {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly updatedAtMs: number;
+}): Promise<ActiveWalletAuthorityV1> {
+  const current = input.authority.signerActivations;
+  if (!current.ed25519) {
+    throw new Error('active Wallet Authority has no Ed25519 material activation to replace');
+  }
+  const signerActivations = current.ecdsa
+    ? buildWalletSignerActivationSetV1({
+        manifest: buildExactAdministeredSignerManifestV1([
+          current.ed25519.signer,
+          current.ecdsa.signer,
+        ]),
+        materialActivations: {
+          keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+          ed25519: input.materialActivation,
+          ecdsa: current.ecdsa.materialActivation,
+        },
+      })
+    : buildWalletSignerActivationSetV1({
+        manifest: buildExactAdministeredSignerManifestV1([current.ed25519.signer]),
+        materialActivations: {
+          keyFamilies: ['ed25519'],
+          ed25519: input.materialActivation,
+        },
+      });
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
+  const draft: ActiveWalletAuthorityV1 = {
+    kind: input.authority.kind,
+    authorityId: input.authority.authorityId,
+    walletId: input.authority.walletId,
+    principal: input.authority.principal,
+    provenance: input.authority.provenance,
+    permissions: input.authority.permissions,
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: input.authority.authorityDigestB64u,
+    revocationEpoch: input.authority.revocationEpoch,
+    createdAtMs: input.authority.createdAtMs,
+    updatedAtMs: Math.max(input.authority.updatedAtMs, input.updatedAtMs),
+    state: 'active',
+    activatedAtMs: input.authority.activatedAtMs,
+  };
+  return buildActiveWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(draft),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
+}
+
+export function buildActiveCombinedWalletAuthorityV1(
+  input: ActiveCombinedWalletAuthorityV1,
+): ActiveCombinedWalletAuthorityV1 {
   validateWalletAuthorityV1(input);
   return {
     kind: 'wallet_authority_v1',

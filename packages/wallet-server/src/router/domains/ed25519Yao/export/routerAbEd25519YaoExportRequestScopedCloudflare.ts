@@ -127,7 +127,7 @@ class ExportAuthorizationRequestRun {
     }
     const existingIdentity = service.readAuthorizationIdentity(this.parsed.protocol);
     let identity = existingIdentity;
-    if (identity) {
+    if (identity && service.authorizationRequiresActiveIdentity(this.parsed.protocol)) {
       const resolved = await this.context.input.authorization.resolveAuthorizationIdentity(
         this.context.input.request,
       );
@@ -144,7 +144,9 @@ class ExportAuthorizationRequestRun {
         };
       }
     } else {
-      let authorized: Awaited<ReturnType<RouterAbEd25519YaoExportAuthorizationAdapter['authorize']>>;
+      let authorized: Awaited<
+        ReturnType<RouterAbEd25519YaoExportAuthorizationAdapter['authorize']>
+      >;
       try {
         authorized = await this.context.input.authorization.authorize({
           kind: 'admit',
@@ -476,11 +478,7 @@ async function runAuthorization(
   parsed: ParsedAdmission,
   expectedOrigin: string,
 ): Promise<AuthorizationRunResult> {
-  const run = new ExportAuthorizationRequestRun(
-    context,
-    parsed,
-    expectedOrigin,
-  );
+  const run = new ExportAuthorizationRequestRun(context, parsed, expectedOrigin);
   const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
     RouterAbEd25519YaoExportAuthorizationClaimV1,
     RouterAbEd25519YaoExportAuthorizationResult,
@@ -500,7 +498,11 @@ async function runAuthorization(
   const mapped = mapAuthorizationResult(result);
   if (!mapped.ok) return mapped;
   if (run.authorizationState.kind !== 'authorized') {
-    return authorizationFailure(503, 'export_authorization_uncertain', 'Export authorization state is incomplete');
+    return authorizationFailure(
+      503,
+      'export_authorization_uncertain',
+      'Export authorization state is incomplete',
+    );
   }
   return {
     ok: true,
@@ -704,9 +706,7 @@ function sameAuthorizationIdentity(
   left: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
   right: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
 ): boolean {
-  return (
-    left.thresholdSessionId === right.thresholdSessionId
-  );
+  return left.thresholdSessionId === right.thresholdSessionId;
 }
 
 function resolveTrace(request: Request): TraceResolution {
