@@ -298,6 +298,46 @@ iframe's confirmer state at the stall, since the host emits no diagnostic here.
 Note the signing/export UI runs from the built `packages/sdk-web/dist/public`,
 so any SDK change needs `build:sdk` and a reload before it is visible.
 
+#### Combined-profile evidence: the same export fails earlier and differently
+
+Running the Email combined cell as a discriminating experiment produced a
+different failure on the same linked-device flow, which is itself informative.
+A combined linked device (Ed25519 **and** ECDSA activations) fails its NEAR
+export fast and loudly:
+
+```
+[SigningEngine][ed25519-export-resolve] exact Yao lane selection failed: no_candidate
+```
+
+So the two Email linked profiles diverge before the prompt:
+
+- Ed25519-only: lane selection succeeds, the export challenge is issued, the
+  prompt never renders (the hang above);
+- combined: lane selection itself finds no usable Ed25519 export lane.
+
+Structural reason for the divergence, established by reading
+`BrowserSigningSurface.resolveActiveOwnerLaneScope`: for a linked Email
+authority it branches on whether the authority carries an ECDSA activation. A
+combined authority takes the linked-ECDSA branch and derives its owner scope
+from the in-memory ECDSA holder runtime; an Ed25519-only authority falls
+through to `resolveExactOwnerLaneScope`, which is the path repaired in
+`32760ed60`. The two profiles therefore resolve their owner scope by different
+mechanisms, and only the second one has been fixed.
+
+Why that matters for lane selection: in
+`session/availability/availableSigningLanes.ts`, a public-capability-reference
+Ed25519 lane is only marked `authorizationState: 'authorized'` when
+`activeAuthorizationMatchesEd25519Lane` returns true, and that function's final
+condition requires an `ownerScope` whose
+`signingLaneAuthBindingKey` equals the lane's — for Email OTP that key is
+`email_otp:<providerSubjectId>`. An absent or non-matching owner scope silently
+downgrades every Ed25519 lane to `authorization_required`, and
+`isUsableEd25519ExportLane` then rejects it, producing exactly `no_candidate`.
+
+Not yet distinguished, and the next thing to settle: whether the combined
+device has no published Ed25519 lane reference at all, or has one whose owner
+scope does not match. Both produce `no_candidate` through the same gate.
+
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
   Tempo signing, and Arc/EVM signing; Device 1 revoked Device 2; the already-open
