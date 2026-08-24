@@ -2367,6 +2367,23 @@ function isEmailOtpExportFactorReleaseResponse(response: Response): boolean {
   return isEmailOtpExportAuthorizationResponse(response, '/wallet/email-otp/factor-release');
 }
 
+function isEd25519ExportAdmitResponse(response: Response): boolean {
+  return (
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === '/router-ab/ed25519/yao/export/admit'
+  );
+}
+
+/** The export-scoped challenge id an Ed25519 export presents when it admits. */
+function ed25519ExportAdmitChallengeId(response: Response): string {
+  const body = response.request().postDataJSON();
+  const authorization = requireRecord(
+    (body as Record<string, unknown>).authorization,
+    'Ed25519 export admit authorization',
+  );
+  return String(authorization.challengeId || '').trim();
+}
+
 function isEcdsaExportOperationStepUpResponse(response: Response): boolean {
   return (
     response.request().method() === 'POST' &&
@@ -2419,10 +2436,13 @@ async function requireEmailOtpExportAuthorization(
       page.waitForResponse(isEmailOtpExportChallengeResponse, {
         timeout: keyExportWaitTimeoutMs,
       }),
+      /* The invariant is that a FRESH export-scoped OTP authorizes this export,
+         not that one particular route carries the operation tag. An Ed25519
+         export presents its export_key challenge and code to export/admit, and
+         the factor release then consumes the grant that admit minted — so the
+         release itself carries a verified grant rather than an operation. */
       page.waitForResponse(
-        chain === 'near'
-          ? isEmailOtpExportFactorReleaseResponse
-          : isEcdsaExportOperationStepUpResponse,
+        chain === 'near' ? isEd25519ExportAdmitResponse : isEcdsaExportOperationStepUpResponse,
         {
         timeout: keyExportWaitTimeoutMs,
         },
@@ -2436,6 +2456,20 @@ async function requireEmailOtpExportAuthorization(
   }
   expect(challenge.ok(), 'Email OTP export challenge failed').toBe(true);
   expect(stepUp.ok(), 'Email OTP export step-up failed').toBe(true);
+  if (chain === 'near') {
+    const challengeBody = requireRecord(
+      await challenge.json(),
+      'Email OTP export challenge response',
+    );
+    const issued = requireRecord(
+      challengeBody.challenge,
+      'Email OTP export challenge response.challenge',
+    );
+    expect(
+      ed25519ExportAdmitChallengeId(stepUp),
+      'Ed25519 export admitted a different challenge than the fresh export_key one',
+    ).toBe(String(issued.challengeId || '').trim());
+  }
 }
 
 async function waitForExportResponseOrFailure(
