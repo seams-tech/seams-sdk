@@ -131,6 +131,42 @@ with the three Email OTP cells.
 - Migration numbering: R103E owns `0011_r103e_email_otp_device_methods.sql`
   (renamed from the interim `0012`); the planned R109C cardinality migration
   moved to `0012` in `docs/refactor-109D-multi-auth-linking.md`.
+- Email/Ed25519 progress: the Ed25519-only Email cell now registers, unlocks
+  the owner, links Device 2, activates its authority, reloads Device 2 twice,
+  and fails at Device 2's unlock after reload. Every failure was
+  `production_regression` in code that configured ECDSA chain targets had kept
+  unreachable: an Ed25519-only wallet always routed unlock through the ECDSA
+  path, so the Ed25519-only path had never run. Seven repairs, each committed
+  on its own:
+  1. configured chain targets no longer force ECDSA unlock on a wallet whose
+     authority lacks that signer family (`6b8e84763`);
+  2. the Google Ed25519 unlock branch carries the verified email its
+     auth-method hash needs (`7722d1afb`);
+  3. cold Ed25519 unlock no longer demands an already-active Wallet Session it
+     would itself create (`a4223287e`);
+  4. the worker's ECDSA-activation assertion guards one direction only, so an
+     Ed25519-only wallet may unlock with no ECDSA activation (`574b8006c`);
+  5. `ed25519_yao_recovery` material accepts a cold `wallet_unlock` login route
+     plan, keeping the exact-session requirement for signing-session rejoin
+     (`6d5e877fc`);
+  6. the cold unlock builds its authority from the exact selected local Email
+     OTP method rather than the session it is about to mint (`32e7399a0`);
+  7. the Ed25519-only unlock returns the export-root custody its sibling branch
+     already held, and the cold unlock establishes the scoped export-root
+     capability an owner needs to export and to grant `export_keys` when
+     linking (`129c344c5`). Without it the owner's scan silently failed
+     `walletUnlockRequiredV1` and never claimed the link session.
+- Open Email/Ed25519 boundary, classified `production_regression`: Device 2's
+  unlock after reload fails with `linked Email OTP Ed25519 capability
+  activation is invalid`. `/wallet/unlock/verify` provisions the Ed25519
+  capability through `getEd25519SignerBySlot({walletId, signerSlot})`, a
+  wallet-wide slot lookup that returns the founding registration signer, so the
+  capability it returns names a different material activation than the linked
+  device's installed material. The authenticated active authority is already in
+  hand at that point and carries the exact
+  `signerActivations.ed25519.materialActivation`; the resolver must use it.
+  This is the same escaped defect the ledger already records for linked ECDSA
+  target material, now confirmed on the Ed25519 route.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
