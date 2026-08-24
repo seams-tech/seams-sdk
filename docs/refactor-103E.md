@@ -338,6 +338,18 @@ Not yet distinguished, and the next thing to settle: whether the combined
 device has no published Ed25519 lane reference at all, or has one whose owner
 scope does not match. Both produce `no_candidate` through the same gate.
 
+Ruled out already, so no one retreads them:
+
+- *"linked unlock never persists the Ed25519 curve wallet-session
+  authorization"* — false. `activateLinkedDeviceEd25519Runtime` publishes the
+  public capability lane reference and calls
+  `persistActiveWalletSessionAuthorizationCurve` with `curve: 'ed25519'`.
+- *"a combined linked device never requests the Ed25519 capability at unlock,
+  so no lane is published"* — false. `unlockLinkedEmailOtpWallet`'s
+  `requestedCapabilities` union is only `none | ed25519_yao`, and the caller
+  requests `ed25519_yao` whenever linked Ed25519 signer material exists, which
+  a combined device has.
+
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
   Tempo signing, and Arc/EVM signing; Device 1 revoked Device 2; the already-open
