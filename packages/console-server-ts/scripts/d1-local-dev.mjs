@@ -46,6 +46,10 @@ export function buildD1LocalDevWranglerArgs(input = {}) {
     '--var',
     `SEAMS_LOCAL_CONSOLE_ORG_ID:${localConsoleOrganizationId}`,
   ];
+  const linkedDeviceWebAuthnOrigin = String(env.LINKED_DEVICE_WEBAUTHN_ORIGIN || '').trim();
+  if (linkedDeviceWebAuthnOrigin) {
+    args.push('--var', `LINKED_DEVICE_WEBAUTHN_ORIGIN:${linkedDeviceWebAuthnOrigin}`);
+  }
   for (const envFile of envFiles) {
     args.push('--env-file', envFile);
   }
