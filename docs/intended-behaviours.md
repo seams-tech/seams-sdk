@@ -26,6 +26,9 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
 | `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to mint a Wallet Session or authorize one exact operation.    |
 | `opaque token`       | Random Wallet Session bearer whose identity, budget, expiry, and revocation state are resolved by the server.                        |
+| `walletAuthorityId`  | Opaque identity of one permissioned wallet authority and its exact signer activations.                                                |
+| `walletAuthMethodId` | Opaque identity of one Passkey or Email OTP method attached to a wallet authority.                                                     |
+| `deviceId`           | Installation identity for one wallet authority on one browser or device; it is not a hardware fingerprint.                           |
 
 ## Global Invariants
 
@@ -459,6 +462,54 @@ Failure behaviour:
   unconsumed. Transport uncertainty may replay the same finalization.
 - Unknown wallets, unusable codes, RP mismatch, and unsupported auth-method
   shapes expose no distinguishing recovery detail.
+
+## Linked Devices
+
+Expected behaviour:
+
+- Linking creates a fresh `deviceId`, `walletAuthorityId`,
+  `walletAuthMethodId`, and signer activation for every signer family present
+  on the source authority. The wallet's public signer identities remain
+  unchanged, and Device 1's authority, methods, material, sessions, and
+  revocation epoch remain unchanged.
+- Device 2 never receives the wallet custody seed. An Ed25519 installation
+  with `export_keys` receives only the one-use encrypted Yao Client export
+  root and seals it under the verified target method.
+- Device 2 uses ordinary Wallet Session, signing, export, reload, lock,
+  unlock, inventory, and revocation paths after activation. Those operations
+  do not read the completed link session or repair missing material.
+- Device inventory is derived from active wallet authorities with
+  device-link provenance and their exact auth methods. A completed link
+  session is temporary workflow state and is deleted after acknowledgement.
+- A Passkey card displays server-derived authenticator metadata when it is
+  available. An Email OTP card displays `Email OTP` and makes no browser,
+  operating-system, provider, transport, sync, or hardware claim.
+- Every card displays a stable shortened `deviceId`. Creation-order labels
+  such as `Device 2` are not durable identity, and metadata must not imply an
+  exact physical machine or exclusive possession of a synced Passkey.
+- Device metadata is display and audit context only. Authorization, signing,
+  export, unlock, and revocation never branch on labels, browser or operating-
+  system names, providers, transports, or sync state.
+- Raw User-Agent strings, attestation objects, PRF output, factor secrets, and
+  Email OTP addresses do not enter the management response.
+- User revocation targets one exact `walletAuthMethodId` and requires fresh
+  proof from a different active method under a full-owner authority. Removing
+  the wallet's final active method is refused without changing durable state.
+- Revoking the final method attached to an authority retires that authority,
+  invalidates its sessions, and disables its exact signer activations while
+  leaving other methods, authorities, and devices operational.
+
+Failure behaviour:
+
+- Missing, duplicate, cross-wallet, wrong-kind, revoked, or digest-mismatched
+  authority and auth-method records fail closed. Runtime operations do not
+  select a sibling device or infer identity from timestamps or display data.
+- An incomplete migrated enrollment returns `relink_required` at its boundary.
+  Linking does not hydrate, recover, rotate, promote, or synthesize missing
+  signer or export material.
+- Retrying after the pending-authority commit reuses the exact authority,
+  method, activation, package, and digest identities. It must not create a
+  duplicate authority or signer activation.
 
 ## Test Matrix
 
