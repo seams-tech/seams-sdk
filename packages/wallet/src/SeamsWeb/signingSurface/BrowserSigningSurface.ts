@@ -114,6 +114,7 @@ import type {
   SignerWorkerOperationType,
   EmailOtpYaoPrewarmRequest,
   EmailOtpYaoPrewarmOutcome,
+  EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -130,6 +131,7 @@ import {
   clearLinkedEcdsaHolderRuntimesV1,
   listLinkedEcdsaHolderRuntimesV1,
   removeLinkedEcdsaHolderRuntimeV1,
+  resolveLinkedEcdsaHolderRuntimeV1,
 } from '@/core/signingEngine/session/material/linkedEcdsaHolderRuntime';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -228,6 +230,7 @@ import type {
   LocalWalletAuthMethodRecord,
   WalletAuthoritySignerMaterialRecordV1,
 } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type {
   ClientUserData,
   ThresholdEd25519KeyMaterial,
@@ -240,6 +243,7 @@ import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import {
   buildEmailOtpWalletAuthAuthority,
+  isEmailOtpWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -357,6 +361,7 @@ import type {
   SigningLaneAuthBinding,
 } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
+  buildExactLinkedEmailOtpOwnerLaneScope,
   buildExactEcdsaPasskeyOwnerLaneScope,
   buildExactPasskeyOwnerLaneScope,
   resolveExactOwnerLaneScope,
@@ -385,6 +390,7 @@ import { generateSessionId } from '@/core/signingEngine/session/passkey/prfCache
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
   resolveWalletCustodyEd25519ExportContextV1,
+  type EmailOtpEd25519YaoExportRootResolutionV1,
   type ResolvedWalletCustodyEd25519ExportV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519ExportContext';
 import {
@@ -437,7 +443,6 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   readPasskeyCustodySessionEnvelope,
-  readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1,
 } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
@@ -560,9 +565,7 @@ async function persistRehydratedEmailOtpEcdsaWalletSession(args: {
   ) {
     throw new Error('[SigningEngine][near] refreshed Wallet Session curves do not share a budget');
   }
-  const authorizationId = parseWalletSessionAuthorizationId(
-    String(session.authorization_session_id),
-  );
+  const authorizationId = parseWalletSessionAuthorizationId(String(session.authorization_id));
   if (!authorizationId.ok) {
     throw new Error('[SigningEngine][near] refreshed ECDSA authorization id is invalid');
   }
@@ -942,7 +945,7 @@ function exactEd25519LaneIdentityFromAvailableLane(
   });
 }
 
-function isLinkedPasskeyEd25519SignerMaterial(
+function isLinkedEd25519SignerMaterial(
   material: WalletAuthoritySignerMaterialRecordV1,
 ): material is Extract<
   WalletAuthoritySignerMaterialRecordV1,
@@ -952,6 +955,123 @@ function isLinkedPasskeyEd25519SignerMaterial(
     material.kind === 'wallet_authority_linked_signer_material_v1' &&
     material.keyFamily === 'ed25519'
   );
+}
+
+function resolveSelectedEmailOtpEd25519ExportRootV1(args: {
+  readonly selected: ResolveSelectedWalletAuthorityResultV1;
+  readonly subject: ResolvedWalletCustodyEd25519ExportV1['lane'];
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly activeCapability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1 | null;
+}): PasskeyCustodyEnvelopeRecord | EmailOtpEd25519YaoExportRootResolutionV1 | null {
+  const selected = args.selected;
+  if (selected.kind !== 'resolved') {
+    const detail = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
+    throw new Error(
+      `[SigningEngine][ed25519-export] selected Wallet Authority is ${selected.kind}${detail}`,
+    );
+  }
+  if (selected.authority.provenance.kind === 'wallet_registration') return null;
+
+  const { selection, authMethod, authority, signerMaterials, exportRoot } = selected;
+  const signer = args.subject.signer;
+  const ed25519Activation = authority.signerActivations.ed25519;
+  if (
+    selection.lockState !== 'unlocked' ||
+    authMethod.kind !== WALLET_AUTH_METHODS.emailOtp ||
+    authMethod.status !== 'active' ||
+    authority.state !== 'active' ||
+    String(selection.walletId) !== String(signer.account.wallet.walletId) ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    String(authMethod.walletId) !== String(signer.account.wallet.walletId) ||
+    !authority.permissions.includes('export_keys') ||
+    !ed25519Activation ||
+    !mpcMaterialActivationRefsEqual(
+      ed25519Activation.materialActivation,
+      args.expectedMaterialActivation,
+    ) ||
+    !exportRoot
+  ) {
+    throw new Error(
+      '[SigningEngine][ed25519-export] selected linked Email OTP authority has no exact export root',
+    );
+  }
+
+  let linkedMaterial: Extract<
+    WalletAuthoritySignerMaterialRecordV1,
+    { kind: 'wallet_authority_linked_signer_material_v1'; keyFamily: 'ed25519' }
+  > | null = null;
+  for (const candidate of signerMaterials) {
+    if (
+      !isLinkedEd25519SignerMaterial(candidate) ||
+      candidate.authorityId !== authority.authorityId ||
+      candidate.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+      !mpcMaterialActivationRefsEqual(
+        candidate.materialActivation,
+        args.expectedMaterialActivation,
+      )
+    ) {
+      continue;
+    }
+    if (linkedMaterial) {
+      throw new Error('[SigningEngine][ed25519-export] linked Ed25519 material is ambiguous');
+    }
+    linkedMaterial = candidate;
+  }
+  if (!linkedMaterial) {
+    throw new Error('[SigningEngine][ed25519-export] linked Ed25519 material is unavailable');
+  }
+
+  const targetFactor = linkedMaterial.targetFactor;
+  const application = linkedMaterial.publicFacts.applicationBinding;
+  const lifecycle = linkedMaterial.publicFacts.targetBinding.lifecycle;
+  const registeredPublicKeyB64u = ed25519Activation.signer.registeredPublicKeyB64u;
+  if (
+    targetFactor.kind !== WALLET_AUTH_METHODS.emailOtp ||
+    targetFactor.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    targetFactor.emailHashHex !== authMethod.emailHashHex ||
+    targetFactor.registrationAuthorityId !== authMethod.registrationAuthorityId ||
+    exportRoot.authorityId !== authority.authorityId ||
+    exportRoot.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    exportRoot.walletKeyId !== ed25519Activation.signer.walletKeyId ||
+    exportRoot.envelope.binding.kind !== 'ed25519_yao_client_root_v1' ||
+    exportRoot.envelope.binding.registeredPublicKeyB64u !== registeredPublicKeyB64u ||
+    exportRoot.envelope.factor.kind !== WALLET_AUTH_METHODS.emailOtp ||
+    application.wallet_id !== String(signer.account.wallet.walletId) ||
+    application.near_ed25519_signing_key_id !== String(signer.nearEd25519SigningKeyId) ||
+    application.key_creation_signer_slot !== signer.signerSlot ||
+    lifecycle.account_id !== String(signer.account.wallet.walletId) ||
+    lifecycle.session_id !== String(args.subject.thresholdSessionId) ||
+    lifecycle.selected_server_id !== args.expectedMaterialActivation.signingWorker ||
+    base64UrlEncode(
+      Uint8Array.from(linkedMaterial.publicFacts.activationReceipt.registered_public_key),
+    ) !== registeredPublicKeyB64u
+  ) {
+    throw new Error('[SigningEngine][ed25519-export] linked Email OTP export identity changed');
+  }
+
+  if (args.activeCapability) {
+    if (
+      !mpcMaterialActivationRefsEqual(
+        args.activeCapability.materialActivation,
+        args.expectedMaterialActivation,
+      ) ||
+      base64UrlEncode(Uint8Array.from(args.activeCapability.registeredPublicKey)) !==
+        registeredPublicKeyB64u
+    ) {
+      throw new Error('[SigningEngine][ed25519-export] active Email OTP capability changed');
+    }
+    return exportRoot.envelope;
+  }
+  return {
+    envelope: exportRoot.envelope,
+    source: {
+      materialActivation: args.expectedMaterialActivation,
+      signingWorkerId: lifecycle.selected_server_id,
+      participantIds: linkedMaterial.publicFacts.participantIds,
+      registeredPublicKeyB64u,
+    },
+  };
 }
 
 async function resolveLinkedPasskeyOwnerSignerSlot(args: {
@@ -978,7 +1098,7 @@ async function resolveLinkedPasskeyOwnerSignerSlot(args: {
   > | null = null;
   for (const candidate of args.signerMaterials) {
     if (
-      !isLinkedPasskeyEd25519SignerMaterial(candidate) ||
+      !isLinkedEd25519SignerMaterial(candidate) ||
       candidate.authorityId !== args.authMethod.walletAuthorityId ||
       candidate.walletAuthMethodId !== args.authMethod.walletAuthMethodId
     ) {
@@ -2828,6 +2948,37 @@ export class BrowserSigningSurface {
       ) {
         return buildExactEcdsaPasskeyOwnerLaneScope({ authMethod });
       }
+      if (
+        authority.provenance.kind === 'device_link' &&
+        authMethod.kind === 'email_otp' &&
+        authority.signerActivations.ecdsa
+      ) {
+        const holderRuntime = resolveLinkedEcdsaHolderRuntimeV1({
+          walletId: parsedWalletId.value,
+          materialActivation: authority.signerActivations.ecdsa.materialActivation,
+        });
+        const authorityRef = parseWalletAuthAuthorityRef({
+          kind: 'wallet_auth_authority_ref',
+          walletId: authority.walletId,
+          walletAuthMethodId: authMethod.walletAuthMethodId,
+          authorityDigest: authority.authorityDigestB64u,
+        });
+        if (
+          !holderRuntime ||
+          !authorityRef ||
+          holderRuntime.authorityId !== authority.authorityId ||
+          !isEmailOtpWalletAuthAuthority(holderRuntime.factorAuthority)
+        ) {
+          throw new Error(
+            '[SigningEngine] selected linked Email OTP authority has no exact ECDSA holder runtime',
+          );
+        }
+        return buildExactLinkedEmailOtpOwnerLaneScope({
+          authMethod,
+          factorAuthority: holderRuntime.factorAuthority,
+          authorityRef,
+        });
+      }
       return await resolveExactOwnerLaneScope({ authMethod, stores });
     }
     if (selected.kind !== 'missing_selection') {
@@ -3343,13 +3494,6 @@ export class BrowserSigningSurface {
     >,
   ): Promise<NearEd25519YaoSigningPreparation> {
     const identity = args.materialIdentity;
-    const sealedRuntime =
-      identity.auth.kind === WALLET_AUTH_METHODS.passkey
-        ? await requireExactEd25519SealedRuntimeForMaterialIdentity({
-            walletId: args.walletId,
-            identity,
-          })
-        : null;
     const activeForAccount = this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount({
       walletId: identity.signer.account.wallet.walletId,
       nearAccountId: identity.signer.account.nearAccountId,
@@ -3359,6 +3503,62 @@ export class BrowserSigningSurface {
         store: this.ed25519YaoPublicCapabilityReferences,
         identity,
       });
+    if (identity.auth.kind === WALLET_AUTH_METHODS.passkey && publicCapabilityMaterialActivation) {
+      const activeMaterial = this.enginePorts.ed25519YaoActiveClients.resolve({
+        walletId: identity.signer.account.wallet.walletId,
+        nearAccountId: identity.signer.account.nearAccountId,
+        materialActivation: publicCapabilityMaterialActivation,
+      });
+      const liveRuntime = nearEd25519YaoRuntimeObservation(activeMaterial);
+      if (activeMaterial && liveRuntime.kind === 'live') {
+        const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+          args.walletId,
+        );
+        if (authorizationRead.kind !== 'found') {
+          throw new Error(
+            '[SigningEngine][near] active Wallet Session authorization is unavailable',
+          );
+        }
+        const reusableSession = await this.readReusableWalletSessionState(args.walletId);
+        if (
+          reusableSession.kind !== 'active' ||
+          reusableSession.walletSessionId !== authorizationRead.projection.walletSessionId ||
+          reusableSession.authMethod !== authorizationRead.projection.authMethod
+        ) {
+          throw new Error('[SigningEngine][near] active Wallet Session is unavailable');
+        }
+        const signingAuthorization = await resolveNearEd25519WalletSessionAuthorizationForSigning({
+          walletId: args.walletId,
+          authorization: authorizationRead.projection,
+          materialActivation: publicCapabilityMaterialActivation,
+        });
+        return buildAuthorizedNearEd25519YaoSigningPreparation({
+          hydration: buildUseLiveRuntimeHydrationPlan({
+            authority: signingAuthorization.authority,
+            runtime: liveRuntime.runtime,
+            materialActivation: publicCapabilityMaterialActivation,
+          }),
+          requirement: identity.auth,
+          authorization: buildActiveNearEd25519WalletSessionAuthorization({
+            projection: signingAuthorization,
+            status: {
+              status: 'active',
+              walletSessionId: signingAuthorization.walletSessionId,
+              quotaId: signingAuthorization.quotaId,
+              remainingUses: reusableSession.remainingUses,
+              expiresAtMs: signingAuthorization.expiresAtMs,
+            },
+          }),
+        });
+      }
+    }
+    const sealedRuntime =
+      identity.auth.kind === WALLET_AUTH_METHODS.passkey
+        ? await requireExactEd25519SealedRuntimeForMaterialIdentity({
+            walletId: args.walletId,
+            identity,
+          })
+        : null;
     const materialActivation =
       sealedRuntime?.sealedRecord.ed25519Restore.materialActivation ??
       (activeForAccount
@@ -3575,6 +3775,7 @@ export class BrowserSigningSurface {
         payload: {
           relayUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
           walletId: String(input.walletId),
+          walletAuthMethodId: String(args.authorization.authority.walletAuthMethodId),
           orgId: publicLane.runtimePolicyScope.orgId,
           providerSubjectId: input.auth.providerSubjectId,
           nearAccountId: String(input.nearAccountId),
@@ -3998,7 +4199,7 @@ export class BrowserSigningSurface {
       });
       for (const candidate of signerMaterials) {
         if (
-          !isLinkedPasskeyEd25519SignerMaterial(candidate) ||
+          !isLinkedEd25519SignerMaterial(candidate) ||
           candidate.authorityId !== authority.authorityId ||
           candidate.walletAuthMethodId !== authMethod.walletAuthMethodId ||
           !mpcMaterialActivationRefsEqual(candidate.materialActivation, materialActivation)
@@ -4918,7 +5119,7 @@ export class BrowserSigningSurface {
     > | null = null;
     for (const candidate of signerMaterials) {
       if (
-        !isLinkedPasskeyEd25519SignerMaterial(candidate) ||
+        !isLinkedEd25519SignerMaterial(candidate) ||
         candidate.authorityId !== authority.authorityId ||
         candidate.walletAuthMethodId !== authMethod.walletAuthMethodId ||
         !mpcMaterialActivationRefsEqual(candidate.materialActivation, args.materialActivation)
@@ -5122,17 +5323,19 @@ export class BrowserSigningSurface {
           nearAccountId: toAccountId(nearAccountId),
           materialActivation,
         }),
-      resolveEd25519YaoClientRootEnvelope: async ({ capability, selectedMaterialActivation }) => {
-        if (capability) {
-          return await readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1({
-            walletId: String(args.laneIdentity.signer.account.wallet.walletId),
-            registeredPublicKeyB64u: base64UrlEncode(
-              Uint8Array.from(capability.registeredPublicKey),
-            ),
-          });
-        }
-        return null;
-      },
+      resolveEd25519YaoClientRootEnvelope: async ({
+        subject,
+        capability,
+        selectedMaterialActivation,
+      }) =>
+        resolveSelectedEmailOtpEd25519ExportRootV1({
+          selected: await IndexedDBManager.resolveSelectedWalletAuthority(
+            String(subject.signer.account.wallet.walletId),
+          ),
+          subject,
+          expectedMaterialActivation: selectedMaterialActivation,
+          activeCapability: capability,
+        }),
       loadWalletCustodyMaterial: () =>
         this.loadEmailOtpWalletCustodyEd25519Material({
           nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
@@ -5964,21 +6167,12 @@ export class BrowserSigningSurface {
     if (!projection) {
       throw new Error('Email OTP wallet custody Ed25519 signer projection is unavailable');
     }
-    const authorization = await walletSessionAuthorizations.readActiveForWallet(
-      args.walletSession.walletId,
-    );
-    if (authorization.kind !== 'found') {
-      throw new Error('Email OTP Ed25519 login requires an active Wallet Session');
-    }
-    const walletSessionToken = await resolveNearEd25519WalletSessionTokenForStepUp({
-      walletId: args.walletSession.walletId,
-      authorization: authorization.projection,
-    });
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'opaque_wallet_session', walletSessionToken },
-    });
+    /* This is a cold unlock: the OTP verification below is the factor proof
+       and the route plan authenticates with it, so no prior Wallet Session
+       may be required here. */
     const unlock = await unlockEmailOtpEd25519YaoCapability({
       walletSession: args.walletSession,
+      authoritySelector: args.authoritySelector,
       relayUrl: this.seamsWebConfigs.network.relayer?.url || '',
       groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       verification: { kind: 'otp', challengeId: args.challengeId, otpCode: args.otpCode },
