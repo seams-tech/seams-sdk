@@ -635,8 +635,9 @@ export class LinkDeviceFlow {
       },
     });
     const runEpoch = this.runEpoch;
-    this.session = { ...this.session, state: event.state };
     if (this.handledStates.has(event.state.state)) {
+      /* A replayed event for an already-handled state must not regress the
+         linear local session state, so the handled check precedes the write. */
       logDevice2LinkingStageV1({
         flowId: this.flowId,
         linkSessionId: event.linkSessionId,
@@ -645,6 +646,7 @@ export class LinkDeviceFlow {
       });
       return;
     }
+    this.session = { ...this.session, state: event.state };
     this.handledStates.add(event.state.state);
     switch (event.state.state) {
       case 'displaying_qr':
@@ -1531,6 +1533,8 @@ export class LinkDeviceFlow {
     runEpoch: number,
   ): Promise<Awaited<ReturnType<typeof activateLinkedAuthorityV1>>> {
     this.assertCurrentRun(runEpoch);
+    await this.waitForTargetCredentialActivation();
+    this.assertCurrentRun(runEpoch);
     const registration = this.targetCredentialRegistrationResult;
     if (!registration) {
       throw new Error('linked-device target credential registration is unavailable');
@@ -1591,6 +1595,13 @@ export class LinkDeviceFlow {
         activatedAtMs: walletSession.issuedAtMs,
       },
     };
+    /* Activation can complete from any delivery-state event; the transport may
+       still deliver the remaining queued transitions afterwards. Those events
+       must acknowledge the finished activation instead of re-entering it
+       against the consumed one-shot factor state. */
+    this.handledStates.add('provisioning');
+    this.handledStates.add('authority_pending_local_install');
+    this.handledStates.add('active');
     this.getAuthenticationContext?.().signingEngine.setWalletAuthenticated(
       linkedDeviceWalletAuthenticationState(walletSession, registration),
     );

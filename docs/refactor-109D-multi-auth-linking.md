@@ -42,7 +42,7 @@ Do not implement R109D until:
 2. R109C is re-implemented on the final R103E tree. The retired pre-R103E
    implementation is not rebased or cherry-picked.
 3. The R109C schema change becomes
-   `0011_r109c_multi_auth_email_cardinality.sql`, after the current `0010`.
+   `0012_r109c_multi_auth_email_cardinality.sql`, after the current `0011`.
    Keep the historical `0004_*` files and lexical migration order.
 4. Only the current V2 `wallet_auth_methods` schema remains. Do not restore a
    legacy table or runtime compatibility path.
@@ -455,7 +455,7 @@ installation, partial worker activation, and active D1 commit before response.
 
 ## R109C migration
 
-`0011_r109c_multi_auth_email_cardinality.sql` rewrites current V2 Email rows:
+`0012_r109c_multi_auth_email_cardinality.sql` rewrites current V2 Email rows:
 
 1. join the canonical wallet Email enrollment;
 2. copy `provider_user_id`;
@@ -527,7 +527,7 @@ Focused coverage also includes:
 - terminal cleanup;
 - retries after pending commit, local install, worker activation, and active D1
   commit without duplicates;
-- the `0011` migration.
+- the `0012` migration.
 
 ## Ready to begin
 
