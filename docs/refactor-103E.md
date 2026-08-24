@@ -212,8 +212,26 @@ with the three Email OTP cells.
       record R103E is otherwise deleting; or
   (b) the Email OTP provider identity becomes part of the V2 auth-method
       record, so every Email owner scope resolves from V2 alone and the legacy
-      row can be deleted. This is the direction the plan's ownership table
-      implies, and it is the larger change.
+      row can be deleted. R103E must not take this route: the plan assigns the
+      canonical Passkey and Email OTP provider-identity branches to R109C and
+      forbids implementing R109C's features here.
+  Option (a) was implemented at linked unlock and reverted in the same session
+  (`75f19bc16`, reverted by `abd0820d5`): `upsertWalletAuthMethod` refuses a
+  wallet it has no local wallet record for, which a linked device never
+  creates, and the failure turned a working Device 2 unlock into a failing one.
+  Writing that wallet record too would add more registration-era scaffolding to
+  a seedless installation.
+  The remaining candidate keeps R103E's exact-identity rule without new legacy
+  records: the linked device already persists its Email provider subject on the
+  Ed25519 public capability lane reference (`auth.kind === 'email_otp'` carries
+  `providerSubjectId`), keyed by the same exact material activation the owner
+  scope is resolving. Both Email owner-scope resolvers —
+  `ownerLaneScope.emailOtpWalletAuthAuthorityFromLocalFactor` and
+  `browserSigningSurfaceAssembly.resolveExactWalletAuthAuthority` — could build
+  the authority from the V2 record plus that provider subject when no legacy
+  local factor row matches. That path needs its own verification: the resulting
+  authority digest must equal the one the server derives from the wallet's
+  Email enrollment, or every authenticated request will fail its binding check.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
