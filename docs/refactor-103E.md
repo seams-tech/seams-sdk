@@ -249,14 +249,40 @@ so only the Email branch is ambiguous. The Email branch of
 `authorizeEmailOtpExportAdmission` derives its `ownerProofBindingDigest` from
 whichever authority that resolver returned.
 
-Required repair, following the plan's identity rule rather than another
-inference: add the exact `walletAuthMethodId` to the Email branch of that
-admission authorization, send it from the export client (which already holds it
-as `OwnerLaneScope.ownerAuthority.walletAuthMethodId`), and resolve that exact
-method on the server the way unlock does, verifying it matches the presented
-provider subject and wallet. Because this adds a required identity field to an
-authorization boundary, it also needs the route-boundary test this ledger
-already mandates: wrong-wallet, wrong-kind, and revoked-method rejection.
+Repaired in `f4562671c`, following the plan's identity rule rather than another
+inference: the Email branch of that admission authorization now carries the
+exact `walletAuthMethodId`, the export client sends the one it already holds as
+`OwnerLaneScope.ownerAuthority.walletAuthMethodId` (threaded through the worker
+lane payload), and the server resolves that exact active method through a new
+`resolveActiveEmailOtpAuthorityForVerifiedMethod`, verifying it against the
+presented provider subject and wallet. The refusal is gone.
+
+**Still owed for this change**: the route-boundary test this ledger mandates
+for every new required identity field — wrong-wallet, wrong-kind, and
+revoked-method rejection at the export admission boundary.
+
+### Current open boundary: linked Ed25519 export does not complete
+
+Classified `production_regression`, not yet root-caused. With admission fixed,
+Device 2's NEAR export issues its `export_key` challenge (200) and then never
+completes: the wallet iframe's own `PM_EXPORT_KEYPAIR_UI` request times out
+after ~60 seconds, and no `/wallet/email-otp/factor-release` follows the export
+challenge in the trace.
+
+Two candidate readings, and the evidence does not yet separate them:
+
+1. the linked export legitimately never calls `/wallet/email-otp/factor-release`
+   — an owner opens its Yao Client root from the factor-sealed custody seed,
+   while a linked installation opens its persisted export root instead — in
+   which case the harness's `requireEmailOtpExportAuthorization` encodes the
+   owner shape and is `valid_test_needs_update`; but that alone would not
+   explain the iframe timing out;
+2. the linked export path stalls after the challenge, which the iframe timeout
+   does indicate and which no assertion change would fix.
+
+Resolve by tracing the linked Ed25519 export after its challenge — whether the
+sealed export-root branch reaches `readLinkedExportCapability` and what it
+awaits — before touching the harness assertion.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
