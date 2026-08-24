@@ -583,6 +583,48 @@ async function persistRehydratedEmailOtpEcdsaWalletSession(args: {
   });
 }
 
+/**
+ * A cold unlock mints the Wallet Session it would otherwise read, so its
+ * authority comes from the exact selected local Email OTP method. This is the
+ * same construction the server performs when it resolves an Email OTP
+ * authority for unlock, and it stays exact where several linked methods can
+ * share one verified email.
+ */
+async function resolveColdUnlockEmailOtpWalletSessionAuthority(args: {
+  readonly walletId: WalletId;
+  readonly emailHashHex: string;
+  readonly providerSubject: string;
+}): Promise<WalletAuthAuthorityRef> {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
+  if (selected.kind !== 'resolved') {
+    throw new Error(
+      `[SigningEngine][near] selected Email OTP Wallet Authority is ${selected.kind}`,
+    );
+  }
+  const { authMethod, authority } = selected;
+  if (
+    authMethod.kind !== WALLET_AUTH_METHODS.emailOtp ||
+    authMethod.status !== 'active' ||
+    authority.state !== 'active' ||
+    String(authMethod.walletId) !== String(args.walletId) ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.emailHashHex !== args.emailHashHex
+  ) {
+    throw new Error('[SigningEngine][near] selected Email OTP unlock method is invalid');
+  }
+  return await walletAuthAuthorityRef({
+    authority: {
+      ...buildEmailOtpWalletAuthAuthority({
+        walletId: String(args.walletId),
+        provider: args.providerSubject.startsWith('google:') ? 'google' : 'email',
+        providerUserId: args.providerSubject,
+        emailHashHex: authMethod.emailHashHex,
+      }),
+      bindingId: authMethod.walletAuthMethodId,
+    },
+  });
+}
+
 async function readActiveEmailOtpWalletSessionAuthority(args: {
   readonly walletId: WalletId;
   readonly emailHashHex: string;
@@ -6095,6 +6137,8 @@ export class BrowserSigningSurface {
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    /** A cold unlock creates the session this activation would otherwise read. */
+    authoritySource?: 'cold_unlock';
   }): Promise<NearEd25519SignerBinding> {
     return await withThresholdEd25519CommitQueue({
       queueByKey: this.thresholdEd25519CommitQueueByKey,
@@ -6104,10 +6148,17 @@ export class BrowserSigningSurface {
       nearAccountId: toAccountId(args.bootstrap.session.nearAccountId),
       enabled: args.commitQueue === 'acquire',
       task: async () => {
-        const authority = await readActiveEmailOtpWalletSessionAuthority({
-          walletId: args.walletSession.walletId,
-          emailHashHex: args.emailHashHex,
-        });
+        const authority =
+          args.authoritySource === 'cold_unlock'
+            ? await resolveColdUnlockEmailOtpWalletSessionAuthority({
+                walletId: args.walletSession.walletId,
+                emailHashHex: args.emailHashHex,
+                providerSubject: args.providerSubject,
+              })
+            : await readActiveEmailOtpWalletSessionAuthority({
+                walletId: args.walletSession.walletId,
+                emailHashHex: args.emailHashHex,
+              });
         const activated = await activateWalletCustodyEd25519CapabilityV1({
           walletSession: args.walletSession,
           nearAccountId: args.bootstrap.session.nearAccountId,
@@ -6218,6 +6269,7 @@ export class BrowserSigningSurface {
       bootstrap: unlock.ed25519YaoCapability,
       activeClientHandle: unlock.activeClientHandle,
       metadata: unlock.metadata,
+      authoritySource: 'cold_unlock',
     });
   }
 
