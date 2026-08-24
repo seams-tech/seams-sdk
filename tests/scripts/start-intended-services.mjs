@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
@@ -35,12 +35,18 @@ const d1LocalWranglerConfigPath =
 const siteViteCacheDir =
   process.env.SEAMS_INTENDED_SITE_VITE_CACHE_DIR ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-vite-cache`);
+const intendedServicesLockPath = path.join(
+  tmpdir(),
+  `${path.basename(repoRoot)}-intended-services.lock`,
+);
+const intendedServicesLockOwnerPath = path.join(intendedServicesLockPath, 'owner.json');
 const webServerReadyHost = '127.0.0.1';
 const webServerReadyPort = parseWebServerReadyPort();
 const resetState = process.env.SEAMS_INTENDED_SKIP_STATE_RESET !== '1';
 const skipBuild = process.env.SEAMS_INTENDED_SKIP_BUILD === '1';
 const managedChildren = [];
 let shutdownStarted = false;
+let ownsIntendedServicesLock = false;
 let webServerReadyServer;
 let localConsoleOrganizationId = '';
 let d1LocalRuntimeConfig;
@@ -85,6 +91,7 @@ async function main() {
   }
 
   installSignalHandlers();
+  await acquireIntendedServicesLock();
   assertNoConflictingLocalProcesses();
   if (resetState) {
     resetLocalState();
@@ -119,16 +126,24 @@ async function main() {
 }
 
 function assertLocalIntendedUrls() {
-  assertUrlOrigin('SEAMS_INTENDED_APP_URL', appUrl, 'https://localhost');
+  assertUrlOrigin('SEAMS_INTENDED_APP_URL', appUrl, [
+    'https://localhost',
+    'https://localhost:9443',
+  ]);
   assertUrlOrigin('SEAMS_INTENDED_ROUTER_URL', routerUrl, 'https://localhost:9444');
   assertUrlOrigin('SEAMS_INTENDED_WALLET_ORIGIN', walletOrigin, 'https://localhost:8443');
+  assertUrlOrigin('SEAMS_INTENDED_DOCS_ORIGIN', docsOrigin, [
+    'https://docs.localhost',
+    'https://docs.localhost:9447',
+  ]);
 }
 
 function assertUrlOrigin(name, value, expectedOrigin) {
   const origin = new URL(value).origin;
-  if (origin === expectedOrigin) return;
+  const expectedOrigins = Array.isArray(expectedOrigin) ? expectedOrigin : [expectedOrigin];
+  if (expectedOrigins.includes(origin)) return;
   throw new Error(
-    `${name}=${value} is incompatible with CI-managed local startup; expected ${expectedOrigin}`,
+    `${name}=${value} is incompatible with CI-managed local startup; expected ${expectedOrigins.join(' or ')}`,
   );
 }
 
@@ -243,7 +258,7 @@ function startSite() {
 }
 
 function startCaddy() {
-  return spawnManaged('caddy', ['-C', 'apps/seams-site', 'run', 'caddy'], process.env);
+  return spawnManaged('caddy', ['-C', 'apps/seams-site', 'run', 'caddy'], caddyEnv());
 }
 
 function startRouter() {
@@ -330,9 +345,18 @@ function siteEnv() {
   };
 }
 
+function caddyEnv() {
+  return {
+    ...process.env,
+    SEAMS_APP_CADDY_ADDRESS: new URL(appUrl).host,
+    SEAMS_DOCS_CADDY_ADDRESS: new URL(docsOrigin).host,
+  };
+}
+
 function routerEnv() {
   return {
     ...process.env,
+    LINKED_DEVICE_WEBAUTHN_ORIGIN: appUrl,
     SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
     SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
@@ -619,14 +643,83 @@ async function shutdown(exitCode) {
   if (shutdownStarted) return;
   shutdownStarted = true;
   await closeWebServerReadyServer();
+  const ownedDescendantPids = collectManagedDescendantPids();
   for (const entry of [...managedChildren].reverse()) {
     stopChild(entry);
   }
+  terminateProcesses(ownedDescendantPids, 'SIGTERM');
   await delay(1_500);
   for (const entry of [...managedChildren].reverse()) {
     forceStopChild(entry);
   }
+  terminateProcesses(ownedDescendantPids, 'SIGKILL');
+  releaseIntendedServicesLock();
   process.exit(exitCode);
+}
+
+async function acquireIntendedServicesLock() {
+  const startedAt = Date.now();
+  let announcedWait = false;
+  while (Date.now() - startedAt < 1_500_000) {
+    try {
+      mkdirSync(intendedServicesLockPath);
+      writeFileSync(
+        intendedServicesLockOwnerPath,
+        `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`,
+      );
+      ownsIntendedServicesLock = true;
+      return;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    if (removeStaleIntendedServicesLock()) continue;
+    if (!announcedWait) {
+      console.log('[intended-services] waiting for the active intended-behaviour stack');
+      announcedWait = true;
+    }
+    await delay(500);
+  }
+  throw new Error('timed out waiting for the active intended-behaviour stack');
+}
+
+function removeStaleIntendedServicesLock() {
+  const ownerPid = readIntendedServicesLockOwnerPid();
+  if (ownerPid !== undefined && isProcessRunning(ownerPid)) return false;
+  if (ownerPid === undefined && !isOldIntendedServicesLock()) return false;
+  rmSync(intendedServicesLockPath, { recursive: true, force: true });
+  return true;
+}
+
+function readIntendedServicesLockOwnerPid() {
+  try {
+    const owner = JSON.parse(readFileSync(intendedServicesLockOwnerPath, 'utf8'));
+    return Number.isInteger(owner?.pid) && owner.pid > 0 ? owner.pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isOldIntendedServicesLock() {
+  try {
+    return Date.now() - statSync(intendedServicesLockPath).mtimeMs > 5_000;
+  } catch {
+    return true;
+  }
+}
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== 'ESRCH';
+  }
+}
+
+function releaseIntendedServicesLock() {
+  if (!ownsIntendedServicesLock) return;
+  rmSync(intendedServicesLockPath, { recursive: true, force: true });
+  ownsIntendedServicesLock = false;
 }
 
 function stopChild(entry) {
@@ -655,6 +748,53 @@ function killChild(child, signal, killAsGroup) {
     child.kill(signal);
   } catch (error) {
     if (error?.code !== 'ESRCH') throw error;
+  }
+}
+
+function collectManagedDescendantPids() {
+  const result = spawnSync('ps', ['-axo', 'pid=,ppid='], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error || result.status !== 0) return [];
+  const childrenByParent = new Map();
+  for (const line of String(result.stdout || '').split(/\r?\n/)) {
+    const relation = parseProcessRelation(line);
+    if (!relation) continue;
+    const children = childrenByParent.get(relation.parentPid) || [];
+    children.push(relation.pid);
+    childrenByParent.set(relation.parentPid, children);
+  }
+  const descendants = [];
+  const queue = [];
+  for (const entry of managedChildren) {
+    if (entry.child.pid) queue.push(entry.child.pid);
+  }
+  while (queue.length > 0) {
+    const parentPid = queue.shift();
+    const children = childrenByParent.get(parentPid) || [];
+    for (const childPid of children) {
+      descendants.push(childPid);
+      queue.push(childPid);
+    }
+  }
+  return descendants.reverse();
+}
+
+function parseProcessRelation(line) {
+  const match = line.match(/^\s*(\d+)\s+(\d+)\s*$/);
+  if (!match) return undefined;
+  return { pid: Number(match[1]), parentPid: Number(match[2]) };
+}
+
+function terminateProcesses(pids, signal) {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+    }
   }
 }
 

@@ -1,13 +1,14 @@
 {
 	admin off
 	auto_https disable_redirects
+	default_bind 127.0.0.1
 	log {
 		level ERROR
 	}
 }
 
 # App (Vite dev server)
-localhost {
+{$SEAMS_APP_CADDY_ADDRESS:localhost} {
 	tls internal
 	encode gzip
 	header Permissions-Policy "publickey-credentials-get=(self \"https://localhost:8443\"), publickey-credentials-create=(self \"https://localhost:8443\"), clipboard-read=(self \"https://localhost:8443\"), clipboard-write=(self \"https://localhost:8443\")"
@@ -40,7 +41,7 @@ localhost {
 }
 
 # Docs host (VitePress dev server)
-docs.localhost {
+{$SEAMS_DOCS_CADDY_ADDRESS:docs.localhost} {
 	tls internal
 	encode gzip
 	reverse_proxy localhost:5222
@@ -108,10 +109,10 @@ localhost:8443 {
 localhost:9444 {
 	tls internal
 	encode gzip
-	@router_allowed_origin header_regexp router_origin Origin ^https://localhost(:8443)?$
+	@router_allowed_origin header_regexp router_origin Origin ^https://localhost(:8443|:9443)?$
 	@router_preflight {
 		method OPTIONS
-		header_regexp Origin ^https://localhost(:8443)?$
+		header_regexp Origin ^https://localhost(:8443|:9443)?$
 	}
 	header @router_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
 	header @router_allowed_origin Access-Control-Allow-Credentials true

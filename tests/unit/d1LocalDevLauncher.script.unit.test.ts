@@ -103,3 +103,21 @@ test('D1 local dev launcher loads the root .env.local file', async () => {
     `SEAMS_LOCAL_CONSOLE_ORG_ID:${command.localConsoleOrganizationId}`,
   ]);
 });
+
+test('D1 local dev launcher overrides the linked-device WebAuthn origin', async () => {
+  const module = await launcherModulePromise;
+  const tree = createTempLocalDevTree();
+
+  const command = module.buildD1LocalDevWranglerArgs({
+    repoRoot: tree.root,
+    packageRoot: tree.consolePackageRoot,
+    env: {
+      LINKED_DEVICE_WEBAUTHN_ORIGIN: 'https://localhost:9443',
+    },
+  });
+
+  expect(command.args).toContain('--var');
+  expect(command.args).toContain(
+    'LINKED_DEVICE_WEBAUTHN_ORIGIN:https://localhost:9443',
+  );
+});
