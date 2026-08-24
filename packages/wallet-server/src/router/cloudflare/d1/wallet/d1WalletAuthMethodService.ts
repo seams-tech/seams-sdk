@@ -983,7 +983,7 @@ export class CloudflareD1WalletAuthMethodService {
             ? await this.passkeyCustodyEnvelopes.commitPasskeyFactorWithoutCustodyAtomically({
                 additionalStatements,
               })
-            : await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
+            : await this.passkeyCustodyEnvelopes.linkWalletCustodyFactorAtomically({
                 envelope: replacementEnvelope,
                 additionalStatements,
               });
@@ -1000,17 +1000,112 @@ export class CloudflareD1WalletAuthMethodService {
 
       const duplicate = await this.findDuplicateAuthority(ceremony.authority);
       if (duplicate) return duplicate;
+      if (request.webauthnRegistration !== undefined) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP add-auth-method finalize carries no WebAuthn registration',
+        };
+      }
+      if (request.custodyEnvelope === undefined) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP add-auth-method finalize requires the resealed custody envelope',
+        };
+      }
+      /* R109C: the browser opened the source envelope this ceremony carried and
+         resealed the same seed under the verified Email OTP factor. The
+         enrollment is read here rather than trusted from the request, so the
+         envelope has to name the exact enrollment this wallet just verified. */
+      const targetEnrollment = await this.emailOtpChallengeVerifier.readActiveEnrollmentForWallet({
+        walletId: String(walletId),
+        orgId: ceremony.orgId,
+        providerUserId: String(ceremony.authority.providerSubject),
+      });
+      if (!targetEnrollment.ok) return targetEnrollment;
+      let resealedEnvelope: PasskeyCustodyEnvelopeRecord;
+      try {
+        resealedEnvelope = parsePasskeyCustodyEnvelopeRecord(request.custodyEnvelope);
+      } catch {
+        return { ok: false, code: 'invalid_body', message: 'custodyEnvelope is invalid' };
+      }
+      const expectedResealedCiphertextDigestB64u = base64UrlEncode(
+        await this.sha256Bytes(base64UrlDecode(resealedEnvelope.sealedCustodySecretB64u)),
+      );
+      if (
+        resealedEnvelope.walletId !== walletId ||
+        resealedEnvelope.factor.kind !== 'email_otp' ||
+        resealedEnvelope.factor.enrollmentId !== targetEnrollment.enrollment.enrollmentId ||
+        resealedEnvelope.factor.enrollmentSealKeyVersion !==
+          targetEnrollment.enrollment.enrollmentSealKeyVersion ||
+        resealedEnvelope.envelopeRevision !== 1 ||
+        resealedEnvelope.lifecycle.state !== 'active' ||
+        resealedEnvelope.envelopeId === ceremony.custodyEnvelope.envelopeId ||
+        resealedEnvelope.ciphertextDigestB64u !== expectedResealedCiphertextDigestB64u
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'custodyEnvelope is not bound to the verified Email OTP factor',
+        };
+      }
+      /* The source envelope must still be the one the ceremony resealed from,
+         so a custody change between start and finalize cannot commit a seed
+         sealed against superseded material. */
+      const currentSourceEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
+        walletId,
+        factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
+      });
+      if (
+        currentSourceEnvelope.kind !== 'active' ||
+        currentSourceEnvelope.envelope.envelopeId !== ceremony.custodyEnvelope.envelopeId
+      ) {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'Existing wallet custody changed; retry add-auth-method linking',
+        };
+      }
+      const now = Date.now();
       const authMethod = buildActiveAddedWalletAuthMethodV2({
         authority: ceremony.authority,
         walletAuthMethodId: ceremony.targetWalletAuthMethodId,
         walletAuthorityId: ceremony.sourceWalletAuthorityId,
-        now: Date.now(),
+        now,
       });
-      const committed = await this.getWalletAuthMethodStore().insertActiveV2Atomically({
-        record: authMethod,
-        prerequisiteStatements: this.prepareAddAuthMethodSourceGuard({ ceremony, walletId }),
+      const authority = walletAuthAuthorityFromRegistrationAuthority({
+        authority: ceremony.authority,
+        walletAuthMethodId: ceremony.targetWalletAuthMethodId,
       });
-      if (!committed) {
+      const emailOtpResponse: Extract<WalletAddAuthMethodFinalizeResponse, { ok: true }> = {
+        ok: true,
+        walletId: ceremony.intent.walletId,
+        authority,
+        authMethod: { kind: 'email_otp', status: 'active' },
+      };
+      /* The Passkey branch has always written a replay record; this one did
+         not, so an exact retry after a lost response found neither ceremony nor
+         replay and answered not_found. R109C requires a retry to return the
+         same active method. */
+      const emailOtpReplayStatements = await store.buildAddAuthMethodFinalizeReplayStatements({
+        kind: 'wallet_add_auth_method_finalize_replay_v1',
+        addAuthMethodCeremonyId: ceremony.addAuthMethodCeremonyId,
+        requestDigestB64u: replayDigestB64u,
+        response: emailOtpResponse,
+        createdAtMs: now,
+        expiresAtMs: now + ADD_AUTH_METHOD_FINALIZE_REPLAY_TTL_MS,
+      });
+      const linked = await this.passkeyCustodyEnvelopes.linkWalletCustodyFactorAtomically({
+        envelope: resealedEnvelope,
+        additionalStatements: [
+          ...this.prepareAddAuthMethodSourceGuard({ ceremony, walletId }),
+          ...this.getWalletAuthMethodStore().prepareV2InsertStatements(authMethod),
+          ...emailOtpReplayStatements,
+          ...atomicCompanionStatements,
+        ],
+      });
+      if (linked.kind === 'version_mismatch' || linked.kind === 'conflict') {
         return {
           ok: false,
           code: 'conflict',
@@ -1018,16 +1113,7 @@ export class CloudflareD1WalletAuthMethodService {
         };
       }
       await store.takeAddAuthMethodCeremony(ceremony.addAuthMethodCeremonyId);
-      const authority = walletAuthAuthorityFromRegistrationAuthority({
-        authority: ceremony.authority,
-        walletAuthMethodId: ceremony.targetWalletAuthMethodId,
-      });
-      return {
-        ok: true,
-        walletId: ceremony.intent.walletId,
-        authority,
-        authMethod: { kind: 'email_otp', status: 'active' },
-      };
+      return emailOtpResponse;
     } catch (error: unknown) {
       return {
         ok: false,

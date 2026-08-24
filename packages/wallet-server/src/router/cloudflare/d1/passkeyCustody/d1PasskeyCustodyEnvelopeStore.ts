@@ -689,25 +689,28 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
   }
 
   /**
-   * Inserts a new passkey envelope together with caller-owned authenticator,
+   * Inserts a new custody envelope together with caller-owned authenticator,
    * credential-binding, and wallet-auth-method statements in one D1 batch.
    * The envelope row is insert-only, so a repeated envelope identity or any
    * conflicting credential aborts the complete transaction.
+   *
+   * The factor kind is the caller's to assert, not this store's. Refactor 109C
+   * enrols an Email OTP factor by exactly this route — a new envelope holding
+   * the same seed, committed with the auth-method insert — and each branch has
+   * already verified the factor it built the envelope for by the time it gets
+   * here. A kind check here would only re-state one branch's assumption and
+   * refuse the other.
    */
-  async linkPasskeyFactorAtomically(input: {
+  async linkWalletCustodyFactorAtomically(input: {
     readonly envelope: PasskeyCustodyEnvelopeRecord;
     readonly additionalStatements: readonly D1PreparedStatementLike[];
   }): Promise<PasskeyCustodyEnvelopeLinkResult> {
     const envelope = input.envelope;
-    if (
-      envelope.factor.kind !== 'passkey' ||
-      Number(envelope.envelopeRevision) !== 1 ||
-      envelope.lifecycle.state !== 'active'
-    ) {
+    if (Number(envelope.envelopeRevision) !== 1 || envelope.lifecycle.state !== 'active') {
       return { kind: 'conflict' };
     }
     if (input.additionalStatements.length === 0) {
-      throw new Error('Passkey custody linking requires credential and auth-method mutations');
+      throw new Error('Wallet custody linking requires credential and auth-method mutations');
     }
     const key = this.recordKey(envelopeLocator(envelope));
     try {
@@ -717,7 +720,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       );
       if (stored.kind === 'version_mismatch') return { kind: 'version_mismatch' };
       const version = stored.versions.find((entry) => entry.key === key)?.version;
-      if (!version) throw new Error('passkey custody link did not report envelope version');
+      if (!version) throw new Error('wallet custody link did not report envelope version');
       return { kind: 'stored', storeVersion: version };
     } catch (error: unknown) {
       if (isD1ConstraintError(error)) return { kind: 'conflict' };
