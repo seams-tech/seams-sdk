@@ -276,7 +276,12 @@ seams-auth-menu-surface {
 }
 
 .w3a-signup-menu-root[data-recovery='true'] .w3a-signin-menu {
-  padding-block-start: var(--w3a-spacing-md);
+  padding-block-start: calc(var(--w3a-spacing-md) + 0rem);
+}
+
+.w3a-signup-menu-root[data-recovery='true'] .w3a-title,
+.w3a-signup-menu-root[data-recovery='true'] .w3a-subhead {
+  text-align: center;
 }
 
 /* Enter recipe: opacity + blur + a small rise. No scale — scaling a text block
@@ -1831,6 +1836,10 @@ seams-auth-menu-surface {
   padding: 0 0.75rem 0.25rem;
 }
 
+.w3a-recovery-form {
+  gap: 8px;
+}
+
 .w3a-recovery-field {
   display: flex;
   flex-direction: column;
@@ -1887,6 +1896,10 @@ seams-auth-menu-surface {
 
 .w3a-recovery-error {
   color: var(--w3a-colors-error);
+}
+
+#w3a-recovery-code-feedback {
+  margin: 4px;
 }
 
 @media (max-width: 320px) {

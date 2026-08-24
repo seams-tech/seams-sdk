@@ -1048,8 +1048,19 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private renderRecovery(viewModel: AuthMenuRecoveryViewModel): TemplateResult {
     if (viewModel.stage === 'enter_code') {
       const statusMessage = viewModel.status.kind === 'recoverable' ? viewModel.status.message : '';
+      const feedbackMessage =
+        viewModel.recoveryCodeError ??
+        (statusMessage || 'Enter a recovery code to recover your wallet.');
+      const feedbackIsError = viewModel.recoveryCodeError !== null;
       return html`
         ${this.renderHeader(viewModel)}
+        <p
+          id="w3a-recovery-code-feedback"
+          class="w3a-recovery-status ${feedbackIsError ? 'w3a-recovery-error' : ''}"
+          aria-hidden=${feedbackIsError ? 'false' : 'true'}
+        >
+          ${feedbackMessage}
+        </p>
         <form class="w3a-recovery-form" novalidate @submit=${this.onRecoverySubmit}>
           <div class="w3a-recovery-field">
             <label class="w3a-field-label" for="w3a-recovery-code">Recovery code</label>
@@ -1064,15 +1075,11 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
               autocorrect="off"
               spellcheck="false"
               aria-invalid=${viewModel.recoveryCodeError ? 'true' : 'false'}
-              aria-describedby=${viewModel.recoveryCodeError ? 'w3a-recovery-code-error' : ''}
+              aria-describedby=${viewModel.recoveryCodeError ? 'w3a-recovery-code-feedback' : ''}
               .value=${viewModel.recoveryCode}
               @input=${this.onRecoveryCodeInput}
             />
-            <p id="w3a-recovery-code-error" class="w3a-recovery-error">
-              ${viewModel.recoveryCodeError ?? ''}
-            </p>
           </div>
-          <p class="w3a-recovery-status" aria-hidden="true">${statusMessage}</p>
           <button
             class="w3a-link-device-btn w3a-link-device-btn-primary"
             type="submit"
