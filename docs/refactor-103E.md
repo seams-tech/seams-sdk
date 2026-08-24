@@ -269,20 +269,27 @@ completes: the wallet iframe's own `PM_EXPORT_KEYPAIR_UI` request times out
 after ~60 seconds, and no `/wallet/email-otp/factor-release` follows the export
 challenge in the trace.
 
-Two candidate readings, and the evidence does not yet separate them:
+The failure screenshot settles what the network alone did not: the profile menu
+is still open with `Export NEAR Key` enabled, and **no export drawer or OTP
+prompt ever rendered**. The toast is the request timeout. So this is a stall in
+the wallet host, not a harness assertion encoding the owner's shape — the
+harness never got a surface to answer.
 
-1. the linked export legitimately never calls `/wallet/email-otp/factor-release`
-   — an owner opens its Yao Client root from the factor-sealed custody seed,
-   while a linked installation opens its persisted export root instead — in
-   which case the harness's `requireEmailOtpExportAuthorization` encodes the
-   owner shape and is `valid_test_needs_update`; but that alone would not
-   explain the iframe timing out;
-2. the linked export path stalls after the challenge, which the iframe timeout
-   does indicate and which no assertion change would fix.
+Established sequence: click `Export NEAR Key` → the `export_key` challenge is
+issued and returns 200 → the OTP is available in the dev outbox → nothing. The
+whole trace contains exactly one `/router-ab/*` call, from registration, so
+`readLinkedExportCapability` and its
+`/router-ab/ed25519/yao/recovery/bootstrap` request are never reached, no
+`/wallet/email-otp/factor-release` follows, and neither page logs an export
+error. The wallet host issues the challenge and then awaits an OTP through a
+prompt it never presents.
 
-Resolve by tracing the linked Ed25519 export after its challenge — whether the
-sealed export-root branch reaches `readLinkedExportCapability` and what it
-awaits — before touching the harness assertion.
+Resolve by driving that click with the browser tools and inspecting the wallet
+iframe's own state at the stall — which surface it expects to present, and what
+its export prompt awaits — rather than from the outside, since the host emits
+no diagnostic here. Note the signing/export UI runs from the built
+`packages/sdk-web/dist/public`, so any SDK change needs `build:sdk` and a
+reload before it is visible.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
