@@ -20,6 +20,8 @@ import {
   hostedWalletSessionCurveFromBoundary,
 } from '../hostedWalletSeamsSession';
 import { createHostedAuthMenuHandlers } from './authMenu';
+import { listLocalPasskeyWalletIds } from '@/SeamsWeb/operations/auth/login';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
@@ -87,9 +89,17 @@ async function resolveExactWalletSessionState(
 ): Promise<WalletIframeExactSessionState> {
   let walletId: string | undefined;
   switch (payload.wallet.kind) {
-    case 'current':
+    case 'current': {
       walletId = pm.preferences.getCurrentWalletId() ?? undefined;
+      if (!walletId) {
+        const localWalletIds = await listLocalPasskeyWalletIds();
+        if (localWalletIds.length === 1) {
+          walletId = localWalletIds[0]!;
+          pm.preferences.setCurrentWallet(toWalletId(walletId));
+        }
+      }
       break;
+    }
     case 'exact':
       walletId = payload.wallet.walletId.trim();
       if (!walletId) throw new Error('Wallet iframe exact session walletId is invalid');
