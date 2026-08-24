@@ -201,7 +201,7 @@ export async function prepareHostedPasskeyLogin(args: {
   if (!subjectSet) {
     return await prepareHostedPasskeyAccountSync({
       context: args.context,
-      walletId: String(walletId),
+      walletId: null,
       authMenuSessionId: args.authMenuSessionId,
       requestId: args.requestId,
       cancellation: args.cancellation,
