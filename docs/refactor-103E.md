@@ -2,7 +2,8 @@
 
 Date created: August 21, 2026
 
-Status: complete. Core operating-path acceptance closed August 25, 2026.
+Status: complete. Core operating-path acceptance and post-acceptance cleanup
+closed August 25, 2026.
 R103E is the sole Refactor 103 plan. It consolidates the retained working
 behavior from the earlier Refactor 103 series before R109C and R109D expand
 the supported authentication combinations. The obsolete 103, 103B, 103C,
@@ -86,11 +87,36 @@ not complete a behavioral item.
 - [x] Stale lower-authority fixtures discovered during stabilization were
   updated to current shapes; the focused fixture group passes 13/13.
 
-### Deferred non-blocking hardening
+### Post-acceptance cleanup closure
 
-The interruption matrix, post-acceptance Rust/WASM deletion audit, and final
-source/type-count comparison were not completed. They remain useful follow-up
-hardening and do not block R103E closure or the start of R109C. Cross-factor
+- [x] Removed the duplicate `LinkedDeviceSessionProjectionV1` contract and
+  parser. The live temporary transport has one representation:
+  `LinkSessionProjectionV1`.
+- [x] Removed the duplicate `LinkedDeviceSessionState` lifecycle, transport
+  event, state builders, and parser. Durable and browser readers now share
+  `LinkSessionStateV1` and `parseLinkSessionStateV1`.
+- [x] Removed dead wallet-server parser aliases and its second implementation
+  of the link-session state parser. Persistence normalizes through the shared
+  boundary parser.
+- [x] Deleted stale activation-plan fixtures that referenced already-removed
+  `DelegatedDeviceActivationPlanV1` and
+  `ExactAdministeredSignerActivationSetV1`. The live exact signer-manifest
+  coverage remains.
+- [x] Confirmed the retired direct linked ECDSA export finalizer, its worker
+  opcodes, input type, and TypeScript wrappers are absent. The retained
+  `EcdsaLinkedHolderMaterialV1` holds the imported source-preserving share and
+  exposes only the ordinary export and presign operations used by the wallet.
+- [x] Rechecked the concrete removal ledger. Retired owner-binding table names
+  remain only in historical D1 migrations and their migration test; runtime
+  readers and writers are absent.
+- [x] Against the pre-cleanup checkpoint `ff395dfe1`, production cleanup is a
+  net 850-line deletion across four source files. The three canonical
+  link-session contract/parser files decreased by 810 lines, and exported
+  declarations in the audited device-linking/WASM surface decreased from 281
+  to 256.
+
+The broader interruption matrix remains optional resilience work requiring a
+separate authorization. It does not reopen R103E or block R109C. Cross-factor
 Passkey-to-Email-OTP and Email-OTP-to-Passkey linking remains R109D scope.
 
 ### Final accepted checkpoint
@@ -427,9 +453,9 @@ authority/session checks that actually consume it.
   signer profiles. The separate core intended-behaviour checkpoint is green for
   registration, unlock, refresh rehydration, Ed25519/Tempo/EVM signing and
   step-up, and Ed25519/ECDSA export.
-- Broader interruption reruns, the post-acceptance Rust/WASM deletion audit,
-  and final legacy/type-count cleanup remain optional follow-up hardening.
-  Cross-factor Passkey↔Email coverage belongs to R109D.
+- The post-acceptance Rust/WASM deletion audit and final legacy/type-count
+  cleanup are complete. Broader interruption reruns remain optional resilience
+  work. Cross-factor Passkey↔Email coverage belongs to R109D.
 
 ### Continuation protocol for agents
 

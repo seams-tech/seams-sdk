@@ -9,7 +9,6 @@ import type {
   LinkPrecommitFailureV1,
   LinkSessionStateV1,
   LinkedDeviceApprovalV1,
-  LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
@@ -17,7 +16,6 @@ import type {
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceTargetFactorV1,
-  LinkDevicePublicKeyB64u,
   LinkedDeviceOwnerSourceLaneV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
@@ -29,7 +27,7 @@ import {
 import {
   parseLinkedDeviceApprovalV1 as parseSharedLinkedDeviceApprovalV1,
   parseLinkedDeviceSessionClaimV1 as parseSharedLinkedDeviceSessionClaimV1,
-  parseLinkDevicePublicKeyB64u,
+  parseLinkSessionStateV1,
   parseQrLinkedDeviceSessionPayloadV5 as parseSharedQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import {
@@ -49,11 +47,6 @@ import {
 import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
-import {
-  parseAuthorizationEvidenceSetId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
   parseLinkDeviceSessionId,
@@ -895,7 +888,7 @@ export class LinkedDeviceSessionServiceV1 {
   }): Promise<LinkedDeviceSessionServiceResultV1> {
     try {
       const nowMs = requireTimestamp(input.nowMs, 'nowMs');
-      const error = parseLinkPrecommitFailureV1(input.error);
+      const error = input.error;
       const existing = await this.requireSession(input.linkSessionId);
       if (existing.state.state === 'failed_before_commit') {
         return alphabetizeStringify(existing.state.error) === alphabetizeStringify(error)
@@ -1140,34 +1133,8 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
   });
 }
 
-export function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDeviceSessionPayloadV5 {
+function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDeviceSessionPayloadV5 {
   return parseSharedQrLinkedDeviceSessionPayloadV5(raw);
-}
-
-export function parseOwnerAuthorizationSourceV1(
-  raw: unknown,
-): LinkedDeviceOwnerAuthorizationSourceV1 {
-  return parseOwnerAuthorizationV1(raw);
-}
-
-export function parseLinkedDeviceApprovalRecordV1(raw: unknown): LinkedDeviceApprovalV1 {
-  return parseLinkedDeviceApprovalV1(raw);
-}
-
-export function parseLinkedDeviceClaimRecordV1(raw: unknown): LinkedDeviceClaimV1 {
-  return parseLinkedDeviceClaimV1(raw);
-}
-
-export function parseLinkedDeviceSessionStateV1(raw: unknown): LinkSessionStateV1 {
-  return parseLinkSessionStateV1(raw);
-}
-
-export function parseLinkedDevicePublicKeyV1(raw: unknown): LinkDevicePublicKeyB64u {
-  return parseLinkDevicePublicKeyB64u(raw);
-}
-
-export function parseLinkedDeviceDigestV1(raw: unknown): DigestB64u {
-  return requireDigest(raw, 'digest');
 }
 
 function buildSessionRecordV1(input: {
@@ -2019,76 +1986,6 @@ function parseLinkedDeviceClaimV1(raw: unknown): LinkedDeviceClaimV1 {
   return parseSharedLinkedDeviceSessionClaimV1(raw);
 }
 
-function parseLinkSessionStateV1(raw: unknown): LinkSessionStateV1 {
-  const record = requireRecord(raw, 'session state');
-  const state = parseIdentityString(record.state, 'state');
-  switch (state) {
-    case 'displaying_qr':
-      requireExactKeys(record, ['state']);
-      return { state };
-    case 'claimed':
-    case 'awaiting_target_factor':
-    case 'awaiting_source_contribution':
-    case 'provisioning':
-      requireExactKeys(record, ['state', 'deviceId']);
-      return { state, deviceId: parseDeviceIdValue(record.deviceId) };
-    case 'authority_pending_local_install':
-      requireExactKeys(record, ['state', 'deviceId', 'authorityId', 'packageSetDigestB64u']);
-      return {
-        state,
-        deviceId: parseDeviceIdValue(record.deviceId),
-        authorityId: parseId(record.authorityId, parseWalletAuthorityId, 'state.authorityId'),
-        packageSetDigestB64u: requireDigest(
-          record.packageSetDigestB64u,
-          'state.packageSetDigestB64u',
-        ),
-      };
-    case 'active':
-      requireExactKeys(record, ['state', 'deviceId', 'authorityId', 'activatedAtMs']);
-      return {
-        state,
-        deviceId: parseDeviceIdValue(record.deviceId),
-        authorityId: parseId(record.authorityId, parseWalletAuthorityId, 'state.authorityId'),
-        activatedAtMs: requireTimestamp(record.activatedAtMs, 'state.activatedAtMs'),
-      };
-    case 'failed_before_commit':
-      requireExactKeys(record, ['state', 'error']);
-      return { state, error: parseLinkPrecommitFailureV1(record.error) };
-    case 'cancelled':
-      requireExactKeys(record, ['state', 'cancelledAtMs']);
-      return {
-        state,
-        cancelledAtMs: requireTimestamp(record.cancelledAtMs, 'state.cancelledAtMs'),
-      };
-    case 'expired':
-      requireExactKeys(record, ['state', 'expiredAtMs']);
-      return { state, expiredAtMs: requireTimestamp(record.expiredAtMs, 'state.expiredAtMs') };
-    default:
-      throw new Error('state is invalid');
-  }
-}
-
-function parseLinkPrecommitFailureV1(raw: unknown): LinkPrecommitFailureV1 {
-  const record = requireRecord(raw, 'state.error');
-  requireExactKeys(record, ['kind', 'reason']);
-  const kind = parseIdentityString(record.kind, 'state.error.kind');
-  const reason = parseIdentityString(record.reason, 'state.error.reason');
-  switch (kind) {
-    case 'invalid_input':
-    case 'unauthorized_source':
-    case 'revoked_source':
-    case 'permission_attenuation_failed':
-    case 'target_factor_failed':
-    case 'expired_session':
-    case 'cancelled_session':
-    case 'claim_conflict':
-    case 'package_preparation_failed':
-      return { kind, reason };
-    default:
-      throw new Error('state.error.kind is invalid');
-  }
-}
-
 function parseOptionalClaimTranscript(raw: unknown): LinkedDeviceClaimTranscriptV1 | undefined {
   if (raw === undefined) return undefined;
   const record = requireRecord(raw, 'claimTranscript');
@@ -2265,40 +2162,6 @@ function parseEmailOtpChallengeV1(raw: unknown): LinkedDeviceEmailOtpChallengeV1
       'challenge.resendAvailableAtMs',
     ),
   };
-}
-
-function parseOwnerAuthorizationV1(raw: unknown): LinkedDeviceOwnerAuthorizationSourceV1 {
-  const record = requireRecord(raw, 'ownerAuthorization');
-  const kind = parseIdentityString(record.kind, 'ownerAuthorization.kind');
-  switch (kind) {
-    case 'wallet_session':
-      requireExactKeys(record, ['kind', 'walletSessionId', 'authorizationId']);
-      return {
-        kind,
-        walletSessionId: parseAuthorizationId(
-          record.walletSessionId,
-          parseWalletSessionId,
-          'walletSessionId',
-        ),
-        authorizationId: parseAuthorizationId(
-          record.authorizationId,
-          parseWalletSessionAuthorizationId,
-          'authorizationId',
-        ),
-      };
-    case 'step_up':
-      requireExactKeys(record, ['kind', 'evidenceSetId']);
-      return {
-        kind,
-        evidenceSetId: parseAuthorizationId(
-          record.evidenceSetId,
-          parseAuthorizationEvidenceSetId,
-          'evidenceSetId',
-        ),
-      };
-    default:
-      throw new Error('ownerAuthorization.kind is invalid');
-  }
 }
 
 function requireNoRecordFacts(
