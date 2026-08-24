@@ -2,9 +2,153 @@
 
 Date created: August 21, 2026
 
-Status: implementation-ready. R103E is a deletion refactor that consolidates
-the working R103, R103C, and R103D behavior before R109A and R109B expand the
-supported authentication combinations.
+Status: stabilization in progress. R103E is a deletion refactor that
+consolidates the working R103, R103C, and R103D behavior before R109A and R109B
+expand the supported authentication combinations. Completion requires the
+live verification ledger below to be fully green.
+
+## Live implementation and verification ledger
+
+Update this section at every verified checkpoint. Mark an item complete only
+after the named focused or real-browser evidence passes. A typecheck alone does
+not complete a behavioral item.
+
+### Verified checkpoints
+
+- [x] Family-specific authority types, builders, negative type fixtures, and
+  cast/static enforcement pass the Phase 6 shared, wallet, and server checks.
+- [x] Exact V2 Wallet Session replacement is atomic and its focused operation-
+  credential tests pass.
+- [x] The focused V2 sign/export admission, step-up, and holder-lifecycle gate
+  passes.
+- [x] The representative Passkey-to-Passkey combined profile registers, links,
+  activates its exact authority, reloads and unlocks both devices, exports the
+  NEAR key, signs on NEAR, and exports the EVM-family key.
+- [x] The focused V2 ECDSA pool-fill admission regression proves that init and
+  step preserve one exact binding and that an `evm.sign_transaction` operation
+  credential avoids legacy-token fallback.
+- [x] V2 ordinary signing rejects a request whose normal-signing scope differs
+  from the exact active material before downstream private-worker admission;
+  the focused admission test passes 6/6.
+- [x] Shared/wallet/server typechecks and the wallet-server/SDK builds pass for
+  the current stabilization checkpoint.
+- [x] `pnpm test:linked-device:unit` passes 24/24 against the current build.
+- [x] Exact V2 ordinary signing scope enforcement is committed as
+  `7c07db408db5a28a0d5789219cce0ae7793559fa`.
+
+### Open completion gates
+
+- [x] The representative Passkey-to-Passkey combined profile completes Tempo
+  and Arc/EVM ordinary signing after the V2 pool-fill repair.
+- [ ] The same representative profile completes post-sign reload, exact method
+  revocation, active-session invalidation, revoked unlock rejection, and the
+  surviving Device 1 operation.
+- [ ] All six current Passkey/Email-OTP by signer-family matrix cells pass.
+- [ ] The interruption matrix passes with exact identity/digest continuity and
+  without duplicate authority, method, session, signer, or export-root state.
+- [ ] The focused fast gate, full intended-behaviour suite, and final diff/static
+  checks pass against one stable build.
+- [ ] The temporary signing-session diagnostic probe is removed.
+- [ ] Stale lower-authority fixtures discovered during stabilization are
+  updated through current factories or deleted in a test-only checkpoint.
+- [ ] The post-acceptance Rust/WASM audit freezes current crypto behavior,
+  removes the unused older linked export finalizer/wrappers, and either unifies
+  linked holder material with the ordinary runtime representation or records
+  the smallest demonstrated reason it must remain distinct.
+- [ ] The removal ledger and source/type-count comparison are complete.
+
+### Current active checkpoint
+
+The active checkpoint is revocation and surviving-owner operation for the
+representative Passkey-to-Passkey combined profile.
+
+- Last confirmed browser boundary: after independent reload/unlock, Device 2
+  completed NEAR export/signing, EVM export, Tempo signing, and Arc/EVM signing.
+  Device 1 then revoked Device 2.
+- Last observed production failure: ordinary ECDSA export finalized and the TS
+  worker freed/deleted the entire linked holder. The following Tempo presign
+  reused the valid runtime handle and found no holder material.
+- Failure classification: `production_regression`. Export consumed its one-shot
+  export recipient; explicit wallet lock/disposal owns the signing holder's
+  lifetime.
+- Current repair: export finalization retains the linked signing holder. Exact
+  disposal still frees one holder on lock and all holders on global shutdown.
+- Current evidence: wallet typecheck and SDK build pass; the linked fast gate is
+  24/24; the fresh representative browser run has passed the formerly failing
+  export → Tempo presign/sign → Arc sign sequence. The run was then classified
+  `environment_or_infrastructure_failure` after a concurrent SDK build cleaned
+  `packages/wallet/dist` during revocation verification.
+- Current focused files: `ecdsa-derivation-client.worker.ts` plus the focused
+  holder export-retention regression being added.
+- Active next action: freeze one rebuilt SDK artifact set, rerun the same cell,
+  and finish active-session invalidation, revoked unlock rejection, and the
+  surviving Device 1 operation. The Tempo helper now races final success against
+  the first non-2xx ECDSA response so revoked-session verification fails fast.
+
+### Continuation protocol for agents
+
+Every agent continuing R103E must read, in order: **Goal**, **Non-negotiable
+decisions**, **Live implementation and verification ledger**, **Current active
+checkpoint**, and **Completion criteria**. Task history and chat summaries are
+supporting context; this document controls scope and sequencing.
+
+After each checkpoint, update this document with:
+
+1. the exact operating boundary reached;
+2. the failure classification and root cause when a gate fails;
+3. the production and test files changed;
+4. the narrow verification command and result;
+5. the next open gate;
+6. the checkpoint commit when one is created.
+
+Do not mark work complete from code inspection, typecheck, or mocked behavior
+when the applicable gate requires the real two-browser operating path. Do not
+start a broad suite while a narrower documented gate is failing.
+
+## Stabilization regressions and plan corrections
+
+The original plan specified the destination architecture well and underspecified
+the executable path between trust boundaries. Several defects survived because
+the acceptance gates were broad, late, and unable to prove every family-specific
+route. This ledger is normative for the remaining work and for future refactors.
+
+| Escaped regression | Observed failure | Missing or ineffective gate | Required planning correction |
+| --- | --- | --- | --- |
+| Hosted V2 wallet selection depended on legacy profile rows | Reload fell back to `/sync-account` before reaching the local V2 route | No focused reload projection test with legacy rows absent | Require a fresh-database V2 wallet-selection test before any two-browser run |
+| Authority family availability was inferred too broadly | EVM export appeared enabled for an Ed25519-only wallet | The matrix asserted successful operations more strongly than absent-family UI | Require unavailable-action assertions for every matrix cell before full lifecycle assertions |
+| Exact Email OTP method identity stopped at the client boundary | `/wallet/email-otp/challenge` rejected `walletAuthMethodId` | Client and server request parsers were not tested as one exact-selector contract | Add one route-boundary test for each new required identity field and wrong-wallet/wrong-kind/revoked rejection |
+| Linked ECDSA target material was resolved through registration-only records | Reload/sign/export could not resolve the active target activation | “Use ordinary readers” did not enumerate source-preserving target resolution | Specify one exact material resolver contract covering registration and linked target activations, with focused persistence tests |
+| `relayerKeyId` was substituted with `signingWorker.server_id` | ECDSA export operation identity changed during finalization | Role-local IDs were described without an end-to-end mapping assertion | Add an identity-flow table for wallet, authority, method, session, key handle, relayer, worker, participants, and activation; require exact comparisons at every boundary |
+| Wallet Session replacement left stale exact credentials | Reloaded operations could select an obsolete session | Persistence coverage did not prove replacement as one atomic identity operation | Require an atomic replace test that asserts the old operation credential is retired and the new credential is immediately readable |
+| One ECDSA holder disposal closed global authority | Concurrent holders interfered with each other | Holder lifecycle tests covered one holder only | Require concurrent-holder disposal and retry-retention tests for any shared worker/WASM authority |
+| Linked Ed25519 export-root persistence stored an incomplete envelope | Device 2 could not reopen the export root after reload | Export was tested before reload without proving the durable factor-bound envelope | Require export after an independent reload for every durable secret envelope |
+| Canonical ECDSA export receipt parsing was incomplete | Successful worker output could not reach ordinary export finalization | Worker/WASM wire success was not exercised through the high-level export flow | Require one canonical real-receipt parser test plus one high-level finalizer test before browser acceptance |
+| Pool-fill authorization omitted the V2 operation kind | A valid V2 bearer reached `/presignature-pool/fill/init` and returned `401 wallet_session_invalid` | ECDSA signing was treated as one route despite pool init, pool step, prepare, and finalize having separate authorization boundaries | Enumerate and test every ECDSA subroute with the exact operation credential and assert that legacy fallback is never called |
+| V2 ordinary signing omitted canonical normal-scope equality | A request could pass wallet/session/material checks with altered root, epoch, context, or public identity and fail only in the private worker/material loader | Pool-fill checked the exact target scope while prepare/finalize admission repeated only part of that contract | Resolve the canonical active material once and compare the complete normal-signing scope before every V2 ordinary signing admission |
+| Linked ECDSA lane survived reload without a live holder | Device 2 selected the exact target activation, then presign failed with `linked ECDSA holder material is unavailable` | Reload acceptance proved lane projection and export, but did not prove the holder handle could be reopened before presign | Require a focused install → dispose/reload → hydrate → presign test; lane availability must imply the holder is usable, not merely that durable metadata exists |
+| Linked ECDSA Rust/WASM support grew a parallel holder representation and two export finalizers | The operating repair depended on a linked-only worker map whose lifecycle diverged from the ordinary runtime | The plan required ordinary operating paths without a Rust/WASM removal gate or caller audit | Freeze Rust during browser stabilization; after intended behavior is green, retain only demonstrated crypto boundaries, delete unused wrappers/finalizers, and prove any remaining distinct holder type with focused Rust plus two-browser evidence |
+| SDK build output changed during a live browser gate | A concurrent build cleaned `packages/wallet/dist` after revocation, and Vite began returning missing-module errors | Build and acceptance ownership covered ports but not the mutable artifact directory | Treat SDK/server build output as part of the exclusive acceptance stack: finish one build, freeze it for the run, and prohibit concurrent clean/rebuild until the browser gate releases it |
+| The Tempo helper waited only for final signing | An internal pool-fill 401 degraded into a long finalization timeout | Fail-fast monitoring did not cover every internal ECDSA request in this helper | Race the final response against any non-2xx ECDSA signing response and include method, path, status, and body |
+| Lower-authority fixtures drifted behind required runtime state | Focused legacy tests threw on missing `runtimePolicyScope` or received parser-level `400` responses | Inline request/session fixtures duplicated retired shapes | Use branch-specific shared factories and classify fixture failures before touching production |
+
+### Required acceptance sequencing for future refactors
+
+1. Write an identity-flow table before implementation. Every persisted and wire
+   identity must have one origin, parser, consumer, and exact comparison.
+2. Enumerate every request boundary in the operating path. For ECDSA this means
+   step-up, pool-fill init, every pool-fill step, prepare, finalize, export, and
+   holder/WASM finalization.
+3. Land one focused boundary test with each production change. Run it before a
+   browser suite.
+4. Run one representative profile through the complete operating path. Expand
+   to the family/auth matrix only after that profile is green.
+5. Make the representative test fail on the first internal non-2xx response.
+   Long finalization timeouts are test-harness defects when an earlier response
+   already contains the failure.
+6. Commit verified checkpoints separately: production fix, current-behavior
+   test update, stale-test deletion, and legacy deletion.
+7. Keep this ledger current. A plan status cannot say implementation-ready or
+   complete while any open completion gate remains.
 
 ## Goal
 
@@ -108,26 +252,27 @@ Describes what one principal may do with a wallet. It is the authoritative
 record for permissions, signer activation references, status, and revocation.
 
 ```ts
-type WalletAuthorityV1 = WalletAuthorityCommonV1 & (
-  | {
-      readonly state: 'pending_local_install';
-      readonly localInstallPackageSetDigestB64u: DigestB64u;
-      readonly activatedAtMs?: never;
-      readonly revokedAtMs?: never;
-    }
-  | {
-      readonly state: 'active';
-      readonly localInstallPackageSetDigestB64u?: never;
-      readonly activatedAtMs: number;
-      readonly revokedAtMs?: never;
-    }
-  | {
-      readonly state: 'revoked';
-      readonly localInstallPackageSetDigestB64u?: never;
-      readonly activatedAtMs: number;
-      readonly revokedAtMs: number;
-    }
-);
+type WalletAuthorityV1 = WalletAuthorityCommonV1 &
+  (
+    | {
+        readonly state: 'pending_local_install';
+        readonly localInstallPackageSetDigestB64u: DigestB64u;
+        readonly activatedAtMs?: never;
+        readonly revokedAtMs?: never;
+      }
+    | {
+        readonly state: 'active';
+        readonly localInstallPackageSetDigestB64u?: never;
+        readonly activatedAtMs: number;
+        readonly revokedAtMs?: never;
+      }
+    | {
+        readonly state: 'revoked';
+        readonly localInstallPackageSetDigestB64u?: never;
+        readonly activatedAtMs: number;
+        readonly revokedAtMs: number;
+      }
+  );
 
 type WalletAuthorityCommonV1 = {
   readonly kind: 'wallet_authority_v1';
@@ -162,10 +307,24 @@ identity and no `MpcMaterialActivationId`. Remove or rename the misleading
 `ExactAdministeredSignerActivationSetV1` alias during the cutover rather than
 using it as a material reference.
 
-When `export_keys` is granted and Ed25519 is present, the Ed25519 activation's
-local material includes its factor-sealed Yao Client export root. ECDSA export
-uses the ordinary ECDSA activation. Both exports require fresh step-up on the
-selected `WalletAuthMethod`.
+When `export_keys` is granted and Ed25519 is present, the runtime holds a
+short-lived Yao Client export-root capability. Its durable source depends on
+whether the installation has the wallet custody seed:
+
+- registration, recovery, and R109A factor addition persist only the
+  factor-sealed wallet custody seed envelope. Unlock derives the Yao Client
+  export root inside the worker and creates the capability without persisting a
+  second export-root envelope;
+- a linked installation never receives the wallet custody seed. Link-time
+  transport therefore carries only the Yao Client export root, and Device 2
+  persists that root in a factor-sealed export-root envelope.
+
+Both cases converge on the same ordinary export path. The capability is bound
+to the exact wallet, authority, auth method, Ed25519 activation, and wallet key.
+Lock, auth-method selection change, auth-method revocation, authority
+retirement, and expiry destroy it. ECDSA export uses the ordinary ECDSA
+activation. Both exports require fresh step-up on the selected
+`WalletAuthMethod`.
 
 ### 4. `WalletSession`
 
@@ -184,17 +343,17 @@ unlock.
 
 The implementation must preserve these ownership boundaries:
 
-| Fact | Authoritative owner | Other records may store |
-| --- | --- | --- |
-| authority lifecycle and permissions | `WalletAuthorityV1` in D1 | `WalletAuthorityId` and verified digest/epoch claims |
-| exact signer families and activation refs | `WalletAuthorityV1.signerActivations` | exact activation refs only |
-| public wallet signer identity | existing signer manifest records | manifest digest or exact public identity where required by protocol |
-| factor credential and lifecycle | `WalletAuthMethodRecord` | `WalletAuthMethodId` only |
-| Device 2 client shares | existing factor-sealed IndexedDB material stores | exact activation and auth-method refs |
-| server shares | existing signer workers/stores | exact activation refs and acknowledged lifecycle only |
-| Ed25519 export root | existing factor-sealed IndexedDB export-root store | package/root identity and digest only |
-| runtime authorization | ordinary Wallet Session authorization store | authorization ID, authority ID, digest, epoch, and exact subjects |
-| temporary progress and transport | `LinkSession` | nothing after activation cleanup |
+| Fact                                      | Authoritative owner                                                                                                                                | Other records may store                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| authority lifecycle and permissions       | `WalletAuthorityV1` in D1                                                                                                                          | `WalletAuthorityId` and verified digest/epoch claims                |
+| exact signer families and activation refs | `WalletAuthorityV1.signerActivations`                                                                                                              | exact activation refs only                                          |
+| public wallet signer identity             | existing signer manifest records                                                                                                                   | manifest digest or exact public identity where required by protocol |
+| factor credential and lifecycle           | `WalletAuthMethodRecord`                                                                                                                           | `WalletAuthMethodId` only                                           |
+| Device 2 client shares                    | existing factor-sealed IndexedDB material stores                                                                                                   | exact activation and auth-method refs                               |
+| server shares                             | existing signer workers/stores                                                                                                                     | exact activation refs and acknowledged lifecycle only               |
+| Ed25519 export root                       | worker-derived capability from the factor-sealed custody seed, or the factor-sealed IndexedDB export-root store for a seedless linked installation | package/root identity and digest only                               |
+| runtime authorization                     | ordinary Wallet Session authorization store                                                                                                        | authorization ID, authority ID, digest, epoch, and exact subjects   |
+| temporary progress and transport          | `LinkSession`                                                                                                                                      | nothing after activation cleanup                                    |
 
 Do not duplicate a row from the middle column as a convenience projection.
 Cross-subsystem records refer to it by exact branded identity and verify the
@@ -208,21 +367,21 @@ new durable domain names introduced by R103E.
 
 ### Reused shared types
 
-| Type | Action | Purpose |
-| --- | --- | --- |
-| `DelegatedWalletPermissionV1` | reuse | `sign`, `export_keys`, `link_devices`, `revoke_devices` |
-| `CanonicalDelegatedWalletPermissionSetV1` | reuse | parsed, sorted, non-empty permission set |
-| `FULL_OWNER_PERMISSIONS` | reuse | default permissions for ordinary owner-device linking |
-| `validateDelegatedWalletAuthorityAttenuationV1` | reuse | source authority cannot grant a permission it lacks |
-| `ExactAdministeredSignerManifestV1` | reuse | public signer families and public-key identity |
-| `MpcMaterialActivationRef` | reuse | exact activated MPC material identity |
-| `WalletAuthMethodId` | reuse | exact Passkey or Email OTP method |
-| `WalletSessionAuthorizationId` | reuse | all ordinary Wallet Session authorization |
-| `LinkedDeviceEnrollmentId` | reuse | audit provenance for the link attempt |
-| `DeviceId` | reuse | one installed wallet-authority principal on a browser/device |
-| `LinkDeviceSessionId` | reuse | temporary QR workflow identity |
-| `LinkedDeviceEd25519ExportRootRecipientV1` | reuse | one-use Device 2 recipient during link transport |
-| `LinkedDeviceEd25519ExportRootPackageV1` | reuse | encrypted Ed25519 Yao Client root during link transport |
+| Type                                            | Action | Purpose                                                      |
+| ----------------------------------------------- | ------ | ------------------------------------------------------------ |
+| `DelegatedWalletPermissionV1`                   | reuse  | `sign`, `export_keys`, `link_devices`, `revoke_devices`      |
+| `CanonicalDelegatedWalletPermissionSetV1`       | reuse  | parsed, sorted, non-empty permission set                     |
+| `FULL_OWNER_PERMISSIONS`                        | reuse  | default permissions for ordinary owner-device linking        |
+| `validateDelegatedWalletAuthorityAttenuationV1` | reuse  | source authority cannot grant a permission it lacks          |
+| `ExactAdministeredSignerManifestV1`             | reuse  | public signer families and public-key identity               |
+| `MpcMaterialActivationRef`                      | reuse  | exact activated MPC material identity                        |
+| `WalletAuthMethodId`                            | reuse  | exact Passkey or Email OTP method                            |
+| `WalletSessionAuthorizationId`                  | reuse  | all ordinary Wallet Session authorization                    |
+| `LinkedDeviceEnrollmentId`                      | reuse  | audit provenance for the link attempt                        |
+| `DeviceId`                                      | reuse  | one installed wallet-authority principal on a browser/device |
+| `LinkDeviceSessionId`                           | reuse  | temporary QR workflow identity                               |
+| `LinkedDeviceEd25519ExportRootRecipientV1`      | reuse  | one-use Device 2 recipient during link transport             |
+| `LinkedDeviceEd25519ExportRootPackageV1`        | reuse  | encrypted Ed25519 Yao Client root during link transport      |
 
 The permission-only `DelegatedWalletAuthorityV1` remains a grant value while
 R103E is being cut over. It is folded into `WalletAuthorityV1.permissions` and
@@ -466,17 +625,17 @@ temporary source and target roles.
 
 The required brands are:
 
-| Identity | Meaning |
-| --- | --- |
-| `WalletId` | one wallet |
-| `WalletAuthorityId` | one permissioned wallet authority |
-| `WalletAuthMethodId` | one Passkey or Email OTP method |
-| `MpcMaterialActivationId` | one exact signer material activation |
-| `WalletSessionAuthorizationId` | one runtime authorization |
-| `LinkDeviceSessionId` | one temporary link workflow |
-| `LinkedDeviceEnrollmentId` | audit provenance for one link attempt |
-| `DeviceId` | one installed wallet-authority principal on a browser/device |
-| `revocationEpoch` | a validated non-negative integer generation on one authority |
+| Identity                       | Meaning                                                      |
+| ------------------------------ | ------------------------------------------------------------ |
+| `WalletId`                     | one wallet                                                   |
+| `WalletAuthorityId`            | one permissioned wallet authority                            |
+| `WalletAuthMethodId`           | one Passkey or Email OTP method                              |
+| `MpcMaterialActivationId`      | one exact signer material activation                         |
+| `WalletSessionAuthorizationId` | one runtime authorization                                    |
+| `LinkDeviceSessionId`          | one temporary link workflow                                  |
+| `LinkedDeviceEnrollmentId`     | audit provenance for one link attempt                        |
+| `DeviceId`                     | one installed wallet-authority principal on a browser/device |
+| `revocationEpoch`              | a validated non-negative integer generation on one authority |
 
 Reuse existing brands when they already carry these meanings. Introduce only
 `WalletAuthorityId` if the codebase has no canonical authority identity.
@@ -578,8 +737,10 @@ of persisting exact `WalletAuthorityV1` records. The transaction writes:
 - the `WalletAuthMethodRecord` that references it;
 - one factor-sealed client-material record per activation, keyed by
   `(authorityId, walletAuthMethodId, activationId)`;
-- one factor-sealed Ed25519 export-root envelope when required, keyed by
-  `(authorityId, walletAuthMethodId, walletKeyId)`;
+- one factor-sealed Ed25519 export-root envelope only for a seedless linked
+  installation with `export_keys`, keyed by
+  `(authorityId, walletAuthMethodId, walletKeyId)`; seed-backed installations
+  persist no duplicate export-root envelope;
 - the local installation receipt.
 
 R109A writes another set of factor-sealed local records for its new
@@ -785,15 +946,10 @@ shape.
 ```ts
 type CommittedAuthorityPackagesV1 = {
   readonly kind: 'committed_authority_packages_v1';
-  readonly authority: Extract<
-    WalletAuthorityV1,
-    { readonly state: 'pending_local_install' }
-  >;
+  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'pending_local_install' }>;
   readonly authMethod: WalletAuthMethodRecord;
   readonly signerPackages: CommittedSignerPackageSetV1;
-  readonly ed25519ExportRootPackage:
-    | LinkedDeviceEd25519ExportRootPackageV1
-    | null;
+  readonly ed25519ExportRootPackage: LinkedDeviceEd25519ExportRootPackageV1 | null;
   readonly packageSetDigestB64u: DigestB64u;
 };
 ```
@@ -912,16 +1068,16 @@ material, or select a sibling authority.
 
 ### Retry and interruption contract
 
-| Interruption | Required retry behavior |
-| --- | --- |
-| before pending commit | retry the same link session or start a new unclaimed one |
-| after worker reservation, before D1 commit | reuse reservations by activation ref, then commit once |
-| after pending commit, before local install | return the same authority and byte-identical package set |
-| during local installation | IndexedDB transaction aborts; retry the same package set |
-| after local install, before activation | resubmit the same receipt |
-| during worker activation | reuse already-activated refs and finish the remaining refs |
-| after D1 activation, before session response | issue or renew the ordinary session for the same authority |
-| after session persistence, before link cleanup | acknowledge active and delete only temporary link records |
+| Interruption                                   | Required retry behavior                                    |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| before pending commit                          | retry the same link session or start a new unclaimed one   |
+| after worker reservation, before D1 commit     | reuse reservations by activation ref, then commit once     |
+| after pending commit, before local install     | return the same authority and byte-identical package set   |
+| during local installation                      | IndexedDB transaction aborts; retry the same package set   |
+| after local install, before activation         | resubmit the same receipt                                  |
+| during worker activation                       | reuse already-activated refs and finish the remaining refs |
+| after D1 activation, before session response   | issue or renew the ordinary session for the same authority |
+| after session persistence, before link cleanup | acknowledge active and delete only temporary link records  |
 
 A retry whose authority ID, package digest, factor digest, activation set, or
 device differs from the committed values returns `integrity_error`. It never
@@ -1000,15 +1156,15 @@ requirement. The revocation body instead carries one previously returned
 
 Use these HTTP classes consistently while preserving typed response bodies:
 
-| Failure | HTTP status |
-| --- | --- |
-| malformed or unsupported boundary input | 400 |
-| missing or invalid authentication | 401 |
-| authenticated source lacks the requested permission | 403 |
-| claim, idempotency, lifecycle, receipt conflict, or `would_remove_last_wallet_auth_method` | 409 |
-| expired or already-consumed precommit link session | 410 |
-| retryable worker or infrastructure unavailability | 503 |
-| persisted digest or identity integrity failure | 500 |
+| Failure                                                                                    | HTTP status |
+| ------------------------------------------------------------------------------------------ | ----------- |
+| malformed or unsupported boundary input                                                    | 400         |
+| missing or invalid authentication                                                          | 401         |
+| authenticated source lacks the requested permission                                        | 403         |
+| claim, idempotency, lifecycle, receipt conflict, or `would_remove_last_wallet_auth_method` | 409         |
+| expired or already-consumed precommit link session                                         | 410         |
+| retryable worker or infrastructure unavailability                                          | 503         |
+| persisted digest or identity integrity failure                                             | 500         |
 
 The browser switches on the typed response `kind`. It never infers retry,
 re-link, or success behavior from HTTP message text.
@@ -1023,7 +1179,8 @@ Ed25519 export
   -> selected WalletAuthMethod
   -> active WalletAuthority with export_keys
   -> exact Ed25519 SignerActivation
-  -> factor-sealed Yao Client export root
+  -> worker capability derived from the factor-sealed custody seed
+     or opened from the factor-sealed linked-installation export root
   -> fresh step-up
   -> ordinary Yao export
 
@@ -1067,10 +1224,7 @@ type ActiveWalletSessionV1 = {
   readonly authMethodId: WalletAuthMethodId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly authorityRevocationEpoch: number;
-  readonly capabilitySubjects: readonly [
-    WalletCapabilitySubjectV1,
-    ...WalletCapabilitySubjectV1[],
-  ];
+  readonly capabilitySubjects: readonly [WalletCapabilitySubjectV1, ...WalletCapabilitySubjectV1[]];
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
@@ -1189,6 +1343,12 @@ Adding the method does not duplicate signer activations or permissions.
 R109A may open and reseal the wallet custody seed inside its dedicated
 factor-addition ceremony. Device linking never receives that seed.
 
+Registration, recovery, and R109A factor addition do not persist a separate
+Ed25519 export-root envelope. Their factor-sealed custody seed is the durable
+source; unlock derives the root inside the worker and exposes only the scoped
+runtime capability described above. A linked installation has no custody seed
+and therefore persists the received export root under its verified factor.
+
 R109A reuses:
 
 - `WalletAuthMethodId` and `WalletAuthorityId`;
@@ -1224,7 +1384,8 @@ Device linking creates fresh independently revocable signer shares for Device
 2 while preserving the wallet's public signer identities. The wallet custody
 seed never crosses the device-link channel. An `export_keys` permission carries
 the Ed25519 Yao Client export root through the one-use target recipient and
-seals it under Device 2's verified factor.
+seals it under Device 2's verified factor. This seedless linked installation is
+the only normal creation path for a separately persisted export-root envelope.
 
 R103E should land before R109B removes current same-family restrictions. R109B
 then adds factor combinations without adding activation branches.
@@ -1560,8 +1721,8 @@ the existing one-use Ed25519 export-root flow.
 7. Remove the boundary migration parser only after supported environments have
    cut over; retain historical migrations and temporary boundary schemas as
    specified above.
-8. Run focused package checks, the real operating path, source guards, and
-   `git diff --check`; final source/type/schema counts must decrease.
+8. Run focused package checks, the real operating path, and `git diff --check`;
+   final source/type/schema counts must decrease.
 
 ## Concurrent implementation structure
 
@@ -1654,8 +1815,9 @@ orchestration, or ordinary export/signing flows.
 
 **Deliverables**
 
-- install the auth method, signer shares, optional Ed25519 export root, and
-  receipt in one IndexedDB transaction;
+- install the auth method, signer shares, the required factor-sealed Ed25519
+  export root for a seedless linked installation, and the receipt in one
+  IndexedDB transaction;
 - resolve runtime state through
   `WalletAuthMethod -> WalletAuthority -> SignerActivation`;
 - add monotonic durable lock generation;
@@ -1828,9 +1990,9 @@ Use fresh wallets and two independent browser profiles. Verify:
    exactly one succeeds and one active method remains;
 10. authority-ID and batch revocation requests are rejected at the boundary;
 11. re-linking the same physical Device 2 creates a fresh installation identity
-   and independently revocable auth method without mutating the earlier one;
+    and independently revocable auth method without mutating the earlier one;
 12. R109A multi-method wallets and all four R109B factor combinations after
-   those refactors land.
+    those refactors land.
 
 Mocks cannot satisfy this gate. The test must use real composed routes, stores,
 workers, signer activation, Wallet Session issuance, and ordinary operations.
@@ -1859,10 +2021,10 @@ may fail fast with the exact missing service or artifact.
 
 Run both current auth combinations against every signer configuration:
 
-| Source factor | Target factor | Ed25519 only | ECDSA only | Both |
-| --- | --- | --- | --- | --- |
-| Passkey | Passkey | required | required | required |
-| Email OTP | Email OTP | required | required | required |
+| Source factor | Target factor | Ed25519 only | ECDSA only | Both     |
+| ------------- | ------------- | ------------ | ---------- | -------- |
+| Passkey       | Passkey       | required     | required   | required |
+| Email OTP     | Email OTP     | required     | required   | required |
 
 For each cell, assert only the operations supported by its signer families.
 Every cell must assert link completion, immediate signing, inventory,
@@ -1891,8 +2053,10 @@ Use real stores and idempotent production endpoints to stop and resume after:
 7. browser session persistence before temporary-link cleanup.
 
 After every resume, assert exactly one non-revoked authority for Device 2, one
-auth method, one activation per present family, one export root when required,
-and one inventory row. Compare exact IDs and digests before and after retry.
+auth method, one activation per present family, one factor-sealed export root
+when the linked installation has Ed25519 plus `export_keys`, and one inventory
+row. Seed-backed installations assert that no duplicate export-root envelope
+was persisted. Compare exact IDs and digests before and after retry.
 
 ### Focused verification by workstream
 
@@ -1906,6 +2070,45 @@ and one inventory row. Compare exact IDs and digests before and after retry.
 Classify every failing legacy unit fixture before editing it. Delete fixtures
 that encode owner bindings, linked Wallet Sessions, R102 promotion, or mocked
 success. Do not add compatibility branches to make those fixtures pass.
+
+### Phase 6 — Static invariants and focused regression hardening
+
+Begin only after Phase 5 has demonstrated the real two-browser operating path.
+Extend the Foundation static fixtures with the stabilization defects and add
+focused behavioral tests; keep the operating path itself unchanged.
+
+Static fixtures must prove that:
+
+1. the deferred founding-authority extension accepts an ECDSA-only active
+   authority and produces a combined active authority; neither its input nor
+   output can be constructed with the wrong signer families;
+2. active and restorable runtime lane material use explicit discriminated
+   states, and ECDSA material can never enter the restorable branch;
+3. branch-specific builders reject direct literals, broad spreads, and
+   missing/extra signer families through `@ts-expect-error` fixtures. Add or
+   configure one AST-aware lint/static rule scoped to casts to the domain
+   lifecycle, authority, and session types; no fixture may use a cast to
+   manufacture valid state.
+
+Focused behavioral tests must cover:
+
+1. mixed ECDSA-first registration with deferred Ed25519 persistence and a
+   source reader that preserves the dual-family manifest;
+2. the real worker prepare/seal path, including secret copy, zeroization, and
+   idempotent duplicate handling;
+3. an IndexedDB resolver that completes all reads before the asynchronous
+   digest and covers both signer families;
+4. V2 unlock deriving the exact activated signer families from the selected
+   authority, opening Ed25519 and ECDSA material into live owners, and surviving
+   lock/re-unlock idempotently.
+
+Source-text guards and legacy compatibility branches are prohibited in this
+phase. Delete or correct the implementation and fixtures that expose a defect
+instead of preserving either path.
+
+Exit: every negative type fixture compiles with only its expected errors, the
+AST-aware lint/static check passes, all four focused behavioral tests pass, and
+the exact two-browser operating path remains green.
 
 ## Constraints against overengineering
 
@@ -1959,7 +2162,11 @@ inventory symptom.
 9. **Run focused verification.** Run workstream tests, then the real linked
    operating-path Playwright spec. Inspect durable IDs and row counts on one
    successful link and one interrupted retry.
-10. **Reconcile docs and counts.** Mark R103C/R103D superseded where their
+10. **Run Phase 6 hardening.** After the real operating path is green, run the
+    negative type fixtures and four focused regression tests. Require the Phase
+    6 exit criteria before reconciling docs and counts; add no source-text
+    guards or legacy compatibility branches.
+11. **Reconcile docs and counts.** Mark R103C/R103D superseded where their
     projection/recovery language conflicts with R103E. Update R109A/R109B to
     consume the authority/auth-method seam. Confirm production source and
     exported type counts decreased from the baseline.
@@ -1993,4 +2200,9 @@ R103E is complete when:
 - obsolete repair, projection, duplicate-type, and mocked-success paths are
   deleted;
 - the code and type count decrease;
+- Phase 6 negative type fixtures compile with only their expected errors;
+- the four Phase 6 focused regression tests pass;
+- Phase 6 leaves the exact two-browser operating path green;
+- no source-text guards or legacy compatibility branches are used for
+  stabilization;
 - the real two-browser verification gate passes.
