@@ -33,14 +33,21 @@ not complete a behavioral item.
 - [x] Shared/wallet/server typechecks and the wallet-server/SDK builds pass for
   the current stabilization checkpoint.
 - [x] `pnpm test:linked-device:unit` passes 24/24 against the current build.
+- [x] The focused holder export-retention regression passes 1/1: a rejected
+  export finalization preserves the same holder for linked presign.
 - [x] Exact V2 ordinary signing scope enforcement is committed as
   `7c07db408db5a28a0d5789219cce0ae7793559fa`.
+- [x] Intended-stack serialization, invocation-scoped readiness, exact-origin
+  propagation, and descendant cleanup are committed as `6345ef418`.
+- [x] The current representative Passkey-to-Passkey combined profile completes
+  the full link, reload, export, signing, revocation, revoked-session, revoked-
+  unlock, and surviving-owner path: 1/1 in 34.3 seconds.
 
 ### Open completion gates
 
 - [x] The representative Passkey-to-Passkey combined profile completes Tempo
   and Arc/EVM ordinary signing after the V2 pool-fill repair.
-- [ ] The same representative profile completes post-sign reload, exact method
+- [x] The same representative profile completes post-sign reload, exact method
   revocation, active-session invalidation, revoked unlock rejection, and the
   surviving Device 1 operation.
 - [ ] All six current Passkey/Email-OTP by signer-family matrix cells pass.
@@ -48,7 +55,8 @@ not complete a behavioral item.
   without duplicate authority, method, session, signer, or export-root state.
 - [ ] The focused fast gate, full intended-behaviour suite, and final diff/static
   checks pass against one stable build.
-- [ ] The temporary signing-session diagnostic probe is removed.
+- [x] The temporary active-authority signing-lane diagnostic probe is removed;
+  wallet typecheck passes after removal.
 - [ ] Stale lower-authority fixtures discovered during stabilization are
   updated through current factories or deleted in a test-only checkpoint.
 - [ ] The post-acceptance Rust/WASM audit freezes current crypto behavior,
@@ -59,31 +67,45 @@ not complete a behavioral item.
 
 ### Current active checkpoint
 
-The active checkpoint is revocation and surviving-owner operation for the
-representative Passkey-to-Passkey combined profile.
+The active checkpoint is expansion from the green representative profile to the
+six-cell Passkey/Email-OTP by signer-family matrix.
 
-- Last confirmed browser boundary: after independent reload/unlock, Device 2
-  completed NEAR export/signing, EVM export, Tempo signing, and Arc/EVM signing.
-  Device 1 then revoked Device 2.
-- Last observed production failure: ordinary ECDSA export finalized and the TS
-  worker freed/deleted the entire linked holder. The following Tempo presign
-  reused the valid runtime handle and found no holder material.
-- Failure classification: `production_regression`. Export consumed its one-shot
-  export recipient; explicit wallet lock/disposal owns the signing holder's
-  lifetime.
-- Current repair: export finalization retains the linked signing holder. Exact
-  disposal still frees one holder on lock and all holders on global shutdown.
-- Current evidence: wallet typecheck and SDK build pass; the linked fast gate is
-  24/24; the fresh representative browser run has passed the formerly failing
-  export → Tempo presign/sign → Arc sign sequence. The run was then classified
-  `environment_or_infrastructure_failure` after a concurrent SDK build cleaned
-  `packages/wallet/dist` during revocation verification.
-- Current focused files: `ecdsa-derivation-client.worker.ts` plus the focused
-  holder export-retention regression being added.
-- Active next action: freeze one rebuilt SDK artifact set, rerun the same cell,
-  and finish active-session invalidation, revoked unlock rejection, and the
-  surviving Device 1 operation. The Tempo helper now races final success against
-  the first non-2xx ECDSA response so revoked-session verification fails fast.
+- Last confirmed complete browser boundary: both devices independently
+  reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
+  Tempo signing, and Arc/EVM signing; Device 1 revoked Device 2; the already-open
+  Device 2 session was rejected; and the revoked method could not unlock.
+- Corrected reload classification: `production_regression`. Local V2 authority
+  selection treated every active Passkey authority as a linked-device method,
+  including the registration authority, then sent registration custody output
+  through the linked-only verifier. Selection now requires
+  `provenance.kind === 'device_link'`; the focused registration-provenance unit
+  passes 2/2 and the current browser run passed both reloads.
+- Final representative failure classification: `valid_test_needs_update`.
+  Tempo funding status could change from enabled `Fund Tempo Account` to
+  already-funded between the helper's branch decision and click. The funding
+  action can also finish without a wallet signature when no fee-token change is
+  needed. The helper now makes the enabled-funding click atomic, distinguishes
+  funding completion from a signing prompt, and always proceeds to the actual
+  Tempo transaction after funding is ready.
+- Current repair: the stale unlock-session fixture returns `active_authority`;
+  registration and linked Passkey authorities route by provenance; inventory
+  helpers close both dialog and profile menu; each signing helper owns its
+  response waiter and UI interaction in one task. Revoked Passkey unlock asserts
+  the current `unknown_credential` boundary.
+- Current evidence: shared, wallet, and wallet-server typechecks pass; the exact
+  linked Wallet Session unit passes 1/1; E2E lint, representative Playwright
+  discovery, and `git diff --check` pass. The linked fast gate passed 23 tests
+  before one navigation-context flake; the exact failed test passed 1/1 on its
+  single classification rerun. The representative browser contract now passes
+  1/1 in 34.3 seconds, and the E2E TypeScript compile, scoped ESLint, Playwright
+  discovery, and diff-check pass.
+- Current focused files: `tests/e2e/linked-device.operating-path.test.ts`,
+  `ecdsa-derivation-client.worker.ts`, and
+  `tests/unit/ecdsaHolderExportRetention.unit.test.ts`.
+- Active next action: run the six-cell matrix against the same frozen build,
+  repair only the first classified failure, then run the interruption and full
+  intended-behaviour gates. Signing outcome predicates accept final success or
+  the first non-2xx signing response without leaving a competing waiter.
 
 ### Continuation protocol for agents
 
@@ -128,7 +150,14 @@ route. This ledger is normative for the remaining work and for future refactors.
 | Linked ECDSA lane survived reload without a live holder | Device 2 selected the exact target activation, then presign failed with `linked ECDSA holder material is unavailable` | Reload acceptance proved lane projection and export, but did not prove the holder handle could be reopened before presign | Require a focused install → dispose/reload → hydrate → presign test; lane availability must imply the holder is usable, not merely that durable metadata exists |
 | Linked ECDSA Rust/WASM support grew a parallel holder representation and two export finalizers | The operating repair depended on a linked-only worker map whose lifecycle diverged from the ordinary runtime | The plan required ordinary operating paths without a Rust/WASM removal gate or caller audit | Freeze Rust during browser stabilization; after intended behavior is green, retain only demonstrated crypto boundaries, delete unused wrappers/finalizers, and prove any remaining distinct holder type with focused Rust plus two-browser evidence |
 | SDK build output changed during a live browser gate | A concurrent build cleaned `packages/wallet/dist` after revocation, and Vite began returning missing-module errors | Build and acceptance ownership covered ports but not the mutable artifact directory | Treat SDK/server build output as part of the exclusive acceptance stack: finish one build, freeze it for the run, and prohibit concurrent clean/rebuild until the browser gate releases it |
-| The Tempo helper waited only for final signing | An internal pool-fill 401 degraded into a long finalization timeout | Fail-fast monitoring did not cover every internal ECDSA request in this helper | Race the final response against any non-2xx ECDSA signing response and include method, path, status, and body |
+| Signing helpers waited only for final signing, then implemented fail-fast with competing waiters | An internal pool-fill 401 degraded into a long timeout; the first fail-fast repair left the losing Playwright waiter alive until browser teardown | Fail-fast monitoring did not cover every internal request, and waiter ownership was absent from the harness design | Use one response predicate for final success or the first non-2xx signing response, and bind that response plus its UI interaction into one awaited task |
+| Authority stability was sampled before signer readiness | A combined owner appeared ECDSA-only before link and Ed25519-plus-ECDSA after reload, so the test reported a false authority mutation | The setup captured IndexedDB before the existing UI gate proved every selected family usable | Establish signer-profile readiness first, then capture the identity/digest baseline used across link and reload |
+| Revoked-unlock acceptance encoded a retired response contract | The helper waited only for a 409 custody-envelope failure or linked-session seal, while current exact-method rejection returns 400 `unknown_credential` at `/wallet/unlock/verify` | Revocation coverage asserted a downstream historical failure instead of the first active-credential boundary | Assert the current first rejection boundary, including method, path, non-2xx status, error code, backend, and inactive-credential message |
+| Local test workers survived their supervisors | More than 200 PPID-1 `workerd` processes accumulated over multiple days, held sockets, and coincided with a closed Chromium context and truncated trace at the final gate | Acceptance preflight checked only fixed ports and current stack parents | Before browser acceptance, reject or clean repo-scoped unsupervised workers in addition to checking fixed ports; never classify a closed browser or corrupt trace as a product regression without this preflight |
+| Concurrent intended runs shared ports, readiness, build output, and shutdown scope | One task terminated another task's stack; detached Wrangler descendants survived their supervisor; fixed readiness could report the wrong run ready | Acceptance assumed one process tree even though multiple Codex tasks can launch it | Serialize intended stacks with an atomic lock, allocate readiness per invocation, snapshot owned descendants, and terminate only that invocation's process groups |
+| Local V2 Passkey selection erased authority provenance | Device 1 registration authority was routed through the linked-device unlock verifier and rejected its correct custody response | The selector tested curve, method kind, and active state while omitting the protocol-defining registration-versus-link provenance | Require family-specific selectors to narrow provenance before choosing an unlock protocol; focused tests must cover both registration and device-link authorities |
+| Linked-device inventory helpers left the profile menu open | Persistent profile state survived helpers that asserted only modal closure, leaving later wallet-surface behavior ambiguous | Modal assertions did not verify cleanup of the parent menu | Every UI helper that opens a persistent menu must close it before returning and verify the parent state is closed |
+| Tempo funding state changed between the harness branch and click | The helper waited for a signing confirmation after the account had become funded without needing another signature | The test treated an asynchronously refreshed UI label as a durable operation state and counted funding as the Tempo signing operation | Make decision-and-click atomic, distinguish no-sign completion from authorization, and exercise the named transaction after prerequisites are ready |
 | Lower-authority fixtures drifted behind required runtime state | Focused legacy tests threw on missing `runtimePolicyScope` or received parser-level `400` responses | Inline request/session fixtures duplicated retired shapes | Use branch-specific shared factories and classify fixture failures before touching production |
 
 ### Required acceptance sequencing for future refactors
