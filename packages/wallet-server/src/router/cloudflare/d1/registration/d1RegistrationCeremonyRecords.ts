@@ -2531,11 +2531,29 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   ) {
     return null;
   }
+  /* Both branches carry the SOURCE method's envelope under the same rules: it
+     belongs to this wallet, it is sealed under the factor that authorized the
+     ceremony, and it is still active. R109C's Email OTP target reseals the seed
+     from it, so the validation is shared rather than passkey-only. */
+  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope);
+  } catch {
+    return null;
+  }
+  if (
+    custodyEnvelope.walletId !== intent.walletId ||
+    !d1AddAuthMethodCustodyFactorMatches(auth, custodyEnvelope) ||
+    custodyEnvelope.lifecycle.state !== 'active'
+  ) {
+    return null;
+  }
   if (record.kind === 'email_otp') {
     const authority = parseD1RegistrationAuthority(record.authority);
     if (!authority || authority.kind !== 'email_otp') return null;
     return {
       kind: 'email_otp',
+      custodyEnvelope,
       addAuthMethodCeremonyId,
       intent,
       digestB64u,
@@ -2558,13 +2576,6 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   const rpId = parseWebAuthnRpId(passkeyRegistration?.rpId);
   const challengeB64u = toOptionalTrimmedString(passkeyRegistration?.challengeB64u);
   const options = parseD1WalletAddAuthMethodRegistrationOptions(passkeyRegistration?.options);
-  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
-  try {
-    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope);
-  } catch {
-    return null;
-  }
-  const custodyFactorMatchesAuth = d1AddAuthMethodCustodyFactorMatches(auth, custodyEnvelope);
   if (
     !rpId.ok ||
     !challengeB64u ||
@@ -2572,10 +2583,7 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
     options.rpId !== rpId.value ||
     options.challengeB64u !== challengeB64u ||
     intent.authMethod.kind !== 'passkey' ||
-    intent.authMethod.rpId !== rpId.value ||
-    custodyEnvelope.walletId !== intent.walletId ||
-    !custodyFactorMatchesAuth ||
-    custodyEnvelope.lifecycle.state !== 'active'
+    intent.authMethod.rpId !== rpId.value
   ) {
     return null;
   }

@@ -664,6 +664,22 @@ export class CloudflareD1WalletAuthMethodService {
         intent: emailOtpIntent,
       });
       if (!authority.ok) return authority;
+      /* R109C: the browser reseals the wallet's existing custody seed under the
+         verified Email OTP factor, so this branch carries the source method's
+         envelope exactly as the Passkey branch above does. The lookup is by the
+         source factor, which is what makes an addition impossible on a wallet
+         whose source method has no live custody. */
+      const emailOtpSourceEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
+        walletId,
+        factor: custodyFactorFromAddAuthMethodAuth(storedAuth.auth),
+      });
+      if (emailOtpSourceEnvelope.kind !== 'active') {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'Add-auth-method source has no active wallet custody envelope',
+        };
+      }
       await store.putAddAuthMethodCeremony({
         kind: 'email_otp',
         addAuthMethodCeremonyId,
@@ -679,11 +695,14 @@ export class CloudflareD1WalletAuthMethodService {
         expiresAtMs,
         auth: storedAuth.auth,
         authority: authority.authority,
+        custodyEnvelope: emailOtpSourceEnvelope.envelope,
       });
       return {
         ok: true,
         addAuthMethodCeremonyId,
         intent: emailOtpIntent,
+        custodyEnvelope: emailOtpSourceEnvelope.envelope,
+        addAuthMethodCeremonyExpiresAtMs: expiresAtMs,
       };
     } catch (error: unknown) {
       return {

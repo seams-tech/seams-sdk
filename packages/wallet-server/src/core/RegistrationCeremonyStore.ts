@@ -804,7 +804,16 @@ export type StoredWalletAddAuthMethodCeremony =
       kind: 'email_otp';
       authority: Extract<StoredRegistrationAuthority, { kind: 'email_otp' }>;
       passkeyRegistration?: never;
-      custodyEnvelope?: never;
+      /**
+       * The SOURCE method's envelope, exactly as the passkey branch below
+       * carries it.
+       *
+       * Refactor 109C adds Email OTP to a wallet that already holds its custody
+       * seed, so the browser has to open this envelope with the source factor
+       * and reseal the same seed under the new Email OTP factor. Without it the
+       * ceremony could only ever create an auth method that unlocks nothing.
+       */
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
     })
   | (StoredWalletAddAuthMethodCeremonyBase & {
       kind: 'passkey';
@@ -1926,12 +1935,31 @@ function parseStoredWalletAddAuthMethodCeremony(
     expiresAtMs,
   });
   if (!auth || !intentRecord) return null;
+  /* Both branches carry the SOURCE method's envelope, and both validate it the
+     same way: it belongs to this wallet, it is sealed under the factor that
+     authorized this ceremony, and it is still active. R109C's Email OTP target
+     needs it to reseal the seed, so the check is shared rather than duplicated
+     into the branch below. */
+  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(value.custodyEnvelope);
+  } catch {
+    return null;
+  }
+  if (
+    custodyEnvelope.walletId !== intentRecord.intent.walletId ||
+    !addAuthMethodCustodyFactorMatches(auth, custodyEnvelope) ||
+    custodyEnvelope.lifecycle.state !== 'active'
+  ) {
+    return null;
+  }
   const kind = value.kind;
   if (kind === 'email_otp') {
     const authority = parseStoredRegistrationAuthority(value.authority);
     if (!authority || authority.kind !== 'email_otp') return null;
     return {
       kind: 'email_otp',
+      custodyEnvelope,
       addAuthMethodCeremonyId,
       intent: intentRecord.intent,
       digestB64u,
@@ -1955,13 +1983,6 @@ function parseStoredWalletAddAuthMethodCeremony(
   const options = parseStoredWalletAddAuthMethodRegistrationOptions(
     value.passkeyRegistration.options,
   );
-  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
-  try {
-    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(value.custodyEnvelope);
-  } catch {
-    return null;
-  }
-  const custodyFactorMatchesAuth = addAuthMethodCustodyFactorMatches(auth, custodyEnvelope);
   if (
     !rpId.ok ||
     !challengeB64u ||
@@ -1969,10 +1990,7 @@ function parseStoredWalletAddAuthMethodCeremony(
     options.rpId !== rpId.value ||
     options.challengeB64u !== challengeB64u ||
     intentRecord.intent.authMethod.kind !== 'passkey' ||
-    intentRecord.intent.authMethod.rpId !== rpId.value ||
-    custodyEnvelope.walletId !== intentRecord.intent.walletId ||
-    !custodyFactorMatchesAuth ||
-    custodyEnvelope.lifecycle.state !== 'active'
+    intentRecord.intent.authMethod.rpId !== rpId.value
   ) {
     return null;
   }
