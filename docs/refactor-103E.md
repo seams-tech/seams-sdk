@@ -156,17 +156,35 @@ with the three Email OTP cells.
      capability an owner needs to export and to grant `export_keys` when
      linking (`129c344c5`). Without it the owner's scan silently failed
      `walletUnlockRequiredV1` and never claimed the link session.
-- Open Email/Ed25519 boundary, classified `production_regression`: Device 2's
-  unlock after reload fails with `linked Email OTP Ed25519 capability
-  activation is invalid`. `/wallet/unlock/verify` provisions the Ed25519
-  capability through `getEd25519SignerBySlot({walletId, signerSlot})`, a
-  wallet-wide slot lookup that returns the founding registration signer, so the
-  capability it returns names a different material activation than the linked
-  device's installed material. The authenticated active authority is already in
-  hand at that point and carries the exact
-  `signerActivations.ed25519.materialActivation`; the resolver must use it.
-  This is the same escaped defect the ledger already records for linked ECDSA
-  target material, now confirmed on the Ed25519 route.
+- Email/Ed25519 continued: Device 2 now links, activates, reloads twice, and
+  unlocks. Three further repairs, each committed on its own:
+  8. unlock returned the shared active capability descriptor verbatim, whose
+     material activation and threshold session are the founding ones, so the
+     linked device rejected it as `linked Email OTP Ed25519 capability
+     activation is invalid`. The existing `device_link` branch already resolves
+     the installed projection and overrides the threshold session; the issued
+     capability now carries that projection's exact material activation too
+     (`5f401bb64`). A first attempt resolved the signer row itself by exact
+     activation (`a33b902a1`) and was reverted (`6b16c776e`): a linked device
+     deliberately shares the wallet's public signer row, and only the
+     activation and threshold session are its own.
+  9. the linked unlock established the unlocked export-root capability from
+     every persisted export root, but that capability is derived by opening a
+     wallet custody seed, which a linked installation never receives. Its
+     envelope carries the Ed25519 Yao Client root itself, so the call failed
+     with `open_wallet_custody_seed_envelope_v1 opens wallet custody seeds
+     only`. The capability is now established only for a seed-backed envelope
+     (`3f7304960`). Note the wasm surface has no opener for a factor-sealed
+     client-root envelope; the linked export path opens the persisted root
+     through its own flow instead, so none was needed.
+- Open Email/Ed25519 boundary, classified `production_regression`: after a
+  successful linked unlock, Device 2's `Export NEAR Key` action stays disabled.
+  The menu enables it from `loginState.nearAccountId`, which comes from
+  `session.appIdentity.nearAccountId`, and a linked Email OTP device resolves
+  no NEAR account into its app identity. The linked unlock publishes only
+  `{kind, walletId, authMethod}` through `setWalletAuthenticated`. The fix is
+  to project the linked authority's exact NEAR identity into the app identity
+  the same way the Passkey linked path does.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
