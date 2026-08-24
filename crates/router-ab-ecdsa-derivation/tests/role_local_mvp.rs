@@ -7,7 +7,8 @@ use router_ab_ecdsa_derivation::shared::secp256k1::{
 use router_ab_ecdsa_derivation::{
     compose_public_identity_from_public_keys, context_binding, derive_client_share,
     derive_relayer_share_for_client_public, encode_context, public_transcript_digest,
-    reconstruct_export_key, RouterAbEcdsaDerivationStableKeyContext, ServerEvalOperation,
+    reconstruct_ecdsa_additive_export_key_v1, reconstruct_export_key,
+    RouterAbEcdsaDerivationStableKeyContext, ServerEvalOperation,
 };
 
 fn context() -> RouterAbEcdsaDerivationStableKeyContext {
@@ -127,6 +128,95 @@ fn explicit_export_reconstructs_key_on_client_side() {
         secp256k1_private_key_32_to_public_key_33(&export_key32).expect("export public key");
 
     assert_eq!(export_public_key33, identity.threshold_public_key33);
+}
+
+#[test]
+fn additive_export_reconstructs_the_receipt_bound_key() {
+    let context = context();
+    let (y_client32_le, y_relayer32_le) = fixed_inputs();
+    let client_share = derive_client_share(&context, y_client32_le).expect("client share");
+    let (relayer_share, identity) = derive_relayer_share_for_client_public(
+        &context,
+        y_relayer32_le,
+        &client_share.derivation_client_share_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer share");
+
+    let export_key32 = reconstruct_ecdsa_additive_export_key_v1(
+        client_share.x_client32,
+        relayer_share.x_relayer32,
+        identity.threshold_public_key33,
+        identity.threshold_ethereum_address20,
+    )
+    .expect("additive export key");
+    let export_public_key33 =
+        secp256k1_private_key_32_to_public_key_33(&export_key32).expect("export public key");
+
+    assert_eq!(export_public_key33, identity.threshold_public_key33);
+}
+
+#[test]
+fn additive_export_rejects_public_key_and_address_substitution() {
+    let context = context();
+    let (y_client32_le, y_relayer32_le) = fixed_inputs();
+    let client_share = derive_client_share(&context, y_client32_le).expect("client share");
+    let (relayer_share, identity) = derive_relayer_share_for_client_public(
+        &context,
+        y_relayer32_le,
+        &client_share.derivation_client_share_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer share");
+
+    let wrong_public_key: [u8; 33] = secp256k1_private_key_32_to_public_key_33(&[0x33; 32])
+        .expect("substituted public key")
+        .try_into()
+        .expect("compressed public key");
+    let public_key_error = reconstruct_ecdsa_additive_export_key_v1(
+        client_share.x_client32,
+        relayer_share.x_relayer32,
+        wrong_public_key,
+        identity.threshold_ethereum_address20,
+    )
+    .expect_err("public key substitution must fail");
+    assert!(public_key_error.message.contains("threshold public key"));
+
+    let address_error = reconstruct_ecdsa_additive_export_key_v1(
+        client_share.x_client32,
+        relayer_share.x_relayer32,
+        identity.threshold_public_key33,
+        [0x44; 20],
+    )
+    .expect_err("address substitution must fail");
+    assert!(address_error.message.contains("threshold address"));
+}
+
+#[test]
+fn additive_export_rejects_zero_role_shares() {
+    let context = context();
+    let (y_client32_le, y_relayer32_le) = fixed_inputs();
+    let client_share = derive_client_share(&context, y_client32_le).expect("client share");
+    let (relayer_share, identity) = derive_relayer_share_for_client_public(
+        &context,
+        y_relayer32_le,
+        &client_share.derivation_client_share_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer share");
+
+    for (holder, signing_worker) in [
+        ([0; 32], relayer_share.x_relayer32),
+        (client_share.x_client32, [0; 32]),
+    ] {
+        reconstruct_ecdsa_additive_export_key_v1(
+            holder,
+            signing_worker,
+            identity.threshold_public_key33,
+            identity.threshold_ethereum_address20,
+        )
+        .expect_err("zero role share must fail");
+    }
 }
 
 #[test]

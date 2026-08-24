@@ -19,15 +19,14 @@ use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::complete_client_activation_packages_v1;
 use crate::lane_holder::{
     verify_holder_package, EcdsaLaneExportArtifactV1, LaneCustodySealV1, LaneHolderRecipientV1,
     LaneHolderSigningMaterialV1,
 };
+use crate::{complete_client_activation_packages_v1, verify_public_relation};
 use crate::{
-    complete_client_export_v1, create_client_signing_share_v1,
-    prepare_client_export_with_root_v1, ClientActivationEntropyV1, ClientExportStateV1,
-    ClientSigningRequestV1,
+    complete_client_export_v1, create_client_signing_share_v1, prepare_client_export_with_root_v1,
+    ClientActivationEntropyV1, ClientExportStateV1, ClientSigningRequestV1,
 };
 use crate::{
     complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
@@ -715,8 +714,8 @@ impl WasmOrdinaryEd25519ActivationClientMaterialV1 {
         participant_ids_json: &str,
         public_receipt_json: &str,
     ) -> Result<Self, JsValue> {
-        let binding = serde_json::from_str::<Ed25519YaoCeremonyBindingV1>(binding_json)
-            .map_err(js_error)?;
+        let binding =
+            serde_json::from_str::<Ed25519YaoCeremonyBindingV1>(binding_json).map_err(js_error)?;
         let participant_ids =
             serde_json::from_str::<[u16; 2]>(participant_ids_json).map_err(js_error)?;
         let public_receipt = serde_json::from_str::<RouterAbEd25519YaoActivationPublicReceiptV1>(
@@ -830,6 +829,35 @@ impl WasmActivatedClientV1 {
             signing_worker_verifying_share,
             LocalMaterialSealDomainV1::PasskeyPrfFirst,
         )
+    }
+
+    /// Imports one linked-device Client share after verifying the complete
+    /// public threshold relation carried by its activation receipt.
+    pub fn import_linked_material(
+        client_scalar_share: &[u8],
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        public_receipt_json: &str,
+    ) -> Result<WasmActivatedClientV1, JsValue> {
+        let client_scalar_share = Zeroizing::new(parse_32(
+            client_scalar_share,
+            "linked-device Ed25519 Client share",
+        )?);
+        let public_receipt = serde_json::from_str::<RouterAbEd25519YaoActivationPublicReceiptV1>(
+            public_receipt_json,
+        )
+        .map_err(js_error)?;
+        verify_public_relation(
+            &client_scalar_share,
+            [client_participant_id, signing_worker_participant_id],
+            &public_receipt,
+        )
+        .map_err(js_error)?;
+        Ok(WasmActivatedClientV1 {
+            client_scalar_share,
+            registered_public_key: public_receipt.registered_public_key(),
+            state_epoch: public_receipt.state_epoch().get(),
+        })
     }
 
     /// Creates a signature share while retaining the Client scalar inside WASM.
@@ -1297,7 +1325,10 @@ impl WasmEd25519YaoSourcePreservingRegistrationSessionV1 {
             ));
         }
         if source.registered_public_key
-            != parse_32(expected_registered_public_key, "source registered Ed25519 public key")?
+            != parse_32(
+                expected_registered_public_key,
+                "source registered Ed25519 public key",
+            )?
         {
             return Err(JsValue::from_str(
                 "Ed25519 Yao Client-root source is bound to another public key",
@@ -1308,8 +1339,10 @@ impl WasmEd25519YaoSourcePreservingRegistrationSessionV1 {
                 "source-preserving target admission must be registration",
             ));
         }
-        let target_client_recipient_public_key =
-            parse_32(target_client_recipient_public_key, "target Client recipient public key")?;
+        let target_client_recipient_public_key = parse_32(
+            target_client_recipient_public_key,
+            "target Client recipient public key",
+        )?;
         if target_client_recipient_public_key
             == admission.keyset().signing_worker_recipient_public_key()
         {

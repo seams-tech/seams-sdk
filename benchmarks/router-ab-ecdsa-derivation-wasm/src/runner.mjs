@@ -8,7 +8,6 @@ import {
 } from '../../../wasm/router_ab_ecdsa_signing_worker/pkg/router_ab_ecdsa_signing_worker.js';
 import {
   initSync as initEcdsaDerivationClientSync,
-  build_ecdsa_role_local_export_artifact_v1,
   finalize_ecdsa_client_bootstrap_v1,
   prepare_ecdsa_client_bootstrap_v1,
 } from '../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
@@ -104,9 +103,7 @@ function clientBootstrapPayload(fixture) {
 }
 
 function prepareClientBootstrap(payload) {
-  return JSON.parse(
-    prepare_ecdsa_client_bootstrap_v1(JSON.stringify(payload)),
-  );
+  return JSON.parse(prepare_ecdsa_client_bootstrap_v1(JSON.stringify(payload)));
 }
 
 function relayerContextPayload(fixture) {
@@ -146,31 +143,6 @@ function finalizeClientBootstrapPayload(fixture, clientBootstrap, relayerBootstr
 
 function finalizeClientBootstrap(payload) {
   return JSON.parse(finalize_ecdsa_client_bootstrap_v1(JSON.stringify(payload)));
-}
-
-function exportArtifactPayload(fixture, finalizedBootstrap, relayerBootstrap) {
-  return {
-    kind: 'build_ecdsa_role_local_export_artifact_v1',
-    algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-    stateBlob: finalizedBootstrap.stateBlob,
-    publicFacts: {
-      applicationBindingDigestB64u: bytesToB64u(fixture.applicationBindingDigest32),
-      clientParticipantId: 1,
-      relayerParticipantId: 2,
-      participantIds: [1, 2],
-      contextBinding32B64u: finalizedBootstrap.publicFacts.contextBinding32B64u,
-      derivationClientSharePublicKey33B64u:
-        finalizedBootstrap.publicFacts.derivationClientSharePublicKey33B64u,
-      relayerPublicKey33B64u: finalizedBootstrap.publicFacts.relayerPublicKey33B64u,
-      groupPublicKey33B64u: finalizedBootstrap.publicFacts.groupPublicKey33B64u,
-      ethereumAddress: finalizedBootstrap.publicFacts.ethereumAddress,
-    },
-    serverExportShare32B64u: bytesToB64u(relayerBootstrap.relayerShare32),
-  };
-}
-
-function buildExportArtifact(payload) {
-  return JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload)));
 }
 
 function assertBytesEqual(label, actual, expected) {
@@ -294,7 +266,7 @@ function renderMarkdown(summary) {
   lines.push(
     '- Runtime: Node-hosted WASM (`wasm/router_ab_ecdsa_signing_worker/pkg` + `wasm/router_ab_ecdsa_client/pkg`)',
   );
-  lines.push('- Scope: active role-local client/server/bootstrap/export boundary');
+  lines.push('- Scope: active role-local client/server bootstrap boundary');
   lines.push('');
   lines.push('| Path | Median | Mean | Min | Max |');
   lines.push('| --- | ---: | ---: | ---: | ---: |');
@@ -428,12 +400,6 @@ async function main() {
 
   const clientPayload = clientBootstrapPayload(fixture);
   const relayerPayload = relayerBootstrapPayload(fixture, initialClientBootstrap);
-  const artifactPayload = exportArtifactPayload(
-    fixture,
-    initialFinalizedBootstrap,
-    initialRelayerBootstrap,
-  );
-
   const benchmarks = [
     measure(
       'role_local_client_prepare_resolved_email_otp_wasm',
@@ -461,10 +427,6 @@ async function main() {
       },
       { warmup: 20, iterations: 120 },
     ),
-    measure('role_local_export_artifact_wasm', () => buildExportArtifact(artifactPayload), {
-      warmup: 20,
-      iterations: 200,
-    }),
   ];
   benchmarks.push(await measureBrowserClientBootstrap(fixture));
 
@@ -484,7 +446,6 @@ async function main() {
       label: 'server_bootstrap_response_json',
       bytes: byteLengthJson(initialRelayerBootstrap),
     },
-    { label: 'client_export_artifact_request_json', bytes: byteLengthJson(artifactPayload) },
     {
       label: 'role_local_client_state_json',
       bytes: byteLengthJson({

@@ -97,6 +97,13 @@ struct VersionedJsonRowV1 {
 }
 
 #[derive(Debug, Deserialize)]
+struct VersionedSecretJsonRowV1 {
+    record_json: String,
+    version: i64,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
 struct TerminalResponseRowV1 {
     request_digest_hex: String,
     response_json: String,
@@ -125,6 +132,7 @@ pub enum CloudflareSigningWorkerNearEffectClaimV1 {
 pub(crate) struct CloudflareSigningWorkerPrivateD1VersionedSecretV1<T> {
     pub(crate) value: T,
     pub(crate) version: i64,
+    pub(crate) updated_at_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -797,13 +805,13 @@ where
         .map_err(|error| map_d1_error("SigningWorker private D1 primary session failed", error))?;
     let row = session
         .prepare(
-            "SELECT ciphertext_json AS record_json, version
+            "SELECT ciphertext_json AS record_json, version, updated_at_ms
              FROM signing_worker_secret_states
              WHERE purpose = ?1 AND record_key = ?2",
         )
         .bind(&[js_string(purpose), js_string(record_key)])
         .map_err(|error| map_d1_error("SigningWorker secret-state query bind failed", error))?
-        .first::<VersionedJsonRowV1>(None)
+        .first::<VersionedSecretJsonRowV1>(None)
         .await
         .map_err(|error| map_d1_error("SigningWorker secret-state query failed", error))?;
     let Some(row) = row else {
@@ -813,6 +821,7 @@ where
     Ok(Some(CloudflareSigningWorkerPrivateD1VersionedSecretV1 {
         value: cipher.open(purpose, record_key, &row.record_json)?,
         version: row.version,
+        updated_at_ms: row.updated_at_ms,
     }))
 }
 

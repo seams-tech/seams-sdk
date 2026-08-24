@@ -11,8 +11,6 @@ import {
   EcdsaPresignClientResponseType,
   type EcdsaDerivationRoleLocalMaterialOperationRequest,
   type EcdsaDerivationRoleLocalMaterialOperationType,
-  type EcdsaDerivationLinkedHolderMaterialOperationRequest,
-  type EcdsaLinkedHolderMaterialOperationType,
   type EcdsaDerivationHolderOrdinaryExportOperationRequest,
   type EcdsaHolderOrdinaryExportOperationType,
   type EcdsaDerivationWorkerOperationRequest,
@@ -135,20 +133,6 @@ async function requestEcdsaDerivationRoleLocalMaterialOperation<
 >(args: {
   workerCtx: WorkerOperationContext;
   request: EcdsaDerivationRoleLocalMaterialOperationRequest<T>;
-}): Promise<EcdsaDerivationWorkerOperationResult<T>> {
-  type TransportType = Extract<T, EcdsaDerivationWorkerOperationType>;
-  return (await executeWorkerOperation<'ecdsaDerivationClient', TransportType>({
-    ctx: args.workerCtx,
-    kind: 'ecdsaDerivationClient',
-    request: args.request as EcdsaDerivationWorkerOperationRequest<TransportType>,
-  })) as EcdsaDerivationWorkerOperationResult<T>;
-}
-
-async function requestEcdsaLinkedHolderMaterialOperation<
-  T extends EcdsaLinkedHolderMaterialOperationType,
->(args: {
-  workerCtx: WorkerOperationContext;
-  request: EcdsaDerivationLinkedHolderMaterialOperationRequest<T>;
 }): Promise<EcdsaDerivationWorkerOperationResult<T>> {
   type TransportType = Extract<T, EcdsaDerivationWorkerOperationType>;
   return (await executeWorkerOperation<'ecdsaDerivationClient', TransportType>({
@@ -859,81 +843,6 @@ export async function storeLinkedDeviceEcdsaHolderMaterialWasm(input: {
   } finally {
     if (ownedSigningShare32.byteLength > 0) ownedSigningShare32.fill(0);
   }
-}
-
-export async function getLinkedDeviceEcdsaHolderExportRecipientPublicKeyWasm(input: {
-  readonly holderHandleId: string;
-  readonly workerCtx: WorkerOperationContext;
-}): Promise<{
-  readonly holderHandleId: string;
-  readonly recipientPublicKey: string;
-}> {
-  if (input.holderHandleId.trim().length === 0) {
-    throw new Error('Linked holder ECDSA handle must be non-empty');
-  }
-  const response = await requestEcdsaLinkedHolderMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: { holderHandleId: input.holderHandleId },
-      transfer: [],
-    },
-  });
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess
-  ) {
-    throw new Error('Linked holder ECDSA export recipient lookup failed');
-  }
-  if (response.payload.holderHandleId !== input.holderHandleId) {
-    throw new Error('Linked holder ECDSA export recipient returned a different handle');
-  }
-  if (response.payload.recipientPublicKey.trim().length === 0) {
-    throw new Error('Linked holder ECDSA export recipient is empty');
-  }
-  return response.payload;
-}
-
-export async function finalizeLinkedDeviceEcdsaHolderExportWasm(input: {
-  readonly holderHandleId: string;
-  readonly exportFinalizationInputJson: string;
-  readonly workerCtx: WorkerOperationContext;
-}): Promise<{
-  readonly holderHandleId: string;
-  readonly exportArtifactJson: string;
-}> {
-  if (input.holderHandleId.trim().length === 0) {
-    throw new Error('Linked holder ECDSA handle must be non-empty');
-  }
-  if (input.exportFinalizationInputJson.trim().length === 0) {
-    throw new Error('Linked holder ECDSA export finalization input must be non-empty');
-  }
-  const response = await requestEcdsaLinkedHolderMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: {
-        holderHandleId: input.holderHandleId,
-        exportFinalizationInputJson: input.exportFinalizationInputJson,
-      },
-      transfer: [],
-    },
-  });
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.FinalizeLinkedDeviceEcdsaHolderExportSuccess
-  ) {
-    throw new Error('Linked holder ECDSA export finalization failed');
-  }
-  if (response.payload.holderHandleId !== input.holderHandleId) {
-    throw new Error('Linked holder ECDSA export finalization returned a different handle');
-  }
-  if (response.payload.exportArtifactJson.trim().length === 0) {
-    throw new Error('Linked holder ECDSA export finalization returned an empty artifact');
-  }
-  return response.payload;
 }
 
 async function disposeLinkedDeviceEcdsaHolderMaterialsWasm(input: {

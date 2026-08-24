@@ -8,18 +8,19 @@ use crate::{
     load_cloudflare_server_output_hpke_private_key_bytes_v1,
     load_cloudflare_signing_worker_private_d1_secret_v1,
     seal_cloudflare_signer_envelope_hpke_payload_v1, CloudflareEcdsaRegistrationSourceDerivationV1,
-    CloudflareServerOutputMaterialRecordV1, CloudflareSignerEnvelopeHpkePublicKeyV1,
-    CloudflareSigningWorkerOutputActivationReceiptV1,
+    CloudflareSecretMaterial32V1, CloudflareServerOutputMaterialRecordV1,
+    CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-    CloudflareSigningWorkerRuntimeV1,
+    CloudflareSigningWorkerRuntimeV1, SOURCE_PRESERVING_ECDSA_MATERIAL_HANDLE_PREFIX_V1,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use router_ab_core::{
-    decode_and_validate_signer_envelope_hpke_payload_v1, EncryptedPayloadV1, ExpensiveWorkKindV1,
-    MpcMaterialActivationRefV1, Role, RoleEncryptedEnvelopeV1,
+    decode_and_validate_signer_envelope_hpke_payload_v1, ActiveSigningWorkerStateV1,
+    EncryptedPayloadV1, ExpensiveWorkKindV1, MpcMaterialActivationRefV1, OpenedShareKind,
+    PublicDigest32, Role, RoleEncryptedEnvelopeV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, ServerIdentityV1,
 };
 use router_ab_ecdsa_client_protocol::{
     open_linked_device_ecdsa_source_contribution_v1,
@@ -33,7 +34,7 @@ use router_ab_ecdsa_derivation::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use worker::{Env, Request, Response};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_RESERVE_INACTIVE_PATH: &str =
     "/router-ab/signing-worker/ecdsa-derivation/reserve-inactive";
@@ -2022,6 +2023,271 @@ pub(crate) async fn require_ecdsa_material_active_v1(
     }
 }
 
+/// Resolves source-preserving ECDSA material into the same private material
+/// shape consumed by the ordinary SigningWorker primitives.
+///
+/// Source-preserving reservations do not create a proof-bundle activation row.
+/// This adapter projects their exact active reservation into a deterministic
+/// active-state descriptor after rechecking the lifecycle fence and all public
+/// target identity fields. The decrypted share never leaves this module except
+/// inside the worker-owned `CloudflareServerOutputMaterialRecordV1`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn load_source_preserving_ecdsa_material_v1(
+    env: &Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    material_activation: &MpcMaterialActivationRefV1,
+    signing_worker: &ServerIdentityV1,
+    target_client_public_key33_b64u: &str,
+    target_relayer_public_key33_b64u: &str,
+    threshold_public_key33_b64u: &str,
+    threshold_ethereum_address20_b64u: &str,
+) -> RouterAbProtocolResult<(
+    ActiveSigningWorkerStateV1,
+    CloudflareServerOutputMaterialRecordV1,
+)> {
+    material_activation.validate()?;
+    signing_worker.validate()?;
+    runtime
+        .server_output_decrypt_key()
+        .validate_matches_server(signing_worker)?;
+    require_ecdsa_material_active_v1(env, material_activation).await?;
+
+    let record_key = reservation_record_key_v1(material_activation)?;
+    let Some(current) = load_cloudflare_signing_worker_private_d1_secret_v1::<
+        EcdsaReservationStateV1,
+    >(env, "ecdsa_inactive_reservations", &record_key)
+    .await?
+    else {
+        return Err(source_preserving_material_missing_v1());
+    };
+    current.value.validate()?;
+    let active =
+        select_source_preserving_active_reservation_v1(&current.value, material_activation)?;
+    let expected_worker_recipient_public_key_b64u =
+        encode_base64url_bytes_v1(&cloudflare_hpke_x25519_public_key_bytes_v1(
+            &runtime.server_output_decrypt_key().public_key,
+        )?);
+    let (expected_target_relayer_public_key33, binding_digest) =
+        validate_source_preserving_target_identity_v1(
+            &active,
+            material_activation,
+            signing_worker,
+            &expected_worker_recipient_public_key_b64u,
+            target_client_public_key33_b64u,
+            target_relayer_public_key33_b64u,
+            threshold_public_key33_b64u,
+            threshold_ethereum_address20_b64u,
+        )?;
+    let mut private_key = load_cloudflare_server_output_hpke_private_key_bytes_v1(
+        env,
+        runtime.server_output_decrypt_key(),
+    )?;
+    let opened_share = decrypt_source_preserving_server_share_v1(
+        active.encrypted_target_server_share,
+        &private_key,
+        &binding_digest,
+        &expected_target_relayer_public_key33,
+    );
+    private_key.zeroize();
+    let opened_share = opened_share?;
+    let material = CloudflareServerOutputMaterialRecordV1::new(
+        PublicDigest32::new(binding_digest),
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        signing_worker.server_id.clone(),
+        opened_share,
+    )?;
+    let active = ActiveSigningWorkerStateV1::new(
+        material_activation.material_owner.clone(),
+        material_activation.clone(),
+        threshold_public_key33_b64u.to_owned(),
+        signing_worker.clone(),
+        PublicDigest32::new(binding_digest),
+        PublicDigest32::new(binding_digest),
+        format!(
+            "{SOURCE_PRESERVING_ECDSA_MATERIAL_HANDLE_PREFIX_V1}{}",
+            active.reservation_id
+        ),
+        current.updated_at_ms,
+    )?;
+    Ok((active, material))
+}
+
+fn decrypt_source_preserving_server_share_v1(
+    envelope: &LinkedDeviceEcdsaEncryptedSourceContributionV1,
+    private_key: &[u8; 32],
+    binding_digest: &[u8; 32],
+    expected_relayer_public_key33: &[u8; 33],
+) -> RouterAbProtocolResult<CloudflareSecretMaterial32V1> {
+    let opened_share =
+        open_linked_device_ecdsa_source_contribution_v1(envelope, private_key, binding_digest)
+            .map_err(|error| {
+                invalid_reservation(format!(
+                    "source-preserving ECDSA target server share could not be opened: {error:?}"
+                ))
+            })?;
+    let opened_share = Zeroizing::new(opened_share);
+    let opened_share32 =
+        Zeroizing::new(<[u8; 32]>::try_from(opened_share.as_slice()).map_err(|_| {
+            invalid_reservation("source-preserving ECDSA target server share must be 32 bytes")
+        })?);
+    let opened_share_public_key33 =
+        crate::ecdsa_lane_client_public_key_from_share32_v1(*opened_share32).map_err(|error| {
+            invalid_reservation(format!(
+                "source-preserving ECDSA target server share is invalid: {error}"
+            ))
+        })?;
+    if opened_share_public_key33 != *expected_relayer_public_key33 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "source-preserving ECDSA target server share does not match the reserved relayer identity",
+        ));
+    }
+    Ok(CloudflareSecretMaterial32V1::new(*opened_share32))
+}
+
+fn source_preserving_material_missing_v1() -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MissingLocalBinding,
+        "source-preserving ECDSA material reservation is missing",
+    )
+}
+
+struct SourcePreservingActiveReservationViewV1<'a> {
+    binding: &'a LinkedDeviceEcdsaSourceContributionBindingV1,
+    reservation_id: &'a str,
+    material_activation: &'a MpcMaterialActivationRefV1,
+    target_relayer_public_key33_b64u: &'a str,
+    threshold_public_key33_b64u: &'a str,
+    threshold_ethereum_address20_b64u: &'a str,
+    encrypted_target_server_share: &'a LinkedDeviceEcdsaEncryptedSourceContributionV1,
+}
+
+fn select_source_preserving_active_reservation_v1<'a>(
+    state: &'a EcdsaReservationStateV1,
+    material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<SourcePreservingActiveReservationViewV1<'a>> {
+    let view = match state {
+        EcdsaReservationStateV1::SourcePreservingActive {
+            binding,
+            material_activation: stored_material_activation,
+            reservation_id,
+            target_relayer_public_key33_b64u,
+            threshold_public_key33_b64u,
+            threshold_ethereum_address20_b64u,
+            encrypted_target_server_share,
+            ..
+        } => SourcePreservingActiveReservationViewV1 {
+            binding,
+            reservation_id,
+            material_activation: stored_material_activation,
+            target_relayer_public_key33_b64u,
+            threshold_public_key33_b64u,
+            threshold_ethereum_address20_b64u,
+            encrypted_target_server_share,
+        },
+        EcdsaReservationStateV1::SourcePreservingInactive {
+            material_activation: stored_ref,
+            ..
+        }
+        | EcdsaReservationStateV1::SourcePreservingActivating {
+            material_activation: stored_ref,
+            ..
+        } if stored_ref == material_activation => {
+            return Err(invalid_reservation(
+                "source-preserving ECDSA material reservation is not active",
+            ));
+        }
+        EcdsaReservationStateV1::SourcePreservingDeactivating {
+            material_activation: stored_ref,
+            ..
+        }
+        | EcdsaReservationStateV1::SourcePreservingRevoked {
+            material_activation: stored_ref,
+            ..
+        } if stored_ref == material_activation => {
+            return Err(invalid_reservation(
+                "source-preserving ECDSA material reservation is revoked",
+            ));
+        }
+        _ => return Err(source_preserving_material_missing_v1()),
+    };
+    if view.material_activation != material_activation {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ConflictingPair,
+            "source-preserving ECDSA material activation conflicts with the exact reservation",
+        ));
+    }
+    Ok(view)
+}
+
+fn validate_source_preserving_target_identity_v1(
+    view: &SourcePreservingActiveReservationViewV1<'_>,
+    material_activation: &MpcMaterialActivationRefV1,
+    signing_worker: &ServerIdentityV1,
+    expected_worker_recipient_public_key_b64u: &str,
+    target_client_public_key33_b64u: &str,
+    target_relayer_public_key33_b64u: &str,
+    threshold_public_key33_b64u: &str,
+    threshold_ethereum_address20_b64u: &str,
+) -> RouterAbProtocolResult<([u8; 33], [u8; 32])> {
+    if view.binding.target.activation.signing_worker != signing_worker.server_id
+        || view.binding.target.activation.material_owner != material_activation.material_owner
+        || view.binding.target.signing_worker_recipient_public_key_b64u
+            != expected_worker_recipient_public_key_b64u
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "source-preserving ECDSA reservation SigningWorker identity does not match the active worker",
+        ));
+    }
+    let expected_target_client_public_key33 = decode_fixed_b64_v1(
+        "source-preserving ECDSA expected target client public key",
+        target_client_public_key33_b64u,
+    )?;
+    let expected_target_relayer_public_key33 = decode_fixed_b64_v1(
+        "source-preserving ECDSA expected target relayer public key",
+        target_relayer_public_key33_b64u,
+    )?;
+    let expected_threshold_public_key33 = decode_fixed_b64_v1(
+        "source-preserving ECDSA expected threshold public key",
+        threshold_public_key33_b64u,
+    )?;
+    let expected_threshold_ethereum_address20 = decode_fixed_b64_20_v1(
+        "source-preserving ECDSA expected threshold Ethereum address",
+        threshold_ethereum_address20_b64u,
+    )?;
+    if decode_fixed_b64_v1(
+        "source-preserving ECDSA target client public key",
+        &view.binding.target_client_public_key33_b64u,
+    )? != expected_target_client_public_key33
+        || decode_fixed_b64_v1(
+            "source-preserving ECDSA target relayer public key",
+            view.target_relayer_public_key33_b64u,
+        )? != expected_target_relayer_public_key33
+        || decode_fixed_b64_v1(
+            "source-preserving ECDSA threshold public key",
+            view.threshold_public_key33_b64u,
+        )? != expected_threshold_public_key33
+        || decode_fixed_b64_20_v1(
+            "source-preserving ECDSA threshold Ethereum address",
+            view.threshold_ethereum_address20_b64u,
+        )? != expected_threshold_ethereum_address20
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "source-preserving ECDSA reservation public identity does not match the signing scope",
+        ));
+    }
+
+    let binding_digest = view.binding.digest().map_err(|error| {
+        invalid_reservation(format!(
+            "source-preserving ECDSA reservation binding digest is invalid: {error:?}"
+        ))
+    })?;
+    Ok((expected_target_relayer_public_key33, binding_digest))
+}
+
 fn reservation_record_key_v1(
     material_activation: &MpcMaterialActivationRefV1,
 ) -> RouterAbProtocolResult<String> {
@@ -2066,7 +2332,447 @@ fn invalid_reservation(message: impl Into<String>) -> RouterAbProtocolError {
 
 #[cfg(test)]
 mod tests {
+    use hpke_ng::{DhKemX25519HkdfSha256, Kem};
+    use router_ab_core::{
+        RouterAbEcdsaDerivationNormalSigningScopeV1, RouterAbEcdsaDerivationPublicIdentityV1,
+        RouterAbEcdsaDerivationStableKeyContextV1,
+    };
+    use router_ab_ecdsa_derivation::{
+        derive_client_share, derive_relayer_share_for_client_public,
+        RouterAbEcdsaDerivationStableKeyContext,
+    };
+
     use super::*;
+
+    struct SourcePreservingTestFixture {
+        state: EcdsaReservationStateV1,
+        material_activation: MpcMaterialActivationRefV1,
+        worker: ServerIdentityV1,
+        worker_private_key: [u8; 32],
+        worker_recipient_public_key_b64u: String,
+        scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+        active_signing_worker: ActiveSigningWorkerStateV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+        target_client_public_key33_b64u: String,
+        target_relayer_public_key33_b64u: String,
+        threshold_public_key33_b64u: String,
+        threshold_ethereum_address20_b64u: String,
+        binding_digest: [u8; 32],
+    }
+
+    fn b64u<const N: usize>(bytes: &[u8; N]) -> String {
+        URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn x25519_keypair(seed: u8) -> ([u8; 32], String) {
+        let (private, public) =
+            DhKemX25519HkdfSha256::derive_key_pair(&[seed; 32]).expect("test HPKE key pair");
+        let private = DhKemX25519HkdfSha256::sk_to_bytes(&private);
+        (
+            private
+                .as_slice()
+                .try_into()
+                .expect("test private key bytes"),
+            URL_SAFE_NO_PAD.encode(DhKemX25519HkdfSha256::pk_to_bytes(&public).as_slice()),
+        )
+    }
+
+    fn ecdsa_activation(
+        activation_id: &str,
+        key_binding: &str,
+    ) -> router_ab_ecdsa_client_protocol::EcdsaMaterialActivationRefV1 {
+        router_ab_ecdsa_client_protocol::EcdsaMaterialActivationRefV1 {
+            kind: router_ab_ecdsa_client_protocol::EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
+            activation_id: activation_id.to_owned(),
+            capability: "ecdsa-capability".to_owned(),
+            material_owner: "wallet-1".to_owned(),
+            key_binding: key_binding.to_owned(),
+            lifecycle_binding: "ecdsa-lifecycle-binding".to_owned(),
+            signing_worker: "worker-1".to_owned(),
+        }
+    }
+
+    fn source_preserving_fixture() -> SourcePreservingTestFixture {
+        let application_binding_digest = [0x29_u8; 32];
+        let derivation_context =
+            RouterAbEcdsaDerivationStableKeyContext::new(application_binding_digest);
+        let client =
+            derive_client_share(&derivation_context, [0x11_u8; 32]).expect("test client share");
+        let (relayer, identity) = derive_relayer_share_for_client_public(
+            &derivation_context,
+            [0x22_u8; 32],
+            &client.derivation_client_share_public_key33,
+            client.retry_counter,
+        )
+        .expect("test relayer share");
+
+        let (client_recipient_private_key, client_recipient_public_key_b64u) = x25519_keypair(0x41);
+        let (worker_private_key, worker_recipient_public_key_b64u) = x25519_keypair(0x42);
+        assert_ne!(client_recipient_private_key, worker_private_key);
+        let key_binding = b64u(&identity.context_binding32);
+        let source_activation = ecdsa_activation("source-activation", &key_binding);
+        let target_activation = ecdsa_activation("target-activation", &key_binding);
+        let binding = LinkedDeviceEcdsaSourceContributionBindingV1 {
+            link_session_id: "link-session-1".to_owned(),
+            enrollment_id: "enrollment-1".to_owned(),
+            source_authority_id: "authority-1".to_owned(),
+            source: router_ab_ecdsa_client_protocol::LinkedDeviceEcdsaSourceSignerIdentityV1 {
+                activation: source_activation,
+                client_public_key33_b64u: b64u(&client.derivation_client_share_public_key33),
+                relayer_public_key33_b64u: b64u(&identity.relayer_public_key33),
+                threshold_public_key33_b64u: b64u(&identity.threshold_public_key33),
+                threshold_ethereum_address20_b64u: b64u(&identity.threshold_ethereum_address20),
+            },
+            target:
+                router_ab_ecdsa_client_protocol::LinkedDeviceEcdsaTargetRecipientPreparationV1 {
+                    activation: target_activation,
+                    target_device_id: "device-2".to_owned(),
+                    target_factor_verification_digest_b64u: b64u(&[0x71_u8; 32]),
+                    client_recipient_public_key_b64u,
+                    signing_worker_recipient_public_key_b64u: worker_recipient_public_key_b64u
+                        .clone(),
+                },
+            target_client_public_key33_b64u: b64u(&client.derivation_client_share_public_key33),
+        };
+        let binding_digest = binding.digest().expect("test binding digest");
+        let encrypted_target_client_share = seal_linked_device_ecdsa_source_contribution_v1(
+            &binding.target.client_recipient_public_key_b64u,
+            &binding_digest,
+            &client.x_client32,
+            [0x51_u8; 32],
+        )
+        .expect("test client envelope");
+        let encrypted_target_server_share = seal_linked_device_ecdsa_source_contribution_v1(
+            &binding.target.signing_worker_recipient_public_key_b64u,
+            &binding_digest,
+            &relayer.x_relayer32,
+            [0x52_u8; 32],
+        )
+        .expect("test server envelope");
+        let material_activation = MpcMaterialActivationRefV1::new(
+            "target-activation",
+            "ecdsa-capability",
+            "wallet-1",
+            key_binding,
+            "ecdsa-lifecycle-binding",
+            "worker-1",
+        )
+        .expect("test material activation");
+        let reservation_id =
+            source_preserving_reservation_id_v1(&material_activation, &binding_digest)
+                .expect("test reservation id");
+        let state = EcdsaReservationStateV1::SourcePreservingActive {
+            binding,
+            source_derivation: CloudflareEcdsaRegistrationSourceDerivationV1 {
+                application_binding_digest_b64u: b64u(&application_binding_digest),
+                client_share_retry_counter: client.retry_counter,
+            },
+            material_activation: material_activation.clone(),
+            reservation_id: reservation_id.clone(),
+            target_relayer_public_key33_b64u: b64u(&identity.relayer_public_key33),
+            threshold_public_key33_b64u: b64u(&identity.threshold_public_key33),
+            threshold_ethereum_address20_b64u: b64u(&identity.threshold_ethereum_address20),
+            encrypted_target_client_share,
+            encrypted_target_server_share,
+        };
+        state.validate().expect("test active reservation");
+
+        let worker = ServerIdentityV1::new(
+            "worker-1",
+            "worker-key-epoch-1",
+            worker_recipient_public_key_b64u.clone(),
+        )
+        .expect("test worker identity");
+        let context =
+            RouterAbEcdsaDerivationStableKeyContextV1::new(b64u(&application_binding_digest))
+                .expect("test scope context");
+        let public_identity = RouterAbEcdsaDerivationPublicIdentityV1::new(
+            b64u(&identity.context_binding32),
+            b64u(&identity.derivation_client_share_public_key33),
+            b64u(&identity.relayer_public_key33),
+            b64u(&identity.threshold_public_key33),
+            b64u(&identity.threshold_ethereum_address20),
+            identity.client_share_retry_counter,
+            identity.relayer_share_retry_counter,
+        )
+        .expect("test public identity");
+        let scope = RouterAbEcdsaDerivationNormalSigningScopeV1::new(
+            "wallet-1",
+            "ecdsa-threshold-key-1",
+            "signing-root-1",
+            "signing-root-version-1",
+            context,
+            public_identity,
+            worker.clone(),
+            "activation-epoch-1",
+            material_activation.clone(),
+        )
+        .expect("test normal-signing scope");
+        let active_signing_worker = ActiveSigningWorkerStateV1::new(
+            "wallet-1",
+            material_activation.clone(),
+            b64u(&identity.threshold_public_key33),
+            worker.clone(),
+            PublicDigest32::new(binding_digest),
+            PublicDigest32::new(binding_digest),
+            format!("source-preserving-ecdsa/{reservation_id}"),
+            1,
+        )
+        .expect("test active worker state");
+        let material = CloudflareServerOutputMaterialRecordV1::new(
+            PublicDigest32::new(binding_digest),
+            OpenedShareKind::XServerBase,
+            Role::Server,
+            worker.server_id.clone(),
+            CloudflareSecretMaterial32V1::new(relayer.x_relayer32),
+        )
+        .expect("test server material");
+
+        SourcePreservingTestFixture {
+            state,
+            material_activation,
+            worker,
+            worker_private_key,
+            worker_recipient_public_key_b64u,
+            scope,
+            active_signing_worker,
+            material,
+            target_client_public_key33_b64u: b64u(&identity.derivation_client_share_public_key33),
+            target_relayer_public_key33_b64u: b64u(&identity.relayer_public_key33),
+            threshold_public_key33_b64u: b64u(&identity.threshold_public_key33),
+            threshold_ethereum_address20_b64u: b64u(&identity.threshold_ethereum_address20),
+            binding_digest,
+        }
+    }
+
+    fn transition_state(state: EcdsaReservationStateV1, revoked: bool) -> EcdsaReservationStateV1 {
+        let EcdsaReservationStateV1::SourcePreservingActive {
+            binding,
+            source_derivation,
+            material_activation,
+            reservation_id,
+            target_relayer_public_key33_b64u,
+            threshold_public_key33_b64u,
+            threshold_ethereum_address20_b64u,
+            encrypted_target_client_share,
+            encrypted_target_server_share,
+        } = state
+        else {
+            panic!("test state must be active");
+        };
+        if revoked {
+            EcdsaReservationStateV1::SourcePreservingRevoked {
+                binding,
+                source_derivation,
+                material_activation,
+                reservation_id,
+                revoked_at_ms: 2,
+            }
+        } else {
+            EcdsaReservationStateV1::SourcePreservingInactive {
+                binding,
+                source_derivation,
+                material_activation,
+                reservation_id,
+                target_relayer_public_key33_b64u,
+                threshold_public_key33_b64u,
+                threshold_ethereum_address20_b64u,
+                encrypted_target_client_share,
+                encrypted_target_server_share,
+            }
+        }
+    }
+
+    #[test]
+    fn source_preserving_active_material_passes_ordinary_ecdsa_validation() {
+        let fixture = source_preserving_fixture();
+        let view = select_source_preserving_active_reservation_v1(
+            &fixture.state,
+            &fixture.material_activation,
+        )
+        .expect("active source-preserving reservation");
+        let (target_relayer_public_key33, binding_digest) =
+            validate_source_preserving_target_identity_v1(
+                &view,
+                &fixture.material_activation,
+                &fixture.worker,
+                &fixture.worker_recipient_public_key_b64u,
+                &fixture.target_client_public_key33_b64u,
+                &fixture.target_relayer_public_key33_b64u,
+                &fixture.threshold_public_key33_b64u,
+                &fixture.threshold_ethereum_address20_b64u,
+            )
+            .expect("source-preserving public identity");
+        let opened = decrypt_source_preserving_server_share_v1(
+            view.encrypted_target_server_share,
+            &fixture.worker_private_key,
+            &binding_digest,
+            &target_relayer_public_key33,
+        )
+        .expect("target server share");
+        assert_eq!(
+            opened.as_bytes(),
+            fixture.material.output_material.as_bytes()
+        );
+        crate::validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
+            &fixture.scope,
+            &fixture.active_signing_worker,
+            &fixture.material,
+        )
+        .expect("ordinary ECDSA material validation");
+    }
+
+    #[test]
+    fn source_preserving_inactive_material_is_refused() {
+        let fixture = source_preserving_fixture();
+        let inactive = transition_state(fixture.state, false);
+        let error =
+            select_source_preserving_active_reservation_v1(&inactive, &fixture.material_activation)
+                .err()
+                .expect("inactive reservation must be refused");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::InvalidLifecycleState
+        );
+    }
+
+    #[test]
+    fn source_preserving_revoked_material_is_refused() {
+        let fixture = source_preserving_fixture();
+        let revoked = transition_state(fixture.state, true);
+        let error =
+            select_source_preserving_active_reservation_v1(&revoked, &fixture.material_activation)
+                .err()
+                .expect("revoked reservation must be refused");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::InvalidLifecycleState
+        );
+    }
+
+    #[test]
+    fn source_preserving_exact_activation_mismatch_is_refused() {
+        let fixture = source_preserving_fixture();
+        let mismatched_activation = MpcMaterialActivationRefV1::new(
+            "different-activation",
+            "ecdsa-capability",
+            "wallet-1",
+            "ecdsa-key-binding",
+            "ecdsa-lifecycle-binding",
+            "worker-1",
+        )
+        .expect("mismatched activation");
+        let error =
+            select_source_preserving_active_reservation_v1(&fixture.state, &mismatched_activation)
+                .err()
+                .expect("activation mismatch must be refused");
+        assert_eq!(error.code(), RouterAbProtocolErrorCode::ConflictingPair);
+    }
+
+    #[test]
+    fn source_preserving_client_server_threshold_and_recipient_mismatches_are_refused() {
+        let fixture = source_preserving_fixture();
+        let view = select_source_preserving_active_reservation_v1(
+            &fixture.state,
+            &fixture.material_activation,
+        )
+        .expect("active source-preserving reservation");
+        let mismatches = [
+            (
+                "client",
+                b64u(&[0x02_u8; 33]),
+                fixture.target_relayer_public_key33_b64u.clone(),
+                fixture.threshold_public_key33_b64u.clone(),
+                fixture.worker_recipient_public_key_b64u.clone(),
+            ),
+            (
+                "server",
+                fixture.target_client_public_key33_b64u.clone(),
+                b64u(&[0x03_u8; 33]),
+                fixture.threshold_public_key33_b64u.clone(),
+                fixture.worker_recipient_public_key_b64u.clone(),
+            ),
+            (
+                "threshold",
+                fixture.target_client_public_key33_b64u.clone(),
+                fixture.target_relayer_public_key33_b64u.clone(),
+                b64u(&[0x02_u8; 33]),
+                fixture.worker_recipient_public_key_b64u.clone(),
+            ),
+            (
+                "recipient",
+                fixture.target_client_public_key33_b64u.clone(),
+                fixture.target_relayer_public_key33_b64u.clone(),
+                fixture.threshold_public_key33_b64u.clone(),
+                x25519_keypair(0x43).1,
+            ),
+        ];
+        for (label, client, relayer, threshold, recipient) in mismatches {
+            let error = validate_source_preserving_target_identity_v1(
+                &view,
+                &fixture.material_activation,
+                &fixture.worker,
+                &recipient,
+                &client,
+                &relayer,
+                &threshold,
+                &fixture.threshold_ethereum_address20_b64u,
+            )
+            .err()
+            .unwrap_or_else(|| panic!("{label} mismatch must be refused"));
+            assert_eq!(
+                error.code(),
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "{label} mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn source_preserving_decrypted_share_public_key_mismatch_is_refused() {
+        let fixture = source_preserving_fixture();
+        let view = select_source_preserving_active_reservation_v1(
+            &fixture.state,
+            &fixture.material_activation,
+        )
+        .expect("active source-preserving reservation");
+        let error = decrypt_source_preserving_server_share_v1(
+            view.encrypted_target_server_share,
+            &fixture.worker_private_key,
+            &fixture.binding_digest,
+            &[0x02_u8; 33],
+        )
+        .err()
+        .expect("decrypted share identity mismatch must be refused");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+        );
+    }
+
+    #[test]
+    fn source_preserving_material_identity_mismatch_is_refused() {
+        let fixture = source_preserving_fixture();
+        let mismatched_material = CloudflareServerOutputMaterialRecordV1::new(
+            fixture.material.transcript_digest,
+            fixture.material.opened_share_kind,
+            fixture.material.recipient_role,
+            fixture.material.recipient_identity.clone(),
+            CloudflareSecretMaterial32V1::new([0x33_u8; 32]),
+        )
+        .expect("mismatched source-preserving material");
+        let error = crate::validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
+            &fixture.scope,
+            &fixture.active_signing_worker,
+            &mismatched_material,
+        )
+        .err()
+        .expect("material identity mismatch must be refused");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+        );
+    }
 
     #[test]
     fn deactivation_uses_the_same_active_output_identity_as_activation() {

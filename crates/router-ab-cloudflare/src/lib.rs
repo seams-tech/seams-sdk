@@ -276,10 +276,13 @@ use std::collections::BTreeMap;
 use zeroize::Zeroize;
 
 use router_ab_ecdsa_derivation::{
-    derive_relayer_share_for_client_public, ecdsa_lane_client_public_key_from_share32_v1,
+    compose_public_identity_from_public_keys, derive_relayer_share_for_client_public,
+    ecdsa_lane_client_public_key_from_share32_v1, encode_context, RelayerRoleShare,
     RouterAbEcdsaDerivationStableKeyContext,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
+
+const SOURCE_PRESERVING_ECDSA_MATERIAL_HANDLE_PREFIX_V1: &str = "source-preserving-ecdsa/";
 
 /// Serializes one Cloudflare Service Binding JSON request body.
 pub fn cloudflare_service_json_request_body_v1<T: Serialize>(
@@ -3596,6 +3599,84 @@ fn cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_
     Ok((relayer_share, identity))
 }
 
+fn cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_source_preserving_material_v1(
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    material: &CloudflareServerOutputMaterialRecordV1,
+) -> RouterAbProtocolResult<(RelayerRoleShare, RouterAbEcdsaDerivationPublicIdentityV1)> {
+    scope.validate()?;
+    material.validate()?;
+    if material.recipient_identity != scope.signing_worker.server_id {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Router A/B source-preserving ECDSA material recipient does not match SigningWorker",
+        ));
+    }
+    let ecdsa_context =
+        cloudflare_router_ab_ecdsa_derivation_stable_key_context_v1(&scope.context)?;
+    let derivation_client_share_public_key33 = decode_base64url_fixed_33_v1(
+        "Router A/B source-preserving ECDSA derivation client public key",
+        &scope
+            .public_identity
+            .derivation_client_share_public_key33_b64u,
+    )?;
+    let relayer_public_key33 =
+        ecdsa_lane_client_public_key_from_share32_v1(*material.output_material.as_bytes())
+            .map_err(map_router_ab_ecdsa_derivation_error_v1)?;
+    let identity = compose_public_identity_from_public_keys(
+        &ecdsa_context,
+        &derivation_client_share_public_key33,
+        scope.public_identity.client_share_retry_counter,
+        &relayer_public_key33,
+        scope.public_identity.server_share_retry_counter,
+    )
+    .map_err(map_router_ab_ecdsa_derivation_error_v1)?;
+    let public_identity = RouterAbEcdsaDerivationPublicIdentityV1::new(
+        encode_base64url_bytes_v1(&identity.context_binding32),
+        encode_base64url_bytes_v1(&identity.derivation_client_share_public_key33),
+        encode_base64url_bytes_v1(&identity.relayer_public_key33),
+        encode_base64url_bytes_v1(&identity.threshold_public_key33),
+        encode_base64url_bytes_v1(&identity.threshold_ethereum_address20),
+        identity.client_share_retry_counter,
+        identity.relayer_share_retry_counter,
+    )?;
+    if public_identity != scope.public_identity {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Router A/B source-preserving ECDSA material does not match public identity",
+        ));
+    }
+    let context_bytes =
+        encode_context(&ecdsa_context).map_err(map_router_ab_ecdsa_derivation_error_v1)?;
+    let relayer_share = RelayerRoleShare {
+        context_bytes,
+        context_binding32: identity.context_binding32,
+        retry_counter: identity.relayer_share_retry_counter,
+        x_relayer32: *material.output_material.as_bytes(),
+        relayer_public_key33,
+    };
+    Ok((relayer_share, public_identity))
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_active_material_v1(
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    active_signing_worker: &ActiveSigningWorkerStateV1,
+    material: &CloudflareServerOutputMaterialRecordV1,
+) -> RouterAbProtocolResult<(RelayerRoleShare, RouterAbEcdsaDerivationPublicIdentityV1)> {
+    if active_signing_worker
+        .signing_worker_material_handle
+        .starts_with(SOURCE_PRESERVING_ECDSA_MATERIAL_HANDLE_PREFIX_V1)
+    {
+        cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_source_preserving_material_v1(
+            scope, material,
+        )
+    } else {
+        cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_normal_signing_material_v1(
+            scope, material,
+        )
+    }
+}
+
 fn cloudflare_router_ab_ecdsa_derivation_public_identity_from_material_parts_v1(
     context: &RouterAbEcdsaDerivationStableKeyContextV1,
     public_identity: &RouterAbEcdsaDerivationPublicIdentityV1,
@@ -3656,10 +3737,20 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
             "Router A/B ECDSA derivation normal-signing active state does not match scope",
         ));
     }
-    let derived_identity =
+    let derived_identity = if active_signing_worker
+        .signing_worker_material_handle
+        .starts_with(SOURCE_PRESERVING_ECDSA_MATERIAL_HANDLE_PREFIX_V1)
+    {
+        let (_, identity) =
+            cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_source_preserving_material_v1(
+                scope, material,
+            )?;
+        identity
+    } else {
         cloudflare_router_ab_ecdsa_derivation_public_identity_from_normal_signing_material_v1(
             scope, material,
-        )?;
+        )?
+    };
     if derived_identity == scope.public_identity {
         return Ok(());
     }
@@ -10484,6 +10575,24 @@ async fn load_cloudflare_signing_worker_active_ecdsa_derivation_material_v1(
     ActiveSigningWorkerStateV1,
     CloudflareServerOutputMaterialRecordV1,
 )> {
+    match ordinary_inactive_signer_material::load_source_preserving_ecdsa_material_v1(
+        env,
+        runtime,
+        &scope.material_activation,
+        &scope.signing_worker,
+        &scope
+            .public_identity
+            .derivation_client_share_public_key33_b64u,
+        &scope.public_identity.server_public_key33_b64u,
+        &scope.public_identity.threshold_public_key33_b64u,
+        &scope.public_identity.ethereum_address20_b64u,
+    )
+    .await
+    {
+        Ok(material) => return Ok(material),
+        Err(error) if error.code() == RouterAbProtocolErrorCode::MissingLocalBinding => {}
+        Err(error) => return Err(error),
+    }
     let lookup =
         CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(
             scope,
@@ -10857,19 +10966,21 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_presign_session_init_private
     if let Err(error) = parsed.validate_at(now_unix_ms) {
         return cloudflare_signing_worker_presign_error_response_v1(error);
     }
-    let (_, material) = match load_cloudflare_signing_worker_active_ecdsa_derivation_material_v1(
-        env,
-        runtime,
-        &parsed.scope,
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
-    };
-    let (relayer_share, _) =
-        match cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_normal_signing_material_v1(
+    let (active_signing_worker, material) =
+        match load_cloudflare_signing_worker_active_ecdsa_derivation_material_v1(
+            env,
+            runtime,
             &parsed.scope,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+        };
+    let (relayer_share, _) =
+        match cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_active_material_v1(
+            &parsed.scope,
+            &active_signing_worker,
             &material,
         ) {
             Ok(value) => value,
@@ -11083,21 +11194,23 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_export_share_private_fetch_v
     if let Err(error) = parsed.validate_at(now_unix_ms) {
         return cloudflare_signing_worker_presign_error_response_v1(error);
     }
-    let (_, material) = match load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1(
-        env,
-        runtime,
-        &parsed.export_authority.normal_signing_scope,
-        &parsed.material_source,
-        now_unix_ms,
-    )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
-    };
-    let (relayer_share, _) =
-        match cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_normal_signing_material_v1(
+    let (active_signing_worker, material) =
+        match load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1(
+            env,
+            runtime,
             &parsed.export_authority.normal_signing_scope,
+            &parsed.material_source,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+        };
+    let (relayer_share, _) =
+        match cloudflare_router_ab_ecdsa_derivation_relayer_share_and_public_identity_from_active_material_v1(
+            &parsed.export_authority.normal_signing_scope,
+            &active_signing_worker,
             &material,
         ) {
             Ok(value) => value,
