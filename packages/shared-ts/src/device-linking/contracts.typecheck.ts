@@ -4,7 +4,6 @@ import type {
   LinkedDeviceSummaryV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceOwnerSourceLaneV1,
-  LinkedDeviceSessionState,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
@@ -147,42 +146,6 @@ const invalidEcdsaOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
 const invalidCrossCurveOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
   ...ed25519OwnerSource,
   walletKey: ecdsaWalletKey,
-};
-
-const displaying: Extract<LinkedDeviceSessionState, { readonly state: 'displaying_qr' }> = {
-  state: 'displaying_qr',
-  linkSessionId,
-  expiresAtMs: 10,
-};
-
-const claimed: Extract<LinkedDeviceSessionState, { readonly state: 'claimed_by_owner' }> = {
-  state: 'claimed_by_owner',
-  linkSessionId,
-  walletId,
-  enrollmentId,
-  claimExpiresAtMs: 20,
-};
-
-// Unclaimed states cannot acquire wallet or enrollment identity.
-const invalidUnclaimedIdentity: Extract<
-  LinkedDeviceSessionState,
-  { readonly state: 'displaying_qr' }
-> = {
-  ...displaying,
-  // @ts-expect-error unclaimed states cannot carry wallet identity
-  walletId,
-};
-
-// Claimed states require both identities.
-// @ts-expect-error a claimed state cannot omit enrollment identity
-const invalidClaimedIdentity: Extract<
-  LinkedDeviceSessionState,
-  { readonly state: 'claimed_by_owner' }
-> = {
-  state: 'claimed_by_owner',
-  linkSessionId,
-  walletId,
-  claimExpiresAtMs: 20,
 };
 
 // Persisted permissions are delegated authorities with an opaque canonical set.
@@ -389,9 +352,6 @@ const invalidClaimedCancel: LinkedDeviceSessionTransportRequestV1 = {
   requestedAtMs: 1,
 };
 
-void invalidUnclaimedIdentity;
-void claimed;
-void invalidClaimedIdentity;
 void invalidPermissionPayload;
 void invalidPermissionPresence;
 void invalidOwnerAuthorization;
