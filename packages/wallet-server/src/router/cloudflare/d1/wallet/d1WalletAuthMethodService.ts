@@ -45,6 +45,7 @@ import {
   type EmailOtpProvider,
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
@@ -98,7 +99,12 @@ import {
   sameDelegatedWalletAuthorityV1,
 } from '@shared/authorization/delegatedAuthority';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import {
+  resolveWalletAuthMethodIdForAuthority,
+  type WalletExecutionLaneAuthSource,
+} from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import type {
+  ActiveWalletSessionAuthorityResolution,
   FinalizeWalletAddAuthMethodCommand,
   RevokeWalletAuthMethodCommand,
   StartWalletAddAuthMethodCommand,
@@ -1233,6 +1239,53 @@ export class CloudflareD1WalletAuthMethodService {
       };
     }
     return { ok: true, authority: walletAuthority, authMethod: record };
+  }
+
+  async resolveActiveWalletSessionAuthority(input: {
+    readonly walletId: WalletId;
+    readonly authorityRef: WalletAuthAuthorityRef;
+    readonly authSource: WalletExecutionLaneAuthSource;
+  }): Promise<ActiveWalletSessionAuthorityResolution> {
+    const authMethods = await this.getWalletAuthMethodStore().listForWalletV2({
+      walletId: input.walletId,
+    });
+    const walletAuthMethodId = await resolveWalletAuthMethodIdForAuthority({
+      walletId: input.walletId,
+      authorityRef: input.authorityRef,
+      authSource: input.authSource,
+      authMethods,
+    });
+    if (!walletAuthMethodId) {
+      return {
+        kind: 'rejected',
+        code: 'unauthorized',
+        message: 'Wallet Session proof does not identify one active wallet auth method',
+      };
+    }
+    const authMethod = authMethods.find(
+      (candidate) => candidate.walletAuthMethodId === walletAuthMethodId,
+    );
+    if (!authMethod || authMethod.status !== 'active') {
+      return {
+        kind: 'rejected',
+        code: 'unauthorized',
+        message: 'Wallet Session auth method is not active',
+      };
+    }
+    const authority = await this.walletAuthorityStore.readById(authMethod.walletAuthorityId);
+    if (
+      !authority ||
+      authority.state !== 'active' ||
+      authority.walletId !== input.walletId ||
+      authority.authorityId !== authMethod.walletAuthorityId
+    ) {
+      return {
+        kind: 'rejected',
+        code: 'unauthorized',
+        message: 'Wallet Session authority is not active',
+      };
+    }
+    return { kind: 'active_authority', authority, authMethod };
   }
 
   async resolveActivePasskeyAuthorityForVerifiedCredential(input: {

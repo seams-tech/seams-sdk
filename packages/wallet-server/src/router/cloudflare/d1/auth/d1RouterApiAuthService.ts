@@ -1988,6 +1988,10 @@ function createD1WalletAuthMethodRouteService(
   assembly: D1WalletAuthMethodRouteServiceAssembly,
 ): RouterApiServiceBag['walletAuthMethods'] {
   return {
+    resolveActiveWalletSessionAuthority:
+      assembly.walletAuthMethods.resolveActiveWalletSessionAuthority.bind(
+        assembly.walletAuthMethods,
+      ),
     verifyWalletAuthMethodRevokeProof:
       assembly.walletAuthMethods.verifyWalletAuthMethodRevokeProof.bind(assembly.walletAuthMethods),
     verifyActivePasskeyAuthority: assembly.walletAuthMethods.verifyActivePasskeyAuthority.bind(
@@ -2407,6 +2411,10 @@ function createD1AuthorizationSessionRouteService(
     issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
       assembly.authorizationService,
     ),
+    issueWalletSessionAuthorizationV2FromReusableSession:
+      assembly.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession.bind(
+        assembly.authorizationService,
+      ),
     issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
       assembly.authorizationService,
     ),

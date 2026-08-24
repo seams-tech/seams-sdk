@@ -49,6 +49,21 @@ not complete a behavioral item.
 - [x] The current representative Passkey-to-Passkey combined profile completes
   the full link, reload, export, signing, revocation, revoked-session, revoked-
   unlock, and surviving-owner path: 1/1 in 34.3 seconds.
+- [x] The Passkey-to-Passkey Ed25519-only profile completes the same operating
+  path after post-sign lock/re-unlock: 1/1 in 1.3 minutes.
+- [x] ECDSA-only registration now captures its owner-proof context before the
+  ceremony commit deletes the registration row; wallet-server typecheck/build
+  pass and the real Passkey/ECDSA cell reaches linked-authority activation.
+- [x] Post-registration ECDSA activation returns and persists the reusable
+  Wallet Session authorization ID separately from its proof-session ID; shared,
+  wallet, and wallet-server typechecks plus SDK/server builds pass.
+- [x] Passkey/ECDSA linked-authority activation accepts the intentionally
+  Ed25519-free WebAuthn binding and the real receipt/activation boundary returns
+  200 followed by its 204 final acknowledgement.
+- [x] ECDSA linked activation projects every newly issued reusable Wallet
+  Session into V2 before returning its opaque bearer. The real Passkey/ECDSA
+  cell now passes Device 1 inventory and independent reload/unlock on both
+  devices.
 
 ### Open completion gates
 
@@ -74,8 +89,8 @@ not complete a behavioral item.
 
 ### Current active checkpoint
 
-The active checkpoint is expansion from the green representative profile to the
-six-cell Passkey/Email-OTP by signer-family matrix.
+The active checkpoint is the remaining Passkey/ECDSA lifecycle after successful
+link activation, followed by the three Email OTP matrix cells.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
@@ -106,6 +121,29 @@ six-cell Passkey/Email-OTP by signer-family matrix.
   single classification rerun. The representative browser contract now passes
   1/1 in 34.3 seconds, and the E2E TypeScript compile, scoped ESLint, Playwright
   discovery, and diff-check pass.
+- Matrix progress: the Passkey/Ed25519 cell is green. Its first failure was a
+  harness menu that `Escape` did not close. The next failure was production:
+  after lock/re-unlock, the linked active Ed25519 client and public lane existed,
+  while material-identity signing still required a registration-style sealed
+  custody runtime that linked installations never possess. The signing boundary
+  now accepts the exact live runtime only after active Wallet Session and
+  authority correlation; wallet typecheck, SDK build, and the real browser cell
+  pass.
+- Passkey/ECDSA progress: registration, exact owner authorization, target
+  preparation, source contribution, committed-package installation, authority
+  activation, and final acknowledgement all pass in the real two-browser cell.
+  Three family-specific regressions were repaired: registration read its proof
+  context after tombstoning the ceremony; ECDSA bootstrap persisted the proof-
+  session ID as the reusable authorization ID; and Passkey promotion required
+  NEAR binding facts for an ECDSA-only authority. The test also stopped waiting
+  for the Ed25519-only `/source-contribution/execute` route in the ECDSA branch.
+  ECDSA activation also minted a reusable bearer without its V2 authority
+  projection. It now resolves the proof's exact active method and authority,
+  persists that projection from the issued session, and only then returns the
+  bearer. The real cell passes Device 1 inventory and independent reload/unlock
+  on both devices. Its current first failure is the next boundary: ECDSA key
+  export reports that the rehydrated client has no active Wallet Session
+  authorization.
 - Current focused files: `tests/e2e/linked-device.operating-path.test.ts`,
   `ecdsa-derivation-client.worker.ts`, and
   `tests/unit/ecdsaHolderExportRetention.unit.test.ts`.
@@ -165,7 +203,14 @@ route. This ledger is normative for the remaining work and for future refactors.
 | Local V2 Passkey selection erased authority provenance | Device 1 registration authority was routed through the linked-device unlock verifier and rejected its correct custody response | The selector tested curve, method kind, and active state while omitting the protocol-defining registration-versus-link provenance | Require family-specific selectors to narrow provenance before choosing an unlock protocol; focused tests must cover both registration and device-link authorities |
 | Linked-device inventory helpers left the profile menu open | Persistent profile state survived helpers that asserted only modal closure, leaving later wallet-surface behavior ambiguous | Modal assertions did not verify cleanup of the parent menu | Every UI helper that opens a persistent menu must close it before returning and verify the parent state is closed |
 | Tempo funding state changed between the harness branch and click | The helper waited for a signing confirmation after the account had become funded without needing another signature | The test treated an asynchronously refreshed UI label as a durable operation state and counted funding as the Tempo signing operation | Make decision-and-click atomic, distinguish no-sign completion from authorization, and exercise the named transaction after prerequisites are ready |
+| Linked Passkey Ed25519 material-identity signing required a custody-sealed runtime | After post-sign lock/re-unlock, Device 2 had an exact active linked client and public lane but signing failed with `exact persisted Ed25519 runtime is missing` | The exact-lane branch supported linked live material while the material-identity branch modeled every Passkey as a registration custody installation | Before sealed-runtime recovery, consume an exact active client only when its public lane, selected authority, active Wallet Session, operation credential, and activation all correlate |
+| The linked-device matrix did not refresh its expiring Google test token | Every Email OTP cell failed at registration with `Google id_token is expired` | `test:intended` ran the token preflight while `test:linked-device` bypassed it | Every suite containing Email OTP acceptance must run the same token freshness preflight before launching browsers |
 | Lower-authority fixtures drifted behind required runtime state | Focused legacy tests threw on missing `runtimePolicyScope` or received parser-level `400` responses | Inline request/session fixtures duplicated retired shapes | Use branch-specific shared factories and classify fixture failures before touching production |
+| ECDSA-only registration deleted its proof context before reading it | `/wallets/register/activate` failed with `Registration owner proof context is unavailable` | The mixed/Ed paths masked ECDSA-only finalize ordering, and the focused activation file contains stale hand-written fixtures | Capture required proof context before the commit/tombstone boundary; require one ECDSA-only activation behavior test built from current factories |
+| ECDSA activation conflated proof-session and reusable authorization identities | QR owner authorization returned the canonical bearer authorization ID while local projection expected the activation proof ID | Both values were opaque strings and the response exposed only `authorization_session_id` | Carry both branded identities across the wire and persist the reusable `authorization_id`; add negative type/parser fixtures that prevent substitution |
+| Passkey promotion assumed every wallet had Ed25519 binding facts | ECDSA-only receipt activation was reported as an `installedActivationRefs` mismatch even though the receipt matched | Combined/Ed fixtures always supplied NEAR identity fields, and the route collapsed every activation error to one hard-coded field | Branch credential promotion on the authority signer family; ECDSA-only Passkeys store the valid base binding, while Ed25519 authorities require the complete Ed facts |
+| The ECDSA-only test waited for an Ed25519 source-execution route | A successful ECDSA link stalled for 60 seconds after the direct source contribution | The matrix reused one family-agnostic waiter despite distinct source-contribution transports | Create waiters only for routes the selected family emits; never leave a losing Playwright waiter alive |
+| ECDSA activation issued a reusable bearer without its V2 authority projection | Bearer authentication succeeded while linked-device inventory returned 401 and could not resolve the exact session identity | The activation test asserted the opaque response and omitted the management service's V2 read | Resolve the exact active method and authority at issuance, persist the V2 projection before bearer delivery, and require inventory plus reload in the real ECDSA cell |
 
 ### Required acceptance sequencing for future refactors
 

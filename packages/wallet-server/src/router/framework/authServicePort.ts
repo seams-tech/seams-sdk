@@ -134,6 +134,14 @@ export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
   readonly retiredAtMs: number | null;
 };
 
+export type ActiveWalletSessionAuthorityResolution =
+  | {
+      readonly kind: 'active_authority';
+      readonly authority: ActiveWalletAuthorityV1;
+      readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+    }
+  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+
 export type CreateAddAuthMethodIntentCommand = Readonly<{
   subject: WalletAuthMethodManagementSubject;
   authMethod: AddAuthMethodInput;
@@ -1136,6 +1144,11 @@ export interface RouterApiWalletAuthVerificationService {
 }
 
 export interface RouterApiWalletAuthMethodService {
+  resolveActiveWalletSessionAuthority(input: {
+    readonly walletId: WalletId;
+    readonly authorityRef: WalletAuthAuthorityRef;
+    readonly authSource: WalletExecutionLaneAuthSource;
+  }): Promise<ActiveWalletSessionAuthorityResolution>;
   verifyWalletAuthMethodRevokeProof(input: {
     readonly walletId: WalletId;
     readonly targetWalletAuthMethodId: WalletAuthMethodId;
@@ -1451,6 +1464,11 @@ export interface RouterApiAuthorizationSessionService {
   issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession>;
+  issueWalletSessionAuthorizationV2FromReusableSession(input: {
+    readonly reusableWalletSession: IssuedReusableWalletSession;
+    readonly authority: ActiveWalletAuthorityV1;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<IssuedWalletSessionAuthorizationV2>;
   issueOpaqueWalletSessionToken(input: {
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly tenantId: TenantId;
