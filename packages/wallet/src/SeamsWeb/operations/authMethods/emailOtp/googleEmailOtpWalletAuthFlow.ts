@@ -64,6 +64,8 @@ type GoogleLoginEmailOtpEd25519YaoCapabilityArgs = {
   authoritySelector: EmailOtpAuthoritySelector;
   /** Email OTP provider subject id, passed alongside the wallet-scoped session ref. */
   providerSubjectId: string;
+  /** Verified email backing the auth-method hash for the Ed25519 unlock. */
+  emailOtpAuthorityEmail: string;
   challengeId: string;
   otpCode: string;
   remainingUses: number;
@@ -523,6 +525,7 @@ async function loginWithConfiguredTargets(args: {
       walletSession,
       authoritySelector,
       providerSubjectId: args.state.providerSubject,
+      emailOtpAuthorityEmail: args.state.emailHint,
       challengeId: args.challenge.challengeId,
       otpCode: args.otpCode,
       remainingUses: resolveGoogleEmailOtpEd25519RemainingUses(args.deps.configs),
