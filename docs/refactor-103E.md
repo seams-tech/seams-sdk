@@ -130,7 +130,9 @@ with the three Email OTP cells.
   challenge digest reproduces the presented proof digest.
 - Migration numbering: R103E owns `0011_r103e_email_otp_device_methods.sql`
   (renamed from the interim `0012`); the planned R109C cardinality migration
-  moved to `0012` in `docs/refactor-109D-multi-auth-linking.md`.
+  moved to `0013` in `docs/refactor-109D-multi-auth-linking.md`. R103E also owns
+  `0012_r103e_wallet_session_operation_credentials.sql`, which repairs databases
+  that applied migration `0008` before operation credentials were added.
 - Email/Ed25519 progress: the Ed25519-only Email cell now registers, unlocks
   the owner, links Device 2, activates its authority, reloads Device 2 twice,
   and fails at Device 2's unlock after reload. Every failure was
