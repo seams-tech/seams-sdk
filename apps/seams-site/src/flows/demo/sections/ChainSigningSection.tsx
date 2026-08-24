@@ -36,6 +36,7 @@ type ChainSigningSectionProps = {
   onSignDelegate: () => void | Promise<void>;
   delegateLoading: boolean;
   canSignDelegate: boolean;
+  nearSignerAvailable: boolean;
   /* testnet plumbing for the threshold-signer chains */
   thresholdOwnerAddress: string | null;
   onCopyThresholdOwnerAddress: () => void;
@@ -72,6 +73,7 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
               type="button"
               role="tab"
               aria-selected={c.id === chain.id}
+              disabled={c.id === 'near' ? !props.nearSignerAvailable : !props.thresholdOwnerAddress}
               className={`demo-chain-seg__btn${c.id === chain.id ? ' is-active' : ''}`}
               onClick={() => props.onSelectChain(c.id)}
             >

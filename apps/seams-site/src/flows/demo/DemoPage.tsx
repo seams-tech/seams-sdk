@@ -170,6 +170,7 @@ export const DemoPage: React.FC = () => {
         onSignDelegate={nearActions.handleSignDelegateGreeting}
         delegateLoading={nearActions.delegateLoading}
         canSignDelegate={nearActions.canSignDelegate}
+        nearSignerAvailable={Boolean(nearPublicKey)}
         thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
         onCopyThresholdOwnerAddress={() => {
           toast.success('Address copied');
