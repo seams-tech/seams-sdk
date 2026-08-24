@@ -50,6 +50,7 @@ import {
 import type {
   MpcWalletSigningQuotaId,
   EcdsaAuthorizationSessionId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -91,6 +92,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     ok: true;
     thresholdSessionId: string;
     authorizationSessionId: EcdsaAuthorizationSessionId;
+    authorizationId: WalletSessionAuthorizationId;
     walletSessionId: WalletSessionId;
     quotaId: MpcWalletSigningQuotaId;
     expiresAtMs: number;
@@ -454,6 +456,7 @@ async function activateEcdsaSessionByPurpose(
     ok: true,
     thresholdSessionId,
     authorizationSessionId: bootstrap.authorizationSessionId,
+    authorizationId: bootstrap.authorizationId,
     walletSessionId: bootstrap.walletSessionId,
     quotaId: bootstrap.quotaId,
     expiresAtMs,
