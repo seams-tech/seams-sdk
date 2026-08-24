@@ -15,7 +15,10 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
-import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
+import type {
+  EmailOtpAuthoritySelector,
+  EmailOtpWorkerProgressEvent,
+} from '../../workerManager/workerTypes';
 import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
@@ -34,6 +37,7 @@ import { buildFreshEmailOtpRoutePlan } from '../../session/emailOtp/routePlan';
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
+  authoritySelector: EmailOtpAuthoritySelector;
   subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -122,6 +126,7 @@ function emailOtpEcdsaLoginCoreArgsFromBoundary(
 ): LoginEmailOtpEcdsaCapabilityArgs {
   return {
     walletSession: args.walletSession,
+    authoritySelector: args.authoritySelector,
     chainTarget: args.chainTarget,
     otpCode: args.otpCode,
     routePlan: buildEmailOtpEcdsaFreshRoutePlanFromBoundary(args, 'login'),

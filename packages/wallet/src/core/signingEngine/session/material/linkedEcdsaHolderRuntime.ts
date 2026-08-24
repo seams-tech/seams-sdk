@@ -6,12 +6,14 @@ import {
   type WalletAuthMethodId,
   type WalletId,
 } from '@shared/utils/domainIds';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export type LinkedEcdsaHolderRuntimeV1 = {
   readonly kind: 'linked_ecdsa_holder_runtime_v1';
   readonly walletId: WalletId;
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly factorAuthority: WalletAuthAuthority;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly holderHandleId: string;
   readonly ecdsaThresholdKeyId: string;
@@ -34,6 +36,8 @@ export function installLinkedEcdsaHolderRuntimeV1(runtime: LinkedEcdsaHolderRunt
     existing &&
     (existing.authorityId !== runtime.authorityId ||
       existing.walletAuthMethodId !== runtime.walletAuthMethodId ||
+      existing.factorAuthority.walletId !== runtime.factorAuthority.walletId ||
+      existing.factorAuthority.bindingId !== runtime.factorAuthority.bindingId ||
       existing.holderHandleId !== runtime.holderHandleId ||
       !mpcMaterialActivationRefsEqual(existing.materialActivation, runtime.materialActivation))
   ) {

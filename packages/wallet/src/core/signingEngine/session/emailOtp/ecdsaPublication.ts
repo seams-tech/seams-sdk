@@ -178,8 +178,14 @@ export type EmailOtpEcdsaScopeSelector =
       authorityRef: WalletAuthAuthorityRef;
     }
   | {
+      kind: 'exact_authority';
+      authorityRef: WalletAuthAuthorityRef;
+      runtimePolicyScope?: never;
+    }
+  | {
       kind: 'durable_manifest';
       runtimePolicyScope?: never;
+      authorityRef?: never;
     };
 
 export function projectEmailOtpExistingEcdsaKeyToChainTarget(args: {
@@ -270,7 +276,8 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
         })
       : null;
   const requestedKeyHandle = String(args.keyHandle || '').trim();
-  const exactAuthorityRef = args.scope.kind === 'exact' ? args.scope.authorityRef : null;
+  const exactAuthorityRef =
+    args.scope.kind === 'durable_manifest' ? null : args.scope.authorityRef;
   const manifests = await args.listActiveEcdsaCapabilityManifestsForWallet(args.walletId);
   const candidates = manifests
     .filter((manifest) => {

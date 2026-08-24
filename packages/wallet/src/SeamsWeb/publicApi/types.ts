@@ -548,6 +548,8 @@ export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
 
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
+  /** Exact Email OTP method selected during challenge resolution. */
+  walletAuthMethodId?: string;
   chainTarget: ThresholdEcdsaChainTarget;
   providerIdentity: {
     provider: EmailOtpProvider;
@@ -761,6 +763,7 @@ export interface AuthCapability {
   }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult>;
   requestEmailOtpChallenge(args: {
     walletId: string;
+    walletAuthMethodId?: string;
     relayUrl?: string;
     operation?: WalletEmailOtpLoginOperation;
     operationFingerprintDigest?: DigestB64u;

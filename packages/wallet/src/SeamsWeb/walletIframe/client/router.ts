@@ -2701,6 +2701,7 @@ export class WalletIframeRouter {
 
   async requestEmailOtpChallenge(payload: {
     walletId: string;
+    walletAuthMethodId?: string;
     relayUrl?: string;
     operation?: WalletEmailOtpLoginOperation;
     operationFingerprintDigest?: DigestB64u;
@@ -3431,7 +3432,19 @@ export class WalletIframeRouter {
       options?.onTargetFactorRequired?.(this.deviceLinkTargetFactorActivationV1(progress));
       return;
     }
-    if (isLinkDeviceFlowEvent(progress)) options?.onEvent?.(progress);
+    if (!isLinkDeviceFlowEvent(progress)) return;
+    options?.onEvent?.(progress);
+    const outcome = classifyLinkDeviceFlowEvent(progress);
+    if (outcome.kind !== 'active') return;
+    void this.refreshExactSessionAndEmitLoginStatus('current', {
+      kind: 'exact',
+      walletId: outcome.walletId,
+    }).catch((error: unknown) => {
+      console.warn(
+        '[WalletIframeRouter] Exact session refresh after device linking failed:',
+        error,
+      );
+    });
   }
 
   private deviceLinkTargetFactorActivationV1(
