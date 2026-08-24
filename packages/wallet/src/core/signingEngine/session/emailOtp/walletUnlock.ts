@@ -12,6 +12,7 @@ import type {
   EmailOtpWalletUnlockMaterialResult,
   EmailOtpWorkerOperationMap,
   EmailOtpEcdsaCustodyRestoreV1,
+  EmailOtpAuthoritySelector,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/ed25519SeedMaterial';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
@@ -65,6 +66,10 @@ export type EmailOtpEd25519YaoUnlockResult =
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
       walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
+      ed25519ExportRootCustody: Extract<
+        EmailOtpWalletUnlockMaterialResult,
+        { kind: 'ed25519_yao_capability' }
+      >['ed25519ExportRootCustody'];
     };
 
 export type EmailOtpWalletUnlockCapabilityResults = {
@@ -92,6 +97,7 @@ type EmailOtpWalletUnlockVerification =
 
 type EmailOtpWalletUnlockBaseArgs = {
   walletSession: WalletSessionRef;
+  authoritySelector: EmailOtpAuthoritySelector;
   relayUrl: string;
   groupId: string;
   routePlan: EmailOtpRoutePlan;
@@ -157,6 +163,7 @@ async function requestEmailOtpWalletUnlock(args: {
       payload: {
         relayUrl: args.base.relayUrl,
         walletId: String(args.base.walletSession.walletId),
+        authoritySelector: args.base.authoritySelector,
         userId: String(args.base.walletSession.walletSessionUserId),
         verification: args.base.verification,
         groupId: args.base.groupId,
@@ -272,6 +279,7 @@ export async function unlockEmailOtpEd25519YaoCapability(
       ...(result.walletCustodyEd25519Material
         ? { walletCustodyEd25519Material: result.walletCustodyEd25519Material }
         : {}),
+      ed25519ExportRootCustody: result.ed25519ExportRootCustody,
     };
   }
   if (result.kind !== 'wallet_custody_cache_absent') {
@@ -353,6 +361,9 @@ export async function unlockEmailOtpWalletCapabilities(
             activeClientHandle: result.ed25519Yao.activeClientHandle,
             metadata: result.ed25519Yao.metadata,
             ed25519YaoCapability: result.ed25519Yao.bootstrap,
+            /* The same custody this combined result already owns above; the
+               caller zeroizes that one buffer exactly once. */
+            ed25519ExportRootCustody: result.ed25519ExportRootCustody,
           },
   };
 }
