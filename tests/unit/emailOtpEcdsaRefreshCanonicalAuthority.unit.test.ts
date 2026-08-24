@@ -25,6 +25,10 @@ import {
 import { resolveThresholdEcdsaSigningQueueKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  parseThresholdEcdsaSessionId,
+  parseThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
 
 // Email OTP refresh renews authorization over material that already exists. It
 // resolves the exact manifest plus sealed runtime, takes the Email OTP binding
@@ -59,13 +63,18 @@ function activeAuthorization(walletSessionId: string) {
   }).projection;
 }
 
+function requiredParsed<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('focused authorization fixture identity is invalid');
+  return result.value;
+}
+
 function activeAuthorizationWithoutEcdsa(walletSessionId: string) {
   const active = activeAuthorization(walletSessionId);
   if (active.walletSessionTokens.kind !== 'evm_family_ecdsa') {
     throw new Error('ECDSA authorization fixture must carry an ECDSA token');
   }
-  const ecdsaJwt = active.walletSessionTokens.ecdsa.walletSessionJwt;
-  const [header, payload, signature] = ecdsaJwt.split('.');
+  const ecdsaToken = active.walletSessionTokens.ecdsa.walletSessionToken;
+  const [header, payload, signature] = ecdsaToken.split('.');
   if (!header || !payload || !signature) throw new Error('invalid ECDSA JWT fixture');
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<
     string,
@@ -75,13 +84,17 @@ function activeAuthorizationWithoutEcdsa(walletSessionId: string) {
   const nearJwt = `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`;
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: active.walletId,
-    seamsSessionId: active.seamsSessionId,
-    authorizationId: active.authorizationId,
     walletSessionId: active.walletSessionId,
     quotaId: active.quotaId,
     walletSessionTokens: {
       kind: 'near_ed25519',
-      ed25519: { walletSessionJwt: nearJwt },
+      ed25519: {
+        authorizationId: active.walletSessionTokens.ecdsa.authorizationId,
+        walletSessionToken: nearJwt,
+        thresholdSessionId: requiredParsed(
+          parseThresholdEd25519SessionId('ed25519-fixture-threshold-session'),
+        ),
+      },
     },
     authMethod: active.authMethod,
     authority: active.authority,
@@ -100,7 +113,8 @@ function activeCanonicalAuthorization(
   if (active.walletSessionTokens.kind !== 'evm_family_ecdsa') {
     throw new Error('ECDSA authorization fixture must carry an ECDSA token');
   }
-  const [header, payload, signature] = active.walletSessionTokens.ecdsa.walletSessionJwt.split('.');
+  const [header, payload, signature] =
+    active.walletSessionTokens.ecdsa.walletSessionToken.split('.');
   if (!header || !payload || !signature) throw new Error('invalid ECDSA JWT fixture');
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<
     string,
@@ -109,14 +123,14 @@ function activeCanonicalAuthorization(
   claims.thresholdSessionId = thresholdSessionId;
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: active.walletId,
-    seamsSessionId: active.seamsSessionId,
-    authorizationId: active.authorizationId,
     walletSessionId: active.walletSessionId,
     quotaId: active.quotaId,
     walletSessionTokens: {
       kind: 'evm_family_ecdsa',
       ecdsa: {
-        walletSessionJwt: `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`,
+        authorizationId: active.walletSessionTokens.ecdsa.authorizationId,
+        walletSessionToken: `${header}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${signature}`,
+        thresholdSessionId: requiredParsed(parseThresholdEcdsaSessionId(thresholdSessionId)),
       },
     },
     authMethod: active.authMethod,
@@ -270,9 +284,10 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
       capability.manifest.activation.materialActivation,
     );
     expect(material.chainTarget).toEqual(tempoTarget);
-    expect(material.authorization.signingSessionAuthority.authLane.thresholdSessionId).toBe(
-      'ec-session-registration-export',
-    );
+    expect(material.authorization).toEqual({
+      kind: 'fresh_operation_authorization_required',
+      authority: capability.authority,
+    });
     expect(material.normalSigning.scope.ecdsa_threshold_key_id).toBe(
       String(capability.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId),
     );
@@ -293,7 +308,7 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
     // The Email OTP lane names the sealed threshold session. Reusable Wallet
     // Session identity remains on the independent authorization projection.
     expect(authLane.thresholdSessionId).toBe(runtime.sealedRecord.thresholdSessionId);
-    expect(authLane.jwt).toMatch(/^eyJ/);
+    expect(authLane.walletSessionToken).toMatch(/^eyJ/);
   });
 
   test('an absent Wallet Session is a typed unavailable, not a throw', () => {

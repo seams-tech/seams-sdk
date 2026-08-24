@@ -65,7 +65,11 @@ test('linked Email OTP login carries the exact selected sibling method into chal
   const calls: string[] = [];
   const challengeMethods: string[] = [];
   const deps = linkedEmailOtpDeps({
-    selection: { kind: 'selected', walletAuthMethodId: 'email-otp:linked-method-a' },
+    selection: {
+      kind: 'selected',
+      walletAuthMethodId: 'email-otp:linked-method-a',
+      execution: 'linked',
+    },
     calls,
     challengeMethods,
   });
@@ -90,7 +94,11 @@ test('linked Email OTP login keeps an exact sibling selection when method B is s
   const calls: string[] = [];
   const challengeMethods: string[] = [];
   const deps = linkedEmailOtpDeps({
-    selection: { kind: 'selected', walletAuthMethodId: 'email-otp:linked-method-b' },
+    selection: {
+      kind: 'selected',
+      walletAuthMethodId: 'email-otp:linked-method-b',
+      execution: 'linked',
+    },
     calls,
     challengeMethods,
   });

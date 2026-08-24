@@ -116,7 +116,7 @@ function state(overrides: Partial<RouteState> = {}): RouteState {
 test('an exact Email OTP method selector reaches the exact unlock authority resolver', async () => {
   const routeState = state({
     exactResolution: {
-      kind: 'wallet_registration',
+      kind: 'active_authority',
       walletAuthAuthority: selectedAuthority(),
     },
   });
