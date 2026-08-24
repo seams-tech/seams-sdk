@@ -138,6 +138,7 @@ import type {
   EmailOtpEcdsaCustodyContinuityV1,
   EmailOtpEcdsaCustodyRestoreV1,
   EmailOtpEcdsaCustodySignerV1,
+  EmailOtpAuthoritySelector,
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
   EmailOtpWarmMaterialTarget,
@@ -720,6 +721,7 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl: state.relayUrl,
       walletId: state.walletId,
+      authoritySelector: { kind: 'wallet' },
       orgId: state.orgId,
       userId: state.providerSubjectId,
       enrollmentId: released.enrollmentId,
@@ -913,6 +915,29 @@ function readOptionalString(value: unknown): string | undefined {
   return toOptionalTrimmedNonEmptyString(value);
 }
 
+function readEmailOtpAuthoritySelector(value: unknown): EmailOtpAuthoritySelector {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Email OTP authority selector is required');
+  }
+  const selector = value as { readonly kind?: unknown; readonly walletAuthMethodId?: unknown };
+  if (selector.kind === 'wallet') return { kind: 'wallet' };
+  if (selector.kind === 'wallet_auth_method') {
+    return {
+      kind: 'wallet_auth_method',
+      walletAuthMethodId: readString(selector.walletAuthMethodId, 'walletAuthMethodId'),
+    };
+  }
+  throw new Error('Email OTP authority selector kind is invalid');
+}
+
+function emailOtpAuthoritySelectorBody(
+  selector: EmailOtpAuthoritySelector,
+): { readonly walletAuthMethodId?: string } {
+  return selector.kind === 'wallet_auth_method'
+    ? { walletAuthMethodId: selector.walletAuthMethodId }
+    : {};
+}
+
 function readRoutePlan(value: unknown, label: string): EmailOtpRoutePlan {
   const plan = normalizeEmailOtpRoutePlan(value);
   if (!plan) throw new Error(`${label} requires Email OTP routePlan`);
@@ -970,7 +995,9 @@ function assertEmailOtpUnlockMaterialRouteAuth(args: {
   const carriesEcdsaActivation =
     (args.material.kind === 'ecdsa' && Boolean(args.material.ecdsaSessionPolicy)) ||
     args.material.kind === 'wallet_unlock_capabilities';
-  if (carriesEcdsaActivation !== (args.routePlan.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION)) {
+  /* One direction only: an Ed25519-only wallet unlocks without any ECDSA
+     activation, so wallet_unlock does not imply ECDSA-bearing material. */
+  if (carriesEcdsaActivation && args.routePlan.operation !== WALLET_EMAIL_OTP_UNLOCK_OPERATION) {
     throw new Error('Only Email OTP wallet unlock may carry first ECDSA session activation');
   }
   switch (args.material.kind) {
@@ -1969,6 +1996,7 @@ async function releaseEmailOtpFactorSecret(
       }
     | {
         kind: 'email_otp';
+        authoritySelector: EmailOtpAuthoritySelector;
         challengeId: string;
         otpCode: string;
         operation: WalletEmailOtpOperation;
@@ -2020,6 +2048,7 @@ async function releaseEmailOtpFactorSecret(
           : args.kind === 'email_otp'
             ? {
                 kind: 'email_otp',
+                ...emailOtpAuthoritySelectorBody(args.authoritySelector),
                 challengeId: args.challengeId,
                 otpCode: args.otpCode,
                 operation: args.operation,
@@ -2116,6 +2145,7 @@ async function unlockLinkedEmailOtpWallet(
   const released = await releaseEmailOtpFactorSecret({
     relayUrl,
     walletId,
+    authoritySelector: { kind: 'wallet_auth_method', walletAuthMethodId },
     challengeId,
     otpCode,
     operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -2321,6 +2351,10 @@ async function rehydrateEmailOtpEd25519YaoOperationMaterial(
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl,
       walletId,
+      authoritySelector: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: String(args.proof.authorityRef.walletAuthMethodId),
+      },
       orgId: args.orgId,
       userId: providerSubjectId,
       enrollmentId: released.enrollmentId,
@@ -2391,6 +2425,10 @@ async function rehydrateActiveEmailOtpEd25519YaoSessionMaterial(
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl,
       walletId,
+      authoritySelector: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: readString(args.walletAuthMethodId, 'walletAuthMethodId'),
+      },
       orgId: readString(args.orgId, 'orgId'),
       userId: providerSubjectId,
       enrollmentId: released.enrollmentId,
@@ -3127,6 +3165,7 @@ async function restoreEmailOtpEd25519FromCustodyCache(args: {
 async function completeEmailOtpUnlockFromSecret32(args: {
   relayUrl: string;
   walletId: string;
+  authoritySelector: EmailOtpAuthoritySelector;
   orgId?: string;
   userId: string;
   enrollmentId: string;
@@ -3152,6 +3191,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
     body: {
       unlockBackend: 'email_otp',
       walletId,
+      ...emailOtpAuthoritySelectorBody(args.authoritySelector),
       ...(readOptionalString(args.orgId) ? { orgId: readOptionalString(args.orgId) } : {}),
     },
   });
@@ -3192,6 +3232,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       body: {
         unlockBackend: 'email_otp',
         walletId,
+        ...emailOtpAuthoritySelectorBody(args.authoritySelector),
         ...(readOptionalString(args.orgId) ? { orgId: readOptionalString(args.orgId) } : {}),
         challengeId: unlockChallengeId,
         unlockProof: {
@@ -3553,6 +3594,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
 async function loginWithEmailOtpAndUnlockWallet(args: {
   relayUrl: string;
   walletId: string;
+  authoritySelector: EmailOtpAuthoritySelector;
   orgId?: string;
   userId: string;
   verification:
@@ -3651,6 +3693,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           ...(sessionAuth ? { sessionAuth } : {}),
           body: {
             walletId,
+            ...emailOtpAuthoritySelectorBody(args.authoritySelector),
             otpChannel: EMAIL_OTP_CHANNEL,
             operation: args.routePlan.operation,
           },
@@ -3680,6 +3723,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         ? { kind: 'verified_grant', loginGrant: args.verification.grant }
         : {
             kind: 'email_otp',
+            authoritySelector: args.authoritySelector,
             otpCode: readString(args.verification.otpCode, 'otpCode'),
             operation: args.routePlan.operation,
           }),
@@ -3690,6 +3734,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl,
       walletId,
+      authoritySelector: args.authoritySelector,
       ...(readOptionalString(args.orgId) ? { orgId: readOptionalString(args.orgId) } : {}),
       userId,
       enrollmentId: released.enrollmentId,
@@ -3866,6 +3911,7 @@ async function prepareEmailOtpPasskeyCustodyLink(args: {
   const recovered = await loginWithEmailOtpAndUnlockWallet({
     relayUrl: args.relayUrl,
     walletId: args.walletId,
+    authoritySelector: { kind: 'wallet' },
     userId: args.userId,
     groupId: args.groupId,
     routePlan: args.routePlan,
@@ -3931,6 +3977,7 @@ async function rotateEmailOtpWalletRecoverySet(args: {
   const recovered = await loginWithEmailOtpAndUnlockWallet({
     relayUrl: args.relayUrl,
     walletId: args.walletId,
+    authoritySelector: { kind: 'wallet' },
     userId: args.userId,
     groupId: args.groupId,
     routePlan: args.routePlan,
@@ -5810,9 +5857,19 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.walletAuthMethodId)
+            ? { walletAuthMethodId: optionalWorkerString(payload.walletAuthMethodId)! }
+            : {}),
           routePlan: readRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+          ...(optionalWorkerString(payload.operationFingerprintDigest)
+            ? {
+                operationFingerprintDigest: parseDigestB64u(
+                  optionalWorkerString(payload.operationFingerprintDigest)!,
+                ),
+              }
             : {}),
         },
       };
@@ -5987,6 +6044,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
+          authoritySelector: readEmailOtpAuthoritySelector(payload.authoritySelector),
           userId: readString(payload.userId, 'userId'),
           groupId: readString(payload.groupId, 'groupId'),
           routePlan: readRoutePlan(payload.routePlan, type),
@@ -6125,6 +6183,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         [
           'relayUrl',
           'walletId',
+          'walletAuthMethodId',
           'orgId',
           'providerSubjectId',
           'nearAccountId',
@@ -6226,6 +6285,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
+          walletAuthMethodId: readString(payload.walletAuthMethodId, 'walletAuthMethodId'),
           orgId: readString(payload.orgId, 'orgId'),
           providerSubjectId: readString(payload.providerSubjectId, 'providerSubjectId'),
           nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
@@ -6615,6 +6675,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const result = await loginWithEmailOtpAndUnlockWallet({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           walletId,
+          authoritySelector: readEmailOtpAuthoritySelector(msg.payload.authoritySelector),
           ...(orgId ? { orgId } : {}),
           userId: msg.payload.userId,
           verification: msg.payload.verification,
