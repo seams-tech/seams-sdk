@@ -65,11 +65,6 @@ export type Ed25519YaoClientRootEnvelopeEmailScopeV1 =
   readonly targetFactor: { readonly kind: 'email_otp' };
 };
 
-type Ed25519YaoClientRootEnvelopeEmailLookupV1 = {
-  readonly walletId: string;
-  readonly registeredPublicKeyB64u: string;
-};
-
 const activePasskeyCustodyEnvelopes = new Map<
   PasskeyCustodySessionKey,
   PasskeyCustodyEnvelopeRecord
@@ -235,19 +230,6 @@ function rootEnvelopeMatchesIdentity(
   );
 }
 
-function rootEnvelopeMatchesEmailOtpLookup(
-  envelope: Ed25519YaoClientRootEnvelopeRecordV1,
-  args: Ed25519YaoClientRootEnvelopeEmailLookupV1,
-): boolean {
-  return (
-    envelope.lifecycle.state === 'active' &&
-    envelope.walletId === args.walletId &&
-    envelope.factor.kind === 'email_otp' &&
-    envelope.binding.targetFactor.kind === 'email_otp' &&
-    envelope.binding.registeredPublicKeyB64u === args.registeredPublicKeyB64u
-  );
-}
-
 /**
  * Keeps the opaque envelope returned by the authenticated session exchange in
  * this page's memory. The export worker receives it only for the matching
@@ -375,49 +357,6 @@ export async function readEd25519YaoClientRootEnvelopeForEmailScopeV1(
       },
     });
     activeEd25519YaoClientRootEnvelopes.set(key, envelope);
-  }
-  return envelope;
-}
-
-export async function readUniqueEd25519YaoClientRootEnvelopeForEmailOtpV1(args: {
-  readonly walletId: string;
-  readonly registeredPublicKeyB64u: string;
-}): Promise<Ed25519YaoClientRootEnvelopeRecordV1 | null> {
-  const cached = (await readEd25519YaoClientRootEnvelopeCache()).envelopes.find(
-    (envelope) => rootEnvelopeMatchesEmailOtpLookup(envelope, args),
-  );
-  const active = Array.from(activeEd25519YaoClientRootEnvelopes.values()).find(
-    (envelope) => rootEnvelopeMatchesEmailOtpLookup(envelope, args),
-  );
-  const candidates = cached && active && cached.envelopeId !== active.envelopeId
-    ? [cached, active]
-    : cached
-      ? [cached]
-      : active
-        ? [active]
-        : [];
-  if (candidates.length > 1) {
-    throw new Error('multiple active Ed25519 Yao client-root envelopes match Email OTP');
-  }
-  const envelope = candidates[0] ?? null;
-  if (envelope) {
-    activeEd25519YaoClientRootEnvelopes.set(
-      rootEnvelopeKey({
-        walletId: String(envelope.walletId),
-        linkSessionId: String(envelope.binding.linkSessionId),
-        walletKeyId: String(envelope.binding.walletKeyId),
-        enrollmentId: String(envelope.binding.enrollmentId),
-        deviceId: String(envelope.binding.deviceId),
-        applicationBindingDigestB64u: String(envelope.binding.applicationBindingDigestB64u),
-        registeredPublicKeyB64u: String(envelope.binding.registeredPublicKeyB64u),
-        revocationEpoch: envelope.binding.revocationEpoch,
-        targetFactor: {
-          kind: 'email_otp',
-          enrollmentSealKeyVersion: String(envelope.factor.enrollmentSealKeyVersion),
-        },
-      }),
-      envelope,
-    );
   }
   return envelope;
 }
