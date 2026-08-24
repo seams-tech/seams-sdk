@@ -3307,6 +3307,22 @@ export async function handleStrictEcdsaSessionActivation(
         { status: 400 },
       );
     }
+    const activeAuthority =
+      await input.ctx.service.walletAuthMethods.resolveActiveWalletSessionAuthority({
+        walletId: walletIdFromString(walletKey.walletId),
+        authorityRef: authorized.authority,
+        authSource: authorized.authSource,
+      });
+    if (activeAuthority.kind === 'rejected') {
+      return json(
+        {
+          ok: false,
+          code: activeAuthority.code,
+          message: activeAuthority.message,
+        },
+        { status: 401 },
+      );
+    }
     const issued = await input.ctx.service.authorizationSessions.issueReusableWalletSession({
       tenantId: input.ctx.service.authorizationSessions.tenantId,
       principalId: authorized.principalId,
@@ -3317,6 +3333,13 @@ export async function handleStrictEcdsaSessionActivation(
       issuedAtMs: activated.session.expiresAtMs - request.session_policy.ttl_ms,
       expiresAtMs: activated.session.expiresAtMs,
     });
+    await input.ctx.service.authorizationSessions.issueWalletSessionAuthorizationV2FromReusableSession(
+      {
+        reusableWalletSession: issued,
+        authority: activeAuthority.authority,
+        walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+      },
+    );
     walletSessionId = issued.quota.walletSessionId;
     quotaId = issued.quota.quotaId;
     authorizationId = issued.session.authorizationId;
@@ -3401,6 +3424,7 @@ export async function handleStrictEcdsaSessionActivation(
       public_capability: request.public_capability,
       session: {
         authorization_session_id: authorized.authorizationSessionId,
+        authorization_id: authorizationId,
         threshold_session_id: activated.session.thresholdSessionId,
         wallet_session_id: walletSessionId,
         quota_id: quotaId,
