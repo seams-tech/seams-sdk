@@ -1,4 +1,5 @@
 import type { RegistrationResult, SeamsConfigsReadonly, WalletSession } from '@/core/types/seams';
+import type { WalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
 import type {
   RegistrationFlowEvent,
   RegistrationHooksOptions,
@@ -42,6 +43,7 @@ import type {
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { parseGoogleEmailOtpRegistrationOffer } from './registrationOffer';
+import type { EmailOtpAuthoritySelector } from '@/core/signingEngine/workerManager/workerTypes';
 
 const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000;
 
@@ -59,6 +61,7 @@ type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
 
 type GoogleLoginEmailOtpEd25519YaoCapabilityArgs = {
   walletSession: ReturnType<typeof walletSessionRefFromSession>;
+  authoritySelector: EmailOtpAuthoritySelector;
   /** Email OTP provider subject id, passed alongside the wallet-scoped session ref. */
   providerSubjectId: string;
   challengeId: string;
@@ -78,7 +81,14 @@ type GoogleEmailOtpProviderResolutionRequest<
 
 export type GoogleEmailOtpLinkedUnlockSelection =
   | { readonly kind: 'none' }
-  | { readonly kind: 'selected'; readonly walletAuthMethodId: string }
+  | {
+      readonly kind: 'selected';
+      readonly walletAuthMethodId: string;
+      readonly execution: 'ordinary' | 'linked';
+      /** Exact signer families on the selected authority; absent for legacy
+          local factors that predate the V2 authority record. */
+      readonly keyFamilies?: WalletSignerActivationSetV1['keyFamilies'];
+    }
   | { readonly kind: 'rejected'; readonly message: string };
 
 type GoogleSessionState = {
@@ -501,10 +511,17 @@ async function loginWithConfiguredTargets(args: {
   // The session ref stays wallet-scoped; the Google provider subject travels in
   // its own field on both the Ed25519 and the ECDSA call.
   const walletSession = walletSessionRefFromSession({ walletId: args.state.walletId });
+  const authoritySelector: EmailOtpAuthoritySelector = args.state.linkedEmailOtpSelection
+    ? {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: args.state.linkedEmailOtpSelection.walletAuthMethodId,
+      }
+    : { kind: 'wallet' };
   const [primaryTarget] = args.targets;
   if (!primaryTarget) {
     await args.deps.loginWithEmailOtpEd25519YaoCapability({
       walletSession,
+      authoritySelector,
       providerSubjectId: args.state.providerSubject,
       challengeId: args.challenge.challengeId,
       otpCode: args.otpCode,
@@ -514,6 +531,9 @@ async function loginWithConfiguredTargets(args: {
   }
   const common = {
     walletSession,
+    ...(authoritySelector.kind === 'wallet_auth_method'
+      ? { walletAuthMethodId: authoritySelector.walletAuthMethodId }
+      : {}),
     providerIdentity: {
       provider: 'google' as const,
       providerSubjectId: args.state.providerSubject,
@@ -554,8 +574,8 @@ async function assertLoggedIn(
   if (
     session.appIdentity.kind !== 'resolved' ||
     String(session.appIdentity.walletId) !== String(walletId) ||
-    session.reusableWalletSession.kind !== 'active' ||
-    String(session.reusableWalletSession.walletId) !== String(walletId)
+    session.authentication.kind !== 'authenticated' ||
+    String(session.authentication.walletId) !== String(walletId)
   ) {
     throw new Error('Wallet auth completed, but the local signing session is not ready yet.');
   }
@@ -846,11 +866,21 @@ function createGoogleEmailOtpWalletLoginFlow(
             new Error('Enter the 6-digit code from your email.'),
           );
         }
-        const requiredTargets = resolveLoginEcdsaTargets({
+        const configuredTargets = resolveLoginEcdsaTargets({
           configs: deps.configs,
           policy: args.input.ecdsaTargets,
         });
-        if (args.state.linkedEmailOtpSelection) {
+        /* Configured chain targets describe the app, not the wallet. An
+           authority without the ECDSA family must unlock through the Ed25519
+           path even when the app configures ECDSA chains. */
+        const selectionFamilies = args.state.linkedEmailOtpSelection?.keyFamilies as
+          | readonly ('ed25519' | 'ecdsa_secp256k1')[]
+          | undefined;
+        const requiredTargets =
+          selectionFamilies && !selectionFamilies.includes('ecdsa_secp256k1')
+            ? []
+            : configuredTargets;
+        if (args.state.linkedEmailOtpSelection?.execution === 'linked') {
           if (!deps.loginWithLinkedEmailOtpWallet) {
             throw new Error('Exact linked Email OTP wallet unlock is unavailable');
           }
