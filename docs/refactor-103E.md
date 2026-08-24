@@ -284,12 +284,19 @@ whole trace contains exactly one `/router-ab/*` call, from registration, so
 error. The wallet host issues the challenge and then awaits an OTP through a
 prompt it never presents.
 
+Static tracing narrows it to one await. The chain is
+`PM_EXPORT_KEYPAIR_UI` → `exportKeypairWithUI` → `exportEd25519KeypairWith`
+`SessionLifecycle` → `exportEd25519YaoKeyWithFreshEmailOtp` →
+`requestEmailOtpEd25519KeyExportAuthorization`, which in
+`keyExportConfirmation.ts` first calls `deps.requestExportChallenge` — the 200
+seen in the trace — and then `deps.touchConfirm.requestUserConfirmation`. That
+second call is where an OTP prompt should appear and where the flow stops: the
+challenge is already issued, and nothing after it runs.
+
 Resolve by driving that click with the browser tools and inspecting the wallet
-iframe's own state at the stall — which surface it expects to present, and what
-its export prompt awaits — rather than from the outside, since the host emits
-no diagnostic here. Note the signing/export UI runs from the built
-`packages/sdk-web/dist/public`, so any SDK change needs `build:sdk` and a
-reload before it is visible.
+iframe's confirmer state at the stall, since the host emits no diagnostic here.
+Note the signing/export UI runs from the built `packages/sdk-web/dist/public`,
+so any SDK change needs `build:sdk` and a reload before it is visible.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
