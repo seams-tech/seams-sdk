@@ -860,55 +860,6 @@ export async function resolveLinkedDevicePasskeyAuthoritySelection(
   }
 }
 
-/**
- * The ordinary Email OTP owner scope resolves its authority from the local
- * factor record registration writes, and a linked installation has none. Its
- * verified provider identity is only in hand during unlock, so the record is
- * written there, from the exact selected method.
- *
- * R109C replaces this transitional record with canonical provider-identity
- * branches on the auth method itself; until then the linked device must
- * project the same local factor an owner device holds.
- */
-async function persistLinkedEmailOtpLocalFactorProjectionV1(input: {
-  readonly authMethod: Extract<
-    LocalWalletAuthMethodRecordV2,
-    { readonly kind: 'email_otp'; readonly status: 'active' }
-  >;
-  readonly providerIdentity: LinkedDeviceEmailOtpProviderIdentity;
-}): Promise<void> {
-  const authority = await resolveExactLinkedEmailOtpAuthority({
-    authMethod: input.authMethod,
-    provider: input.providerIdentity.provider,
-    providerSubjectId: input.providerIdentity.providerSubjectId,
-  });
-  const existing = await IndexedDBManager.listWalletAuthMethodsForWallet(
-    String(input.authMethod.walletId),
-  );
-  const alreadyProjected = existing.some(
-    (record) =>
-      record.kind === 'email_otp' &&
-      record.status === 'active' &&
-      record.walletId === input.authMethod.walletId &&
-      record.emailHashHex === input.authMethod.emailHashHex &&
-      record.authority?.bindingId === input.authMethod.walletAuthMethodId,
-  );
-  if (alreadyProjected) return;
-  const nowMs = Date.now();
-  await IndexedDBManager.upsertWalletAuthMethod({
-    version: 'wallet_auth_method_v1',
-    kind: 'email_otp',
-    status: 'active',
-    localStatus: 'synced',
-    walletId: input.authMethod.walletId,
-    emailHashHex: input.authMethod.emailHashHex,
-    registrationAuthorityId: input.authMethod.registrationAuthorityId,
-    authority,
-    createdAtMs: nowMs,
-    updatedAtMs: nowMs,
-  });
-}
-
 export async function resolveLinkedDeviceEmailOtpAuthoritySelection(args: {
   readonly walletIdInput: string;
   readonly emailHashHex: string;
@@ -2925,10 +2876,6 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         },
       );
     }
-    await persistLinkedEmailOtpLocalFactorProjectionV1({
-      authMethod: selection.authMethod,
-      providerIdentity,
-    });
     await args.context.signingEngine.markWalletSelectionUnlocked({
       walletId: selection.walletId,
       walletAuthMethodId: selection.authMethod.walletAuthMethodId,
