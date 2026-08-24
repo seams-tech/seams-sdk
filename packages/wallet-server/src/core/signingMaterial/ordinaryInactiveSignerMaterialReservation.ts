@@ -11,6 +11,7 @@ import {
   parseLinkedDeviceEcdsaSourceContributionPackageV1,
   parseLinkedDeviceEcdsaSourceDerivationV1,
   parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
+  type LinkedDeviceEd25519SourceContributionPreparationV1,
   type LinkedDeviceEd25519SourceContributionV1,
   type LinkedDeviceEcdsaEncryptedSourceContributionV1,
   type LinkedDeviceEcdsaSourceContributionPackageV1,
@@ -107,6 +108,7 @@ export type OrdinaryEd25519SignerMaterialReservationPreparationV1 = {
   readonly kind: 'ordinary_ed25519_signer_material_reservation_preparation_v1';
   readonly sourceContribution: LinkedDeviceEd25519SourceContributionV1;
   readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
+  readonly applicationBinding: LinkedDeviceEd25519SourceContributionPreparationV1['applicationBinding'];
 };
 
 export type OrdinaryEcdsaSignerMaterialReservationPreparationV1 = {
@@ -158,7 +160,15 @@ type OrdinarySignerMaterialReservationV1<F extends OrdinarySignerFamilyV1> =
     readonly kind: OrdinaryReservationKindByFamilyV1[F];
     readonly serverMaterial: OrdinaryServerMaterialByFamilyV1[F];
     readonly activatedAtMs?: never;
-  };
+  } & (F extends 'ed25519'
+    ? {
+        readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
+        readonly applicationBinding: LinkedDeviceEd25519SourceContributionPreparationV1['applicationBinding'];
+      }
+    : {
+        readonly targetBinding?: never;
+        readonly applicationBinding?: never;
+      });
 
 /** The worker adapter must reserve by the exact ref and leave material inactive. */
 export type OrdinaryInactiveSignerMaterialReservationWorkerPortV1 = {
@@ -324,10 +334,7 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   private async reserveEd25519V1(
     request: OrdinaryEd25519SignerMaterialReservationRequestV1,
   ): Promise<OrdinaryEd25519SignerMaterialReservationV1> {
-    const reservation = parseOrdinaryEd25519SignerMaterialWorkerReservationV1(
-      request,
-      await this.worker.reserveInactiveEd25519SignerMaterialV1(request),
-    );
+    const reservation = await this.worker.reserveInactiveEd25519SignerMaterialV1(request);
     return {
       kind: 'ordinary_ed25519_signer_material_reservation_v1',
       keyFamily: 'ed25519',
@@ -336,6 +343,8 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
       materialActivation: request.plannedActivationRef,
       activationReceipt: reservation.activationReceipt,
       participantIds: reservation.participantIds,
+      targetBinding: request.preparation.targetBinding,
+      applicationBinding: request.preparation.applicationBinding,
       clientMaterial: reservation.clientMaterial,
       serverMaterial: reservation.serverMaterial,
     };
@@ -344,10 +353,7 @@ export class OrdinaryInactiveSignerMaterialReservationServiceV1 {
   private async reserveEcdsaV1(
     request: OrdinaryEcdsaSignerMaterialReservationRequestV1,
   ): Promise<OrdinaryEcdsaSignerMaterialReservationV1> {
-    const reservation = parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
-      request,
-      await this.worker.reserveInactiveEcdsaSignerMaterialV1(request),
-    );
+    const reservation = await this.worker.reserveInactiveEcdsaSignerMaterialV1(request);
     return {
       kind: 'ordinary_ecdsa_signer_material_reservation_v1',
       keyFamily: 'ecdsa_secp256k1',
@@ -519,7 +525,9 @@ export function parseOrdinaryEcdsaSignerMaterialWorkerReservationV1(
     activationReceipt.sourceDerivation.applicationBindingDigestB64u !==
       request.preparation.sourceDerivation.applicationBindingDigestB64u ||
     activationReceipt.sourceDerivation.clientShareRetryCounter !==
-      request.preparation.sourceDerivation.clientShareRetryCounter
+      request.preparation.sourceDerivation.clientShareRetryCounter ||
+    activationReceipt.sourceDerivation.ecdsaThresholdKeyId !==
+      request.preparation.sourceDerivation.ecdsaThresholdKeyId
   ) {
     throw new Error('ordinary ECDSA worker source derivation does not match the request');
   }

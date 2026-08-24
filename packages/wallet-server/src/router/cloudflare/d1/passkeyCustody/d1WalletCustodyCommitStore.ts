@@ -10,7 +10,11 @@ import {
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import {
+  parseWalletId,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import {
   parseRecoveryCodeLocatorV1,
@@ -39,11 +43,18 @@ import {
   prepareD1WebAuthnCredentialBindingInsertStatement,
   type WebAuthnCredentialBindingRecord,
 } from '../../../../core/WebAuthnCredentialBindingStore';
-import {
-  D1WalletAuthMethodStore,
-  walletAuthMethodId,
-  type WalletAuthMethodRecord,
-} from '../../../../core/d1WalletAuthMethodStore';
+import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+
+type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
+
+type RevokedPasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'revoked' }
+>;
 
 const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
   INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
@@ -140,7 +151,7 @@ export type WalletRecoveryAuthenticatorCommit = {
   readonly userId: string;
   readonly authenticator: WebAuthnAuthenticatorRecord;
   readonly binding: WebAuthnCredentialBindingRecord;
-  readonly walletAuthMethod: WalletAuthMethodRecord;
+  readonly walletAuthMethod: ActivePasskeyWalletAuthMethodRecordV2;
   readonly challengeDeleteStatement: D1PreparedStatementLike;
 };
 
@@ -496,8 +507,22 @@ export class CloudflareD1WalletCustodyCommitStore {
     }
   }
 
-  async listWalletAuthMethods(walletId: WalletId): Promise<readonly WalletAuthMethodRecord[]> {
-    return await this.walletAuthMethodStore.listForWallet({ walletId: String(walletId) });
+  async listWalletAuthMethods(walletId: WalletId): Promise<readonly WalletAuthMethodRecordV2[]> {
+    return await this.walletAuthMethodStore.listForWalletV2({ walletId: String(walletId) });
+  }
+
+  async readWalletAuthMethodById(
+    walletAuthMethodId: WalletAuthMethodId,
+  ): Promise<WalletAuthMethodRecordV2 | null> {
+    return await this.walletAuthMethodStore.readByIdV2({ walletAuthMethodId });
+  }
+
+  async readPasskeyWalletAuthMethod(input: {
+    readonly rpId: string;
+    readonly credentialIdB64u: string;
+  }): Promise<Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey' }> | null> {
+    const method = await this.walletAuthMethodStore.getPasskeyV2(input);
+    return method?.kind === 'passkey' ? method : null;
   }
 
   async hasActiveWalletSessionsForAuthMethod(input: {
@@ -651,7 +676,8 @@ export class CloudflareD1WalletCustodyCommitStore {
     readonly sourceEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly expectedSourceEnvelopeVersion: string;
     readonly sourceAuthMethod: {
-      readonly record: WalletAuthMethodRecord;
+      readonly expected: ActivePasskeyWalletAuthMethodRecordV2;
+      readonly record: RevokedPasskeyWalletAuthMethodRecordV2;
       readonly expectedUpdatedAtMs: number;
       readonly revokedAtMs: number;
     };
@@ -730,7 +756,10 @@ export class CloudflareD1WalletCustodyCommitStore {
       input.authenticatorCommit.walletAuthMethod.credentialPublicKeyB64u !==
         input.authenticatorCommit.authenticator.credentialPublicKeyB64u ||
       input.authenticatorCommit.walletAuthMethod.counter !==
-        input.authenticatorCommit.authenticator.counter
+        input.authenticatorCommit.authenticator.counter ||
+      !String(input.authenticatorCommit.walletAuthMethod.walletAuthMethodId).startsWith(
+        'wallet-auth-method:',
+      )
     ) {
       return {
         kind: 'inconsistent',
@@ -738,16 +767,38 @@ export class CloudflareD1WalletCustodyCommitStore {
       };
     }
     if (
+      input.sourceAuthMethod.expected.kind !== 'passkey' ||
+      input.sourceAuthMethod.expected.status !== 'active' ||
       input.sourceAuthMethod.record.kind !== 'passkey' ||
       input.sourceAuthMethod.record.status !== 'revoked' ||
+      String(input.sourceAuthMethod.expected.walletId) !== String(input.recoverySet.walletId) ||
       String(input.sourceAuthMethod.record.walletId) !== String(input.recoverySet.walletId) ||
-      input.sourceAuthMethod.record.rpId !== input.sourceEnvelope.factor.rpId ||
-      input.sourceAuthMethod.record.credentialIdB64u !==
+      input.sourceAuthMethod.expected.walletAuthorityId !==
+        input.sourceAuthMethod.record.walletAuthorityId ||
+      input.sourceAuthMethod.expected.walletAuthMethodId !==
+        input.sourceAuthMethod.record.walletAuthMethodId ||
+      input.sourceAuthMethod.expected.rpId !== input.sourceEnvelope.factor.rpId ||
+      input.sourceAuthMethod.expected.credentialIdB64u !==
         input.sourceEnvelope.factor.credentialIdB64u
     ) {
       return {
         kind: 'inconsistent',
         reason: 'source auth method and envelope disagree',
+      };
+    }
+    if (
+      input.authenticatorCommit.walletAuthMethod.walletAuthorityId !==
+        input.sourceAuthMethod.expected.walletAuthorityId ||
+      input.authenticatorCommit.walletAuthMethod.walletAuthMethodId ===
+        input.sourceAuthMethod.expected.walletAuthMethodId ||
+      input.sourceAuthMethod.expected.updatedAtMs !== input.sourceAuthMethod.expectedUpdatedAtMs ||
+      input.sourceAuthMethod.record.updatedAtMs !== input.sourceAuthMethod.revokedAtMs ||
+      input.sourceAuthMethod.record.revokedAtMs !== input.sourceAuthMethod.revokedAtMs ||
+      !String(input.sourceAuthMethod.expected.walletAuthMethodId).startsWith('wallet-auth-method:')
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery promotion source and replacement authority identities disagree',
       };
     }
 
@@ -779,14 +830,13 @@ export class CloudflareD1WalletCustodyCommitStore {
       },
       record: input.authenticatorCommit.binding,
     });
-    const walletAuthMethodStatements =
-      this.walletAuthMethodStore.preparePasskeyRegistrationStatements(
-        input.authenticatorCommit.walletAuthMethod,
-      );
+    const walletAuthMethodStatements = this.walletAuthMethodStore.prepareV2InsertStatements(
+      input.authenticatorCommit.walletAuthMethod,
+    );
     const authMethodStatements =
-      this.walletAuthMethodStore.preparePasskeyRecoveryRevocationStatements({
+      this.walletAuthMethodStore.preparePasskeyRecoveryV2RevocationStatements({
+        expected: input.sourceAuthMethod.expected,
         record: input.sourceAuthMethod.record,
-        expectedUpdatedAtMs: input.sourceAuthMethod.expectedUpdatedAtMs,
         revokedAtMs: input.sourceAuthMethod.revokedAtMs,
       });
     let stored: CloudflareD1VersionedJsonRecordBatchPutResultV1;
@@ -829,9 +879,9 @@ export class CloudflareD1WalletCustodyCommitStore {
         this.readRecoveryEnvelopeSet(input.recoverySet.walletId),
         this.records.read(envelopeKey),
         this.records.read(sourceEnvelopeKey),
-        this.walletAuthMethodStore.getPasskey({
-          rpId: input.sourceAuthMethod.record.rpId,
-          credentialIdB64u: input.sourceAuthMethod.record.credentialIdB64u,
+        this.walletAuthMethodStore.getPasskeyV2({
+          rpId: input.sourceAuthMethod.expected.rpId,
+          credentialIdB64u: input.sourceAuthMethod.expected.credentialIdB64u,
         }),
       ]);
       const alreadyConsumed = recoveryRead?.record.manifestKekWraps.some(

@@ -8,13 +8,16 @@ import {
   type LinkedDeviceEd25519ExportRootPackageV1,
   type LinkedDeviceEd25519ExportRootRecipientV1,
 } from '@shared/device-linking/ed25519ExportRoot';
-import type {
-  LinkedDeviceTargetFactorV1,
-} from '@shared/device-linking/contracts';
+import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking/contracts';
 import {
+  buildActiveEnvelopeLifecycle,
+  buildPasskeyCustodyEnvelopeRecord,
   parseDigestField,
   parseEnvelopeCiphertextB64u,
   parseEnvelopeNonceB64u,
+  parseEnvelopeRevision,
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import type {
   LinkedDeviceEnrollmentId,
@@ -47,11 +50,33 @@ export type DeviceLinkingEd25519ExportRootRecipientHandleV1 = {
 };
 
 export type DeviceLinkingResealedEd25519ExportRootV1 = {
-  readonly nonceB64u: ReturnType<typeof parseEnvelopeNonceB64u>;
-  readonly sealedExportRootB64u: ReturnType<typeof parseEnvelopeCiphertextB64u>;
-  readonly aadHashB64u: ReturnType<typeof parseDigestField>;
-  readonly ciphertextDigestB64u: ReturnType<typeof parseDigestField>;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
 };
+
+export type DeviceLinkingEd25519ExportRootReplacementEnvelopeV1 = Pick<
+  PasskeyCustodyEnvelopeRecord,
+  'envelopeId' | 'walletId' | 'binding' | 'factor'
+> & {
+  readonly createdAtMs: number;
+};
+
+export function buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1(
+  input: DeviceLinkingEd25519ExportRootReplacementEnvelopeV1,
+): DeviceLinkingEd25519ExportRootReplacementEnvelopeV1 {
+  if (input.binding.kind !== 'ed25519_yao_client_root_v1') {
+    throw new Error('Ed25519 export-root replacement binding has the wrong custody kind');
+  }
+  if (!Number.isSafeInteger(input.createdAtMs) || input.createdAtMs < 0) {
+    throw new Error('Ed25519 export-root replacement timestamp is invalid');
+  }
+  return {
+    envelopeId: input.envelopeId,
+    walletId: input.walletId,
+    binding: input.binding,
+    factor: input.factor,
+    createdAtMs: input.createdAtMs,
+  };
+}
 
 export type DeviceLinkingEd25519ExportRootPortV1 = {
   readonly createRecipientV1: (input: {
@@ -66,7 +91,7 @@ export type DeviceLinkingEd25519ExportRootPortV1 = {
   readonly acceptTransferV1: (input: {
     readonly recipient: DeviceLinkingEd25519ExportRootRecipientHandleV1;
     readonly transferPackage: LinkedDeviceEd25519ExportRootPackageV1;
-    readonly replacementEnvelopeBindingJson: string;
+    readonly replacementEnvelope: DeviceLinkingEd25519ExportRootReplacementEnvelopeV1;
     readonly replacementFactorSecret: Uint8Array;
   }) => Promise<DeviceLinkingResealedEd25519ExportRootV1>;
   readonly discardRecipientV1: (
@@ -138,8 +163,7 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
             type: 'sealEd25519ExportRootForLinkedDevice',
             payload: {
               capability: input.capability,
-              transferBindingJson:
-                serializeLinkedDeviceEd25519ExportRootTransferBindingV1(binding),
+              transferBindingJson: serializeLinkedDeviceEd25519ExportRootTransferBindingV1(binding),
             },
           },
         }),
@@ -197,6 +221,32 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
         registeredPublicKeyB64u: registration.registeredPublicKeyB64u,
         recipientPublicKeyB64u: registration.recipientPublicKeyB64u,
       });
+      const replacementEnvelope = input.replacementEnvelope;
+      if (
+        replacementEnvelope.walletId !== registration.walletId ||
+        replacementEnvelope.binding.kind !== 'ed25519_yao_client_root_v1' ||
+        replacementEnvelope.binding.walletKeyId !== registration.walletKeyId ||
+        replacementEnvelope.binding.linkSessionId !== registration.linkSessionId ||
+        replacementEnvelope.binding.enrollmentId !== registration.enrollmentId ||
+        replacementEnvelope.binding.deviceId !== registration.deviceId ||
+        replacementEnvelope.binding.applicationBindingDigestB64u !==
+          registration.applicationBindingDigestB64u ||
+        replacementEnvelope.binding.registeredPublicKeyB64u !==
+          registration.registeredPublicKeyB64u ||
+        replacementEnvelope.binding.revocationEpoch !== registration.revocationEpoch ||
+        (registration.targetFactor.kind === 'passkey_prf'
+          ? replacementEnvelope.factor.kind !== 'passkey'
+          : replacementEnvelope.factor.kind !== 'email_otp')
+      ) {
+        throw new Error('Ed25519 export-root replacement envelope identity is invalid');
+      }
+      const replacementEnvelopeBindingJson = JSON.stringify({
+        walletId: replacementEnvelope.walletId,
+        envelopeId: replacementEnvelope.envelopeId,
+        factor: replacementEnvelope.factor,
+        envelopeRevision: 1,
+        binding: replacementEnvelope.binding,
+      });
       const replacementFactorSecret = input.replacementFactorSecret.slice();
       try {
         const resealed = requireRecord(
@@ -213,7 +263,7 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
                 sealedExportRootB64u: String(transferPackage.sealedExportRootB64u),
                 bindingDigestB64u: String(transferPackage.bindingDigestB64u),
                 ciphertextDigestB64u: String(transferPackage.ciphertextDigestB64u),
-                replacementEnvelopeBindingJson: input.replacementEnvelopeBindingJson,
+                replacementEnvelopeBindingJson,
                 replacementFactorSecret: replacementFactorSecret.buffer,
               },
               transfer: [replacementFactorSecret.buffer],
@@ -222,21 +272,35 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
           'Ed25519 export-root acceptance',
         ) as WorkerResult<'acceptLinkedDeviceEd25519ExportRoot'>;
         return {
-          nonceB64u: parseEnvelopeNonceB64u(
-            resealed.nonceB64u,
-            'Ed25519 export-root resealed nonceB64u',
-          ),
-          sealedExportRootB64u: parseEnvelopeCiphertextB64u(
-            resealed.sealedExportRootB64u,
-            'Ed25519 export-root resealed ciphertext',
-          ),
-          aadHashB64u: parseDigestField(
-            resealed.aadHashB64u,
-            'Ed25519 export-root resealed aadHashB64u',
-          ),
-          ciphertextDigestB64u: parseDigestField(
-            resealed.ciphertextDigestB64u,
-            'Ed25519 export-root resealed ciphertextDigestB64u',
+          envelope: parsePasskeyCustodyEnvelopeRecord(
+            buildPasskeyCustodyEnvelopeRecord({
+              envelopeId: replacementEnvelope.envelopeId,
+              walletId: replacementEnvelope.walletId,
+              binding: replacementEnvelope.binding,
+              factor: replacementEnvelope.factor,
+              envelopeRevision: parseEnvelopeRevision(1),
+              nonceB64u: parseEnvelopeNonceB64u(
+                resealed.nonceB64u,
+                'Ed25519 export-root resealed nonceB64u',
+              ),
+              sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(
+                resealed.sealedExportRootB64u,
+                'Ed25519 export-root resealed ciphertext',
+              ),
+              aadHashB64u: parseDigestField(
+                resealed.aadHashB64u,
+                'Ed25519 export-root resealed aadHashB64u',
+              ),
+              ciphertextDigestB64u: parseDigestField(
+                resealed.ciphertextDigestB64u,
+                'Ed25519 export-root resealed ciphertextDigestB64u',
+              ),
+              lifecycle: buildActiveEnvelopeLifecycle({
+                activatedAtMs: replacementEnvelope.createdAtMs,
+              }),
+              createdAtMs: replacementEnvelope.createdAtMs,
+              updatedAtMs: replacementEnvelope.createdAtMs,
+            }),
           ),
         };
       } finally {

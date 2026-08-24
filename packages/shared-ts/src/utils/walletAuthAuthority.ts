@@ -524,14 +524,17 @@ function parsePasskeyWalletAuthAuthorityObject(
     if (hasAnyOwnField(obj, ['kind', 'rpId', 'credentialIdB64u', 'provider', 'providerUserId'])) {
       return null;
     }
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: obj.walletId,
-      rpId: verifierObj.rpId,
-      credentialIdB64u: factorObj.credentialIdB64u,
-    });
+    const walletId = parseWalletId(obj.walletId);
+    const rpId = parseWebAuthnRpId(verifierObj.rpId);
+    const credentialIdB64u = parseWebAuthnCredentialIdB64u(factorObj.credentialIdB64u);
     const bindingId = parseWalletAuthMethodId(obj.bindingId);
-    if (!bindingId.ok || bindingId.value !== authority.bindingId) return null;
-    return authority;
+    if (!walletId.ok || !rpId.ok || !credentialIdB64u.ok || !bindingId.ok) return null;
+    return {
+      walletId: walletId.value,
+      factor: { kind: 'passkey', credentialIdB64u: credentialIdB64u.value },
+      verifier: { kind: 'webauthn', rpId: rpId.value },
+      bindingId: bindingId.value,
+    };
   } catch {
     return null;
   }
@@ -559,15 +562,20 @@ function parseEmailOtpWalletAuthAuthorityObject(
     if (hasAnyOwnField(obj, ['kind', 'rpId', 'credentialIdB64u', 'provider', 'providerUserId'])) {
       return null;
     }
-    const authority = buildEmailOtpWalletAuthAuthority({
-      walletId: obj.walletId,
-      provider: factorObj.provider,
-      providerUserId: factorObj.providerUserId,
-      emailHashHex: verifierObj.emailHashHex,
-    });
+    const walletId = parseWalletId(obj.walletId);
+    const provider = parseEmailOtpProvider(factorObj.provider);
+    const providerUserId = parseEmailOtpProviderUserId(factorObj.providerUserId);
+    const emailHashHex = String(verifierObj.emailHashHex || '').trim();
     const bindingId = parseWalletAuthMethodId(obj.bindingId);
-    if (!bindingId.ok || bindingId.value !== authority.bindingId) return null;
-    return authority;
+    if (!walletId.ok || !provider || !providerUserId.ok || !emailHashHex || !bindingId.ok) {
+      return null;
+    }
+    return {
+      walletId: walletId.value,
+      factor: { kind: 'email_otp', provider, providerUserId: providerUserId.value },
+      verifier: { kind: 'email_otp_wallet_auth_method', emailHashHex },
+      bindingId: bindingId.value,
+    };
   } catch {
     return null;
   }

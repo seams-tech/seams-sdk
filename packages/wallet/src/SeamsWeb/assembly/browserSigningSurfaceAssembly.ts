@@ -1,10 +1,5 @@
 import type { RuntimePorts } from '@/core/platform';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
-import {
-  OwnerLaneScopeIntegrityError,
-  resolveOwnerLaneScope,
-  type OwnerLaneScopeStores,
-} from '@/core/signingEngine/session/identity/ownerLaneScope';
 import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
@@ -40,6 +35,7 @@ import {
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { buildPersistedEcdsaRoleLocalMaterial } from '@/core/signingEngine/session/material/ecdsaRoleLocalMaterialResolver';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
@@ -88,6 +84,7 @@ import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/rela
 import { hydrateWalletExecutionLane } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB/passkeyClientDB.types';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -110,31 +107,8 @@ function omitPasskeyRestoreAuthMethod(
 
 type ExactWalletAuthMethodStore = {
   getWalletAuthMethodV2(walletAuthMethodId: string): Promise<WalletAuthMethodRecordV2 | null>;
+  listWalletAuthMethodsForWallet(walletId: string): Promise<readonly LocalWalletAuthMethodRecord[]>;
 };
-
-/** R103C: every human signing operation must resolve one active owner scope. */
-async function resolveActiveOwnerScopeForSigningRead(args: {
-  readonly walletId: string;
-  readonly stores: OwnerLaneScopeStores;
-}): Promise<OwnerLaneScope> {
-  const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(args.walletId));
-  switch (read.kind) {
-    case 'missing':
-      throw new OwnerLaneScopeIntegrityError('active Wallet Session authorization is missing');
-    case 'corrupt':
-      throw new OwnerLaneScopeIntegrityError('active Wallet Session authorization is corrupt');
-    case 'persistence_unavailable':
-      throw new OwnerLaneScopeIntegrityError(
-        'active Wallet Session authorization persistence is unavailable',
-      );
-    case 'found':
-      break;
-  }
-  return await resolveOwnerLaneScope({
-    authorityRef: read.projection.authority,
-    stores: args.stores,
-  });
-}
 
 /**
  * R103C: the active wallet auth-method store is the one source that resolves
@@ -152,23 +126,53 @@ export async function resolveExactWalletAuthAuthority(
   if (
     !authMethod ||
     authMethod.status !== 'active' ||
-    authMethod.walletId !== authorityRef.walletId ||
-    authMethod.kind !== 'passkey'
+    authMethod.walletId !== authorityRef.walletId
   ) {
     throw new Error('Exact wallet authentication authority is unavailable');
   }
-  const authority: WalletAuthAuthority = {
-    walletId: authMethod.walletId,
-    factor: {
-      kind: 'passkey',
-      credentialIdB64u: authMethod.credentialIdB64u,
-    },
-    verifier: {
-      kind: 'webauthn',
-      rpId: authMethod.rpId,
-    },
-    bindingId: authMethod.walletAuthMethodId,
-  };
+  let authority: WalletAuthAuthority;
+  switch (authMethod.kind) {
+    case 'passkey':
+      authority = {
+        walletId: authMethod.walletId,
+        factor: {
+          kind: 'passkey',
+          credentialIdB64u: authMethod.credentialIdB64u,
+        },
+        verifier: {
+          kind: 'webauthn',
+          rpId: authMethod.rpId,
+        },
+        bindingId: authMethod.walletAuthMethodId,
+      };
+      break;
+    case 'email_otp': {
+      const localMethods = await walletAuthMethodStore.listWalletAuthMethodsForWallet(
+        authMethod.walletId,
+      );
+      const matches = localMethods.filter(
+        (method): method is Extract<LocalWalletAuthMethodRecord, { kind: 'email_otp' }> => {
+          if (method.kind !== 'email_otp' || method.status !== 'active') return false;
+          const candidate = parseEmailOtpWalletAuthAuthority(method.authority);
+          return (
+            candidate?.walletId === authMethod.walletId &&
+            candidate.bindingId === authMethod.walletAuthMethodId &&
+            candidate.verifier.emailHashHex === authMethod.emailHashHex
+          );
+        },
+      );
+      const exactAuthority =
+        matches.length === 1 ? parseEmailOtpWalletAuthAuthority(matches[0].authority) : null;
+      if (!exactAuthority) {
+        throw new Error('Exact wallet authentication authority is unavailable');
+      }
+      authority = exactAuthority;
+      break;
+    }
+    default:
+      authMethod satisfies never;
+      throw new Error('Exact wallet authentication authority is unavailable');
+  }
   const candidateRef = await walletAuthAuthorityRef({ authority });
   if (
     candidateRef.walletId === authorityRef.walletId &&
@@ -359,6 +363,8 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
   const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
     authority: await resolveExactWalletAuthAuthority(manifest.signer.authority, {
       getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
+      listWalletAuthMethodsForWallet: (walletId) =>
+        IndexedDBManager.listWalletAuthMethodsForWallet(walletId),
     }),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
@@ -552,6 +558,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   workerWarmupPolicy: WorkerResourceWarmupPolicy;
   getTheme: () => ThemeMode;
   ensureSealedRefreshStartupParity: () => Promise<void>;
+  resolveOwnerLaneScope: (walletId: string) => Promise<OwnerLaneScope>;
   getEnginePorts: () => SigningEnginePorts;
   getRegistrationPublicDeps: () => registrationPublic.RegistrationPublicDeps;
   prepareNearEd25519YaoMaterialBoundary: Parameters<
@@ -592,19 +599,7 @@ export function createBrowserSigningSurfaceEnginePorts(
       getBrowserEcdsaSigningCapability(args, input),
     resolveActiveEcdsaWalletSessionAuthorization:
       createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
-    resolveOwnerLaneScope: (walletId) =>
-      resolveActiveOwnerScopeForSigningRead({
-        walletId: String(walletId),
-        stores: {
-          getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
-          listWalletAuthMethodsForWallet: (id) =>
-            IndexedDBManager.listWalletAuthMethodsForWallet(id),
-          getWalletPasskeyAuthenticator: (input) =>
-            args.stores.walletProfileAndSignerRecords.accountStore.getWalletPasskeyAuthenticator(
-              input,
-            ),
-        },
-      }),
+    resolveOwnerLaneScope: args.resolveOwnerLaneScope,
     signerWorkerManager: args.signerWorkerManager,
     getWorkerBaseOrigin: args.getWorkerBaseOrigin,
     workerWarmupPolicy: args.workerWarmupPolicy,

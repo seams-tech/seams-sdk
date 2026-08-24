@@ -4,7 +4,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { EmailOtpEcdsaSessionPorts } from './ports';
-import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
+import { buildEmailOtpAuthContextForCanonicalWallet } from '../identity/laneIdentity';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const walletId: WalletId;
@@ -25,7 +25,7 @@ void bootstrap.session.projectionVersion;
 // @ts-expect-error Exact material facts have one owner on the bootstrap key reference.
 void bootstrap.keygen;
 
-const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+const emailOtpAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
 walletId: 'wallet.testnet',
 emailHashHex: 'email-hash',
 policy: 'session',

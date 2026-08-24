@@ -275,6 +275,8 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         ok: true,
         walletId: result.walletId,
         authority: result.authority,
+        foundingAuthority: result.foundingAuthority,
+        foundingAuthMethod: result.foundingAuthMethod,
         registrationDiagnostics: result.registrationDiagnostics,
         rpId: result.rpId,
         authMethod: result.authMethod,
@@ -291,6 +293,8 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         ok: true,
         walletId: result.walletId,
         authority: result.authority,
+        foundingAuthority: result.foundingAuthority,
+        foundingAuthMethod: result.foundingAuthMethod,
         registrationDiagnostics: result.registrationDiagnostics,
         rpId: result.rpId,
         authMethod: result.authMethod,
@@ -818,8 +822,11 @@ async function resolveRouteOpaqueOwnerWalletSession(
   }
 }
 
-type NearFundingWalletSessionAdmission =
-  { readonly kind: 'owner'; readonly walletId: string; readonly nearAccountId: string };
+type NearFundingWalletSessionAdmission = {
+  readonly kind: 'owner';
+  readonly walletId: string;
+  readonly nearAccountId: string;
+};
 
 async function resolveRouteNearFundingWalletSession(
   input: RouterApiWalletRegistrationInput,
@@ -1713,10 +1720,7 @@ function parseWalletRevokeAuthMethodSourceProof(
   return { ok: false, code: 'invalid_body', message: 'sourceProof.kind is unsupported' };
 }
 
-function hasExactObjectKeys(
-  input: Record<string, unknown>,
-  expected: readonly string[],
-): boolean {
+function hasExactObjectKeys(input: Record<string, unknown>, expected: readonly string[]): boolean {
   const actual = Object.keys(input).sort();
   const keys = [...expected].sort();
   return actual.length === keys.length && actual.every((key, index) => key === keys[index]);

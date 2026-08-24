@@ -210,6 +210,114 @@ function requireFoundingAuthMethod(
   return value;
 }
 
+function foundingAuthorityIdentityMatches(
+  left: ActiveWalletAuthorityV1,
+  right: ActiveWalletAuthorityV1,
+): boolean {
+  return (
+    alphabetizeStringify({
+      kind: left.kind,
+      authorityId: left.authorityId,
+      walletId: left.walletId,
+      principal: left.principal,
+      provenance: left.provenance,
+      permissions: left.permissions,
+      revocationEpoch: left.revocationEpoch,
+      createdAtMs: left.createdAtMs,
+      state: left.state,
+      activatedAtMs: left.activatedAtMs,
+    }) ===
+    alphabetizeStringify({
+      kind: right.kind,
+      authorityId: right.authorityId,
+      walletId: right.walletId,
+      principal: right.principal,
+      provenance: right.provenance,
+      permissions: right.permissions,
+      revocationEpoch: right.revocationEpoch,
+      createdAtMs: right.createdAtMs,
+      state: right.state,
+      activatedAtMs: right.activatedAtMs,
+    })
+  );
+}
+
+function canExtendFoundingAuthorityWithEd25519(
+  existing: ActiveWalletAuthorityV1,
+  next: ActiveWalletAuthorityV1,
+): boolean {
+  const existingEcdsa = existing.signerActivations.ecdsa;
+  const nextEcdsa = next.signerActivations.ecdsa;
+  return (
+    existing.signerActivations.keyFamilies.length === 1 &&
+    existing.signerActivations.keyFamilies[0] === 'ecdsa_secp256k1' &&
+    next.signerActivations.keyFamilies.length === 2 &&
+    next.signerActivations.keyFamilies[0] === 'ed25519' &&
+    next.signerActivations.keyFamilies[1] === 'ecdsa_secp256k1' &&
+    existingEcdsa !== undefined &&
+    nextEcdsa !== undefined &&
+    alphabetizeStringify(existingEcdsa) === alphabetizeStringify(nextEcdsa) &&
+    foundingAuthorityIdentityMatches(existing, next) &&
+    next.updatedAtMs >= existing.updatedAtMs
+  );
+}
+
+function prepareFoundingAuthorityExtensionStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WalletRegistrationCommitScope;
+  readonly expected: ActiveWalletAuthorityV1;
+  readonly next: ActiveWalletAuthorityV1;
+}): D1PreparedStatementLike {
+  return input.database
+    .prepare(
+      `UPDATE wallet_authorities
+          SET signer_activations_json = ?,
+              signer_activation_set_digest_b64u = ?,
+              authority_digest_b64u = ?,
+              record_json = ?,
+              updated_at_ms = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND authority_id = ?
+          AND wallet_id = ?
+          AND lifecycle_state = 'active'
+          AND signer_activation_set_digest_b64u = ?
+          AND authority_digest_b64u = ?
+          AND revocation_epoch = ?
+          AND created_at_ms = ?
+          AND updated_at_ms = ?
+          AND activated_at_ms = ?`,
+    )
+    .bind(
+      JSON.stringify(input.next.signerActivations),
+      String(input.next.signerActivationSetDigestB64u),
+      String(input.next.authorityDigestB64u),
+      JSON.stringify(input.next),
+      input.next.updatedAtMs,
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      String(input.expected.authorityId),
+      String(input.expected.walletId),
+      String(input.expected.signerActivationSetDigestB64u),
+      String(input.expected.authorityDigestB64u),
+      input.expected.revocationEpoch,
+      input.expected.createdAtMs,
+      input.expected.updatedAtMs,
+      input.expected.activatedAtMs,
+    );
+}
+
+function prepareFoundingAuthorityExtensionCasGuard(
+  database: D1DatabaseLike,
+): D1PreparedStatementLike {
+  return database.prepare(`
+    INSERT INTO wallet_authority_cas_guard (guard_id)
+    SELECT 1
+     WHERE changes() = 0
+  `);
+}
+
 type D1RegistrationRecordJsonRow = {
   readonly record_json?: unknown;
 };
@@ -262,16 +370,26 @@ async function prepareFoundingStatements(input: {
       String(foundingAuthMethod.walletAuthMethodId),
     )
     .first<D1RegistrationRecordJsonRow>();
+  let persistedAuthority: ActiveWalletAuthorityV1 | null = null;
   if (authorityRow) {
     const parsedAuthority = parseWalletAuthorityV1(
       parseD1JsonColumn(authorityRow.record_json),
     );
-    if (
-      !parsedAuthority.ok ||
-      alphabetizeStringify(parsedAuthority.value) !== alphabetizeStringify(input.foundingAuthority)
-    ) {
+    if (!parsedAuthority.ok || parsedAuthority.value.state !== 'active') {
       throw new Error('Founding wallet authority replay conflicts with the persisted record');
     }
+    persistedAuthority = parsedAuthority.value;
+  }
+  const foundingAuthorityNeedsExtension =
+    persistedAuthority !== null &&
+    alphabetizeStringify(persistedAuthority) !== alphabetizeStringify(input.foundingAuthority);
+  if (
+    foundingAuthorityNeedsExtension &&
+    (!persistedAuthority ||
+      persistedAuthority.state !== 'active' ||
+      !canExtendFoundingAuthorityWithEd25519(persistedAuthority, input.foundingAuthority))
+  ) {
+    throw new Error('Founding wallet authority replay conflicts with the persisted record');
   }
   if (authMethodRow) {
     const parsedAuthMethod = parseWalletAuthMethodRecordV2(
@@ -292,6 +410,16 @@ async function prepareFoundingStatements(input: {
         scope: input.scope,
         authority: input.foundingAuthority,
       }),
+    );
+  } else if (persistedAuthority && foundingAuthorityNeedsExtension) {
+    statements.push(
+      prepareFoundingAuthorityExtensionStatement({
+        database: input.database,
+        scope: input.scope,
+        expected: persistedAuthority,
+        next: input.foundingAuthority,
+      }),
+      prepareFoundingAuthorityExtensionCasGuard(input.database),
     );
   }
   if (!authMethodRow) {

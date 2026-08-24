@@ -1,8 +1,26 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { parseWalletId } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseWalletId,
+} from '@shared/utils/domainIds';
+import {
+  parseWalletAuthorityV1,
+  replaceActiveWalletAuthorityEd25519MaterialActivationV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
+import {
+  buildWalletSessionAuthorizationV2,
+  buildWalletSessionCapabilitySubjectsV1,
+  parseWalletSessionAuthorizationV2,
+  type WalletSessionAuthorizationV2,
+} from '../../../../authorization/domain';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import type { D1WalletStore, D1WalletStoreScope } from '../../../../core/d1WalletStore';
-import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../../../storage/tenantRoute';
 import type {
   RouterAbEd25519YaoCapabilityReplacementOperationV1,
   RouterAbEd25519YaoCapabilityPersistenceResultV1,
@@ -12,6 +30,7 @@ import {
   ed25519NearPublicKeyFromBytes,
   replaceYaoEd25519WalletSignerActiveCapability,
 } from './d1Ed25519YaoWalletSigner';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 export const ROUTER_AB_ED25519_YAO_CAPABILITY_REPLACEMENT_TABLE_V1 =
   'router_ab_yao_capability_replacements';
@@ -40,6 +59,16 @@ type CapabilityReplacementReceiptRow = {
   readonly operation_fingerprint?: unknown;
   readonly previous_capability_binding_json?: unknown;
   readonly next_capability_binding_json?: unknown;
+};
+
+type RecordJsonRow = {
+  readonly record_json?: unknown;
+};
+
+type ActiveAuthorityReplacement = {
+  readonly previous: ActiveWalletAuthorityV1;
+  readonly next: ActiveWalletAuthorityV1;
+  readonly sessions: readonly WalletSessionAuthorizationV2[];
 };
 
 type CapabilityPersistenceFailure = Extract<
@@ -98,6 +127,13 @@ function persistenceUncertain(error: unknown): CapabilityPersistenceFailure {
     code: 'capability_persistence_uncertain',
     message: error instanceof Error ? error.message : String(error),
   };
+}
+
+function parseRecordJson(value: unknown): unknown {
+  if (typeof value !== 'string' || !value) {
+    throw new Error('D1 record JSON is missing');
+  }
+  return JSON.parse(value) as unknown;
 }
 
 export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements RouterAbEd25519YaoCapabilityPersistenceV1 {
@@ -179,12 +215,24 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
       activeYaoCapability: input.next,
       now,
     });
+    const authorityReplacement = await this.prepareActiveAuthorityReplacement({
+      walletId: String(walletId.value),
+      previous: input.previous,
+      next: input.next,
+      now,
+    });
+    if (!authorityReplacement) {
+      return persistenceFailure(
+        'authority_conflict',
+        'promoted Yao capability does not resolve one exact active Wallet Authority',
+      );
+    }
     const previousJson = JSON.stringify(signer);
     const nextJson = JSON.stringify(replacement);
     const previousBindingJson = JSON.stringify(input.previous.activeCapabilityBinding);
     const nextBindingJson = JSON.stringify(input.next.activeCapabilityBinding);
     try {
-      const results = await this.database.batch<D1ResultLike>([
+      const statements: D1PreparedStatementLike[] = [
         this.database
           .prepare(
             `UPDATE wallet_signers
@@ -210,6 +258,17 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             signer.signerId,
             previousJson,
           ),
+        this.prepareAuthorityReplacementStatement(authorityReplacement),
+      ];
+      for (const session of authorityReplacement.sessions) {
+        statements.push(
+          this.prepareSessionAuthorityProjectionReplacementStatement({
+            previous: session,
+            authority: authorityReplacement.next,
+          }),
+        );
+      }
+      statements.push(
         this.database
           .prepare(
             `INSERT INTO ${ROUTER_AB_ED25519_YAO_CAPABILITY_REPLACEMENT_TABLE_V1} (
@@ -237,8 +296,9 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             nextBindingJson,
             now,
           ),
-      ]);
-      requireSuccessfulBatch(results);
+      );
+      const results = await this.database.batch<D1ResultLike>(statements);
+      requireSuccessfulBatch(results, statements.length);
     } catch (error: unknown) {
       return await this.reconcileAfterUncertainWrite(operation.value, input, error);
     }
@@ -261,6 +321,171 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
     if (!this.ensureSchemaOnUse || this.schemaReady) return;
     await this.database.exec(CAPABILITY_REPLACEMENT_SCHEMA_SQL);
     this.schemaReady = true;
+  }
+
+  private async prepareActiveAuthorityReplacement(input: {
+    readonly walletId: string;
+    readonly previous: WalletEd25519YaoActiveCapabilityRecord;
+    readonly next: WalletEd25519YaoActiveCapabilityRecord;
+    readonly now: number;
+  }): Promise<ActiveAuthorityReplacement | null> {
+    const rows = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_authorities
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND lifecycle_state = 'active'`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+      )
+      .all<RecordJsonRow>();
+    const previousActivation = routerAbMpcMaterialActivationRefFromWire(
+      input.previous.activationResult.binding.material_activation,
+    );
+    const matches: ActiveWalletAuthorityV1[] = [];
+    for (const row of rows.results ?? []) {
+      const parsed = parseWalletAuthorityV1(parseRecordJson(row.record_json));
+      if (
+        parsed.ok &&
+        parsed.value.state === 'active' &&
+        parsed.value.signerActivations.ed25519 &&
+        mpcMaterialActivationRefsEqual(
+          parsed.value.signerActivations.ed25519.materialActivation,
+          previousActivation,
+        )
+      ) {
+        matches.push(parsed.value);
+      }
+    }
+    const [previousAuthority] = matches;
+    if (matches.length !== 1 || !previousAuthority) return null;
+    const nextAuthority = await replaceActiveWalletAuthorityEd25519MaterialActivationV1({
+      authority: previousAuthority,
+      materialActivation: routerAbMpcMaterialActivationRefFromWire(
+        input.next.activationResult.binding.material_activation,
+      ),
+      updatedAtMs: input.now,
+    });
+    const sessionRows = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND authority_id = ?
+            AND retired_at_ms IS NULL`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+        String(previousAuthority.authorityId),
+      )
+      .all<RecordJsonRow>();
+    const sessions: WalletSessionAuthorizationV2[] = [];
+    for (const row of sessionRows.results ?? []) {
+      sessions.push(parseWalletSessionAuthorizationV2(parseRecordJson(row.record_json)));
+    }
+    return { previous: previousAuthority, next: nextAuthority, sessions };
+  }
+
+  private prepareAuthorityReplacementStatement(
+    replacement: ActiveAuthorityReplacement,
+  ): D1PreparedStatementLike {
+    return this.database
+      .prepare(
+        `UPDATE wallet_authorities
+            SET signer_activations_json = ?,
+                signer_activation_set_digest_b64u = ?,
+                authority_digest_b64u = ?,
+                record_json = ?,
+                updated_at_ms = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND authority_id = ?
+            AND wallet_id = ?
+            AND lifecycle_state = 'active'
+            AND record_json = ?`,
+      )
+      .bind(
+        JSON.stringify(replacement.next.signerActivations),
+        String(replacement.next.signerActivationSetDigestB64u),
+        String(replacement.next.authorityDigestB64u),
+        JSON.stringify(replacement.next),
+        replacement.next.updatedAtMs,
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(replacement.previous.authorityId),
+        String(replacement.previous.walletId),
+        JSON.stringify(replacement.previous),
+      );
+  }
+
+  private prepareSessionAuthorityProjectionReplacementStatement(input: {
+    readonly previous: WalletSessionAuthorizationV2;
+    readonly authority: ActiveWalletAuthorityV1;
+  }): D1PreparedStatementLike {
+    const next = buildWalletSessionAuthorizationV2({
+      tenantId: input.previous.tenantId,
+      principalId: input.previous.principalId,
+      walletId: input.previous.walletId,
+      authorityId: input.previous.authorityId,
+      walletAuthMethodId: input.previous.walletAuthMethodId,
+      authorityDigestB64u: input.authority.authorityDigestB64u,
+      authorityRevocationEpoch: input.authority.revocationEpoch,
+      mintId: input.previous.mintId,
+      authorizationId: input.previous.authorizationId,
+      walletSessionId: input.previous.walletSessionId,
+      quotaId: input.previous.quotaId,
+      capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(input.authority),
+      createdAtMs: input.previous.createdAtMs,
+      expiresAtMs: input.previous.expiresAtMs,
+    });
+    return this.database
+      .prepare(
+        `UPDATE wallet_session_authorizations_v2
+            SET authority_digest_b64u = ?,
+                capability_subjects_json = ?,
+                record_json = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND authorization_id = ?
+            AND authority_id = ?
+            AND record_json = ?
+            AND retired_at_ms IS NULL`,
+      )
+      .bind(
+        String(next.authorityDigestB64u),
+        JSON.stringify(next.capabilitySubjects),
+        JSON.stringify(next),
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(next.authorizationId),
+        String(next.authorityId),
+        JSON.stringify(input.previous),
+      );
   }
 
   private async readReceipt(operationId: string): Promise<CapabilityReplacementReceiptRow | null> {
@@ -369,8 +594,11 @@ function matchReceipt(
     : 'conflict';
 }
 
-function requireSuccessfulBatch(results: readonly D1ResultLike[]): void {
-  if (results.length !== 2 || results.some((result) => result.success !== true)) {
+function requireSuccessfulBatch(
+  results: readonly D1ResultLike[],
+  expectedLength: number,
+): void {
+  if (results.length !== expectedLength || results.some((result) => result.success !== true)) {
     throw new Error('capability replacement D1 batch failed');
   }
 }

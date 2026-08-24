@@ -12,6 +12,14 @@ import type {
 } from '@shared/utils/registrationIntent';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { LinkedDeviceEcdsaSourcePreservingActivationReceiptV1 } from '@shared/device-linking/sourceContribution';
+import type {
+  RouterAbEd25519YaoActivationPublicReceiptV1,
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoCeremonyBindingV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import type { EcdsaThresholdKeyId } from '../signingEngine/session/keyMaterialBrands';
 import type {
   MpcMaterialActivationRef,
   WalletAuthMethodId,
@@ -184,24 +192,95 @@ export type LocalWalletAuthMethodRecord =
 
 export type LocalWalletAuthMethodRecordV2 = WalletAuthMethodRecordV2;
 
-export type WalletAuthoritySignerMaterialRecordV1 = {
+type WalletAuthoritySignerMaterialRecordBaseV1 = {
   readonly kind: 'wallet_authority_signer_material_v1';
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly activationId: MpcMaterialActivationRef['activationId'];
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
   readonly materialActivation: MpcMaterialActivationRef;
   readonly sealedMaterialB64u: string;
   readonly sealedMaterialDigestB64u: DigestB64u;
 };
+
+type WalletAuthorityLinkedMaterialTargetFactorV1 =
+  | {
+      readonly kind: 'passkey';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly rpId: string;
+      readonly credentialIdB64u: string;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly emailHashHex: string;
+      readonly registrationAuthorityId: string;
+    };
+
+export type WalletAuthorityLinkedSignerMaterialPublicFactsV1 =
+  | {
+      readonly keyFamily: 'ed25519';
+      readonly participantIds: readonly [number, number];
+      readonly targetBinding: RouterAbEd25519YaoCeremonyBindingV1;
+      readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+      readonly activationReceipt: RouterAbEd25519YaoActivationPublicReceiptV1;
+    }
+  | {
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      readonly activationReceipt: LinkedDeviceEcdsaSourcePreservingActivationReceiptV1;
+    };
+
+type WalletAuthorityLinkedSignerMaterialRecordBaseV1 = {
+  readonly kind: 'wallet_authority_linked_signer_material_v1';
+  readonly authorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly activationId: MpcMaterialActivationRef['activationId'];
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly sealedMaterialB64u: string;
+  readonly sealedMaterialDigestB64u: DigestB64u;
+  readonly packageSetDigestB64u: DigestB64u;
+  readonly targetFactor: WalletAuthorityLinkedMaterialTargetFactorV1;
+};
+
+export type WalletAuthorityLinkedSignerMaterialRecordV1 =
+  | (WalletAuthorityLinkedSignerMaterialRecordBaseV1 & {
+      readonly keyFamily: 'ed25519';
+      readonly ecdsaThresholdKeyId?: never;
+      readonly publicFacts: Extract<
+        WalletAuthorityLinkedSignerMaterialPublicFactsV1,
+        { readonly keyFamily: 'ed25519' }
+      >;
+    })
+  | (WalletAuthorityLinkedSignerMaterialRecordBaseV1 & {
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      readonly publicFacts: Extract<
+        WalletAuthorityLinkedSignerMaterialPublicFactsV1,
+        { readonly keyFamily: 'ecdsa_secp256k1' }
+      >;
+    });
+
+export type WalletAuthoritySignerMaterialRecordV1 =
+  | (WalletAuthoritySignerMaterialRecordBaseV1 & {
+      readonly keyFamily: 'ed25519';
+      readonly ecdsaThresholdKeyId?: never;
+    })
+  | (WalletAuthoritySignerMaterialRecordBaseV1 & {
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+    })
+  | WalletAuthorityLinkedSignerMaterialRecordV1;
+
+export type { WalletAuthorityLinkedMaterialTargetFactorV1 };
 
 export type WalletAuthorityExportRootRecordV1 = {
   readonly kind: 'wallet_authority_export_root_v1';
   readonly authorityId: WalletAuthorityId;
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly walletKeyId: WalletKeyId;
-  readonly sealedRootB64u: string;
-  readonly sealedRootDigestB64u: DigestB64u;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
 };
 
 export type WalletSelectionRecordV1 = {

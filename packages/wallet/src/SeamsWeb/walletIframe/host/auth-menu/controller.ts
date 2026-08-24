@@ -39,6 +39,7 @@ import type {
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
 import { createHostedRecoveryPort } from '../recovery-entrypoint';
+import { listLocalPasskeyWalletIds } from '@/SeamsWeb/operations/auth/login';
 
 export type AuthMenuControllerDeps = {
   readonly getSeamsWeb: () => SeamsWeb;
@@ -153,12 +154,15 @@ export class AuthMenuController {
     requestId: WalletIframeRequestId,
     loginTarget: HostedAuthMenuLoginTarget,
   ): Promise<void> {
-    const recentUnlocks = await this.deps
-      .getSeamsWeb()
-      .auth.getRecentUnlocks()
-      .catch(() => null);
+    const [recentUnlocks, localPasskeyWalletIds] = await Promise.all([
+      this.deps
+        .getSeamsWeb()
+        .auth.getRecentUnlocks()
+        .catch(() => null),
+      listLocalPasskeyWalletIds().catch(() => []),
+    ]);
     if (session.state.kind === 'complete') return;
-    const accountOptions = loginAccountOptions(recentUnlocks);
+    const accountOptions = loginAccountOptions(recentUnlocks, localPasskeyWalletIds);
     session.setLoginPreparation({
       accountOptions,
       selectedWalletId: defaultLoginWalletId(recentUnlocks, accountOptions),
@@ -189,9 +193,11 @@ export class AuthMenuController {
         .getSeamsWeb()
         .auth.getRecentUnlocks()
         .catch(() => null));
-    const selectedWalletId = walletId || passkeyRecentWalletId(localUnlocks);
+    const localPasskeyWalletIds = await listLocalPasskeyWalletIds().catch(() => []);
+    const selectedWalletId =
+      walletId || passkeyRecentWalletId(localUnlocks) || localPasskeyWalletIds[0] || null;
     if (loginTarget.kind === 'wallet_sync') {
-      return await prepareHostedPasskeyAccountSync({
+      return await prepareHostedPasskeyLogin({
         context,
         walletId: String(loginTarget.walletId),
         authMenuSessionId,
@@ -199,13 +205,7 @@ export class AuthMenuController {
         cancellation,
       });
     }
-    const selectedWalletIsLocal = Boolean(
-      selectedWalletId &&
-      loginAccountOptions(localUnlocks).some(
-        (option) => String(option.walletId) === selectedWalletId,
-      ),
-    );
-    if (selectedWalletId && selectedWalletIsLocal) {
+    if (selectedWalletId) {
       return await prepareHostedPasskeyLogin({
         context,
         walletId: selectedWalletId,

@@ -32,12 +32,13 @@ import {
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { ExactEd25519SigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import {
-  buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
+  parseEmailOtpWalletAuthAuthority,
+  parsePasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 
 type Ed25519SealedSessionFactor =
   | {
@@ -250,28 +251,46 @@ export function parseExactEd25519SealedSessionRuntime(
   }
 }
 
-export async function ed25519SealedRuntimeAuthorityRef(
-  runtime: ExactEd25519SealedSessionRuntime,
-): Promise<WalletAuthAuthorityRef> {
-  let authority: WalletAuthAuthority;
-  switch (runtime.factor.kind) {
+export async function ed25519SealedRuntimeAuthorityRef(args: {
+  runtime: ExactEd25519SealedSessionRuntime;
+  walletAuthMethodId: WalletAuthMethodId;
+}): Promise<WalletAuthAuthorityRef> {
+  let authority: WalletAuthAuthority | null;
+  switch (args.runtime.factor.kind) {
     case 'passkey':
-      authority = buildPasskeyWalletAuthAuthority({
-        walletId: runtime.walletId,
-        rpId: runtime.factor.rpId,
-        credentialIdB64u: runtime.factor.credentialIdB64u,
+      authority = parsePasskeyWalletAuthAuthority({
+        walletId: args.runtime.walletId,
+        factor: {
+          kind: 'passkey',
+          credentialIdB64u: args.runtime.factor.credentialIdB64u,
+        },
+        verifier: {
+          kind: 'webauthn',
+          rpId: args.runtime.factor.rpId,
+        },
+        bindingId: args.walletAuthMethodId,
       });
       break;
     case 'email_otp':
-      authority = buildEmailOtpWalletAuthAuthority({
-        walletId: runtime.walletId,
-        provider: runtime.factor.provider,
-        providerUserId: runtime.factor.providerSubjectId,
-        emailHashHex: runtime.factor.emailHashHex,
+      authority = parseEmailOtpWalletAuthAuthority({
+        walletId: args.runtime.walletId,
+        factor: {
+          kind: 'email_otp',
+          provider: args.runtime.factor.provider,
+          providerUserId: args.runtime.factor.providerSubjectId,
+        },
+        verifier: {
+          kind: 'email_otp_wallet_auth_method',
+          emailHashHex: args.runtime.factor.emailHashHex,
+        },
+        bindingId: args.walletAuthMethodId,
       });
       break;
     default:
-      return assertNeverEd25519Factor(runtime.factor);
+      return assertNeverEd25519Factor(args.runtime.factor);
+  }
+  if (!authority) {
+    throw new Error('[SigningEngine][near] sealed Ed25519 authority is invalid');
   }
   return await walletAuthAuthorityRef({ authority });
 }
@@ -285,10 +304,7 @@ export function ed25519AuthorizationIdentityMatchesRuntime(args: {
   authorization: ActiveWalletSessionAuthorizationProjection;
 }): boolean {
   const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
-  const authorizationId = walletSessionAuthorizationIdForCurve(
-    args.authorization,
-    'ed25519',
-  );
+  const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
   if (!walletSessionToken) return false;
   return Boolean(
     String(args.authorization.walletId) === String(args.runtime.walletId) &&

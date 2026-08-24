@@ -66,6 +66,10 @@ import type {
   PrepareEcdsaAdditiveLaneHolderResultV1,
   PrepareLinkedDeviceEcdsaSourceContributionRequestV1,
   PrepareLinkedDeviceEcdsaSourceContributionResultV1,
+  CreateEcdsaHolderOrdinaryExportRequestV1,
+  CreateEcdsaHolderOrdinaryExportResultV1,
+  FinalizeEcdsaHolderOrdinaryExportRequestV1,
+  FinalizeEcdsaHolderOrdinaryExportResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
   Ed25519OperationStepUpCredential,
@@ -117,6 +121,10 @@ import type {
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../walletCustody/ed25519SeedMaterial';
 import type { WalletCustodyCacheEnvelopeV1 } from '../walletCustody/openCustodyCache';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
@@ -627,6 +635,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
+      walletAuthMethodId?: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       operationFingerprintDigest?: DigestB64u;
@@ -805,6 +814,25 @@ export interface EmailOtpWorkerOperationMap {
         unlockSignatureB64u: string;
       };
     } & EmailOtpWalletUnlockMaterialResult;
+  };
+  unlockLinkedEmailOtpWallet: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      walletAuthMethodId: string;
+      challengeId: string;
+      otpCode: string;
+      requestedCapabilities:
+        | { readonly kind: 'none' }
+        | { readonly kind: 'ed25519_yao'; readonly signerSlot: number; readonly remainingUses: number };
+    };
+    result: {
+      readonly kind: 'linked_email_otp_wallet_unlock_v1';
+      readonly factorSecret32: Uint8Array;
+      readonly walletSession: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+      readonly ed25519YaoCapability?: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    };
   };
   getEmailOtpWarmSessionStatus: {
     payload: {
@@ -1175,6 +1203,12 @@ export const EcdsaDerivationClientCustomRequestType = {
   SignWalletRecoveryEcdsaMaterialPossessionProof: 70_020,
   PrepareEcdsaAdditiveLaneHolder: 70_021,
   PrepareLinkedDeviceEcdsaSourceContribution: 70_022,
+  StoreLinkedDeviceEcdsaHolderMaterial: 70_023,
+  DisposeLinkedDeviceEcdsaHolderMaterials: 70_024,
+  GetLinkedDeviceEcdsaHolderExportRecipientPublicKey: 70_025,
+  FinalizeLinkedDeviceEcdsaHolderExport: 70_026,
+  CreateEcdsaHolderOrdinaryExportRequest: 70_027,
+  FinalizeEcdsaHolderOrdinaryExport: 70_028,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1199,6 +1233,12 @@ export const EcdsaDerivationClientCustomResponseType = {
   SignWalletRecoveryEcdsaMaterialPossessionProofSuccess: 70_120,
   PrepareEcdsaAdditiveLaneHolderSuccess: 70_121,
   PrepareLinkedDeviceEcdsaSourceContributionSuccess: 70_122,
+  StoreLinkedDeviceEcdsaHolderMaterialSuccess: 70_123,
+  DisposeLinkedDeviceEcdsaHolderMaterialsSuccess: 70_124,
+  GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess: 70_125,
+  FinalizeLinkedDeviceEcdsaHolderExportSuccess: 70_126,
+  CreateEcdsaHolderOrdinaryExportRequestSuccess: 70_127,
+  FinalizeEcdsaHolderOrdinaryExportSuccess: 70_128,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1219,6 +1259,81 @@ export type StoreThresholdEcdsaRoleLocalSigningMaterialResponse = {
   type: typeof EcdsaDerivationClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess;
   payload: StoreThresholdEcdsaRoleLocalSigningMaterialResult;
   diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type StoreLinkedDeviceEcdsaHolderMaterialRequestV1 = {
+  readonly holderHandleId: string;
+  readonly ownedSigningShare32: ArrayBuffer;
+  readonly activationReceiptJson: string;
+};
+
+export type StoreLinkedDeviceEcdsaHolderMaterialResponseV1 = {
+  readonly type: typeof EcdsaDerivationClientCustomResponseType.StoreLinkedDeviceEcdsaHolderMaterialSuccess;
+  readonly payload: { readonly holderHandleId: string };
+  readonly diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type DisposeLinkedDeviceEcdsaHolderMaterialsRequestV1 =
+  | {
+      readonly kind: 'all';
+      readonly holderHandleId?: never;
+    }
+  | {
+      readonly kind: 'one';
+      readonly holderHandleId: string;
+    };
+
+export type DisposeLinkedDeviceEcdsaHolderMaterialsResponseV1 = {
+  readonly type: typeof EcdsaDerivationClientCustomResponseType.DisposeLinkedDeviceEcdsaHolderMaterialsSuccess;
+  readonly payload:
+    | { readonly kind: 'all'; readonly holderHandleId?: never }
+    | { readonly kind: 'one'; readonly holderHandleId: string };
+  readonly diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyRequestV1 = {
+  readonly holderHandleId: string;
+};
+
+export type GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyResponseV1 = {
+  readonly type: typeof EcdsaDerivationClientCustomResponseType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess;
+  readonly payload: {
+    readonly holderHandleId: string;
+    readonly recipientPublicKey: string;
+  };
+  readonly diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type FinalizeLinkedDeviceEcdsaHolderExportRequestV1 = {
+  readonly holderHandleId: string;
+  readonly exportFinalizationInputJson: string;
+};
+
+export type FinalizeLinkedDeviceEcdsaHolderExportResponseV1 = {
+  readonly type: typeof EcdsaDerivationClientCustomResponseType.FinalizeLinkedDeviceEcdsaHolderExportSuccess;
+  readonly payload: {
+    readonly holderHandleId: string;
+    readonly exportArtifactJson: string;
+  };
+  readonly diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type CreateEcdsaHolderOrdinaryExportRequestWorkerV1 =
+  CreateEcdsaHolderOrdinaryExportRequestV1;
+
+export type CreateEcdsaHolderOrdinaryExportResponseWorkerV1 = {
+  readonly type: typeof EcdsaDerivationClientCustomResponseType.CreateEcdsaHolderOrdinaryExportRequestSuccess;
+  readonly payload: CreateEcdsaHolderOrdinaryExportResultV1;
+  readonly diagnostics?: WorkerResponseDiagnostics;
+};
+
+export type FinalizeEcdsaHolderOrdinaryExportRequestWorkerV1 =
+  FinalizeEcdsaHolderOrdinaryExportRequestV1;
+
+export type FinalizeEcdsaHolderOrdinaryExportResponseWorkerV1 = {
+  readonly type: typeof EcdsaDerivationClientCustomResponseType.FinalizeEcdsaHolderOrdinaryExportSuccess;
+  readonly payload: FinalizeEcdsaHolderOrdinaryExportResultV1;
+  readonly diagnostics?: WorkerResponseDiagnostics;
 };
 
 type EcdsaPresignClientSessionParameters = {
@@ -1509,6 +1624,30 @@ type EcdsaDerivationClientCustomOperationMap = {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
     result: StoreThresholdEcdsaRoleLocalSigningMaterialResponse;
   };
+  [EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial]: {
+    payload: StoreLinkedDeviceEcdsaHolderMaterialRequestV1;
+    result: StoreLinkedDeviceEcdsaHolderMaterialResponseV1;
+  };
+  [EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials]: {
+    payload: DisposeLinkedDeviceEcdsaHolderMaterialsRequestV1;
+    result: DisposeLinkedDeviceEcdsaHolderMaterialsResponseV1;
+  };
+  [EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey]: {
+    payload: GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyRequestV1;
+    result: GetLinkedDeviceEcdsaHolderExportRecipientPublicKeyResponseV1;
+  };
+  [EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport]: {
+    payload: FinalizeLinkedDeviceEcdsaHolderExportRequestV1;
+    result: FinalizeLinkedDeviceEcdsaHolderExportResponseV1;
+  };
+  [EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest]: {
+    payload: CreateEcdsaHolderOrdinaryExportRequestWorkerV1;
+    result: CreateEcdsaHolderOrdinaryExportResponseWorkerV1;
+  };
+  [EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport]: {
+    payload: FinalizeEcdsaHolderOrdinaryExportRequestWorkerV1;
+    result: FinalizeEcdsaHolderOrdinaryExportResponseWorkerV1;
+  };
   [EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial]: {
     payload: RehydrateEcdsaRoleLocalSigningMaterialRequestV1;
     result: {
@@ -1660,10 +1799,28 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial
   | typeof EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof
   | typeof EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder
-  | typeof EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution;
+  | typeof EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution
+  | typeof EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial
+  | typeof EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials;
 
 export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,
+> = EcdsaDerivationWorkerOperationRequest<T>;
+
+export type EcdsaLinkedHolderMaterialOperationType =
+  | typeof EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey
+  | typeof EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport;
+
+export type EcdsaDerivationLinkedHolderMaterialOperationRequest<
+  T extends EcdsaLinkedHolderMaterialOperationType,
+> = EcdsaDerivationWorkerOperationRequest<T>;
+
+export type EcdsaHolderOrdinaryExportOperationType =
+  | typeof EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest
+  | typeof EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport;
+
+export type EcdsaDerivationHolderOrdinaryExportOperationRequest<
+  T extends EcdsaHolderOrdinaryExportOperationType,
 > = EcdsaDerivationWorkerOperationRequest<T>;
 /**
  * Refactor 103 zero-prompt handoff — the public reference to an unlocked

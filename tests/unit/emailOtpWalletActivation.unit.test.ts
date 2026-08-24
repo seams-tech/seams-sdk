@@ -51,6 +51,12 @@ class TestActivationSigningEngine {
     this.calls.push(`activate:${args.walletId}:${args.nearAccountId}:${args.signerSlot}`);
   }
 
+  async markSelectedEmailOtpWalletAuthorityUnlocked(
+    walletId: ReturnType<typeof toWalletId>,
+  ): Promise<void> {
+    this.calls.push(`unlock-authority:${walletId}`);
+  }
+
   setWalletAuthenticated(args: {
     kind: 'authenticated';
     walletId: ReturnType<typeof toWalletId>;
@@ -82,6 +88,7 @@ test('Email OTP Ed25519 unlock activates the exact NEAR signer', async () => {
 
   expect(calls).toEqual([
     'activate:otp-wallet:alice.testnet:2',
+    'unlock-authority:otp-wallet',
     'authenticate:otp-wallet:email_otp',
   ]);
 });
@@ -108,6 +115,7 @@ test('Email OTP EVM-family ECDSA unlock activates the wallet preference without 
   expect(calls).toEqual([
     'preferences:otp-wallet',
     'preferences:reload',
+    'unlock-authority:otp-wallet',
     'authenticate:otp-wallet:email_otp',
   ]);
 });

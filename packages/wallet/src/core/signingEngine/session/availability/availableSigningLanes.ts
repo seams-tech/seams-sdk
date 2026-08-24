@@ -21,10 +21,7 @@ import {
   type ResolvedEvmFamilyEcdsaKey,
   type VerifiedEcdsaPublicFacts,
 } from '../identity/evmFamilyEcdsaIdentity';
-import {
-  buildPasskeyWalletAuthAuthority,
-  type WalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { type WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -50,6 +47,7 @@ import {
   type ServerIssuedGeneration,
 } from './canonicalLaneInventory';
 import {
+  mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import type {
@@ -64,6 +62,10 @@ import {
 import { SigningSessionIds } from '../operationState/types';
 import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 import type { DelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
+import type {
+  ActiveWalletAuthorityEcdsaLaneProjectionV1,
+  ActiveWalletAuthorityEcdsaRuntimeV1,
+} from '../material/activeWalletAuthorityEcdsaRuntime';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -120,31 +122,77 @@ type ConcreteAvailableEcdsaSigningLaneBase = {
   updatedAtMs?: number;
 } & ConcreteAvailableEcdsaSigningLaneAuth;
 
-export type ConcreteAvailableEcdsaSigningLane = ConcreteAvailableEcdsaSigningLaneBase & {
-  source: 'canonical_capability';
-  capability: CanonicalEvmFamilyEcdsaSigningCapability;
-  sourceChainTarget?: never;
-  publicReauthAuthority?: never;
-  thresholdSessionId?: never;
-} & (
-    | {
-        authorization: ActiveEvmFamilyWalletSessionAuthorization;
-        remainingUses: number;
-        expiresAtMs: number;
-      }
-    | {
-        authorization?: never;
-        state: 'deferred';
-        remainingUses?: never;
-        expiresAtMs?: never;
-      }
-  );
+export type ActiveWalletAuthorityAvailableEcdsaSigningLane = Omit<
+  ActiveWalletAuthorityEcdsaLaneProjectionV1,
+  'kind'
+> &
+  ConcreteAvailableEcdsaSigningLaneBase & {
+    source: 'active_wallet_authority';
+    runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
+    capability?: never;
+    authorization?: never;
+    thresholdSessionId?: never;
+    remainingUses?: never;
+    expiresAtMs?: never;
+    policyHint?: never;
+    updatedAtMs?: never;
+    sourceChainTarget?: never;
+    publicReauthAuthority?: never;
+  };
 
-/**
- * An activated linked lane is a distinct ECDSA identity. It has no owner
- * derivation root, key handle, or canonical capability; those fields stay
- * forbidden so selection cannot silently fall back to the owner lane.
- */
+export type ConcreteAvailableEcdsaSigningLane =
+  | (ConcreteAvailableEcdsaSigningLaneBase & {
+      source: 'canonical_capability';
+      capability: CanonicalEvmFamilyEcdsaSigningCapability;
+      sourceChainTarget?: never;
+      publicReauthAuthority?: never;
+      thresholdSessionId?: never;
+    } & (
+        | {
+            authorization: ActiveEvmFamilyWalletSessionAuthorization;
+            remainingUses: number;
+            expiresAtMs: number;
+          }
+        | {
+            authorization?: never;
+            state: 'deferred';
+            remainingUses?: never;
+            expiresAtMs?: never;
+          }
+      ))
+  | ActiveWalletAuthorityAvailableEcdsaSigningLane;
+
+export function activeWalletAuthorityAvailableLaneFromProjection(
+  projection: ActiveWalletAuthorityEcdsaLaneProjectionV1,
+): ActiveWalletAuthorityAvailableEcdsaSigningLane {
+  const base = {
+    source: projection.source,
+    runtime: projection.runtime,
+    key: projection.key,
+    materialActivation: projection.materialActivation,
+    publicFacts: projection.publicFacts,
+    curve: 'ecdsa' as const,
+    chainTarget: projection.chainTarget,
+    state: projection.state,
+    authorizationState: projection.authorizationState,
+  };
+  if (projection.auth.kind === 'passkey') {
+    if (!projection.resolvedKey) {
+      throw new Error('active Wallet Authority passkey lane is missing its resolved ECDSA key');
+    }
+    return {
+      ...base,
+      auth: projection.auth,
+      resolvedKey: projection.resolvedKey,
+    };
+  }
+  return {
+    ...base,
+    auth: projection.auth,
+  };
+}
+
+/** Authority-native ECDSA lanes carry holder runtime context instead of a canonical capability. */
 export type AvailableEcdsaSigningLane =
   | MissingAvailableEcdsaSigningLane
   | ConcreteAvailableEcdsaSigningLane;
@@ -162,7 +210,7 @@ function materialActivationKey(activation: MpcMaterialActivationRef): string {
     .join(':');
 }
 
-export type EcdsaLaneRecordFactSource = 'canonical_capability';
+export type EcdsaLaneRecordFactSource = 'canonical_capability' | 'active_wallet_authority';
 
 export type EcdsaLaneGroupKey = {
   walletId: string;
@@ -304,6 +352,7 @@ function activeAuthorizationMatchesEd25519Lane(input: {
   readonly auth: SigningLaneAuthBinding;
   readonly walletId: string;
   readonly thresholdSessionId: string;
+  readonly ownerScope: OwnerLaneScope | undefined;
 }): boolean {
   if (
     String(input.authorization.walletId) !== input.walletId ||
@@ -315,22 +364,16 @@ function activeAuthorizationMatchesEd25519Lane(input: {
   ) {
     return false;
   }
-  if (input.auth.kind === 'email_otp') return true;
-  try {
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: input.walletId,
-      rpId: input.auth.rpId,
-      credentialIdB64u: input.auth.credentialIdB64u,
-    });
-    return input.authorization.authority.walletAuthMethodId === authority.bindingId;
-  } catch {
-    return false;
-  }
+  return Boolean(
+    input.ownerScope &&
+    signingLaneAuthBindingKey(input.auth) === signingLaneAuthBindingKey(input.ownerScope.auth),
+  );
 }
 
 function recordToEd25519Lane(
   record: SigningSessionSealedStoreRecord,
   activeAuthorization: ActiveWalletSessionAuthorizationProjection | null,
+  ownerScope: OwnerLaneScope | undefined,
 ): ConcreteAvailableEd25519SigningLane | null {
   if (record.curve !== 'ed25519') return null;
   const thresholdSessionId = String(record.thresholdSessionIds.ed25519 || '').trim();
@@ -360,6 +403,7 @@ function recordToEd25519Lane(
       auth,
       walletId,
       thresholdSessionId,
+      ownerScope,
     })
       ? activeAuthorization
       : null;
@@ -409,6 +453,7 @@ function isEmailOtpPublicCapabilityLaneReference(
 function publicCapabilityReferenceToEd25519Lane(
   reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
   activeAuthorization: ActiveWalletSessionAuthorizationProjection | null,
+  ownerScope: OwnerLaneScope | undefined,
 ): ConcreteAvailableEd25519SigningLane | null {
   const walletId = String(reference.walletId || '').trim();
   const nearAccountId = String(reference.nearAccountId || '').trim();
@@ -425,6 +470,7 @@ function publicCapabilityReferenceToEd25519Lane(
       auth: reference.auth,
       walletId,
       thresholdSessionId,
+      ownerScope,
     })
       ? activeAuthorization
       : null;
@@ -574,6 +620,11 @@ export type ReadAvailableSigningLanesPorts = {
   listCanonicalEcdsaLanesForWallet?: (args: {
     walletId: string;
   }) => Promise<ConcreteAvailableEcdsaSigningLane[]>;
+  listActiveWalletAuthorityEcdsaLanesForWallet?: (args: {
+    walletId: WalletId;
+    chainTargets: readonly ThresholdEcdsaChainTarget[];
+    requiredCapability?: 'sign' | 'export_keys';
+  }) => Promise<ActiveWalletAuthorityAvailableEcdsaSigningLane[]>;
 };
 
 export function isConcreteAvailableSigningLane(
@@ -591,6 +642,18 @@ export function isConcreteAvailableSigningLane(
     return lane.auth.kind === 'email_otp' || lane.auth.kind === 'passkey';
   }
   if (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey') return false;
+  if (lane.source === 'active_wallet_authority') {
+    if (
+      lane.state !== 'deferred' ||
+      lane.authorizationState !== 'authorization_required' ||
+      lane.runtime.kind !== 'active_wallet_authority_ecdsa_runtime_v1' ||
+      String(lane.runtime.walletId) !== String(lane.key.walletId) ||
+      !mpcMaterialActivationRefsEqual(lane.runtime.materialActivation, lane.materialActivation) ||
+      lane.runtime.publicFacts !== lane.publicFacts
+    ) {
+      return false;
+    }
+  }
   const hasEcdsaFields = Boolean(
     lane.key &&
     String(lane.key.walletId || '').trim() &&
@@ -690,7 +753,6 @@ export function ecdsaLaneCandidateFromAvailableLane(args: {
   if (!isConcreteAvailableSigningLane(args.lane) || args.lane.curve !== 'ecdsa') {
     return null;
   }
-  if (args.lane.source !== 'canonical_capability') return null;
   const state = laneCandidateStateFromAvailableLaneState(args.lane.state);
   if (!state) return null;
   const authMethod = signingLaneAuthMethod(args.lane.auth);
@@ -707,26 +769,41 @@ export function ecdsaLaneCandidateFromAvailableLane(args: {
     keyHandle: args.lane.publicFacts.keyHandle,
     chainTarget: args.lane.chainTarget,
   } as const;
-  if (!args.lane.authorization) {
-    return {
-      ...base,
-      source: 'canonical_capability',
-      authorizationState: 'authorization_required',
-      state: 'deferred',
-    };
+  switch (args.lane.source) {
+    case 'active_wallet_authority':
+      return {
+        ...base,
+        source: 'active_wallet_authority',
+        runtime: args.lane.runtime,
+        authorizationState: 'authorization_required',
+        state: 'deferred',
+      };
+    case 'canonical_capability':
+      if (!args.lane.authorization) {
+        return {
+          ...base,
+          source: 'canonical_capability',
+          authorizationState: 'authorization_required',
+          state: 'deferred',
+        };
+      }
+      return {
+        ...base,
+        source: 'canonical_capability',
+        authorizationState: 'authorized',
+        authorization: args.lane.authorization,
+        state,
+      };
+    default: {
+      const exhaustive: never = args.lane;
+      return exhaustive;
+    }
   }
-  return {
-    ...base,
-    source: 'canonical_capability',
-    authorizationState: 'authorized',
-    authorization: args.lane.authorization,
-    state,
-  };
 }
 
 type EcdsaAvailableLaneIdentityBase = Pick<
   ConcreteAvailableEcdsaSigningLane,
-  'curve' | 'chainTarget' | 'key' | 'materialActivation' | 'publicFacts' | 'authorization'
+  'curve' | 'chainTarget' | 'key' | 'materialActivation' | 'publicFacts'
 >;
 
 export type EcdsaAvailableLaneIdentityInput = EcdsaAvailableLaneIdentityBase &
@@ -1271,9 +1348,18 @@ function summarizeEcdsaLaneForDiagnostics(
 }
 
 function ecdsaLaneRecordFactSource(
-  _lane: ConcreteAvailableEcdsaSigningLane,
+  lane: ConcreteAvailableEcdsaSigningLane,
 ): EcdsaLaneRecordFactSource {
-  return 'canonical_capability';
+  switch (lane.source) {
+    case 'canonical_capability':
+      return 'canonical_capability';
+    case 'active_wallet_authority':
+      return 'active_wallet_authority';
+    default: {
+      const exhaustive: never = lane;
+      return exhaustive;
+    }
+  }
 }
 
 function ecdsaLaneGroupKey(lane: ConcreteAvailableEcdsaSigningLane): EcdsaLaneGroupKey | null {
@@ -1423,7 +1509,7 @@ function ecdsaRecordFactsForCandidates(
 }
 
 function ecdsaCanonicalSourcePriority(_lane: ConcreteAvailableEcdsaSigningLane): number {
-  return 1;
+  return _lane.source === 'active_wallet_authority' ? 2 : 1;
 }
 
 function ecdsaCanonicalFactGroupKey(fact: EcdsaLaneRecordFact): EcdsaLaneGroupKey {
@@ -1439,10 +1525,8 @@ function ecdsaCanonicalGroupConflicts(
 }
 
 function isEcdsaCanonicalFactOperationUsable(fact: EcdsaLaneRecordFact): boolean {
-  return (
-    fact.lane.state !== 'deferred' ||
-    (fact.lane.source === 'canonical_capability' && !fact.lane.authorization)
-  );
+  if (fact.lane.source === 'active_wallet_authority') return true;
+  return fact.lane.state !== 'deferred' || !fact.lane.authorization;
 }
 
 function ecdsaCanonicalFactGeneration(fact: EcdsaLaneRecordFact): ServerIssuedGeneration | null {
@@ -1677,6 +1761,7 @@ export function ed25519LaneMatchesOwnerScope(
 ): boolean {
   if (lane.state === 'missing') return false;
   if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) return false;
+  if (!ownerAuthorityMatchesLane(lane, scope)) return false;
   return scope.auth.kind === 'email_otp' || lane.signerSlot === scope.signerSlot;
 }
 
@@ -1688,7 +1773,41 @@ export function ecdsaLaneMatchesOwnerScope(
   if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) {
     return false;
   }
-  return true;
+  return ownerAuthorityMatchesLane(lane, scope);
+}
+
+function ownerAuthorityMatchesLane(
+  lane: AvailableEd25519SigningLane | AvailableEcdsaSigningLane,
+  scope: OwnerLaneScope,
+): boolean {
+  const ownerAuthority =
+    scope.auth.kind === 'email_otp' ? scope.ownerAuthority : undefined;
+  if (!ownerAuthority) return true;
+  if (lane.curve === 'ecdsa' && lane.source === 'active_wallet_authority') {
+    return (
+      lane.runtime.walletAuthMethodId === ownerAuthority.walletAuthMethodId &&
+      String(lane.runtime.authorityDigestB64u) === String(ownerAuthority.authorityDigest)
+    );
+  }
+  if (lane.curve === 'ecdsa' && lane.source === 'canonical_capability') {
+    const authority = lane.capability.manifest.signer.authority;
+    return (
+      authority.walletAuthMethodId === ownerAuthority.walletAuthMethodId &&
+      String(authority.authorityDigest) === String(ownerAuthority.authorityDigest)
+    );
+  }
+  if (
+    lane.curve === 'ed25519' &&
+    lane.state !== 'missing' &&
+    lane.authorizationState === 'authorized'
+  ) {
+    const authority = lane.authorization.authority;
+    return (
+      authority.walletAuthMethodId === ownerAuthority.walletAuthMethodId &&
+      String(authority.authorityDigest) === String(ownerAuthority.authorityDigest)
+    );
+  }
+  return false;
 }
 
 export async function readAvailableSigningLanes(
@@ -1731,7 +1850,7 @@ export async function readAvailableSigningLanes(
   const invalidLanes: InvalidAvailableSigningLaneDiagnostic[] = [];
 
   for (const record of ed25519Records) {
-    const lane = recordToEd25519Lane(record, activeAuthorization);
+    const lane = recordToEd25519Lane(record, activeAuthorization, input.ownerScope);
     if (!lane) continue;
     ed25519Candidates.push(lane);
     const updatedAtMs = availableLaneUpdatedAtMs(lane);
@@ -1740,7 +1859,11 @@ export async function readAvailableSigningLanes(
   for (const reference of publicCapabilityReferences) {
     if (String(reference.walletId) !== String(walletId)) continue;
     if (!ports.isPublicCapabilityActive?.(reference)) continue;
-    const lane = publicCapabilityReferenceToEd25519Lane(reference, activeAuthorization);
+    const lane = publicCapabilityReferenceToEd25519Lane(
+      reference,
+      activeAuthorization,
+      input.ownerScope,
+    );
     if (!lane) continue;
     if (input.authMethod && signingLaneAuthMethod(lane.auth) !== input.authMethod) continue;
     ed25519Candidates.push(lane);
@@ -1759,6 +1882,27 @@ export async function readAvailableSigningLanes(
     ecdsaCandidatesByTarget[targetKey].push(lane);
     const updatedAtMs = availableLaneUpdatedAtMs(lane);
     generation = Math.max(generation, updatedAtMs);
+    runtimeEcdsaDiscovery.push({
+      result: 'accepted',
+      targetKey,
+      lane: summarizeEcdsaLaneForDiagnostics(lane),
+    });
+  }
+  const activeWalletAuthorityEcdsaLanes =
+    ecdsaChainTargets.length > 0 && ports.listActiveWalletAuthorityEcdsaLanesForWallet
+      ? await ports.listActiveWalletAuthorityEcdsaLanesForWallet({
+          walletId,
+          chainTargets: ecdsaChainTargets,
+        })
+      : [];
+  for (const lane of activeWalletAuthorityEcdsaLanes) {
+    const authMethod = signingLaneAuthMethod(lane.auth);
+    if (input.authMethod && authMethod !== input.authMethod) continue;
+    if (String(lane.key.walletId) !== String(walletId)) continue;
+    const targetKey = thresholdEcdsaChainTargetKey(lane.chainTarget);
+    if (!ecdsaTargetsByKey.has(targetKey)) continue;
+    ecdsaCandidatesByTarget[targetKey] ||= [];
+    ecdsaCandidatesByTarget[targetKey].push(lane);
     runtimeEcdsaDiscovery.push({
       result: 'accepted',
       targetKey,

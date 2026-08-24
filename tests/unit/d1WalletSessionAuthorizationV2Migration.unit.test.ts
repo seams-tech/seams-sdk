@@ -238,6 +238,7 @@ test('D1 signer migrations install and constrain Wallet Session authorization V2
       'issued_at_ms',
       'expires_at_ms',
       'retired_at_ms',
+      'operation_credential_hash',
       'record_json',
     ]);
 
@@ -250,6 +251,7 @@ test('D1 signer migrations install and constrain Wallet Session authorization V2
         'wallet_session_authorizations_v2_method_idx',
         'wallet_session_authorizations_v2_wallet_idx',
         'wallet_session_authorizations_v2_expiry_idx',
+        'wallet_session_authorizations_v2_operation_credential_uidx',
       ]),
     );
 

@@ -2,7 +2,9 @@ import {
   parseWebAuthnRpId,
   type WalletAuthMethodId,
   type WalletAuthorityId,
+  type WalletId,
 } from '@shared/utils/domainIds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parseWalletAuthMethodRecordV2,
   walletAuthMethodRecordId,
@@ -12,7 +14,11 @@ import {
 } from '@shared/utils/registrationIntent';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { formatD1ExecStatement, parseD1JsonColumn } from '../storage/d1Sql';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../storage/tenantRoute';
 
 export type WalletAuthMethodRecord = SharedWalletAuthMethodRecord;
 
@@ -23,8 +29,37 @@ export type WalletAuthMethodRecord = SharedWalletAuthMethodRecord;
  */
 export type WalletAuthMethodRecordV2Owned = WalletAuthMethodRecordV2;
 
+type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
+
+type ActiveWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly status: 'active' }
+>;
+
+type RevokedPasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'revoked' }
+>;
+
 export type WalletAuthMethodV2Store = {
   putV2(record: WalletAuthMethodRecordV2): Promise<void>;
+  insertActiveV2Atomically(input: {
+    readonly record: ActiveWalletAuthMethodRecordV2;
+    readonly prerequisiteStatements: readonly D1PreparedStatementLike[];
+  }): Promise<boolean>;
+  prepareV2InsertStatements(
+    record: ActiveWalletAuthMethodRecordV2,
+  ): readonly D1PreparedStatementLike[];
+  prepareActiveV2SourceGuardStatements(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly authorityDigestB64u: DigestB64u;
+    readonly authorityRevocationEpoch: number;
+  }): readonly D1PreparedStatementLike[];
   readByIdV2(input: {
     readonly walletAuthMethodId: WalletAuthMethodId;
   }): Promise<WalletAuthMethodRecordV2 | null>;
@@ -1053,6 +1088,246 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
       scope: this.scope,
       record,
     }).run();
+  }
+
+  async insertActiveV2Atomically(input: {
+    readonly record: ActiveWalletAuthMethodRecordV2;
+    readonly prerequisiteStatements: readonly D1PreparedStatementLike[];
+  }): Promise<boolean> {
+    await this.ensureV2Schema();
+    try {
+      const statements = [
+        ...input.prerequisiteStatements,
+        ...this.prepareV2InsertStatements(input.record),
+      ];
+      const results = await this.database.batch<D1ResultLike>(statements);
+      return results.length === statements.length && results.every((result) => result.success);
+    } catch {
+      return false;
+    }
+  }
+
+  prepareActiveV2SourceGuardStatements(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly authorityDigestB64u: DigestB64u;
+    readonly authorityRevocationEpoch: number;
+  }): readonly D1PreparedStatementLike[] {
+    if (
+      !Number.isSafeInteger(input.authorityRevocationEpoch) ||
+      input.authorityRevocationEpoch < 0
+    ) {
+      throw new Error('Source authority revocation epoch is invalid');
+    }
+    const sourceCheck = this.database
+      .prepare(
+        `UPDATE wallet_auth_methods
+            SET updated_at_ms = updated_at_ms
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND wallet_auth_method_id = ? AND wallet_id = ?
+            AND wallet_authority_id = ? AND status = 'active'
+            AND EXISTS (
+              SELECT 1
+                FROM wallet_authorities AS source_authority
+               WHERE source_authority.namespace = ?
+                 AND source_authority.org_id = ?
+                 AND source_authority.project_id = ?
+                 AND source_authority.env_id = ?
+                 AND source_authority.authority_id = ?
+                 AND source_authority.wallet_id = ?
+                 AND source_authority.lifecycle_state = 'active'
+                 AND source_authority.authority_digest_b64u = ?
+                 AND source_authority.revocation_epoch = ?
+            )`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(input.walletAuthMethodId),
+        String(input.walletId),
+        String(input.walletAuthorityId),
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(input.walletAuthorityId),
+        String(input.walletId),
+        String(input.authorityDigestB64u),
+        input.authorityRevocationEpoch,
+      );
+    const guard = this.database.prepare(`
+      INSERT INTO wallet_authority_cas_guard (guard_id)
+      SELECT 1
+       WHERE changes() = 0
+    `);
+    return [sourceCheck, guard];
+  }
+
+  /**
+   * Prepares an insert-only active V2 method mutation. A credential or opaque
+   * method-id collision stays inside the surrounding transaction boundary.
+   */
+  prepareV2InsertStatements(
+    record: ActiveWalletAuthMethodRecordV2,
+  ): readonly D1PreparedStatementLike[] {
+    const parsed = normalizeWalletAuthMethodV2(record);
+    if (!parsed || parsed.status !== 'active') {
+      throw new Error('V2 insert requires an active V2 auth-method record');
+    }
+    if (!String(parsed.walletAuthMethodId).startsWith('wallet-auth-method:')) {
+      throw new Error('V2 insert requires an opaque auth-method id');
+    }
+    const insert = prepareD1WalletAuthMethodV2PutStatement({
+      database: this.database,
+      scope: this.scope,
+      record: parsed,
+      insertOnly: true,
+    });
+    const guard = this.database.prepare(`
+      INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+      SELECT 1
+       WHERE changes() = 0
+    `);
+    return [insert, guard];
+  }
+
+  /**
+   * Prepares the exact-source V2 revocation used by recovery promotion.
+   * The source row's canonical record JSON, identity, and update timestamp are
+   * all part of the compare-and-swap predicate. Session material issued by
+   * that exact method is retired in the same batch.
+   */
+  preparePasskeyRecoveryV2RevocationStatements(input: {
+    readonly expected: ActivePasskeyWalletAuthMethodRecordV2;
+    readonly record: RevokedPasskeyWalletAuthMethodRecordV2;
+    readonly revokedAtMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    const expected = normalizeWalletAuthMethodV2(input.expected);
+    const record = normalizeWalletAuthMethodV2(input.record);
+    if (
+      !expected ||
+      expected.kind !== 'passkey' ||
+      expected.status !== 'active' ||
+      !record ||
+      record.kind !== 'passkey' ||
+      record.status !== 'revoked'
+    ) {
+      throw new Error('Recovery revocation requires active and revoked V2 passkey records');
+    }
+    if (
+      expected.walletAuthMethodId !== record.walletAuthMethodId ||
+      expected.walletId !== record.walletId ||
+      expected.walletAuthorityId !== record.walletAuthorityId ||
+      expected.rpId !== record.rpId ||
+      expected.credentialIdB64u !== record.credentialIdB64u ||
+      expected.credentialPublicKeyB64u !== record.credentialPublicKeyB64u ||
+      expected.counter !== record.counter ||
+      expected.createdAtMs !== record.createdAtMs ||
+      expected.activatedAtMs !== record.activatedAtMs ||
+      record.revokedAtMs !== input.revokedAtMs ||
+      record.updatedAtMs !== input.revokedAtMs ||
+      !String(expected.walletAuthMethodId).startsWith('wallet-auth-method:')
+    ) {
+      throw new Error('Recovery revocation source and next V2 records disagree');
+    }
+    if (!Number.isSafeInteger(input.revokedAtMs) || input.revokedAtMs < expected.updatedAtMs) {
+      throw new Error('Recovery revocation timestamp is invalid');
+    }
+    const authMethodId = String(expected.walletAuthMethodId);
+    const update = this.database
+      .prepare(
+        `UPDATE wallet_auth_methods
+            SET status = 'revoked',
+                record_json = ?6,
+                updated_at_ms = ?7,
+                activated_at_ms = ?8,
+                revoked_at_ms = ?9
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND wallet_auth_method_id = ?5
+            AND wallet_id = ?10
+            AND wallet_authority_id = ?11
+            AND kind = 'passkey'
+            AND status = 'active'
+            AND updated_at_ms = ?12
+            AND record_json = ?13`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        authMethodId,
+        JSON.stringify(record),
+        record.updatedAtMs,
+        record.activatedAtMs,
+        record.revokedAtMs,
+        String(expected.walletId),
+        String(expected.walletAuthorityId),
+        expected.updatedAtMs,
+        JSON.stringify(expected),
+      );
+    const guard = this.database.prepare(`
+      INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+      SELECT 1
+       WHERE changes() = 0
+    `);
+    const sessionFilter = `
+      FROM reusable_wallet_sessions AS session
+      WHERE session.namespace = ?
+        AND session.tenant_id = ?
+        AND session.wallet_id = ?
+        AND session.wallet_auth_method_id = ?`;
+    const deleteTokens = this.database
+      .prepare(
+        `DELETE FROM opaque_wallet_session_tokens
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.namespace,
+        this.scope.orgId,
+        String(expected.walletId),
+        authMethodId,
+      );
+    const exhaustQuotas = this.database
+      .prepare(
+        `UPDATE authorization_wallet_session_quotas
+            SET remaining_uses = 0,
+                lifecycle_kind = 'exhausted'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})
+            AND lifecycle_kind = 'active'`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.namespace,
+        this.scope.orgId,
+        String(expected.walletId),
+        authMethodId,
+      );
+    const supersedeSessions = this.database
+      .prepare(
+        `UPDATE reusable_wallet_sessions
+            SET lifecycle_kind = 'superseded'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND wallet_auth_method_id = ?
+            AND lifecycle_kind = 'active'`,
+      )
+      .bind(this.scope.namespace, this.scope.orgId, String(expected.walletId), authMethodId);
+    return [update, guard, deleteTokens, exhaustQuotas, supersedeSessions];
   }
 
   async readByIdV2(input: {

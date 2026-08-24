@@ -4,6 +4,16 @@
  */
 import type { OwnerLaneScope } from './signingLaneAuthBinding';
 import { toRpId } from './evmFamilyEcdsaIdentity';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityBindingDigest,
+} from '@shared/utils/domainIds';
+
+const emailOwnerMethodId = parseWalletAuthMethodId('wam_email_owner');
+const emailOwnerAuthorityDigest = parseWalletAuthorityBindingDigest('digest-email-owner');
+if (!emailOwnerMethodId.ok || !emailOwnerAuthorityDigest.ok) {
+  throw new Error('invalid OwnerLaneScope type fixture');
+}
 
 const passkeyScope: OwnerLaneScope = {
   auth: {
@@ -27,6 +37,10 @@ void passkeyScopeWithoutSlot;
 
 const emailOtpScope: OwnerLaneScope = {
   auth: { kind: 'email_otp', providerSubjectId: 'provider-subject' },
+  ownerAuthority: {
+    walletAuthMethodId: emailOwnerMethodId.value,
+    authorityDigest: emailOwnerAuthorityDigest.value,
+  },
 };
 void emailOtpScope;
 

@@ -79,6 +79,9 @@ export function buildEvmFamilyEcdsaStepUpAuthorization(args: {
   prepared: EvmFamilyPreparedStepUpAuth;
   confirmation: ConfirmIntentDigestSigningOperationResult;
 }): EvmFamilyEcdsaStepUpAuthorization {
+  if (args.prepared.kind === 'active_wallet_authority') {
+    throw new Error('[chains] active Wallet Authority confirmation has no threshold step-up');
+  }
   if (args.prepared.kind === 'warm_session') {
     return buildEvmFamilyWarmSessionStepUpAuthorization({
       signingAuthPlan: args.prepared.confirmationAuthPayload.signingAuthPlan,

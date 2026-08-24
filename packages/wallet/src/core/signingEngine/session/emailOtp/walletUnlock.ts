@@ -1,5 +1,6 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { ActiveWalletSessionV1, WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type {
   EmailOtpEcdsaWalletUnlockAuthorization,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -9,6 +10,7 @@ import type {
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
   EmailOtpWalletUnlockMaterialResult,
+  EmailOtpWorkerOperationMap,
   EmailOtpEcdsaCustodyRestoreV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/ed25519SeedMaterial';
@@ -97,6 +99,51 @@ type EmailOtpWalletUnlockBaseArgs = {
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
   verification: EmailOtpWalletUnlockVerification;
 };
+
+export type LinkedEmailOtpWalletUnlockResult = {
+  readonly kind: 'linked_email_otp_wallet_unlock_v1';
+  readonly factorSecret32: Uint8Array;
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly ed25519YaoCapability?: EmailOtpEd25519YaoRecoveryBootstrapV1;
+};
+
+export async function unlockLinkedEmailOtpWallet(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly walletAuthMethodId: string;
+  readonly challengeId: string;
+  readonly otpCode: string;
+  readonly ed25519Yao?: {
+    readonly signerSlot: number;
+    readonly remainingUses: number;
+  };
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<LinkedEmailOtpWalletUnlockResult> {
+  const requestedCapabilities: EmailOtpWorkerOperationMap['unlockLinkedEmailOtpWallet']['payload']['requestedCapabilities'] =
+    args.ed25519Yao
+      ? {
+          kind: 'ed25519_yao',
+          signerSlot: args.ed25519Yao.signerSlot,
+          remainingUses: args.ed25519Yao.remainingUses,
+        }
+      : { kind: 'none' };
+  return await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'unlockLinkedEmailOtpWallet',
+      timeoutMs: 60_000,
+      payload: {
+        relayUrl: args.relayUrl,
+        walletId: args.walletId,
+        walletAuthMethodId: args.walletAuthMethodId,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        requestedCapabilities,
+      },
+    },
+  });
+}
 
 async function requestEmailOtpWalletUnlock(args: {
   base: EmailOtpWalletUnlockBaseArgs;

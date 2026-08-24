@@ -4,7 +4,7 @@ import {
   commitWorkerProvisionedThresholdEcdsaSession,
   type CommitWorkerProvisionedThresholdEcdsaSessionDeps,
 } from '@/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit';
-import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForCanonicalWallet } from '@/core/signingEngine/session/identity/laneIdentity';
 import { accountSignerRecordFromActivateInput } from './helpers/accountSignerRecord.fixtures';
 import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/ecdsaBootstrap.fixtures';
@@ -38,7 +38,7 @@ test('Email OTP ECDSA bootstrap commit keeps canonical manifest authority', asyn
     roleLocalAuthMethod: 'email_otp',
     emailOtpAuthSubjectId: 'email:route-subject',
   });
-  const routeAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+  const routeAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
     policy: 'session',
     retention: 'session',
     reason: 'login',

@@ -33,12 +33,13 @@ import {
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
+  parseWalletAuthMethodId,
   parseWalletAuthorityBindingDigest,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import {
-  buildPasskeyWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
   walletAuthAuthorityRef,
   type PasskeyWalletAuthAuthority,
@@ -400,16 +401,21 @@ export async function buildPasskeyWalletSessionIssuanceFixture(input: {
   readonly tenantId: string;
   readonly principalId: string;
   readonly walletId: string;
+  readonly walletAuthMethodId: string;
   readonly credentialIdB64u: string;
   readonly rpId: string;
   readonly origin: string;
   readonly expiresAtMs: number;
 }): Promise<PasskeyWalletSessionIssuanceFixture> {
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: input.walletId,
-    credentialIdB64u: input.credentialIdB64u,
-    rpId: input.rpId,
-  });
+  const authority: PasskeyWalletAuthAuthority = {
+    walletId: parsedDomain(input.walletId, parseWalletId),
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: parsedDomain(input.credentialIdB64u, parseWebAuthnCredentialIdB64u),
+    },
+    verifier: { kind: 'webauthn', rpId: parsedDomain(input.rpId, parseWebAuthnRpId) },
+    bindingId: parsedDomain(input.walletAuthMethodId, parseWalletAuthMethodId),
+  };
   return {
     authority,
     authorityRef: await walletAuthAuthorityRef({ authority }),

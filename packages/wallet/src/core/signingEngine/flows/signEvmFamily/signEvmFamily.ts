@@ -107,7 +107,11 @@ type EvmFamilyTransactionSigningOperationContext = {
   operationFingerprint: SigningOperationFingerprint;
   intent: typeof SigningOperationIntent.TransactionSign;
 };
-import { createEvmFamilySigningFlowRuntime } from './signingFlowRuntime';
+import {
+  buildActiveWalletAuthorityConfirmationAuthPlan,
+  createEvmFamilySigningFlowRuntime,
+  type ActiveWalletAuthorityEvmFamilyFlowRuntime,
+} from './signingFlowRuntime';
 import {
   resolveEvmFamilyWalletSessionExpiryContext,
   retryEvmFamilyWithFreshWalletSessionAuthWhenRequired,
@@ -178,10 +182,7 @@ function ecdsaOperationAuthorizationQueueKey(args: {
   prepared: AuthorizedEvmFamilyEcdsaSigningSession;
 }): OperationAuthorizationQueueKey {
   const authorization = args.prepared.signingLane.authorization;
-  const authorizationId = walletSessionAuthorizationIdForCurve(
-    authorization.projection,
-    'ecdsa',
-  );
+  const authorizationId = walletSessionAuthorizationIdForCurve(authorization.projection, 'ecdsa');
   if (!authorizationId) {
     throw new Error('ECDSA signing authorization has no curve-local authorization id');
   }
@@ -192,6 +193,25 @@ function ecdsaOperationAuthorizationQueueKey(args: {
     authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: thresholdEcdsaChainTargetKey(args.prepared.signingLane.chainTarget),
   });
+}
+
+function activeWalletAuthorityFlowRuntimeFromPrepared(
+  prepared: PreparedEvmFamilyEcdsaSigningSession,
+): ActiveWalletAuthorityEvmFamilyFlowRuntime | null {
+  if (
+    prepared.kind !== 'authorization_required' ||
+    prepared.candidate.source !== 'active_wallet_authority'
+  ) {
+    return null;
+  }
+  const confirmationAuthPlan = buildActiveWalletAuthorityConfirmationAuthPlan(
+    prepared.candidate.runtime,
+  );
+  return {
+    runtime: prepared.candidate.runtime,
+    intent: prepared.intent,
+    confirmationAuthPlan,
+  };
 }
 
 export {
@@ -345,6 +365,7 @@ async function signEvmFamilyAttempt(
   let ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
   let selectedEcdsaAuthMethod: WalletAuthAuthority['factor']['kind'] | undefined;
   let preparedEcdsaSigningSession: PreparedEvmFamilyEcdsaSigningSession | undefined;
+  let activeWalletAuthorityFlowRuntime: ActiveWalletAuthorityEvmFamilyFlowRuntime | undefined;
   const ecdsaAttemptDiagnostics: Record<string, unknown> = {
     walletId,
     chain: requestChain,
@@ -441,6 +462,8 @@ async function signEvmFamilyAttempt(
       signingSessionCoordinator,
       forceFreshAuth: attempt.forceFreshAuth === true,
     });
+    activeWalletAuthorityFlowRuntime =
+      activeWalletAuthorityFlowRuntimeFromPrepared(preparedEcdsaSigningSession) ?? undefined;
     ecdsaSigningLane =
       preparedEcdsaSigningSession.kind === 'authorized'
         ? preparedEcdsaSigningSession.signingLane
@@ -540,6 +563,11 @@ async function signEvmFamilyAttempt(
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? await (async () => {
           const prepared = getPreparedEcdsaSigningSession();
+          if (activeWalletAuthorityFlowRuntime) {
+            return {
+              signingAuthPlan: activeWalletAuthorityFlowRuntime.confirmationAuthPlan,
+            };
+          }
           // Auth-neutral material has no threshold operation to plan a warm
           // session from; its plan comes from the wallet's own factor.
           return prepared.kind === 'authorized'
@@ -608,6 +636,9 @@ async function signEvmFamilyAttempt(
       onEvent: args.onEvent,
       onAuthSideEffectStarted: markFreshAuthRetrySideEffect,
       getEcdsaSigningLaneIdentity,
+      ...(activeWalletAuthorityFlowRuntime
+        ? { activeWalletAuthority: activeWalletAuthorityFlowRuntime }
+        : {}),
     });
     return { signingAuthPlan, signingSessionPlan, emailOtpSigning, flowArgs };
   };
@@ -757,25 +788,26 @@ async function signEvmFamilyAttempt(
     }
     return runtime;
   };
-  const thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp = preparedExecutorSession
-    ? {
-        kind: 'required',
-        authPlan: {
-          kind: 'planned',
-          signingAuthPlan,
-        },
-        operation: {
-          intent:
-            preparedExecutorSession.kind === 'authorized'
-              ? preparedExecutorSession.transactionOperation.intent
-              : preparedExecutorSession.intent,
-          authPlan: signingAuthPlan,
-        },
-        runtime: requireThresholdEcdsaStepUpRuntime(),
-      }
-    : {
-        kind: 'not_required',
-      };
+  const thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp =
+    preparedExecutorSession && !activeWalletAuthorityFlowRuntime
+      ? {
+          kind: 'required',
+          authPlan: {
+            kind: 'planned',
+            signingAuthPlan,
+          },
+          operation: {
+            intent:
+              preparedExecutorSession.kind === 'authorized'
+                ? preparedExecutorSession.transactionOperation.intent
+                : preparedExecutorSession.intent,
+            authPlan: signingAuthPlan,
+          },
+          runtime: requireThresholdEcdsaStepUpRuntime(),
+        }
+      : {
+          kind: 'not_required',
+        };
   let thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
   if (!preparedExecutorSession) {
     thresholdEcdsaState = { kind: 'not_required' };

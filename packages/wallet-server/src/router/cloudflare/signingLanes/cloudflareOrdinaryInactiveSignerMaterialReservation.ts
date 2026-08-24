@@ -26,9 +26,12 @@ import {
   routerAbMpcMaterialActivationRefToWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
+  parseLinkedDeviceEcdsaSourceContributionBindingV1,
   parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
-  parseLinkedDeviceEd25519SourcePreservingReservationV1,
+  type LinkedDeviceEcdsaSourceDerivationV1,
 } from '@shared/device-linking/sourceContribution';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { DeviceLinkingEd25519SourcePreservingRouterPortV1 } from '../../transport/fetch/routes/deviceLinking';
 import type { OrdinaryInactiveSignerMaterialActivationPortV1 } from '../d1/deviceLinking/d1LinkedDeviceAuthorityInstallService';
 import type {
@@ -74,8 +77,8 @@ export function createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpoin
   readonly internalServiceAuthSecret: string;
 }): CloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1 {
   return {
-    executeEd25519SourcePreservingV1: async (request) => {
-      const raw = await postRouterJsonRequestV1(
+    executeEd25519SourcePreservingV1: async (request) =>
+      await postRouterJsonRequestV1(
         input,
         CLOUDFLARE_ROUTER_ED25519_YAO_SOURCE_PRESERVING_EXECUTE_PATH_V1,
         {
@@ -89,9 +92,7 @@ export function createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpoin
           participant_ids: request.participantIds,
         },
         'Ed25519 source-preserving Router execution',
-      );
-      return parseLinkedDeviceEd25519SourcePreservingReservationV1(raw);
-    },
+      ),
   };
 }
 
@@ -241,14 +242,39 @@ function parseEcdsaReservationResponseV1(
   );
   const sourceDerivation = parseEcdsaSourceDerivationResponseV1(
     reservation.source_derivation,
+    request.preparation.sourceDerivation,
+  );
+  const binding = parseLinkedDeviceEcdsaSourceContributionBindingV1(reservation.binding);
+  const targetRelayerPublicKey33B64u = requireResponseTextV1(
+    reservation.target_relayer_public_key33_b64u,
+    'ordinary ECDSA target relayer public key',
+  );
+  const thresholdPublicKey33B64u = requireResponseTextV1(
+    reservation.threshold_public_key33_b64u,
+    'ordinary ECDSA threshold public key',
+  );
+  const thresholdEthereumAddress20B64u = requireResponseTextV1(
+    reservation.threshold_ethereum_address20_b64u,
+    'ordinary ECDSA threshold Ethereum address',
   );
   const activationReceipt = parseLinkedDeviceEcdsaSourcePreservingActivationReceiptV1({
     state: 'inactive',
-    binding: reservation.binding,
+    binding,
     sourceDerivation,
-    targetRelayerPublicKey33B64u: reservation.target_relayer_public_key33_b64u,
-    thresholdPublicKey33B64u: reservation.threshold_public_key33_b64u,
-    thresholdEthereumAddress20B64u: reservation.threshold_ethereum_address20_b64u,
+    targetRelayerPublicKey33B64u,
+    thresholdPublicKey33B64u,
+    thresholdEthereumAddress20B64u,
+    normalSigning: buildEcdsaTargetNormalSigningStateV1({
+      sourceNormalSigning: sourceDerivation.sourceNormalSigning,
+      targetActivation: binding.target.activation,
+      targetClientPublicKey33B64u: binding.targetClientPublicKey33B64u,
+      targetRelayerPublicKey33B64u,
+      thresholdPublicKey33B64u,
+      thresholdEthereumAddress20B64u,
+      targetSigningWorkerRecipientPublicKeyB64u: targetSigningWorkerRecipientKeyV1(
+        binding.target.signingWorkerRecipientPublicKeyB64u,
+      ),
+    }),
   });
   return {
     kind: 'ordinary_ecdsa_signer_material_worker_reservation_v1',
@@ -269,10 +295,10 @@ function parseEcdsaReservationResponseV1(
   };
 }
 
-function parseEcdsaSourceDerivationResponseV1(raw: unknown): {
-  readonly applicationBindingDigestB64u: string;
-  readonly clientShareRetryCounter: number;
-} {
+function parseEcdsaSourceDerivationResponseV1(
+  raw: unknown,
+  expected: LinkedDeviceEcdsaSourceDerivationV1,
+): LinkedDeviceEcdsaSourceDerivationV1 {
   const derivation = exactResponseRecordV1(
     raw,
     ['application_binding_digest_b64u', 'client_share_retry_counter'],
@@ -286,10 +312,68 @@ function parseEcdsaSourceDerivationResponseV1(raw: unknown): {
   ) {
     throw new Error('ordinary ECDSA source derivation response is invalid');
   }
+  if (
+    derivation.application_binding_digest_b64u !== expected.applicationBindingDigestB64u ||
+    derivation.client_share_retry_counter !== expected.clientShareRetryCounter
+  ) {
+    throw new Error('ordinary ECDSA source derivation response differs from the request');
+  }
+  return expected;
+}
+
+function buildEcdsaTargetNormalSigningStateV1(input: {
+  readonly sourceNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly targetActivation: MpcMaterialActivationRef;
+  readonly targetClientPublicKey33B64u: string;
+  readonly targetRelayerPublicKey33B64u: string;
+  readonly thresholdPublicKey33B64u: string;
+  readonly thresholdEthereumAddress20B64u: string;
+  readonly targetSigningWorkerRecipientPublicKeyB64u: string;
+}): RouterAbEcdsaDerivationNormalSigningStateV1 {
+  const sourceScope = input.sourceNormalSigning.scope;
   return {
-    applicationBindingDigestB64u: derivation.application_binding_digest_b64u,
-    clientShareRetryCounter: derivation.client_share_retry_counter,
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: sourceScope.wallet_id,
+      ecdsa_threshold_key_id: sourceScope.ecdsa_threshold_key_id,
+      signing_root_id: sourceScope.signing_root_id,
+      signing_root_version: sourceScope.signing_root_version,
+      context: sourceScope.context,
+      public_identity: {
+        context_binding_b64u: sourceScope.public_identity.context_binding_b64u,
+        derivation_client_share_public_key33_b64u: input.targetClientPublicKey33B64u,
+        server_public_key33_b64u: input.targetRelayerPublicKey33B64u,
+        threshold_public_key33_b64u: input.thresholdPublicKey33B64u,
+        ethereum_address20_b64u: input.thresholdEthereumAddress20B64u,
+        client_share_retry_counter: sourceScope.public_identity.client_share_retry_counter,
+        server_share_retry_counter: sourceScope.public_identity.server_share_retry_counter,
+      },
+      material_activation: routerAbMpcMaterialActivationRefToWire(input.targetActivation),
+      signing_worker: {
+        server_id: input.targetActivation.signingWorker,
+        key_epoch: sourceScope.signing_worker.key_epoch,
+        recipient_encryption_key: input.targetSigningWorkerRecipientPublicKeyB64u,
+      },
+      activation_epoch: sourceScope.activation_epoch,
+    },
   };
+}
+
+function requireResponseTextV1(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error(`${label} is invalid`);
+  }
+  return raw;
+}
+
+function targetSigningWorkerRecipientKeyV1(value: string): string {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 32 || base64UrlEncode(bytes) !== value) {
+    throw new Error('ordinary ECDSA target signing-worker recipient is invalid');
+  }
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return `x25519:${hex}`;
 }
 
 function exactResponseRecordV1(
@@ -439,7 +523,9 @@ async function postDeactivationRequestV1(
     }),
   );
   if (!response.ok) {
-    throw new Error(`ordinary ${keyFamily} material deactivation failed with HTTP ${response.status}`);
+    throw new Error(
+      `ordinary ${keyFamily} material deactivation failed with HTTP ${response.status}`,
+    );
   }
   let raw: unknown;
   try {
@@ -464,9 +550,10 @@ function parseDeactivationResponseV1(
     throw new Error(`ordinary ${keyFamily} material deactivation response is invalid`);
   }
   return {
-    kind: keyFamily === 'ed25519'
-      ? 'ordinary_ed25519_signer_material_deactivation_v1'
-      : 'ordinary_ecdsa_signer_material_deactivation_v1',
+    kind:
+      keyFamily === 'ed25519'
+        ? 'ordinary_ed25519_signer_material_deactivation_v1'
+        : 'ordinary_ecdsa_signer_material_deactivation_v1',
     keyFamily,
     state: 'revoked',
     materialActivation: routerAbMpcMaterialActivationRefFromWire(raw.material_activation),

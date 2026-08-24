@@ -100,6 +100,58 @@ test.describe('opaque ECDSA presign authority', () => {
     expect(freeCount).toBe(1);
   });
 
+  test('destroys one holder material without closing its sibling and closes all only globally', async () => {
+    let holderAFreeCount = 0;
+    let holderBFreeCount = 0;
+    let holderCFreeCount = 0;
+    let holderDFreeCount = 0;
+    const authority = new OpaqueEcdsaPresignAuthorityV1();
+    const groupPublicKey33 = new Uint8Array(33).fill(2);
+    const expiresAtMs = Date.now() + 60_000;
+    const initialize = (args: { sessionId: string; onFree: () => void }) =>
+      authority.initialize({
+        sessionId: args.sessionId,
+        session: completedSession(args.onFree),
+        poolIdentity: poolIdentity(),
+        groupPublicKey33,
+        expiresAtMs,
+      });
+    const onlineInput = (materialHandle: string) => ({
+      materialHandle,
+      groupPublicKey33: groupPublicKey33.buffer,
+      expectedPresignBigR33: new Uint8Array(33).fill(7).buffer,
+      digest32: new Uint8Array(32).buffer,
+      clientRerandomizationContribution32: new Uint8Array(32).buffer,
+      signingWorkerRerandomizationContribution32: new Uint8Array(32).buffer,
+    });
+
+    const holderA = await initialize({
+      sessionId: 'holder-a',
+      onFree: () => (holderAFreeCount += 1),
+    });
+    const holderB = await initialize({
+      sessionId: 'holder-b',
+      onFree: () => (holderBFreeCount += 1),
+    });
+    const holderAHandle = holderA.presignatureHandle;
+    const holderBHandle = holderB.presignatureHandle;
+    if (!holderAHandle || !holderBHandle) throw new Error('holder material handles are missing');
+
+    expect(await authority.destroyMaterial(holderAHandle)).toBe(true);
+    expect(holderAFreeCount).toBe(1);
+    expect(holderBFreeCount).toBe(0);
+    expect(
+      new Uint8Array(await authority.computeSignatureShare(onlineInput(holderBHandle))),
+    ).toEqual(new Uint8Array(32).fill(9));
+    expect(holderBFreeCount).toBe(1);
+
+    await initialize({ sessionId: 'holder-c', onFree: () => (holderCFreeCount += 1) });
+    await initialize({ sessionId: 'holder-d', onFree: () => (holderDFreeCount += 1) });
+    authority.close();
+    expect(holderCFreeCount).toBe(1);
+    expect(holderDFreeCount).toBe(1);
+  });
+
   test('frees an initialization queued before authority close', async () => {
     let freeCount = 0;
     const authority = new OpaqueEcdsaPresignAuthorityV1();

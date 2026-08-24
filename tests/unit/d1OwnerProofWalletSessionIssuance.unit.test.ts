@@ -6,9 +6,7 @@ import {
 } from '../../packages/wallet-server/src/authorization/service';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
-import {
-  buildVerifiedWalletSessionPasskeyFactorResult,
-} from '../../packages/wallet-server/src/authorization/factorEvidence';
+import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../packages/wallet-server/src/authorization/factorEvidence';
 import { parseVerifiedOwnerProofId } from '../../packages/wallet-server/src/authorization/domain';
 import {
   parseAuthFactorId,
@@ -16,7 +14,10 @@ import {
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { parseWalletId, parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -121,6 +122,7 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
       tenantId: 'tenant-owner-proof',
       principalId: 'principal-owner-proof',
       walletId: 'wallet-owner-proof',
+      walletAuthMethodId: 'wallet-auth-method:owner-proof',
       credentialIdB64u: 'credential-owner-proof',
       rpId: 'example.test',
       origin: 'https://app.example.test',
@@ -133,9 +135,9 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
       projectId: 'test-project',
       envId: 'test-env',
       record: {
-        version: 'wallet_auth_method_v1',
         kind: 'passkey',
-        status: 'active',
+        walletAuthMethodId: String(fixture.authority.bindingId),
+        walletAuthorityId: 'wallet-authority:owner-proof',
         walletId: String(fixture.authority.walletId),
         rpId: String(fixture.authority.verifier.rpId),
         credentialIdB64u: String(fixture.authority.factor.credentialIdB64u),
@@ -273,7 +275,9 @@ test('one owner proof mints both curve tokens for one Wallet Session and rejects
 });
 
 function required<T>(
-  result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error?: { readonly message?: string } },
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error?: { readonly message?: string } },
 ): T {
   if (!result.ok) throw new Error(result.error?.message ?? 'owner proof fixture value is invalid');
   return result.value;

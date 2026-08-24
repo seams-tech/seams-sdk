@@ -5,13 +5,12 @@ import type {
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import type {
+  DeviceLinkingEd25519ExportRootReplacementEnvelopeV1,
   DeviceLinkingEd25519ExportRootIdentityV1,
   DeviceLinkingEd25519ExportRootPortV1,
   DeviceLinkingEd25519ExportRootRecipientHandleV1,
 } from './deviceLinkingEd25519ExportRoot';
-import type {
-  DeviceLinkingAuthenticatedTransportPortV1 as DeviceLinkingAuthenticatedTransportPort,
-} from './deviceLinkingPorts';
+import type { DeviceLinkingAuthenticatedTransportPortV1 as DeviceLinkingAuthenticatedTransportPort } from './deviceLinkingPorts';
 
 export async function publishLinkedDeviceEd25519ExportRootRecipientV1(input: {
   readonly ed25519ExportRoot: DeviceLinkingEd25519ExportRootPortV1;
@@ -38,7 +37,7 @@ export async function acceptLinkedDeviceEd25519ExportRootV1(input: {
   readonly ed25519ExportRoot: DeviceLinkingEd25519ExportRootPortV1;
   readonly transport: DeviceLinkingAuthenticatedTransportPort;
   readonly recipient: DeviceLinkingEd25519ExportRootRecipientHandleV1;
-  readonly replacementEnvelopeBindingJson: string;
+  readonly replacementEnvelope: DeviceLinkingEd25519ExportRootReplacementEnvelopeV1;
   readonly replacementFactorSecret: Uint8Array;
   readonly expiresAtMs: number;
   readonly assertCurrentRun: () => void;
@@ -57,7 +56,7 @@ export async function acceptLinkedDeviceEd25519ExportRootV1(input: {
   return await input.ed25519ExportRoot.acceptTransferV1({
     recipient: input.recipient,
     transferPackage,
-    replacementEnvelopeBindingJson: input.replacementEnvelopeBindingJson,
+    replacementEnvelope: input.replacementEnvelope,
     replacementFactorSecret: input.replacementFactorSecret,
   });
 }

@@ -15,6 +15,7 @@ import {
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionStepWasm,
+  thresholdEcdsaLinkedHolderPresignSessionInitWasm,
 } from '../../../threshold/crypto/ecdsaDerivationClientWasm';
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../../routerAb/ecdsaDerivation/presignaturePool';
 
@@ -49,6 +50,34 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
   workerCtx: WorkerOperationContext;
 }): Promise<LoadedRouterAbEcdsaDerivationSigningMaterialSource> {
   const signerSession = args.signerSession;
+  const clientShare = signerSession.clientShare;
+
+  if (clientShare.kind === 'linked_holder_worker_share') {
+    const holderHandleId = clientShare.holderHandleId;
+    return {
+      signerSession,
+      clientSigningMaterial: {
+        kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
+        initClientPresignSession: async (input) =>
+          await thresholdEcdsaLinkedHolderPresignSessionInitWasm({
+            holderHandleId,
+            ...input,
+          }),
+        stepClientPresignSession: thresholdEcdsaRoleLocalPresignSessionStepWasm,
+        abortClientPresignSession: thresholdEcdsaRoleLocalPresignSessionAbortWasm,
+        admitClientPresignature: thresholdEcdsaRoleLocalAdmitPresignatureWasm,
+        destroyClientPresignature: thresholdEcdsaRoleLocalDestroyPresignatureWasm,
+        reserveClientPresignature: thresholdEcdsaRoleLocalReservePresignatureWasm,
+        commitClientPresignature: thresholdEcdsaRoleLocalCommitPresignatureWasm,
+        listAvailableClientPresignatures: thresholdEcdsaRoleLocalListAvailablePresignaturesWasm,
+        retireClientPresignaturePool: thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
+        computeSignatureShareFromPresignatureHandle:
+          thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
+      },
+      cleanupAfterSign: async () => undefined,
+    };
+  }
+  const roleLocalClientShare = clientShare;
 
   return {
     signerSession,
@@ -57,19 +86,19 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
       initClientPresignSession: async (input) => {
         await ensureRoleLocalSigningMaterialLoaded({
           workerCtx: args.workerCtx,
-          clientShare: signerSession.clientShare,
+          clientShare: roleLocalClientShare,
         });
         return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
-          materialHandle: signerSession.clientShare.handle.materialHandle,
+          materialHandle: roleLocalClientShare.handle.materialHandle,
           material:
-            signerSession.clientShare.material.kind === 'worker_loaded'
+            roleLocalClientShare.material.kind === 'worker_loaded'
               ? {
                   kind: 'persisted',
-                  materialRef: signerSession.clientShare.material.materialRef,
+                  materialRef: roleLocalClientShare.material.materialRef,
                 }
               : {
                   kind: 'runtime_loaded',
-                  expectedBindingDigest: signerSession.clientShare.handle.bindingDigest,
+                  expectedBindingDigest: roleLocalClientShare.handle.bindingDigest,
                 },
           ...input,
         });

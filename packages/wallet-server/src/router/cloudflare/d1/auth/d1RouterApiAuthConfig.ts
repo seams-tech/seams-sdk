@@ -80,6 +80,8 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   }) => DeviceLinkingRouteServiceV1['targetCredential'];
   /** Worker endpoints and exact preparation planners for ordinary authority installation. */
   readonly authorityInstallation: CloudflareD1LinkedDeviceAuthorityInstallationOptionsV1;
+  /** Owner-authenticated bridge to the Router's private Ed25519 source-preserving lane. */
+  readonly sourceContributionRouter?: DeviceLinkingRouteServiceV1['sourceContributionRouter'];
   readonly nowV1?: () => number;
 };
 

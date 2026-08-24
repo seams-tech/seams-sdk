@@ -19,6 +19,7 @@ import { buildRouterAbEcdsaDerivationSigningMaterialRef } from '../../routerAb/e
 import { laneCandidateStateFromRuntimePolicy } from '../../session/identity/laneIdentity';
 import {
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { projectEcdsaRoleLocalPublicFactsToChainTarget } from '../../session/persistence/ecdsaRoleLocalRecords';
@@ -38,6 +39,12 @@ import type {
 } from '../../session/material/ecdsaSigningCapability';
 import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking/contracts';
+import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -279,6 +286,94 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       walletSessionToken,
     },
     expiresAtMs: authorized.authorization.status.expiresAtMs,
+    singleUseEmailOtpSession: false,
+  });
+}
+
+function exactSessionAuthorizesEcdsaSigning(args: {
+  readonly session: ActiveWalletSessionV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+}): boolean {
+  return args.session.capabilitySubjects.some(
+    (subject) =>
+      subject.kind === 'sign' &&
+      subject.keyFamily === 'ecdsa_secp256k1' &&
+      mpcMaterialActivationRefsEqual(subject.materialActivation, args.materialActivation),
+  );
+}
+
+export function buildActiveWalletAuthorityReadySecp256k1Material(args: {
+  readonly authorityRuntime: ActiveWalletAuthorityEcdsaRuntimeV1;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly relayerUrl: string;
+}): ReadySecp256k1SigningMaterial {
+  const authorityRuntime = args.authorityRuntime;
+  const runtime = authorityRuntime.holderRuntime;
+  const session = authorityRuntime.session;
+  const operationCredential = authorityRuntime.operationCredential;
+  const normalSigning = runtime.activationReceipt.normalSigning;
+  const normalScope = normalSigning.scope;
+  if (
+    session.walletId !== runtime.walletId ||
+    session.authorityId !== runtime.authorityId ||
+    session.authMethodId !== runtime.walletAuthMethodId ||
+    operationCredential.walletSessionId !== authorityRuntime.walletSessionId ||
+    session.expiresAtMs <= Date.now() ||
+    !exactSessionAuthorizesEcdsaSigning({
+      session,
+      materialActivation: runtime.materialActivation,
+    }) ||
+    normalScope.wallet_id !== runtime.walletId ||
+    normalScope.ecdsa_threshold_key_id !== runtime.ecdsaThresholdKeyId ||
+    !mpcMaterialActivationRefsEqual(
+      routerAbMpcMaterialActivationRefFromWire(normalScope.material_activation),
+      runtime.materialActivation,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine] active Wallet Authority session does not bind the ECDSA holder runtime',
+    );
+  }
+  const relayerUrl = String(args.relayerUrl || '').trim();
+  if (!relayerUrl) {
+    throw new Error('[SigningEngine] active Wallet Authority ECDSA signing requires relayerUrl');
+  }
+  const signerSession = buildHydratedEcdsaSignerMaterial({
+    walletId: toWalletId(runtime.walletId),
+    materialActivation: runtime.materialActivation,
+    publicFacts: authorityRuntime.publicFacts,
+    chainTarget: args.chainTarget,
+    transport: {
+      kind: 'threshold_ecdsa_signer_transport',
+      relayerUrl,
+      relayerKeyId: authorityRuntime.relayerKeyId,
+      signingMaterial: buildRouterAbEcdsaDerivationSigningMaterialRef({
+        routerAbState: normalSigning,
+      }),
+      relayerVerifyingShareB64u: normalScope.public_identity.server_public_key33_b64u,
+    },
+    clientShare: {
+      kind: 'linked_holder_worker_share',
+      holderHandleId: runtime.holderHandleId,
+    },
+    routerAbEcdsaDerivationNormalSigning: {
+      kind: 'router_ab_ecdsa_derivation_normal_signing_hydrated_v1',
+      state: normalSigning,
+      activeStateId: routerAbEcdsaDerivationActiveStateId(normalSigning),
+    },
+  });
+  return buildReadySecp256k1SigningMaterial({
+    walletId: runtime.walletId,
+    signerSession,
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: operationCredential.walletSessionId,
+    },
+    credential: {
+      kind: 'reusable_wallet_session',
+      walletSessionToken: operationCredential.token,
+    },
+    expiresAtMs: session.expiresAtMs,
     singleUseEmailOtpSession: false,
   });
 }

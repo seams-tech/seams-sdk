@@ -9,6 +9,8 @@ import {
   parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
 } from '../../../packages/shared-ts/src/device-linking/sourceContribution';
+import { routerAbMpcMaterialActivationRefToWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '../../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
@@ -55,7 +57,10 @@ import {
   parseWalletAuthMethodId,
   parseWalletId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
-import { parseEd25519PublicKeyB64u, parseKeyCreationSignerSlot } from '../../../packages/shared-ts/src/passkey-custody/primitives';
+import {
+  parseEd25519PublicKeyB64u,
+  parseKeyCreationSignerSlot,
+} from '../../../packages/shared-ts/src/passkey-custody/primitives';
 import { parseLaneParticipantBindingDigestB64u } from '../../../packages/shared-ts/src/signing-lanes/participants';
 import { parseNearEd25519SigningKeyId } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
@@ -81,7 +86,7 @@ function buildR103EcdsaActivation(suffix: string) {
     kind: 'mpc_material_activation_ref' as const,
     activationId: `activation:r103-${suffix}`,
     capability: 'capability:r103',
-    materialOwner: 'owner:r103',
+    materialOwner: 'wallet:r103',
     keyBinding: `key-binding:r103-${suffix}`,
     lifecycleBinding: `lifecycle:r103-${suffix}`,
     signingWorker: 'worker:r103',
@@ -219,9 +224,7 @@ export function buildR103OwnerApprovalContextV1(
 export function buildR103EcdsaSourceContributionPreparationV1(
   fixture: R103DeviceLinkFixture,
 ): LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 {
-  const compressedPublicKey = base64UrlEncode(
-    new Uint8Array([2, ...new Uint8Array(32).fill(1)]),
-  );
+  const compressedPublicKey = base64UrlEncode(new Uint8Array([2, ...new Uint8Array(32).fill(1)]));
   const recipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(2));
   const secondRecipientPublicKey = base64UrlEncode(new Uint8Array(32).fill(3));
 
@@ -264,6 +267,34 @@ export function buildR103EcdsaSourceContributionV1(
     thresholdPublicKey33B64u: preparation.source.thresholdPublicKey33B64u,
     thresholdEthereumAddress20B64u: preparation.source.thresholdEthereumAddress20B64u,
   };
+  const sourceNormalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1({
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: sourceSigner.activation.materialOwner,
+      ecdsa_threshold_key_id: 'ecdsa-threshold-key:r103',
+      signing_root_id: 'signing-root:r103',
+      signing_root_version: 'signing-root-version:r103',
+      context: {
+        application_binding_digest_b64u: fixture.packageSetDigestB64u,
+      },
+      public_identity: {
+        context_binding_b64u: base64UrlEncode(new Uint8Array(32).fill(19)),
+        derivation_client_share_public_key33_b64u: sourceSigner.clientPublicKey33B64u,
+        server_public_key33_b64u: sourceSigner.relayerPublicKey33B64u,
+        threshold_public_key33_b64u: sourceSigner.thresholdPublicKey33B64u,
+        ethereum_address20_b64u: sourceSigner.thresholdEthereumAddress20B64u,
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      material_activation: routerAbMpcMaterialActivationRefToWire(sourceSigner.activation),
+      signing_worker: {
+        server_id: sourceSigner.activation.signingWorker,
+        key_epoch: 'signing-worker-key-epoch:r103',
+        recipient_encryption_key: `x25519:${'ab'.repeat(32)}`,
+      },
+      activation_epoch: 'root-share-epoch:r103',
+    },
+  });
   const binding = {
     linkSessionId: preparation.linkSessionId,
     enrollmentId: preparation.enrollmentId,
@@ -287,6 +318,8 @@ export function buildR103EcdsaSourceContributionV1(
     sourceDerivation: {
       applicationBindingDigestB64u: fixture.packageSetDigestB64u,
       clientShareRetryCounter: 0,
+      ecdsaThresholdKeyId: 'ecdsa-threshold-key:r103',
+      sourceNormalSigning,
     },
     target: preparation.target,
     package: {

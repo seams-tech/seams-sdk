@@ -65,32 +65,21 @@ function scheduleCurrentCapabilityExpiry(
 ): void {
   clearCurrentCapabilityExpiryTimer();
   const delayMs = Math.max(0, capability.expiresAtMs - Date.now());
-  currentCapabilityExpiryTimer = setTimeout(() => {
-    currentCapabilityExpiryTimer = null;
-    if (currentCapability !== capability || currentCapabilityTransport !== transport) return;
-    if (capability.expiresAtMs > Date.now()) {
-      scheduleCurrentCapabilityExpiry(capability, transport);
-      return;
-    }
-    void destroyUnlockedWalletEd25519ExportRootCapabilitiesV1(transport, {
-      kind: 'capability',
-      capabilityHandleId: capability.capabilityHandleId,
-    });
-  }, Math.min(delayMs, MAX_EXPIRY_TIMER_DELAY_MS));
-}
-
-/**
- * The canonical identity of the passkey auth method that issued a custody
- * envelope, derived from the envelope's own factor so establish and preflight
- * agree without a store lookup. Stable across the capability's lifetime by
- * construction: the envelope factor is immutable.
- */
-export function custodyEnvelopePasskeyAuthMethodIdV1(factor: {
-  readonly kind: 'passkey';
-  readonly rpId: string;
-  readonly credentialIdB64u: string;
-}): string {
-  return `passkey:${factor.rpId}:${factor.credentialIdB64u}`;
+  currentCapabilityExpiryTimer = setTimeout(
+    () => {
+      currentCapabilityExpiryTimer = null;
+      if (currentCapability !== capability || currentCapabilityTransport !== transport) return;
+      if (capability.expiresAtMs > Date.now()) {
+        scheduleCurrentCapabilityExpiry(capability, transport);
+        return;
+      }
+      void destroyUnlockedWalletEd25519ExportRootCapabilitiesV1(transport, {
+        kind: 'capability',
+        capabilityHandleId: capability.capabilityHandleId,
+      });
+    },
+    Math.min(delayMs, MAX_EXPIRY_TIMER_DELAY_MS),
+  );
 }
 
 function isCapabilityReference(

@@ -27,15 +27,18 @@ export type {
 export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4,
+  WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5,
   WalletSessionAuthorizationRepository,
   buildActiveWalletSessionV1,
   buildActiveWalletSessionAuthorizationProjection,
   parseExactWalletSessionAuthorizationRecordV4,
   parseWalletSessionAuthorizationProjection,
   parseStoredExactWalletSessionAuthorizationRow,
+  parseStoredExactWalletSessionAuthorizationWithOperationCredential,
   retireWalletSessionAuthorizationProjection,
   retireWalletSessionV1,
   toStoredExactWalletSessionAuthorizationRow,
+  toStoredExactWalletSessionAuthorizationRowV5,
   walletSessionAuthorizations,
 } from './seamsWalletDB/walletSessionAuthorizationStore';
 export type {
@@ -44,6 +47,7 @@ export type {
   RetiredWalletSessionV1,
   RetiredWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationRecordV4,
+  WalletSessionOperationCredentialV1,
   WalletSessionAuthorizationToken,
   WalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,

@@ -2,7 +2,7 @@ import type { ActiveEvmFamilyWalletSessionAuthorization } from '../../session/ma
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
-  buildPasskeyWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthority,
@@ -36,9 +36,16 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
 
 export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
-  DurableEmailOtpEcdsaSigningSessionAuthorityResolver;
+  DurableEmailOtpEcdsaSigningSessionAuthorityResolver & {
+    resolveCanonicalEcdsaSigningCapability: (args: {
+      walletId: WalletId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      materialActivation: AuthorizedEcdsaLaneCandidate['materialActivation'];
+    }) => Promise<CanonicalEvmFamilyEcdsaSigningCapability>;
+  };
 
 type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   authMethod: WalletAuthAuthority['factor']['kind'];
@@ -224,16 +231,25 @@ function buildEcdsaSelectionDiagnostics(args: {
   return { selectedLaneCandidate: summarizeLaneCandidate(args.candidate) };
 }
 
-function commitPasskeyEcdsaLaneForSelection(args: {
+async function commitPasskeyEcdsaLaneForSelection(args: {
+  deps: EvmFamilyEcdsaSigningSelectionDeps;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   candidate: AuthorizedEcdsaLaneCandidate;
-}): EcdsaCommittedLane {
+}): Promise<EcdsaCommittedLane> {
   const candidate = requirePasskeyEcdsaLaneCandidate(args.candidate);
-  const authority = buildPasskeyWalletAuthAuthority({
+  const capability = await args.deps.resolveCanonicalEcdsaSigningCapability({
     walletId: candidate.walletId,
-    rpId: candidate.auth.rpId,
-    credentialIdB64u: candidate.auth.credentialIdB64u,
+    chainTarget: candidate.chainTarget,
+    materialActivation: candidate.materialActivation,
   });
+  const authority = capability.authority;
+  if (
+    !isPasskeyWalletAuthAuthority(authority) ||
+    String(authority.verifier.rpId) !== String(candidate.auth.rpId) ||
+    authority.factor.credentialIdB64u !== candidate.auth.credentialIdB64u
+  ) {
+    throw new Error('[SigningEngine][ecdsa] exact Passkey capability authority changed');
+  }
   assertEcdsaCommittedLaneAuthorityMatchesWallet({
     authority,
     lane: args.lane,
@@ -390,7 +406,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       : null;
   const committedPasskeyLane: EcdsaCommittedLane | null =
     candidateAuthMethod === SIGNER_AUTH_METHODS.passkey
-      ? commitPasskeyEcdsaLaneForSelection({
+      ? await commitPasskeyEcdsaLaneForSelection({
+          deps: args.deps,
           lane,
           candidate: args.laneCandidate,
         })

@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { parseWalletId, parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   requireParsedDomainId,
@@ -19,7 +26,10 @@ import {
 } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
-import type { WalletAuthMethodRecord } from '../../packages/wallet-server/src/core/WalletStore';
+import {
+  buildWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const SYNC_KEY_MANIFEST_DIGEST_B64U = Buffer.alloc(32, 21).toString('base64url');
 const SYNC_SIGNER_SLOT = 4;
@@ -30,19 +40,33 @@ function passkeyAuthMethodRecord(input: {
   readonly credentialPublicKeyB64u: string;
   readonly status: 'active' | 'revoked';
   readonly updatedAtMs: number;
-}): Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }> {
-  return {
-    version: 'wallet_auth_method_v1',
+}): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey' }> {
+  const walletId = requireParsedDomainId(parseWalletId(input.walletId));
+  const credentialIdB64u = requireParsedDomainId(
+    parseWebAuthnCredentialIdB64u(input.credentialIdB64u),
+  );
+  const walletAuthorityId = requireParsedDomainId(
+    parseWalletAuthorityId(`authority:router-api-${input.walletId}`),
+  );
+  const walletAuthMethodId = requireParsedDomainId(
+    parseWalletAuthMethodId(`auth-method:router-api-${input.credentialIdB64u}`),
+  );
+  return buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId,
+    walletAuthorityId,
     kind: 'passkey',
     status: input.status,
-    walletId: requireParsedDomainId(parseWalletId(input.walletId)),
+    walletId,
     rpId: requireParsedDomainId(parseWebAuthnRpId('example.com')),
-    credentialIdB64u: input.credentialIdB64u,
+    credentialIdB64u,
     credentialPublicKeyB64u: input.credentialPublicKeyB64u,
     counter: 0,
     createdAtMs: 100,
     updatedAtMs: input.updatedAtMs,
-  };
+    activatedAtMs: 100,
+    ...(input.status === 'revoked' ? { revokedAtMs: input.updatedAtMs } : {}),
+  });
 }
 
 class RecordingWalletManifestSource implements D1WebAuthnWalletManifestSource {
@@ -99,7 +123,7 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
     });
 
     await insertWebAuthn({ database, ...scope, credentialIdB64u: 'credential-a' });
-    await walletAuthMethodStore.put(
+    await walletAuthMethodStore.putV2(
       passkeyAuthMethodRecord({
         walletId: scope.userId,
         credentialIdB64u: 'credential-a',
@@ -117,7 +141,7 @@ test('Cloudflare D1 WebAuthn login options require and return registered credent
       ok: true,
       credentialIds: ['credential-a'],
     });
-    await walletAuthMethodStore.put(
+    await walletAuthMethodStore.putV2(
       passkeyAuthMethodRecord({
         walletId: scope.userId,
         credentialIdB64u: 'credential-a',
@@ -193,7 +217,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       subject: 'wallet:oidc:linked',
     });
     await insertWebAuthn({ database, ...scope });
-    await walletAuthMethodStore.put(
+    await walletAuthMethodStore.putV2(
       passkeyAuthMethodRecord({
         walletId: scope.userId,
         credentialIdB64u: 'credential-a',
@@ -320,7 +344,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
       signerSlot: SYNC_SIGNER_SLOT,
     });
-    await walletAuthMethodStore.put(
+    await walletAuthMethodStore.putV2(
       passkeyAuthMethodRecord({
         walletId: scope.userId,
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
@@ -403,7 +427,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       challengeB64u: String(revokedLoginOptions.challengeB64u || ''),
       counter: 2,
     });
-    await walletAuthMethodStore.put(
+    await walletAuthMethodStore.putV2(
       passkeyAuthMethodRecord({
         walletId: scope.userId,
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
@@ -586,6 +610,7 @@ test('Cloudflare D1 full linked-device session composition exposes session and m
       linkedDevice: {
         session: {
           readOwnerSourceChildV1: async () => null,
+          targetPasskeyOrigin: 'https://wallet.example.test',
           targetCredential: () => ({
             getTargetPreparationV1: async () => {
               throw new Error('target preparation is outside this surface test');

@@ -33,6 +33,7 @@ import {
   D1WalletAuthorityStore,
   type D1WalletAuthorityStoreScope,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import {
   cleanupTemporaryD1Database,
   createTemporaryD1Database,
@@ -229,6 +230,32 @@ async function buildAuthorityFixture(
     pendingAuthMethod,
     activeAuthMethod,
   };
+}
+
+function buildAdditionalPasskeyAuthMethod(
+  fixture: AuthorityFixture,
+  label: string,
+  createdAtMs: number,
+): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey'; readonly status: 'active' }> {
+  const record = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: requireParsed(parseWalletAuthMethodId(`wallet-auth-method:${label}`)),
+    walletId: fixture.walletId,
+    walletAuthorityId: fixture.authorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: fixture.activeAuthMethod.rpId,
+    credentialIdB64u: requireParsed(parseWebAuthnCredentialIdB64u(`credential:${label}`)),
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(createdAtMs)),
+    counter: 0,
+    createdAtMs,
+    updatedAtMs: createdAtMs,
+    activatedAtMs: createdAtMs,
+  });
+  if (record.kind !== 'passkey' || record.status !== 'active') {
+    throw new Error('additional passkey auth-method fixture is invalid');
+  }
+  return record;
 }
 
 function pendingAuthorityWithPackageDigest(
@@ -469,6 +496,58 @@ test('revokes one authority method and protects the final active wallet method',
   }
 });
 
+test('rolls back method revocation when an atomic session fence fails', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    const store = new D1WalletAuthorityStore({
+      database: temporary.database,
+      scope,
+      ensureSchema: false,
+    });
+    const first = await buildAuthorityFixture({ label: 'atomic-revoke-first' });
+    const second = await buildAuthorityFixture({ label: 'atomic-revoke-second' });
+    for (const fixture of [first, second]) {
+      await store.commitPendingAuthority({
+        authority: fixture.pendingAuthority,
+        authMethod: fixture.pendingAuthMethod,
+      });
+      await store.activatePendingAuthority({
+        pendingAuthority: fixture.pendingAuthority,
+        activeAuthority: fixture.activeAuthority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.activeAuthMethod,
+      });
+    }
+
+    const invalidSessionFence = temporary.database
+      .prepare('INSERT INTO wallet_authorities (namespace) VALUES (?)')
+      .bind(scope.namespace);
+    await expect(
+      store.revokeWalletAuthMethod({
+        walletId: first.walletId,
+        authorityId: first.authorityId,
+        walletAuthMethodId: first.activeAuthMethod.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: 0,
+        requestedAtMs: 35,
+        sessionRevocationStatements: [invalidSessionFence],
+      }),
+    ).resolves.toEqual({ kind: 'conflict' });
+
+    const method = await temporary.database
+      .prepare('SELECT status FROM wallet_auth_methods WHERE wallet_auth_method_id = ?')
+      .bind(String(first.activeAuthMethod.walletAuthMethodId))
+      .first<{ readonly status?: unknown }>();
+    expect(method?.status).toBe('active');
+    await expect(store.readById(first.authorityId)).resolves.toMatchObject({
+      state: 'active',
+      revocationEpoch: 0,
+    });
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
 test('serializes competing revocations of the final two wallet methods', async () => {
   const temporary = createTemporaryD1Database();
   try {
@@ -529,6 +608,72 @@ test('serializes competing revocations of the final two wallet methods', async (
     expect(rows.results).toHaveLength(2);
     expect(rows.results.filter((row) => row.status === 'active')).toHaveLength(1);
     expect(rows.results.filter((row) => row.status === 'revoked')).toHaveLength(1);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('add-auth commit rejects a source method revoked after ceremony start', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    const authorityStore = new D1WalletAuthorityStore({
+      database: temporary.database,
+      scope,
+      ensureSchema: false,
+    });
+    const authMethodStore = new D1WalletAuthMethodStore({
+      database: temporary.database,
+      ...scope,
+      ensureSchema: false,
+    });
+    const source = await buildAuthorityFixture({ label: 'add-auth-source' });
+    await authorityStore.commitPendingAuthority({
+      authority: source.pendingAuthority,
+      authMethod: source.pendingAuthMethod,
+    });
+    await authorityStore.activatePendingAuthority({
+      pendingAuthority: source.pendingAuthority,
+      activeAuthority: source.activeAuthority,
+      pendingAuthMethod: source.pendingAuthMethod,
+      activeAuthMethod: source.activeAuthMethod,
+    });
+
+    const sourceGuard = authMethodStore.prepareActiveV2SourceGuardStatements({
+      walletId: source.walletId,
+      walletAuthMethodId: source.activeAuthMethod.walletAuthMethodId,
+      walletAuthorityId: source.authorityId,
+      authorityDigestB64u: source.activeAuthority.authorityDigestB64u,
+      authorityRevocationEpoch: source.activeAuthority.revocationEpoch,
+    });
+    const sibling = buildAdditionalPasskeyAuthMethod(source, 'add-auth-sibling', 25);
+    await expect(
+      authMethodStore.insertActiveV2Atomically({
+        record: sibling,
+        prerequisiteStatements: sourceGuard,
+      }),
+    ).resolves.toBe(true);
+
+    await expect(
+      authorityStore.revokeWalletAuthMethod({
+        walletId: source.walletId,
+        authorityId: source.authorityId,
+        walletAuthMethodId: source.activeAuthMethod.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: source.activeAuthority.revocationEpoch,
+        requestedAtMs: 30,
+      }),
+    ).resolves.toMatchObject({ kind: 'revoked_method' });
+
+    const lateTarget = buildAdditionalPasskeyAuthMethod(source, 'add-auth-late-target', 35);
+    await expect(
+      authMethodStore.insertActiveV2Atomically({
+        record: lateTarget,
+        prerequisiteStatements: sourceGuard,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      authMethodStore.readByIdV2({ walletAuthMethodId: lateTarget.walletAuthMethodId }),
+    ).resolves.toBeNull();
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

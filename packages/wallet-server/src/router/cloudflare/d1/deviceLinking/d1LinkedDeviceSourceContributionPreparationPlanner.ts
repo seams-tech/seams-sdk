@@ -321,19 +321,28 @@ function bindingWithMaterialActivation(
   source: RouterAbEd25519YaoActivationBindingV1<'registration'>,
   materialActivation: MpcMaterialActivationRef,
 ): RouterAbEd25519YaoActivationBindingV1<'registration'> {
+  const ceremonyIdentity = secureRandomBase64Url(
+    24,
+    'linked-device source-preserving ceremony identity',
+  );
+  const ceremonySessionId = [
+    ...base64UrlDecode(
+      secureRandomBase64Url(32, 'linked-device source-preserving ceremony session'),
+    ),
+  ];
   return {
     lifecycle: {
-      lifecycle_id: source.lifecycle.lifecycle_id,
+      lifecycle_id: `linked-device-source-preserving:${ceremonyIdentity}`,
       work_kind: source.lifecycle.work_kind,
       primitive_request_kind: source.lifecycle.primitive_request_kind,
       root_share_epoch: source.lifecycle.root_share_epoch,
       account_id: source.lifecycle.account_id,
-      session_id: source.lifecycle.session_id,
+      session_id: `linked-device-source-preserving:${ceremonyIdentity}`,
       signer_set_id: source.lifecycle.signer_set_id,
       selected_server_id: source.lifecycle.selected_server_id,
     },
     operation: 'registration',
-    session_id: source.session_id,
+    session_id: ceremonySessionId,
     stable_key_context_binding: source.stable_key_context_binding,
     material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
   };

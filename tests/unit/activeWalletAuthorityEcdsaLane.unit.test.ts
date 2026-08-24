@@ -25,6 +25,7 @@ import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNo
 import type { WalletAuthoritySignerMaterialRecordV1 } from '@/core/indexedDB/passkeyClientDB.types';
 import { buildLinkedDeviceUnlockRuntimeFixture } from './helpers/linkedDeviceUnlockRuntime.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 configureIndexedDB({ mode: 'disabled' });
 
@@ -160,8 +161,9 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
     record: fixture.activeWalletSession,
     operationCredential,
   });
-  IndexedDBManager.getWalletPasskeyAuthenticator = async ({ credentialId }) =>
-    credentialId === fixture.authMethod.credentialIdB64u ? { credentialId, signerSlot: 1 } : null;
+  IndexedDBManager.getWalletPasskeyAuthenticator = async () => {
+    throw new Error('ECDSA authority resolution must not read an Ed25519 signer slot');
+  };
 
   try {
     const resolved = await resolveActiveWalletAuthorityEcdsaRuntimeV1({
@@ -186,6 +188,13 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
         materialActivation: ecdsaActivation.materialActivation,
       }),
     });
+    const expectedRelayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
+      walletId: String(fixture.walletId),
+      signingRootId: normalSigning.scope.signing_root_id,
+      signingRootVersion: normalSigning.scope.signing_root_version,
+    });
+    expect(resolved.runtime.relayerKeyId).toBe(expectedRelayerKeyId);
+    expect(resolved.runtime.relayerKeyId).not.toBe(normalSigning.scope.signing_worker.server_id);
     const availableLane = activeWalletAuthorityAvailableLaneFromProjection(resolved.lane);
     const candidate = ecdsaLaneCandidateFromAvailableLane({
       walletId: fixture.walletId,

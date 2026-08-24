@@ -33,7 +33,6 @@ import {
   buildSourcePreservingEcdsaReservationRequestFixture,
 } from './helpers/ordinarySourcePreservingReservation.fixtures';
 import {
-  parseLinkedDeviceEd25519SourcePreservingReservationV1,
   parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
 } from '@shared/device-linking/sourceContribution';
 import {
@@ -317,7 +316,7 @@ test('target credential registration does not trust the request Origin', async (
   expect(registrationCalled).toBe(true);
 });
 
-test('executes an Ed25519 linked-device source contribution and returns the parsed reservation', async () => {
+test('executes an Ed25519 linked-device source contribution and returns the validated Router wire', async () => {
   const boundary = await prepareEd25519SourceContributionExecuteBoundary('route-execute');
   const routeService = routeServiceFor(boundary.sessionService, boundary.fixture, 3_000, {
     sourceContributionRouter: new SourceContributionRouterStub(boundary.rawReservation),
@@ -330,7 +329,7 @@ test('executes an Ed25519 linked-device source contribution and returns the pars
   });
 
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual(boundary.expectedReservation);
+  expect(await response.json()).toEqual(boundary.rawReservation);
 });
 
 test('preserves an Ed25519 source-contribution Router error in the exact 500 body', async () => {
@@ -461,9 +460,6 @@ async function prepareEd25519SourceContributionExecuteBoundary(label: string) {
     pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/source-contribution/execute`,
     targetRequest,
     rawReservation,
-    expectedReservation: parseLinkedDeviceEd25519SourcePreservingReservationV1(
-      rawReservation,
-    ),
   };
 }
 

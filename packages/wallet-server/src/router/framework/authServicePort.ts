@@ -17,11 +17,15 @@ import type {
   OrgId,
   ProviderSubject,
   WalletAuthMethodId,
+  WalletAuthorityId,
   WalletId,
+  WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '@shared/utils/domainIds';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEd25519YaoExportAuthorizationIdentityV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import type {
   EmailOtpWalletAuthAuthority,
@@ -78,11 +82,57 @@ import type {
   WalletRevokeAuthMethodResponse,
 } from '../../core/registrationContracts';
 import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import type { IssuedWalletSessionAuthorizationV2 } from '../../authorization/domain';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
   kind: 'wallet_auth_method_management';
   walletId: WalletId;
 }>;
+
+export type WalletUnlockPasskeyAuthorityResolution =
+  | {
+      readonly kind: 'active_authority';
+      readonly authority: ActiveWalletAuthorityV1;
+      readonly authMethod: Extract<
+        WalletAuthMethodRecordV2,
+        { readonly kind: 'passkey'; readonly status: 'active' }
+      >;
+    }
+  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+
+export type WalletUnlockEmailOtpAuthorityResolution =
+  | {
+      readonly kind: 'active_authority';
+      readonly authority: ActiveWalletAuthorityV1;
+      readonly walletAuthAuthority: EmailOtpWalletAuthAuthority;
+      readonly authMethod: Extract<
+        WalletAuthMethodRecordV2,
+        { readonly kind: 'email_otp'; readonly status: 'active' }
+      >;
+    }
+  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+
+export type WalletUnlockPasskeySessionResolution =
+  | {
+      readonly kind: 'active_authority';
+      readonly walletSession: IssuedWalletSessionAuthorizationV2;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly kind: 'wallet_registration';
+      readonly walletSession?: never;
+      readonly operationCredential?: never;
+    }
+  | { readonly kind: 'rejected'; readonly code: string; readonly message: string };
+
+export type RouterApiWalletSessionAuthorizationV2AdmissionContext = {
+  readonly authorization: IssuedWalletSessionAuthorizationV2;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: WalletAuthMethodRecordV2;
+  readonly retiredAtMs: number | null;
+};
 
 export type CreateAddAuthMethodIntentCommand = Readonly<{
   subject: WalletAuthMethodManagementSubject;
@@ -884,6 +934,10 @@ export type RouterApiMethodTypes = {
           readonly userId: string;
           readonly rpId: string;
           readonly credentialIdB64u: string;
+          /** Exact persisted V2 auth-method identity for this credential. */
+          readonly walletAuthMethodId: WalletAuthMethodId;
+          /** Authority owning the exact persisted auth method. */
+          readonly walletAuthorityId: WalletAuthorityId;
           readonly ed25519:
             | { readonly kind: 'absent' }
             | {
@@ -910,34 +964,43 @@ export type RouterApiMethodTypes = {
       readonly webauthn_authentication?: unknown;
       readonly expected_origin?: string;
     };
-    readonly result: {
-      readonly ok: boolean;
-      readonly verified?: boolean;
-      readonly accountId?: string;
-      readonly walletId?: string;
-      readonly nearAccountId?: string;
-      readonly nearEd25519SigningKeyId?: string;
-      readonly custodyKeyManifestDigestB64u?: DigestB64u;
-      readonly walletBinding?: ResolvedEd25519WalletBinding;
-      readonly rpId?: string;
-      readonly signerSlot?: number;
-      readonly publicKey?: string;
-      readonly relayerKeyId?: string;
-      readonly credentialIdB64u?: string;
-      readonly credentialPublicKeyB64u?: string;
-      readonly thresholdEd25519?: {
-        readonly relayerKeyId: string;
-        readonly authorityScope: ThresholdEd25519AuthorityScope;
-        readonly publicKey: string;
-        readonly keyVersion?: string;
-        readonly recoveryExportCapable?: boolean;
-        readonly clientParticipantId?: number;
-        readonly relayerParticipantId?: number;
-        readonly participantIds?: number[];
-      };
-      readonly code?: string;
-      readonly message?: string;
-    };
+    readonly result:
+      | {
+          readonly ok: true;
+          readonly verified: true;
+          readonly accountId: string;
+          readonly walletId: string;
+          readonly nearAccountId: string;
+          readonly nearEd25519SigningKeyId: string;
+          /** Exact persisted V2 auth-method identity for this credential. */
+          readonly walletAuthMethodId: WalletAuthMethodId;
+          /** Authority owning the exact persisted auth method. */
+          readonly walletAuthorityId: WalletAuthorityId;
+          readonly custodyKeyManifestDigestB64u: DigestB64u;
+          readonly walletBinding: ResolvedEd25519WalletBinding;
+          readonly rpId: string;
+          readonly signerSlot: number;
+          readonly publicKey?: string;
+          readonly relayerKeyId?: string;
+          readonly credentialIdB64u: string;
+          readonly credentialPublicKeyB64u: string;
+          readonly thresholdEd25519?: {
+            readonly relayerKeyId: string;
+            readonly authorityScope: ThresholdEd25519AuthorityScope;
+            readonly publicKey: string;
+            readonly keyVersion?: string;
+            readonly recoveryExportCapable?: boolean;
+            readonly clientParticipantId?: number;
+            readonly relayerParticipantId?: number;
+            readonly participantIds?: number[];
+          };
+        }
+      | {
+          readonly ok: false;
+          readonly verified?: false;
+          readonly code: string;
+          readonly message: string;
+        };
   };
 };
 
@@ -995,6 +1058,7 @@ export interface RouterApiWalletRegistrationService {
         readonly signingWorkerId: string;
         readonly participantIds: readonly [number, number];
         readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+        readonly exportIdentity: RouterAbEd25519YaoExportAuthorizationIdentityV1;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
@@ -1009,6 +1073,7 @@ export interface RouterApiWalletRegistrationService {
         readonly relayerKeyId: string;
         readonly participantIds: readonly [number, number];
         readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+        readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
@@ -1082,6 +1147,22 @@ export interface RouterApiWalletAuthMethodService {
     authority: import('@shared/utils/walletAuthAuthority').PasskeyWalletAuthAuthority,
   ): Promise<
     { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
+  resolveActivePasskeyAuthorityForVerifiedCredential(input: {
+    readonly walletId: WalletId;
+    readonly rpId: WebAuthnRpId;
+    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly authority: import('@shared/utils/walletAuthAuthority').PasskeyWalletAuthAuthority;
+        readonly walletAuthority: ActiveWalletAuthorityV1;
+        readonly authMethod: Extract<
+          WalletAuthMethodRecordV2,
+          { readonly kind: 'passkey'; readonly status: 'active' }
+        >;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
   >;
   verifyActiveEmailOtpAuthority(
     authority: EmailOtpWalletAuthAuthority,
@@ -1165,6 +1246,27 @@ export interface RouterApiWalletUnlockService {
   verifyWebAuthnLogin(
     input: RouterApiMethodTypes['verifyWebAuthnLogin']['input'],
   ): Promise<RouterApiMethodTypes['verifyWebAuthnLogin']['result']>;
+  resolveEmailOtpAuthorityForUnlock(input: {
+    readonly walletId: WalletId;
+    readonly orgId: string;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly providerUserId: string;
+  }): Promise<WalletUnlockEmailOtpAuthorityResolution>;
+  issueWalletSessionForPasskeyUnlock(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly rpId: WebAuthnRpId;
+    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+    readonly verifiedChallengeId: string;
+  }): Promise<WalletUnlockPasskeySessionResolution>;
+  issueWalletSessionForEmailOtpUnlock(input: {
+    readonly walletId: WalletId;
+    readonly orgId: string;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly providerUserId: string;
+    readonly verifiedChallengeId: string;
+  }): Promise<WalletUnlockPasskeySessionResolution>;
 }
 
 export interface RouterApiEmailOtpRouteService extends RouterApiEmailOtpChallengeService {
@@ -1366,6 +1468,12 @@ export interface RouterApiAuthorizationSessionService {
     readonly curve: OpaqueWalletSessionCurve;
     readonly nowMs: number;
   }): Promise<ResolvedOpaqueWalletSessionToken | null>;
+  /** Reads the opaque V2 operation credential and its active authority records. */
+  readonly readWalletSessionAuthorizationV2ByOperationCredential?: (input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly nowMs: number;
+  }) => Promise<RouterApiWalletSessionAuthorizationV2AdmissionContext | null>;
   readReusableWalletSessionStatus(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;

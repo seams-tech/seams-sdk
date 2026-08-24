@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 import {
+  buildExactPasskeyOwnerLaneScope,
   isOwnerRelinkRequiredError,
   resolveOwnerLaneScope,
   type OwnerLaneScopeStores,
 } from '@/core/signingEngine/session/identity/ownerLaneScope';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { parseSignerSlot } from '@shared/utils/signerSlot';
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
@@ -69,6 +71,20 @@ async function passkeyAuthorityRef() {
     },
   });
 }
+
+test('builds an exact Passkey owner scope from the V2 method and parsed signer slot', () => {
+  const authMethod = passkeyAuthMethod();
+  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+    throw new Error('expected an active Passkey auth method');
+  }
+  const signerSlot = parseSignerSlot(7, { min: 1 });
+  if (signerSlot === null) throw new Error('expected a parsed signer slot');
+
+  expect(buildExactPasskeyOwnerLaneScope({ authMethod, signerSlot })).toEqual({
+    auth: { kind: 'passkey', rpId: RP_ID, credentialIdB64u: CREDENTIAL_ID },
+    signerSlot: 7,
+  });
+});
 
 test('derives the passkey owner scope with the slot of the credential-resolved authenticator', async () => {
   const scope = await resolveOwnerLaneScope({

@@ -93,7 +93,10 @@ export function createRecoveryPublicDeps(args: {
             readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },
-          completeConfiguredEcdsaTargets(availableLanesArgs),
+          {
+            ...completeConfiguredEcdsaTargets(availableLanesArgs),
+            requiredEcdsaCapability: 'export_keys',
+          },
         ),
       readOwnerScopedAvailableSigningLanesForTargets: async (availableLanesArgs) =>
         await readOwnerScopedAvailableSigningLanes(
@@ -105,6 +108,7 @@ export function createRecoveryPublicDeps(args: {
           },
           {
             ...completeConfiguredEcdsaTargets(availableLanesArgs),
+            requiredEcdsaCapability: 'export_keys',
             ownerScope: await args.resolveOwnerLaneScope(String(availableLanesArgs.walletId)),
           },
         ),

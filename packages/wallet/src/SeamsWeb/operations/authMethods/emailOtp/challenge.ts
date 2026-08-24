@@ -290,6 +290,7 @@ function requireFutureTimestamp(value: unknown, label: string): number {
 export async function requestEmailOtpChallenge(args: {
   relayUrl: string;
   walletId: string;
+  walletAuthMethodId?: string;
   otpChannel?: WalletEmailOtpChannel;
   operation?: WalletEmailOtpLoginOperation;
   operationFingerprintDigest?: DigestB64u;
@@ -312,6 +313,9 @@ export async function requestEmailOtpChallenge(args: {
         payload: {
           relayUrl: readString(args.relayUrl, 'relayUrl'),
           walletId: readString(args.walletId, 'walletId'),
+          ...(args.walletAuthMethodId
+            ? { walletAuthMethodId: readString(args.walletAuthMethodId, 'walletAuthMethodId') }
+            : {}),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'login',
             operation,
@@ -329,6 +333,9 @@ export async function requestEmailOtpChallenge(args: {
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
+      ...(args.walletAuthMethodId
+        ? { walletAuthMethodId: readString(args.walletAuthMethodId, 'walletAuthMethodId') }
+        : {}),
       otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
       operation,
       ...(args.operationFingerprintDigest

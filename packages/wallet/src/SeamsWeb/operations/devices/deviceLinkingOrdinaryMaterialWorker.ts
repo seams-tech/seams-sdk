@@ -8,9 +8,7 @@ import type {
   OrdinarySignerMaterialReservationPreparationV1,
   VerifiedTargetFactorV1,
 } from '@shared/device-linking/contracts';
-import {
-  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
-} from '@shared/device-linking/sourceContribution';
+import { parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationV1 } from '@shared/device-linking/sourceContribution';
 import {
   parseWalletAuthMethodId,
   parseWalletKeyId,
@@ -20,15 +18,13 @@ import {
 } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  parseDigestField,
-  parseEnvelopeCiphertextB64u,
-  parseEnvelopeNonceB64u,
-} from '@shared/passkey-custody';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type {
   WalletAuthorityExportRootRecordV1,
   WalletAuthoritySignerMaterialRecordV1,
 } from '@/core/indexedDB';
+import type { WalletAuthorityLinkedMaterialTargetFactorV1 } from '@/core/indexedDB/passkeyClientDB.types';
+import { parseWalletAuthorityLinkedSignerMaterialRecordV1 } from '@/core/indexedDB/linkedAuthoritySignerMaterial';
 import type { DeviceLinkingResealedEd25519ExportRootV1 } from './deviceLinkingEd25519ExportRoot';
 import type { DeviceLinkingKeyMaterialHandleV1 } from './deviceLinkingPorts';
 
@@ -65,20 +61,7 @@ export type DeviceLinkingOrdinarySignerMaterialRecipientInputTupleV1 =
   DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1['recipientInputs'];
 
 export type DeviceLinkingOrdinaryTargetFactorBindingV1 =
-  | {
-      readonly kind: 'passkey';
-      readonly walletAuthMethodId: WalletAuthMethodId;
-      readonly verificationDigestB64u: DigestB64u;
-      readonly rpId: string;
-      readonly credentialIdB64u: string;
-    }
-  | {
-      readonly kind: 'email_otp';
-      readonly walletAuthMethodId: WalletAuthMethodId;
-      readonly verificationDigestB64u: DigestB64u;
-      readonly emailHashHex: string;
-      readonly registrationAuthorityId: string;
-    };
+  WalletAuthorityLinkedMaterialTargetFactorV1;
 
 export type DeviceLinkingOrdinarySignerMaterialPreparationResultV1 = {
   readonly kind: 'device_linking_ordinary_signer_material_preparation_v1';
@@ -351,13 +334,18 @@ export function assertOrdinaryExportRootResealingMatchesIdentityV1(input: {
       'ordinary material requires an Ed25519 export-root result from the custody worker',
     );
   }
+  if (
+    resealed.envelope.binding.kind !== 'ed25519_yao_client_root_v1' ||
+    resealed.envelope.binding.walletKeyId !== input.walletKeyId
+  ) {
+    throw new Error('ordinary material export-root envelope names another Ed25519 key');
+  }
   return {
     kind: 'wallet_authority_export_root_v1',
     authorityId: input.authorityId,
     walletAuthMethodId: input.walletAuthMethodId,
     walletKeyId: input.walletKeyId,
-    sealedRootB64u: resealed.sealedExportRootB64u,
-    sealedRootDigestB64u: resealed.ciphertextDigestB64u,
+    envelope: resealed.envelope,
   };
 }
 
@@ -366,18 +354,9 @@ export function parseOrdinaryResealedExportRootRecordV1(
 ): DeviceLinkingResealedEd25519ExportRootV1 | null {
   if (value === null) return null;
   const record = requireRecord(value, 'ordinary material resealed export root');
-  exactRecord(record, ['nonceB64u', 'sealedExportRootB64u', 'aadHashB64u', 'ciphertextDigestB64u']);
+  exactRecord(record, ['envelope']);
   return {
-    nonceB64u: parseEnvelopeNonceB64u(record.nonceB64u, 'ordinary material resealed nonceB64u'),
-    sealedExportRootB64u: parseEnvelopeCiphertextB64u(
-      record.sealedExportRootB64u,
-      'ordinary material resealed sealedExportRootB64u',
-    ),
-    aadHashB64u: parseDigestField(record.aadHashB64u, 'ordinary material resealed aadHashB64u'),
-    ciphertextDigestB64u: parseDigestField(
-      record.ciphertextDigestB64u,
-      'ordinary material resealed ciphertextDigestB64u',
-    ),
+    envelope: parsePasskeyCustodyEnvelopeRecord(record.envelope),
   };
 }
 
@@ -697,6 +676,9 @@ function isSealedLocalAuthorityMaterialSetV1(
     return false;
   }
   try {
+    for (const signerMaterial of value.signerMaterials) {
+      parseWalletAuthorityLinkedSignerMaterialRecordV1(signerMaterial);
+    }
     parseDigestB64u(value.installedRecordSetDigestB64u);
   } catch {
     return false;

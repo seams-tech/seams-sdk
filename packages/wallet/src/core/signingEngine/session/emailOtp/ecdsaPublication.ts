@@ -1,5 +1,8 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -172,6 +175,7 @@ export type EmailOtpEcdsaScopeSelector =
   | {
       kind: 'exact';
       runtimePolicyScope: ThresholdRuntimePolicyScope;
+      authorityRef: WalletAuthAuthorityRef;
     }
   | {
       kind: 'durable_manifest';
@@ -266,12 +270,18 @@ export async function resolveEmailOtpExistingEcdsaKey(args: {
         })
       : null;
   const requestedKeyHandle = String(args.keyHandle || '').trim();
+  const exactAuthorityRef = args.scope.kind === 'exact' ? args.scope.authorityRef : null;
   const manifests = await args.listActiveEcdsaCapabilityManifestsForWallet(args.walletId);
   const candidates = manifests
     .filter((manifest) => {
       const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
       return (
         manifest.signer.walletId === args.walletId &&
+        (!exactAuthorityRef ||
+          (manifest.signer.authority.walletAuthMethodId ===
+            exactAuthorityRef.walletAuthMethodId &&
+            String(manifest.signer.authority.authorityDigest) ===
+              String(exactAuthorityRef.authorityDigest))) &&
         manifest.signer.scope.targetMemberships.some((membership) =>
           thresholdEcdsaChainTargetsEqual(membership, args.chainTarget),
         ) &&
@@ -571,10 +581,13 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
   }
   const expectedMaterialActivation = roleLocalMaterialRef.materialActivation;
+  const exactAuthorityRef = await walletAuthAuthorityRef({
+    authority: args.emailOtpAuthContext.authority,
+  });
   const currentBeforeSeal = await resolveEmailOtpExistingEcdsaKey({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
-    scope: { kind: 'exact', runtimePolicyScope },
+    scope: { kind: 'exact', runtimePolicyScope, authorityRef: exactAuthorityRef },
     keyHandle,
     listActiveEcdsaCapabilityManifestsForWallet: ports.listActiveEcdsaCapabilityManifestsForWallet,
   });
@@ -639,7 +652,7 @@ export async function persistEmailOtpEcdsaSigningSessionForRefresh(
   const currentBeforeRegistration = await resolveEmailOtpExistingEcdsaKey({
     walletId: args.walletId,
     chainTarget: actualChainTarget,
-    scope: { kind: 'exact', runtimePolicyScope },
+    scope: { kind: 'exact', runtimePolicyScope, authorityRef: exactAuthorityRef },
     keyHandle,
     listActiveEcdsaCapabilityManifestsForWallet: ports.listActiveEcdsaCapabilityManifestsForWallet,
   });

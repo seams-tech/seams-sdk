@@ -5,9 +5,12 @@ import type {
 } from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
   parseThresholdEd25519SessionId,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWebAuthnRpId,
   type ThresholdEd25519SessionId,
 } from '../../packages/shared-ts/src/utils/domainIds';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -31,6 +34,18 @@ import type {
 function parseFixtureThresholdSessionId(value: string): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);
   if (!parsed.ok) throw new Error('fixture threshold session identity is invalid');
+  return parsed.value;
+}
+
+function parseFixtureWalletAuthMethodId(value: string) {
+  const parsed = parseWalletAuthMethodId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function parseFixtureWalletAuthorityId(value: string) {
+  const parsed = parseWalletAuthorityId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
 }
 import {
@@ -117,9 +132,13 @@ function verifiedEd25519WalletFixture(): SyncVerificationResult {
   return {
     ok: true,
     verified: true,
+    accountId: WALLET_ID,
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+    walletAuthMethodId: parseFixtureWalletAuthMethodId('wallet-auth-method:sync-account'),
+    walletAuthorityId: parseFixtureWalletAuthorityId('wallet-authority:sync-account'),
+    custodyKeyManifestDigestB64u: parseDigestB64u(Buffer.alloc(32, 9).toString('base64url')),
     walletBinding: {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,

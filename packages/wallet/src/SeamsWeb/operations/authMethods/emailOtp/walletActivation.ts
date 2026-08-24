@@ -28,6 +28,7 @@ export type EmailOtpWalletPostUnlockActivationDeps = {
       signerSlot: number;
       nearClient?: NearClient;
     }): Promise<void>;
+    markSelectedEmailOtpWalletAuthorityUnlocked(walletId: WalletId): Promise<void>;
     getUserPreferences(): {
       setCurrentWallet(walletId: WalletId): void;
       reloadUserSettings(): Promise<void>;
@@ -52,6 +53,9 @@ export async function activateEmailOtpWalletAfterUnlock(
         signerSlot: activation.signer.signerSlot,
         ...(deps.nearClient ? { nearClient: deps.nearClient } : {}),
       });
+      await deps.signingEngine.markSelectedEmailOtpWalletAuthorityUnlocked(
+        activation.signer.account.wallet.walletId,
+      );
       deps.signingEngine.setWalletAuthenticated({
         kind: 'authenticated',
         walletId: activation.signer.account.wallet.walletId,
@@ -62,6 +66,7 @@ export async function activateEmailOtpWalletAfterUnlock(
       const preferences = deps.signingEngine.getUserPreferences();
       preferences.setCurrentWallet(activation.walletId);
       await preferences.reloadUserSettings().catch(ignoreUserPreferenceReloadError);
+      await deps.signingEngine.markSelectedEmailOtpWalletAuthorityUnlocked(activation.walletId);
       deps.signingEngine.setWalletAuthenticated({
         kind: 'authenticated',
         walletId: activation.walletId,

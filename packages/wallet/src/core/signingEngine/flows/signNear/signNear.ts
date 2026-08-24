@@ -1,7 +1,12 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
-import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  parsePasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type PasskeyWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import {
   createSigningFlowEvent,
@@ -741,7 +746,8 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
       });
       const signer = args.signer;
       const thresholdSessionId = materialFacts.thresholdSessionId;
-      const authority = buildPasskeyWalletAuthAuthority({
+      const authority = await exactPasskeyStepUpAuthority({
+        authorityRef: nearPasskeyPreparationAuthority(args.preparation),
         walletId: signer.account.wallet.walletId,
         rpId: auth.rpId,
         credentialIdB64u: auth.credentialIdB64u,
@@ -752,6 +758,54 @@ function buildNearPasskeyEd25519OperationStepUp(args: {
       };
     },
   };
+}
+
+function nearPasskeyPreparationAuthority(
+  preparation: NearEd25519YaoSigningPreparation,
+): WalletAuthAuthorityRef {
+  switch (preparation.hydration.kind) {
+    case 'use_live_runtime':
+    case 'rehydrate_material_activation':
+    case 'reauthorize_public_anchor':
+      return preparation.hydration.authority;
+    case 'blocked':
+      throw new Error('[SigningEngine][near] blocked Passkey material has no authority');
+    default:
+      preparation.hydration satisfies never;
+      throw new Error('[SigningEngine][near] unsupported Passkey material authority');
+  }
+}
+
+async function exactPasskeyStepUpAuthority(args: {
+  authorityRef: WalletAuthAuthorityRef;
+  walletId: unknown;
+  rpId: unknown;
+  credentialIdB64u: unknown;
+}): Promise<PasskeyWalletAuthAuthority> {
+  const authority = parsePasskeyWalletAuthAuthority({
+    walletId: args.walletId,
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: args.credentialIdB64u,
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: args.rpId,
+    },
+    bindingId: args.authorityRef.walletAuthMethodId,
+  });
+  if (!authority) {
+    throw new Error('[SigningEngine][near] exact Passkey step-up authority is invalid');
+  }
+  const resolvedRef = await walletAuthAuthorityRef({ authority });
+  if (
+    resolvedRef.walletId !== args.authorityRef.walletId ||
+    resolvedRef.walletAuthMethodId !== args.authorityRef.walletAuthMethodId ||
+    resolvedRef.authorityDigest !== args.authorityRef.authorityDigest
+  ) {
+    throw new Error('[SigningEngine][near] exact Passkey step-up authority changed');
+  }
+  return authority;
 }
 
 async function resolveNearPasskeyStepUpMaterialFacts(args: {

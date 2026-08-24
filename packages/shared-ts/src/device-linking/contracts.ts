@@ -560,13 +560,13 @@ export type LinkedDeviceSessionProjectionV1 = {
 );
 
 export type LinkedDevicePendingSessionStateV1 = Extract<
-  LinkedDeviceSessionState,
+  LinkSessionStateV1,
   {
     readonly state:
       | 'awaiting_target_factor'
       | 'awaiting_source_contribution'
       | 'provisioning'
-      | 'committed_completion_required';
+      | 'authority_pending_local_install';
   }
 >;
 
@@ -872,6 +872,13 @@ export type ActiveWalletSessionV1 = {
   readonly expiresAtMs: number;
 };
 
+/** The bearer used to authenticate ordinary operations for an active session. */
+export type WalletSessionOperationCredentialV1 = {
+  readonly kind: 'opaque_wallet_session_operation_credential_v1';
+  readonly token: string;
+  readonly walletSessionId: WalletSessionId;
+};
+
 export type LocalAuthorityInstallationReceiptV1 = {
   readonly kind: 'local_authority_installation_receipt_v1';
   readonly authorityId: WalletAuthorityId;
@@ -924,6 +931,7 @@ export type ActivateInstalledAuthorityResultV1 =
       readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
       readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
       readonly walletSession: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
     }
   | {
       readonly kind: 'pending_local_install';

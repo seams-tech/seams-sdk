@@ -6,12 +6,20 @@ import type {
   WebAuthnCredentialBindingStore,
 } from '../WebAuthnCredentialBindingStore';
 import type { Ed25519SessionPolicy, ThresholdRuntimePolicyScope } from '../types';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
-  buildPasskeyWalletAuthAuthority,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  type WalletAuthMethodId,
+  type WalletId,
+  type WebAuthnCredentialIdB64u,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import {
   isPasskeyWalletAuthAuthority,
   parseWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
+  type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { normalizeThresholdRuntimePolicyScope } from './thresholdRuntimePolicy';
 
@@ -28,9 +36,9 @@ export async function resolveExistingThresholdEd25519Binding(args: {
   return bindings.find((binding) => {
     return Boolean(
       toOptionalTrimmedString(binding.relayerKeyId) &&
-        toOptionalTrimmedString(binding.publicKey) &&
-        toOptionalTrimmedString(binding.keyVersion) &&
-        binding.recoveryExportCapable === true,
+      toOptionalTrimmedString(binding.publicKey) &&
+      toOptionalTrimmedString(binding.keyVersion) &&
+      binding.recoveryExportCapable === true,
     );
   });
 }
@@ -84,6 +92,7 @@ export function resolvedEd25519WalletBindingFromCredentialBinding(args: {
 export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   requestedSessionPolicy: Record<string, unknown>;
   binding: ResolvedEd25519WalletBinding;
+  walletAuthMethodId: WalletAuthMethodId;
   relayerKeyId: string;
   persistedRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 }): { sessionPolicy: Ed25519SessionPolicy; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
@@ -97,9 +106,7 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   if (requestedWalletId && requestedWalletId !== args.binding.walletId) {
     throw new Error('threshold-ed25519 session policy walletId mismatch');
   }
-  const requestedNearAccountId = toOptionalTrimmedString(
-    args.requestedSessionPolicy.nearAccountId,
-  );
+  const requestedNearAccountId = toOptionalTrimmedString(args.requestedSessionPolicy.nearAccountId);
   if (requestedNearAccountId && requestedNearAccountId !== args.binding.nearAccountId) {
     throw new Error('threshold-ed25519 session policy nearAccountId mismatch');
   }
@@ -119,7 +126,9 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   if (!rpId.ok) {
     throw new Error('threshold-ed25519 session binding rpId is invalid');
   }
-  const thresholdSessionId = toOptionalTrimmedString(args.requestedSessionPolicy.thresholdSessionId);
+  const thresholdSessionId = toOptionalTrimmedString(
+    args.requestedSessionPolicy.thresholdSessionId,
+  );
   const ttlMs = Number(args.requestedSessionPolicy.ttlMs);
   const remainingUses = Number(args.requestedSessionPolicy.remainingUses);
   const participantIds = Array.isArray(args.requestedSessionPolicy.participantIds)
@@ -130,10 +139,11 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     args.requestedSessionPolicy.routerAbNormalSigning,
   );
-  const expectedAuthority = buildPasskeyWalletAuthAuthority({
-    walletId: args.binding.walletId,
+  const expectedAuthority = passkeyWalletAuthAuthorityForBinding({
+    walletAuthMethodId: args.walletAuthMethodId,
+    walletId: parseRequiredWalletId(args.binding.walletId),
     rpId: rpId.value,
-    credentialIdB64u: args.binding.credentialIdB64u,
+    credentialIdB64u: parseRequiredCredentialId(args.binding.credentialIdB64u),
   });
   const requestedAuthority = parseWalletAuthAuthority(args.requestedSessionPolicy.authority);
   if (!requestedAuthority) {
@@ -174,6 +184,7 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
 export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
   requestedSessionPolicy: Record<string, unknown>;
   binding: ResolvedEd25519WalletBinding;
+  walletAuthMethodId: WalletAuthMethodId;
   relayerKeyId: string;
   persistedRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 }): { sessionPolicy: Ed25519SessionPolicy; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
@@ -187,9 +198,7 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
   if (requestedWalletId && requestedWalletId !== args.binding.walletId) {
     throw new Error('threshold-ed25519 session policy walletId mismatch');
   }
-  const requestedNearAccountId = toOptionalTrimmedString(
-    args.requestedSessionPolicy.nearAccountId,
-  );
+  const requestedNearAccountId = toOptionalTrimmedString(args.requestedSessionPolicy.nearAccountId);
   if (requestedNearAccountId && requestedNearAccountId !== args.binding.nearAccountId) {
     throw new Error('threshold-ed25519 session policy nearAccountId mismatch');
   }
@@ -212,13 +221,18 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
   if (requestedAuthority.walletId !== args.binding.walletId) {
     throw new Error('wallet recovery threshold session authority walletId mismatch');
   }
+  if (requestedAuthority.bindingId !== args.walletAuthMethodId) {
+    throw new Error('wallet recovery threshold session authority auth method mismatch');
+  }
   if (requestedAuthority.verifier.rpId !== args.binding.rpId) {
     throw new Error('wallet recovery threshold session authority rpId mismatch');
   }
   const runtimePolicyScope =
     normalizeThresholdRuntimePolicyScope(args.requestedSessionPolicy.runtimePolicyScope) ||
     args.persistedRuntimePolicyScope;
-  const thresholdSessionId = toOptionalTrimmedString(args.requestedSessionPolicy.thresholdSessionId);
+  const thresholdSessionId = toOptionalTrimmedString(
+    args.requestedSessionPolicy.thresholdSessionId,
+  );
   const ttlMs = Number(args.requestedSessionPolicy.ttlMs);
   const remainingUses = Number(args.requestedSessionPolicy.remainingUses);
   const participantIds = Array.isArray(args.requestedSessionPolicy.participantIds)
@@ -255,5 +269,31 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
   return {
     sessionPolicy,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+}
+
+function parseRequiredWalletId(raw: string): WalletId {
+  const parsed = parseWalletId(raw);
+  if (!parsed.ok) throw new Error('threshold-ed25519 session binding walletId is invalid');
+  return parsed.value;
+}
+
+function parseRequiredCredentialId(raw: string): WebAuthnCredentialIdB64u {
+  const parsed = parseWebAuthnCredentialIdB64u(raw);
+  if (!parsed.ok) throw new Error('threshold-ed25519 session binding credentialId is invalid');
+  return parsed.value;
+}
+
+function passkeyWalletAuthAuthorityForBinding(input: {
+  readonly walletId: WalletId;
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): PasskeyWalletAuthAuthority {
+  return {
+    walletId: input.walletId,
+    factor: { kind: 'passkey', credentialIdB64u: input.credentialIdB64u },
+    verifier: { kind: 'webauthn', rpId: input.rpId },
+    bindingId: input.walletAuthMethodId,
   };
 }

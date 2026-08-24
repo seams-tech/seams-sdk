@@ -297,11 +297,12 @@ test('persists the exact runtime from registration-established Ed25519 authoriza
   expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate']);
 });
 
-test('authorizes Ed25519 normal signing from the correlated Wallet Session projection', async () => {
+test('preserves the exact Ed25519 bearer while revalidating the correlated projection', async () => {
   const fixture = await buildPasskeyYaoWalletSession();
+  const legacyProjectionToken = 'opaque-wallet-session-token:legacy-ed25519-projection';
   const authorization = buildPasskeyWalletSessionAuthorization({
     expiresAtMs: fixture.expiresAtMs,
-    walletSessionToken: fixture.walletSessionToken,
+    walletSessionToken: legacyProjectionToken,
   });
 
   const authorized = authorizeRouterAbEd25519WalletSessionState({
@@ -312,6 +313,12 @@ test('authorizes Ed25519 normal signing from the correlated Wallet Session proje
 
   expect(authorized?.walletSessionId).toBe(authorization.walletSessionId);
   expect(authorized?.walletSessionAuthorization).toBe(authorization);
+  expect(authorized?.signingWalletSession.auth.walletSessionToken).toBe(
+    fixture.walletSessionToken,
+  );
+  expect(authorized?.signingWalletSession.auth.walletSessionToken).not.toBe(
+    legacyProjectionToken,
+  );
 });
 
 test('rejects a renewed Ed25519 projection with a hostile authority digest', async () => {
@@ -407,7 +414,7 @@ test('renews Wallet Session authorization without changing Ed25519 material acti
   ).toBe(true);
 });
 
-test('rebinds a prepared Ed25519 state to a renewed active Wallet Session identity', async () => {
+test('rejects Wallet Session identity drift after the Ed25519 bearer is bound', async () => {
   const runtime = parseExactEd25519SealedSessionRuntime(SEALED_RECORD);
   if (!runtime) throw new Error('failed to parse exact passkey Yao runtime fixture');
   const originalAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(SEALED_RECORD);
@@ -427,15 +434,7 @@ test('rebinds a prepared Ed25519 state to a renewed active Wallet Session identi
     nowMs: runtime.expiresAtMs - 1,
   });
 
-  expect(rebound).not.toBeNull();
-  expect(rebound?.walletSessionId).toBe(renewedAuthorization.walletSessionId);
-  expect(rebound?.quotaId).toBe(renewedAuthorization.quotaId);
-  expect(rebound?.signingLane.identity.walletSessionId).toBe(renewedAuthorization.walletSessionId);
-  expect(rebound?.signingLane.identity.quotaId).toBe(renewedAuthorization.quotaId);
-  const renewedAuthorizationToken = ed25519AuthorizationToken(renewedAuthorization);
-  expect(rebound?.signingWalletSession.auth.walletSessionToken).toBe(
-    renewedAuthorizationToken.walletSessionToken,
-  );
+  expect(rebound).toBeNull();
 });
 
 test('keeps durable Ed25519 material identity when authorization is renewed', async () => {

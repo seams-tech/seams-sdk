@@ -118,6 +118,7 @@ import {
   type LinkIntegrityFailureV1,
   type LocalAuthorityActivationFinalAckV1,
   type LocalAuthorityInstallationReceiptV1,
+  type WalletSessionOperationCredentialV1,
   type WalletCapabilitySubjectV1,
 } from './contracts';
 import {
@@ -1467,12 +1468,12 @@ export function parseLinkedDeviceApprovalResultV1(raw: unknown): LinkedDeviceApp
 }
 
 function parsePendingApprovalState(raw: unknown): LinkedDevicePendingSessionStateV1 {
-  const state = parseLinkedDeviceSessionState(raw);
+  const state = parseLinkSessionStateV1(raw);
   switch (state.state) {
     case 'awaiting_target_factor':
     case 'awaiting_source_contribution':
     case 'provisioning':
-    case 'committed_completion_required':
+    case 'authority_pending_local_install':
       return state;
     default:
       throw new Error('LinkedDeviceApprovalResultV1 state is not pending');
@@ -3073,6 +3074,32 @@ const ACTIVE_WALLET_SESSION_FIELDS = [
   'expiresAtMs',
 ] as const;
 
+const WALLET_SESSION_OPERATION_CREDENTIAL_FIELDS = ['kind', 'token', 'walletSessionId'] as const;
+
+export function parseWalletSessionOperationCredentialV1(
+  raw: unknown,
+): WalletSessionOperationCredentialV1 {
+  const record = exactRecord(
+    raw,
+    WALLET_SESSION_OPERATION_CREDENTIAL_FIELDS,
+    'WalletSessionOperationCredentialV1',
+  );
+  if (typeof record.token !== 'string' || record.token.length > 8192) {
+    throw new Error('WalletSessionOperationCredentialV1.token is invalid');
+  }
+  if (record.kind === 'opaque_wallet_session_operation_credential_v1') {
+    if (!/^wst_[A-Za-z0-9_-]{43}$/.test(record.token)) {
+      throw new Error('WalletSessionOperationCredentialV1 opaque token is invalid');
+    }
+    return {
+      kind: record.kind,
+      token: record.token,
+      walletSessionId: parseId(parseWalletSessionId, record.walletSessionId, 'walletSessionId'),
+    };
+  }
+  throw new Error('WalletSessionOperationCredentialV1.kind is invalid');
+}
+
 export function parseActiveWalletSessionV1(raw: unknown): ActiveWalletSessionV1 {
   const record = exactRecord(raw, ACTIVE_WALLET_SESSION_FIELDS, 'ActiveWalletSessionV1');
   if (record.kind !== 'active_wallet_session_v1') {
@@ -3186,7 +3213,11 @@ export function parseActivateInstalledAuthorityResultV1(
   const record = requireRecord(raw, 'ActivateInstalledAuthorityResultV1');
   switch (record.kind) {
     case 'active': {
-      rejectUnknownFields(record, ['kind', 'authority', 'authMethod', 'walletSession'], 'ActivateInstalledAuthorityResultV1');
+      rejectUnknownFields(
+        record,
+        ['kind', 'authority', 'authMethod', 'walletSession', 'operationCredential'],
+        'ActivateInstalledAuthorityResultV1',
+      );
       const authorityResult = parseWalletAuthorityV1(record.authority);
       if (!authorityResult.ok || authorityResult.value.state !== 'active') {
         throw new Error('ActivateInstalledAuthorityResultV1.authority must be active');
@@ -3196,6 +3227,9 @@ export function parseActivateInstalledAuthorityResultV1(
         throw new Error('ActivateInstalledAuthorityResultV1.authMethod must be active');
       }
       const walletSession = parseActiveWalletSessionV1(record.walletSession);
+      const operationCredential = parseWalletSessionOperationCredentialV1(
+        record.operationCredential,
+      );
       if (
         authorityResult.value.walletId !== authMethod.walletId ||
         authorityResult.value.authorityId !== authMethod.walletAuthorityId ||
@@ -3212,6 +3246,7 @@ export function parseActivateInstalledAuthorityResultV1(
         authority: authorityResult.value,
         authMethod,
         walletSession,
+        operationCredential,
       };
     }
     case 'pending_local_install':

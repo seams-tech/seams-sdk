@@ -1,4 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { type VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type {
   ThresholdEcdsaChainTarget,
@@ -67,6 +68,34 @@ type EmailOtpWorkerPorts = {
   }) => EmailOtpRoutePlan;
 };
 
+type EmailOtpChallengeAuthoritySelection =
+  | { readonly kind: 'exact'; readonly walletAuthMethodId: string }
+  | { readonly kind: 'canonical' };
+
+async function resolveEmailOtpChallengeAuthoritySelection(
+  walletId: WalletId,
+): Promise<EmailOtpChallengeAuthoritySelection> {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  if (selected.kind === 'missing_selection') return { kind: 'canonical' };
+  if (selected.kind !== 'resolved') {
+    throw new Error(`Email OTP challenge authority selection is unavailable: ${selected.kind}`);
+  }
+  if (selected.authMethod.kind !== 'email_otp') return { kind: 'canonical' };
+  if (
+    selected.authMethod.status !== 'active' ||
+    selected.authority.state !== 'active' ||
+    String(selected.authMethod.walletId) !== String(walletId) ||
+    String(selected.authority.walletId) !== String(walletId) ||
+    String(selected.authMethod.walletAuthorityId) !== String(selected.authority.authorityId)
+  ) {
+    throw new Error('Email OTP challenge selected authority is not active');
+  }
+  return {
+    kind: 'exact',
+    walletAuthMethodId: String(selected.authMethod.walletAuthMethodId),
+  };
+}
+
 function emailOtpExpectedCurveForRouteChain(chain: EmailOtpRouteChain): 'ed25519' | 'ecdsa' {
   return chain === 'near' ? 'ed25519' : 'ecdsa';
 }
@@ -111,6 +140,7 @@ async function requestEmailOtpChallengeWithRoutePlan(
   if (!workerCtx) {
     throw new Error('Email OTP signing requires the dedicated emailOtp worker');
   }
+  const authoritySelection = await resolveEmailOtpChallengeAuthoritySelection(walletId);
   const response = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
@@ -119,6 +149,9 @@ async function requestEmailOtpChallengeWithRoutePlan(
       payload: {
         relayUrl,
         walletId: String(walletId),
+        ...(authoritySelection.kind === 'exact'
+          ? { walletAuthMethodId: authoritySelection.walletAuthMethodId }
+          : {}),
         routePlan: args.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
       },

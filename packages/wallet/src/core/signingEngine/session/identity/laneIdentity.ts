@@ -42,6 +42,7 @@ import {
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
+import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../material/activeWalletAuthorityEcdsaRuntime';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
@@ -226,6 +227,22 @@ type BuildEmailOtpAuthContextForWalletAuthMethodArgs = {
       retention: 'single_use';
       reason?: never;
       consumedAtMs?: number;
+  }
+);
+
+type BuildEmailOtpAuthContextFromExactAuthorityArgs = {
+  policy: EmailOtpAuthPolicy;
+  authority: EmailOtpWalletAuthAuthority;
+} & (
+  | {
+      retention: 'session';
+      reason: 'login' | 'sign';
+      consumedAtMs?: never;
+    }
+  | {
+      retention: 'single_use';
+      reason?: never;
+      consumedAtMs?: number;
     }
 );
 
@@ -267,6 +284,61 @@ export function buildEmailOtpAuthContext(
 
 export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
   policy: EmailOtpAuthPolicy;
+  authority: EmailOtpWalletAuthAuthority;
+  reason: 'login' | 'sign';
+  retention: 'session';
+  consumedAtMs?: never;
+}): ThresholdEcdsaEmailOtpSessionAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+  policy: EmailOtpAuthPolicy;
+  authority: EmailOtpWalletAuthAuthority;
+  retention: 'single_use';
+  reason?: never;
+  consumedAtMs?: never;
+}): ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+  policy: EmailOtpAuthPolicy;
+  authority: EmailOtpWalletAuthAuthority;
+  retention: 'single_use';
+  reason?: never;
+  consumedAtMs: number;
+}): ThresholdEcdsaEmailOtpConsumedSingleUseAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(
+  args: BuildEmailOtpAuthContextFromExactAuthorityArgs,
+): ThresholdEcdsaEmailOtpAuthContext;
+export function buildEmailOtpAuthContextForWalletAuthMethod(
+  args: BuildEmailOtpAuthContextFromExactAuthorityArgs,
+): ThresholdEcdsaEmailOtpAuthContext {
+  const authority = args.authority;
+  if (args.retention === 'session') {
+    return buildEmailOtpAuthContext({
+      policy: args.policy,
+      reason: args.reason,
+      retention: 'session',
+      authority,
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(args, 'reason')) {
+    throw new Error('Invalid Email OTP auth context: single-use sessions must not carry reason');
+  }
+  const consumedAtMs = Math.floor(Number(args.consumedAtMs) || 0);
+  if (consumedAtMs > 0) {
+    return buildEmailOtpAuthContext({
+      policy: args.policy,
+      retention: 'single_use',
+      authority,
+      consumedAtMs,
+    });
+  }
+  return buildEmailOtpAuthContext({
+    policy: args.policy,
+    retention: 'single_use',
+    authority,
+  });
+}
+
+export function buildEmailOtpAuthContextForCanonicalWallet(args: {
+  policy: EmailOtpAuthPolicy;
   walletId: unknown;
   emailHashHex: unknown;
   reason: 'login' | 'sign';
@@ -275,7 +347,7 @@ export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
   providerUserId: unknown;
   consumedAtMs?: never;
 }): ThresholdEcdsaEmailOtpSessionAuthContext;
-export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+export function buildEmailOtpAuthContextForCanonicalWallet(args: {
   policy: EmailOtpAuthPolicy;
   walletId: unknown;
   emailHashHex: unknown;
@@ -285,7 +357,7 @@ export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
   reason?: never;
   consumedAtMs?: never;
 }): ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
-export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
+export function buildEmailOtpAuthContextForCanonicalWallet(args: {
   policy: EmailOtpAuthPolicy;
   walletId: unknown;
   emailHashHex: unknown;
@@ -295,10 +367,10 @@ export function buildEmailOtpAuthContextForWalletAuthMethod(args: {
   reason?: never;
   consumedAtMs: number;
 }): ThresholdEcdsaEmailOtpConsumedSingleUseAuthContext;
-export function buildEmailOtpAuthContextForWalletAuthMethod(
+export function buildEmailOtpAuthContextForCanonicalWallet(
   args: BuildEmailOtpAuthContextForWalletAuthMethodArgs,
 ): ThresholdEcdsaEmailOtpAuthContext;
-export function buildEmailOtpAuthContextForWalletAuthMethod(
+export function buildEmailOtpAuthContextForCanonicalWallet(
   args: BuildEmailOtpAuthContextForWalletAuthMethodArgs,
 ): ThresholdEcdsaEmailOtpAuthContext {
   const authority = buildEmailOtpWalletAuthAuthority({
@@ -465,6 +537,7 @@ export function laneCandidateStateFromRuntimePolicy(args: {
 
 export type LaneCandidateSource =
   | 'canonical_capability'
+  | 'active_wallet_authority'
   | 'durable_sealed_record'
   | 'public_capability_reference'
   | 'active_execution_bundle'
@@ -519,14 +592,25 @@ type BaseEcdsaLaneCandidate = CommonLaneCandidate & {
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
-  source: 'canonical_capability';
-  sourceChainTarget?: never;
 } & (
+    | ({
+        source: 'canonical_capability';
+        sourceChainTarget?: never;
+      } & (
+        | {
+            authorizationState: 'authorized';
+            authorization: ActiveEvmFamilyWalletSessionAuthorization;
+          }
+        | {
+            authorizationState: 'authorization_required';
+            authorization?: never;
+            state: 'deferred';
+          }
+      ))
     | {
-        authorizationState: 'authorized';
-        authorization: ActiveEvmFamilyWalletSessionAuthorization;
-      }
-    | {
+        source: 'active_wallet_authority';
+        sourceChainTarget?: never;
+        runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
         authorizationState: 'authorization_required';
         authorization?: never;
         state: 'deferred';

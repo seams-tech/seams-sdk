@@ -33,30 +33,48 @@ export type RuntimeLaneMaterial =
   | { kind: 'public_capability_reference'; sourceChainTarget?: never }
   | { kind: 'canonical_capability'; sourceChainTarget?: never };
 
-export type RuntimePostconditionLaneState = 'ready' | 'restorable';
+export type RestorableRuntimeLaneMaterial = Extract<
+  RuntimeLaneMaterial,
+  { kind: 'durable_sealed_record' | 'public_capability_reference' }
+>;
 
-export type UsableRuntimeLane =
+type UsableRuntimeLaneIdentity =
   | {
-      state: RuntimePostconditionLaneState;
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ed25519'; chainTarget?: never };
       walletSessionId: WalletSessionId;
       quotaId: MpcWalletSigningQuotaId;
       thresholdSessionId: string;
-      remainingSignatureUses: number;
-      expiresAtMs: number;
-      material: RuntimeLaneMaterial;
     }
   | {
-      state: RuntimePostconditionLaneState;
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
       authorizationId: ReusableWalletSessionAuthorizationId;
       materialActivationId: string;
-      remainingSignatureUses: number;
-      expiresAtMs: number;
-      material: RuntimeLaneMaterial;
     };
+
+export type RuntimePostconditionLaneState = 'ready' | 'restorable';
+
+type ActiveUsableRuntimeLane = UsableRuntimeLaneIdentity & {
+  readonly state: 'ready';
+  readonly remainingSignatureUses: number;
+  readonly expiresAtMs: number;
+  readonly material: RuntimeLaneMaterial;
+};
+
+type RestorableUsableRuntimeLane = Extract<
+  UsableRuntimeLaneIdentity,
+  { readonly target: { readonly curve: 'ed25519' } }
+> & {
+  readonly state: 'restorable';
+  readonly remainingSignatureUses: number;
+  readonly expiresAtMs: number;
+  readonly material: RestorableRuntimeLaneMaterial;
+};
+
+export type UsableRuntimeLane =
+  | ActiveUsableRuntimeLane
+  | RestorableUsableRuntimeLane;
 
 export type WalletRuntimeInventory = {
   walletId: string;
@@ -130,7 +148,9 @@ function laneExpiresAtMs(
   return futureEpochMs(value.expiresAtMs ?? value.policyHint?.expiresAtMs, nowMs);
 }
 
-function ed25519LaneMaterial(lane: AvailableEd25519SigningLane): RuntimeLaneMaterial | null {
+function ed25519LaneMaterial(
+  lane: AvailableEd25519SigningLane,
+): RestorableRuntimeLaneMaterial | null {
   if (lane.state === 'missing') return null;
   switch (lane.source) {
     case 'durable_sealed_record':
@@ -168,10 +188,9 @@ function readReadyEd25519Lane(args: {
   }
   const material = ed25519LaneMaterial(lane);
   if (!material) return 'lane_material_missing';
-  return {
-    state: lane.state,
+  const common = {
     authMethod: args.authMethod,
-    target: { curve: 'ed25519' },
+    target: { curve: 'ed25519' as const },
     walletSessionId: lane.authorization.walletSessionId,
     quotaId: lane.authorization.quotaId,
     thresholdSessionId: lane.thresholdSessionId,
@@ -179,6 +198,9 @@ function readReadyEd25519Lane(args: {
     expiresAtMs,
     material,
   };
+  return lane.state === 'restorable'
+    ? { ...common, state: 'restorable' }
+    : { ...common, state: 'ready' };
 }
 
 function readEcdsaUseCaseReadyLane(args: {

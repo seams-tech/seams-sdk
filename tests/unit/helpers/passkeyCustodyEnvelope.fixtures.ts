@@ -8,6 +8,7 @@ import {
   type WalletCustodyCeremonyCommitPayload,
   type WalletCustodyKeySetKind,
 } from '@shared/passkey-custody';
+import { base64UrlEncode } from '@shared/utils/base64';
 
 /**
  * Raw boundary shapes for passkey custody records.
@@ -135,6 +136,50 @@ export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord 
     updatedAtMs: 2_000,
     ...overrides,
   };
+}
+
+export function buildLinkedDevicePasskeyEd25519ExportRootEnvelopeFixture(args: {
+  readonly tag: string;
+  readonly walletId: string;
+  readonly walletKeyId: string;
+  readonly registeredPublicKeyB64u: string;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+  readonly deviceId: string;
+  readonly sealedFill: number;
+}): PasskeyCustodyEnvelopeRecord {
+  const fill = args.sealedFill & 0xff;
+  return parsePasskeyCustodyEnvelopeRecord({
+    kind: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+    envelopeId: `envelope:${args.tag}`,
+    walletId: args.walletId,
+    binding: {
+      kind: 'ed25519_yao_client_root_v1',
+      linkSessionId: `link-session:${args.tag}`,
+      walletKeyId: args.walletKeyId,
+      targetFactor: { kind: 'passkey_prf' },
+      applicationBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(21)),
+      registeredPublicKeyB64u: args.registeredPublicKeyB64u,
+      enrollmentId: `enrollment:${args.tag}`,
+      deviceId: args.deviceId,
+      revocationEpoch: 0,
+    },
+    factor: {
+      kind: 'passkey',
+      rpId: args.rpId,
+      credentialIdB64u: args.credentialIdB64u,
+      kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+    },
+    envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+    envelopeRevision: 1,
+    nonceB64u: base64UrlEncode(new Uint8Array(12).fill(23)),
+    sealedCustodySecretB64u: base64UrlEncode(new Uint8Array(48).fill(fill)),
+    ciphertextDigestB64u: base64UrlEncode(new Uint8Array(32).fill(fill)),
+    aadHashB64u: base64UrlEncode(new Uint8Array(32).fill(24)),
+    lifecycle: { state: 'active', activatedAtMs: 10 },
+    createdAtMs: 10,
+    updatedAtMs: 10,
+  });
 }
 
 export function rawWalletRecoveryEnvelopeEntry(

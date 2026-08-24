@@ -44,7 +44,7 @@ import {
 } from '../material/nearEd25519YaoMaterialActivation';
 import type { RouterAbEd25519YaoRecoveryActivationReceiptV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
-  buildPasskeyWalletAuthAuthority,
+  parsePasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
@@ -128,6 +128,7 @@ export type ReadPasskeyEd25519YaoLocalMaterialLocatorInputV1 = {
   signerSlot: number;
   rpId: string;
   credentialIdB64u: string;
+  authority: WalletAuthAuthorityRef;
 };
 
 export type ReadPasskeyEd25519YaoLocalMaterialLocatorResultV1 =
@@ -548,6 +549,7 @@ function parseStableServerScope(value: unknown): PasskeyEd25519YaoStableServerSc
 async function parseStoredLocalMaterialLocator(args: {
   stored: KeyMaterialRecord;
   target: PasskeyEd25519YaoLocalMaterialTargetV1;
+  authority: WalletAuthAuthorityRef;
 }): Promise<PasskeyEd25519YaoLocalMaterialLocatorV1> {
   const value = args.stored.payload;
   const record = asRecord(value);
@@ -570,13 +572,27 @@ async function parseStoredLocalMaterialLocator(args: {
   ) {
     throw new Error('Stored Ed25519 Client local material record is invalid');
   }
-  const authority = await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId: binding.walletId,
-      rpId: binding.rpId,
+  const parsedAuthority = parsePasskeyWalletAuthAuthority({
+    walletId: binding.walletId,
+    factor: {
+      kind: 'passkey',
       credentialIdB64u: binding.credentialIdB64u,
-    }),
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: binding.rpId,
+    },
+    bindingId: args.authority.walletAuthMethodId,
   });
+  if (!parsedAuthority) {
+    throw new Error('Stored Ed25519 Client local material authority is invalid');
+  }
+  const authority = await walletAuthAuthorityRef({
+    authority: parsedAuthority,
+  });
+  if (authority.authorityDigest !== args.authority.authorityDigest) {
+    throw new Error('Stored Ed25519 Client local material authority changed');
+  }
   return {
     kind: 'passkey_ed25519_yao_local_material_locator_v1',
     authority,
@@ -833,7 +849,7 @@ export async function readPasskeyEd25519YaoLocalMaterialLocatorV1(
   assertStoredIdentitySubset({ stored, target, input });
   return {
     kind: 'available',
-    locator: await parseStoredLocalMaterialLocator({ stored, target }),
+    locator: await parseStoredLocalMaterialLocator({ stored, target, authority: input.authority }),
   };
 }
 
@@ -853,14 +869,26 @@ async function expectedPasskeyAuthority(args: {
   walletSessionState: NearResolvedEd25519SigningSessionState;
   rpId: string;
   credentialIdB64u: string;
+  authority: WalletAuthAuthorityRef;
 }): Promise<WalletAuthAuthorityRef> {
-  return walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId: args.walletSessionState.signingLane.identity.signer.account.wallet.walletId,
-      rpId: args.rpId,
+  const authority = parsePasskeyWalletAuthAuthority({
+    walletId: args.walletSessionState.signingLane.identity.signer.account.wallet.walletId,
+    factor: {
+      kind: 'passkey',
       credentialIdB64u: args.credentialIdB64u,
-    }),
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: args.rpId,
+    },
+    bindingId: args.authority.walletAuthMethodId,
   });
+  if (!authority) throw new Error('Passkey Ed25519 authority is invalid');
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  if (authorityRef.authorityDigest !== args.authority.authorityDigest) {
+    throw new Error('Passkey Ed25519 authority does not match the Wallet Session');
+  }
+  return authorityRef;
 }
 
 function liveRuntimeObservation(
@@ -889,6 +917,7 @@ export async function preparePasskeyEd25519YaoLocalMaterialRehydrationV1(input: 
   walletSessionState: NearResolvedEd25519SigningSessionState;
   rpId: string;
   credentialIdB64u: string;
+  authority: WalletAuthAuthorityRef;
   publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1;
 }): Promise<PreparePasskeyEd25519YaoLocalMaterialRehydrationResultV1> {
   const expectedAuthority = await expectedPasskeyAuthority(input);
@@ -918,6 +947,7 @@ export async function preparePasskeyEd25519YaoLocalMaterialRehydrationV1(input: 
       signerSlot: input.walletSessionState.signingLane.identity.signer.signerSlot,
       rpId: input.rpId,
       credentialIdB64u: input.credentialIdB64u,
+      authority: expectedAuthority,
     });
   } catch {
     const plan = resolveNearEd25519YaoCapabilityHydrationV1({
@@ -967,6 +997,7 @@ export async function hydratePasskeyEd25519YaoLocalMaterialV1(input: {
   walletSessionState: NearResolvedEd25519SigningSessionState;
   rpId: string;
   credentialIdB64u: string;
+  authority: WalletAuthAuthorityRef;
   publicLocator: PasskeyEd25519YaoPublicLocatorObservationV1;
   unlockSource: PasskeyEd25519YaoUnlockSourceV1;
   liveMaterial: NearEd25519YaoOperationMaterial | null;
@@ -998,6 +1029,7 @@ export async function hydratePasskeyEd25519YaoLocalMaterialV1(input: {
       signerSlot: input.walletSessionState.signingLane.identity.signer.signerSlot,
       rpId: input.rpId,
       credentialIdB64u: input.credentialIdB64u,
+      authority: expectedAuthority,
     });
   } catch {
     const plan = resolveNearEd25519YaoCapabilityHydrationV1({

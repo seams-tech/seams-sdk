@@ -134,8 +134,6 @@ type HostedWalletExchangeRow = {
   readonly expires_at_ms?: unknown;
 };
 
-
-
 /**
  * The issuing auth method recorded on a stored session row, if any.
  *
@@ -356,6 +354,15 @@ export class CloudflareD1AuthorizationStore
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
   }): Promise<void> {
+    await this.database.batch(this.prepareRevokeReusableWalletSessionsForAuthMethod(input));
+  }
+
+  prepareRevokeReusableWalletSessionsForAuthMethod(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: import('@shared/utils/domainIds').WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly nowMs: number;
+  }): readonly D1PreparedStatementLike[] {
     requirePositiveInteger(input.nowMs, 'auth-method session revocation time');
     const sessionFilter = `
       FROM reusable_wallet_sessions AS session
@@ -407,11 +414,7 @@ export class CloudflareD1AuthorizationStore
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.namespace, input.tenantId, input.walletId, input.walletAuthMethodId);
-    await this.database.batch([
-      deleteTokens,
-      exhaustQuotas,
-      supersedeSessions,
-    ]);
+    return [deleteTokens, exhaustQuotas, supersedeSessions];
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(
@@ -1042,6 +1045,145 @@ export class CloudflareD1AuthorizationStore
     }
   }
 
+  async replaceWalletSessionAuthorizationV2AuthorityProjection(input: {
+    readonly session: WalletSessionAuthorizationV2;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void> {
+    requireExactWalletSessionAuthorizationV2Quota(input);
+    const capabilitySubjectsJson = JSON.stringify(input.session.capabilitySubjects);
+    const recordJson = JSON.stringify(input.session);
+    const result = await this.database
+      .prepare(
+        `UPDATE wallet_session_authorizations_v2
+            SET authority_digest_b64u = ?,
+                capability_subjects_json = ?,
+                record_json = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND tenant_id = ?
+            AND authorization_id = ?
+            AND mint_id = ?
+            AND wallet_session_id = ?
+            AND quota_id = ?
+            AND principal_id = ?
+            AND wallet_id = ?
+            AND authority_id = ?
+            AND wallet_auth_method_id = ?
+            AND authority_revocation_epoch = ?
+            AND issued_at_ms = ?
+            AND expires_at_ms = ?
+            AND retired_at_ms IS NULL
+            AND ${ACTIVE_V2_AUTHORITY_METHOD_EXISTS_SQL}
+            AND EXISTS (
+              SELECT 1
+                FROM authorization_wallet_session_quotas AS quota
+               WHERE quota.namespace = ?
+                 AND quota.tenant_id = ?
+                 AND quota.quota_id = ?
+                 AND quota.wallet_session_id = ?
+                 AND quota.principal_id = ?
+                 AND quota.remaining_uses = ?
+                 AND quota.lifecycle_kind = 'active'
+                 AND quota.expires_at_ms = ?
+            )`,
+      )
+      .bind(
+        String(input.session.authorityDigestB64u),
+        capabilitySubjectsJson,
+        recordJson,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.session.tenantId,
+        String(input.session.authorizationId),
+        String(input.session.mintId),
+        String(input.session.walletSessionId),
+        String(input.session.quotaId),
+        String(input.session.principalId),
+        String(input.session.walletId),
+        String(input.session.authorityId),
+        String(input.session.walletAuthMethodId),
+        input.session.authorityRevocationEpoch,
+        requirePositiveInteger(input.session.createdAtMs, 'V2 session.createdAtMs'),
+        requirePositiveInteger(input.session.expiresAtMs, 'V2 session.expiresAtMs'),
+        ...activeV2AuthorityMethodBindings(this.walletSignerScope, input.session),
+        this.namespace,
+        input.quota.tenantId,
+        String(input.quota.quotaId),
+        String(input.quota.walletSessionId),
+        String(input.quota.principalId),
+        requirePositiveInteger(input.quota.remainingUses, 'V2 quota.remainingUses'),
+        requirePositiveInteger(input.quota.expiresAtMs, 'V2 quota.expiresAtMs'),
+      )
+      .run();
+    if (d1ChangedRows(result) > 1) {
+      throw new Error('V2 Wallet Session authority projection changed more than one row');
+    }
+    const persisted = await this.readWalletSessionAuthorizationV2ByMint({
+      expected: input.session,
+      nowMs: input.session.createdAtMs,
+    });
+    if (!persisted || persisted.quota.remainingUses !== input.quota.remainingUses) {
+      throw new Error('V2 Wallet Session authority projection was not replaced');
+    }
+  }
+
+  async putWalletSessionAuthorizationV2OperationCredential(input: {
+    readonly session: WalletSessionAuthorizationV2;
+    readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
+  }): Promise<void> {
+    const result = await this.database
+      .prepare(
+        `UPDATE wallet_session_authorizations_v2
+            SET operation_credential_hash = ?
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND tenant_id = ?
+            AND authorization_id = ?
+            AND mint_id = ?
+            AND wallet_session_id = ?
+            AND quota_id = ?
+            AND principal_id = ?
+            AND wallet_id = ?
+            AND authority_id = ?
+            AND wallet_auth_method_id = ?
+            AND authority_digest_b64u = ?
+            AND authority_revocation_epoch = ?
+            AND issued_at_ms = ?
+            AND expires_at_ms = ?
+            AND retired_at_ms IS NULL`,
+      )
+      .bind(
+        input.tokenHash,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.session.tenantId,
+        String(input.session.authorizationId),
+        String(input.session.mintId),
+        String(input.session.walletSessionId),
+        String(input.session.quotaId),
+        String(input.session.principalId),
+        String(input.session.walletId),
+        String(input.session.authorityId),
+        String(input.session.walletAuthMethodId),
+        String(input.session.authorityDigestB64u),
+        input.session.authorityRevocationEpoch,
+        requirePositiveInteger(input.session.createdAtMs, 'V2 session.createdAtMs'),
+        requirePositiveInteger(input.session.expiresAtMs, 'V2 session.expiresAtMs'),
+      )
+      .run();
+    if (d1ChangedRows(result) !== 1) {
+      throw new Error('V2 Wallet Session operation credential binding was not persisted');
+    }
+  }
+
   private async existingWalletSessionAuthorizationV2QuotaMatches(
     quota: ActiveWalletSessionQuota,
   ): Promise<boolean> {
@@ -1257,6 +1399,21 @@ export class CloudflareD1AuthorizationStore
     );
   }
 
+  async readWalletSessionAuthorizationV2ByOperationCredential(input: {
+    readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+    readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
+    readonly nowMs: number;
+  }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+    return await this.readWalletSessionAuthorizationV2(
+      {
+        operationCredentialHash: input.tokenHash,
+        tenantId: input.tenantId,
+        nowMs: input.nowMs,
+      },
+      'operation_credential_hash',
+    );
+  }
+
   private async readWalletSessionAuthorizationV2(
     input:
       | {
@@ -1271,10 +1428,18 @@ export class CloudflareD1AuthorizationStore
             readonly authorizationId: WalletSessionAuthorizationV2['authorizationId'];
           };
           readonly nowMs: number;
+        }
+      | {
+          readonly operationCredentialHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
+          readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+          readonly nowMs: number;
         },
-    lookupColumn: 'mint_id' | 'authorization_id',
+    lookupColumn: 'mint_id' | 'authorization_id' | 'operation_credential_hash',
   ): Promise<IssuedWalletSessionAuthorizationV2 | null> {
-    const lookup = 'expected' in input ? input.expected : input.identity;
+    const lookup =
+      'expected' in input ? input.expected : 'identity' in input ? input.identity : null;
+    const operationCredentialHash =
+      'operationCredentialHash' in input ? input.operationCredentialHash : null;
     const row = await this.database
       .prepare(
         `SELECT
@@ -1349,19 +1514,19 @@ export class CloudflareD1AuthorizationStore
         this.walletSignerScope.orgId,
         this.walletSignerScope.projectId,
         this.walletSignerScope.envId,
-        lookup.tenantId,
+        'operationCredentialHash' in input ? input.tenantId : lookup?.tenantId,
         lookupColumn === 'mint_id'
-          ? String('expected' in input ? input.expected.mintId : input.identity.authorizationId)
-          : String(lookup.authorizationId),
+          ? String('expected' in input ? input.expected.mintId : lookup?.authorizationId)
+          : lookupColumn === 'authorization_id'
+            ? String(lookup?.authorizationId)
+            : operationCredentialHash,
       )
       .first<D1Row>();
     if (!row) return null;
     if (row.session_retired_at_ms !== null && row.session_retired_at_ms !== undefined) {
       throw new Error('Stored V2 Wallet Session authorization is retired');
     }
-    const session = parseWalletSessionAuthorizationV2(
-      parseD1JsonColumn(row.session_record_json),
-    );
+    const session = parseWalletSessionAuthorizationV2(parseD1JsonColumn(row.session_record_json));
     if (!walletSessionAuthorizationV2RowMatches(row, session)) {
       throw new Error('Stored V2 Wallet Session authorization columns disagree with record');
     }
@@ -1596,13 +1761,33 @@ export class CloudflareD1AuthorizationStore
     };
   }
 
-
-
-
-
-
-
-
+  async readOpaqueWalletSessionTokenByIdentity(input: {
+    readonly tenantId: TenantId;
+    readonly walletSessionId: WalletSessionId;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly nowMs: number;
+  }): Promise<ResolvedOpaqueWalletSessionToken | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT token_hash
+           FROM opaque_wallet_session_tokens
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND wallet_session_id = ?
+            AND curve = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.walletSessionId, input.curve)
+      .first<{ readonly token_hash?: unknown }>();
+    if (!row) return null;
+    const tokenHash = parseDigestB64u(row.token_hash);
+    return await this.readOpaqueWalletSessionToken({
+      tenantId: input.tenantId,
+      tokenHash,
+      curve: input.curve,
+      nowMs: input.nowMs,
+    });
+  }
 
   async readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
@@ -1817,10 +2002,6 @@ export class CloudflareD1AuthorizationStore
     if (!committed) throw new Error('authorized operation admission could not be read back');
     return { kind: 'claimed', operation: committed.operation };
   }
-
-
-
-
 
   private async isAuthorizedOperationSourceActive(row: D1Row, nowMs: number): Promise<boolean> {
     const sourceKind = requireString(row.authorization_source_kind, 'operation.authorization.kind');
@@ -2364,8 +2545,6 @@ function requireNonnegativeInteger(value: unknown, label: string): number {
   return parsed;
 }
 
-
-
 function requireExactReusableWalletSessionQuota(input: {
   readonly session: WalletSessionAuthorization;
   readonly quota: ActiveWalletSessionQuota;
@@ -2411,10 +2590,8 @@ function walletSessionAuthorizationV2RowMatches(
     row.session_authority_id === String(session.authorityId) &&
     row.session_wallet_auth_method_id === String(session.walletAuthMethodId) &&
     row.session_authority_digest_b64u === String(session.authorityDigestB64u) &&
-    integerColumn(
-      row.session_authority_revocation_epoch,
-      'session.authorityRevocationEpoch',
-    ) === session.authorityRevocationEpoch &&
+    integerColumn(row.session_authority_revocation_epoch, 'session.authorityRevocationEpoch') ===
+      session.authorityRevocationEpoch &&
     integerColumn(row.session_issued_at_ms, 'session.createdAtMs') === session.createdAtMs &&
     integerColumn(row.session_expires_at_ms, 'session.expiresAtMs') === session.expiresAtMs
   );

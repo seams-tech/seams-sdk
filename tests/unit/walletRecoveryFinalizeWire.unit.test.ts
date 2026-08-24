@@ -81,6 +81,7 @@ test('finalize posts only the atomic R114 promotion request', async () => {
     captureRequest(captured, {
       ok: true,
       storeVersion: '2',
+      walletAuthMethodId: 'wallet-auth-method:replacement',
       walletAuthorityId: 'wallet-authority:replacement',
       credential: {
         credentialIdB64u: 'replacement-credential',
@@ -111,6 +112,7 @@ test('finalize posts only the atomic R114 promotion request', async () => {
   expect(result).toEqual({
     kind: 'promoted',
     storeVersion: '2',
+    walletAuthMethodId: 'wallet-auth-method:replacement',
     walletAuthorityId: 'wallet-authority:replacement',
     credential: {
       credentialIdB64u: 'replacement-credential',

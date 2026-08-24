@@ -6,19 +6,16 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import {
   buildCurrentSealedSessionRecord,
   type BuildCurrentEcdsaSealedSessionRecordInput,
   type CurrentSealedSessionRecord,
   type listExactSealedSessionsForWallet,
-  type readExactEd25519SealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
-  thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
   walletSessionRefFromSession,
@@ -36,7 +33,7 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import { resolvedEvmFamilyEcdsaSigningLaneFromCandidate } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
-import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
+import { buildEmailOtpAuthContextForCanonicalWallet } from '@/core/signingEngine/session/identity/laneIdentity';
 import { computeEcdsaDerivationRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
@@ -92,7 +89,7 @@ function emailOtpEcdsaUnlockWorkerResult(call: any) {
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockSignatureB64u: 'unlock-signature',
     },
-    clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
+    emailOtpSessionHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
     ...(requestedActivation
       ? {
           ecdsaSession: {
@@ -110,10 +107,9 @@ function emailOtpEcdsaUnlockWorkerResult(call: any) {
   };
 }
 
-function loginRoutePlanFromAppSessionJwt(jwt: string): EmailOtpRoutePlan {
+function loginRoutePlan(): EmailOtpRoutePlan {
   return {
     routeFamily: 'login',
-    authLane: { kind: 'app_session', jwt },
     operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   };
 }
@@ -227,7 +223,7 @@ function emailOtpAuthContextFixture(
   const walletId = args.walletId || TEST_SUBJECT_ID;
   const emailHashHex = args.emailHashHex || 'email-hash';
   if (retention === 'single_use') {
-    return buildEmailOtpAuthContextForWalletAuthMethod({
+    return buildEmailOtpAuthContextForCanonicalWallet({
       policy: args.policy || 'per_operation',
       // 'retention' became required; omitting it built the same pending
       // single-use context this branch selects.
@@ -238,7 +234,7 @@ function emailOtpAuthContextFixture(
       emailHashHex,
     });
   }
-  return buildEmailOtpAuthContextForWalletAuthMethod({
+  return buildEmailOtpAuthContextForCanonicalWallet({
     policy: args.policy || 'session',
     retention: 'session',
     reason: args.reason || 'login',
@@ -335,26 +331,6 @@ function appSessionJwt(expSeconds = Math.floor(Date.now() / 1000) + 3600): strin
   })}.sig`;
 }
 
-function appSessionJwtWithRuntimePolicyScope(
-  runtimePolicyScope: RuntimePolicyScopeFixture,
-  expSeconds = Math.floor(Date.now() / 1000) + 3600,
-): string {
-  return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
-    kind: 'app_session_v1',
-    sub: 'google:subject',
-    provider: 'google',
-    providerSubject: 'google:subject',
-    authSource: {
-      kind: 'oidc_provider',
-      providerId: 'google_oidc',
-      providerSubject: 'google:subject',
-    },
-    walletId: TEST_WALLET_SESSION.walletId,
-    runtimePolicyScope,
-    exp: expSeconds,
-  })}.sig`;
-}
-
 function signingRootFromRuntimePolicyScope(
   runtimePolicyScope:
     | { projectId?: unknown; envId?: unknown; signingRootVersion?: unknown }
@@ -389,42 +365,12 @@ function emailOtpEcdsaClientRootHandleFromWorkerCall(call: any) {
   };
 }
 
-function thresholdEcdsaSessionJwt(args: {
-  walletId: string;
-  keyHandle: string;
-  thresholdSessionId: string;
-  evmFamilySigningKeySlotId?: string;
-  relayerKeyId?: string;
-  thresholdExpiresAtMs?: number;
-  participantIds?: readonly number[];
-  chainTarget?: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']['chainTarget'];
-  runtimePolicyScope?: RuntimePolicyScopeFixture;
-}): string {
-  const evmFamilySigningKeySlotId =
-    args.evmFamilySigningKeySlotId ||
-    deriveEvmFamilySigningKeySlotId({
-      walletId: toWalletId(args.walletId),
-      signingRootId: 'signing-root',
-      signingRootVersion: 'root-v1',
-      ...(args.chainTarget
-        ? { chainTargetKey: thresholdEcdsaChainTargetKey(args.chainTarget) }
-        : {}),
-    });
-  return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
-    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: args.walletId,
-    walletId: args.walletId,
-    keyScope: 'evm-family',
-    keyHandle: args.keyHandle,
-    evmFamilySigningKeySlotId,
-    relayerKeyId: args.relayerKeyId || 'relayer-key',
-    thresholdSessionId: args.thresholdSessionId,
-    thresholdExpiresAtMs: args.thresholdExpiresAtMs ?? Date.now() + 60_000,
-    participantIds: args.participantIds || [1, 2],
-    ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-  })}.sig`;
+async function absentWalletCustodyEd25519Material() {
+  return { kind: 'absent' as const };
+}
+
+async function noopRestoreWalletCustodyEcdsaContinuity(): Promise<unknown> {
+  return {};
 }
 
 function hexAddress20B64u(address: `0x${string}`): string {
@@ -569,13 +515,11 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
       : 'signing-root';
   const signingRootVersion = runtimePolicyScope?.signingRootVersion || 'root-v1';
   const ethereumAddress = `0x${'33'.repeat(20)}` as `0x${string}`;
-  const evmFamilySigningKeySlotId =
-    request.walletKey?.evmFamilySigningKeySlotId ||
-    deriveEvmFamilySigningKeySlotId({
-      walletId: toWalletId(walletId),
-      signingRootId,
-      signingRootVersion,
-    });
+  const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: toWalletId(walletId),
+    signingRootId,
+    signingRootVersion,
+  });
   const routerAbEcdsaDerivationNormalSigning = routerAbEcdsaDerivationNormalSigningFixture({
     walletId,
     evmFamilySigningKeySlotId,
@@ -585,17 +529,7 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
     ethereumAddress,
     thresholdSessionId,
   });
-  const walletSessionJwt = thresholdEcdsaSessionJwt({
-    walletId,
-    keyHandle,
-    thresholdSessionId,
-    evmFamilySigningKeySlotId,
-    relayerKeyId: 'relayer-key',
-    thresholdExpiresAtMs: Date.now() + 60_000,
-    participantIds: [1, 2],
-    chainTarget: args.chainTarget,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-  });
+  const walletSessionToken = `opaque-wallet-session-token:ecdsa:${thresholdSessionId}`;
   const remainingUses = args.remainingUses ?? 3;
   return {
     thresholdEcdsaKeyRef: {
@@ -603,15 +537,11 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
       userId: walletId,
       relayerUrl: request.relayerUrl || 'https://relay.example',
       keyHandle,
-      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       chainTarget: args.chainTarget,
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-      thresholdSessionId,
-      thresholdSessionKind: 'jwt',
-      walletSessionJwt,
       participantIds: [1, 3],
       routerAbEcdsaDerivationNormalSigning,
       backendBinding: emailOtpWorkerBackendBindingFixture({
@@ -636,7 +566,7 @@ function emailOtpProvisionedEcdsaBootstrapFixture(args: {
         request.preauthorizedSessionActivation?.session?.expires_at_ms || Date.now() + 60_000,
       remainingUses,
       runtimePolicyScope,
-      jwt: walletSessionJwt,
+      walletSessionToken,
       clientVerifyingShareB64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
     },
   };
@@ -798,11 +728,9 @@ function buildEcdsaSealedRecordFixture(
 
 function createCoordinator(overrides?: {
   requestWorkerOperation?: (call: any) => Promise<any>;
-  refreshAppSessionJwt?: () => Promise<string>;
   getRpId?: () => string | null;
   configs?: Record<string, any>;
   writeExactSealedSession?: (args: any) => Promise<void>;
-  readExactEd25519SealedSession?: typeof readExactEd25519SealedSession;
   readExactSealedSession?: (thresholdSessionId: string, purpose?: any) => Promise<any>;
   listExactSealedSessionsForWallet?: typeof listExactSealedSessionsForWallet;
   provisionThresholdEcdsaSession?: (request: any) => Promise<any>;
@@ -823,7 +751,6 @@ function createCoordinator(overrides?: {
     walletSessionId: string;
     quotaId: string;
   } | null = null;
-  let refreshCount = 0;
   const worker = {
     requestWorkerOperation: async (call: any) => {
       workerCalls.push(call);
@@ -864,7 +791,7 @@ function createCoordinator(overrides?: {
           ok: true,
           remainingUses: 2,
           expiresAtMs: Date.now() + 60_000,
-          clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
+          emailOtpSessionHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
         };
       }
       if (call.request?.type === 'enrollEmailOtpWallet') {
@@ -997,6 +924,8 @@ function createCoordinator(overrides?: {
     signerWorkerManager: worker as any,
     getRpId: overrides?.getRpId || (() => 'localhost'),
     getSignerWorkerContext: () => worker as any,
+    loadWalletCustodyEd25519Material: absentWalletCustodyEd25519Material,
+    restoreWalletCustodyEcdsaContinuity: noopRestoreWalletCustodyEcdsaContinuity,
     withThresholdEcdsaSigningQueue: (args) =>
       withThresholdEcdsaSigningQueue({
         queueByKey: thresholdEcdsaSigningQueueByKey,
@@ -1012,10 +941,6 @@ function createCoordinator(overrides?: {
           authMethod: 'email_otp',
         }).projection,
       })),
-    refreshAppSessionJwt: async () => {
-      refreshCount += 1;
-      return overrides?.refreshAppSessionJwt ? overrides.refreshAppSessionJwt() : appSessionJwt();
-    },
     commitEvmFamilyThresholdEcdsaSessions: async (args) => {
       ecdsaCommitCalls.push(args);
       return {
@@ -1100,7 +1025,6 @@ function createCoordinator(overrides?: {
         await overrides.writeExactSealedSession(args);
       }
     },
-    readExactEd25519SealedSession: overrides?.readExactEd25519SealedSession || (async () => null),
     readExactSealedSession: overrides?.readExactSealedSession || defaultReadExactSealedSession,
     listExactSealedSessionsForWallet:
       overrides?.listExactSealedSessionsForWallet || defaultListExactSealedSessionsForWallet,
@@ -1118,7 +1042,6 @@ function createCoordinator(overrides?: {
     ecdsaProvisionCalls,
     ecdsaCommitCalls,
     sealedRecordWrites,
-    getRefreshCount: () => refreshCount,
   };
 }
 
@@ -1178,8 +1101,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
   });
 
   test('requests transaction challenges with signing-session auth only', async () => {
-    const { coordinator, workerCalls, getRefreshCount } = createCoordinator();
-    const walletSessionJwt = 'threshold-session-jwt';
+    const { coordinator, workerCalls } = createCoordinator();
+    const walletSessionToken = 'threshold-session-token';
 
     const challenge = await coordinator.requestTransactionSigningChallenge({
       kind: 'near_account_challenge',
@@ -1188,7 +1111,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       chain: 'near',
       authLane: {
         kind: 'signing_session',
-        jwt: walletSessionJwt,
+        walletSessionToken,
         curve: 'ed25519',
       },
     });
@@ -1197,7 +1120,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       emailHint: 'a***@example.com',
     });
-    expect(getRefreshCount()).toBe(0);
     expect(workerCalls[0]).toMatchObject({
       kind: 'emailOtp',
       request: {
@@ -1209,7 +1131,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             routeFamily: 'signing_session',
             authLane: {
               kind: 'signing_session',
-              jwt: walletSessionJwt,
+              walletSessionToken,
               curve: 'ed25519',
             },
             operation: 'transaction_sign',
@@ -1220,19 +1142,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     });
   });
 
-  test('requests ECDSA export challenges against the current app session', async () => {
-    const { coordinator, workerCalls, getRefreshCount } = createCoordinator();
-    const appJwt = appSessionJwt();
+  test('requests ECDSA export challenges through the wallet login route', async () => {
+    const { coordinator, workerCalls } = createCoordinator();
 
     const challenge = await coordinator.requestExportChallenge({
-      kind: 'wallet_capability_export_challenge',
+      kind: 'wallet_login_challenge',
       walletSession: TEST_WALLET_SESSION,
       chain: TEMPO_CHAIN_TARGET.kind,
-      appSessionJwt: appJwt,
     });
 
     expect(challenge.challengeId).toBe('challenge-1');
-    expect(getRefreshCount()).toBe(0);
     expect(workerCalls[0]).toMatchObject({
       kind: 'emailOtp',
       request: {
@@ -1242,10 +1161,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           walletId: 'alice.testnet',
           routePlan: {
             routeFamily: 'login',
-            authLane: {
-              kind: 'app_session',
-              jwt: appJwt,
-            },
             operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
           },
           otpChannel: 'email_otp',
@@ -1255,7 +1170,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
   });
 
   test('transaction challenges reject missing signing-session authority', async () => {
-    const { coordinator, workerCalls, getRefreshCount } = createCoordinator();
+    const { coordinator, workerCalls } = createCoordinator();
 
     await expect(
       coordinator.requestTransactionSigningChallenge({
@@ -1268,12 +1183,11 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       'Email OTP ed25519 signing-session auth lane is unavailable at provided_route_auth',
     );
 
-    expect(getRefreshCount()).toBe(0);
     expect(workerCalls).toHaveLength(0);
   });
 
   test('transaction challenges reject app-session route auth instead of resolving it', async () => {
-    const { coordinator, getRefreshCount, workerCalls } = createCoordinator();
+    const { coordinator, workerCalls } = createCoordinator();
     const jwt = appSessionJwt();
 
     await expect(
@@ -1288,7 +1202,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       'Email OTP ed25519 signing-session auth lane is unavailable at provided_route_auth',
     );
 
-    expect(getRefreshCount()).toBe(0);
     expect(workerCalls).toHaveLength(0);
   });
 
@@ -1299,7 +1212,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1317,12 +1229,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       emailHashHex: 'email-hash',
-      routePlan: loginRoutePlanFromAppSessionJwt(jwt),
+      routePlan: loginRoutePlan(),
       keyHandle,
       participantIds: [1, 3],
       runtimePolicyScope,
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-      providerIdentity: { kind: 'derive_from_route_auth' },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        provider: 'google',
+        providerUserId: 'google:subject',
+      },
       ed25519YaoRecovery: { kind: 'not_requested' },
     });
 
@@ -1343,7 +1259,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           },
           routePlan: {
             routeFamily: 'login',
-            authLane: { kind: 'app_session', jwt },
             operation: 'wallet_unlock',
           },
         },
@@ -1353,7 +1268,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     expect(ecdsaProvisionCalls[0]).toMatchObject({
       source: 'email_otp',
       relayerUrl: 'https://relay.example',
-      sessionKind: 'jwt',
+      sessionKind: 'opaque',
       sessionBudgetUses: 3,
       runtimePolicy: {
         kind: 'scoped_policy',
@@ -1398,7 +1313,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1416,12 +1330,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       emailHashHex: 'email-hash',
-      routePlan: loginRoutePlanFromAppSessionJwt(jwt),
+      routePlan: loginRoutePlan(),
       keyHandle,
       participantIds: [1, 3],
       runtimePolicyScope,
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-      providerIdentity: { kind: 'derive_from_route_auth' },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        provider: 'google',
+        providerUserId: 'google:subject',
+      },
       ed25519YaoRecovery: { kind: 'not_requested' },
     });
 
@@ -1443,7 +1361,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const jwt = appSessionJwt();
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1462,11 +1379,15 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       emailHashHex: 'email-hash',
-      routePlan: loginRoutePlanFromAppSessionJwt(jwt),
+      routePlan: loginRoutePlan(),
       keyHandle,
       participantIds: [1, 3],
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-      providerIdentity: { kind: 'derive_from_route_auth' },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        provider: 'google',
+        providerUserId: 'google:subject',
+      },
       ed25519YaoRecovery: { kind: 'not_requested' },
     });
 
@@ -1512,7 +1433,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1527,12 +1447,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       emailHashHex: 'email-hash',
-      routePlan: loginRoutePlanFromAppSessionJwt(jwt),
+      routePlan: loginRoutePlan(),
       keyHandle,
       participantIds: [1, 3],
       runtimePolicyScope,
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-      providerIdentity: { kind: 'derive_from_route_auth' },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        provider: 'google',
+        providerUserId: 'google:subject',
+      },
       ed25519YaoRecovery: { kind: 'not_requested' },
     });
 
@@ -1552,7 +1476,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           },
           transport: {
             relayerUrl: 'https://relay.example',
-            walletSessionJwt: expect.any(String),
+            walletSessionToken: expect.any(String),
             groupId: 'rfc2409-group2',
           },
         },
@@ -1598,7 +1522,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1614,12 +1537,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         challengeId: 'challenge-1',
         otpCode: '123456',
         emailHashHex: 'email-hash',
-        routePlan: loginRoutePlanFromAppSessionJwt(jwt),
+        routePlan: loginRoutePlan(),
         keyHandle,
         participantIds: [1, 3],
         runtimePolicyScope,
         ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-        providerIdentity: { kind: 'derive_from_route_auth' },
+        providerIdentity: {
+          kind: 'explicit_provider_user',
+          provider: 'google',
+          providerUserId: 'google:subject',
+        },
         ed25519YaoRecovery: { kind: 'not_requested' },
       }),
     ).rejects.toThrow(
@@ -1646,7 +1573,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1661,12 +1587,16 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       emailHashHex: 'email-hash',
-      routePlan: loginRoutePlanFromAppSessionJwt(jwt),
+      routePlan: loginRoutePlan(),
       keyHandle,
       participantIds: [1, 3],
       runtimePolicyScope,
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-      providerIdentity: { kind: 'derive_from_route_auth' },
+      providerIdentity: {
+        kind: 'explicit_provider_user',
+        provider: 'google',
+        providerUserId: 'google:subject',
+      },
       ed25519YaoRecovery: { kind: 'not_requested' },
     });
 
@@ -1725,7 +1655,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             ok: true,
             remainingUses: 2,
             expiresAtMs,
-            clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
+            emailOtpSessionHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
           };
         }
         return { ok: true };
@@ -1785,7 +1715,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           expiresAtMs,
           transport: {
             relayerUrl: sealedRecord.relayerUrl,
-            walletSessionJwt: expect.any(String),
+            walletSessionToken: expect.any(String),
             signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
             groupId: 'rfc2409-group2',
           },
@@ -1923,7 +1853,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             ok: true,
             remainingUses: 2,
             expiresAtMs,
-            clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
+            emailOtpSessionHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
           };
         }
         return { ok: true };
@@ -1971,7 +1901,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       request: {
         payload: {
           transport: {
-            walletSessionJwt: expect.any(String),
+            walletSessionToken: expect.any(String),
           },
           restore: {
             thresholdSessionId: 'ecdsa-session',

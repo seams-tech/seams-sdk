@@ -1,11 +1,18 @@
-import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import {
+  parseEmailOtpProviderUserId,
+  parseWebAuthnCredentialIdB64u,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
+} from '@shared/utils/domainIds';
+import {
+  buildWalletAuthMethodRecordV2,
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
   type RegistrationAuthority,
   type WebAuthnRpId,
   type WalletId,
   type WalletAuthMethodRevocationProof,
+  type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -22,11 +29,7 @@ import type {
   WalletAddSignerStartRequest,
   WalletRegistrationFinalizeAuthMethod,
 } from '../../../../core/registrationContracts';
-import type {
-  WalletAuthMethodRecord,
-  WalletAuthMethodStore,
-  WalletAuthMethodV2Store,
-} from '../../../../core/d1WalletAuthMethodStore';
+import type { WalletAuthMethodV2Store } from '../../../../core/d1WalletAuthMethodStore';
 import { webAuthnCredentialIdB64uFromCredential } from '../../../auth/webAuthnCredentialCodecs';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -87,62 +90,87 @@ export function walletRegistrationFinalizeAuthMethodFromAuthority(
   return unreachableRegistrationAuthority(authority);
 }
 
-export function walletAuthAuthorityFromRegistrationAuthority(
-  authority: RegistrationAuthority,
-): WalletAuthAuthority {
-  switch (authority.kind) {
-    case 'passkey':
-      return buildPasskeyWalletAuthAuthority({
-        walletId: authority.walletId,
-        rpId: authority.rpId,
-        credentialIdB64u: authority.credentialIdB64u,
-      });
-    case 'email_otp':
-      return buildEmailOtpWalletAuthAuthority({
-        walletId: authority.walletId,
-        provider: authority.proofKind === 'google_sso_registration' ? 'google' : 'email',
-        providerUserId: authority.providerSubject,
-        emailHashHex: authority.emailHashHex,
-      });
-  }
-  return unreachableRegistrationAuthority(authority);
-}
-
-export function walletAuthMethodRecordFromRegistrationAuthority(input: {
+export function walletAuthAuthorityFromRegistrationAuthority(input: {
   readonly authority: RegistrationAuthority;
-  readonly now: number;
-}): WalletAuthMethodRecord {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): WalletAuthAuthority {
   switch (input.authority.kind) {
-    case 'passkey':
-      return {
-        version: 'wallet_auth_method_v1',
-        kind: 'passkey',
-        status: 'active',
+    case 'passkey': {
+      const authority = buildPasskeyWalletAuthAuthority({
         walletId: input.authority.walletId,
         rpId: input.authority.rpId,
         credentialIdB64u: input.authority.credentialIdB64u,
-        credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
-        counter: input.authority.counter,
-        createdAtMs: input.now,
-        updatedAtMs: input.now,
-      };
-    case 'email_otp':
-      return {
-        version: 'wallet_auth_method_v1',
-        kind: 'email_otp',
-        status: 'active',
+      });
+      return { ...authority, bindingId: input.walletAuthMethodId };
+    }
+    case 'email_otp': {
+      const authority = buildEmailOtpWalletAuthAuthority({
         walletId: input.authority.walletId,
+        provider: input.authority.proofKind === 'google_sso_registration' ? 'google' : 'email',
+        providerUserId: input.authority.providerSubject,
         emailHashHex: input.authority.emailHashHex,
-        registrationAuthorityId: input.authority.registrationAuthorityId,
-        createdAtMs: input.now,
-        updatedAtMs: input.now,
-      };
+      });
+      return { ...authority, bindingId: input.walletAuthMethodId };
+    }
   }
   return unreachableRegistrationAuthority(input.authority);
 }
 
-export function activeWalletAuthMethodRecord(record: WalletAuthMethodRecord): boolean {
-  return record.status === 'active';
+export function walletAuthMethodRecordFromRegistrationAuthority(input: {
+  readonly authority: RegistrationAuthority;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly now: number;
+}): Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
+  switch (input.authority.kind) {
+    case 'passkey': {
+      const credentialIdB64u = parseWebAuthnCredentialIdB64u(input.authority.credentialIdB64u);
+      if (!credentialIdB64u.ok) {
+        throw new Error(`Registration credential ID is invalid: ${credentialIdB64u.error.message}`);
+      }
+      return requireActiveWalletAuthMethodRecordV2(
+        buildWalletAuthMethodRecordV2({
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.walletAuthMethodId,
+          kind: 'passkey',
+          status: 'active',
+          walletId: input.authority.walletId,
+          walletAuthorityId: input.walletAuthorityId,
+          rpId: input.authority.rpId,
+          credentialIdB64u: credentialIdB64u.value,
+          credentialPublicKeyB64u: input.authority.credentialPublicKeyB64u,
+          counter: input.authority.counter,
+          createdAtMs: input.now,
+          updatedAtMs: input.now,
+          activatedAtMs: input.now,
+        }),
+      );
+    }
+    case 'email_otp':
+      return requireActiveWalletAuthMethodRecordV2(
+        buildWalletAuthMethodRecordV2({
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId: input.walletAuthMethodId,
+          kind: 'email_otp',
+          status: 'active',
+          walletId: input.authority.walletId,
+          walletAuthorityId: input.walletAuthorityId,
+          emailHashHex: input.authority.emailHashHex,
+          registrationAuthorityId: input.authority.registrationAuthorityId,
+          createdAtMs: input.now,
+          updatedAtMs: input.now,
+          activatedAtMs: input.now,
+        }),
+      );
+  }
+  return unreachableRegistrationAuthority(input.authority);
+}
+
+function requireActiveWalletAuthMethodRecordV2(
+  record: WalletAuthMethodRecordV2,
+): Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
+  if (record.status !== 'active') throw new Error('Wallet auth method must be active');
+  return record;
 }
 
 function unreachableRegistrationAuthority(value: never): never {
@@ -360,7 +388,7 @@ export async function resolveD1AddSignerExistingAuth(input: {
   readonly auth: StartWalletAddSignerInput['auth'];
   readonly walletId: WalletId;
   readonly intent: AddSignerIntentV1;
-  readonly walletAuthMethodStore: Pick<WalletAuthMethodStore, 'getPasskey'>;
+  readonly walletAuthMethodStore: Pick<WalletAuthMethodV2Store, 'getPasskeyV2'>;
   readonly nowMs: number;
 }): Promise<D1AddSignerExistingAuthResolution> {
   const authorization = await resolveD1WebAuthnExistingWalletAuth({
@@ -384,7 +412,7 @@ export async function resolveD1AddAuthMethodExistingAuth(input: {
   readonly auth: StartWalletAddAuthMethodInput['auth'];
   readonly walletId: WalletId;
   readonly intent: AddAuthMethodIntentV1;
-  readonly walletAuthMethodStore: Pick<WalletAuthMethodStore, 'getPasskey'>;
+  readonly walletAuthMethodStore: Pick<WalletAuthMethodV2Store, 'getPasskeyV2'>;
   readonly nowMs: number;
 }): Promise<D1AddAuthMethodExistingAuthResolution> {
   if (input.auth.kind === 'email_otp') {
@@ -440,14 +468,14 @@ async function resolveD1WebAuthnExistingWalletAuth(input: {
   readonly credential: unknown;
   readonly rpId: WebAuthnRpId;
   readonly walletId: WalletId;
-  readonly walletAuthMethodStore: Pick<WalletAuthMethodStore, 'getPasskey'>;
+  readonly walletAuthMethodStore: Pick<WalletAuthMethodV2Store, 'getPasskeyV2'>;
 }): Promise<
   | { readonly ok: true; readonly credentialIdB64u: string }
   | { readonly ok: false; readonly code: string; readonly message: string }
 > {
   const credentialId = webAuthnCredentialIdB64uFromCredential(input.credential);
   if (!credentialId.ok) return credentialId;
-  const authorizationMethod = await input.walletAuthMethodStore.getPasskey({
+  const authorizationMethod = await input.walletAuthMethodStore.getPasskeyV2({
     rpId: input.rpId,
     credentialIdB64u: credentialId.credentialIdB64u,
   });

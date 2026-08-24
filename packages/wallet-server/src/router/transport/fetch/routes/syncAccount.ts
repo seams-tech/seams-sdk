@@ -5,8 +5,8 @@ import {
   parseSyncAccountVerifyRequest,
 } from '../../../domains/syncAccount/syncAccountRequestValidation';
 import {
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
+  type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
@@ -14,10 +14,13 @@ import {
   parseReusableWalletSessionMintId,
   parseAuthFactorId,
 } from '@shared/authorization/capabilityKinds';
+import { DEFAULT_WALLET_SESSION_TTL_MS } from '@shared/threshold/sessionPolicy';
 import {
-  DEFAULT_WALLET_SESSION_TTL_MS,
-} from '@shared/threshold/sessionPolicy';
-import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  type WalletAuthMethodId,
+} from '@shared/utils/domainIds';
 import { parseSessionOrigin, parseVerifiedOwnerProofId } from '../../../../authorization/domain';
 import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../../../authorization/factorEvidence';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -37,6 +40,26 @@ function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; co
     default:
       return 400;
   }
+}
+
+function passkeyWalletAuthAuthorityForMethod(input: {
+  readonly walletId: string;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): PasskeyWalletAuthAuthority {
+  const walletId = parseWalletId(input.walletId);
+  const rpId = parseWebAuthnRpId(input.rpId);
+  const credentialIdB64u = parseWebAuthnCredentialIdB64u(input.credentialIdB64u);
+  if (!walletId.ok || !rpId.ok || !credentialIdB64u.ok) {
+    throw new Error('Verified passkey Wallet Session authority identity is invalid');
+  }
+  return {
+    walletId: walletId.value,
+    factor: { kind: 'passkey', credentialIdB64u: credentialIdB64u.value },
+    verifier: { kind: 'webauthn', rpId: rpId.value },
+    bindingId: input.walletAuthMethodId,
+  };
 }
 
 export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Response | null> {
@@ -106,11 +129,32 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           { status: 500 },
         );
       }
-      const authority = buildPasskeyWalletAuthAuthority({
+      const authority = passkeyWalletAuthAuthorityForMethod({
         walletId: walletBinding.walletId,
         rpId: walletBinding.rpId,
         credentialIdB64u,
+        walletAuthMethodId: result.walletAuthMethodId,
       });
+      const activeAuthority =
+        await ctx.service.walletAuthMethods.resolveActivePasskeyAuthorityForVerifiedCredential({
+          walletId: authority.walletId,
+          rpId: authority.verifier.rpId,
+          credentialIdB64u: authority.factor.credentialIdB64u,
+        });
+      if (
+        !activeAuthority.ok ||
+        activeAuthority.walletAuthority.authorityId !== result.walletAuthorityId ||
+        activeAuthority.authMethod.walletAuthMethodId !== result.walletAuthMethodId
+      ) {
+        return json(
+          {
+            ok: false,
+            code: 'internal',
+            message: 'Verified passkey wallet authority is unavailable',
+          },
+          { status: 500 },
+        );
+      }
       const authorityRef = await walletAuthAuthorityRef({ authority });
       const principalId = parsePrincipalId(walletId);
       const mintId = parseReusableWalletSessionMintId(parsed.request.challengeId);
@@ -167,6 +211,10 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
+        walletAuthMethodId: result.walletAuthMethodId,
+        walletAuthorityId: result.walletAuthorityId,
+        foundingAuthority: activeAuthority.walletAuthority,
+        foundingAuthMethod: activeAuthority.authMethod,
         custodyKeyManifestDigestB64u,
         walletBinding,
         rpId: walletBinding.rpId,

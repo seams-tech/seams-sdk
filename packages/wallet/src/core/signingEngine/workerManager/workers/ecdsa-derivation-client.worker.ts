@@ -1,5 +1,6 @@
 import { type WorkerResponseDiagnostics } from '@/core/types/signer-worker';
 import initEcdsaDerivationClient, {
+  EcdsaLinkedHolderMaterialV1,
   EcdsaRoleLocalPresignSessionV1,
   finalize_ecdsa_client_bootstrap_v1,
   prepare_ecdsa_client_bootstrap_v1,
@@ -39,6 +40,7 @@ import {
 import {
   attachRouterAbEcdsaExplicitExportOperationV1,
   isAttachEcdsaDerivationToPresignPort,
+  isAttachLinkedHolderToPresignPort,
   type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1,
   type CloseRouterAbEcdsaPostRegistrationCeremonyResultV1,
   type CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1,
@@ -58,6 +60,10 @@ import {
   parsePrepareLinkedDeviceEcdsaSourceContributionResultV1,
   type PrepareLinkedDeviceEcdsaSourceContributionRequestV1,
   type PrepareLinkedDeviceEcdsaSourceContributionResultV1,
+  type CreateEcdsaHolderOrdinaryExportRequestV1,
+  type CreateEcdsaHolderOrdinaryExportResultV1,
+  type FinalizeEcdsaHolderOrdinaryExportRequestV1,
+  type FinalizeEcdsaHolderOrdinaryExportResultV1,
   type OpaqueEcdsaPresignAuthorityRequestV1,
   type OpaqueEcdsaPresignAuthorityResponseV1,
 } from '../ecdsaClientWorkerChannels';
@@ -88,6 +94,7 @@ import {
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
+  parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   type RouterAbEcdsaClientProofFinalizationV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
@@ -139,6 +146,7 @@ let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let presignPort: MessagePort | null = null;
 const opaquePresignAuthority = new OpaqueEcdsaPresignAuthorityV1();
+const linkedHolderMaterials = new Map<string, EcdsaLinkedHolderMaterialV1>();
 const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
 const DIAGNOSTIC_BREAKDOWN_MAX_FIELDS = 64;
 type StoredEcdsaRoleLocalSigningMaterial = {
@@ -1085,30 +1093,36 @@ function projectSigningWorkerExportForEcdsaClientProtocol(
   return {
     version: envelope.version,
     algorithm: envelope.algorithm,
-    binding: {
-      wallet_id: binding.wallet_id,
-      key_handle: binding.key_handle,
-      ecdsa_threshold_key_id: binding.ecdsa_threshold_key_id,
-      signing_root_id: binding.signing_root_id,
-      signing_root_version: binding.signing_root_version,
-      activation_epoch: binding.activation_epoch,
-      signing_worker_id: binding.signing_worker_id,
-      context_binding_b64u: binding.context_binding_b64u,
-      threshold_public_key33_b64u: binding.threshold_public_key33_b64u,
-      export_request_digest_b64u: binding.export_request_digest_b64u,
-      export_authorization_digest_b64u: binding.export_authorization_digest_b64u,
-      export_nonce: binding.export_nonce,
-      authorization_kind: binding.authorization_kind,
-      authorization_id: binding.authorization_id,
-      material_activation: projectMaterialActivationForEcdsaClientProtocol(
-        binding.material_activation,
-      ),
-      lifecycle_id: binding.lifecycle_id,
-      recipient_identity: binding.recipient_identity,
-      recipient_public_key: binding.recipient_public_key,
-      expires_at_ms: binding.expires_at_ms,
-    },
+    binding: projectSigningWorkerExportBindingForEcdsaClientProtocol(binding),
     ciphertext_and_tag: envelope.ciphertext_and_tag,
+  };
+}
+
+function projectSigningWorkerExportBindingForEcdsaClientProtocol(
+  binding: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1['binding'],
+) {
+  return {
+    wallet_id: binding.wallet_id,
+    key_handle: binding.key_handle,
+    ecdsa_threshold_key_id: binding.ecdsa_threshold_key_id,
+    signing_root_id: binding.signing_root_id,
+    signing_root_version: binding.signing_root_version,
+    activation_epoch: binding.activation_epoch,
+    signing_worker_id: binding.signing_worker_id,
+    context_binding_b64u: binding.context_binding_b64u,
+    threshold_public_key33_b64u: binding.threshold_public_key33_b64u,
+    export_request_digest_b64u: binding.export_request_digest_b64u,
+    export_authorization_digest_b64u: binding.export_authorization_digest_b64u,
+    export_nonce: binding.export_nonce,
+    authorization_kind: binding.authorization_kind,
+    authorization_id: binding.authorization_id,
+    material_activation: projectMaterialActivationForEcdsaClientProtocol(
+      binding.material_activation,
+    ),
+    lifecycle_id: binding.lifecycle_id,
+    recipient_identity: binding.recipient_identity,
+    recipient_public_key: binding.recipient_public_key,
+    expires_at_ms: binding.expires_at_ms,
   };
 }
 
@@ -1746,6 +1760,243 @@ async function initializeEcdsaDerivationClientWasm(): Promise<void> {
   return ecdsaDerivationClientInitPromise;
 }
 
+function storeLinkedDeviceEcdsaHolderMaterial(payload: unknown): {
+  readonly holderHandleId: string;
+} {
+  const record = requireRecordPayload(payload);
+  const ownedSigningShare32 = isArrayBuffer(record.ownedSigningShare32)
+    ? record.ownedSigningShare32
+    : null;
+  const activationReceiptJson =
+    typeof record.activationReceiptJson === 'string' ? record.activationReceiptJson : null;
+  try {
+    const holderHandleId = readNonEmptyString(record, 'holderHandleId');
+    if (linkedHolderMaterials.has(holderHandleId)) {
+      throw new Error('linked ECDSA holder handle is already installed');
+    }
+    if (activationReceiptJson === null || activationReceiptJson.trim().length === 0) {
+      throw new Error('activationReceiptJson must be a non-empty string');
+    }
+    const signingShare = new Uint8Array(
+      requireArrayBufferLength(ownedSigningShare32, 32, 'ownedSigningShare32'),
+    );
+    const material = new EcdsaLinkedHolderMaterialV1(signingShare, activationReceiptJson);
+    linkedHolderMaterials.set(holderHandleId, material);
+    return { holderHandleId };
+  } finally {
+    if (ownedSigningShare32) new Uint8Array(ownedSigningShare32).fill(0);
+  }
+}
+
+function requireLinkedDeviceEcdsaHolderMaterial(
+  holderHandleId: string,
+): EcdsaLinkedHolderMaterialV1 {
+  const material = linkedHolderMaterials.get(holderHandleId);
+  if (!material) {
+    throw new Error('linked ECDSA holder handle is not installed');
+  }
+  return material;
+}
+
+function linkedHolderExportRecipientPublicKey(material: EcdsaLinkedHolderMaterialV1): string {
+  const method = Reflect.get(material, 'export_recipient_public_key');
+  if (typeof method !== 'function') {
+    throw new Error('linked ECDSA holder export recipient method is unavailable');
+  }
+  const recipientPublicKey = Reflect.apply(method, material, []);
+  if (typeof recipientPublicKey !== 'string' || recipientPublicKey.trim().length === 0) {
+    throw new Error('linked ECDSA holder export recipient is invalid');
+  }
+  return recipientPublicKey;
+}
+
+function linkedHolderFinalizeExport(
+  material: EcdsaLinkedHolderMaterialV1,
+  inputJson: string,
+): string {
+  const method = Reflect.get(material, 'finalize_export');
+  if (typeof method !== 'function') {
+    throw new Error('linked ECDSA holder export finalization method is unavailable');
+  }
+  const exportArtifactJson = Reflect.apply(method, material, [inputJson]);
+  if (typeof exportArtifactJson !== 'string' || exportArtifactJson.trim().length === 0) {
+    throw new Error('linked ECDSA holder export artifact is invalid');
+  }
+  return exportArtifactJson;
+}
+
+function getLinkedDeviceEcdsaHolderExportRecipientPublicKey(payload: unknown): {
+  readonly holderHandleId: string;
+  readonly recipientPublicKey: string;
+} {
+  const record = requireRecordPayload(payload);
+  const holderHandleId = readNonEmptyString(record, 'holderHandleId');
+  const recipientPublicKey = linkedHolderExportRecipientPublicKey(
+    requireLinkedDeviceEcdsaHolderMaterial(holderHandleId),
+  );
+  return { holderHandleId, recipientPublicKey };
+}
+
+function finalizeLinkedDeviceEcdsaHolderExport(payload: unknown): {
+  readonly holderHandleId: string;
+  readonly exportArtifactJson: string;
+} {
+  const record = requireRecordPayload(payload);
+  const holderHandleId = readNonEmptyString(record, 'holderHandleId');
+  const inputJson = record.exportFinalizationInputJson;
+  if (typeof inputJson !== 'string' || inputJson.trim().length === 0) {
+    throw new Error(
+      'ECDSA DERIVATION client worker request is missing exportFinalizationInputJson',
+    );
+  }
+  const exportArtifactJson = linkedHolderFinalizeExport(
+    requireLinkedDeviceEcdsaHolderMaterial(holderHandleId),
+    inputJson,
+  );
+  return { holderHandleId, exportArtifactJson };
+}
+
+function holderBuildOrdinaryExportRequest(
+  material: EcdsaLinkedHolderMaterialV1,
+  inputJson: string,
+): string {
+  const method = Reflect.get(material, 'build_ordinary_export_request');
+  if (typeof method !== 'function') {
+    throw new Error('ECDSA holder ordinary-export request method is unavailable');
+  }
+  const requestJson = Reflect.apply(method, material, [inputJson]);
+  if (typeof requestJson !== 'string' || requestJson.trim().length === 0) {
+    throw new Error('ECDSA holder ordinary-export request is invalid');
+  }
+  return requestJson;
+}
+
+function holderOrdinaryExportRequestDigest(material: EcdsaLinkedHolderMaterialV1): string {
+  const method = Reflect.get(material, 'ordinary_export_request_digest_b64u');
+  if (typeof method !== 'function') {
+    throw new Error('ECDSA holder ordinary-export digest method is unavailable');
+  }
+  const digest = Reflect.apply(method, material, []);
+  if (typeof digest !== 'string' || digest.trim().length === 0) {
+    throw new Error('ECDSA holder ordinary-export digest is invalid');
+  }
+  return digest;
+}
+
+function holderFinalizeOrdinaryExport(
+  material: EcdsaLinkedHolderMaterialV1,
+  inputJson: string,
+): string {
+  const method = Reflect.get(material, 'finalize_ordinary_export');
+  if (typeof method !== 'function') {
+    throw new Error('ECDSA holder ordinary-export finalization method is unavailable');
+  }
+  const artifactJson = Reflect.apply(method, material, [inputJson]);
+  if (typeof artifactJson !== 'string' || artifactJson.trim().length === 0) {
+    throw new Error('ECDSA holder ordinary-export artifact is invalid');
+  }
+  return artifactJson;
+}
+
+function createEcdsaHolderOrdinaryExportRequest(
+  request: CreateEcdsaHolderOrdinaryExportRequestV1,
+): CreateEcdsaHolderOrdinaryExportResultV1 {
+  if (request.kind !== 'create_ecdsa_holder_ordinary_export_request_v1') {
+    throw new Error('ECDSA holder ordinary-export request kind is invalid');
+  }
+  const holderHandleId = readNonEmptyString(
+    { holderHandleId: request.holderHandleId },
+    'holderHandleId',
+  );
+  const material = requireLinkedDeviceEcdsaHolderMaterial(holderHandleId);
+  const protocolRequest = parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1(
+    JSON.parse(
+      holderBuildOrdinaryExportRequest(
+        material,
+        JSON.stringify(projectRouterAbEcdsaExplicitExportRequestForWasmV1(request.request)),
+      ),
+    ),
+  );
+  const requestValue = attachRouterAbEcdsaExplicitExportOperationV1({
+    facts: request.request,
+    protocolRequest,
+  });
+  return {
+    kind: 'ecdsa_holder_ordinary_export_request_created_v1',
+    holderHandleId,
+    request: requestValue,
+    requestDigestB64u: holderOrdinaryExportRequestDigest(material),
+  };
+}
+
+function finalizeEcdsaHolderOrdinaryExport(
+  request: FinalizeEcdsaHolderOrdinaryExportRequestV1,
+): FinalizeEcdsaHolderOrdinaryExportResultV1 {
+  if (request.kind !== 'finalize_ecdsa_holder_ordinary_export_v1') {
+    throw new Error('ECDSA holder ordinary-export finalization kind is invalid');
+  }
+  const holderHandleId = readNonEmptyString(
+    { holderHandleId: request.holderHandleId },
+    'holderHandleId',
+  );
+  if (request.requestDigestB64u !== request.expectedBinding.export_request_digest_b64u) {
+    throw new Error('ECDSA holder ordinary-export request digest differs from its binding');
+  }
+  const forwardedResponse = parseRouterAbEcdsaExplicitExportForwardedResponseV1(
+    request.forwardedResponse,
+  );
+  const material = requireLinkedDeviceEcdsaHolderMaterial(holderHandleId);
+  const finalizationInput = {
+    clientProofFinalization: {
+      kind: 'finalize_encrypted_client_proof_bundles_v1',
+      bundles: forwardedResponse.response.bundles,
+    },
+    signingWorkerExport: projectSigningWorkerExportForEcdsaClientProtocol(
+      forwardedResponse.signing_worker_export,
+    ),
+    expectedBinding: projectSigningWorkerExportBindingForEcdsaClientProtocol(
+      request.expectedBinding,
+    ),
+  };
+  const artifact = requireRecordPayload(
+    JSON.parse(holderFinalizeOrdinaryExport(material, JSON.stringify(finalizationInput))),
+  );
+  return {
+    kind: 'ecdsa_holder_ordinary_export_finalized_v1',
+    holderHandleId,
+    artifactKind: 'ecdsa-derivation-secp256k1-export',
+    publicKeyHex: readNonEmptyString(artifact, 'publicKeyHex'),
+    privateKeyHex: readNonEmptyString(artifact, 'privateKeyHex'),
+    ethereumAddress: readNonEmptyString(artifact, 'ethereumAddress'),
+  };
+}
+
+function disposeLinkedDeviceEcdsaHolderMaterials(
+  payload: unknown,
+):
+  | { readonly kind: 'all'; readonly holderHandleId?: never }
+  | { readonly kind: 'one'; readonly holderHandleId: string } {
+  const record = requireRecordPayload(payload);
+  switch (record.kind) {
+    case 'all':
+      opaquePresignAuthority.close();
+      for (const material of linkedHolderMaterials.values()) material.free();
+      linkedHolderMaterials.clear();
+      return { kind: 'all' };
+    case 'one': {
+      const holderHandleId = readNonEmptyString(record, 'holderHandleId');
+      const material = linkedHolderMaterials.get(holderHandleId);
+      if (material) {
+        material.free();
+        linkedHolderMaterials.delete(holderHandleId);
+      }
+      return { kind: 'one', holderHandleId };
+    }
+    default:
+      throw new Error('linked ECDSA holder disposal kind is invalid');
+  }
+}
+
 async function initializeEcdsaDerivationOperationWasm(
   operationType: EcdsaDerivationWorkerOperationType,
 ): Promise<void> {
@@ -1762,8 +2013,14 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
     case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
+    case EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial:
+    case EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey:
+    case EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport:
+    case EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest:
+    case EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport:
       await initializeEcdsaDerivationClientWasm();
       return;
+    case EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
@@ -1895,6 +2152,40 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.PrepareLinkedDeviceEcdsaSourceContributionSuccess,
         payload: prepareLinkedDeviceEcdsaSourceContribution(payload),
       };
+    case EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.StoreLinkedDeviceEcdsaHolderMaterialSuccess,
+        payload: storeLinkedDeviceEcdsaHolderMaterial(payload),
+      };
+    case EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.DisposeLinkedDeviceEcdsaHolderMaterialsSuccess,
+        payload: disposeLinkedDeviceEcdsaHolderMaterials(payload),
+      };
+    case EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKeySuccess,
+        payload: getLinkedDeviceEcdsaHolderExportRecipientPublicKey(payload),
+      };
+    case EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.FinalizeLinkedDeviceEcdsaHolderExportSuccess,
+        payload: finalizeLinkedDeviceEcdsaHolderExport(payload),
+      };
+    case EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.CreateEcdsaHolderOrdinaryExportRequestSuccess,
+        payload: createEcdsaHolderOrdinaryExportRequest(
+          payload as CreateEcdsaHolderOrdinaryExportRequestV1,
+        ),
+      };
+    case EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.FinalizeEcdsaHolderOrdinaryExportSuccess,
+        payload: finalizeEcdsaHolderOrdinaryExport(
+          payload as FinalizeEcdsaHolderOrdinaryExportRequestV1,
+        ),
+      };
     case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
       throw new Error('ECDSA registration crypto prewarm does not execute an operation');
   }
@@ -1921,6 +2212,12 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
     case EcdsaDerivationClientCustomRequestType.PrepareLinkedDeviceEcdsaSourceContribution:
+    case EcdsaDerivationClientCustomRequestType.StoreLinkedDeviceEcdsaHolderMaterial:
+    case EcdsaDerivationClientCustomRequestType.GetLinkedDeviceEcdsaHolderExportRecipientPublicKey:
+    case EcdsaDerivationClientCustomRequestType.FinalizeLinkedDeviceEcdsaHolderExport:
+    case EcdsaDerivationClientCustomRequestType.DisposeLinkedDeviceEcdsaHolderMaterials:
+    case EcdsaDerivationClientCustomRequestType.CreateEcdsaHolderOrdinaryExportRequest:
+    case EcdsaDerivationClientCustomRequestType.FinalizeEcdsaHolderOrdinaryExport:
       return value;
     default:
       throw new Error(`Unsupported DERIVATION client request type: ${String(value)}`);
@@ -2022,12 +2319,11 @@ type EcdsaDerivationClientWorkerRpcRequest = {
   payload: unknown;
 };
 
-type RoleLocalOpaquePresignRequestV1 =
+type EcdsaOpaquePresignRequestV1 =
   | Extract<
       OpaqueEcdsaPresignAuthorityRequestV1,
       {
         readonly kind: 'opaque_ecdsa_presign_session_init_v1';
-        readonly authority: { readonly kind: 'role_local_derivation_handle' };
       }
     >
   | Extract<
@@ -2062,38 +2358,48 @@ async function handleOpaquePresignRequest(event: MessageEvent<unknown>): Promise
   if (!presignPort) return;
   let requestId = '';
   try {
-    const request = parseRoleLocalOpaquePresignRequest(event.data);
+    const request = parseEcdsaOpaquePresignRequest(event.data);
     requestId = request.requestId;
     await initializeEcdsaDerivationClientWasm();
     let result: Extract<OpaqueEcdsaPresignAuthorityResponseV1, { readonly ok: true }>['result'];
     switch (request.kind) {
       case 'opaque_ecdsa_presign_session_init_v1': {
-        let expectedBindingDigest: string;
-        switch (request.authority.material.kind) {
-          case 'persisted': {
-            const materialRef = request.authority.material.materialRef;
-            const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(materialRef);
-            if (!restored.ok) {
-              throw new Error(
-                `ECDSA role-local active session hydration failed: ${restored.reason}`,
-              );
+        let session: EcdsaRoleLocalPresignSessionV1;
+        if (request.authority.kind === 'linked_holder_signing_material') {
+          const holder = linkedHolderMaterials.get(request.authority.holderHandleId);
+          if (!holder) throw new Error('linked ECDSA holder material is unavailable');
+          session = holder.start_presign(
+            new Uint8Array(request.groupPublicKey33),
+            request.sessionId,
+          );
+        } else {
+          let expectedBindingDigest: string;
+          switch (request.authority.material.kind) {
+            case 'persisted': {
+              const materialRef = request.authority.material.materialRef;
+              const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(materialRef);
+              if (!restored.ok) {
+                throw new Error(
+                  `ECDSA role-local active session hydration failed: ${restored.reason}`,
+                );
+              }
+              expectedBindingDigest = materialRef.bindingDigest;
+              break;
             }
-            expectedBindingDigest = materialRef.bindingDigest;
-            break;
+            case 'runtime_loaded':
+              expectedBindingDigest = request.authority.material.expectedBindingDigest;
+              break;
           }
-          case 'runtime_loaded':
-            expectedBindingDigest = request.authority.material.expectedBindingDigest;
-            break;
+          const stored = requireEcdsaRoleLocalPresignMaterial(
+            request.authority.materialHandle,
+            expectedBindingDigest,
+          );
+          session = new EcdsaRoleLocalPresignSessionV1(
+            stored.stateBlobB64u,
+            new Uint8Array(request.groupPublicKey33),
+            request.sessionId,
+          );
         }
-        const stored = requireEcdsaRoleLocalPresignMaterial(
-          request.authority.materialHandle,
-          expectedBindingDigest,
-        );
-        const session = new EcdsaRoleLocalPresignSessionV1(
-          stored.stateBlobB64u,
-          new Uint8Array(request.groupPublicKey33),
-          request.sessionId,
-        );
         const progress = await opaquePresignAuthority.initialize({
           presignSessionId: request.sessionId,
           session,
@@ -2142,14 +2448,38 @@ async function handleOpaquePresignRequest(event: MessageEvent<unknown>): Promise
   }
 }
 
-function parseRoleLocalOpaquePresignRequest(value: unknown): RoleLocalOpaquePresignRequestV1 {
+function parseEcdsaOpaquePresignRequest(value: unknown): EcdsaOpaquePresignRequestV1 {
   const record = requireRecordPayload(value);
   const requestId = readNonEmptyString(record, 'requestId');
   switch (record.kind) {
     case 'opaque_ecdsa_presign_session_init_v1': {
       const authority = requireRecordPayload(record.authority);
+      if (!(record.groupPublicKey33 instanceof ArrayBuffer)) {
+        throw new Error('ECDSA presign group public key must be an ArrayBuffer');
+      }
+      const materialExpiresAtMs = Number(record.materialExpiresAtMs);
+      if (!Number.isSafeInteger(materialExpiresAtMs) || materialExpiresAtMs <= Date.now()) {
+        throw new Error('ECDSA presign material expiry must be in the future');
+      }
+      const common = {
+        kind: record.kind,
+        requestId,
+        sessionId: readNonEmptyString(record, 'sessionId'),
+        poolIdentity: parseEcdsaClientPresignPoolIdentity(record.poolIdentity),
+        groupPublicKey33: record.groupPublicKey33,
+        materialExpiresAtMs,
+      } as const;
+      if (authority.kind === 'linked_holder_signing_material') {
+        return {
+          ...common,
+          authority: {
+            kind: 'linked_holder_signing_material',
+            holderHandleId: readNonEmptyString(authority, 'holderHandleId'),
+          },
+        };
+      }
       if (authority.kind !== 'role_local_derivation_handle') {
-        throw new Error('ECDSA derivation worker requires a role-local presign authority');
+        throw new Error('ECDSA presign authority is invalid');
       }
       const material = requireRecordPayload(authority.material);
       const parsedMaterial =
@@ -2165,25 +2495,13 @@ function parseRoleLocalOpaquePresignRequest(value: unknown): RoleLocalOpaquePres
               }
             : null;
       if (!parsedMaterial) throw new Error('ECDSA role-local presign material kind is invalid');
-      if (!(record.groupPublicKey33 instanceof ArrayBuffer)) {
-        throw new Error('ECDSA role-local presign group public key must be an ArrayBuffer');
-      }
-      const materialExpiresAtMs = Number(record.materialExpiresAtMs);
-      if (!Number.isSafeInteger(materialExpiresAtMs) || materialExpiresAtMs <= Date.now()) {
-        throw new Error('ECDSA role-local presign material expiry must be in the future');
-      }
       return {
-        kind: record.kind,
-        requestId,
-        sessionId: readNonEmptyString(record, 'sessionId'),
+        ...common,
         authority: {
           kind: authority.kind,
           materialHandle: readNonEmptyString(authority, 'materialHandle'),
           material: parsedMaterial,
         },
-        poolIdentity: parseEcdsaClientPresignPoolIdentity(record.poolIdentity),
-        groupPublicKey33: record.groupPublicKey33,
-        materialExpiresAtMs,
       };
     }
     case 'opaque_ecdsa_presign_session_step_v1': {
@@ -2260,7 +2578,9 @@ function enqueueOpaquePresignRequest(event: MessageEvent<unknown>): void {
 }
 
 function attachPresignChannel(value: unknown): boolean {
-  if (!isAttachEcdsaDerivationToPresignPort(value)) return false;
+  if (!isAttachEcdsaDerivationToPresignPort(value) && !isAttachLinkedHolderToPresignPort(value)) {
+    return false;
+  }
   presignPort?.close();
   opaquePresignAuthority.close();
   presignPort = value.port;

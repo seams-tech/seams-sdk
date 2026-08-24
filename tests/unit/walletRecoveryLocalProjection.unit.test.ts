@@ -20,7 +20,7 @@ test.describe('wallet recovery local continuity', () => {
     await setupBasicPasskeyTest(page);
   });
 
-  test('replaces the exact local passkey projection after durable NEAR continuity', async ({
+  test('replaces the exact local passkey auth-method projection after durable NEAR continuity', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -36,7 +36,9 @@ test.describe('wallet recovery local continuity', () => {
           paths.indexedDB
         );
         const { buildNearProfileId } = await import(paths.nearProfileId);
-        const { persistRecoveredPasskeyLocalProjectionV1 } = await import(paths.localProjection);
+        const { persistRecoveredPasskeyAuthMethodProjectionV1 } = await import(
+          paths.localProjection
+        );
         const nearProfileId = String(buildNearProfileId(nearAccountId));
         seamsWalletDB.setDbName(
           createSeamsTestWalletDbName(`recovery_projection_${crypto.randomUUID()}`),
@@ -89,15 +91,11 @@ test.describe('wallet recovery local continuity', () => {
           mutation: { routeThroughOutbox: false },
         });
 
-        await persistRecoveredPasskeyLocalProjectionV1({
+        await persistRecoveredPasskeyAuthMethodProjectionV1({
           kind: 'near',
           walletId,
           walletAuthMethodId: 'wallet-auth-method:replacement',
           walletAuthorityId: 'wallet-authority:recovery',
-          nearAccountId,
-          signerSlot: 3,
-          nearEd25519SigningKeyId: 'near-replacement',
-          operationalPublicKey: 'ed25519:replacement',
           rpId,
           credentialIdB64u: replacementCredentialId,
           credentialPublicKeyB64u: 'BAUG',
@@ -113,11 +111,6 @@ test.describe('wallet recovery local continuity', () => {
         const signers = await IndexedDBManager.listAccountSignersByProfile({
           profileId: nearProfileId,
         });
-        const activeSigners = await IndexedDBManager.listActiveWalletSigners({
-          walletId,
-          signerFamily: 'ed25519',
-        });
-        const lastProfileState = await IndexedDBManager.getLastProfileState();
         return {
           dbName: seamsWalletDB.getDbName(),
           profile,
@@ -146,13 +139,6 @@ test.describe('wallet recovery local continuity', () => {
             signerSlot: signer.signerSlot,
             status: signer.status,
           })),
-          activeSigners: activeSigners.map((signer) => ({
-            signerId: signer.signerId,
-            signerSlot: signer.signerSlot,
-            status: signer.status,
-            metadata: signer.metadata,
-          })),
-          lastProfileState,
         };
       },
       {
@@ -170,16 +156,16 @@ test.describe('wallet recovery local continuity', () => {
       profileId: WALLET_ID,
       defaultSignerSlot: 3,
       passkeyCredential: {
-        id: REPLACEMENT_CREDENTIAL_ID_B64U,
-        rawId: REPLACEMENT_CREDENTIAL_ID_B64U,
+        id: SOURCE_CREDENTIAL_ID_B64U,
+        rawId: SOURCE_CREDENTIAL_ID_B64U,
       },
     });
     expect(result.nearProfile).toMatchObject({
       profileId: `near-profile:${NEAR_ACCOUNT_ID}`,
       defaultSignerSlot: 3,
       passkeyCredential: {
-        id: REPLACEMENT_CREDENTIAL_ID_B64U,
-        rawId: REPLACEMENT_CREDENTIAL_ID_B64U,
+        id: SOURCE_CREDENTIAL_ID_B64U,
+        rawId: SOURCE_CREDENTIAL_ID_B64U,
       },
     });
     expect(result.authenticators).toHaveLength(1);
@@ -215,26 +201,9 @@ test.describe('wallet recovery local continuity', () => {
     ]);
     expect(result.signers).toEqual(
       expect.arrayContaining([
-        { signerId: SOURCE_CREDENTIAL_ID_B64U, signerSlot: 3, status: 'revoked' },
-        { signerId: REPLACEMENT_CREDENTIAL_ID_B64U, signerSlot: 3, status: 'active' },
+        { signerId: SOURCE_CREDENTIAL_ID_B64U, signerSlot: 3, status: 'active' },
       ]),
     );
-    expect(result.activeSigners).toEqual([
-      expect.objectContaining({
-        signerId: REPLACEMENT_CREDENTIAL_ID_B64U,
-        signerSlot: 3,
-        status: 'active',
-        metadata: expect.objectContaining({
-          walletId: WALLET_ID,
-          nearAccountId: NEAR_ACCOUNT_ID,
-          nearEd25519SigningKeyId: 'near-replacement',
-        }),
-      }),
-    ]);
-    expect(result.lastProfileState).toMatchObject({
-      profileId: `near-profile:${NEAR_ACCOUNT_ID}`,
-      activeSignerSlot: 3,
-    });
   });
 
   test('reuses the same reservation after a retryable prepare conflict', async ({ page }) => {
@@ -290,13 +259,15 @@ test.describe('wallet recovery local continuity', () => {
         const { IndexedDBManager, createSeamsTestWalletDbName, seamsWalletDB } = await import(
           paths.indexedDB
         );
-        const { persistRecoveredPasskeyLocalProjectionV1 } = await import(paths.localProjection);
+        const { persistRecoveredPasskeyAuthMethodProjectionV1 } = await import(
+          paths.localProjection
+        );
         seamsWalletDB.setDbName(
           createSeamsTestWalletDbName(`recovery_wallet_only_${crypto.randomUUID()}`),
         );
         seamsWalletDB.setDisabled(false);
 
-        await persistRecoveredPasskeyLocalProjectionV1({
+        await persistRecoveredPasskeyAuthMethodProjectionV1({
           kind: 'wallet_only',
           walletId,
           walletAuthMethodId: 'wallet-auth-method:replacement',

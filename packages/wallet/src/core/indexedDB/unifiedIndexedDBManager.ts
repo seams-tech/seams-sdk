@@ -1,5 +1,6 @@
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { AccountId } from '../types/accountIds';
 import { normalizeLastUserScope } from './normalization';
 import type {
@@ -23,6 +24,7 @@ import type {
   UpsertChainAccountInput,
   UpsertProfileInput,
   UserPreferences,
+  WalletSelectionRecordV1,
   WalletSignerLookup,
 } from './passkeyClientDB.types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -411,6 +413,10 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.upsertWalletAuthMethod(record);
   }
 
+  async upsertWalletAuthMethodV2(record: LocalWalletAuthMethodRecordV2): Promise<void> {
+    await this.seamsWalletRepositories.upsertWalletAuthMethodV2(record);
+  }
+
   async listWalletAuthMethodsForWallet(walletId: string): Promise<LocalWalletAuthMethodRecord[]> {
     return this.seamsWalletRepositories.listWalletAuthMethodsForWallet(walletId);
   }
@@ -437,6 +443,14 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.advanceWalletLockGeneration(input);
   }
 
+  async markWalletSelectionUnlocked(input: {
+    readonly walletId: WalletLockGenerationAdvanceInputV1['walletId'];
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly unlockedAtMs: number;
+  }): Promise<void> {
+    await this.seamsWalletRepositories.markWalletSelectionUnlocked(input);
+  }
+
   async getLocalAuthorityInstallationReceipt(
     authorityId: string,
   ): Promise<LocalAuthorityInstallationReceiptV1 | null> {
@@ -455,6 +469,14 @@ export class UnifiedIndexedDBManager {
 
   async getWalletAuthMethodV2(walletAuthMethodId: string) {
     return this.seamsWalletRepositories.getWalletAuthMethodV2(walletAuthMethodId);
+  }
+
+  async listWalletSelections(): Promise<WalletSelectionRecordV1[]> {
+    return this.seamsWalletRepositories.listWalletSelections();
+  }
+
+  async listWalletSelectionWalletIds() {
+    return this.seamsWalletRepositories.listWalletSelectionWalletIds();
   }
 
   async resolveSelectedWalletAuthority(

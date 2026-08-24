@@ -21,14 +21,14 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
-  buildPasskeyWalletAuthAuthority,
   parsePasskeyWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
   walletAuthAuthorityRef,
-  walletAuthAuthoritiesMatch,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { isPlainObject } from '@shared/utils/validation';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
 import {
   parseMpcWalletSigningQuotaId,
@@ -50,29 +50,31 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
-import {
-  readPasskeyCustodySessionEnvelope,
-} from './passkeyCustodySessionCache';
+import { readPasskeyCustodySessionEnvelope } from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
   readonly readPasskeyCustodySessionEnvelope: typeof readPasskeyCustodySessionEnvelope;
+  readonly resolveExactPasskeyWalletAuthAuthorityRef: (args: {
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly credentialIdB64u: string;
+  }) => Promise<WalletAuthAuthorityRef | null>;
   readonly readActiveWalletSessionAuthorization: (
     walletId: WalletId,
   ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
   readonly nowMs: () => number;
 };
 
-export type PasskeyEd25519WarmRecoverySubject =
-  {
-    readonly kind: 'owner_sealed_runtime';
-    readonly walletId: string;
-    readonly nearAccountId: string;
-    readonly nearEd25519SigningKeyId: string;
-    readonly signerSlot: number;
-    readonly thresholdSessionId: ThresholdEd25519SessionId;
-    readonly materialActivation: MpcMaterialActivationRef;
-  };
+export type PasskeyEd25519WarmRecoverySubject = {
+  readonly kind: 'owner_sealed_runtime';
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly signerSlot: number;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly materialActivation: MpcMaterialActivationRef;
+};
 
 export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
   | 'sealed_session_missing'
@@ -81,10 +83,28 @@ export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
   | 'wallet_session_expired'
   | 'wallet_custody_envelope_missing';
 
+export type PasskeyEd25519YaoExportMaterialV1 = Omit<
+  ParsedPasskeyEd25519YaoRecoveryDescriptorV1,
+  'session' | 'capability'
+> & {
+  readonly capability: Pick<
+    ParsedPasskeyEd25519YaoRecoveryDescriptorV1['capability'],
+    | 'materialActivation'
+    | 'activeCapabilityBinding'
+    | 'registeredPublicKey'
+    | 'nearAccountId'
+    | 'applicationBinding'
+    | 'participantIds'
+    | 'runtimePolicyScope'
+    | 'lifecycle'
+    | 'stateEpoch'
+  >;
+};
+
 export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
   readonly selectedLaneMaterialActivation: MpcMaterialActivationRef;
-  readonly material: Omit<ParsedPasskeyEd25519YaoRecoveryDescriptorV1, 'session'>;
+  readonly material: PasskeyEd25519YaoExportMaterialV1;
   readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly relayerUrl: string;
   readonly rpId: string;
@@ -230,6 +250,38 @@ async function resolveExactWarmRecoveryRecord(
   return { kind: 'ready', record };
 }
 
+async function resolveExactPasskeyWalletAuthAuthorityRefFromV2(args: {
+  readonly walletId: WalletId;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+}): Promise<WalletAuthAuthorityRef | null> {
+  const records = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(String(args.walletId));
+  const matches = records.filter(
+    (record) =>
+      record.kind === 'passkey' &&
+      record.status === 'active' &&
+      record.walletId === args.walletId &&
+      String(record.rpId) === args.rpId &&
+      String(record.credentialIdB64u) === args.credentialIdB64u,
+  );
+  const [record] = matches;
+  if (matches.length !== 1 || !record || record.kind !== 'passkey') return null;
+  return await walletAuthAuthorityRef({
+    authority: {
+      walletId: record.walletId,
+      factor: {
+        kind: 'passkey',
+        credentialIdB64u: record.credentialIdB64u,
+      },
+      verifier: {
+        kind: 'webauthn',
+        rpId: record.rpId,
+      },
+      bindingId: record.walletAuthMethodId,
+    },
+  });
+}
+
 function unavailableReasonForWarmMaterialCode(
   code: string,
 ): Exclude<PasskeyEd25519YaoWarmRecoveryUnavailableReason, 'wallet_session_expired'> | null {
@@ -249,22 +301,17 @@ function unavailableReasonForWarmMaterialCode(
 export async function requirePasskeyEd25519RestoreAuthorization(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
   readonly authorizationRead: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
+  readonly expectedAuthorityRef: WalletAuthAuthorityRef;
   readonly nowMs: number;
 }): Promise<ActiveWalletSessionAuthorizationProjection | null> {
   if (args.authorizationRead.kind !== 'found') return null;
-  const restore = args.record.ed25519Restore;
-  const authority = await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId: args.record.walletId,
-      rpId: restore.rpId,
-      credentialIdB64u: requireString(restore.credentialIdB64u, 'ed25519Restore.credentialIdB64u'),
-    }),
-  });
   const authorization = args.authorizationRead.projection;
   if (
     authorization.authMethod !== 'passkey' ||
     String(authorization.walletId) !== args.record.walletId ||
-    authorization.authority.authorityDigest !== authority.authorityDigest ||
+    authorization.authority.walletId !== args.expectedAuthorityRef.walletId ||
+    authorization.authority.walletAuthMethodId !== args.expectedAuthorityRef.walletAuthMethodId ||
+    authorization.authority.authorityDigest !== args.expectedAuthorityRef.authorityDigest ||
     authorization.expiresAtMs <= args.nowMs
   ) {
     return null;
@@ -364,6 +411,7 @@ function sameRuntimePolicyScope(
 async function parseWarmRecoveryDescriptor(args: {
   readonly record: CurrentEd25519SealedSessionRecord;
   readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly expectedAuthorityRef: WalletAuthAuthorityRef;
   readonly response: Record<string, unknown>;
 }): Promise<ParsedPasskeyEd25519YaoRecoveryDescriptorV1> {
   const record = args.record;
@@ -396,11 +444,6 @@ async function parseWarmRecoveryDescriptor(args: {
   const participantIds = requireParticipantIds(response.participantIds);
   const authority = parsePasskeyWalletAuthAuthority(response.authority);
   const authorityRef = parseWalletAuthAuthorityRef(response.authorityRef);
-  const expectedAuthority = buildPasskeyWalletAuthAuthority({
-    walletId: record.walletId,
-    rpId: restore.rpId,
-    credentialIdB64u,
-  });
   const authorityScope = requireRecord(response.authorityScope, 'response.authorityScope');
   const responseRuntimePolicyScope = normalizeRuntimePolicyScope(
     requireRecord(response.runtimePolicyScope, 'response.runtimePolicyScope'),
@@ -420,14 +463,21 @@ async function parseWarmRecoveryDescriptor(args: {
     args.authorization,
     'ed25519',
   );
-  const expectedAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
+  const responseAuthorityRef = authority ? await walletAuthAuthorityRef({ authority }) : null;
   if (
     !authority ||
     !authorityRef ||
-    !expectedAuthorityRef ||
-    authorityRef.walletId !== expectedAuthorityRef.walletId ||
-    authorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest ||
-    !walletAuthAuthoritiesMatch(authority, expectedAuthority) ||
+    !responseAuthorityRef ||
+    authorityRef.walletId !== responseAuthorityRef.walletId ||
+    authorityRef.walletAuthMethodId !== responseAuthorityRef.walletAuthMethodId ||
+    authorityRef.authorityDigest !== responseAuthorityRef.authorityDigest ||
+    authority.walletId !== record.walletId ||
+    authority.factor.credentialIdB64u !== credentialIdB64u ||
+    authority.verifier.rpId !== restore.rpId ||
+    authority.bindingId !== args.expectedAuthorityRef.walletAuthMethodId ||
+    authorityRef.walletId !== args.expectedAuthorityRef.walletId ||
+    authorityRef.walletAuthMethodId !== args.expectedAuthorityRef.walletAuthMethodId ||
+    authorityRef.authorityDigest !== args.expectedAuthorityRef.authorityDigest ||
     authorityScope.kind !== 'passkey_rp' ||
     !walletSessionId.ok ||
     !authorizationId ||
@@ -500,6 +550,7 @@ export async function resolvePasskeyEd25519YaoExportContextV1(input: {
   return await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(input, {
     readExactEd25519SealedSession,
     readPasskeyCustodySessionEnvelope,
+    resolveExactPasskeyWalletAuthAuthorityRef: resolveExactPasskeyWalletAuthAuthorityRefFromV2,
     readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
       walletSessionAuthorizations,
     ),
@@ -527,9 +578,24 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     throw new Error('[SigningEngine][near] sealed Ed25519 wallet identity is invalid');
   }
   const authorizationRead = await runtime.readActiveWalletSessionAuthorization(walletId.value);
+  const expectedAuthorityRef = await runtime.resolveExactPasskeyWalletAuthAuthorityRef({
+    walletId: walletId.value,
+    rpId: exactRecord.record.ed25519Restore.rpId,
+    credentialIdB64u: requireString(
+      exactRecord.record.ed25519Restore.credentialIdB64u,
+      'ed25519Restore.credentialIdB64u',
+    ),
+  });
+  if (!expectedAuthorityRef) {
+    return {
+      kind: 'capability_recovery_required',
+      reason: 'wallet_session_expired',
+    };
+  }
   const authorization = await requirePasskeyEd25519RestoreAuthorization({
     record: exactRecord.record,
     authorizationRead,
+    expectedAuthorityRef,
     nowMs: runtime.nowMs(),
   });
   if (!authorization) {
@@ -560,6 +626,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
   const descriptor = await parseWarmRecoveryDescriptor({
     record: exactRecord.record,
     authorization,
+    expectedAuthorityRef,
     response: bootstrap.response,
   });
   const walletCustodyEnvelope = await runtime.readPasskeyCustodySessionEnvelope({

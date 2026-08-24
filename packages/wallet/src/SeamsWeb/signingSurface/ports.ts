@@ -51,7 +51,7 @@ import type {
   Ed25519YaoPublicCapabilityReferenceV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
-import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
@@ -380,6 +380,7 @@ export interface UnlockedEd25519ExportRootCapabilitySurface {
     readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly passkeyPrfFirstB64u: string;
     readonly walletId: string;
+    readonly walletAuthMethodId: string;
     readonly walletSessionId: string;
     readonly expiresAtMs: number;
   }): Promise<void>;
@@ -617,6 +618,11 @@ export interface WalletAuthenticationSurface {
 
 export interface WalletLockGenerationSurface {
   advanceWalletLockGeneration(walletId: WalletId): Promise<number>;
+  markWalletSelectionUnlocked(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<void>;
+  markSelectedEmailOtpWalletAuthorityUnlocked(walletId: WalletId): Promise<void>;
 }
 
 export interface WarmSessionStatusSurface {
@@ -632,11 +638,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   NonceCoordinatorSurface &
   UserAccountLookupSurface &
   WarmSessionStatusSurface &
-  Pick<
-    WalletAuthenticationSurface,
-    | 'readWalletAuthenticationState'
-    | 'setWalletAuthenticated'
-  > &
+  Pick<WalletAuthenticationSurface, 'readWalletAuthenticationState' | 'setWalletAuthenticated'> &
   Pick<
     SigningSessionSurface,
     | 'readReusableWalletSessionState'
@@ -645,6 +647,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   >;
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
+  Pick<WalletLockGenerationSurface, 'markWalletSelectionUnlocked'> &
   UserAccountLookupSurface &
   UnlockedEd25519ExportRootCapabilitySurface &
   LoginWarmSigningSurface &
@@ -707,11 +710,9 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   RpIdSurface &
-  PasskeyLoginAssertionSurface &
-  {
+  PasskeyLoginAssertionSurface & {
     storeNearThresholdKeyMaterial(input: StoreNearThresholdKeyMaterialInput): Promise<void>;
-  } &
-  Pick<
+  } & Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
     | 'storeUserData'
     | 'storeAuthenticator'

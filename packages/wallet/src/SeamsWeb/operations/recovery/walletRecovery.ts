@@ -9,7 +9,7 @@ import {
   finalizeWalletRecovery,
   type WalletRecoveryFinalizeResult,
 } from '@/core/rpcClients/relayer/walletRecoveryFinalize';
-import { persistRecoveredPasskeyLocalProjectionV1 } from '@/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection';
+import { persistRecoveredPasskeyAuthMethodProjectionV1 } from '@/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection';
 import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
 import type {
   RecoveredWalletCustodyEcdsaKeySetV1,
@@ -37,6 +37,7 @@ import {
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { sha256Bytes } from '@shared/utils/digests';
+import { NEAR_ED25519_YAO_KEY_VERSION_V1 } from '@shared/utils/registrationIntent';
 
 const RECOVERY_PREPARE_RETRY_TTL_MS = 5 * 60 * 1000;
 // ECDSA-only registration establishes its wallet-scoped passkey at slot 1.
@@ -273,27 +274,36 @@ async function persistRecoveredLocalContinuity(input: {
   if (nearProjection.length > 0) {
     for (const recovered of nearProjection) {
       const application = recovered.entry.recoveryBasis.applicationBinding;
-      await persistRecoveredPasskeyLocalProjectionV1({
-        kind: 'near',
+      await input.context.signingEngine.storeWalletEd25519RecoveryRegistrationData({
         walletId: input.operation.walletId,
-        walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
-        walletAuthorityId: input.operation.committedPromotion.walletAuthorityId,
         nearAccountId: toAccountId(recovered.entry.nearAccountId),
         signerSlot: application.key_creation_signer_slot,
         nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
         operationalPublicKey: `ed25519:${base58Encode(recovered.metadata.registeredPublicKey)}`,
         rpId: input.operation.prepared.registration.rpId,
-        credentialIdB64u: committedCredential.credentialIdB64u,
+        credential: replacement.registration,
         credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
-        counter: committedCredential.counter,
-        credential: {
-          id: replacement.registration.id,
-          rawId: replacement.registration.rawId,
-        },
+        relayerKeyId: recovered.metadata.scope.signing_worker_id,
+        keyVersion: NEAR_ED25519_YAO_KEY_VERSION_V1,
+        participantIds: [...recovered.metadata.participantIds],
       });
     }
+    await persistRecoveredPasskeyAuthMethodProjectionV1({
+      kind: 'near',
+      walletId: input.operation.walletId,
+      walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
+      walletAuthorityId: input.operation.committedPromotion.walletAuthorityId,
+      rpId: input.operation.prepared.registration.rpId,
+      credentialIdB64u: committedCredential.credentialIdB64u,
+      credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
+      counter: committedCredential.counter,
+      credential: {
+        id: replacement.registration.id,
+        rawId: replacement.registration.rawId,
+      },
+    });
   } else {
-    await persistRecoveredPasskeyLocalProjectionV1({
+    await persistRecoveredPasskeyAuthMethodProjectionV1({
       kind: 'wallet_only',
       walletId: input.operation.walletId,
       walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,

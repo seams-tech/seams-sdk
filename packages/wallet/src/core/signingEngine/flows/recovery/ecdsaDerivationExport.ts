@@ -3,20 +3,22 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import {
   closeRouterAbEcdsaPostRegistrationCeremonyWasm,
   createRouterAbEcdsaPostRegistrationCeremonyWasm,
+  createEcdsaHolderOrdinaryExportRequestWasm,
+  finalizeEcdsaHolderOrdinaryExportWasm,
   finalizeRouterAbEcdsaExplicitExportWasm,
 } from '../../threshold/crypto/ecdsaDerivationClientWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   routerAbMpcMaterialActivationRefToWire,
+  routerAbMpcMaterialActivationRefFromWire,
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { SigningSessionIds } from '../../session/operationState/types';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
-import type {
-  EcdsaExplicitExportOperationAuthorization,
-} from '../../threshold/ecdsa/activation';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import {
   ecdsaRoleLocalPersistedMaterialSource,
   resolveEcdsaRoleLocalMaterial,
@@ -31,8 +33,14 @@ import {
 import {
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
+  type RouterAbEcdsaSigningWorkerExportShareBindingV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
+  type RouterAbEcdsaOperationStepUpExportTopologyV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaExplicitExportRequestFactsV1 } from '../../workerManager/ecdsaClientWorkerChannels';
+import type { WalletSessionOperationCredentialV1 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ActiveWalletAuthorityEcdsaRuntimeV1 } from '../../session/material/activeWalletAuthorityEcdsaRuntime';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 
 const ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION =
   'ecdsa-derivation:role-local:product-export-confirmation:v5';
@@ -57,6 +65,14 @@ export type EcdsaDerivationExportAuthorization =
       passkeyCredentialIdB64u?: never;
       credential?: never;
     };
+
+export type ActiveWalletAuthorityEcdsaExportTopology =
+  RouterAbEcdsaOperationStepUpExportTopologyV1Wire;
+
+export type ActiveWalletAuthorityEcdsaExportAuthorization =
+  EcdsaExplicitExportOperationAuthorization & {
+    readonly exportTopology: ActiveWalletAuthorityEcdsaExportTopology;
+  };
 
 type ResolvedEcdsaDerivationExportMaterial = {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -120,18 +136,36 @@ function randomB64u32(): string {
   return base64UrlEncode(cryptoApi.getRandomValues(new Uint8Array(32)));
 }
 
-async function forwardExplicitEcdsaExport(args: {
+type EcdsaExportForwardAuthorization =
+  | { readonly kind: 'legacy_cookie' }
+  | { readonly kind: 'wallet_session_bearer'; readonly token: string };
+
+async function forwardEcdsaExportWithAuthorization(args: {
   readonly relayerUrl: string;
   readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
   readonly requestDigestB64u: string;
+  readonly authorization: EcdsaExportForwardAuthorization;
 }) {
-  const relayerUrl = String(args.relayerUrl || '').trim().replace(/\/+$/g, '');
+  const relayerUrl = String(args.relayerUrl || '')
+    .trim()
+    .replace(/\/+$/g, '');
   if (!relayerUrl) throw new Error('[SigningEngine][ecdsa-export] relayer URL is required');
+  if (args.authorization.kind === 'wallet_session_bearer') {
+    if (!args.authorization.token.trim()) {
+      throw new Error(
+        '[SigningEngine][ecdsa-export] Wallet Session operation credential is required',
+      );
+    }
+  }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (args.authorization.kind === 'wallet_session_bearer') {
+    headers.Authorization = `Bearer ${args.authorization.token}`;
+  }
   try {
     const response = await fetch(`${relayerUrl}${ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH}`, {
       method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: args.authorization.kind === 'legacy_cookie' ? 'include' : 'omit',
+      headers,
       body: JSON.stringify({
         request: args.request,
         requestDigestB64u: args.requestDigestB64u,
@@ -159,6 +193,34 @@ async function forwardExplicitEcdsaExport(args: {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function forwardExplicitEcdsaExport(args: {
+  readonly relayerUrl: string;
+  readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+  readonly requestDigestB64u: string;
+}) {
+  return await forwardEcdsaExportWithAuthorization({
+    ...args,
+    authorization: { kind: 'legacy_cookie' },
+  });
+}
+
+export async function forwardActiveWalletAuthorityEcdsaExport(args: {
+  readonly relayerUrl: string;
+  readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
+  readonly requestDigestB64u: string;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+}) {
+  return await forwardEcdsaExportWithAuthorization({
+    relayerUrl: args.relayerUrl,
+    request: args.request,
+    requestDigestB64u: args.requestDigestB64u,
+    authorization: {
+      kind: 'wallet_session_bearer',
+      token: args.operationCredential.token,
+    },
+  });
 }
 
 function requireActiveEcdsaExportAuthorizationWindow(args: {
@@ -466,4 +528,195 @@ export async function exportEcdsaDerivationKey(
     operationAuthorization: args.exportProvision.authorization,
     factorAuthorization: args.factorAuthorization,
   });
+}
+
+function assertActiveWalletAuthorityExportOperationBinding(args: {
+  readonly runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
+  readonly operationAuthorization: ActiveWalletAuthorityEcdsaExportAuthorization;
+}): void {
+  const scope = args.runtime.normalSigning.scope;
+  const operation = args.operationAuthorization.operation;
+  const operationMaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+    operation.material_activation,
+  );
+  if (
+    operation.operation_kind !== 'evm.export_key' ||
+    operation.wallet_id !== String(args.runtime.walletId) ||
+    operation.key_handle !== args.runtime.publicFacts.keyHandle ||
+    operation.relayer_key_id !== args.runtime.relayerKeyId ||
+    operation.participant_ids[0] !== args.runtime.publicFacts.participantIds[0] ||
+    operation.participant_ids[1] !== args.runtime.publicFacts.participantIds[1] ||
+    operation.signing_worker_id !== scope.signing_worker.server_id ||
+    operation.normal_signing_scope.wallet_id !== scope.wallet_id ||
+    operation.normal_signing_scope.context.application_binding_digest_b64u !==
+      scope.context.application_binding_digest_b64u ||
+    operation.normal_signing_scope.public_identity.context_binding_b64u !==
+      scope.public_identity.context_binding_b64u ||
+    operation.normal_signing_scope.public_identity.threshold_public_key33_b64u !==
+      scope.public_identity.threshold_public_key33_b64u ||
+    operation.normal_signing_scope.signing_worker.server_id !== scope.signing_worker.server_id ||
+    !mpcMaterialActivationRefsEqual(operationMaterialActivation, args.runtime.materialActivation) ||
+    !mpcMaterialActivationRefsEqual(
+      routerAbMpcMaterialActivationRefFromWire(operation.normal_signing_scope.material_activation),
+      args.runtime.materialActivation,
+    )
+  ) {
+    throw new Error(
+      '[SigningEngine][ecdsa-export] active Wallet Authority operation identity changed',
+    );
+  }
+}
+
+export async function exportActiveWalletAuthorityEcdsaHolderKey(
+  deps: EcdsaDerivationExportDeps,
+  args: {
+    readonly runtime: ActiveWalletAuthorityEcdsaRuntimeV1;
+    readonly operationAuthorization: ActiveWalletAuthorityEcdsaExportAuthorization;
+    readonly relayerUrl: string;
+  },
+): Promise<{
+  publicKeyHex: string;
+  privateKeyHex: string;
+  ethereumAddress: string;
+}> {
+  assertActiveWalletAuthorityExportOperationBinding(args);
+  const runtime = args.runtime;
+  const scope = runtime.normalSigning.scope;
+  if (
+    args.operationAuthorization.exportTopology.signer_set.selected_server.server_id !==
+    scope.signing_worker.server_id
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] active export topology changed');
+  }
+  const materialActivation = scope.material_activation;
+  const issuedAtUnixMs = Date.now();
+  const expiresAtUnixMs = requireActiveEcdsaExportAuthorizationWindow({
+    issuedAtUnixMs,
+    authorizationExpiresAtMsCeiling: args.operationAuthorization.expiresAtMs,
+  });
+  const publicIdentity = {
+    derivationClientSharePublicKey33B64u:
+      scope.public_identity.derivation_client_share_public_key33_b64u,
+    relayerPublicKey33B64u: scope.public_identity.server_public_key33_b64u,
+    groupPublicKey33B64u: scope.public_identity.threshold_public_key33_b64u,
+    ethereumAddress: runtime.publicFacts.thresholdOwnerAddress,
+  };
+  const exportRequestNonce32B64u = randomB64u32();
+  const digestAuthorization = exportAuthorizationDigestFields(args.operationAuthorization);
+  const confirmationDigest32B64u = await digestB64u({
+    version: ECDSA_DERIVATION_EXPORT_CONFIRMATION_DIGEST_VERSION,
+    walletId: String(runtime.walletId),
+    ecdsaThresholdKeyId: scope.ecdsa_threshold_key_id,
+    relayerKeyId: runtime.relayerKeyId,
+    contextBinding32B64u: scope.public_identity.context_binding_b64u,
+    publicIdentity,
+    authorizationKind: digestAuthorization.authorizationKind,
+    authorizationId: digestAuthorization.authorizationId,
+    materialActivation,
+    exportRequestNonce32B64u,
+    issuedAtUnixMs,
+    expiresAtUnixMs,
+  });
+  const authorizationDigest32B64u = await digestB64u({
+    version: ECDSA_DERIVATION_EXPORT_AUTHORIZATION_DIGEST_VERSION,
+    operation: 'explicit_key_export',
+    keyHandle: runtime.publicFacts.keyHandle,
+    walletId: String(runtime.walletId),
+    ecdsaThresholdKeyId: scope.ecdsa_threshold_key_id,
+    relayerKeyId: runtime.relayerKeyId,
+    signingRootId: scope.signing_root_id,
+    signingRootVersion: scope.signing_root_version,
+    contextBinding32B64u: scope.public_identity.context_binding_b64u,
+    publicIdentity,
+    exportRequestNonce32B64u,
+    confirmationDigest32B64u,
+    issuedAtUnixMs,
+    expiresAtUnixMs,
+    authorizationKind: digestAuthorization.authorizationKind,
+    authorizationId: digestAuthorization.authorizationId,
+    materialActivation,
+    participantIds: runtime.publicFacts.participantIds,
+  });
+  const ceremonyId = `ecdsa-export:${exportRequestNonce32B64u}`;
+  const request: RouterAbEcdsaExplicitExportRequestFactsV1 = {
+    context: scope.context,
+    lifecycle: {
+      lifecycle_id: ceremonyId,
+      work_kind: 'key_export',
+      primitive_request_kind: 'export',
+      root_share_epoch: scope.activation_epoch,
+      account_id: scope.wallet_id,
+      session_id: SigningSessionIds.thresholdEcdsaSession(ceremonyId),
+      signer_set_id: args.operationAuthorization.exportTopology.signer_set.signer_set_id,
+      selected_server_id:
+        args.operationAuthorization.exportTopology.signer_set.selected_server.server_id,
+    },
+    public_identity: scope.public_identity,
+    signer_set: args.operationAuthorization.exportTopology.signer_set,
+    router_id: args.operationAuthorization.exportTopology.router_id,
+    client_id: String(runtime.walletId),
+    authorization: exportAuthorizationWire(args.operationAuthorization),
+    operation: args.operationAuthorization.operation,
+    authorization_id: parseDigestB64u(args.operationAuthorization.evidenceSetDigest),
+    material_activation: materialActivation,
+    export_authorization_digest_b64u: authorizationDigest32B64u,
+    export_nonce: exportRequestNonce32B64u,
+    expires_at_ms: expiresAtUnixMs,
+    deriver_recipient_keys: args.operationAuthorization.exportTopology.deriver_recipient_keys,
+  };
+  const created = await createEcdsaHolderOrdinaryExportRequestWasm({
+    holderHandleId: runtime.holderRuntime.holderHandleId,
+    request,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+  if (created.kind !== 'ecdsa_holder_ordinary_export_request_created_v1') {
+    throw new Error('[SigningEngine][ecdsa-export] active holder export request kind mismatch');
+  }
+  const forwarded = await forwardActiveWalletAuthorityEcdsaExport({
+    relayerUrl: args.relayerUrl,
+    request: created.request,
+    requestDigestB64u: created.requestDigestB64u,
+    operationCredential: runtime.operationCredential,
+  });
+  if (!forwarded.ok) {
+    throw new Error(
+      forwarded.error ||
+        forwarded.message ||
+        forwarded.code ||
+        'Active Wallet Authority ECDSA export request failed',
+    );
+  }
+  const expectedBinding: RouterAbEcdsaSigningWorkerExportShareBindingV1 = {
+    wallet_id: scope.wallet_id,
+    key_handle: runtime.publicFacts.keyHandle,
+    ecdsa_threshold_key_id: scope.ecdsa_threshold_key_id,
+    signing_root_id: scope.signing_root_id,
+    signing_root_version: scope.signing_root_version,
+    activation_epoch: scope.activation_epoch,
+    signing_worker_id: scope.signing_worker.server_id,
+    context_binding_b64u: scope.public_identity.context_binding_b64u,
+    threshold_public_key33_b64u: scope.public_identity.threshold_public_key33_b64u,
+    export_request_digest_b64u: created.requestDigestB64u,
+    export_authorization_digest_b64u: authorizationDigest32B64u,
+    export_nonce: exportRequestNonce32B64u,
+    authorization_kind: 'verified_step_up',
+    authorization_id: args.operationAuthorization.evidenceSetDigest,
+    material_activation: materialActivation,
+    lifecycle_id: ceremonyId,
+    recipient_identity: created.request.client_id,
+    recipient_public_key: created.request.client_ephemeral_public_key,
+    expires_at_ms: created.request.expires_at_ms,
+  };
+  const finalized = await finalizeEcdsaHolderOrdinaryExportWasm({
+    holderHandleId: runtime.holderRuntime.holderHandleId,
+    requestDigestB64u: created.requestDigestB64u,
+    expectedBinding,
+    forwardedResponse: forwarded.value,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+  return {
+    publicKeyHex: finalized.publicKeyHex,
+    privateKeyHex: finalized.privateKeyHex,
+    ethereumAddress: finalized.ethereumAddress,
+  };
 }

@@ -21,6 +21,7 @@ import {
   registrationNearEd25519BranchKey,
   registrationSignerBranchKeyFromString,
   registrationSignerSetSelectionFromPlan,
+  parseWalletAuthMethodRecordV2,
   walletIdFromString,
   type AddAuthMethodInput,
   type AddAuthMethodIntentV1,
@@ -37,6 +38,7 @@ import {
   type RuntimePolicyScopeLike,
   type WalletId,
 } from '@shared/utils/registrationIntent';
+import { parseWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   parseWebAuthnAuthenticatorDeviceInfo,
   unknownWebAuthnAuthenticatorDeviceInfo,
@@ -47,8 +49,11 @@ import {
   parseOrgId,
   parseProviderSubject,
   parseRootShareEpoch,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
+import { parseDeviceId } from '@shared/authorization/capabilityKinds';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   deriveEvmFamilySigningKeySlotId,
@@ -353,6 +358,9 @@ export function parseD1StoredWalletRegistrationCeremony(
   const digestB64u = toOptionalTrimmedString(record.digestB64u);
   const orgId = toOptionalTrimmedString(record.orgId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
+  const foundingWalletAuthorityId = parseWalletAuthorityId(record.foundingWalletAuthorityId);
+  const foundingDeviceId = parseDeviceId(record.foundingDeviceId);
+  const foundingWalletAuthMethodId = parseWalletAuthMethodId(record.foundingWalletAuthMethodId);
   const authorityState = parseD1WalletRegistrationCeremonyAuthorityState(record.authorityState);
   const signerPlan = parseStoredRegistrationSignerPlan(record.signerPlan);
   const preparedContext = parseStoredWalletRegistrationPreparedContext(record.preparedContext);
@@ -369,6 +377,9 @@ export function parseD1StoredWalletRegistrationCeremony(
     !orgId ||
     !signingRootId ||
     !signingRootVersion ||
+    !foundingWalletAuthorityId.ok ||
+    !foundingDeviceId.ok ||
+    !foundingWalletAuthMethodId.ok ||
     expiresAtMs === null ||
     !authorityState ||
     !signerPlan ||
@@ -383,6 +394,9 @@ export function parseD1StoredWalletRegistrationCeremony(
   }
   const ceremony: StoredWalletRegistrationCeremony = {
     registrationCeremonyId,
+    foundingWalletAuthorityId: foundingWalletAuthorityId.value,
+    foundingDeviceId: foundingDeviceId.value,
+    foundingWalletAuthMethodId: foundingWalletAuthMethodId.value,
     intent,
     digestB64u,
     signerPlan,
@@ -588,7 +602,22 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   const walletId = parseWalletIdForIntent(record.walletId);
   const authMethod = parseD1WalletRegistrationFinalizeAuthMethod(record.authMethod);
   const authority = parseWalletAuthAuthority(record.authority);
-  if (!walletId || !authMethod || !authority || authority.walletId !== walletId) {
+  const foundingAuthority = parseWalletAuthorityV1(record.foundingAuthority);
+  const foundingAuthMethod = parseWalletAuthMethodRecordV2(record.foundingAuthMethod);
+  if (
+    !walletId ||
+    !authMethod ||
+    !authority ||
+    authority.walletId !== walletId ||
+    !foundingAuthority.ok ||
+    foundingAuthority.value.state !== 'active' ||
+    foundingAuthority.value.walletId !== walletId ||
+    !foundingAuthMethod ||
+    foundingAuthMethod.status !== 'active' ||
+    foundingAuthMethod.walletId !== walletId ||
+    foundingAuthMethod.walletAuthorityId !== foundingAuthority.value.authorityId ||
+    foundingAuthMethod.walletAuthMethodId !== authority.bindingId
+  ) {
     return null;
   }
   const rpId = toOptionalTrimmedString(record.rpId);
@@ -619,6 +648,8 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
         walletId,
         rpId,
         authority,
+        foundingAuthority: foundingAuthority.value,
+        foundingAuthMethod,
         authMethod,
         custodyKeyManifestDigestB64u,
         ecdsa,
@@ -629,6 +660,8 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       kind: 'evm_family_ecdsa',
       walletId,
       authority,
+      foundingAuthority: foundingAuthority.value,
+      foundingAuthMethod,
       authMethod,
       custodyKeyManifestDigestB64u,
       ecdsa,
@@ -675,6 +708,8 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       walletId,
       rpId,
       authority,
+      foundingAuthority: foundingAuthority.value,
+      foundingAuthMethod,
       authMethod,
       authorityScope,
       accountProvisioning,
@@ -688,6 +723,8 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     kind: 'near_ed25519',
     walletId,
     authority,
+    foundingAuthority: foundingAuthority.value,
+    foundingAuthMethod,
     authMethod,
     authorityScope,
     accountProvisioning,
@@ -2469,11 +2506,26 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   const orgId = toOptionalTrimmedString(record.orgId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const auth = parseD1StoredAddAuthMethodAuth(record.auth);
+  const sourceWalletAuthMethodId = parseWalletAuthMethodId(record.sourceWalletAuthMethodId);
+  const sourceWalletAuthorityId = parseWalletAuthorityId(record.sourceWalletAuthorityId);
+  const targetWalletAuthMethodId = parseWalletAuthMethodId(record.targetWalletAuthMethodId);
+  let sourceAuthorityDigestB64u;
+  try {
+    sourceAuthorityDigestB64u = parseDigestB64u(record.sourceAuthorityDigestB64u);
+  } catch {
+    return null;
+  }
+  const sourceAuthorityRevocationEpoch = safeInteger(record.sourceAuthorityRevocationEpoch);
   if (
     !addAuthMethodCeremonyId ||
     !intent ||
     !digestB64u ||
     !orgId ||
+    !sourceWalletAuthMethodId.ok ||
+    !sourceWalletAuthorityId.ok ||
+    sourceAuthorityRevocationEpoch === null ||
+    sourceAuthorityRevocationEpoch < 0 ||
+    !targetWalletAuthMethodId.ok ||
     expiresAtMs === null ||
     !auth
   ) {
@@ -2488,6 +2540,11 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
       intent,
       digestB64u,
       orgId,
+      sourceWalletAuthMethodId: sourceWalletAuthMethodId.value,
+      sourceWalletAuthorityId: sourceWalletAuthorityId.value,
+      sourceAuthorityDigestB64u,
+      sourceAuthorityRevocationEpoch,
+      targetWalletAuthMethodId: targetWalletAuthMethodId.value,
       ...(toOptionalTrimmedString(record.expectedOrigin)
         ? { expectedOrigin: toOptionalTrimmedString(record.expectedOrigin) }
         : {}),
@@ -2528,6 +2585,11 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
     intent,
     digestB64u,
     orgId,
+    sourceWalletAuthMethodId: sourceWalletAuthMethodId.value,
+    sourceWalletAuthorityId: sourceWalletAuthorityId.value,
+    sourceAuthorityDigestB64u,
+    sourceAuthorityRevocationEpoch,
+    targetWalletAuthMethodId: targetWalletAuthMethodId.value,
     ...(toOptionalTrimmedString(record.expectedOrigin)
       ? { expectedOrigin: toOptionalTrimmedString(record.expectedOrigin) }
       : {}),

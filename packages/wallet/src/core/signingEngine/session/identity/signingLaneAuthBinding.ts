@@ -2,7 +2,10 @@ import type { RpId } from './evmFamilyEcdsaIdentity';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
-import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import type {
+  WalletAuthMethodId,
+  WalletAuthorityBindingDigest,
+} from '@shared/utils/domainIds';
 
 export type SigningLaneAuthBinding =
   | {
@@ -31,6 +34,12 @@ export type LinkedOwnerLaneIdentityV1 = {
   readonly authorityDigest: DigestB64u;
 };
 
+/** Exact Wallet Authority address carried by every resolved Email OTP owner scope. */
+export type EmailOtpOwnerAuthorityBindingV1 = {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly authorityDigest: WalletAuthorityBindingDigest;
+};
+
 /**
  * R103C: the exact owner an authenticated human operation acts as. Derived
  * from the active Wallet Session authority through the active wallet auth
@@ -43,16 +52,19 @@ export type OwnerLaneScope =
       auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.passkey }>;
       signerSlot: number;
       linkedOwner?: never;
+      ownerAuthority?: never;
     }
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.emailOtp }>;
       signerSlot?: never;
       linkedOwner?: never;
+      ownerAuthority: EmailOtpOwnerAuthorityBindingV1;
     }
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.emailOtp }>;
       signerSlot?: never;
       linkedOwner: LinkedOwnerLaneIdentityV1;
+      ownerAuthority: EmailOtpOwnerAuthorityBindingV1;
     };
 
 export function signingLaneAuthMethod(auth: SigningLaneAuthBinding): SignerAuthMethod {

@@ -725,29 +725,84 @@ export type RouterAbEcdsaOperationStepUpUnsealV1Wire =
       readonly challenge_id: string;
     };
 
+export type RouterAbEcdsaOperationStepUpExportTopologyV1Wire = {
+  readonly signer_set: RouterAbEcdsaDerivationSignerSetV1;
+  readonly deriver_recipient_keys: RouterAbEcdsaRegistrationRecipientKeysV1;
+  readonly router_id: string;
+};
+
 export type RouterAbEcdsaOperationStepUpAuthorizationV1Wire = {
   readonly kind: 'operation_step_up';
   readonly evidence_set_digest: DigestB64u;
   readonly unseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
 };
 
-export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire = {
+type RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire = {
   readonly ok: true;
   readonly kind: 'verified_step_up';
   readonly authorization: RouterAbEcdsaOperationStepUpAuthorizationV1Wire;
   readonly expires_at_ms: number;
 };
 
+export type RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire =
+  | (RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire & {
+      readonly operation_kind: 'evm.sign_transaction';
+      readonly export_topology?: never;
+    })
+  | (RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire & {
+      readonly operation_kind: 'evm.export_key';
+      readonly export_topology: RouterAbEcdsaOperationStepUpExportTopologyV1Wire;
+    });
+
+function parseRouterAbEcdsaOperationStepUpExportTopologyV1(
+  value: unknown,
+): RouterAbEcdsaOperationStepUpExportTopologyV1Wire {
+  const topology = requireRecord(value, 'operationStepUpAuthorizationResponse.export_topology');
+  requireExactKeys(topology, 'operationStepUpAuthorizationResponse.export_topology', [
+    'signer_set',
+    'deriver_recipient_keys',
+    'router_id',
+  ]);
+  const signerSet = parsePostRegistrationSignerSet(
+    topology.signer_set,
+    'operationStepUpAuthorizationResponse.export_topology.signer_set',
+  );
+  const deriverRecipientKeys = parseRegistrationRecipientKeys(
+    topology.deriver_recipient_keys,
+    'operationStepUpAuthorizationResponse.export_topology.deriver_recipient_keys',
+  );
+  if (
+    deriverRecipientKeys.deriver_a.key_epoch !== signerSet.signer_a.key_epoch ||
+    deriverRecipientKeys.deriver_b.key_epoch !== signerSet.signer_b.key_epoch
+  ) {
+    throw new Error(
+      'operationStepUpAuthorizationResponse.export_topology recipient key epochs do not match signer_set',
+    );
+  }
+  return {
+    signer_set: signerSet,
+    deriver_recipient_keys: deriverRecipientKeys,
+    router_id: requireAsciiNonEmptyString(
+      topology.router_id,
+      'operationStepUpAuthorizationResponse.export_topology.router_id',
+    ),
+  };
+}
+
 export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
   value: unknown,
 ): RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire {
   const response = requireRecord(value, 'operationStepUpAuthorizationResponse');
-  requireExactKeys(response, 'operationStepUpAuthorizationResponse', [
+  const operationKind = requireEcdsaOperationStepUpKind(response.operation_kind);
+  const responseKeys = [
     'ok',
     'kind',
     'authorization',
     'expires_at_ms',
-  ]);
+    'operation_kind',
+    ...(operationKind === 'evm.export_key' ? ['export_topology'] : []),
+  ];
+  requireExactKeys(response, 'operationStepUpAuthorizationResponse', responseKeys);
   if (response.ok !== true || response.kind !== 'verified_step_up') {
     throw new Error('operationStepUpAuthorizationResponse is invalid');
   }
@@ -812,11 +867,19 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
     evidence_set_digest: parseDigestB64u(authorization.evidence_set_digest),
     unseal: parsedUnseal,
   };
-  return {
+  const base: RouterAbEcdsaOperationStepUpAuthorizationResponseBaseV1Wire = {
     ok: true,
     kind: 'verified_step_up',
     authorization: parsedAuthorization,
     expires_at_ms: expiresAtMs,
+  };
+  if (operationKind === 'evm.sign_transaction') {
+    return { ...base, operation_kind: 'evm.sign_transaction' };
+  }
+  return {
+    ...base,
+    operation_kind: 'evm.export_key',
+    export_topology: parseRouterAbEcdsaOperationStepUpExportTopologyV1(response.export_topology),
   };
 }
 

@@ -155,6 +155,10 @@ test('setup writes exactly one ceremony row and returns a usable ECDSA preparati
     });
     const ceremony = await store.getCeremony(result.registrationCeremonyId);
     if (!ceremony) throw new Error('Expected the setup ceremony to be stored');
+    expect(result.walletAuthMethodId).toBe(ceremony.foundingWalletAuthMethodId);
+    expect(String(ceremony.foundingWalletAuthorityId)).toMatch(/^wallet-authority:/);
+    expect(String(ceremony.foundingDeviceId)).toMatch(/^device:/);
+    expect(String(ceremony.foundingWalletAuthMethodId)).toMatch(/^wallet-auth-method:/);
     /* No proof can exist yet — setup runs before the authenticator prompt. */
     expect(ceremony.authorityState).toEqual({
       kind: 'awaiting_proof',
@@ -180,6 +184,23 @@ test('two setups are independent ceremonies rather than a replayed one', async (
       setupInput(signer, rpId),
     );
     if (!first.ok || !second.ok) throw new Error('Expected both setups to succeed');
+
+    const store = new CloudflareD1RegistrationCeremonyIntentStore({
+      kind: 'partitioned_d1',
+      database: database as never,
+      scope: SCOPE,
+      keyPrefix: 'gateway-registration:',
+    });
+    const firstCeremony = await store.getCeremony(first.registrationCeremonyId);
+    const secondCeremony = await store.getCeremony(second.registrationCeremonyId);
+    if (!firstCeremony || !secondCeremony) throw new Error('Expected both ceremonies to persist');
+    expect(firstCeremony.foundingWalletAuthorityId).not.toBe(
+      secondCeremony.foundingWalletAuthorityId,
+    );
+    expect(firstCeremony.foundingDeviceId).not.toBe(secondCeremony.foundingDeviceId);
+    expect(firstCeremony.foundingWalletAuthMethodId).not.toBe(
+      secondCeremony.foundingWalletAuthMethodId,
+    );
 
     /* Setup has no earlier leg to reconcile against, so it does not replay:
        each call is a distinct ceremony with a distinct wallet and payload.
@@ -319,8 +340,8 @@ test('setup prepares ECDSA only for a mixed plan, for either auth method', async
         kind: 'email_otp',
         proofKind: 'otp_challenge',
         email: 'setup@example.test',
+        providerSubject: 'provider-subject:setup',
         otpCode: '000000',
-        appSessionJwt: 'app-session',
       },
     ]) {
       const result = await service.walletRegistration.setupWalletRegistration(

@@ -9,6 +9,7 @@ import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/wallet
 import { CloudflareD1WalletAuthMethodService } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
 import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import type { EmailOtpWalletEnrollmentRecord } from '../../packages/wallet-server/src/core/EmailOtpStores';
@@ -36,7 +37,11 @@ import {
   buildWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseSecp256k1CompressedPublicKeyB64u } from '../../packages/shared-ts/src/passkey-custody/primitives';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import {
+  parseEd25519PublicKeyB64u,
+  parseSecp256k1CompressedPublicKeyB64u,
+} from '../../packages/shared-ts/src/passkey-custody/primitives';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import {
   walletIdFromString,
@@ -214,6 +219,79 @@ async function testFoundingRecords(input: {
   return { authority, authMethod };
 }
 
+async function testCombinedFoundingAuthority(input: {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly ed25519Signer: WalletEd25519SignerRecord;
+  readonly now: number;
+}): Promise<ActiveWalletAuthorityV1> {
+  const existingEcdsa = input.authority.signerActivations.ecdsa;
+  if (!existingEcdsa) throw new Error('test founding authority is missing ECDSA activation');
+  const ed25519WalletKeyId = requireTestParsed(
+    parseWalletKeyId(
+      `wallet-key:ed25519:${input.authority.walletId}:${input.ed25519Signer.nearEd25519SigningKeyId}`,
+    ),
+    'Ed25519 wallet key id',
+  );
+  const ed25519SignerManifest = {
+    kind: 'exact_administered_ed25519_signer_v1' as const,
+    keyFamily: 'ed25519' as const,
+    walletId: input.authority.walletId,
+    walletKeyId: ed25519WalletKeyId,
+    registeredPublicKeyB64u: parseEd25519PublicKeyB64u(
+      base64UrlEncode(
+        Uint8Array.from(
+          input.ed25519Signer.activeYaoCapability.activationResult.public_receipt
+            .registered_public_key,
+        ),
+      ),
+    ),
+  };
+  const signerActivations = buildWalletSignerActivationSetV1({
+    manifest: buildExactAdministeredSignerManifestV1([ed25519SignerManifest, existingEcdsa.signer]),
+    materialActivations: {
+      keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+      ed25519: routerAbMpcMaterialActivationRefFromWire(
+        input.ed25519Signer.activeYaoCapability.activationResult.public_receipt.material_activation,
+      ),
+      ecdsa: existingEcdsa.materialActivation,
+    },
+  });
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
+  const draft: ActiveWalletAuthorityV1 = {
+    kind: 'wallet_authority_v1',
+    authorityId: input.authority.authorityId,
+    walletId: input.authority.walletId,
+    principal: input.authority.principal,
+    provenance: input.authority.provenance,
+    permissions: input.authority.permissions,
+    signerActivations,
+    signerActivationSetDigestB64u,
+    authorityDigestB64u: input.authority.authorityDigestB64u,
+    revocationEpoch: input.authority.revocationEpoch,
+    createdAtMs: input.authority.createdAtMs,
+    updatedAtMs: input.now,
+    state: 'active',
+    activatedAtMs: input.authority.activatedAtMs,
+  };
+  return buildActiveWalletAuthorityV1({
+    kind: draft.kind,
+    authorityId: draft.authorityId,
+    walletId: draft.walletId,
+    principal: draft.principal,
+    provenance: draft.provenance,
+    permissions: draft.permissions,
+    signerActivations: draft.signerActivations,
+    signerActivationSetDigestB64u: draft.signerActivationSetDigestB64u,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(draft),
+    revocationEpoch: draft.revocationEpoch,
+    createdAtMs: draft.createdAtMs,
+    updatedAtMs: draft.updatedAtMs,
+    state: draft.state,
+    activatedAtMs: draft.activatedAtMs,
+  });
+}
+
 function testPasskeyAuthority(
   walletId: WalletId,
 ): Extract<RegistrationAuthority, { readonly kind: 'passkey' }> {
@@ -368,7 +446,7 @@ test('D1 registration commit writes the founding authority and V2 method atomica
   }
 });
 
-test('deferred mixed registration reuses the persisted founding identity', async () => {
+test('deferred mixed registration extends the persisted founding authority', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
@@ -400,28 +478,57 @@ test('deferred mixed registration reuses the persisted founding identity', async
       database,
       ...TEST_SCOPE,
     });
+    const walletAuthorityStore = new D1WalletAuthorityStore({
+      database,
+      ...TEST_SCOPE,
+    });
     const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
       getWalletAuthMethodStore: () => walletAuthMethodStore,
+      walletAuthorityStore,
     } as never);
     await expect(
       walletAuthMethods.readActiveRegistrationIdentity(testPasskeyAuthority(walletId)),
     ).resolves.toEqual({
       walletAuthorityId: founding.authority.authorityId,
       walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+      authority: founding.authority,
+      authMethod: founding.authMethod,
     });
 
-    // The deferred leg writes only its signer and binding. It must reuse the
-    // active identity above instead of attempting a second auth-method row.
+    const ed25519Signer = testEd25519Signer(walletId, settledAtMs);
+    const combinedAuthority = await testCombinedFoundingAuthority({
+      authority: founding.authority,
+      ed25519Signer,
+      now: settledAtMs,
+    });
     await store.commit({
       kind: 'passkey_wallet_registration_commit_v1',
       wallet: testWalletRecord(walletId, settledAtMs),
-      walletSigners: [testEd25519Signer(walletId, settledAtMs)],
+      walletSigners: [ed25519Signer],
       authority: testPasskeyAuthority(walletId),
+      foundingAuthority: combinedAuthority,
+      foundingAuthMethod: founding.authMethod,
+      now: settledAtMs,
+    });
+    await store.commit({
+      kind: 'passkey_wallet_registration_commit_v1',
+      wallet: testWalletRecord(walletId, settledAtMs),
+      walletSigners: [ed25519Signer],
+      authority: testPasskeyAuthority(walletId),
+      foundingAuthority: combinedAuthority,
+      foundingAuthMethod: founding.authMethod,
       now: settledAtMs,
     });
     await expect(countRows(database, 'wallet_authorities')).resolves.toBe(1);
     await expect(countRows(database, 'wallet_auth_methods')).resolves.toBe(1);
     await expect(countRows(database, 'wallet_signers')).resolves.toBe(2);
+    const persisted = await walletAuthorityStore.readById(combinedAuthority.authorityId);
+    expect(persisted).toEqual(combinedAuthority);
+    expect(persisted?.signerActivations.keyFamilies).toEqual(['ed25519', 'ecdsa_secp256k1']);
+    expect(persisted?.signerActivations.ecdsa).toEqual(founding.authority.signerActivations.ecdsa);
+    expect(persisted?.signerActivations.ed25519).toEqual(
+      combinedAuthority.signerActivations.ed25519,
+    );
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

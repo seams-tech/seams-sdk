@@ -471,8 +471,7 @@ function linkedEcdsaProjectionMatchesSigner(input: {
       source.clientPublicKey33B64u &&
     capability.public_identity.server_public_key33_b64u === source.relayerPublicKey33B64u &&
     capability.public_identity.threshold_public_key33_b64u === source.thresholdPublicKey33B64u &&
-    capability.public_identity.ethereum_address20_b64u ===
-      source.thresholdEthereumAddress20B64u &&
+    capability.public_identity.ethereum_address20_b64u === source.thresholdEthereumAddress20B64u &&
     capability.public_identity.client_share_retry_counter ===
       sourceScope.public_identity.client_share_retry_counter &&
     capability.public_identity.server_share_retry_counter ===
@@ -494,6 +493,22 @@ function linkedEcdsaProjectionMatchesSigner(input: {
     activation.public_identity.ethereum_address20_b64u === source.thresholdEthereumAddress20B64u &&
     activation.signing_worker.server_id === sourceScope.signing_worker.server_id &&
     activation.activation_epoch === sourceScope.activation_epoch
+  );
+}
+
+function sameLinkedEcdsaResolvedSignerIdentity(
+  left: WalletEcdsaSignerRecord,
+  right: WalletEcdsaSignerRecord,
+): boolean {
+  return (
+    left.walletId === right.walletId &&
+    left.walletKey.keyHandle === right.walletKey.keyHandle &&
+    left.walletKey.relayerKeyId === right.walletKey.relayerKeyId &&
+    left.walletKey.participantIds[0] === right.walletKey.participantIds[0] &&
+    left.walletKey.participantIds[1] === right.walletKey.participantIds[1] &&
+    alphabetizeStringify(left.walletKey.publicCapability) ===
+      alphabetizeStringify(right.walletKey.publicCapability) &&
+    alphabetizeStringify(left.runtimePolicyScope) === alphabetizeStringify(right.runtimePolicyScope)
   );
 }
 
@@ -2068,6 +2083,7 @@ export class CloudflareD1WalletRegistrationService {
   private async issueOrReuseRegistrationEstablishedEd25519Session(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
+    readonly activeAuthority: ActiveWalletAuthorityV1;
     readonly registrationAuthority: StoredRegistrationAuthority;
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly expiresAtMs: number;
@@ -2076,9 +2092,16 @@ export class CloudflareD1WalletRegistrationService {
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly keyManifestDigestB64u: DigestB64u;
   }): Promise<RegistrationEstablishedSession> {
+    const existingWalletSession = await this.readRegistrationEstablishedGrant(input);
     const reusableWalletSession =
-      (await this.readRegistrationEstablishedGrant(input)) ??
-      (await this.issueRegistrationEstablishedGrant(input));
+      existingWalletSession ?? (await this.issueRegistrationEstablishedGrant(input));
+    if (existingWalletSession) {
+      await this.authorizationService.refreshWalletSessionAuthorizationV2FromReusableSession({
+        reusableWalletSession,
+        authority: input.activeAuthority,
+        walletAuthMethodId: input.walletAuthMethodId,
+      });
+    }
     const base = this.registrationEstablishedSessionBase(input.authority, reusableWalletSession);
     const publicResult = input.publicResult;
     const thresholdSessionId = parseThresholdEd25519SessionId(publicResult.thresholdSessionId);
@@ -2300,28 +2323,77 @@ export class CloudflareD1WalletRegistrationService {
         readonly relayerKeyId: string;
         readonly participantIds: readonly [number, number];
         readonly runtimePolicyScope: RuntimePolicyScope;
+        readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   > {
     try {
-      const signer = await this.getWalletStore().getEcdsaSignerByMaterialActivation({
-        walletId: walletIdFromString(input.walletId),
+      const walletId = walletIdFromString(input.walletId);
+      const store = this.getWalletStore();
+      const signer = await store.getEcdsaSignerByMaterialActivation({
+        walletId,
         materialActivation: input.materialActivation,
       });
-      if (!signer) {
+      if (signer) {
+        return {
+          ok: true,
+          materialActivation: signer.walletKey.publicCapability.material_activation,
+          keyHandle: signer.walletKey.keyHandle,
+          relayerKeyId: signer.walletKey.relayerKeyId,
+          participantIds: signer.walletKey.participantIds,
+          runtimePolicyScope: signer.runtimePolicyScope,
+          routerAbEcdsaDerivationNormalSigning: buildPostRegistrationEcdsaNormalSigningState({
+            walletKey: signer.walletKey,
+            publicCapability: signer.walletKey.publicCapability,
+          }),
+        };
+      }
+
+      const linkedDeviceReader = this.getLinkedDeviceEd25519AuthorityReader();
+      const projection = linkedDeviceReader?.readInstalledEcdsaAuthorityByMaterialActivationV1
+        ? await linkedDeviceReader.readInstalledEcdsaAuthorityByMaterialActivationV1({
+            walletId,
+            materialActivation: routerAbMpcMaterialActivationRefFromWire(input.materialActivation),
+          })
+        : null;
+      if (!projection) {
         return {
           ok: false,
           code: 'not_found',
           message: 'ECDSA material activation is not active for this wallet',
         };
       }
+
+      const matchingSourceSigners = (await store.listEcdsaSignersForWallet({ walletId })).filter(
+        (candidate) => linkedEcdsaProjectionMatchesSigner({ projection, signer: candidate }),
+      );
+      const canonicalSigner = matchingSourceSigners[0];
+      if (!canonicalSigner) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'Linked ECDSA material has no canonical custody source',
+        };
+      }
+      if (
+        matchingSourceSigners.some(
+          (candidate) => !sameLinkedEcdsaResolvedSignerIdentity(canonicalSigner, candidate),
+        )
+      ) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Linked ECDSA material has conflicting custody source identities',
+        };
+      }
       return {
         ok: true,
-        materialActivation: signer.walletKey.publicCapability.material_activation,
-        keyHandle: signer.walletKey.keyHandle,
-        relayerKeyId: signer.walletKey.relayerKeyId,
-        participantIds: signer.walletKey.participantIds,
-        runtimePolicyScope: signer.runtimePolicyScope,
+        materialActivation: routerAbMpcMaterialActivationRefToWire(projection.materialActivation),
+        keyHandle: canonicalSigner.walletKey.keyHandle,
+        relayerKeyId: canonicalSigner.walletKey.relayerKeyId,
+        participantIds: canonicalSigner.walletKey.participantIds,
+        runtimePolicyScope: canonicalSigner.runtimePolicyScope,
+        routerAbEcdsaDerivationNormalSigning: projection.activationReceipt.normalSigning,
       };
     } catch (error: unknown) {
       return {
@@ -3578,6 +3650,7 @@ export class CloudflareD1WalletRegistrationService {
       await this.issueOrReuseRegistrationEstablishedEd25519Session({
         registrationCeremonyId: args.input.registrationCeremonyId,
         authority: finalized.authority,
+        activeAuthority: finalized.foundingAuthority,
         registrationAuthority,
         walletAuthMethodId: effectivePrepared.walletAuthMethodId,
         expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,

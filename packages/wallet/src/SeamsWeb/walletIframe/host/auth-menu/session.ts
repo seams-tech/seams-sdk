@@ -1299,7 +1299,9 @@ export class AuthMenuSession {
             (intent.mode === 'register' &&
               this.stateValue.prepared.kind === 'hosted_passkey_registration_prepared_v1') ||
             (intent.mode === 'login' &&
-              (this.stateValue.prepared.kind === 'hosted_passkey_login_prepared_v1' ||
+              (this.stateValue.prepared.kind === 'hosted_passkey_owner_login_prepared_v1' ||
+                this.stateValue.prepared.kind ===
+                  'hosted_passkey_linked_authority_login_prepared_v1' ||
                 this.stateValue.prepared.kind === 'hosted_passkey_account_sync_prepared_v1'))
           ) {
             this.performPreparedPasskey(this.stateValue.prepared);
@@ -1803,7 +1805,10 @@ export class AuthMenuSession {
       return;
     }
     this.recoveryCancellation = null;
-    if (prepared.kind !== 'hosted_passkey_login_prepared_v1') {
+    if (
+      prepared.kind !== 'hosted_passkey_owner_login_prepared_v1' &&
+      prepared.kind !== 'hosted_passkey_linked_authority_login_prepared_v1'
+    ) {
       cancelHostedPasskeyMenuPreparation(prepared);
       const walletId = parseWalletId(recoveryWalletId(state.viewModel));
       if (!walletId.ok) return;
@@ -2615,7 +2620,10 @@ export class AuthMenuSession {
               },
             },
     };
-    if (prepared.kind === 'hosted_passkey_login_prepared_v1') {
+    if (
+      prepared.kind === 'hosted_passkey_owner_login_prepared_v1' ||
+      prepared.kind === 'hosted_passkey_linked_authority_login_prepared_v1'
+    ) {
       this.updateElement();
       void this.finishPreparedPasskey(prepared);
       return;
@@ -2654,7 +2662,8 @@ export class AuthMenuSession {
           this.completeRegistrationResult(result);
           return;
         }
-        case 'hosted_passkey_login_prepared_v1': {
+        case 'hosted_passkey_owner_login_prepared_v1':
+        case 'hosted_passkey_linked_authority_login_prepared_v1': {
           const outcome = await completeHostedPasskeyLogin(prepared);
           this.completeLoginResult(outcome);
           return;

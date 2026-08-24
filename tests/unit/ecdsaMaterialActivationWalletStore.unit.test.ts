@@ -112,6 +112,7 @@ async function stepUpRouteFixture(input: {
     tenantId: 'tenant-material-activation',
     principalId: 'principal-material-activation',
     walletId,
+    walletAuthMethodId: 'wallet-auth-method:material-activation',
     credentialIdB64u: 'credential-material-activation',
     rpId: 'app.example.test',
     origin: 'https://app.example.test',
@@ -179,10 +180,10 @@ async function stepUpRouteFixture(input: {
     },
   );
   const runtimePolicyScope = {
-      orgId: 'tenant-material-activation',
-      projectId: 'project-material-activation',
-      envId: 'env-material-activation',
-      signingRootVersion: input.signer.walletKey.signingRootVersion,
+    orgId: 'tenant-material-activation',
+    projectId: 'project-material-activation',
+    envId: 'env-material-activation',
+    signingRootVersion: input.signer.walletKey.signingRootVersion,
   };
   const rawClaims = buildRouterAbEcdsaWalletSessionClaimsFixture({
     walletId,
@@ -409,11 +410,11 @@ test('operation step-up rejects a key handle outside the canonical signer', asyn
   };
   ctx.request = new Request(ctx.request.url, {
     method: 'POST',
-      headers: {
-        authorization: 'Bearer opaque-wallet-session',
-        'content-type': 'application/json',
-        origin: 'https://app.example.test',
-      },
+    headers: {
+      authorization: 'Bearer opaque-wallet-session',
+      'content-type': 'application/json',
+      origin: 'https://app.example.test',
+    },
     body: JSON.stringify({
       ...body,
       operation: { ...body.operation, key_handle: 'hostile-key-handle' },

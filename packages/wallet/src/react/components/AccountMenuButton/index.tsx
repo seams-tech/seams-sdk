@@ -130,6 +130,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const loggedInAccountId = loginState.nearAccountId;
   const nearAccountId = nearAccountIdProp || loggedInAccountId;
   const walletId = loginState.walletId;
+  const canExportNearKey = Boolean(nearAccountId);
+  const canExportEvmKeys = Boolean(loginState.thresholdEcdsaEthereumAddress);
 
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -508,6 +510,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         accountsOpen={accountsOpen}
         exportKeysOpen={exportKeysOpen}
         exportLoadingChain={exportLoadingChain}
+        canExportNearKey={canExportNearKey}
+        canExportEvmKeys={canExportEvmKeys}
         onExportChain={startExportKeyFlow}
         walletId={walletId}
         nearAccountId={nearAccountId}

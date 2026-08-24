@@ -30,14 +30,11 @@ import {
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import {
-  buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
+  type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import {
-  walletAuthMethodId,
-  type WalletAuthMethodRecord,
-} from '../../../../core/d1WalletAuthMethodStore';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -263,6 +260,28 @@ export interface RouterApiPasskeyCustodyService {
 
 /** How long a reservation may sit before another attempt may take the code. */
 const RECOVERY_RESERVATION_TTL_MS = 5 * 60 * 1000;
+
+type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+>;
+
+function passkeyWalletAuthAuthorityForMethod(
+  method: ActivePasskeyWalletAuthMethodRecordV2,
+): PasskeyWalletAuthAuthority {
+  return {
+    walletId: method.walletId,
+    factor: {
+      kind: 'passkey',
+      credentialIdB64u: method.credentialIdB64u,
+    },
+    verifier: {
+      kind: 'webauthn',
+      rpId: method.rpId,
+    },
+    bindingId: method.walletAuthMethodId,
+  };
+}
 
 export type WalletRecoveryRoutePreparationResult =
   | (Extract<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }> & {
@@ -618,11 +637,7 @@ async function prepareRecoveryForRoute(
     return { kind: 'refused', reason: 'that recovery code cannot be used' };
   }
   const sourceAuthority = await walletAuthAuthorityRef({
-    authority: buildPasskeyWalletAuthAuthority({
-      walletId,
-      rpId: sourceMethod.rpId,
-      credentialIdB64u: sourceMethod.credentialIdB64u,
-    }),
+    authority: passkeyWalletAuthAuthorityForMethod(sourceMethod),
   });
   const prepared = await prepareWalletRecoveryWithCodeV1({
     store: assembly.walletCustodyCommits,
@@ -682,7 +697,7 @@ export async function createWalletRecoveryRegistrationOptions(input: {
   readonly reservationId: RecoveryCodeReservationId;
   readonly origin: string;
   readonly rpId: WebAuthnRpId;
-  readonly sourceMethod: Extract<WalletAuthMethodRecord, { readonly kind: 'passkey' }>;
+  readonly sourceMethod: ActivePasskeyWalletAuthMethodRecordV2;
   readonly sourceAuthorityDigestB64u: WalletAuthAuthorityRef['authorityDigest'];
   readonly expiresAtMs: number;
   readonly nowMs: number;
@@ -709,7 +724,7 @@ export async function createWalletRecoveryRegistrationOptions(input: {
     rpId: input.rpId,
     replacementId,
     challengeB64u,
-    sourceWalletAuthMethodId: walletAuthMethodId(input.sourceMethod),
+    sourceWalletAuthMethodId: input.sourceMethod.walletAuthMethodId,
     sourceCredentialIdB64u: sourceCredentialIdB64u.value,
     sourceAuthorityDigestB64u: input.sourceAuthorityDigestB64u,
     sourceAuthMethodUpdatedAtMs: input.sourceMethod.updatedAtMs,

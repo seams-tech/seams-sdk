@@ -17,13 +17,12 @@ import {
   type OrdinarySignerMaterialRecipientRequestV1,
 } from '@shared/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   mpcMaterialActivationRefsEqual,
   parseWalletAuthMethodId,
   parseWalletId,
-  type MpcMaterialActivationRef,
   type WalletAuthMethodId,
   type WalletId,
 } from '@shared/utils/domainIds';
@@ -42,6 +41,11 @@ import initNearSigner, {
   type WasmEd25519YaoClientRootTransferRecipientV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import type { WalletAuthoritySignerMaterialRecordV1 } from '@/core/indexedDB';
+import {
+  sealWalletAuthorityLinkedSignerMaterialV1,
+  walletAuthorityLinkedSignerMaterialRecordFromPackageV1,
+  type LinkedSignerPackageForMaterialV1,
+} from '@/core/indexedDB/linkedAuthoritySignerMaterial';
 import initEd25519YaoClient, {
   WasmOrdinaryEd25519ActivationClientMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
@@ -77,6 +81,7 @@ type DeviceLinkingKeySlotV1 = {
   emailOtpExportRootRecipient: WasmEd25519YaoClientRootTransferRecipientV1 | null;
   ordinaryMaterialRecipientPreparation: DeviceLinkingOrdinarySignerMaterialRecipientPreparationStateV1 | null;
   ordinaryMaterial: DeviceLinkingOrdinaryMaterialStateV1 | null;
+  ordinaryMaterialSeal: DeviceLinkingOrdinaryMaterialSealStateV1 | null;
 };
 
 type DeviceLinkingOrdinarySignerMaterialRecipientPreparationStateV1 =
@@ -95,6 +100,16 @@ type DeviceLinkingOrdinaryMaterialStateV1 = {
   ];
   readonly recipientInputs: DeviceLinkingOrdinarySignerMaterialRecipientInputTupleV1;
   readonly factorSecret: Uint8Array;
+};
+
+type DeviceLinkingOrdinaryMaterialSealStateV1 = {
+  readonly committed: CommittedAuthorityPackagesV1;
+  readonly targetFactor: DeviceLinkingOrdinaryTargetFactorBindingV1;
+  readonly resealedExportRoot: Extract<
+    DeviceLinkingOrdinaryMaterialWorkerRequestV1,
+    { readonly kind: 'device_linking_ordinary_signer_material_seal_v1' }
+  >['resealedExportRoot'];
+  readonly result: SealedLocalAuthorityMaterialSetV1;
 };
 
 type DeviceLinkingKeyWorkerRequestV1 =
@@ -238,26 +253,29 @@ const productionOrdinaryMaterialSealer: DeviceLinkingOrdinaryMaterialSealerV1 = 
         recipientInput,
       });
       try {
-        const sealed = await sealOrdinaryWorkerMaterial({
+        const packageForMaterial: LinkedSignerPackageForMaterialV1 = packageValue;
+        const sealed = await sealWalletAuthorityLinkedSignerMaterialV1({
           factorSecret: input.factorSecret,
-          aad: ordinaryMaterialSealAad({
-            committed: input.committed,
+          aad: {
+            authorityId: input.committed.authority.authorityId,
+            walletId: input.committed.authority.walletId,
+            walletAuthMethodId: input.committed.authMethod.walletAuthMethodId,
+            packageSetDigestB64u: input.committed.packageSetDigestB64u,
             targetFactor: input.targetFactor,
             materialActivation: packageValue.package.materialActivation,
             keyFamily: packageValue.keyFamily,
-          }),
+          },
           material,
         });
-        signerMaterials.push({
-          kind: 'wallet_authority_signer_material_v1',
-          authorityId: input.committed.authority.authorityId,
-          walletAuthMethodId: input.committed.authMethod.walletAuthMethodId,
-          activationId: packageValue.package.materialActivation.activationId,
-          keyFamily: packageValue.keyFamily,
-          materialActivation: packageValue.package.materialActivation,
-          sealedMaterialB64u: sealed.sealedMaterialB64u,
-          sealedMaterialDigestB64u: sealed.sealedMaterialDigestB64u,
-        });
+        signerMaterials.push(
+          walletAuthorityLinkedSignerMaterialRecordFromPackageV1({
+            committed: input.committed,
+            targetFactor: input.targetFactor,
+            packageValue: packageForMaterial,
+            sealedMaterialB64u: sealed.sealedMaterialB64u,
+            sealedMaterialDigestB64u: sealed.sealedMaterialDigestB64u,
+          }),
+        );
       } finally {
         material.fill(0);
       }
@@ -405,7 +423,10 @@ function assertEcdsaPreparationMatchesPackage(
     preparation.sourceAuthorityId !== binding.sourceAuthorityId ||
     !sameEcdsaSourceSignerIdentity(preparation.source, binding.source) ||
     !sameEcdsaTargetRecipientPreparation(preparation.target, binding.target) ||
-    !mpcMaterialActivationRefsEqual(preparation.target.activation, packageValue.materialActivation) ||
+    !mpcMaterialActivationRefsEqual(
+      preparation.target.activation,
+      packageValue.materialActivation,
+    ) ||
     packageValue.encryptedTargetClientShare.recipientPublicKeyB64u !==
       preparation.target.clientRecipientPublicKeyB64u
   ) {
@@ -445,10 +466,9 @@ function sameEcdsaTargetRecipientPreparation(
   );
 }
 
-const LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_HPKE_INFO_V1 =
-  new TextEncoder().encode(
-    'seams/linked-device/ecdsa-source-contribution/hpke-x25519-hkdf-sha256-aes256gcm/v1',
-  );
+const LINKED_DEVICE_ECDSA_SOURCE_CONTRIBUTION_HPKE_INFO_V1 = new TextEncoder().encode(
+  'seams/linked-device/ecdsa-source-contribution/hpke-x25519-hkdf-sha256-aes256gcm/v1',
+);
 const HPKE_VERSION_V1 = new TextEncoder().encode('HPKE-v1');
 const HPKE_KEM_SUITE_ID_V1 = concatBytes(new TextEncoder().encode('KEM'), uint16Bytes(0x0020));
 const HPKE_SUITE_ID_V1 = concatBytes(
@@ -498,11 +518,7 @@ async function openLinkedDeviceEcdsaTargetClientShare(input: {
       ),
     );
     const kemContext = concatBytes(encappedKey, recipientPublicKey);
-    const eaePrk = await hpkeLabeledExtract(
-      HPKE_KEM_SUITE_ID_V1,
-      'eae_prk',
-      sharedSecret,
-    );
+    const eaePrk = await hpkeLabeledExtract(HPKE_KEM_SUITE_ID_V1, 'eae_prk', sharedSecret);
     kemSharedSecret = await hpkeLabeledExpand(
       HPKE_KEM_SUITE_ID_V1,
       eaePrk,
@@ -652,82 +668,6 @@ function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
     offset += part.length;
   }
   return output;
-}
-
-async function sealOrdinaryWorkerMaterial(input: {
-  readonly factorSecret: Uint8Array;
-  readonly aad: string;
-  readonly material: Uint8Array;
-}): Promise<{
-  readonly sealedMaterialB64u: string;
-  readonly sealedMaterialDigestB64u: DigestB64u;
-}> {
-  if (input.factorSecret.byteLength !== 32 || input.material.byteLength === 0) {
-    throw new Error('ordinary signer material sealing inputs are invalid');
-  }
-  const encoder = new TextEncoder();
-  const aad = encoder.encode(input.aad);
-  const salt = await sha256Bytes(aad);
-  const factorKey = await globalThis.crypto.subtle.importKey(
-    'raw',
-    input.factorSecret,
-    { name: 'HKDF' },
-    false,
-    ['deriveKey'],
-  );
-  const sealKey = await globalThis.crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt,
-      info: encoder.encode('seams/wallet/ordinary-authority-material-seal/v1'),
-    },
-    factorKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt'],
-  );
-  const nonce = secureRandomBytes(12, 'ordinary signer material seal');
-  let ciphertext: Uint8Array | null = null;
-  try {
-    ciphertext = new Uint8Array(
-      await globalThis.crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: nonce, additionalData: aad },
-        sealKey,
-        input.material,
-      ),
-    );
-    const sealed = new Uint8Array(nonce.length + ciphertext.length);
-    sealed.set(nonce);
-    sealed.set(ciphertext, nonce.length);
-    const sealedMaterialB64u = base64UrlEncode(sealed);
-    const sealedMaterialDigestB64u = parseDigestB64u(base64UrlEncode(await sha256Bytes(sealed)));
-    sealed.fill(0);
-    return { sealedMaterialB64u, sealedMaterialDigestB64u };
-  } finally {
-    nonce.fill(0);
-    ciphertext?.fill(0);
-    aad.fill(0);
-    salt.fill(0);
-  }
-}
-
-function ordinaryMaterialSealAad(input: {
-  readonly committed: CommittedAuthorityPackagesV1;
-  readonly targetFactor: DeviceLinkingOrdinaryTargetFactorBindingV1;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-}): string {
-  return alphabetizeStringify({
-    domain: 'seams/wallet/ordinary-authority-material-seal-aad/v1',
-    authorityId: String(input.committed.authority.authorityId),
-    walletId: String(input.committed.authority.walletId),
-    walletAuthMethodId: String(input.committed.authMethod.walletAuthMethodId),
-    packageSetDigestB64u: String(input.committed.packageSetDigestB64u),
-    targetFactor: input.targetFactor,
-    keyFamily: input.keyFamily,
-    materialActivation: input.materialActivation,
-  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1070,6 +1010,7 @@ async function generateKeySlot(): Promise<{
       emailOtpExportRootRecipient: null,
       ordinaryMaterialRecipientPreparation: null,
       ordinaryMaterial: null,
+      ordinaryMaterialSeal: null,
     };
     return {
       slot,
@@ -1239,17 +1180,6 @@ async function signRequest(
   }
 }
 
-function secureRandomBytes(length: number, label: string): Uint8Array {
-  if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
-    throw new Error(`secure randomness is unavailable for ${label}`);
-  }
-  const bytes = new Uint8Array(length);
-  do {
-    globalThis.crypto.getRandomValues(bytes);
-  } while (bytes.every((byte) => byte === 0));
-  return bytes;
-}
-
 async function createX25519RecipientPair(): Promise<{
   readonly privateKey: Uint8Array;
   readonly publicKey: Uint8Array;
@@ -1391,7 +1321,8 @@ async function prepareOrdinarySignerMaterial(
     destroyOrdinaryRecipientInputs(request.recipientInputs);
     throw new Error('device-linking key handle is unknown or discarded');
   }
-  const factorSecret = new Uint8Array(request.factorSecret);
+  const transferredFactorSecret = new Uint8Array(request.factorSecret);
+  const factorSecret = transferredFactorSecret.slice();
   try {
     const recipientPreparation = slot.ordinaryMaterialRecipientPreparation;
     if (!recipientPreparation) {
@@ -1408,6 +1339,12 @@ async function prepareOrdinarySignerMaterial(
           'ordinary signer material preparation conflicts with the existing activation reference',
         );
       }
+      if (!sameBytes(factorSecret, existing.factorSecret)) {
+        throw new Error(
+          'ordinary signer material preparation conflicts with the existing factor secret',
+        );
+      }
+      factorSecret.fill(0);
       return {
         kind: 'device_linking_ordinary_signer_material_preparation_v1',
         targetFactor: existing.targetFactor,
@@ -1432,7 +1369,7 @@ async function prepareOrdinarySignerMaterial(
     factorSecret.fill(0);
     throw error;
   } finally {
-    new Uint8Array(request.factorSecret).fill(0);
+    transferredFactorSecret.fill(0);
     destroyOrdinaryRecipientInputs(request.recipientInputs);
   }
 }
@@ -1498,7 +1435,17 @@ async function sealCommittedOrdinarySignerMaterial(
     preparations: prepared.preparations,
     targetFactor: prepared.targetFactor,
   });
-  return await sealer.sealCommittedAuthorityPackagesV1({
+  const existingSeal = slot.ordinaryMaterialSeal;
+  if (existingSeal) {
+    if (
+      JSON.stringify(existingSeal.committed) !== JSON.stringify(request.committed) ||
+      JSON.stringify(existingSeal.resealedExportRoot) !== JSON.stringify(request.resealedExportRoot)
+    ) {
+      throw new Error('ordinary signer material seal conflicts with the existing result');
+    }
+    return existingSeal.result;
+  }
+  const result = await sealer.sealCommittedAuthorityPackagesV1({
     committed: request.committed,
     targetFactor: prepared.targetFactor,
     resealedExportRoot: request.resealedExportRoot,
@@ -1506,6 +1453,13 @@ async function sealCommittedOrdinarySignerMaterial(
     recipientInputs: prepared.recipientInputs,
     factorSecret: prepared.factorSecret,
   });
+  slot.ordinaryMaterialSeal = {
+    committed: request.committed,
+    targetFactor: prepared.targetFactor,
+    resealedExportRoot: request.resealedExportRoot,
+    result,
+  };
+  return result;
 }
 
 function assertOrdinaryMaterialCommitMatchesPreparation(input: {
@@ -1533,7 +1487,12 @@ function assertOrdinaryMaterialCommitMatchesPreparation(input: {
         throw new Error('ordinary Ed25519 signer material package family changed');
       }
       const packageValue = input.committed.signerPackages.ed25519;
-      if (!mpcMaterialActivationRefsEqual(preparation.targetMaterialActivation, packageValue.materialActivation)) {
+      if (
+        !mpcMaterialActivationRefsEqual(
+          preparation.targetMaterialActivation,
+          packageValue.materialActivation,
+        )
+      ) {
         throw new Error('ordinary Ed25519 signer material activation reference changed');
       }
       if (
@@ -1556,10 +1515,7 @@ function assertOrdinaryMaterialCommitMatchesPreparation(input: {
     if ('kind' in preparation || !input.committed.signerPackages.ecdsa) {
       throw new Error('ordinary ECDSA signer material package family changed');
     }
-    assertEcdsaPreparationMatchesPackage(
-      preparation,
-      input.committed.signerPackages.ecdsa,
-    );
+    assertEcdsaPreparationMatchesPackage(preparation, input.committed.signerPackages.ecdsa);
   }
 }
 
@@ -1569,6 +1525,7 @@ function destroyOrdinaryMaterial(slot: DeviceLinkingKeySlotV1): void {
     destroyOrdinaryRecipientInputs(slot.ordinaryMaterial.recipientInputs);
   }
   slot.ordinaryMaterial = null;
+  slot.ordinaryMaterialSeal = null;
 }
 
 function destroyOrdinaryRecipientPreparation(slot: DeviceLinkingKeySlotV1): void {
@@ -1735,6 +1692,9 @@ async function handleRequest(
 function workerError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === 'string' && error.trim()) return error;
+  if (isRecord(error) && typeof error.message === 'string' && error.message.trim()) {
+    return error.message;
+  }
   return 'device-linking worker request failed';
 }
 

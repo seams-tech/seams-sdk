@@ -18,14 +18,21 @@ import { createCloudflareD1RouterApiAuthService } from '../../../packages/wallet
 import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
 import { parseD1RegistrationIntent } from '../../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
-import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../../packages/shared-ts/src/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import {
+  buildWalletAuthMethodRecordV2,
   implicitNearAccountProvisioning,
   parseServerAllocatedWalletId,
   walletIdFromString,
 } from '../../../packages/shared-ts/src/utils/registrationIntent';
+import { D1WalletAuthMethodStore } from '../../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { buildPasskeyWalletAuthAuthority } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   secp256k1PrivateKey32ToPublicKey33,
@@ -1056,11 +1063,11 @@ export async function insertSignerWallet(input: {
     .run();
 }
 
-export type TestWalletAuthMethodRecord =
+export type TestActiveWalletAuthMethodInput =
   | {
-      readonly version: 'wallet_auth_method_v1';
       readonly kind: 'passkey';
-      readonly status: 'active' | 'revoked';
+      readonly walletAuthMethodId: string;
+      readonly walletAuthorityId: string;
       readonly walletId: string;
       readonly rpId: string;
       readonly credentialIdB64u: string;
@@ -1072,9 +1079,9 @@ export type TestWalletAuthMethodRecord =
       readonly registrationAuthorityId?: never;
     }
   | {
-      readonly version: 'wallet_auth_method_v1';
       readonly kind: 'email_otp';
-      readonly status: 'active' | 'revoked';
+      readonly walletAuthMethodId: string;
+      readonly walletAuthorityId: string;
       readonly walletId: string;
       readonly emailHashHex: string;
       readonly registrationAuthorityId: string;
@@ -1086,41 +1093,12 @@ export type TestWalletAuthMethodRecord =
       readonly counter?: never;
     };
 
-export type TestWalletAuthMethodIdentity = {
-  readonly walletAuthMethodId: string;
-  readonly rpId: string;
-  readonly authIdentifierKey: string;
-  readonly credentialIdB64u: string | null;
-  readonly credentialPublicKeyB64u: string | null;
-  readonly emailHashHex: string | null;
-  readonly registrationAuthorityId: string | null;
-};
-
-export function testWalletAuthMethodIdentity(
-  record: TestWalletAuthMethodRecord,
-): TestWalletAuthMethodIdentity {
-  switch (record.kind) {
-    case 'passkey':
-      return {
-        walletAuthMethodId: `passkey:${record.rpId}:${record.credentialIdB64u}`,
-        rpId: record.rpId,
-        authIdentifierKey: record.credentialIdB64u,
-        credentialIdB64u: record.credentialIdB64u,
-        credentialPublicKeyB64u: record.credentialPublicKeyB64u,
-        emailHashHex: null,
-        registrationAuthorityId: null,
-      };
-    case 'email_otp':
-      return {
-        walletAuthMethodId: `email_otp:${record.walletId}:${record.emailHashHex}`,
-        rpId: '',
-        authIdentifierKey: record.emailHashHex,
-        credentialIdB64u: null,
-        credentialPublicKeyB64u: null,
-        emailHashHex: record.emailHashHex,
-        registrationAuthorityId: record.registrationAuthorityId,
-      };
-  }
+function requiredDomainValue<T>(
+  result: { readonly ok: true; readonly value: T } | { readonly ok: false },
+  field: string,
+): T {
+  if (!result.ok) throw new Error(`Test wallet auth method ${field} is invalid`);
+  return result.value;
 }
 
 export async function insertWalletAuthMethod(input: {
@@ -1129,51 +1107,59 @@ export async function insertWalletAuthMethod(input: {
   readonly orgId: string;
   readonly projectId: string;
   readonly envId: string;
-  readonly record: TestWalletAuthMethodRecord;
+  readonly record: TestActiveWalletAuthMethodInput;
 }): Promise<void> {
-  const identity = testWalletAuthMethodIdentity(input.record);
-  await input.database
-    .prepare(
-      `INSERT INTO wallet_auth_methods (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        rp_id,
-        kind,
-        status,
-        wallet_auth_method_id,
-        auth_identifier_key,
-        credential_id_b64u,
-        credential_public_key_b64u,
-        email_hash_hex,
-        registration_authority_id,
-        record_json,
-        created_at_ms,
-        updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.record.walletId,
-      identity.rpId,
-      input.record.kind,
-      input.record.status,
-      identity.walletAuthMethodId,
-      identity.authIdentifierKey,
-      identity.credentialIdB64u,
-      identity.credentialPublicKeyB64u,
-      identity.emailHashHex,
-      identity.registrationAuthorityId,
-      JSON.stringify(input.record),
-      input.record.createdAtMs,
-      input.record.updatedAtMs,
-    )
-    .run();
+  const walletAuthMethodId = requiredDomainValue(
+    parseWalletAuthMethodId(input.record.walletAuthMethodId),
+    'walletAuthMethodId',
+  );
+  const walletAuthorityId = requiredDomainValue(
+    parseWalletAuthorityId(input.record.walletAuthorityId),
+    'walletAuthorityId',
+  );
+  const walletId = walletIdFromString(input.record.walletId);
+  const record =
+    input.record.kind === 'passkey'
+      ? buildWalletAuthMethodRecordV2({
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId,
+          walletAuthorityId,
+          walletId,
+          kind: 'passkey',
+          status: 'active',
+          rpId: requiredDomainValue(parseWebAuthnRpId(input.record.rpId), 'rpId'),
+          credentialIdB64u: requiredDomainValue(
+            parseWebAuthnCredentialIdB64u(input.record.credentialIdB64u),
+            'credentialIdB64u',
+          ),
+          credentialPublicKeyB64u: input.record.credentialPublicKeyB64u,
+          counter: input.record.counter,
+          createdAtMs: input.record.createdAtMs,
+          updatedAtMs: input.record.updatedAtMs,
+          activatedAtMs: input.record.createdAtMs,
+        })
+      : buildWalletAuthMethodRecordV2({
+          version: 'wallet_auth_method_v2',
+          walletAuthMethodId,
+          walletAuthorityId,
+          walletId,
+          kind: 'email_otp',
+          status: 'active',
+          emailHashHex: input.record.emailHashHex,
+          registrationAuthorityId: input.record.registrationAuthorityId,
+          createdAtMs: input.record.createdAtMs,
+          updatedAtMs: input.record.updatedAtMs,
+          activatedAtMs: input.record.createdAtMs,
+        });
+  const store = new D1WalletAuthMethodStore({
+    database: input.database,
+    namespace: input.namespace,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    envId: input.envId,
+    ensureSchema: false,
+  });
+  await store.putV2(record);
 }
 
 export async function readWalletAuthMethodRecord(input: {

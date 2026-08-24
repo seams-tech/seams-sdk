@@ -11,7 +11,7 @@ import {
   buildPasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import {
-  buildEmailOtpAuthContextForWalletAuthMethod,
+  buildEmailOtpAuthContextForCanonicalWallet,
   type EmailOtpAuthUse,
 } from './identity/laneIdentity';
 import type { ExactEd25519SigningLaneIdentity } from './identity/exactSigningLaneIdentity';
@@ -25,7 +25,7 @@ const passkeyWalletAuthAuthority = buildPasskeyWalletAuthAuthority({
   rpId,
   credentialIdB64u: 'credential-id',
 });
-const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
+const emailOtpAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
 walletId: 'wallet.testnet',
 emailHashHex: 'email-hash',
 policy: 'session',

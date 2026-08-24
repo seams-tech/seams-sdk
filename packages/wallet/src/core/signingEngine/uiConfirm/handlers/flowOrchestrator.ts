@@ -61,6 +61,11 @@ function buildSignTransactionPayload(args: {
         ...base,
         signingAuthPlan: args.params.signingAuthPlan,
       };
+    case SigningAuthPlanKind.ActiveWalletAuthority:
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+      };
     case SigningAuthPlanKind.PasskeyReauth:
       return {
         ...base,
@@ -104,6 +109,11 @@ function buildDelegateSignTransactionPayload(args: {
   };
   switch (args.params.signingAuthPlan.kind) {
     case SigningAuthPlanKind.WarmSession:
+      return {
+        ...base,
+        signingAuthPlan: args.params.signingAuthPlan,
+      };
+    case SigningAuthPlanKind.ActiveWalletAuthority:
       return {
         ...base,
         signingAuthPlan: args.params.signingAuthPlan,

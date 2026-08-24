@@ -11,10 +11,19 @@ import type {
   RegistrationIntentV1,
   RegistrationNearAccountProvisioning,
   ResolvedRegistrationNearAccount,
+  WalletAuthMethodRecordV2,
   WalletId,
   WebAuthnRpId,
 } from '@shared/utils/registrationIntent';
-import { parseNearEd25519SigningKeyId, walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseNearEd25519SigningKeyId,
+  parseWalletAuthMethodRecordV2,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
+import {
+  parseWalletAuthorityV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
 import {
   parsePasskeyCustodyEnvelopeRecord,
   parseWalletCustodyRegistrationOutcome,
@@ -42,6 +51,7 @@ import {
   parseWalletId,
   type RootShareEpoch,
   type ThresholdEd25519SessionId,
+  type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type {
@@ -493,6 +503,7 @@ export type WalletRegistrationSetupResponseV2 =
       ok: true;
       registrationCeremonyId: string;
       walletId: string;
+      walletAuthMethodId: WalletAuthMethodId;
       registrationIntentDigestB64u: string;
       intent: RegistrationIntentV1;
       signedSetup: string;
@@ -655,6 +666,8 @@ type WalletRegistrationFinalizeResponseBase = {
   ok: true;
   walletId: WalletId;
   authority: WalletAuthAuthority;
+  foundingAuthority: ActiveWalletAuthorityV1;
+  foundingAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
   /**
    * What became of the custody run that rode this leg, when one did. Absent
@@ -2221,6 +2234,8 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   | 'resolvedAccount'
   | 'accountProvisioning'
   | 'authorityScope'
+  | 'foundingAuthority'
+  | 'foundingAuthMethod'
   // The activate leg precedes the key set, so there is no manifest to name yet.
   | 'custodyKeyManifestDigestB64u'
 > & {
@@ -2807,6 +2822,8 @@ function parseWalletRegistrationNearProvisioningResponseV2(
       'ok',
       'walletId',
       'authority',
+      'foundingAuthority',
+      'foundingAuthMethod',
       'registrationDiagnostics',
       'rpId',
       'authMethod',
@@ -3302,6 +3319,8 @@ export function parseWalletRegistrationFinalizeResponse(args: {
       'ok',
       'walletId',
       'authority',
+      'foundingAuthority',
+      'foundingAuthMethod',
       'registrationDiagnostics',
       'rpId',
       'authMethod',
@@ -3327,6 +3346,31 @@ export function parseWalletRegistrationFinalizeResponse(args: {
     }),
   );
   const authority = parseWalletRegistrationFinalizeAuthority(response.authority);
+  const foundingAuthority = parseWalletAuthorityV1(response.foundingAuthority);
+  const foundingAuthMethod = parseWalletAuthMethodRecordV2(response.foundingAuthMethod);
+  if (!foundingAuthority.ok) {
+    throw new Error(
+      `${responseName} response has an invalid founding authority: ${foundingAuthority.error.message}`,
+    );
+  }
+  if (foundingAuthority.value.state !== 'active') {
+    throw new Error(`${responseName} response has an inactive founding authority`);
+  }
+  if (!foundingAuthMethod) {
+    throw new Error(`${responseName} response has an invalid founding auth method`);
+  }
+  if (foundingAuthMethod.status !== 'active') {
+    throw new Error(`${responseName} response has an inactive founding auth method`);
+  }
+  if (foundingAuthority.value.walletId !== walletId || foundingAuthMethod.walletId !== walletId) {
+    throw new Error(`${responseName} response changed the founding wallet identity`);
+  }
+  if (foundingAuthMethod.walletAuthorityId !== foundingAuthority.value.authorityId) {
+    throw new Error(`${responseName} response has mismatched founding authority identities`);
+  }
+  if (foundingAuthMethod.walletAuthMethodId !== authority.bindingId) {
+    throw new Error(`${responseName} response has mismatched founding auth-method identities`);
+  }
   const authorityBranch = parseWalletRegistrationFinalizeAuthorityBranch({
     response,
     walletId,
@@ -3379,6 +3423,8 @@ export function parseWalletRegistrationFinalizeResponse(args: {
           ok: true,
           walletId,
           authority,
+          foundingAuthority: foundingAuthority.value,
+          foundingAuthMethod,
           ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
           ...walletCustody,
           ...manifest,
@@ -3395,6 +3441,8 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         ok: true,
         walletId,
         authority,
+        foundingAuthority: foundingAuthority.value,
+        foundingAuthMethod,
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         ...walletCustody,
         ...manifest,
@@ -3424,6 +3472,8 @@ export function parseWalletRegistrationFinalizeResponse(args: {
           ok: true,
           walletId,
           authority,
+          foundingAuthority: foundingAuthority.value,
+          foundingAuthMethod,
           ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
           ...walletCustody,
           ...manifest,
@@ -3437,6 +3487,8 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         ok: true,
         walletId,
         authority,
+        foundingAuthority: foundingAuthority.value,
+        foundingAuthMethod,
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         ...walletCustody,
         ...manifest,

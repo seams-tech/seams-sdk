@@ -1,9 +1,7 @@
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
 import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import {
-  buildRouterAbEd25519SigningWalletSession,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { RouterAbEd25519YaoActiveClientV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
@@ -12,14 +10,23 @@ import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
+import {
+  parseWalletAuthMethodRecordV2,
+  walletIdFromString,
+  type WalletAuthMethodRecordV2,
+  type WalletId,
+} from '@shared/utils/registrationIntent';
 import { base58Encode } from '@shared/utils/base58';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   mpcMaterialActivationRefsEqual,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseThresholdEd25519SessionId,
   type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
 } from '@shared/utils/domainIds';
 import {
   parsePasskeyCustodyEnvelopeRecord,
@@ -43,6 +50,10 @@ import {
   type ParsedYaoRecoveryCapabilityV1,
   type ParsedYaoRecoverySessionV1,
 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
+import {
+  parseWalletAuthorityV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
 export type { ParsedYaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 export { parseEd25519YaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 
@@ -73,6 +84,13 @@ function requireThresholdEd25519SessionId(
 }
 
 export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecoveryDescriptorV1 & {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly foundingAuthority: ActiveWalletAuthorityV1;
+  readonly foundingAuthMethod: Extract<
+    WalletAuthMethodRecordV2,
+    { readonly kind: 'passkey'; readonly status: 'active' }
+  >;
   readonly keyVersion: string;
   readonly credentialPublicKeyB64u: string;
   readonly walletCustody: {
@@ -277,12 +295,38 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
   if (!authority || String(authority.walletId) !== String(walletId)) {
     throw new Error('sync-account recovery authority is invalid');
   }
+  const walletAuthMethodId = parseWalletAuthMethodId(response.walletAuthMethodId);
+  const walletAuthorityId = parseWalletAuthorityId(response.walletAuthorityId);
+  const foundingAuthority = parseWalletAuthorityV1(response.foundingAuthority);
+  const foundingAuthMethod = parseWalletAuthMethodRecordV2(response.foundingAuthMethod);
+  if (
+    !walletAuthMethodId.ok ||
+    !walletAuthorityId.ok ||
+    walletAuthMethodId.value !== authority.walletAuthMethodId ||
+    !foundingAuthority.ok ||
+    foundingAuthority.value.state !== 'active' ||
+    foundingAuthority.value.provenance.kind !== 'wallet_registration' ||
+    foundingAuthority.value.walletId !== walletId ||
+    foundingAuthority.value.authorityId !== walletAuthorityId.value ||
+    !foundingAuthMethod ||
+    foundingAuthMethod.kind !== 'passkey' ||
+    foundingAuthMethod.status !== 'active' ||
+    foundingAuthMethod.walletId !== walletId ||
+    foundingAuthMethod.walletAuthorityId !== walletAuthorityId.value ||
+    foundingAuthMethod.walletAuthMethodId !== walletAuthMethodId.value
+  ) {
+    throw new Error('sync-account exact auth-method identity is invalid');
+  }
   const custody = requireRecord(response.walletCustody, 'walletCustody');
   if (custody.kind !== 'wallet_custody_sync_bootstrap_v1') {
     throw new Error('walletCustody kind is invalid');
   }
   const parsed: ParsedPasskeyEd25519YaoSyncResponseV1 = {
     authority,
+    walletAuthMethodId: walletAuthMethodId.value,
+    walletAuthorityId: walletAuthorityId.value,
+    foundingAuthority: foundingAuthority.value,
+    foundingAuthMethod,
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,

@@ -64,7 +64,12 @@ import {
   type RouterAbEd25519YaoActivationResultV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '../../../packages/shared-ts/src/utils/routerAbEd25519Yao';
-import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
+import { parseDeviceId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWebAuthnRpId,
+} from '../../../packages/shared-ts/src/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabilityFixtures';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
@@ -120,6 +125,15 @@ function parsedValue<T>(
     | { readonly ok: false; readonly message: string },
 ): T {
   if (!result.ok) throw new Error(result.message);
+  return result.value;
+}
+
+function parsedDomainValue<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
   return result.value;
 }
 
@@ -736,6 +750,15 @@ function buildCeremony(input: {
   });
   return {
     registrationCeremonyId: REGISTRATION_CEREMONY_ID,
+    foundingWalletAuthorityId: parsedDomainValue(
+      parseWalletAuthorityId('wallet-authority:registration-finalize-convergence'),
+    ),
+    foundingDeviceId: parsedDomainValue(
+      parseDeviceId('device:registration-finalize-convergence'),
+    ),
+    foundingWalletAuthMethodId: parsedDomainValue(
+      parseWalletAuthMethodId('wallet-auth-method:registration-finalize-convergence'),
+    ),
     intent,
     digestB64u: 'finalize-convergence-intent-digest',
     signerPlan: signerPlan.value,

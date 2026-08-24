@@ -41,9 +41,14 @@ import {
   parseEmailOtpProviderUserId,
   parseOrgId,
   parseProviderSubject,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWalletId,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
 } from '@shared/utils/domainIds';
+import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import {
   parseWebAuthnAuthenticatorDeviceInfo,
   unknownWebAuthnAuthenticatorDeviceInfo,
@@ -52,7 +57,7 @@ import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { ecdsaClientRootPublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   parseThresholdEd25519AuthorityScope,
@@ -514,6 +519,9 @@ export type StoredWalletRegistrationCeremonyAuthorityState =
 
 type StoredWalletRegistrationCeremonyBase = {
   registrationCeremonyId: string;
+  foundingWalletAuthorityId: WalletAuthorityId;
+  foundingDeviceId: DeviceId;
+  foundingWalletAuthMethodId: WalletAuthMethodId;
   intent: RegistrationIntentV1;
   digestB64u: string;
   signerPlan: RegistrationSignerPlan;
@@ -758,6 +766,11 @@ type StoredWalletAddAuthMethodCeremonyBase = {
   intent: AddAuthMethodIntentV1;
   digestB64u: string;
   orgId: string;
+  sourceWalletAuthMethodId: WalletAuthMethodId;
+  sourceWalletAuthorityId: WalletAuthorityId;
+  sourceAuthorityDigestB64u: DigestB64u;
+  sourceAuthorityRevocationEpoch: number;
+  targetWalletAuthMethodId: WalletAuthMethodId;
   expectedOrigin?: string;
   expiresAtMs: number;
   auth:
@@ -1697,6 +1710,9 @@ function parseStoredWalletRegistrationCeremony(
   if (typeof value.digestB64u !== 'string' || !value.digestB64u.trim()) return null;
   if (typeof value.orgId !== 'string') return null;
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
+  const foundingWalletAuthorityId = parseWalletAuthorityId(value.foundingWalletAuthorityId);
+  const foundingDeviceId = parseDeviceId(value.foundingDeviceId);
+  const foundingWalletAuthMethodId = parseWalletAuthMethodId(value.foundingWalletAuthMethodId);
   const authorityState = parseStoredWalletRegistrationCeremonyAuthorityState(value.authorityState);
   const signerPlan = parseStoredRegistrationSignerPlan(value.signerPlan);
   const preparedContext = parseStoredWalletRegistrationPreparedContext(value.preparedContext);
@@ -1705,6 +1721,9 @@ function parseStoredWalletRegistrationCeremony(
     : null;
   if (
     !authorityState ||
+    !foundingWalletAuthorityId.ok ||
+    !foundingDeviceId.ok ||
+    !foundingWalletAuthMethodId.ok ||
     !signerPlan ||
     !preparedContext ||
     !intentSignerPlan ||
@@ -1720,8 +1739,16 @@ function parseStoredWalletRegistrationCeremony(
   return {
     ...(value as Omit<
       StoredWalletRegistrationCeremony,
-      'authorityState' | 'signerPlan' | 'preparedContext'
+      | 'authorityState'
+      | 'signerPlan'
+      | 'preparedContext'
+      | 'foundingWalletAuthorityId'
+      | 'foundingDeviceId'
+      | 'foundingWalletAuthMethodId'
     >),
+    foundingWalletAuthorityId: foundingWalletAuthorityId.value,
+    foundingDeviceId: foundingDeviceId.value,
+    foundingWalletAuthMethodId: foundingWalletAuthMethodId.value,
     authorityState,
     signerPlan,
     preparedContext,
@@ -1866,7 +1893,27 @@ function parseStoredWalletAddAuthMethodCeremony(
   const digestB64u = trimString(value.digestB64u);
   const orgId = typeof value.orgId === 'string' ? value.orgId : null;
   const expiresAtMs = Number(value.expiresAtMs);
-  if (!addAuthMethodCeremonyId || !digestB64u || orgId === null || !Number.isFinite(expiresAtMs)) {
+  const sourceWalletAuthMethodId = parseWalletAuthMethodId(value.sourceWalletAuthMethodId);
+  const sourceWalletAuthorityId = parseWalletAuthorityId(value.sourceWalletAuthorityId);
+  const targetWalletAuthMethodId = parseWalletAuthMethodId(value.targetWalletAuthMethodId);
+  let sourceAuthorityDigestB64u: DigestB64u;
+  try {
+    sourceAuthorityDigestB64u = parseDigestB64u(value.sourceAuthorityDigestB64u);
+  } catch {
+    return null;
+  }
+  const sourceAuthorityRevocationEpoch = Number(value.sourceAuthorityRevocationEpoch);
+  if (
+    !addAuthMethodCeremonyId ||
+    !digestB64u ||
+    orgId === null ||
+    !Number.isFinite(expiresAtMs) ||
+    !sourceWalletAuthMethodId.ok ||
+    !sourceWalletAuthorityId.ok ||
+    !Number.isSafeInteger(sourceAuthorityRevocationEpoch) ||
+    sourceAuthorityRevocationEpoch < 0 ||
+    !targetWalletAuthMethodId.ok
+  ) {
     return null;
   }
   const auth = parseAddAuthMethodCeremonyAuth(value.auth);
@@ -1889,6 +1936,11 @@ function parseStoredWalletAddAuthMethodCeremony(
       intent: intentRecord.intent,
       digestB64u,
       orgId,
+      sourceWalletAuthMethodId: sourceWalletAuthMethodId.value,
+      sourceWalletAuthorityId: sourceWalletAuthorityId.value,
+      sourceAuthorityDigestB64u,
+      sourceAuthorityRevocationEpoch,
+      targetWalletAuthMethodId: targetWalletAuthMethodId.value,
       expiresAtMs: Math.floor(expiresAtMs),
       auth,
       authority,
@@ -1930,6 +1982,11 @@ function parseStoredWalletAddAuthMethodCeremony(
     intent: intentRecord.intent,
     digestB64u,
     orgId,
+    sourceWalletAuthMethodId: sourceWalletAuthMethodId.value,
+    sourceWalletAuthorityId: sourceWalletAuthorityId.value,
+    sourceAuthorityDigestB64u,
+    sourceAuthorityRevocationEpoch,
+    targetWalletAuthMethodId: targetWalletAuthMethodId.value,
     expiresAtMs: Math.floor(expiresAtMs),
     auth,
     passkeyRegistration: { rpId: rpId.value, challengeB64u, options },
