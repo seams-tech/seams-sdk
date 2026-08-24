@@ -177,14 +177,43 @@ with the three Email OTP cells.
      (`3f7304960`). Note the wasm surface has no opener for a factor-sealed
      client-root envelope; the linked export path opens the persisted root
      through its own flow instead, so none was needed.
-- Open Email/Ed25519 boundary, classified `production_regression`: after a
-  successful linked unlock, Device 2's `Export NEAR Key` action stays disabled.
-  The menu enables it from `loginState.nearAccountId`, which comes from
-  `session.appIdentity.nearAccountId`, and a linked Email OTP device resolves
-  no NEAR account into its app identity. The linked unlock publishes only
-  `{kind, walletId, authMethod}` through `setWalletAuthenticated`. The fix is
-  to project the linked authority's exact NEAR identity into the app identity
-  the same way the Passkey linked path does.
+- Email/Ed25519 continued: Device 2 now reports its wallet identity and shows
+  enabled owner controls after unlock. Two further repairs, each committed on
+  its own, both the same Passkey-only gating as the first fix:
+  10. `resolveLinkedDeviceUnlockSubjectSet` accepted only Passkey auth methods,
+      so an Email OTP linked device resolved no wallet-unlock subjects, its app
+      identity carried no NEAR account, and `Export NEAR Key` stayed disabled.
+      The resolver now accepts either factor: a Passkey lane still matches its
+      exact RP and credential, an Email OTP lane is identified by this
+      authority's exact material activation, threshold session, signing key,
+      and slot, and the ECDSA subject's authority reference is built per factor
+      kind (`263ba7eb8`).
+  11. the NEAR operational public key fell back to the device-link authority
+      only through the Passkey-only selector and only for the local-authority
+      subject source, so the app kept the NEAR tab disabled. The fallback is
+      now factor-agnostic and runs whenever a NEAR subject is present, still
+      requiring an active device-link authority whose resolved NEAR subject
+      equals the one asked about (`2a07ad178`).
+- Open Email/Ed25519 boundary, classified `production_regression`, and the
+  first one in this sequence that needs a modeling decision rather than a
+  mechanical repair: Device 2's NEAR export fails with `[OwnerLaneScope] active
+  Email OTP method has no exact local factor`. `resolveExactWalletAuthAuthority`
+  builds a Passkey authority directly from the V2 auth-method record, but its
+  Email OTP branch requires a legacy `wallet_auth_method_v1` local factor row
+  whose parsed authority matches the V2 method. Registration writes that row;
+  linked activation does not, and it cannot be reconstructed from V2 state
+  because `WalletAuthMethodRecordV2`'s Email branch stores `emailHashHex` and
+  `registrationAuthorityId` but no provider identity, while
+  `EmailOtpWalletAuthAuthority` requires `factor.provider` and
+  `factor.providerUserId`. Two candidate resolutions, and R103E should choose
+  deliberately because they pull in opposite directions:
+  (a) linked activation persists the same local factor record registration
+      writes, which makes Device 2 use the ordinary path but keeps a legacy
+      record R103E is otherwise deleting; or
+  (b) the Email OTP provider identity becomes part of the V2 auth-method
+      record, so every Email owner scope resolves from V2 alone and the legacy
+      row can be deleted. This is the direction the plan's ownership table
+      implies, and it is the larger change.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
