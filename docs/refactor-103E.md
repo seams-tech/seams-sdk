@@ -332,7 +332,11 @@ Files changed at this boundary:
 - `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`;
 - `tests/e2e/linked-device.operating-path.test.ts`.
 
-Current open gate: the Email OTP→Email OTP combined signer-profile cell.
+The Email OTP→Email OTP combined signer-profile cell is also green, 1/1 in
+57.6 seconds. It proves the same lifecycle with both Ed25519 and ECDSA material,
+including both exports and all three signing surfaces. The focused stale-fixture
+group is green, 13/13, and the exact Ed25519 export-admission group is green,
+5/5.
 
 ### Previously open, now superseded: linked Ed25519 export does not complete
 
@@ -371,57 +375,19 @@ iframe's confirmer state at the stall, since the host emits no diagnostic here.
 Note the signing/export UI runs from the built `packages/sdk-web/dist/public`,
 so any SDK change needs `build:sdk` and a reload before it is visible.
 
-#### Combined-profile evidence: the same export fails earlier and differently
+#### Resolved: combined-profile owner scope used the full authority digest
 
-Running the Email combined cell as a discriminating experiment produced a
-different failure on the same linked-device flow, which is itself informative.
-A combined linked device (Ed25519 **and** ECDSA activations) fails its NEAR
-export fast and loudly:
+The combined lane was present and authorized. Its Email owner scope was built
+from the linked ECDSA holder while using the full V2 Wallet Authority digest;
+the Ed25519 lane carried the factor-bound authority digest. The parser could
+not distinguish the domains, so lane matching downgraded the valid Ed25519 lane
+and export returned `no_candidate`.
 
-```
-[SigningEngine][ed25519-export-resolve] exact Yao lane selection failed: no_candidate
-```
-
-So the two Email linked profiles diverge before the prompt:
-
-- Ed25519-only: lane selection succeeds, the export challenge is issued, the
-  prompt never renders (the hang above);
-- combined: lane selection itself finds no usable Ed25519 export lane.
-
-Structural reason for the divergence, established by reading
-`BrowserSigningSurface.resolveActiveOwnerLaneScope`: for a linked Email
-authority it branches on whether the authority carries an ECDSA activation. A
-combined authority takes the linked-ECDSA branch and derives its owner scope
-from the in-memory ECDSA holder runtime; an Ed25519-only authority falls
-through to `resolveExactOwnerLaneScope`, which is the path repaired in
-`32760ed60`. The two profiles therefore resolve their owner scope by different
-mechanisms, and only the second one has been fixed.
-
-Why that matters for lane selection: in
-`session/availability/availableSigningLanes.ts`, a public-capability-reference
-Ed25519 lane is only marked `authorizationState: 'authorized'` when
-`activeAuthorizationMatchesEd25519Lane` returns true, and that function's final
-condition requires an `ownerScope` whose
-`signingLaneAuthBindingKey` equals the lane's — for Email OTP that key is
-`email_otp:<providerSubjectId>`. An absent or non-matching owner scope silently
-downgrades every Ed25519 lane to `authorization_required`, and
-`isUsableEd25519ExportLane` then rejects it, producing exactly `no_candidate`.
-
-Not yet distinguished, and the next thing to settle: whether the combined
-device has no published Ed25519 lane reference at all, or has one whose owner
-scope does not match. Both produce `no_candidate` through the same gate.
-
-Ruled out already, so no one retreads them:
-
-- *"linked unlock never persists the Ed25519 curve wallet-session
-  authorization"* — false. `activateLinkedDeviceEd25519Runtime` publishes the
-  public capability lane reference and calls
-  `persistActiveWalletSessionAuthorizationCurve` with `curve: 'ed25519'`.
-- *"a combined linked device never requests the Ed25519 capability at unlock,
-  so no lane is published"* — false. `unlockLinkedEmailOtpWallet`'s
-  `requestedCapabilities` union is only `none | ed25519_yao`, and the caller
-  requests `ed25519_yao` whenever linked Ed25519 signer material exists, which
-  a combined device has.
+The active ECDSA runtime now precomputes its exact factor-authority reference.
+Combined owner scope uses the holder factor authority, and both Ed25519 and
+ECDSA lane matching compare the same factor-bound identity. This avoids a
+family-specific exception and preserves the full authority digest for the V5
+authority/session checks that actually consume it.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
@@ -550,6 +516,8 @@ route. This ledger is normative for the remaining work and for future refactors.
 | Replayed delivery-state events re-entered completed activation | Activation finished during the `provisioning` event, then the queued `authority_pending_local_install` replay hit the consumed one-shot Email OTP factor state after cleanup and failed the settled flow | Per-state idempotency did not encode flow completion, and the event handler wrote the replayed state over the linear local state before its handled check | Mark every delivery state handled when local activation finishes, and never let a replayed event regress the linear local session state |
 | The revocation Email OTP challenge and verifier could not name an exact source method | The challenge reconstructed the retired `email_otp:<walletId>:<emailHash>` id and returned 403, and the verifier required exactly one active Email method per wallet — impossible once linking adds a second method sharing the wallet's email | The exact-method identity contract stopped at flows that predate two-method wallets, and no gate exercised Email revocation with two active methods | Operation-bound challenges resolve the exact selected method inside the wallet host; verifiers resolve the source as the unique active method whose bound challenge digest reproduces the presented proof digest |
 | Raced Email OTP prompt attempts left unlimited clicks alive | An abandoned `[data-auth-menu-primary]` click from an earlier phase fired minutes later into the unlock menu's passkey button and started an ordinary passkey login on an Email wallet | Prompt pumping raced attempts against flow completion without bounding or scoping the losing attempt's pending actions | Scope prompt-surface selectors to their exact container and bound every raced click; an abandoned attempt must die quickly instead of lurking until an unrelated surface matches |
+| Full Wallet Authority digests and factor-authority digests shared one permissive string shape | Linked Ed25519 signing lost its reusable authorization, while the combined export lane became `no_candidate` | Runtime parsing proved encoding only and could not prevent substitution between two digest domains | Brand the two digest domains distinctly at their builders; carry the verified factor-authority reference through owner-scope and lane state, and reserve the full digest for V5 authority/session correlation |
+| Post-revocation acceptance required a clickable operation to fail downstream | The product immediately disabled NEAR signing, and the test reported the correct revocation response as a failure | The contract encoded one rejection presentation instead of the user-visible invariant | Accept immediate control disablement or an explicit revocation/session rejection after the same operation already succeeded before revocation |
 
 ### Required acceptance sequencing for future refactors
 
