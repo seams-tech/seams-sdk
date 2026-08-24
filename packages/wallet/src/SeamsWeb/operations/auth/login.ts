@@ -72,6 +72,7 @@ import {
   buildPasskeyWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
   parseEmailOtpWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
   walletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority,
   type EmailOtpProvider,
@@ -2176,10 +2177,7 @@ type LinkedDeviceNearUnlockSubjectResolution =
 
 async function resolveLinkedDeviceNearUnlockSubject(args: {
   readonly walletId: WalletId;
-  readonly authMethod: Extract<
-    LocalWalletAuthMethodRecordV2,
-    { readonly kind: 'passkey'; readonly status: 'active' }
-  >;
+  readonly authMethod: Extract<LocalWalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
 }): Promise<LinkedDeviceNearUnlockSubjectResolution> {
@@ -2206,11 +2204,20 @@ async function resolveLinkedDeviceNearUnlockSubject(args: {
     IndexedDBManager,
   ).listLanes();
   for (const reference of references) {
+    /* The factor comparison differs by kind: a Passkey lane is named by its
+       exact RP and credential, while an Email OTP lane carries a provider
+       subject the local auth method does not store. The remaining comparisons
+       — this authority's exact material activation, threshold session, signing
+       key, and slot — already identify one device's lane. */
+    const factorMatches =
+      args.authMethod.kind === SIGNER_AUTH_METHODS.passkey
+        ? reference.auth.kind === SIGNER_AUTH_METHODS.passkey &&
+          String(reference.auth.rpId) === String(args.authMethod.rpId) &&
+          String(reference.auth.credentialIdB64u) === String(args.authMethod.credentialIdB64u)
+        : reference.auth.kind === SIGNER_AUTH_METHODS.emailOtp;
     if (
-      reference.auth.kind !== SIGNER_AUTH_METHODS.passkey ||
+      !factorMatches ||
       String(reference.walletId) !== String(args.walletId) ||
-      String(reference.auth.rpId) !== String(args.authMethod.rpId) ||
-      String(reference.auth.credentialIdB64u) !== String(args.authMethod.credentialIdB64u) ||
       reference.signerSlot !== application.key_creation_signer_slot ||
       String(reference.nearEd25519SigningKeyId) !== application.near_ed25519_signing_key_id ||
       String(reference.thresholdSessionId) !==
@@ -2237,6 +2244,28 @@ async function resolveLinkedDeviceNearUnlockSubject(args: {
   };
 }
 
+/**
+ * The exact authority reference for a linked device whose factor carries no
+ * local credential. It names the authority by its own digest and the exact
+ * auth method, so it cannot be reconstructed from factor fields several
+ * methods may share.
+ */
+function requireLinkedDeviceWalletAuthAuthorityRef(input: {
+  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+  readonly authMethod: Extract<LocalWalletAuthMethodRecordV2, { readonly status: 'active' }>;
+}): WalletAuthAuthorityRef {
+  const authorityRef = parseWalletAuthAuthorityRef({
+    kind: 'wallet_auth_authority_ref',
+    walletId: input.authority.walletId,
+    authorityDigest: input.authority.authorityDigestB64u,
+    walletAuthMethodId: input.authMethod.walletAuthMethodId,
+  });
+  if (!authorityRef) {
+    throw new Error('[login] linked device wallet authority reference is invalid');
+  }
+  return authorityRef;
+}
+
 export async function resolveLinkedDeviceUnlockSubjectSet(
   walletIdInput: string,
 ): Promise<WalletUnlockSubjectSet | null> {
@@ -2254,7 +2283,10 @@ export async function resolveLinkedDeviceUnlockSubjectSet(
       authority,
     });
     if (identityMismatchLabels.length > 0) return null;
-    if (authMethod.status !== 'active' || authMethod.kind !== 'passkey') return null;
+    /* Both supported factors install linked devices, so this resolver must not
+       be Passkey-only: an Email OTP linked device otherwise resolves no
+       subjects, and its wallet then reports no NEAR account after unlock. */
+    if (authMethod.status !== 'active') return null;
     if (authority.state !== 'active') return null;
     const subjects: WalletUnlockSubject[] = [];
     const nearSubject = await resolveLinkedDeviceNearUnlockSubject({
@@ -2283,7 +2315,13 @@ export async function resolveLinkedDeviceUnlockSubjectSet(
         return null;
       let authorityRef: WalletAuthAuthorityRef;
       try {
-        authorityRef = await walletAuthAuthorityRefForSelectedPasskeyMethod(authMethod);
+        /* A Passkey ref is derived from its exact credential; an Email OTP
+           method has no local credential, so its ref carries the authority's
+           own digest and exact method id. */
+        authorityRef =
+          authMethod.kind === SIGNER_AUTH_METHODS.passkey
+            ? await walletAuthAuthorityRefForSelectedPasskeyMethod(authMethod)
+            : requireLinkedDeviceWalletAuthAuthorityRef({ authority, authMethod });
       } catch {
         return null;
       }
