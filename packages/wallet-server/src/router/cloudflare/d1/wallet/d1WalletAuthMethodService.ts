@@ -1661,7 +1661,6 @@ export class CloudflareD1WalletAuthMethodService {
         readEmailOtpEnrollment: this.emailOtpChallengeVerifier.readEnrollmentForWallet.bind(
           this.emailOtpChallengeVerifier,
         ),
-        resolveEmailOtpAuthority: this.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(this),
       });
       if (verified.kind === 'denied') return verified;
       const sourceMethod = await this.getWalletAuthMethodStore().readByIdV2({

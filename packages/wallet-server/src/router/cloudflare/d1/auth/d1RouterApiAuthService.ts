@@ -27,7 +27,7 @@ import {
   computeWalletAuthMethodRevokeOperationFingerprintV1,
   parseNearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
-import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -170,6 +170,7 @@ import {
 import {
   D1LinkedDeviceEmailOtpTargetFactorV1,
   linkedDeviceEmailOtpBaseFactorReaderV1,
+  linkedDeviceEmailOtpGrantRegistrationPortV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpTargetFactor';
 import { createDeviceLinkingOwnerRequestAuthenticatorV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import {
@@ -351,7 +352,6 @@ function createD1LinkedDeviceComposition(input: {
   >;
   readonly walletAuthMethodStore: D1WalletAuthMethodStore;
   readonly walletStore: D1WalletStore;
-  readonly resolveEmailOtpAuthority: CloudflareD1WalletAuthMethodService['resolveActiveEmailOtpAuthorityForVerifiedSubject'];
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
   /**
@@ -364,7 +364,7 @@ function createD1LinkedDeviceComposition(input: {
     readonly verifier: Pick<CloudflareD1EmailOtpChallengeVerifier, 'verifyExisting'>;
     readonly enrollments: Pick<CloudflareD1EmailOtpEnrollmentStore, 'readEnrollment'>;
     readonly walletAuthMethodStore: {
-      listForWallet(input: { readonly walletId: string }): Promise<WalletAuthMethodRecord[]>;
+      listForWalletV2(input: { readonly walletId: string }): Promise<WalletAuthMethodRecordV2[]>;
     };
     readonly serverSeal: Pick<CloudflareD1EmailOtpServerSealRuntime, 'removeEmailOtpServerSeal'>;
   };
@@ -467,7 +467,6 @@ function createD1LinkedDeviceComposition(input: {
               readEmailOtpEnrollment: input.emailOtpLinkedDevice.enrollments.readEnrollment.bind(
                 input.emailOtpLinkedDevice.enrollments,
               ),
-              resolveEmailOtpAuthority: input.resolveEmailOtpAuthority,
             }),
       });
     },
@@ -583,6 +582,9 @@ function createD1LinkedDeviceComposition(input: {
         targetPlanner: ownerAuthorizationProvider.targetPlanner,
         resolveOwnerSourceChildV1:
           ownerAuthorizationProvider.ownerSourceResolver.resolveOwnerSourceChildV1,
+        ...(emailOtpTargetFactor === undefined
+          ? {}
+          : { emailOtpGrants: linkedDeviceEmailOtpGrantRegistrationPortV1(emailOtpTargetFactor) }),
       }),
       installationReceipt,
       ...(sessionConfig.sourceContributionRouter === undefined
@@ -1826,8 +1828,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     }),
     walletAuthMethodStore,
     walletStore,
-    resolveEmailOtpAuthority:
-      walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(walletAuthMethods),
     webAuthnStore,
     webAuthnAuthService,
     authorizationSessions: createD1AuthorizationSessionRouteService({

@@ -199,7 +199,10 @@ export async function verifyD1LinkedDeviceFreshRevokeProofV1(input: {
   readonly expectedOrigin: string;
   readonly verifiedAtMs: number;
   readonly operationFingerprintDigest: DigestB64u;
-  readonly walletAuthMethodStore: Pick<WalletAuthMethodV2Store, 'getPasskeyV2' | 'getEmailOtpV2'>;
+  readonly walletAuthMethodStore: Pick<
+    WalletAuthMethodV2Store,
+    'getPasskeyV2' | 'listForWalletV2'
+  >;
   readonly verifyWebAuthnAuthenticationLite: D1FreshRevokeWebAuthnVerifierV1;
   readonly verifyEmailOtpExisting?: (
     input: EmailOtpExistingChallengeVerifyInput,
@@ -207,13 +210,6 @@ export async function verifyD1LinkedDeviceFreshRevokeProofV1(input: {
   readonly readEmailOtpEnrollment?: (
     walletId: string,
   ) => Promise<EmailOtpWalletEnrollmentRecord | null>;
-  readonly resolveEmailOtpAuthority?: (input: {
-    readonly walletId: string;
-    readonly providerUserId: string;
-  }) => Promise<
-    | { readonly ok: true; readonly authority: EmailOtpWalletAuthAuthority }
-    | { readonly ok: false; readonly code: string; readonly message: string }
-  >;
 }): Promise<
   | {
       readonly kind: 'authorized';
@@ -227,11 +223,7 @@ export async function verifyD1LinkedDeviceFreshRevokeProofV1(input: {
     }
 > {
   if (input.proof.kind === 'email_otp') {
-    if (
-      !input.verifyEmailOtpExisting ||
-      !input.readEmailOtpEnrollment ||
-      !input.resolveEmailOtpAuthority
-    ) {
+    if (!input.verifyEmailOtpExisting || !input.readEmailOtpEnrollment) {
       return {
         kind: 'denied',
         code: 'invalid',
@@ -251,49 +243,71 @@ export async function verifyD1LinkedDeviceFreshRevokeProofV1(input: {
       };
     }
     const emailHashHex = await sha256HexUtf8(enrollment.verifiedEmail);
-    const sourceMethod = await input.walletAuthMethodStore.getEmailOtpV2({
-      walletId: String(input.walletId),
-      emailHashHex,
-    });
-    if (
-      !sourceMethod ||
-      sourceMethod.kind !== 'email_otp' ||
-      sourceMethod.status !== 'active' ||
-      sourceMethod.walletId !== input.walletId ||
-      sourceMethod.walletAuthMethodId === input.targetWalletAuthMethodId
-    ) {
+    const sourceCandidates = (
+      await input.walletAuthMethodStore.listForWalletV2({ walletId: String(input.walletId) })
+    ).filter(
+      (
+        record,
+      ): record is Extract<WalletAuthMethodRecordV2, { kind: 'email_otp'; status: 'active' }> =>
+        record.kind === 'email_otp' &&
+        record.status === 'active' &&
+        record.walletId === input.walletId &&
+        record.emailHashHex === emailHashHex &&
+        record.walletAuthMethodId !== input.targetWalletAuthMethodId,
+    );
+    if (sourceCandidates.length === 0) {
       return {
         kind: 'denied',
         code: 'unauthorized',
         message: 'Fresh revocation proof is not from a different active wallet method',
       };
     }
-    const authority = await input.resolveEmailOtpAuthority({
-      walletId: String(input.walletId),
-      providerUserId: enrollment.providerUserId,
-    });
-    if (
-      !authority.ok ||
-      authority.authority.walletId !== input.walletId ||
-      authority.authority.verifier.emailHashHex !== emailHashHex
-    ) {
-      return {
-        kind: 'denied',
-        code: 'unauthorized',
-        message: 'Fresh Email OTP revocation authority is not active for this wallet',
-      };
+    /* Every wallet method can share one verified email, so the challenge digest
+       is the only value that names the exact source method: both challenge
+       selectors bind an authorityRef carrying one walletAuthMethodId. Resolve
+       the source as the unique active method that reproduces the presented
+       digest against current wallet state. */
+    const provider = enrollment.providerUserId.startsWith('google:') ? 'google' : 'email';
+    let sourceMethod: Extract<
+      WalletAuthMethodRecordV2,
+      { kind: 'email_otp'; status: 'active' }
+    > | null = null;
+    for (const record of sourceCandidates) {
+      let boundAuthority: EmailOtpWalletAuthAuthority;
+      try {
+        boundAuthority = {
+          ...buildEmailOtpWalletAuthAuthority({
+            walletId: String(input.walletId),
+            provider,
+            providerUserId: enrollment.providerUserId,
+            emailHashHex: record.emailHashHex,
+          }),
+          bindingId: record.walletAuthMethodId,
+        };
+      } catch {
+        continue;
+      }
+      const candidateBindingDigest = await hashEmailOtpOperationBinding({
+        walletId: String(input.walletId),
+        providerUserId: enrollment.providerUserId,
+        orgId: input.orgId,
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+        requestOrigin: input.expectedOrigin,
+        audience: input.expectedOrigin,
+        authorityRef: await walletAuthAuthorityRef({ authority: boundAuthority }),
+        operationFingerprintDigest: String(input.operationFingerprintDigest),
+      });
+      if (candidateBindingDigest !== input.proof.ownerProofBindingDigest) continue;
+      if (sourceMethod) {
+        return {
+          kind: 'denied',
+          code: 'unauthorized',
+          message: 'Fresh Email OTP proof matches more than one wallet method',
+        };
+      }
+      sourceMethod = record;
     }
-    const expectedBindingDigest = await hashEmailOtpOperationBinding({
-      walletId: String(input.walletId),
-      providerUserId: enrollment.providerUserId,
-      orgId: input.orgId,
-      operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
-      requestOrigin: input.expectedOrigin,
-      audience: input.expectedOrigin,
-      authorityRef: await walletAuthAuthorityRef({ authority: authority.authority }),
-      operationFingerprintDigest: String(input.operationFingerprintDigest),
-    });
-    if (expectedBindingDigest !== input.proof.ownerProofBindingDigest) {
+    if (!sourceMethod) {
       return {
         kind: 'denied',
         code: 'unauthorized',

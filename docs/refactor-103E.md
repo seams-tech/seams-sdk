@@ -95,6 +95,43 @@ not complete a behavioral item.
 The active checkpoint is the remaining signer-family matrix cells, beginning
 with the three Email OTP cells.
 
+- Email/ECDSA progress: the real Email OTP→Email OTP ECDSA cell passes 1/1 in
+  1.0 minute through registration, linking, both reloads, exact Email unlock,
+  ECDSA controls, EVM export with fresh OTP step-up, Tempo and Arc signing,
+  owner-UI revocation with the exact Email method, revoked-session rejection
+  at signing, revoked-method unlock rejection, and the surviving owner
+  operation. Command: `SEAMS_INTENDED_SKIP_BUILD=1
+  SEAMS_INTENDED_APP_URL=https://localhost:9443
+  SEAMS_INTENDED_DOCS_ORIGIN=https://docs.localhost:9447
+  SEAMS_LINKED_DEVICE_E2E=1 pnpm -C tests exec playwright test -c
+  playwright.intended.ci.config.ts --grep 'Email OTP.*ecdsa signer profile'
+  --reporter=line` after `pnpm -C tests ensure:intended-google-token`.
+  Three defects were classified and repaired on the way:
+  `valid_test_needs_update` — the harness clicked the hosted auth-menu mode
+  switch non-atomically with no timeout while the menu flips itself once
+  wallet state settles, and raced prompt attempts abandoned unlimited
+  `[data-auth-menu-primary]` clicks that later fired into the login menu's
+  passkey button; both helpers now bind decision and bounded click into one
+  loop and scope prompt clicks to the OTP surface.
+  `production_regression` — link-session delivery events replayed after local
+  activation completed re-entered the activation path against consumed
+  one-shot Email OTP factor state; `finishActiveAuthorityV1` now marks every
+  delivery state handled and `handleSessionEvent` checks handled states
+  before writing the replayed state over the linear local state.
+  `production_regression` — the revocation Email OTP challenge reconstructed
+  the retired `email_otp:<walletId>:<emailHash>` id (403 `unauthorized` at
+  `/wallet/email-otp/challenge`), and the revoke verifier resolved its source
+  method by wallet+email hash while requiring exactly one active Email
+  method, which cannot hold once linking adds a second method sharing the
+  wallet's email. The wallet host now injects the exact selected active
+  Email method into operation-bound challenges that carry an
+  `operationFingerprintDigest` and no method id, and the revoke verifier
+  resolves the source as the unique active Email method whose bound
+  challenge digest reproduces the presented proof digest.
+- Migration numbering: R103E owns `0011_r103e_email_otp_device_methods.sql`
+  (renamed from the interim `0012`); the planned R109C cardinality migration
+  moved to `0012` in `docs/refactor-109D-multi-auth-linking.md`.
+
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
   Tempo signing, and Arc/EVM signing; Device 1 revoked Device 2; the already-open
@@ -219,6 +256,9 @@ route. This ledger is normative for the remaining work and for future refactors.
 | The ECDSA-only test waited for an Ed25519 source-execution route | A successful ECDSA link stalled for 60 seconds after the direct source contribution | The matrix reused one family-agnostic waiter despite distinct source-contribution transports | Create waiters only for routes the selected family emits; never leave a losing Playwright waiter alive |
 | ECDSA activation issued a reusable bearer without its V2 authority projection | Bearer authentication succeeded while linked-device inventory returned 401 and could not resolve the exact session identity | The activation test asserted the opaque response and omitted the management service's V2 read | Resolve the exact active method and authority at issuance, persist the V2 projection before bearer delivery, and require inventory plus reload in the real ECDSA cell |
 | Linked ECDSA Passkey owner scope required an Ed25519 signer slot | After both devices reloaded successfully, ordinary ECDSA export failed because the linked device had no legacy local authenticator row | The shared Passkey scope modeled Ed25519's slot requirement as universal even though ECDSA lanes bind only RP ID and credential ID | Model slot-bearing and ECDSA-only Passkey scopes as distinct states; reject the slotless branch for Ed25519 and prove export/sign/revocation in the real ECDSA-only cell |
+| Replayed delivery-state events re-entered completed activation | Activation finished during the `provisioning` event, then the queued `authority_pending_local_install` replay hit the consumed one-shot Email OTP factor state after cleanup and failed the settled flow | Per-state idempotency did not encode flow completion, and the event handler wrote the replayed state over the linear local state before its handled check | Mark every delivery state handled when local activation finishes, and never let a replayed event regress the linear local session state |
+| The revocation Email OTP challenge and verifier could not name an exact source method | The challenge reconstructed the retired `email_otp:<walletId>:<emailHash>` id and returned 403, and the verifier required exactly one active Email method per wallet — impossible once linking adds a second method sharing the wallet's email | The exact-method identity contract stopped at flows that predate two-method wallets, and no gate exercised Email revocation with two active methods | Operation-bound challenges resolve the exact selected method inside the wallet host; verifiers resolve the source as the unique active method whose bound challenge digest reproduces the presented proof digest |
+| Raced Email OTP prompt attempts left unlimited clicks alive | An abandoned `[data-auth-menu-primary]` click from an earlier phase fired minutes later into the unlock menu's passkey button and started an ordinary passkey login on an Email wallet | Prompt pumping raced attempts against flow completion without bounding or scoping the losing attempt's pending actions | Scope prompt-surface selectors to their exact container and bound every raced click; an abandoned attempt must die quickly instead of lurking until an unrelated surface matches |
 
 ### Required acceptance sequencing for future refactors
 

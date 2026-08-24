@@ -72,6 +72,7 @@ import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
+  isEmailOtpWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
   type ActiveWalletSession,
 } from '@shared/utils/walletAuthAuthority';
@@ -213,6 +214,7 @@ import {
   type GoogleEmailOtpWalletAuthDeps,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import {
+  resolveExactLinkedEmailOtpAuthority,
   resolveLinkedDeviceEmailOtpAuthoritySelection,
   unlockLinkedDeviceEmailOtpWallet,
 } from '@/SeamsWeb/operations/auth/login';
@@ -231,7 +233,10 @@ import {
   activateEmailOtpWalletAfterUnlock,
   type EmailOtpWalletPostUnlockActivation,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
-import type { RegistrationSignerSetSelection } from '@shared/utils/registrationIntent';
+import type {
+  RegistrationSignerSetSelection,
+  WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
 import {
   nearAccountBindingFromRaw,
   type NearAccountBinding,
@@ -1947,10 +1952,29 @@ export class SeamsWeb {
         });
         return result;
       }
+      /* Every wallet method can share one email, so an operation-bound
+         challenge without an exact method id gets the locally selected active
+         Email OTP method — the only identity the server accepts once more than
+         one method is active. Unlock flows own their selector end to end, so a
+         fingerprint-free challenge passes through untouched. */
+      let walletAuthMethodId = args.walletAuthMethodId;
+      if (!walletAuthMethodId && args.operationFingerprintDigest) {
+        const selected = await IndexedDBManager.resolveSelectedWalletAuthority(
+          String(args.walletId || '').trim(),
+        );
+        if (
+          selected.kind === 'resolved' &&
+          selected.authMethod.kind === 'email_otp' &&
+          selected.authMethod.status === 'active' &&
+          String(selected.authMethod.walletId) === String(args.walletId || '').trim()
+        ) {
+          walletAuthMethodId = String(selected.authMethod.walletAuthMethodId);
+        }
+      }
       const result = await requestEmailOtpChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
-        ...(args.walletAuthMethodId ? { walletAuthMethodId: args.walletAuthMethodId } : {}),
+        ...(walletAuthMethodId ? { walletAuthMethodId } : {}),
         ...(args.operation ? { operation: args.operation } : {}),
         ...(args.operationFingerprintDigest
           ? { operationFingerprintDigest: args.operationFingerprintDigest }
@@ -2273,12 +2297,90 @@ export class SeamsWeb {
       providerSubjectId: args.providerSubjectId,
     });
     switch (resolution.kind) {
-      case 'none':
-        return { kind: 'none' };
+      case 'none': {
+        const localMethods = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(
+          args.walletId,
+        );
+        const foundingMethods = localMethods.filter(
+          (
+            method,
+          ): method is Extract<
+            WalletAuthMethodRecordV2,
+            { kind: 'email_otp'; status: 'active' }
+          > =>
+            method.kind === 'email_otp' &&
+            method.status === 'active' &&
+            method.emailHashHex.toLowerCase() === emailHashHex,
+        );
+        const foundingMethod = foundingMethods[0];
+        if (foundingMethods.length === 0 || !foundingMethod) {
+          const localFactors = await IndexedDBManager.listWalletAuthMethodsForWallet(
+            args.walletId,
+          );
+          const exactLocalFactors = localFactors.filter(
+            (method) =>
+              method.kind === 'email_otp' &&
+              method.status === 'active' &&
+              method.emailHashHex.toLowerCase() === emailHashHex &&
+              isEmailOtpWalletAuthAuthority(method.authority) &&
+              method.authority.factor.provider === 'google' &&
+              method.authority.factor.providerUserId === args.providerSubjectId,
+          );
+          const exactLocalFactor = exactLocalFactors[0];
+          if (exactLocalFactors.length === 0 || !exactLocalFactor) return { kind: 'none' };
+          if (exactLocalFactors.length !== 1) {
+            return {
+              kind: 'rejected',
+              message: 'Multiple active local Email OTP factors match the verified email',
+            };
+          }
+          const exactAuthority = exactLocalFactor.authority;
+          if (!exactAuthority || !isEmailOtpWalletAuthAuthority(exactAuthority)) {
+            return { kind: 'none' };
+          }
+          return {
+            kind: 'selected',
+            walletAuthMethodId: String(exactAuthority.bindingId),
+            execution: 'ordinary',
+          };
+        }
+        if (foundingMethods.length !== 1) {
+          return {
+            kind: 'rejected',
+            message: 'Multiple active local Email OTP authorities match the verified email',
+          };
+        }
+        const authority = await IndexedDBManager.getWalletAuthority(
+          String(foundingMethod.walletAuthorityId),
+        );
+        if (
+          !authority ||
+          authority.state !== 'active' ||
+          authority.walletId !== foundingMethod.walletId ||
+          authority.authorityId !== foundingMethod.walletAuthorityId ||
+          authority.provenance.kind !== 'wallet_registration'
+        ) {
+          return { kind: 'none' };
+        }
+        await resolveExactLinkedEmailOtpAuthority({
+          authMethod: foundingMethod,
+          provider: 'google',
+          providerSubjectId: args.providerSubjectId,
+        });
+        return {
+          kind: 'selected',
+          walletAuthMethodId: String(foundingMethod.walletAuthMethodId),
+          execution: 'ordinary',
+        };
+      }
       case 'selected':
         return {
           kind: 'selected',
           walletAuthMethodId: String(resolution.selection.authMethod.walletAuthMethodId),
+          execution:
+            resolution.selection.authority.provenance.kind === 'device_link'
+              ? 'linked'
+              : 'ordinary',
         };
       case 'rejected':
         return { kind: 'rejected', message: resolution.message };
@@ -2512,6 +2614,9 @@ export class SeamsWeb {
         });
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
+        authoritySelector: args.walletAuthMethodId
+          ? { kind: 'wallet_auth_method', walletAuthMethodId: args.walletAuthMethodId }
+          : { kind: 'wallet' },
         chainTarget,
         emailHashHex,
         ...(ed25519CustodyProjection
