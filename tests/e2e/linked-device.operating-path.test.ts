@@ -2964,7 +2964,8 @@ async function assertLinkedDeviceInventoryLoaded(page: Page): Promise<void> {
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(2, { timeout: 60_000 });
   await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(2);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(2);
+  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
+  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
   await closeProfileMenu(page);
@@ -2974,8 +2975,9 @@ async function assertPasskeyInventoryLoaded(page: Page, expectedCardCount: numbe
   const dialog = await openLinkedDevicesDialog(page);
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(expectedCardCount, { timeout: 60_000 });
+  await expect(dialog.getByText('Original device', { exact: true })).toHaveCount(1);
   await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(
-    expectedCardCount,
+    expectedCardCount - 1,
   );
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
@@ -2992,7 +2994,8 @@ async function revokeLinkedEmailDeviceFromUi(
   const cards = dialog.locator('.w3a-linked-devices-modal-item');
   await expect(cards).toHaveCount(2, { timeout: 60_000 });
   await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(2);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(2);
+  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
+  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
   const remove = cards.getByRole('button', { name: /^Remove Device 2\b/ });
   await expect(remove).toHaveCount(1, { timeout: 30_000 });
   await remove.click();
@@ -3045,7 +3048,8 @@ async function revokeLinkedEmailDeviceFromUi(
   });
   await expect(cards).toHaveCount(1, { timeout: 60_000 });
   await expect(cards.filter({ hasText: 'Email OTP' })).toHaveCount(1);
-  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(1);
+  await expect(cards.filter({ hasText: 'Original device' })).toHaveCount(1);
+  await expect(cards.filter({ hasText: 'Can use this wallet' })).toHaveCount(0);
   await dialog.locator('.w3a-linked-devices-modal-close').click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
 }
