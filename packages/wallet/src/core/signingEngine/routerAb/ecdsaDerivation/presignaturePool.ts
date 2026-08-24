@@ -517,6 +517,12 @@ function bumpClientPresignaturePoolGeneration(poolKey: string): number {
   return nextGeneration;
 }
 
+function invalidateClientPresignaturePool(poolKey: string): void {
+  zeroizeRouterAbEcdsaDerivationClientPresignatureList(clientPresignaturePool.get(poolKey));
+  clientPresignaturePool.delete(poolKey);
+  bumpClientPresignaturePoolGeneration(poolKey);
+}
+
 function getForegroundSignInFlightCount(poolKey: string): number {
   return foregroundSignInFlightByPoolKey.get(poolKey) || 0;
 }
@@ -1043,6 +1049,14 @@ function isExpiredRouterAbEcdsaDerivationPresignatureError(message: string): boo
   );
 }
 
+function isUnavailableRouterAbEcdsaDerivationPresignatureError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('opaque ecdsa presign material is unknown') ||
+    normalized.includes('ecdsa client presign material unavailable: not_found')
+  );
+}
+
 function resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args: {
   keyHandle?: EcdsaKeyHandle;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -1328,6 +1342,10 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
     if (isExpiredRouterAbEcdsaDerivationPresignatureError(msg)) {
       return { ok: false, code: 'pool_entry_expired', message: msg };
     }
+    if (isUnavailableRouterAbEcdsaDerivationPresignatureError(msg)) {
+      if (poolKey) invalidateClientPresignaturePool(poolKey);
+      return { ok: false, code: 'pool_entry_unavailable', message: msg };
+    }
     return { ok: false, code: 'router_ab_sign_failed', message: msg };
   } finally {
     zeroizeBytes(clientSignatureShare32);
@@ -1382,7 +1400,9 @@ export async function signRouterAbEcdsaDerivationDigestWithPool(args: {
   });
   if (
     firstAttempt.ok ||
-    (firstAttempt.code !== 'pool_empty' && firstAttempt.code !== 'pool_entry_expired')
+    (firstAttempt.code !== 'pool_empty' &&
+      firstAttempt.code !== 'pool_entry_expired' &&
+      firstAttempt.code !== 'pool_entry_unavailable')
   ) {
     return firstAttempt;
   }

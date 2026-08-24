@@ -133,6 +133,14 @@ with the three Email OTP cells.
   moved to `0013` in `docs/refactor-109D-multi-auth-linking.md`. R103E also owns
   `0012_r103e_wallet_session_operation_credentials.sql`, which repairs databases
   that applied migration `0008` before operation credentials were added.
+- Manual Email OTP owner testing exposed an immediate post-unlock ECDSA pool
+  race: Tempo could pop an opaque presign reference after its worker authority
+  had discarded the one-time material, while a later Arc operation refilled the
+  pool and made Tempo succeed. Classified `production_regression`. The signer
+  now invalidates that pool generation, refills once, and retries only when no
+  client signature share was produced (`pool_entry_unavailable`). Wallet
+  typecheck and diff-check pass; immediate unlock → Tempo manual confirmation
+  remains open.
 - Email/Ed25519 progress: the Ed25519-only Email cell now registers, unlocks
   the owner, links Device 2, activates its authority, reloads Device 2 twice,
   and fails at Device 2's unlock after reload. Every failure was
@@ -463,6 +471,7 @@ route. This ledger is normative for the remaining work and for future refactors.
 | Linked Ed25519 export-root persistence stored an incomplete envelope | Device 2 could not reopen the export root after reload | Export was tested before reload without proving the durable factor-bound envelope | Require export after an independent reload for every durable secret envelope |
 | Canonical ECDSA export receipt parsing was incomplete | Successful worker output could not reach ordinary export finalization | Worker/WASM wire success was not exercised through the high-level export flow | Require one canonical real-receipt parser test plus one high-level finalizer test before browser acceptance |
 | Pool-fill authorization omitted the V2 operation kind | A valid V2 bearer reached `/presignature-pool/fill/init` and returned `401 wallet_session_invalid` | ECDSA signing was treated as one route despite pool init, pool step, prepare, and finalize having separate authorization boundaries | Enumerate and test every ECDSA subroute with the exact operation credential and assert that legacy fallback is never called |
+| Post-unlock ECDSA pool retained a stale opaque handle | Immediate Email OTP unlock → Tempo signing failed with `Opaque ECDSA presign material is unknown`; running Arc first refilled the pool and made Tempo succeed | The signing fallback retried empty and expired pools while treating an authority-discarded one-time handle as fatal | Classify the exact unavailable-handle boundary, invalidate its pool generation, and permit one refill/retry only before a client signature share exists |
 | V2 ordinary signing omitted canonical normal-scope equality | A request could pass wallet/session/material checks with altered root, epoch, context, or public identity and fail only in the private worker/material loader | Pool-fill checked the exact target scope while prepare/finalize admission repeated only part of that contract | Resolve the canonical active material once and compare the complete normal-signing scope before every V2 ordinary signing admission |
 | Linked ECDSA lane survived reload without a live holder | Device 2 selected the exact target activation, then presign failed with `linked ECDSA holder material is unavailable` | Reload acceptance proved lane projection and export, but did not prove the holder handle could be reopened before presign | Require a focused install → dispose/reload → hydrate → presign test; lane availability must imply the holder is usable, not merely that durable metadata exists |
 | Linked ECDSA Rust/WASM support grew a parallel holder representation and two export finalizers | The operating repair depended on a linked-only worker map whose lifecycle diverged from the ordinary runtime | The plan required ordinary operating paths without a Rust/WASM removal gate or caller audit | Freeze Rust during browser stabilization; after intended behavior is green, retain only demonstrated crypto boundaries, delete unused wrappers/finalizers, and prove any remaining distinct holder type with focused Rust plus two-browser evidence |
