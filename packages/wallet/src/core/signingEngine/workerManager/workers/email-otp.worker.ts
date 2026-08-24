@@ -1021,8 +1021,21 @@ function assertEmailOtpUnlockMaterialRouteAuth(args: {
         walletId: args.walletId,
         material: args.material,
       });
+      /* Two legitimate carriers. A cold wallet unlock presents a fresh OTP as
+         its proof and has no session to authenticate with — the same
+         activation a combined wallet performs through
+         `wallet_unlock_capabilities`. A signing-session rejoin has a session
+         and must present its exact Ed25519 wallet session below. */
+      if (
+        args.routePlan.routeFamily === 'login' &&
+        args.routePlan.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION
+      ) {
+        return;
+      }
       if (args.routePlan.routeFamily !== 'signing_session') {
-        throw new Error('Email OTP Ed25519 session requires a signing-session route plan');
+        throw new Error(
+          'Email OTP Ed25519 session requires a wallet-unlock or signing-session route plan',
+        );
       }
       const routeAuth = authLaneToRouteAuth(args.routePlan.authLane);
       const usesEd25519WalletSession =
