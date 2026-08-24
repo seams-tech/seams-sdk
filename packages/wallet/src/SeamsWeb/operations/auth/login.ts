@@ -43,6 +43,7 @@ import {
   isUserCancellationError,
   toError,
 } from '@shared/utils/errors';
+import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { isWalletCustodySeedBinding } from '@shared/passkey-custody/custodySecretBinding';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
@@ -680,6 +681,8 @@ function linkedDeviceOwnerLaneScopeStores(): OwnerLaneScopeStores {
       IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
     getWalletPasskeyAuthenticator:
       IndexedDBManager.getWalletPasskeyAuthenticator.bind(IndexedDBManager),
+    readEmailOtpProviderSubjectForWallet: (walletId: string) =>
+      readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId),
   };
 }
 

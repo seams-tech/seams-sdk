@@ -19,6 +19,14 @@ export type OwnerLaneScopeStores = {
     walletId: string;
     credentialId: string;
   }): Promise<{ readonly credentialId: string; readonly signerSlot: number } | null>;
+  /**
+   * The verified Email OTP provider subject this installation holds for the
+   * wallet. A linked installation has no local factor record to carry it,
+   * because that record belongs to registration; its lanes carry it instead.
+   * Every authority built from it is still checked against the session's
+   * authority digest, so a wrong subject fails closed rather than signing.
+   */
+  readEmailOtpProviderSubjectForWallet?(walletId: string): Promise<string | null>;
 };
 
 export type ActiveWalletAuthMethodV2 = Extract<
@@ -78,6 +86,39 @@ function passkeyWalletAuthAuthorityFromV2Record(
   };
 }
 
+/**
+ * The exact Email OTP authority for an installation that holds no local factor
+ * record — a linked device, whose factor record belongs to registration. The
+ * V2 record carries every field but the provider identity, which the caller
+ * supplies from this installation's verified lanes.
+ */
+function emailOtpWalletAuthAuthorityFromProviderSubject(args: {
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { kind: 'email_otp' }>;
+  readonly providerSubjectId: string;
+}): EmailOtpWalletAuthAuthority {
+  const providerUserId = String(args.providerSubjectId || '').trim();
+  if (!providerUserId) {
+    throw new OwnerLaneScopeIntegrityError('active Email OTP method has no exact local factor');
+  }
+  const authority = parseEmailOtpWalletAuthAuthority({
+    walletId: args.authMethod.walletId,
+    factor: {
+      kind: 'email_otp',
+      provider: providerUserId.startsWith('google:') ? 'google' : 'email',
+      providerUserId,
+    },
+    verifier: {
+      kind: 'email_otp_wallet_auth_method',
+      emailHashHex: args.authMethod.emailHashHex,
+    },
+    bindingId: args.authMethod.walletAuthMethodId,
+  });
+  if (!authority) {
+    throw new OwnerLaneScopeIntegrityError('active Email OTP method has no exact local factor');
+  }
+  return authority;
+}
+
 function emailOtpWalletAuthAuthorityFromLocalFactor(args: {
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { kind: 'email_otp' }>;
   readonly localMethods: readonly LocalWalletAuthMethodRecord[];
@@ -101,6 +142,32 @@ function emailOtpWalletAuthAuthorityFromLocalFactor(args: {
     throw new OwnerLaneScopeIntegrityError('active Email OTP method has no exact local factor');
   }
   return authority;
+}
+
+/**
+ * Registration's local factor record first, because it is the authoritative
+ * one where it exists; a linked installation falls back to the provider
+ * subject its own lanes carry.
+ */
+async function resolveEmailOtpWalletAuthAuthority(args: {
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { kind: 'email_otp' }>;
+  readonly stores: OwnerLaneScopeStores;
+}): Promise<EmailOtpWalletAuthAuthority> {
+  const walletId = String(args.authMethod.walletId);
+  try {
+    return emailOtpWalletAuthAuthorityFromLocalFactor({
+      authMethod: args.authMethod,
+      localMethods: await args.stores.listWalletAuthMethodsForWallet(walletId),
+    });
+  } catch (error: unknown) {
+    if (!args.stores.readEmailOtpProviderSubjectForWallet) throw error;
+    const providerSubjectId = await args.stores.readEmailOtpProviderSubjectForWallet(walletId);
+    if (!providerSubjectId) throw error;
+    return emailOtpWalletAuthAuthorityFromProviderSubject({
+      authMethod: args.authMethod,
+      providerSubjectId,
+    });
+  }
 }
 
 function assertExactFactorAuthorityBinding(args: {
@@ -130,11 +197,9 @@ export async function resolveExactWalletAuthAuthority(args: {
   }
   return assertExactFactorAuthorityBinding({
     authMethod: args.authMethod,
-    authority: emailOtpWalletAuthAuthorityFromLocalFactor({
+    authority: await resolveEmailOtpWalletAuthAuthority({
       authMethod: args.authMethod,
-      localMethods: await args.stores.listWalletAuthMethodsForWallet(
-        String(args.authMethod.walletId),
-      ),
+      stores: args.stores,
     }),
   });
 }
@@ -185,6 +250,34 @@ export function buildExactEcdsaPasskeyOwnerLaneScope(args: {
   };
 }
 
+export function buildExactLinkedEmailOtpOwnerLaneScope(args: {
+  readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'email_otp' }>;
+  readonly factorAuthority: EmailOtpWalletAuthAuthority;
+  readonly authorityRef: WalletAuthAuthorityRef;
+}): Extract<OwnerLaneScope, { readonly auth: { readonly kind: 'email_otp' } }> {
+  if (
+    args.factorAuthority.walletId !== args.authMethod.walletId ||
+    args.factorAuthority.bindingId !== args.authMethod.walletAuthMethodId ||
+    args.factorAuthority.verifier.emailHashHex !== args.authMethod.emailHashHex ||
+    args.authorityRef.walletId !== args.authMethod.walletId ||
+    args.authorityRef.walletAuthMethodId !== args.authMethod.walletAuthMethodId
+  ) {
+    throw new OwnerLaneScopeIntegrityError(
+      'linked Email OTP authority does not match the selected V2 method',
+    );
+  }
+  return {
+    auth: {
+      kind: 'email_otp',
+      providerSubjectId: String(args.factorAuthority.factor.providerUserId),
+    },
+    ownerAuthority: {
+      walletAuthMethodId: args.authorityRef.walletAuthMethodId,
+      authorityDigest: args.authorityRef.authorityDigest,
+    },
+  };
+}
+
 async function passkeyOwnerLaneScope(args: {
   readonly authMethod: Extract<ActiveWalletAuthMethodV2, { readonly kind: 'passkey' }>;
   readonly stores: OwnerLaneScopeStores;
@@ -212,11 +305,9 @@ export async function resolveExactOwnerLaneScope(args: {
   if (args.authMethod.kind === 'passkey') {
     return await passkeyOwnerLaneScope({ authMethod: args.authMethod, stores: args.stores });
   }
-  const authority = emailOtpWalletAuthAuthorityFromLocalFactor({
+  const authority = await resolveEmailOtpWalletAuthAuthority({
     authMethod: args.authMethod,
-    localMethods: await args.stores.listWalletAuthMethodsForWallet(
-      String(args.authMethod.walletId),
-    ),
+    stores: args.stores,
   });
   const authorityRef = await walletAuthAuthorityRef({ authority });
   return {
@@ -250,9 +341,9 @@ export async function resolveOwnerLaneScope(args: {
     throw new OwnerRelinkRequiredError(expectedAuthMethodId);
   }
   if (authMethod.kind === 'email_otp') {
-    const authority = emailOtpWalletAuthAuthorityFromLocalFactor({
+    const authority = await resolveEmailOtpWalletAuthAuthority({
       authMethod,
-      localMethods: await args.stores.listWalletAuthMethodsForWallet(walletId),
+      stores: args.stores,
     });
     await assertOwnerAuthorityRefMatches({ expected: args.authorityRef, authority });
     return {

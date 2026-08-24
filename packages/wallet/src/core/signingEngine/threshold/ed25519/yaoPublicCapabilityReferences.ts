@@ -455,3 +455,30 @@ export class IndexedDbEd25519YaoPublicCapabilityReferenceStore implements Ed2551
     return current.lanes.map(clonePublicCapabilityLane);
   }
 }
+
+/**
+ * The verified Email OTP provider subject this installation persisted on its
+ * own Ed25519 lanes. A linked installation holds no local factor record to
+ * carry that subject — the record belongs to registration — so the owner lane
+ * scope reads it here. Exactly one subject may answer for a wallet: two would
+ * mean two provider identities on one installation, which is an integrity
+ * failure rather than a value to choose between.
+ */
+export async function readEmailOtpProviderSubjectForWalletV1(
+  appState: AppStatePort,
+  walletIdInput: string,
+): Promise<string | null> {
+  const walletId = String(walletIdInput || '').trim();
+  if (!walletId) return null;
+  const subjects = new Set<string>();
+  for (const lane of await new IndexedDbEd25519YaoPublicCapabilityReferenceStore(
+    appState,
+  ).listLanes()) {
+    if (lane.auth.kind !== 'email_otp') continue;
+    if (String(lane.walletId) !== walletId) continue;
+    const providerSubjectId = String(lane.auth.providerSubjectId || '').trim();
+    if (providerSubjectId) subjects.add(providerSubjectId);
+  }
+  if (subjects.size !== 1) return null;
+  return [...subjects][0] ?? null;
+}
