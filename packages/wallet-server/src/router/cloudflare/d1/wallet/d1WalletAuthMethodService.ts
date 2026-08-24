@@ -33,6 +33,7 @@ import {
   type WalletAuthMethodRevocationProof,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
+import { admitAddWalletAuthMethod } from '@shared/utils/addWalletAuthMethod';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
@@ -531,6 +532,30 @@ export class CloudflareD1WalletAuthMethodService {
           ok: false,
           code: 'unauthorized',
           message: 'Add-auth-method source authority is not an active full owner',
+        };
+      }
+
+      /* R109C admission, and deliberately before the intent is consumed: a
+         family the authority already holds is a state the caller asked for and
+         already has, so it answers `already_configured` without verifying a
+         target factor, minting a ceremony, or letting the browser write
+         anything. The activation transaction repeats the check as a
+         conditional insert; this one exists so the ordinary case never gets
+         that far. */
+      const admission = admitAddWalletAuthMethod({
+        sourceMethod,
+        targetFamily: request.authority.kind,
+        activeMethodsOnAuthority: (
+          await this.getWalletAuthMethodStore().listForWalletV2({ walletId })
+        )
+          .filter(isActiveWalletAuthMethodRecordV2)
+          .filter((method) => method.walletAuthorityId === sourceMethod.walletAuthorityId),
+      });
+      if (admission.kind === 'already_configured') {
+        return {
+          ok: false,
+          code: 'already_configured',
+          message: `Wallet authority already has an active ${admission.family} auth method`,
         };
       }
 
