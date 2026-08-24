@@ -1,6 +1,13 @@
-# Refactor 105 Phase 0: Ownership Inventory
+# Refactor 105 Phase 0: Historical Ownership Inventory
 
 Date frozen: August 18, 2026
+
+Status: historical snapshot. It records the pre-closeout classification and is
+not an extraction manifest or evidence that the current tree satisfies the
+Refactor 105 boundary. Refactor 105B Phase 0 must regenerate and reconcile the
+current route, service, schema, test, workflow, and path inventory before it
+freezes an extraction reference. The repository destination addendum below is
+the current ownership decision.
 
 This is the checked-in ownership matrix required by
 [refactor-105-split-console.md](./refactor-105-split-console.md) Phase 0. Every
@@ -43,10 +50,9 @@ is named inline and executes in Phases 1-2 (contracts/services) or Phase 6
 | `packages/wallet`            | wallet       | public `@seams/wallet`; renamed `packages/wallet` in Phase 7                                                                                   |
 | `packages/wallet-server`     | wallet       | public `@seams/wallet-server`; renamed `packages/wallet-server` in Phase 7                                                                     |
 | `packages/shared-ts`         | wallet       | shared browser/server contracts consumed by the Wallet packages (see shared-ts note)                                                           |
-| `packages/wasm`              | wallet       | signer/browser Wasm assets                                                                                                                     |
 | `apps/seams-site`            | MIXED        | marketing + demos stay; `/dashboard/*` extracts to `apps/seams-console` in Phase 5                                                             |
 | `apps/web-server`            | composition  | Express in-memory console-only dev server (NOT the gateway; the hosted gateway entrypoints live in `console-server-ts/src/router/cloudflare/`) |
-| `apps/docs`                  | wallet       | SDK documentation site                                                                                                                         |
+| `apps/docs`                  | composition  | hosted docs application stays private; Wallet API/protocol/example documents receive one canonical public copy under `seams-wallet/docs`      |
 | `crates/*`, `wasm/*`         | wallet       | signer runtime and protocol crates                                                                                                             |
 
 ## Console D1 Tables (49)
@@ -389,8 +395,10 @@ product-execution vocabulary in `src/billing/*`. Policy payloads, approval
 vocabulary, key-export contracts, and sponsorship contracts live in the
 Wallet Console packages.
 
-`repository-split.json` assigns the Console core and Wallet Console integration
-packages to the private repository.
+The reconciled role-based `repository-split.json` assigns Console core, Wallet
+Console integration, and the hosted docs application to the private
+`seams-monorepo`; it assigns the two Wallet packages and required Rust/Wasm to
+the public `seams-wallet` output.
 
 ## UI Routes
 
@@ -457,7 +465,7 @@ repositories:
 
 | Piece                                                                                                                                                                                | Owner                                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Router A/B workers, `router_ab_local_*` cargo binaries, role-private D1 state, `router:*` scripts                                                                                    | wallet (public local reference runtime)                                                                                        |
+| Router A/B Worker and `router_ab_local_*` source, role-private D1 schema, and generic runtime behavior                                                                              | wallet (public local reference runtime)                                                                                        |
 | Combined local worker (`d1LocalDevWorker.ts`), console+signer migration chaining (`d1:local:prepare`), Caddy topology, `gateway:server`, seeding (`seed-intended-local-console.mjs`) | composition (private composed development)                                                                                     |
 | `apps/web-server` Express in-memory console server (`gateway:server:threshold-3nodes`, `gateway:server:iphone`)                                                                      | composition (console-in-the-loop dev path)                                                                                     |
 | State-preserving startup (canonical-schema SHA check renames drifted state; `router:reset` renames, never deletes; `d1:local:reset` is the explicit destructive command)             | split: the Wallet-only local runtime keeps the preserve/reset semantics per the plan; the console halves move with composition |
@@ -467,3 +475,22 @@ the Wallet packages and tests via the `@shared/*` alias (446 files in
 `sdk-web`, 280 in `sdk-server-ts`, ~140 in `tests/`; zero console
 importers) — it is Wallet-owned and goes to the public repository. The
 console analogue is `console-shared-ts`.
+
+## Current Repository Destination Addendum
+
+- The existing private repository is renamed in place to
+  `seams-tech/seams-monorepo`. It keeps Console, Admin, future products,
+  `apps/docs`, deployment topology, environment and provider configuration,
+  secrets, operational runbooks, every staging/production workflow, and the
+  private composed test/runtime harness.
+- One fresh-history public `seams-tech/seams-wallet` repository owns
+  `@seams/wallet`, `@seams/wallet-server`, required shared code, Rust/Wasm,
+  signer migrations, public Wallet tests, `docs/`,
+  `examples/seams-auth-menu`, and the generic self-host/runtime example.
+- Current deployment/local scripts are not moved by directory assumption.
+  Generic Wallet behavior is re-expressed in the public runtime; Console,
+  environment, provider, and deployment orchestration remains private.
+- Rust crates remain co-located implementation inputs with `publish = false`.
+  Refactor 105 publishes no crate and creates no Rust repository.
+- The private monorepo deploys exact-pinned npm artifacts and has no Cargo,
+  `wasm-pack`, Git, sibling-checkout, or source-path fallback for Wallet builds.

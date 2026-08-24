@@ -4,7 +4,7 @@ Date created: August 21, 2026
 
 Status: stabilization in progress. R103E is the sole active Refactor 103 plan.
 It consolidates the retained working behavior from the earlier Refactor 103
-series before R109A and R109B expand the supported authentication
+series before R109C and R109D expand the supported authentication
 combinations. The obsolete 103, 103B, 103C, and 103D plans and the separate
 103E inventory were removed after their controlling contracts were folded
 into this document and `docs/intended-behaviours.md`. Git history preserves
@@ -272,7 +272,7 @@ An implementer should not reopen these design choices:
    session identity is parsed into its existing brand. R103E adds only
    `WalletAuthorityId`.
 8. Current delivery supports Passkey-to-Passkey and Email-OTP-to-Email-OTP.
-   R109B adds cross-family combinations through the same verified-factor seam.
+   R109D adds cross-family combinations through the same verified-factor seam.
 9. A persisted incomplete legacy enrollment returns `relink_required` at its
    boundary. Runtime operations do not repair it.
 10. The refactor finishes by deleting replaced records, paths, types, fixtures,
@@ -296,7 +296,7 @@ Keep these features out of R103E:
 - new public route families when an existing device-linking route can be
   changed in place.
 
-R109A owns multiple auth methods per authority. R109B owns cross-family device
+R109C owns multiple auth methods per authority. R109D owns cross-family device
 linking. A coding agent must leave an explicit seam for those refactors and
 must not implement either feature while completing R103E.
 
@@ -332,7 +332,7 @@ The operating architecture has five concepts.
 Describes one locally usable Passkey or Email OTP factor. It contains one exact
 `WalletAuthorityId` reference.
 
-R109A can add another `WalletAuthMethod` that references the same authority. It
+R109C can add another `WalletAuthMethod` that references the same authority. It
 does not create another signer activation.
 
 ### 2. `WalletAuthority`
@@ -400,7 +400,7 @@ When `export_keys` is granted and Ed25519 is present, the runtime holds a
 short-lived Yao Client export-root capability. Its durable source depends on
 whether the installation has the wallet custody seed:
 
-- registration, recovery, and R109A factor addition persist only the
+- registration, recovery, and R109C factor addition persist only the
   factor-sealed wallet custody seed envelope. Unlock derives the Yao Client
   export root inside the worker and creates the capability without persisting a
   second export-root envelope;
@@ -640,7 +640,7 @@ type WalletAuthMethodLifecycleV1 =
 The Passkey and Email OTP branches extend the common record and lifecycle
 union using their existing required factor fields and `never` exclusions.
 The auth method and authority move from pending to active in the same D1
-transaction. R109A can create
+transaction. R109C can create
 multiple auth-method records with the same `walletAuthorityId`. Existing
 `passkey:*`, `email_otp:*`, and `email_otp_linked:*` IDs are accepted only by
 the migration parser. New records use `wallet-auth-method:<random UUID>` from
@@ -751,7 +751,7 @@ Device 2 creates a fresh `DeviceId` for every new link attempt that reaches
 target preparation. It is an installation identity, not a hardware fingerprint
 or browser-global identifier. Re-linking the same physical browser therefore
 creates a new `DeviceId`, `WalletAuthorityId`, and independently revocable auth
-method. R109A factor addition reuses the existing authority and its `DeviceId`.
+method. R109C factor addition reuses the existing authority and its `DeviceId`.
 
 ## Durable ownership and schema
 
@@ -832,7 +832,7 @@ of persisting exact `WalletAuthorityV1` records. The transaction writes:
   persist no duplicate export-root envelope;
 - the local installation receipt.
 
-R109A writes another set of factor-sealed local records for its new
+R109C writes another set of factor-sealed local records for its new
 `WalletAuthMethodId` while reusing the authority and activation IDs. It never
 overwrites the original method's sealed records.
 
@@ -1423,22 +1423,22 @@ authority at once. The wallet's final active method returns
 `would_remove_last_wallet_auth_method` without changing durable state. Method
 inventory and revocation do not depend on retained link-session history.
 
-## Relationship to R109A
+## Relationship to R109C
 
-R109A adds multiple auth methods to one wallet. A new factor creates another
+R109C adds multiple auth methods to one wallet. A new factor creates another
 `WalletAuthMethod` that references the intended existing `WalletAuthority`.
 Adding the method does not duplicate signer activations or permissions.
 
-R109A may open and reseal the wallet custody seed inside its dedicated
+R109C may open and reseal the wallet custody seed inside its dedicated
 factor-addition ceremony. Device linking never receives that seed.
 
-Registration, recovery, and R109A factor addition do not persist a separate
+Registration, recovery, and R109C factor addition do not persist a separate
 Ed25519 export-root envelope. Their factor-sealed custody seed is the durable
 source; unlock derives the root inside the worker and exposes only the scoped
 runtime capability described above. A linked installation has no custody seed
 and therefore persists the received export root under its verified factor.
 
-R109A reuses:
+R109C reuses:
 
 - `WalletAuthMethodId` and `WalletAuthorityId`;
 - the Passkey and Email OTP factor union;
@@ -1446,19 +1446,19 @@ R109A reuses:
 - Wallet Session issuance;
 - durable lock generation.
 
-R109A is reconciled to this model. Multiple auth methods on one device may
+R109C is reconciled to this model. Multiple auth methods on one device may
 reference the same authority. Each method keeps its exact factor envelope and
 Wallet Session; permissions and signer activations remain authority-owned.
-R109A's primary goal is one authority with both factor families active. It
+R109C's primary goal is one authority with both factor families active. It
 permits multiple active Passkeys and at most one active Email OTP method per
 authority.
-R109A also replaces R103E's transitional factor-field draft with the canonical
+R109C also replaces R103E's transitional factor-field draft with the canonical
 Passkey and Email OTP provider-identity branches. R103E's authority,
 activation, Wallet Session, and lock contracts remain controlling.
 
-## Relationship to R109B
+## Relationship to R109D
 
-R109B allows source and target devices to use different auth families.
+R109D allows source and target devices to use different auth families.
 
 ```text
 source WalletAuthMethod -> source WalletAuthority -> authorize delegation
@@ -1476,12 +1476,12 @@ the Ed25519 Yao Client export root through the one-use target recipient and
 seals it under Device 2's verified factor. This seedless linked installation is
 the only normal creation path for a separately persisted export-root envelope.
 
-R103E should land before R109B removes current same-family restrictions. R109B
+R103E should land before R109D removes current same-family restrictions. R109D
 then adds factor combinations without adding activation branches.
 
-R103E also supersedes current R109B language that transfers the wallet custody
+R103E also supersedes current R109D language that transfers the wallet custody
 seed, creates a linked execution authorization, persists an owner binding, or
-installs R102 lane products. R109B must retain only source-proof/target-factor
+installs R102 lane products. R109D must retain only source-proof/target-factor
 independence, explicit Email OTP base-factor selection, failure UX, and the
 four-combination matrix. Its target converges into this plan's new authority,
 fresh ordinary activations, optional encrypted Ed25519 export root, and
@@ -1496,7 +1496,7 @@ signer activations commit. The founding authority uses
 registered signer family, and `revocationEpoch = 0`. Registration must not
 create an owner-binding projection that R103E later has to infer.
 
-R109A factor addition creates another auth method for an existing authority.
+R109C factor addition creates another auth method for an existing authority.
 Its local reseal records use the same authority and activation refs with the
 new auth-method ID. The authority lifecycle and permissions do not change.
 This distinction is normative:
@@ -2053,7 +2053,7 @@ every granted ordinary operation.
 
 - delete every path listed in **Delete during the cutover**;
 - keep this document as the sole Refactor 103 implementation plan and update
-  R109A and R109B to use this model;
+  R109C and R109D to use this model;
 - delete obsolete fixtures, mocked success transitions, and source guards;
 - compare device-linking source and type counts with the pre-R103E baseline.
 
@@ -2081,7 +2081,7 @@ Use fresh wallets and two independent browser profiles. Verify:
 10. authority-ID and batch revocation requests are rejected at the boundary;
 11. re-linking the same physical Device 2 creates a fresh installation identity
     and independently revocable auth method without mutating the earlier one;
-12. R109A multi-method wallets and all four R109B factor combinations after
+12. R109C multi-method wallets and all four R109D factor combinations after
     those refactors land.
 
 Mocks cannot satisfy this gate. The test must use real composed routes, stores,
@@ -2126,7 +2126,7 @@ refs, revocation epoch, and local record digests before linking and assert they
 are unchanged after Device 2 activates and after Device 2's method is revoked
 and its zero-method authority retires.
 
-R109B later adds Passkey-to-Email-OTP and Email-OTP-to-Passkey rows. R109A later
+R109D later adds Passkey-to-Email-OTP and Email-OTP-to-Passkey rows. R109C later
 adds multiple auth methods referencing one authority. Those future rows do not
 block R103E completion and must require no authority or activation redesign.
 
@@ -2258,7 +2258,7 @@ inventory symptom.
     guards or legacy compatibility branches.
 11. **Reconcile docs and counts.** Keep R103E as the sole Refactor 103 plan,
     keep durable product behavior in `docs/intended-behaviours.md`, and update
-    R109A/R109B to consume the authority/auth-method seam. Confirm production
+    R109C/R109D to consume the authority/auth-method seam. Confirm production
     source and exported type counts decreased from the baseline.
 
 Checkpoint commits should separate: shared contract, server lifecycle,

@@ -2,14 +2,12 @@
 
 Date created: August 11, 2026
 
-Last reconciled: August 19, 2026 (closeout scope)
+Last reconciled: August 24, 2026 (repository closeout decision)
 
-Status: closeout. Phases 0–7 have landed. One high-impact task remains: Phase 8,
-the final repository split.
-
-The Phase 8 checklist and its validation are the only active Refactor 105
-tasks. Earlier unchecked phase lists and prerequisite language remain as the
-historical implementation record; they do not form a second active backlog.
+Status: planned closeout. Phases 0–6 define the required in-monorepo Console
+boundary. Confirm their remaining work against the current tree before Phase 7.
+Phase 8 is executed by Refactor 105B. The current private repository will be
+renamed in place and will not be extracted into a second private repository.
 
 ## Decision
 
@@ -22,12 +20,21 @@ The public Wallet packages use the final names `@seams/wallet` and
 `@seams/wallet-server`. Refactor 105 treats that already-applied rename as an
 atomic breaking change and adds no aliases or compatibility packages.
 
-After the boundary and rename pass, split the monorepo into two repositories:
+After the boundary and rename pass, keep the current product and deployment
+monorepo private and rename it to `seams-tech/seams-monorepo`. Create one new
+public repository, `seams-tech/seams-wallet`, containing the Wallet
+implementation and enough reference infrastructure to build, test, and run it
+locally. This is one new-repository extraction plus an in-place private-repo
+rename, not two new repositories.
 
-- a private Seams application repository containing the frontend site, customer
-  Console, admin application, hosted services, and real Cloudflare deployments;
-- a public `seams-wallet` repository containing the Wallet implementation and
-  enough reference infrastructure to build, test, and run it locally.
+The public repository owns `@seams/wallet`, `@seams/wallet-server`, their Rust
+and Wasm implementation, public tests and SDK documentation, public examples
+(including a minimal `SeamsAuthMenu` example), and a generic local runtime.
+Its Rust crates remain implementation crates with `publish = false` by
+default. Refactor 105 does not publish crates to crates.io or create a separate
+Rust repository. The public repository has credential-free validation and npm
+release workflows. The private repository exact-pins npm releases and deploys
+the prebuilt generic Wallet artifacts shipped by those packages.
 
 The target dependency graph is:
 
@@ -53,14 +60,14 @@ MPC admin control plane (Refactor 99B)
 ```
 
 The Console core and Wallet SDK do not depend on each other. The composed Wallet
-Console depends on both. A future Seams Access product can compose the same
-Console core with Access-specific services without inheriting wallet signing,
+Console depends on both. A future Satyr Ecommerce Agents module can compose the
+same Console core with its own services without inheriting wallet signing,
 custody, recovery, or chain dependencies.
 
 ## Implementation Prerequisite: Wallet-Boundary Stabilization
 
-Refactor 105 code movement starts only after these active Wallet refactors are
-merged into the target branch and stabilized:
+Refactor 105's source-boundary work was conditioned on these Wallet refactors;
+the current tree treats their stabilized outputs as upstream inputs:
 
 - [Refactor 100](./refactor-100-passkey-account-refactor.md) owns passkey account
   custody, account identity, threshold sessions, and browser Wallet state;
@@ -72,105 +79,56 @@ merged into the target branch and stabilized:
   flows, Gateway routes, D1 state, linked-device enrollment, exact authority
   activation, and the canonical metadata projection. Durable product behavior
   lives in [Intended Behaviours](./intended-behaviours.md#linked-devices);
-- [Refactor 107](./refactor-107.md) owns the deletion of Wallet AppSessions,
+- [Refactor 107](./refactor-107-remove-app-session.md) owns the deletion of Wallet AppSessions,
   server-internal `VerifiedOwnerProof`, and opaque D1-backed Wallet Sessions.
 
 These plans change the files, routes, stores, migrations, and exported types that
 Refactor 105 must classify. Parallel package movement or package renaming would
 create avoidable merge conflicts and a stale ownership inventory.
 
-[Refactor 130A](./refactor-130A-email-recovery-cleanup.md) has landed. Its
+[Refactor 130A](./refactor-111-legacy-email-recovery-cleanup.md) has landed. Its
 deletion of the legacy inbound-email recovery system, routes, stores, browser
 state, and Wasm bindings is part of the Refactor 105 starting tree. Do not
 inventory or recreate those deleted paths.
 
-The prerequisite is satisfied when:
+The current source tree is the post-Refactor-100/101/102/103/103B/107 and
+Refactor-130A starting tree. Their lifecycle, session, lane, linked-device,
+schema, and deletion decisions are upstream inputs, not a second R105 backlog.
+The checked-in ownership inventory is the historical starting snapshot. Phase 0
+of R105B regenerates it against the closeout tree before freezing the source
+reference. Confirm that no branch is still changing a shared Wallet domain,
+route, signer store, public package, or browser Wallet state that R105 will move
+or rename. Any such change moves the source-reference freeze; unrelated
+follow-ups stay in their own plans.
 
-1. Refactors 100-103 and 107 are merged into the branch that will receive
-   Refactor 105.
-2. Refactor 103 Phase 8 and the dependent Refactor 103B canonical metadata
-   projection have replaced the temporary human linked-session authority and
-   metadata paths.
-3. Refactor 107 has passed its final `pnpm check` gate and its plan is reconciled
-   with the landed opaque-session implementation.
-4. Their intended-behaviour contracts, type fixtures, vectors, migrations, and
-   targeted package builds pass.
-5. Temporary lifecycle paths and obsolete fixtures from their implementation
-   have been deleted.
-6. No active branch is still restructuring the shared Wallet domain, Wallet
-   routes, signer persistence, public SDK surface, or browser Wallet state that
-   Refactor 105 will move or rename.
+Documentation decisions may land earlier. Repository materialization, package
+release, and deployment cutover wait for the Phase 7 and Phase 8 gates.
 
-Documentation decisions may land earlier. Detailed inventories, file movement,
-package creation, and import renaming wait for this gate.
+The public Wallet package rename is one atomic late change. The current source
+paths use the final names; Phase 7 proves the rename across artifacts. Do not
+introduce forwarding packages, aliases, or dual import paths while preparing the
+release.
 
-### Prepared Kickoff Runway
-
-The pre-gate architecture review is complete. Refactor 107 is reconciled and its
-final repository gate passed. Refactor 130A and the clean-slate D1 consolidation
-are part of the starting tree. The Console and signer databases each have one
-canonical `0001` baseline; the current baselines contain 49 Console tables and
-52 signer tables.
-
-Refactor 103's zero-prompt source cutover landed in `44e7fbfdf` through
-`4cc6156d3`: the worker-held capability, owner Wallet Session authorization,
-zero-prompt Device 1 flow, focused capability tests, and two-device prompt
-counters are present. Its composed-worker lifecycle, transfer-misuse, and live
-two-device prompt-counter runs remain open evidence.
-
-Refactor 105 remains a no-go while Refactor 103 is changing linked-owner Wallet
-Sessions, canonical owner lifecycle, revocation, browser Wallet state, or fixes
-found by those live zero-prompt runs. Refactor 103B also remains open until its
-metadata projection is proven through that canonical lifecycle.
-
-Refactors 100-102 still contain open validation or follow-up items in their
-plans. Reconcile those items at the gate: complete anything that can still
-change an R105-owned path, and explicitly defer unrelated follow-ups. Do not
-carry an ambiguous "active" prerequisite into the ownership freeze.
-
-The gate classification is:
-
-- Refactor 100's clean lifecycle rerun and zero-Deriver ordinary Ed25519
-  signing evidence are blockers because they exercise public Wallet runtime and
-  browser state. The development OTP reset is operational clean-state work.
-  Compromise-triggered lane refresh remains a deferred lane-protocol follow-up.
-- Refactor 101's intended-behavior, source-guard, and wallet-iframe gate is a
-  blocker because it owns normal-signing resolution and browser lane hydration.
-- Refactor 102's Rust/TypeScript Ed25519 owner-source vector reconciliation is a
-  blocker because it can change shared encoders and lane bindings. Wallet-key
-  root refresh remains deferred, and public device bootstrap belongs to
-  Refactor 103.
-
-Immediately after those gates close:
-
-1. freeze the stabilized route, service, table, migration, job, binding, UI, and
-   test ownership inventory;
-2. add the narrow Console-core Wallet-import boundary check with a temporary,
-   explicit allowlist;
-3. create `wallet-console-shared-ts` and move Wallet-specific scopes, policies,
-   events, meters, sponsorship contracts, and webhook categories out of
-   `console-shared-ts`;
-4. add Console-owned D1, logger, HTTP, random-ID, encoding, normalization, and
-   Console-session boundary modules;
-5. replace the broad optional Console router service bag with exact core and
-   Wallet Console compositions;
-6. create `wallet-console-server-ts`, move the clearly Wallet-owned services,
-   and remove the Wallet server dependency from Console core;
-7. run the packed-artifact boundary proof before relocating authentication,
-   deployments, dashboard code, schemas, or public package names.
-
-The public Wallet package rename remains one atomic late phase. Do not introduce
-forwarding packages, aliases, or dual import paths while preparing it.
-
-During implementation, use narrow static checks and focused tests while editing.
-Run each phase's full build once after its source changes are complete. Do not
-start, stop, rebuild beneath, or leave behind the developer's manual-testing
-services unless the developer explicitly asks for runtime verification.
+For the remaining release and extraction work, use narrow static checks and
+focused tests while editing, then run each gate's full build once after its
+source changes are complete. Do not start, stop, rebuild beneath, or leave
+behind the developer's manual-testing services unless the developer explicitly
+asks for runtime verification.
 
 Refactors 113 and 114 are proposed Wallet follow-ups. Refactor 130B is deferred.
 They do not block Refactor 105 unless they enter implementation before this gate
 passes; if that happens, finish their changes to shared Wallet paths before the
 ownership inventory and package movement begin.
+
+Refactor 99B is a private-repository prerequisite for the final Console route
+and authorization classification, not a public Wallet dependency. Before the
+Phase 8 source reference is frozen, its `/admin/*` routes, admin session
+authority, platform-support paths, bindings, and tests must be either moved to
+the private admin plane or explicitly retained as private composition code.
+Refactor 105 does not wait for a second repository or public package for admin
+work. An unfinished R99B implementation stays entirely in the private
+monorepo, and any R99B path in the public extraction allowlist is a gate
+failure.
 
 ## Why This Refactor Exists
 
@@ -221,8 +179,9 @@ wallet ceremonies, or signer storage.
 ### `refactor-99-console.md`
 
 [Refactor 99 Console](./refactor-99-console.md) is directly relevant. Its
-organization, billing, email, package-boundary, and eventual repository-split
-decisions remain authoritative where they describe implemented behavior.
+organization, billing, email, and package-boundary decisions remain useful
+where they describe implemented behavior. Its repository names and extraction
+shape are superseded by this closeout plan.
 
 The filename calls this Refactor 99 while its current heading says “Refactor
 103.” Resolve that documentation-number mismatch separately; this plan refers to
@@ -240,8 +199,10 @@ Refactor 105 narrows and updates its repository-boundary work:
   wallet server exports;
 - the public packages are renamed to `@seams/wallet` and
   `@seams/wallet-server` in a dedicated pre-extraction phase;
-- the physical repository split in Refactor 99 Phase 6 remains paused until the
-  deletion builds and deployment boundaries in this plan pass.
+- the current repository will be renamed `seams-tech/seams-monorepo` and remains
+  the private product/deployment home;
+- one public `seams-tech/seams-wallet` repository is materialized from a frozen
+  source reference after the artifact gates pass.
 
 Refactor 99's placement of the whole `apps/seams-site` application in the private
 repository is confirmed. Refactor 105 additionally extracts the customer
@@ -250,10 +211,13 @@ marketing site and hosted Wallet demos remain private. The public Wallet
 repository keeps SDK documentation, tests, local reference examples, and a
 local reference runtime.
 
-Refactor 99 currently says not to rename public SDK packages during extraction.
-This plan preserves the underlying safety rule by completing the rename in a
-separate atomic phase before Git-history extraction. The extraction change
-remains source movement and release wiring only.
+Refactor 99's old extraction section used `seams-cloud` and
+`seams-wallet-sdk`, described two new repositories, and deferred the public
+package rename. Those names and that shape are historical. Refactor 105
+supersedes them with the in-place `seams-tech/seams-monorepo` rename and the one
+new `seams-tech/seams-wallet` repository. The extraction change remains source
+movement and release wiring only; no domain, protocol, schema, or public API
+redesign belongs in that change.
 
 ### `refactor-99B-MPC-control-plane.md`
 
@@ -270,12 +234,14 @@ Refactor 105 does not absorb that work. During ownership classification:
 - `platformSupport` leaves customer Console claims under Refactor 99B;
 - Console, Wallet Gateway, and Admin remain separate Worker deployments.
 
-Refactor 99B should complete its route and authorization movement before this
-plan deletes the mixed observability and platform-support paths.
+Refactor 99B's route and authorization movement must be classified before the
+Phase 8 source reference is frozen and before this plan deletes mixed
+observability or platform-support paths. The work itself remains private and
+does not add a public Wallet dependency.
 
 ### `refactor-107.md`
 
-[Refactor 107](./refactor-107.md) is the current Wallet authorization baseline.
+[Refactor 107](./refactor-107-remove-app-session.md) is the current Wallet authorization baseline.
 It deletes application authentication from the Wallet SDK, replaces
 client-visible Wallet Session JWTs with opaque D1-backed bearer tokens, and
 keeps `console_session_v1` as a separate authority plane.
@@ -294,11 +260,11 @@ Its remaining authentication work is ownership and deployment separation:
 
 ### Wallet Recovery Follow-Ups
 
-[Refactor 130A](./refactor-130A-email-recovery-cleanup.md) is implemented and
+[Refactor 130A](./refactor-111-legacy-email-recovery-cleanup.md) is implemented and
 defines the starting tree: legacy inbound-email recovery no longer exists.
 [Refactor 113](./refactor-113-recovery-code-reveal-step-up.md) and
-[Refactor 114](./refactor-114-recover-account-with-code.md) are proposed Wallet lifecycle work, while
-[Refactor 130B](./refactor-130B-email-recovery-v2.md) is deferred. They remain
+[Refactor 114](./refactor-114-recover-account-with-code.md) are proposed Wallet lifecycle work. Refactor
+130B is deferred and has no checked-in implementation plan. They remain
 Wallet-owned and do not change the Console boundary in this plan.
 
 ## Goals
@@ -315,22 +281,31 @@ Wallet-owned and do not change the Console boundary in this plan.
 5. Assign every route, service, table, migration, UI page, event category, and
    billing meter to Console core, Wallet Console, MPC Admin, or composition.
 6. Preserve current customer-visible behavior during the boundary changes.
-7. Make a future Access Console integration possible without adding an Access
-   abstraction, SDK, or product behavior during this refactor.
+7. Make a future Satyr Ecommerce Agents integration possible without adding a
+   Satyr abstraction, SDK, route, or product behavior during this refactor.
 8. Rename the public packages without forwarding packages, deprecated aliases,
    or parallel legacy import paths.
-9. Produce a public Wallet repository that runs its real Wallet lifecycle
-   locally while leaving staging and production deployment ownership private.
+9. Produce `seams-tech/seams-wallet` with public SDK docs, tests, examples, a
+   minimal `SeamsAuthMenu` example, and a generic local runtime that runs the
+   real Wallet lifecycle while leaving staging and production deployment
+   ownership private.
+10. Extract from one recorded source commit and make the private deployment
+    consume only exact-pinned npm packages and their prebuilt generic artifacts.
 
 ## Non-goals
 
-- implementing NFC credentials, robot provisioning, or Seams Access;
+- implementing NFC credentials, robot provisioning, or Satyr Ecommerce Agents;
 - designing a generic plugin marketplace or dynamic module loader;
 - changing wallet signing, registration, recovery, key custody, or cryptography;
 - changing customer organization, RBAC, prepaid billing, or email behavior;
 - changing Git history before the boundary, rename, and packed-build gates pass;
 - publishing internal Console packages;
+- publishing Rust crates to crates.io or splitting the Rust implementation into
+  another repository;
 - combining the customer Console and MPC admin plane;
+- moving production or staging GitHub Actions, environment values, topology,
+  secrets, provider configuration, or operational runbooks into the public
+  repository;
 - generalizing a wallet-specific feature before a second product demonstrates a
   shared domain model.
 
@@ -411,23 +386,36 @@ to obtain a Worker entrypoint, D1 migration command, route, or utility.
 
 ## Target Source Layout
 
-Use clear domain names for the final package boundary. The Wallet directories
-are renamed in the same atomic phase as their package manifests:
+Use clear domain names for the final repository and package boundaries:
 
 ```text
-apps/
-  seams-site/                         # marketing, docs links, wallet demos
-  seams-console/                      # customer Console composition
-  seams-admin/                        # Refactor 99B MPC operator UI
+seams-monorepo/                       # private, renamed in place
+  apps/
+    seams-site/
+    seams-console/
+    seams-admin/
+    docs/                             # hosted docs application and private docs
+  packages/
+    console-shared-ts/
+    console-server-ts/
+    wallet-console-shared-ts/
+    wallet-console-server-ts/
+    platform-admin-server-ts/
+  deployment/
+  .github/workflows/                 # every staging/production workflow
 
-packages/
-  console-shared-ts/                  # product-neutral browser/server contracts
-  console-server-ts/                  # product-neutral customer control plane
-  wallet-console-shared-ts/           # wallet scopes and browser/server contracts
-  wallet-console-server-ts/           # hosted wallet administration integration
-  wallet/                             # @seams/wallet; renamed from sdk-web
-  wallet-server/                      # @seams/wallet-server; renamed from sdk-server-ts
-  platform-admin-server-ts/           # Refactor 99B operator control plane
+seams-wallet/                         # public, fresh history
+  packages/
+    wallet/                           # @seams/wallet
+    wallet-server/                    # @seams/wallet-server
+    shared-ts/
+  crates/
+  wasm/
+  tools/
+  docs/                               # Wallet API/protocol/runtime docs
+  examples/
+    seams-auth-menu/
+    self-host-cloudflare-worker/
 ```
 
 Inside `apps/seams-console`, keep direct and readable ownership:
@@ -442,48 +430,68 @@ src/
 
 Do not create a general plugin framework. The application imports one typed
 Wallet Console route definition and appends it to the core route list. A future
-Access product can add another explicit route definition when it exists.
+Satyr Ecommerce Agents module can add another explicit route definition when it
+has a working private operating path.
 
 ## Final Repository Ownership
 
-The repository destination is fixed.
+The repository destinations are fixed: rename the current private repository to
+`seams-tech/seams-monorepo`, and create only one new repository,
+`seams-tech/seams-wallet`.
 
-### Private Seams application repository
+### Private `seams-tech/seams-monorepo`
 
 Owns:
 
 - `apps/seams-site`, including marketing and hosted Wallet demos;
 - `apps/seams-console`;
 - `apps/seams-admin` from Refactor 99B;
+- product and deployment documentation, including private Console/Admin
+  architecture, staging and production runbooks, and operator procedures;
 - `apps/web-server` and hosted Gateway/Worker composition;
 - `console-shared-ts` and `console-server-ts`;
 - `wallet-console-shared-ts` and `wallet-console-server-ts`;
 - `platform-admin-server-ts`;
 - Console, billing, sponsorship, webhook, audit, email, and admin migrations;
-- production and staging Cloudflare entrypoints, routes, bindings, domains,
-  secrets, observability, backup, restore, and operational runbooks;
+- all production and staging GitHub Actions, Cloudflare entrypoints, routes,
+  bindings, domains, environment variables, secrets, provider configuration,
+  topology, observability, backup, restore, and operational runbooks;
 - production migration orchestration for both private schemas and the installed
   Wallet server package's signer schema.
 
 The private repository exact-pins published `@seams/wallet` and
-`@seams/wallet-server` releases. It uses no workspace link, Git dependency,
-source-path alias, submodule, or sibling checkout to consume Wallet code.
+`@seams/wallet-server` releases. It consumes their prebuilt generic runtime and
+Wasm/Worker artifacts from the installed packages. It never builds the public
+Rust/Wasm implementation from a source checkout during deployment and uses no
+workspace link, Git dependency, source-path alias, submodule, or sibling
+checkout to consume Wallet code.
 
-### Public `seams-wallet` repository
+### Public `seams-tech/seams-wallet`
 
 Owns:
 
 - `@seams/wallet`;
 - `@seams/wallet-server`;
 - Wallet-owned shared code and required Rust/Wasm crates;
+- the Cargo manifests, lockfiles, protocol tooling, and build configuration
+  needed to build those artifacts; every implementation crate is
+  `publish = false` by default;
 - registration, authentication, signing, recovery, Wallet Session, key, lane,
   and linked-device behavior;
 - signer storage schemas and migrations;
 - Cloudflare-compatible Wallet Worker factories and typed bindings;
 - a local reference Worker and local D1/Durable Object setup sufficient to run
   the real Wallet lifecycle;
-- protocol vectors, intended-behaviour contracts, package tests, SDK
-  documentation, examples, and release workflows.
+- protocol vectors, intended-behaviour contracts, Wallet package tests, SDK
+  documentation under `docs/`, `examples/seams-auth-menu`, and
+  `examples/self-host-cloudflare-worker`;
+- credential-free validation workflows and npm release workflows using the
+  registry's trusted publishing mechanism rather than a checked-in token.
+
+The public repository does not own Console, Admin, billing, production or
+staging configuration, provider credentials, deployment topology, or private
+operational docs. It does not publish Rust crates to crates.io. The npm package
+artifacts are its release boundary.
 
 The public repository owns the signer schema because it is part of the Wallet
 runtime contract. The private repository owns applying those versioned
@@ -495,6 +503,16 @@ adapters and contains no Console, billing, sponsorship, private environment,
 production secret, account-specific binding, or operational configuration.
 Normal restarts preserve its local signer and Wallet state. Reset is a separate,
 explicit command.
+
+Documentation follows the same boundary. Wallet API, protocol, local-runtime,
+and public example documents are extracted from the current hosted docs tree
+into `seams-wallet/docs`. The `apps/docs` application remains private with
+Console, Admin, product, deployment, staging, production, provider, topology,
+and operational documents. Moved Wallet documents have one canonical public
+copy; the private docs application links to that copy instead of retaining a
+second editable version. A public document may link to a generic interface and
+must disclose no private hostname, environment variable, secret, binding,
+provider account, or deployment procedure.
 
 ## Dependency Rules
 
@@ -523,6 +541,12 @@ explicit command.
 11. Cross-package integration uses exported, typed contracts. Source-path aliases,
     wildcard internals, and workspace-only imports are forbidden at the final
     boundary gate.
+12. The private deployment consumes only exact-pinned npm packages and their
+    prebuilt generic artifacts. It does not compile public Rust/Wasm sources or
+    resolve a public-repository path at build or deploy time.
+13. Rust crates in the public repository are build inputs, not registry
+    products. `publish = false` is the default and no crates.io release gate is
+    part of Refactor 105.
 
 ## Authentication Boundary
 
@@ -686,6 +710,9 @@ Rules:
   Wallet Console before repository extraction;
 - recreate local and deployed migration ledgers when the R105 schema ownership
   cutover lands.
+- resolve signer migrations and generic runtime artifacts from the exact-pinned
+  installed `@seams/wallet-server` package in the private monorepo; deployment
+  jobs must not reach a public source checkout or run the public Rust build.
 
 Keep Console core and Wallet Console tables in one private `seams-console` D1 by
 default. This preserves atomic billing, reservation, and control-plane updates.
@@ -720,346 +747,123 @@ Move platform routes according to Refactor 99B before completing the extraction:
 - customer-visible product errors, usage, and audit remain in
   `apps/seams-console`.
 
-## Historical Implementation Phases And Active Final Split
+## Boundary Closeout And Final Split
 
-### Phase 0: Reconcile And Classify The Stabilized Wallet Boundary
+Phases 0–6 are the in-monorepo prerequisite for the release and repository
+split. Their former detailed checklists are historical context. Before Phase 7,
+confirm the following against the current tree:
 
-- [ ] Verify the Refactors 100-103 and 107 implementation prerequisite,
-      including the Refactor 103 Phase 8 and Refactor 103B cutovers.
-- [ ] Re-read the resulting Wallet lifecycle types, public exports, routes,
-      stores, migrations, and composition entrypoints.
-- [ ] Treat Refactor 130A's deleted legacy email-recovery paths as absent from
-      the baseline; record any later Refactor 113 or 114 implementation that
-      landed before this phase.
-- [ ] Inventory every Console route, service, table, migration, scheduled job,
-      environment binding, UI route, event category, and test.
-- [ ] Assign each item to `console-core`, `wallet-console`, `mpc-admin`, or
-      `composition`.
-- [ ] Record all 49 effective `seams-console` tables in a checked-in ownership
-      matrix. Mark `api_keys`, audit/evidence, prepaid reservations, billing
-      usage enums, observability, and webhook categories as mixed until their
-      product vocabulary is assigned.
-- [ ] Record all 52 effective `seams-signer` tables as Wallet runtime ownership
-      and verify that the canonical baseline contains no retired App Session,
-      authorization-session, or legacy email-recovery tables.
-- [ ] Record the current route surfaces for Gateway, Console, and Admin.
-- [ ] Record imports from `console-server-ts` to
-      `@seams/wallet-server/cloud-host` by domain and symbol.
-- [ ] Record the Console Worker's current signer database, Durable Object, Wasm,
-      and key-related bindings.
-- [ ] Classify the root local commands, `router-ab-dev` runtime, combined local
-      Worker, migration scripts, state-preserving startup, and explicit reset
-      path between the public Wallet runtime and private composed development.
-- [ ] Add one narrow package-boundary check that prevents new Wallet imports in
-      declared Console-core folders while the initial allowlist is burned down.
+- Console core is product-neutral and imports no Wallet implementation;
+- Wallet Console is the sole customer-control-plane composition that consumes
+  supported Wallet server exports;
+- Console, Wallet Gateway, and Admin route and credential namespaces are
+  distinct, with every unfinished R99B path classified private;
+- every Console and signer table, migration, binding, scheduled job, and test
+  has one current owner in the reconciled ownership inventory;
+- `apps/seams-console` is independently buildable and the main-site dashboard
+  extraction has one explicit remaining cutover owner;
+- Console core and Wallet Console build and their focused boundary checks pass;
+- packed packages resolve without workspace, Git, source-path, or sibling
+  checkout fallbacks.
 
-Exit:
+A failed item reopens the corresponding boundary work. Phase 7 and Refactor
+105B remain blocked until the closeout is complete. Refactor 99B's
+implementation remains private, and R105C separately requires its complete
+Admin authority exit.
 
-- every current item has one owner;
-- the inventory describes the stabilized post-Refactor-107 and post-Refactor-130A
-  tree;
-- disputed modules stay Wallet-owned until a concrete shared invariant exists;
-- no prerequisite implementation branch still restructures an owned path.
+### Phase 7: Packed-Artifact Gate For The Wallet Packages
 
-### Phase 1: Establish Product-Neutral Console Contracts
+The package rename is one breaking change and is already represented by the
+canonical source paths. This phase confirms the package boundary without
+reopening Wallet behavior or introducing compatibility names:
 
-- [ ] Move Wallet and chain vocabulary out of `console-shared-ts`.
-- [ ] Create `wallet-console-shared-ts` for Wallet scope, event, policy, and
-      request/response contracts used by both Wallet Console surfaces.
-- [ ] Add Console-owned D1, logger, HTTP, random-ID, encoding, and normalization
-      boundary modules where generic Console services currently use
-      `cloud-host`.
-- [ ] Define the Console-owned session parser and issuer port without changing
-      the deployed session implementation yet.
-- [ ] Split product scope catalogs from generic API credential lifecycle.
-- [ ] Split product event catalogs from generic webhook delivery.
-- [ ] Normalize Wallet meters into the product-neutral active-resource billing model.
-- [ ] Remove Wallet-only `CHECK` catalogs from Console-core storage contracts.
-      Keep normalized product identifiers in generic transport rows and validate
-      Wallet scope, event, approval, policy, meter, and webhook-category values
-      once in Wallet Console request/storage boundaries.
-- [ ] Classify tenant-facing observability as Console core or Wallet Console and
-      move fleet/platform observability to MPC Admin under Refactor 99B.
-- [ ] Require exact core service sets through branch-specific builders instead
-      of extending the broad router optional bag.
+- [ ] Confirm the final `@seams/wallet` and `@seams/wallet-server` names and
+      remove old names, aliases, and forwarding packages.
+- [ ] Build and pack both packages, including the required Worker, Rust/Wasm,
+      migration, type, and browser artifacts. Keep all crates `publish = false`.
+- [ ] Inspect the package contents for private Console, Admin, deployment,
+      provider, secret, or source-path material.
+- [ ] Start the generic runtime and build the minimal `SeamsAuthMenu` example
+      from the packed packages with private packages absent.
+- [ ] Build the private composition against those packages with workspace,
+      path, Git, and sibling-checkout fallbacks disabled.
+- [ ] Confirm private migration and deployment scripts use the prebuilt
+      artifacts from `node_modules/@seams/wallet-server` and do not run Cargo or
+      `wasm-pack`.
 
 Exit:
 
-- `console-shared-ts` contains no Wallet, chain, signing, sponsorship, or MPC
-  vocabulary;
-- generic Console modules import no incidental D1, HTTP, logging, random-ID, or
-  session utility from the Wallet server package;
-- current hosted behavior remains unchanged through explicit composition.
+- the two renamed npm packages pass clean packed builds and contain no private
+  source or configuration;
+- the public generic runtime and `SeamsAuthMenu` example work without private
+  code or credentials;
+- the private composition consumes only exact package versions and prebuilt
+  generic artifacts;
+- no Rust crate is published to crates.io, and no compatibility package exists;
+- the packages contain the runtime artifacts required by private deployment.
 
-### Phase 2: Create The Wallet Console Integration
+### Phase 8: Execute Refactor 105B
 
-- [ ] Create `packages/wallet-console-server-ts`.
-- [ ] Move Wallet inventory, policies, sponsorship, sponsored calls, spend caps,
-      runtime snapshots, key exports, Wallet approvals, and Wallet usage modules.
-- [ ] Move ownership of `wallet_index`, `key_exports`, `policies`,
-      `policy_versions`, `policy_assignments`, `approvals`, `runtime_snapshots`,
-      `runtime_snapshot_outbox`, sponsorship pricing/cap/call tables, and
-      Wallet-specific billing request parsing to the Wallet Console package.
-- [ ] Decide the mixed billing reservation tables by their current behavior:
-      keep a product-neutral reservation mechanism in Console core only if it
-      has a non-Wallet caller; otherwise move it with Wallet sponsorship.
-- [ ] Move Wallet route definitions, request parsers, policy rules, webhook event
-      vocabulary, and billing meters with their domains.
-- [ ] Keep supported `@seams/wallet-server/cloud-host` imports inside this package or
-      the final composition root until Phase 7 renames the public package.
-- [ ] Define a narrow `WalletControlPort` for commands that cross from the
-      Console Worker to the Wallet runtime.
-- [ ] Define the opposite hosted runtime seam as exact internal service-binding
-      operations for API-key validation, policy and sponsorship resolution, and
-      idempotent usage-event ingestion. Do not expose the Console database or a
-      generic SQL/query endpoint to the Wallet Gateway.
-- [ ] Read Wallet lists and status from the Console-owned projection.
-- [ ] Route custody-sensitive mutations through the internal Wallet service
-      binding.
-- [ ] Add `createWalletConsoleRouter` with required Wallet services.
-- [ ] Delete moved exports and compatibility aliases from `console-server-ts`.
-- [ ] Remove `@seams/wallet-server` from `console-server-ts/package.json` after its
-      last core import is gone.
+Phase 8 starts only after the Phase 7 exit and Refactor 99B's admin paths are
+classified. [Refactor 105B](./refactor-105B-github-split.md) is the authoritative
+execution plan for extraction, npm release, private rewiring, deletion, and
+deployment. The required outcome is:
 
-Exit:
-
-- all Wallet Console behavior has one package owner;
-- Console core cannot construct Wallet routes;
-- Wallet Console can be omitted without optional-service runtime failures;
-- `console-server-ts` has no Wallet server dependency.
-
-### Phase 3: Prove The Compile-Time Boundary
-
-- [ ] Pack Console core packages and install them into a temporary workspace with
-      no Wallet packages or source aliases.
-- [ ] Build the Wallet packages and local reference signer with every Console
-      package absent.
-- [ ] Start, restart, migrate, and explicitly reset the Wallet-only local
-      reference runtime with every Console package absent.
-- [ ] Pack and build the Wallet Console composition against released-style
-      package artifacts with workspace links disabled.
-- [ ] Inspect package tarballs and generated declarations for forbidden imports.
-- [ ] Run current intended Wallet behavior contracts.
-- [ ] Delete the temporary boundary allowlist after all consumers move.
+- [ ] Extract from one recorded source commit using the reconciled ownership
+      manifest. Do not hand-copy a moving working tree.
+- [ ] Materialize only the new public `seams-tech/seams-wallet` candidate. The
+      existing private repository is renamed in place to
+      `seams-tech/seams-monorepo`; do not create a second private repository or
+      retain a `seams-cloud`/`seams-wallet-sdk` target.
+- [ ] Put `@seams/wallet`, `@seams/wallet-server`, Rust/Wasm implementation,
+      signer migrations, Wallet-owned tests and type fixtures, SDK/protocol
+      docs, public examples, the minimal `SeamsAuthMenu` example, generic local
+      runtime, public CI, and npm release workflows in `seams-wallet`.
+- [ ] Keep Console/Admin/product/deployment docs, Console and Wallet Console
+      tests, staging and production GitHub Actions, environment values,
+      Cloudflare topology, secrets, provider configuration, operational
+      runbooks, and composed-stack harnesses in `seams-monorepo`.
+- [ ] Create the public repository with its own workspace manifest, lockfile,
+      license, README, credential-free validation workflows, and npm release
+      workflow. Rust crates remain repository implementation crates with
+      `publish = false` and no crates.io workflow.
+- [ ] Publish the first `@seams/wallet` and `@seams/wallet-server` npm releases
+      from `seams-tech/seams-wallet`, then replace private workspace ranges with
+      exact versions and regenerate the private lockfile.
+- [ ] Run the private production/staging build and deploy workflows using only
+      exact npm versions and prebuilt generic artifacts. Confirm that the
+      private repository has no filesystem, Git, or source-build dependency on
+      `seams-wallet`.
+- [ ] Delete moved source and stale fallbacks only after both repositories work
+      independently. Keep the split free of domain, protocol, schema, or route
+      behavior changes.
 
 Exit:
 
-- Console core, Wallet SDK, and composed Wallet Console pass independent clean
-  installs and builds;
-- deleting either side produces no unresolved source import on the other;
-- only the composed Wallet Console depends on both sides.
-
-This is the first major checkpoint. Authentication, frontend, deployment, and
-schema cutovers start only after it passes.
-
-### Phase 4: Relocate Console Authentication And Deployment
-
-- [ ] Move the existing Console session interface and implementation into
-      Console-owned modules and remove their `SessionAdapter` import from the
-      Wallet server package.
-- [ ] Move Google and GitHub customer Console authentication from the combined
-      Gateway's `/session/exchange` path to exact `/console/auth/*` routes.
-- [ ] Change dashboard sign-in, session refresh, organization switching, and
-      sign-out to use only the Console Worker.
-- [ ] Deploy the Console-only Worker entrypoint with Console-specific session
-      secrets and bindings.
-- [ ] Deploy the private Wallet Console service-binding operations for API-key
-      validation, policy and sponsorship resolution, and idempotent usage-event
-      ingestion.
-- [ ] Switch the Wallet Gateway to those exact operations and remove its direct
-      Console D1 queries.
-- [ ] Move Console-owned scheduled email and control-plane jobs out of the
-      Gateway's scheduled handler.
-- [ ] Remove `CONSOLE_DB` from the Gateway environment type, Wrangler bindings,
-      readiness checks, migration orchestration, and deployment documentation.
-- [ ] Build the hosted Wallet Gateway with only the exact Wallet Console
-      service-binding client and no Console database contract in its runtime
-      inputs.
-- [ ] Stop serving `/console/*` from the Wallet Gateway.
-- [ ] Delete the combined Gateway's Console exchange and Console-session
-      construction after the cutover.
-- [ ] Coordinate removal of `platformSupport` with Refactor 99B.
-
-Exit:
-
-- a Console session cannot authorize a Wallet runtime route;
-- a Wallet session cannot authorize a Console route;
-- the Gateway cannot resolve `/console/*`;
-- the Console Worker has no signer database or MPC binding;
-- the Wallet Gateway has no Console database binding and exposes no generic
-  Console query operation;
-- the Gateway schedules no Console-owned job.
-
-### Phase 5: Extract The Customer Console Application
-
-- [ ] Create `apps/seams-console` and move dashboard login, shell, core routes,
-      styles, and customer Console API clients into it.
-- [ ] Keep marketing, hosted Wallet demos, and intended Wallet examples in the
-      private `apps/seams-site` application.
-- [ ] Remove the customer Console from the site router.
-- [ ] Replace dashboard uses of Wallet theme hooks and `SeamsWebProvider` with
-      Console-owned theme state and tokens.
-- [ ] Create `core/`, `products/wallet/`, and `app/` ownership folders.
-- [ ] Move Ops Cockpit, platform observability, and platform customer operations
-      according to Refactor 99B.
-- [ ] Preserve URLs through deployment routing rather than a second React
-      compatibility router.
-
-Exit:
-
-- `apps/seams-site` and `apps/seams-console` build as separate private
-  applications;
-- the Console core UI builds without a Wallet package import;
-- the composed Console still serves the existing customer dashboard URLs.
-
-### Phase 6: Separate Schema And Operational Ownership
-
-- [ ] Complete the checked-in per-table and per-migration ownership inventory,
-      including the mixed columns and `CHECK` catalogs in `api_keys`, audit and
-      evidence, prepaid reservations, billing usage, observability, and webhook
-      tables.
-- [ ] Move new Wallet Console migrations and scheduled jobs under the Wallet
-      Console package.
-- [ ] Treat `0001_console_d1_initial.sql` as the current composed source
-      baseline. Replace it atomically when the explicit fresh Console-core and
-      composed Wallet Console entrypoints are ready.
-- [ ] Add an explicit fresh Console-core schema entrypoint containing only the
-      core-owned tables and product-neutral forms of retained mixed tables.
-- [ ] Add an explicit composed Wallet Console schema entrypoint containing
-      Console core plus Wallet Console tables and Wallet-owned catalogs.
-- [ ] Remove Wallet-only constraints from retained Console-core tables and
-      validate Wallet values at the Wallet Console request or storage boundary.
-- [ ] Validate fresh Console-core and fresh composed creation. Keep these as
-      direct migration entrypoints without adding a schema generator, migration
-      framework, or legacy upgrade path.
-- [ ] Make migration orchestration an explicit responsibility of the private
-      deployed composition root.
-- [ ] Remove signer migration and signer smoke orchestration from Console-core
-      scripts.
-- [ ] Resolve signer migrations from the installed Wallet server package in
-      staging and production.
-- [ ] Verify backup, restore, and readiness checks against their owned stores.
-
-Exit:
-
-- a new Console-core database contains no Wallet tables;
-- a composed Wallet Console database contains core plus Wallet product tables;
-- both fresh schemas match the checked-in ownership inventory exactly;
-- the canonical baselines create only their declared fresh schemas;
-- signer migrations remain owned and packaged by the Wallet server package;
-- the private deployment applies signer migrations without Wallet source access;
-- no migration path silently creates tables owned by another product.
-
-### Phase 7: Rename The Public Wallet Packages And Re-run Boundary Proofs
-
-Verify the atomic breaking rename after the domain boundary is stable:
-
-- [ ] Verify the final package names and directories are `@seams/wallet` in
-      `packages/wallet` and `@seams/wallet-server` in `packages/wallet-server`.
-- [ ] Update every manifest, import, export map, declaration rewrite, build
-      script, test, example, migration resolver, generated artifact, and document.
-- [ ] Preserve existing runtime class, protocol, route, and storage names unless
-      a separate refactor explicitly owns their redesign.
-- [ ] Delete the old package names in the same change. Add no forwarding package,
-      alias export, deprecated symbol, or dual import path.
-- [ ] Publish or locally pack the first release candidates under the new names.
-- [ ] Build the private applications against exact release-candidate versions
-      with workspace links and source aliases disabled.
-- [ ] Build and run the public local reference Wallet runtime from packed
-      packages and packaged signer migrations.
-- [ ] Package the versioned Router A/B Cloudflare runtime inside
-      `@seams/wallet-server`; build the extracted private deployment from that
-      package artifact without compiling public-repository Rust sources.
-- [ ] Verify a normal Wallet-only runtime restart preserves signer and Wallet
-      state, while the explicit reset command deletes only its resolved local
-      persistence root.
-- [ ] Re-run intended behavior, type fixtures, vectors, fresh migrations, package
-      deletion builds, and tarball inspection.
-- [ ] Verify Gateway, Console, and Admin route namespace rejection in staging.
-
-Exit:
-
-- `@seams/wallet` and `@seams/wallet-server` pass clean packed builds;
-- the private hosted composition consumes only exact packed versions;
-- the public local runtime exercises registration, unlock, signing, recovery,
-  opaque Wallet Sessions, state-preserving restart, explicit reset, and signer
-  migrations without private code.
-
-### Phase 8: Split The Repositories
-
-After Phases 0-7 pass, resume Refactor 99 Phase 6 with the ownership fixed in
-this plan:
-
-- [ ] Update extraction allowlists for the new package paths, Console
-      application, Wallet Console packages, and public local reference runtime.
-- [ ] Extract the private Seams application repository with `apps/seams-site`,
-      `apps/seams-console`, hosted services, private packages, production
-      Cloudflare configuration, and operational assets.
-- [ ] Extract the public `seams-wallet` repository with `@seams/wallet`,
-      `@seams/wallet-server`, Wallet Rust/Wasm, signer migrations, tests, SDK
-      documentation, examples, and local reference infrastructure.
-- [ ] Publish the first independent Wallet releases under the new names.
-- [ ] Exact-pin those releases in the private repository.
-- [ ] Build and deploy the private hosted services to Cloudflare staging without
-      filesystem or Git access to the public repository.
-- [ ] Clone, install, build, test, and run the public Wallet locally without
-      access to the private repository.
-- [ ] Perform the history, secret, source-map, license, CI, and staging checks
-      from Refactor 99.
-- [ ] Cut over repositories without domain behavior, public API, protocol, or
-      schema changes in the movement pull request.
+- `seams-tech/seams-monorepo` is the private product/deployment monorepo and
+  owns all production/staging actions, configuration, topology, and secrets;
+- `seams-tech/seams-wallet` is the only new repository and builds/tests/runs the
+  real Wallet lifecycle, docs, examples, and generic local runtime independently;
+- private deployments use exact-pinned npm packages and prebuilt generic
+  artifacts without public source access;
+- public validation is credential-free, npm releases use trusted publishing,
+  and no Rust crate is published to crates.io.
 
 ## Minimal Validation
 
-Run the narrowest test for each moved boundary. The final phase requires:
+Run only the checks needed for the moved boundary:
 
-```bash
-pnpm -C packages/console-shared-ts type-check
-pnpm -C packages/console-server-ts type-check
-pnpm -C packages/wallet-console-shared-ts type-check
-pnpm -C packages/wallet-console-server-ts type-check
-pnpm -C packages/wallet type-check
-pnpm -C packages/wallet-server type-check
-pnpm -C apps/seams-site typecheck
-pnpm -C apps/seams-console typecheck
+- type-check and build the public Wallet packages from the public candidate;
+- start the generic Wallet runtime and build the `SeamsAuthMenu` example once;
+- type-check and build Console against the packed, exact-version packages;
+- run one focused composed Wallet flow from the private monorepo;
+- confirm Console, Wallet Gateway, and Admin reject one another's credentials
+  and route namespaces;
+- inspect the public tree and npm packages for private configuration or secrets.
 
-pnpm -C packages/console-server-ts build
-pnpm -C packages/wallet-console-server-ts build
-pnpm -C packages/wallet build
-pnpm -C packages/wallet-server build
-pnpm -C apps/seams-site build
-pnpm -C apps/seams-console build
-```
-
-Add targeted behavioral tests for:
-
-- Console-account sessions, opaque Wallet Sessions, and admin credentials cannot
-  authorize one another's routes or operations;
-- Gateway rejection of `/console/*` and `/admin/*`;
-- Console rejection of wallet runtime and `/admin/*` routes;
-- customer organization, membership, project access, API credential, billing,
-  email, webhook, and audit behavior after extraction;
-- API-key validation, policy and sponsorship resolution, and idempotent usage
-  ingestion across the exact Wallet Console service-binding operations;
-- deployed binding inspection proving that the Console Worker receives only its
-  Console D1 and the Wallet Gateway receives only its signer D1 plus the narrow
-  Wallet Console service binding;
-- Wallet Console route parity before and after module movement;
-- wallet projection reads without signer database access;
-- custody-sensitive commands using only the internal wallet control port;
-- Console-core fresh schema containing exactly the core-owned tables and composed
-  Wallet Console fresh schema containing exactly core plus Wallet-owned tables;
-- fresh creation from the canonical Console-core and composed Wallet Console
-  baselines;
-- effective Wallet signer schema ownership, including absence of the retired App
-  Session, authorization-session, and legacy email-recovery tables;
-- package deletion builds and packed-artifact installs;
-- Wallet-only local startup, state-preserving restart, migration, and explicit
-  reset without `console-server-ts`.
-
-The authoritative wallet lifecycle contracts remain `pnpm test:intended`.
-Console route and dashboard tests remain responsible for customer control-plane
-behavior.
+Reuse existing Wallet lifecycle, Rust/Wasm, and Console tests where they already
+cover changed behavior. Do not add an exhaustive split-specific matrix, proof
+format, or duplicate lifecycle suite.
 
 ## Risks And Controls
 
@@ -1077,12 +881,13 @@ meters wallet-owned until another implemented product reveals the common model.
 
 Deploy the Console session endpoint first, switch the dashboard, invalidate the
 old cookie, and delete the Gateway exchange path. Keep any old-cookie parser at
-the request boundary for one bounded cutover only.
+the request boundary for one bounded pre-R105C cutover only, then delete it as a
+Refactor 105 closeout condition. R105C starts with no compatibility parser.
 
 ### Migration ownership drift
 
-Require one owner for each baseline section and each later migration. Prove both
-fresh schema variants before repository movement.
+Require one owner for each baseline section and each later migration. Confirm
+the core-only and composed schemas can be created before repository movement.
 
 ### Cross-plane D1 binding leakage
 
@@ -1104,6 +909,20 @@ an explicit consistency design.
 
 Package builds inside the monorepo are insufficient. Packed-artifact deletion
 builds with workspace links and source aliases disabled are the exit gate.
+
+### Extraction from a moving tree
+
+Extract from one recorded commit through the ownership manifest. Do not
+hand-copy a working tree whose public/private ownership is still changing.
+
+### Private configuration leaking through public artifacts
+
+Scan the public tree, npm tarballs, declarations, source maps, Wasm/Worker
+artifacts, workflows, and initial commit before publication. Keep all staging
+and production actions, environment values, topology, secrets, provider config,
+and operational docs in the private monorepo. Public validation and npm release
+jobs use no private credentials; the private deploy consumes only exact-pinned
+packages and their prebuilt generic artifacts.
 
 ## Definition Of Done
 
@@ -1133,12 +952,21 @@ builds with workspace links and source aliases disabled are the exit gate.
 - `apps/seams-site` contains no customer dashboard or Console dependency.
 - Console core, Wallet SDK, and Wallet Console composition pass clean packed
   builds without workspace links.
-- the private Seams application repository owns the frontend site, customer
-  Console, admin application, hosted services, and real Cloudflare deployments;
-- the public `seams-wallet` repository builds, tests, and runs its real Wallet
-  lifecycle locally with no private repository access, preserves local state on
-  normal restart, and exposes reset as an explicit operation;
-- the private repository consumes exact published Wallet package versions and
-  deploys them without public-repository source access;
-- Refactor 99's extraction completed as source movement and release wiring,
-  without another domain-boundary redesign.
+- `seams-tech/seams-monorepo` owns the frontend site, customer Console, admin
+  application, hosted services, all production/staging GitHub Actions,
+  environment values, topology, secrets, provider configuration, and real
+  Cloudflare deployments;
+- `seams-tech/seams-wallet` is the only new repository and owns the Wallet
+  packages, Rust/Wasm implementation, signer migrations, Wallet tests/docs/
+  examples, minimal `SeamsAuthMenu` example, and generic local runtime;
+- the public repository builds, tests, and runs the real Wallet lifecycle with
+  no private repository access, preserves local state on normal restart, and
+  exposes reset as an explicit operation;
+- public validation is credential-free, npm releases use trusted publishing,
+  and all Rust crates remain `publish = false` with no crates.io release;
+- the private repository consumes exact-pinned npm package versions and
+  prebuilt generic artifacts without public-repository source access;
+- the public tree contains no private configuration, credentials, deployment
+  workflow, or operational material;
+- the cutover changes repository and release wiring only, without another
+  domain-boundary redesign.

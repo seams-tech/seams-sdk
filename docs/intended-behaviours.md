@@ -434,7 +434,7 @@ Expected behaviour:
 
 ## Account Recovery
 
-Until Refactor 109A defines multi-auth recovery, code recovery accepts only a
+Until Refactor 109C defines multi-auth recovery, code recovery accepts only a
 wallet with exactly one active Passkey owner method for the requested RP.
 
 Expected behaviour:
