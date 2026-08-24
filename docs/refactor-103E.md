@@ -64,6 +64,9 @@ not complete a behavioral item.
   Session into V2 before returning its opaque bearer. The real Passkey/ECDSA
   cell now passes Device 1 inventory and independent reload/unlock on both
   devices.
+- [x] The Passkey-to-Passkey ECDSA-only profile completes linking, exact
+  authority activation, independent reload/unlock on both devices, ordinary
+  ECDSA export, Arc/EVM signing, and revocation: 1/1 in 56.0 seconds.
 
 ### Open completion gates
 
@@ -89,8 +92,8 @@ not complete a behavioral item.
 
 ### Current active checkpoint
 
-The active checkpoint is the remaining Passkey/ECDSA lifecycle after successful
-link activation, followed by the three Email OTP matrix cells.
+The active checkpoint is the remaining signer-family matrix cells, beginning
+with the three Email OTP cells.
 
 - Last confirmed complete browser boundary: both devices independently
   reloaded and unlocked; Device 2 completed NEAR export/signing, EVM export,
@@ -141,12 +144,16 @@ link activation, followed by the three Email OTP matrix cells.
   projection. It now resolves the proof's exact active method and authority,
   persists that projection from the issued session, and only then returns the
   bearer. The real cell passes Device 1 inventory and independent reload/unlock
-  on both devices. Its current first failure is the next boundary: ECDSA key
-  export reports that the rehydrated client has no active Wallet Session
-  authorization.
-- Current focused files: `tests/e2e/linked-device.operating-path.test.ts`,
-  `ecdsa-derivation-client.worker.ts`, and
-  `tests/unit/ecdsaHolderExportRetention.unit.test.ts`.
+  on both devices. Export then exposed a family-modeling regression: the exact
+  linked Passkey owner scope required a legacy Ed25519 authenticator signer
+  slot, even though ECDSA owner matching needs only RP ID and credential ID.
+  The scope now has an explicit slotless ECDSA branch, and Ed25519 lane matching
+  rejects that branch. Wallet typecheck, SDK build, 7/7 focused owner/runtime
+  units, diff-check, and the real 56-second browser cell pass through export,
+  Arc/EVM signing, and revocation.
+- Current focused files: `BrowserSigningSurface.ts`, `ownerLaneScope.ts`,
+  `signingLaneAuthBinding.ts`, `availableSigningLanes.ts`, and the
+  `ownerLaneScope.typecheck.ts` negative fixture.
 - Active next action: run the six-cell matrix against the same frozen build,
   repair only the first classified failure, then run the interruption and full
   intended-behaviour gates. Signing outcome predicates accept final success or
@@ -211,6 +218,7 @@ route. This ledger is normative for the remaining work and for future refactors.
 | Passkey promotion assumed every wallet had Ed25519 binding facts | ECDSA-only receipt activation was reported as an `installedActivationRefs` mismatch even though the receipt matched | Combined/Ed fixtures always supplied NEAR identity fields, and the route collapsed every activation error to one hard-coded field | Branch credential promotion on the authority signer family; ECDSA-only Passkeys store the valid base binding, while Ed25519 authorities require the complete Ed facts |
 | The ECDSA-only test waited for an Ed25519 source-execution route | A successful ECDSA link stalled for 60 seconds after the direct source contribution | The matrix reused one family-agnostic waiter despite distinct source-contribution transports | Create waiters only for routes the selected family emits; never leave a losing Playwright waiter alive |
 | ECDSA activation issued a reusable bearer without its V2 authority projection | Bearer authentication succeeded while linked-device inventory returned 401 and could not resolve the exact session identity | The activation test asserted the opaque response and omitted the management service's V2 read | Resolve the exact active method and authority at issuance, persist the V2 projection before bearer delivery, and require inventory plus reload in the real ECDSA cell |
+| Linked ECDSA Passkey owner scope required an Ed25519 signer slot | After both devices reloaded successfully, ordinary ECDSA export failed because the linked device had no legacy local authenticator row | The shared Passkey scope modeled Ed25519's slot requirement as universal even though ECDSA lanes bind only RP ID and credential ID | Model slot-bearing and ECDSA-only Passkey scopes as distinct states; reject the slotless branch for Ed25519 and prove export/sign/revocation in the real ECDSA-only cell |
 
 ### Required acceptance sequencing for future refactors
 

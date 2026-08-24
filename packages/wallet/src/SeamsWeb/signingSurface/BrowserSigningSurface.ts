@@ -357,6 +357,7 @@ import type {
   SigningLaneAuthBinding,
 } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
+  buildExactEcdsaPasskeyOwnerLaneScope,
   buildExactPasskeyOwnerLaneScope,
   resolveExactOwnerLaneScope,
   resolveOwnerLaneScope,
@@ -2782,7 +2783,11 @@ export class BrowserSigningSurface {
           `[SigningEngine] selected Wallet Authority session is unavailable: ${exactSessionFailure}`,
         );
       }
-      if (authority.provenance.kind === 'device_link' && authMethod.kind === 'passkey') {
+      if (
+        authority.provenance.kind === 'device_link' &&
+        authMethod.kind === 'passkey' &&
+        authority.signerActivations.ed25519
+      ) {
         const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
           parsedWalletId.value,
         );
@@ -2815,6 +2820,13 @@ export class BrowserSigningSurface {
           publicLaneStore: this.ed25519YaoPublicCapabilityReferences,
         });
         return buildExactPasskeyOwnerLaneScope({ authMethod, signerSlot });
+      }
+      if (
+        authority.provenance.kind === 'device_link' &&
+        authMethod.kind === 'passkey' &&
+        authority.signerActivations.ecdsa
+      ) {
+        return buildExactEcdsaPasskeyOwnerLaneScope({ authMethod });
       }
       return await resolveExactOwnerLaneScope({ authMethod, stores });
     }

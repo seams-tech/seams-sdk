@@ -1762,7 +1762,9 @@ export function ed25519LaneMatchesOwnerScope(
   if (lane.state === 'missing') return false;
   if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) return false;
   if (!ownerAuthorityMatchesLane(lane, scope)) return false;
-  return scope.auth.kind === 'email_otp' || lane.signerSlot === scope.signerSlot;
+  if (scope.auth.kind === 'email_otp') return true;
+  if ('keyFamily' in scope && scope.keyFamily === 'ecdsa') return false;
+  return lane.signerSlot === scope.signerSlot;
 }
 
 export function ecdsaLaneMatchesOwnerScope(

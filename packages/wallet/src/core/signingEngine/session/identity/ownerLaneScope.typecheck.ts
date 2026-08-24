@@ -35,6 +35,28 @@ const passkeyScopeWithoutSlot: OwnerLaneScope = {
 };
 void passkeyScopeWithoutSlot;
 
+const ecdsaPasskeyScope: OwnerLaneScope = {
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('wallet.example.localhost'),
+    credentialIdB64u: 'credential-owner',
+  },
+  keyFamily: 'ecdsa',
+};
+void ecdsaPasskeyScope;
+
+// @ts-expect-error an ECDSA-only Passkey owner scope cannot carry an Ed25519 signer slot
+const ecdsaPasskeyScopeWithSlot: OwnerLaneScope = {
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('wallet.example.localhost'),
+    credentialIdB64u: 'credential-owner',
+  },
+  keyFamily: 'ecdsa',
+  signerSlot: 1,
+};
+void ecdsaPasskeyScopeWithSlot;
+
 const emailOtpScope: OwnerLaneScope = {
   auth: { kind: 'email_otp', providerSubjectId: 'provider-subject' },
   ownerAuthority: {
