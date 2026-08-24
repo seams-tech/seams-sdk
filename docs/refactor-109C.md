@@ -138,6 +138,28 @@ An earlier reading of this file recorded the opposite — that owner-method
 removal already worked, because `revokeDevice` handles owner cards. It does
 handle them; nothing reaches it.
 
+### Demonstrated R103E defect: revocation never revokes the custody envelope
+
+`revokePasskeyFactorAtomically`
+(`packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore.ts:428`)
+documents itself as the revocation path for a factor's envelopes, carries the
+last-active-envelope guard, and **has no callers anywhere in the repo**.
+`revokeWalletAuthMethod` in the D1 auth-method service touches no envelope at
+all. So revoking an auth method today revokes the method, its verifier, and its
+sessions, and leaves the factor-sealed custody envelope active in D1.
+
+R103E's own contract says revocation "invalidates that method, its verifier,
+its sealed local records, and sessions issued through that method". The durable
+server-side ciphertext that the revoked factor can still unwrap is not among
+the things it invalidates, and `lookupEnvelopeForFactor` will still return it.
+
+This is recorded rather than repaired. R109C's revocation requirement names
+*local* sealed records, so the gap is not on R109C's critical path, and silently
+changing accepted revocation behaviour mid-implementation is the wrong way to
+land a security-relevant fix. It needs its own decision and its own change set.
+Note also that the function is passkey-typed, so whoever wires it up has to
+generalize it the way `linkWalletCustodyFactorAtomically` was generalized.
+
 ### The authority digest has two different brands
 
 `AddWalletAuthMethodSourceV1.authorityDigestB64u` is a `DigestB64u`. The active
