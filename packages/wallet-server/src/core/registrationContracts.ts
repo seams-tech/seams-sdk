@@ -274,9 +274,15 @@ export type WalletAddAuthMethodStartResponse =
       intent: AddAuthMethodIntentV1 & {
         authMethod: Extract<AddAuthMethodInput, { kind: typeof WALLET_AUTH_METHODS.emailOtp }>;
       };
-      custodyEnvelope?: never;
+      /**
+       * The source method's envelope. Refactor 109C's browser opens it with the
+       * source factor and reseals the same custody seed under the verified
+       * Email OTP factor, so an added Email OTP method can unlock the wallet it
+       * was added to.
+       */
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       registration?: never;
-      addAuthMethodCeremonyExpiresAtMs?: never;
+      addAuthMethodCeremonyExpiresAtMs: number;
     }
   | {
       ok: false;
@@ -302,6 +308,16 @@ export type WalletAddAuthMethodFinalizeRequest =
       addAuthMethodCeremonyId: string;
       webauthnRegistration: unknown;
       custodyEnvelope?: never;
+    }
+  | {
+      /**
+       * Refactor 109C's Email OTP target: the factor is verified by its one-use
+       * grant rather than by a created credential, so this finalize carries the
+       * resealed custody envelope and no WebAuthn registration.
+       */
+      addAuthMethodCeremonyId: string;
+      webauthnRegistration?: never;
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
     }
   | {
       addAuthMethodCeremonyId: string;
