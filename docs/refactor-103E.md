@@ -261,7 +261,68 @@ presented provider subject and wallet. The refusal is gone.
 for every new required identity field — wrong-wallet, wrong-kind, and
 revoked-method rejection at the export admission boundary.
 
-### Current open boundary: linked Ed25519 export does not complete
+### Resolved: the linked Ed25519 export hang was a self-inflicted silent worker rejection
+
+Root-caused by a five-way parallel investigation over the post-challenge chain,
+with adversarial refutation. The cause was introduced in this session by
+`f4562671c`, which added `lane.walletAuthMethodId` to the Ed25519 export worker
+payload and taught the parser to read it, while the strict unknown-field
+allow-list for that same lane was never updated — so every export request was
+rejected at parse.
+
+The rejection was invisible because `parseEmailOtpWorkerRequest` ran one line
+above the `try` block that posts errors: the throw escaped the responder, no
+response was ever posted, and the caller waited out its full 60s timeout with
+no error in any console. That structural flaw is what turned a one-field
+omission into an unexplained hang, and it would have hidden any future parse
+rejection just as well. Both are fixed in `742efc109`: the allow-list accepts
+the field, and parsing now happens inside a guard that logs and answers the
+request when the id survives.
+
+Evidence after the fix: `/router-ab/ed25519/yao/export/admit` and
+`/router-ab/ed25519/yao/export/execute` both return 200 and the linked Ed25519
+export completes.
+
+Two beliefs held during the investigation were wrong and are recorded so they
+are not repeated: the OTP prompt did mount and the harness did complete it (a
+failure screenshot taken at the 60s timeout showed the menu after the confirmer
+had already been torn down), and the export viewer had mounted and sat in a
+shimmer-placeholder loading state for ~59 seconds, which is why no drawer was
+visible at the end.
+
+### Resolved: the export assertion encoded the owner's authorization shape
+
+Classified `valid_test_needs_update`. `requireEmailOtpExportAuthorization`
+waited for a factor release tagged `operation=export_key`. A linked Ed25519
+export instead presents its fresh `export_key` challenge and code to
+`/router-ab/ed25519/yao/export/admit`, and the factor release then consumes the
+verified grant that admit minted, so the release carries a grant rather than an
+operation tag.
+
+The security invariant was verified against the trace before the assertion was
+touched, because `docs/intended-behaviours.md` forbids a wallet-unlock OTP
+authorizing an export: the admit request carried the exact `challengeId` of the
+`operation: 'export_key'` challenge, a fresh OTP, and the exact
+`walletAuthMethodId`. Fresh export-scoped authorization did occur.
+
+`09721080f` therefore makes the assertion stronger rather than looser: it waits
+for the export challenge and the admit, and requires that admit to present the
+same challenge id the fresh `export_key` challenge issued, proving the export
+consumed that exact authorization rather than any export-scoped one.
+
+### Current open boundary: linked NEAR signing after export
+
+Classified `production_regression`, not yet root-caused. With export working,
+the Ed25519 cell advances to NEAR signing and fails with
+`[SigningEngine][near] reusable Wallet Session authorization is unavailable`
+(`flows/signNear/signNear.ts:600`, via `requireNearReusableAuthorizationExpiry`).
+The signing preparation's authorization is `authorization_required` rather than
+`authorized`. Note the linked ECDSA device signs Tempo and Arc successfully
+after its EVM export, so this is specific to the Ed25519/NEAR lane. The same
+`activeAuthorizationMatchesEd25519Lane` gate described below governs whether a
+lane is `authorized`, so start there.
+
+### Previously open, now superseded: linked Ed25519 export does not complete
 
 Classified `production_regression`, not yet root-caused. With admission fixed,
 Device 2's NEAR export issues its `export_key` challenge (200) and then never
