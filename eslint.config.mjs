@@ -4,6 +4,15 @@ import prettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
+const R103E_DOMAIN_CAST_TYPE_NAME =
+  '/^(?:WalletAuthorityV1|PendingWalletAuthorityV1|ActiveWalletAuthorityV1|RevokedWalletAuthorityV1|ActiveEd25519WalletAuthorityV1|ActiveEcdsaWalletAuthorityV1|ActiveCombinedWalletAuthorityV1|WalletSignerActivationSetV1|WalletSignerActivationMaterialsV1|WalletAuthMethodRecordV2|WalletSessionAuthorizationV2|IssuedWalletSessionAuthorizationV2|PreparedWalletSessionAuthorizationV2|ActiveWalletSessionV1|ActiveSigningLaneReference|ActiveLaneProtocolSourceV1|LaneProductEpochActiveV1|ActiveWalletExecutionLaneHydration|ActiveRotatableWalletExecutionLaneHydrationV1|RestorableMpcMaterialRef|SigningLaneLifecycle|UsableRuntimeLane|ActiveUsableRuntimeLane|RestorableUsableRuntimeLane|RestorableRuntimeLaneMaterial|WalletSelectionRecordV1|WalletLockGenerationAdvanceInputV1)$/';
+
+const R103E_DOMAIN_CAST_RESTRICTION = {
+  selector: `TSAsExpression[typeAnnotation.typeName.name=${R103E_DOMAIN_CAST_TYPE_NAME}], TSTypeAssertion[typeAnnotation.typeName.name=${R103E_DOMAIN_CAST_TYPE_NAME}], TSAsExpression[typeAnnotation.typeName.right.name=${R103E_DOMAIN_CAST_TYPE_NAME}], TSTypeAssertion[typeAnnotation.typeName.right.name=${R103E_DOMAIN_CAST_TYPE_NAME}]`,
+  message:
+    'Do not manufacture R103E lifecycle, authority, session, lane, or lock state with a TypeScript assertion. Use its boundary parser or branch-specific builder.',
+};
+
 export default [
   {
     ignores: [
@@ -103,6 +112,8 @@ export default [
 
       // Prefer `@ts-expect-error`, but don't fail the build on existing usage.
       '@typescript-eslint/ban-ts-comment': 'warn',
+
+      'no-restricted-syntax': ['error', R103E_DOMAIN_CAST_RESTRICTION],
     },
   },
 
@@ -169,6 +180,7 @@ export default [
           message:
             'Inline domain-state record literal. Build it with a shared factory from tests/unit/helpers/ or tests/helpers/ (see tests/AGENTS.md, "Fixture rules").',
         },
+        R103E_DOMAIN_CAST_RESTRICTION,
       ],
     },
   },
