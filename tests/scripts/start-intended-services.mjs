@@ -168,6 +168,7 @@ function buildSdkArtifacts() {
     ...process.env,
     SEAMS_ROUTER_AB_LOCAL_ROOT: routerAbLocalRoot,
   });
+  runRequiredBuild('wallet server', ['-C', 'packages/wallet-server', 'run', 'build']);
 }
 
 function assertSdkDistArtifacts() {
@@ -625,20 +626,17 @@ async function shutdown(exitCode) {
   for (const entry of [...managedChildren].reverse()) {
     forceStopChild(entry);
   }
-  terminateManagedProcessLeaks('SIGTERM');
-  await delay(500);
-  terminateManagedProcessLeaks('SIGKILL');
   process.exit(exitCode);
 }
 
 function stopChild(entry) {
-  if (!isChildRunning(entry.child)) return;
+  if (!entry.killAsGroup && !isChildRunning(entry.child)) return;
   console.log(`[intended-services] stopping ${entry.label}`);
   killChild(entry.child, 'SIGTERM', entry.killAsGroup);
 }
 
 function forceStopChild(entry) {
-  if (!isChildRunning(entry.child)) return;
+  if (!entry.killAsGroup && !isChildRunning(entry.child)) return;
   console.log(`[intended-services] force stopping ${entry.label}`);
   killChild(entry.child, 'SIGKILL', entry.killAsGroup);
 }
@@ -671,16 +669,6 @@ function collectManagedProcessLeaks() {
     .split(/\r?\n/)
     .map(parseProcessEntry)
     .filter(isManagedProcessLeak);
-}
-
-function terminateManagedProcessLeaks(signal) {
-  for (const entry of collectManagedProcessLeaks()) {
-    try {
-      process.kill(entry.pid, signal);
-    } catch (error) {
-      if (error?.code !== 'ESRCH') throw error;
-    }
-  }
 }
 
 function parseProcessEntry(line) {
