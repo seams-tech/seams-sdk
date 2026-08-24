@@ -41,8 +41,8 @@ It supplies the execution model consumed by:
 
 - [refactor-102-rotatable-signing-lanes.md](./refactor-102-rotatable-signing-lanes.md) for lane
   provisioning, refresh, activation, and revocation;
-- [refactor-103-device-linking.md](./refactor-103-device-linking.md) for physical
-  linked-device enrollment;
+- [refactor-103E.md](./refactor-103E.md) for physical linked-device enrollment
+  and exact wallet-authority activation;
 - [refactor-104-agent-id-spending.md](./refactor-104-agent-id-spending.md) for an
   optional authorization-bound delegated execution lane after agent identity
   and owner authorization have verified.

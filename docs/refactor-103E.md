@@ -2,10 +2,14 @@
 
 Date created: August 21, 2026
 
-Status: stabilization in progress. R103E is a deletion refactor that
-consolidates the working R103, R103C, and R103D behavior before R109A and R109B
-expand the supported authentication combinations. Completion requires the
-live verification ledger below to be fully green.
+Status: stabilization in progress. R103E is the sole active Refactor 103 plan.
+It consolidates the retained working behavior from the earlier Refactor 103
+series before R109A and R109B expand the supported authentication
+combinations. The obsolete 103, 103B, 103C, and 103D plans and the separate
+103E inventory were removed after their controlling contracts were folded
+into this document and `docs/intended-behaviours.md`. Git history preserves
+their implementation history. Completion requires the live verification
+ledger below to be fully green.
 
 ## Live implementation and verification ledger
 
@@ -15,6 +19,9 @@ not complete a behavioral item.
 
 ### Verified checkpoints
 
+- [x] R103E is the sole active Refactor 103 plan; retained linked-device
+  product and metadata behavior is recorded in `docs/intended-behaviours.md`,
+  and obsolete plans and duplicate inventory are removed.
 - [x] Family-specific authority types, builders, negative type fixtures, and
   cast/static enforcement pass the Phase 6 shared, wallet, and server checks.
 - [x] Exact V2 Wallet Session replacement is atomic and its focused operation-
@@ -1992,7 +1999,8 @@ every granted ordinary operation.
 ### Phase 4 — Delete superseded paths
 
 - delete every path listed in **Delete during the cutover**;
-- update R103C, R103D, R109A, and R109B to use this model;
+- keep this document as the sole Refactor 103 implementation plan and update
+  R109A and R109B to use this model;
 - delete obsolete fixtures, mocked success transitions, and source guards;
 - compare device-linking source and type counts with the pre-R103E baseline.
 
@@ -2195,10 +2203,10 @@ inventory symptom.
     negative type fixtures and four focused regression tests. Require the Phase
     6 exit criteria before reconciling docs and counts; add no source-text
     guards or legacy compatibility branches.
-11. **Reconcile docs and counts.** Mark R103C/R103D superseded where their
-    projection/recovery language conflicts with R103E. Update R109A/R109B to
-    consume the authority/auth-method seam. Confirm production source and
-    exported type counts decreased from the baseline.
+11. **Reconcile docs and counts.** Keep R103E as the sole Refactor 103 plan,
+    keep durable product behavior in `docs/intended-behaviours.md`, and update
+    R109A/R109B to consume the authority/auth-method seam. Confirm production
+    source and exported type counts decreased from the baseline.
 
 Checkpoint commits should separate: shared contract, server lifecycle,
 browser persistence/unlock, orchestration, ordinary operations, test updates,

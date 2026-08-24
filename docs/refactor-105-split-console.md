@@ -68,12 +68,10 @@ merged into the target branch and stabilized:
   identity and execution-lane domain types;
 - [Refactor 102](./refactor-102-rotatable-signing-lanes.md) owns signing-lane
   storage, rotation protocols, recipient packages, and session bindings;
-- [Refactor 103](./refactor-103-device-linking.md) owns public Wallet APIs,
-  React and iframe flows, Gateway routes, D1 state, linked-device enrollment,
-  and the Phase 8 canonical owner-credential cutover;
-- [Refactor 103B](./refactor-103B-device-link-metadata.md) owns the dependent
-  canonical linked-device metadata projection and deletion of the temporary
-  human-device metadata path;
+- [Refactor 103E](./refactor-103E.md) owns public Wallet APIs, React and iframe
+  flows, Gateway routes, D1 state, linked-device enrollment, exact authority
+  activation, and the canonical metadata projection. Durable product behavior
+  lives in [Intended Behaviours](./intended-behaviours.md#linked-devices);
 - [Refactor 107](./refactor-107.md) owns the deletion of Wallet AppSessions,
   server-internal `VerifiedOwnerProof`, and opaque D1-backed Wallet Sessions.
 
@@ -1109,7 +1107,7 @@ builds with workspace links and source aliases disabled are the exit gate.
 
 ## Definition Of Done
 
-- Refactors 100-103, 103B, and 107 satisfied the Wallet-boundary stabilization
+- Refactors 100-102, 103E, and 107 satisfied the Wallet-boundary stabilization
   gate before Refactor 105 moved or renamed their Wallet-owned paths.
 - `@seams/wallet` and `@seams/wallet-server` contain no Console source or
   dependency.

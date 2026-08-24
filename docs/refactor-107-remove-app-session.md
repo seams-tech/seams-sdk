@@ -165,16 +165,16 @@ Concrete implementation evidence:
 
 ### Refactor 103: linked devices
 
-- A linked device owns a distinct `LinkedDeviceWalletSessionAuthorizationV1`,
-  quota, enrollment, device identity, child-lane set, and revocation epoch.
-- Every linked signature requires local user presence and a signing-only
-  permission.
-- Linked-device signing stays on its existing linked routes and active
-  execution bundle.
-- An unavailable linked Wallet Session returns a linked-device renewal or
-  denial result. It never falls through to owner passkey or owner Email OTP
-  step-up.
-- Linked-device and delegated lanes remain unable to export or recover keys.
+- A linked installation owns a distinct `DeviceId`, `WalletAuthorityId`, exact
+  `WalletAuthMethodId`, fresh signer activations, and authority revocation
+  epoch.
+- Device 2 uses an ordinary Wallet Session whose subjects come from the exact
+  active authority and signer activations.
+- Signing and export use the ordinary routes. Export requires `export_keys`
+  and fresh same-method step-up; linking never grants recovery authority.
+- An unavailable session is renewed only for the same active authority and
+  auth method. Admission never selects a sibling authority or falls back to a
+  different Passkey or Email OTP method.
 
 ## Terminology
 

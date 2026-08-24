@@ -76,8 +76,8 @@ This plan consumes:
 - [Refactor 102](./refactor-102-rotatable-signing-lanes.md) for curve-specific lane
   provisioning, share refresh, activation, revocation, and public-key
   continuity;
-- [Refactor 103](./refactor-103-device-linking.md) for linked-device continuity
-  and aggregate lane activation;
+- [Refactor 103E](./refactor-103E.md) for linked-device continuity and exact
+  wallet-authority activation;
 - [Refactor 104](./refactor-104-agent-id-spending.md) for agent identities,
   delegated authorizations, server-canonical budgets, replay state, and Agent
   Wallet projections;
