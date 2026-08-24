@@ -230,7 +230,7 @@ with the three Email OTP cells.
   closed rather than authorizing anything. Device 2's client-side owner scope
   now resolves.
 
-### Current open boundary: Email export names no exact method
+### Resolved: Email export names the exact method
 
 Classified `production_regression`. With the owner scope resolved, Device 2's
 NEAR export reaches the server and is refused with `unauthorized: Wallet
@@ -338,44 +338,7 @@ including both exports and all three signing surfaces. The focused stale-fixture
 group is green, 13/13, and the exact Ed25519 export-admission group is green,
 5/5.
 
-### Previously open, now superseded: linked Ed25519 export does not complete
-
-Classified `production_regression`, not yet root-caused. With admission fixed,
-Device 2's NEAR export issues its `export_key` challenge (200) and then never
-completes: the wallet iframe's own `PM_EXPORT_KEYPAIR_UI` request times out
-after ~60 seconds, and no `/wallet/email-otp/factor-release` follows the export
-challenge in the trace.
-
-The failure screenshot settles what the network alone did not: the profile menu
-is still open with `Export NEAR Key` enabled, and **no export drawer or OTP
-prompt ever rendered**. The toast is the request timeout. So this is a stall in
-the wallet host, not a harness assertion encoding the owner's shape — the
-harness never got a surface to answer.
-
-Established sequence: click `Export NEAR Key` → the `export_key` challenge is
-issued and returns 200 → the OTP is available in the dev outbox → nothing. The
-whole trace contains exactly one `/router-ab/*` call, from registration, so
-`readLinkedExportCapability` and its
-`/router-ab/ed25519/yao/recovery/bootstrap` request are never reached, no
-`/wallet/email-otp/factor-release` follows, and neither page logs an export
-error. The wallet host issues the challenge and then awaits an OTP through a
-prompt it never presents.
-
-Static tracing narrows it to one await. The chain is
-`PM_EXPORT_KEYPAIR_UI` → `exportKeypairWithUI` → `exportEd25519KeypairWith`
-`SessionLifecycle` → `exportEd25519YaoKeyWithFreshEmailOtp` →
-`requestEmailOtpEd25519KeyExportAuthorization`, which in
-`keyExportConfirmation.ts` first calls `deps.requestExportChallenge` — the 200
-seen in the trace — and then `deps.touchConfirm.requestUserConfirmation`. That
-second call is where an OTP prompt should appear and where the flow stops: the
-challenge is already issued, and nothing after it runs.
-
-Resolve by driving that click with the browser tools and inspecting the wallet
-iframe's confirmer state at the stall, since the host emits no diagnostic here.
-Note the signing/export UI runs from the built `packages/sdk-web/dist/public`,
-so any SDK change needs `build:sdk` and a reload before it is visible.
-
-#### Resolved: combined-profile owner scope used the full authority digest
+### Resolved: combined-profile owner scope used the full authority digest
 
 The combined lane was present and authorized. Its Email owner scope was built
 from the linked ECDSA holder while using the full V2 Wallet Authority digest;
@@ -448,10 +411,16 @@ authority/session checks that actually consume it.
 - Current focused files: `BrowserSigningSurface.ts`, `ownerLaneScope.ts`,
   `signingLaneAuthBinding.ts`, `availableSigningLanes.ts`, and the
   `ownerLaneScope.typecheck.ts` negative fixture.
-- Active next action: run the six-cell matrix against the same frozen build,
-  repair only the first classified failure, then run the interruption and full
-  intended-behaviour gates. Signing outcome predicates accept final success or
-  the first non-2xx signing response without leaving a competing waiter.
+- Manual-test readiness is reached. All six same-factor matrix cells now have
+  individual green two-browser evidence across the recorded checkpoints:
+  Passkey and Email OTP owners with Ed25519-only, ECDSA-only, and combined
+  signer profiles. The separate core intended-behaviour checkpoint is green for
+  registration, unlock, refresh rehydration, Ed25519/Tempo/EVM signing and
+  step-up, and Ed25519/ECDSA export.
+- Per the stabilization stop rule, broad reruns and audit gates remain deferred
+  until explicitly authorized. Those are the cross-factor Passkey↔Email matrix
+  owned by the separate test task, the interruption/full intended suites, the
+  post-acceptance Rust/WASM deletion audit, and final legacy/type-count cleanup.
 
 ### Continuation protocol for agents
 
