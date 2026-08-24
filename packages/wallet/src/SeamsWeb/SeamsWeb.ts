@@ -70,6 +70,7 @@ import {
 } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
   isEmailOtpWalletAuthAuthority,
@@ -1954,11 +1955,15 @@ export class SeamsWeb {
       }
       /* Every wallet method can share one email, so an operation-bound
          challenge without an exact method id gets the locally selected active
-         Email OTP method — the only identity the server accepts once more than
-         one method is active. Unlock flows own their selector end to end, so a
-         fingerprint-free challenge passes through untouched. */
+         Email OTP method — the only identity the server accepts once linking
+         has added a second active method. Unlock owns its selector end to end
+         and is left untouched; every other operation (export, signing) needs
+         the exact method named here. */
       let walletAuthMethodId = args.walletAuthMethodId;
-      if (!walletAuthMethodId && args.operationFingerprintDigest) {
+      const operationNeedsExactMethod =
+        Boolean(args.operationFingerprintDigest) ||
+        (Boolean(args.operation) && args.operation !== WALLET_EMAIL_OTP_UNLOCK_OPERATION);
+      if (!walletAuthMethodId && operationNeedsExactMethod) {
         const selected = await IndexedDBManager.resolveSelectedWalletAuthority(
           String(args.walletId || '').trim(),
         );
