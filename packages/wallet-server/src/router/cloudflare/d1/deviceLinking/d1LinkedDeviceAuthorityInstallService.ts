@@ -75,9 +75,7 @@ import {
   parseLinkedDeviceEcdsaSourceDerivationV1,
   parseLinkedDeviceOrdinaryMaterialSourceContributionV1,
 } from '@shared/device-linking/sourceContribution';
-import type {
-  LinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
-} from '@shared/device-linking/sourceContribution';
+import type { LinkedDeviceEcdsaSourcePreservingActivationReceiptV1 } from '@shared/device-linking/sourceContribution';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   parseRouterAbEd25519YaoApplicationBindingFactsV1,
@@ -568,6 +566,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         database: this.options.database,
         scope: this.options.scope,
         webAuthnStore: this.options.webAuthnStore,
+        authority: activeAuthority,
         authMethod: activeAuthMethod,
         activatedAtMs: receipt.installedAtMs,
       });
@@ -638,7 +637,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
   async readCommittedAuthorityPackagesV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
-  }): Promise<CommittedAuthorityPackagesV1> {
+  }): Promise<CommittedAuthorityPackagesV1 | null> {
     await this.ensureSchema();
     const nowMs = requireTime(input.requestedAtMs, 'requestedAtMs');
     if (
@@ -649,6 +648,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       throw new Error('committed authority packages are unavailable before provisioning');
     }
     const stored = await this.readInstallation(input.session.linkSessionId);
+    if (!stored && input.session.state.state === 'provisioning') return null;
     if (!stored) throw new Error('committed authority packages were not found');
     await assertStoredPackageDigest(stored);
     if (stored.deviceId !== input.session.state.deviceId) {
@@ -706,12 +706,13 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       for (const stored of storedRows) {
         await assertStoredPackageDigest(stored);
       }
-      const candidates = storedRows.filter((stored) =>
-        stored.packages.signerPackages.ed25519 !== undefined &&
-        mpcMaterialActivationRefsEqual(
-          stored.packages.signerPackages.ed25519.materialActivation,
-          input.materialActivation,
-        ),
+      const candidates = storedRows.filter(
+        (stored) =>
+          stored.packages.signerPackages.ed25519 !== undefined &&
+          mpcMaterialActivationRefsEqual(
+            stored.packages.signerPackages.ed25519.materialActivation,
+            input.materialActivation,
+          ),
       );
       if (candidates.length !== 1) return null;
       const stored = candidates[0];
@@ -760,12 +761,13 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       for (const stored of storedRows) {
         await assertStoredPackageDigest(stored);
       }
-      const candidates = storedRows.filter((stored) =>
-        stored.packages.signerPackages.ecdsa !== undefined &&
-        mpcMaterialActivationRefsEqual(
-          stored.packages.signerPackages.ecdsa.materialActivation,
-          input.materialActivation,
-        ),
+      const candidates = storedRows.filter(
+        (stored) =>
+          stored.packages.signerPackages.ecdsa !== undefined &&
+          mpcMaterialActivationRefsEqual(
+            stored.packages.signerPackages.ecdsa.materialActivation,
+            input.materialActivation,
+          ),
       );
       if (candidates.length !== 1) return null;
       const stored = candidates[0];
@@ -1278,7 +1280,9 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     return row ? parseStoredInstallationRow(row) : null;
   }
 
-  private async readInstallationsByWallet(walletId: WalletId): Promise<readonly StoredInstallationRow[]> {
+  private async readInstallationsByWallet(
+    walletId: WalletId,
+  ): Promise<readonly StoredInstallationRow[]> {
     const rows = await this.options.database
       .prepare(
         `SELECT * FROM linked_device_authority_installations
@@ -1825,6 +1829,7 @@ async function buildPasskeyCredentialPromotionStatements(input: {
   readonly database: D1DatabaseLike;
   readonly scope: D1WalletAuthorityStoreScope;
   readonly webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'readBindingRows'>;
+  readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly activatedAtMs: number;
 }): Promise<readonly D1PreparedStatementLike[]> {
@@ -1835,36 +1840,43 @@ async function buildPasskeyCredentialPromotionStatements(input: {
       rpId: String(input.authMethod.rpId),
     })
   ).find(hasCompleteWebAuthnCredentialBindingIdentity);
-  if (!sourceBinding) {
+  if (input.authority.signerActivations.ed25519 && !sourceBinding) {
     throw new Error('linked source passkey binding is missing wallet identity fields');
   }
-  const binding: WebAuthnCredentialBindingRecord = {
+  const bindingBase = {
     version: 'webauthn_credential_binding_v1',
     rpId: input.authMethod.rpId,
     credentialIdB64u: input.authMethod.credentialIdB64u,
     userId: input.authMethod.walletId,
-    nearAccountId: sourceBinding.nearAccountId,
-    nearEd25519SigningKeyId: sourceBinding.nearEd25519SigningKeyId,
-    signerSlot: sourceBinding.signerSlot,
-    publicKey: sourceBinding.publicKey,
-    ...(sourceBinding.relayerKeyId ? { relayerKeyId: sourceBinding.relayerKeyId } : {}),
-    ...(sourceBinding.keyVersion ? { keyVersion: sourceBinding.keyVersion } : {}),
-    ...(typeof sourceBinding.recoveryExportCapable === 'boolean'
-      ? { recoveryExportCapable: sourceBinding.recoveryExportCapable }
-      : {}),
-    ...(sourceBinding.clientParticipantId !== undefined
-      ? { clientParticipantId: sourceBinding.clientParticipantId }
-      : {}),
-    ...(sourceBinding.relayerParticipantId !== undefined
-      ? { relayerParticipantId: sourceBinding.relayerParticipantId }
-      : {}),
-    ...(sourceBinding.participantIds ? { participantIds: [...sourceBinding.participantIds] } : {}),
-    ...(sourceBinding.runtimePolicyScope
-      ? { runtimePolicyScope: sourceBinding.runtimePolicyScope }
-      : {}),
     createdAtMs: input.authMethod.createdAtMs,
     updatedAtMs: input.activatedAtMs,
-  };
+  } as const;
+  const binding: WebAuthnCredentialBindingRecord = sourceBinding
+    ? {
+        ...bindingBase,
+        nearAccountId: sourceBinding.nearAccountId,
+        nearEd25519SigningKeyId: sourceBinding.nearEd25519SigningKeyId,
+        signerSlot: sourceBinding.signerSlot,
+        publicKey: sourceBinding.publicKey,
+        ...(sourceBinding.relayerKeyId ? { relayerKeyId: sourceBinding.relayerKeyId } : {}),
+        ...(sourceBinding.keyVersion ? { keyVersion: sourceBinding.keyVersion } : {}),
+        ...(typeof sourceBinding.recoveryExportCapable === 'boolean'
+          ? { recoveryExportCapable: sourceBinding.recoveryExportCapable }
+          : {}),
+        ...(sourceBinding.clientParticipantId !== undefined
+          ? { clientParticipantId: sourceBinding.clientParticipantId }
+          : {}),
+        ...(sourceBinding.relayerParticipantId !== undefined
+          ? { relayerParticipantId: sourceBinding.relayerParticipantId }
+          : {}),
+        ...(sourceBinding.participantIds
+          ? { participantIds: [...sourceBinding.participantIds] }
+          : {}),
+        ...(sourceBinding.runtimePolicyScope
+          ? { runtimePolicyScope: sourceBinding.runtimePolicyScope }
+          : {}),
+      }
+    : bindingBase;
   return [
     prepareD1WebAuthnAuthenticatorInsertStatement({
       database: input.database,
@@ -2017,10 +2029,8 @@ function projectInstalledEcdsaAuthority(
     targetScope.signing_worker.server_id !== target.activation.signingWorker ||
     targetScope.public_identity.derivation_client_share_public_key33_b64u !==
       receipt.binding.targetClientPublicKey33B64u ||
-    targetScope.public_identity.server_public_key33_b64u !==
-      receipt.targetRelayerPublicKey33B64u ||
-    targetScope.public_identity.threshold_public_key33_b64u !==
-      receipt.thresholdPublicKey33B64u ||
+    targetScope.public_identity.server_public_key33_b64u !== receipt.targetRelayerPublicKey33B64u ||
+    targetScope.public_identity.threshold_public_key33_b64u !== receipt.thresholdPublicKey33B64u ||
     targetScope.public_identity.ethereum_address20_b64u !==
       receipt.thresholdEthereumAddress20B64u ||
     authorityActivation.signer.walletId !== stored.walletId ||

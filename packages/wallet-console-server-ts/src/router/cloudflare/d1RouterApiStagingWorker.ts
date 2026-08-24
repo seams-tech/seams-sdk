@@ -409,11 +409,13 @@ function stagingLinkedDeviceSessionComposition(
         targetCredentialVerification,
         targetPlanner,
         resolveOwnerSourceChildV1,
+        emailOtpGrants,
       }) =>
         new D1LinkedDeviceTargetCredentialProviderV1({
           database: env.SIGNER_DB,
           scope,
           verifier: targetCredentialVerification,
+          ...(emailOtpGrants === undefined ? {} : { emailOtpGrants }),
           planner: targetPlanner,
           sourceContributionPreparationPlanner:
             createD1LinkedDeviceSourceContributionPreparationPlannerV1({
@@ -438,11 +440,12 @@ function stagingLinkedDeviceSessionComposition(
           internalServiceAuthSecret,
         }),
       },
-      sourceContributionRouter:
-        createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1({
+      sourceContributionRouter: createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1(
+        {
           fetch: serviceFetch,
           internalServiceAuthSecret,
-        }),
+        },
+      ),
     },
   };
 }
@@ -677,9 +680,10 @@ function x25519PublicKeyB64u(value: string): string {
       'signing worker server output HPKE public key must use x25519:<64 lowercase hex chars> encoding',
     );
   }
+  const hex = value.slice('x25519:'.length);
   const bytes = new Uint8Array(32);
   for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(value.slice(8 + index * 2, 10 + index * 2), 16);
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
   return base64UrlEncode(bytes);
 }
@@ -1153,6 +1157,7 @@ export function createStagingExportRequestScopedDependencies(
       service.emailOtp,
       service.walletAuthMethods,
       service.authorizedOperations,
+      service.walletRegistration.resolveEd25519MaterialActivation.bind(service.walletRegistration),
     ),
     capabilities: createStagingYaoRequestScopedRuntime(env),
   };

@@ -201,7 +201,7 @@ export type DeviceLinkingInstallationReceiptPortV1 = {
   readCommittedAuthorityPackagesV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
-  }): Promise<CommittedAuthorityPackagesV1>;
+  }): Promise<CommittedAuthorityPackagesV1 | null>;
   activateInstalledAuthorityV1(input: {
     readonly receipt: LocalAuthorityInstallationReceiptV1;
     readonly session: LinkedDeviceSessionRecordV1;
@@ -390,13 +390,12 @@ async function handleApproval(ctx: FetchRouterApiContext, service: DeviceLinking
         authenticated.session.state.state === 'authority_pending_local_install' ||
         authenticated.session.state.state === 'active')
     ) {
-      return json(
-        await service.installationReceipt.readCommittedAuthorityPackagesV1({
-          session: authenticated.session,
-          requestedAtMs: nowMs,
-        }),
-        { status: 200 },
-      );
+      const committed = await service.installationReceipt.readCommittedAuthorityPackagesV1({
+        session: authenticated.session,
+        requestedAtMs: nowMs,
+      });
+      if (!committed) return new Response(null, { status: 204 });
+      return json(committed, { status: 200 });
     }
     const approval = authenticated.session.approvalTranscript?.value;
     if (!approval) return invalidStateResponse(authenticated.session);

@@ -348,12 +348,14 @@ function assertWalletSessionSourceMatchesProjection(
   source: ReturnType<typeof parseLinkedDeviceOwnerAuthorizationSourceV1>,
   projection: ActiveWalletSessionAuthorizationProjection,
 ): void {
-  if (
-    source.kind !== 'wallet_session' ||
-    source.walletSessionId !== projection.walletSessionId ||
-    !projectionContainsAuthorizationId(projection, source.authorizationId)
-  ) {
-    throw new Error('Owner authorization Wallet Session identity changed');
+  if (source.kind !== 'wallet_session') {
+    throw new Error('Owner authorization did not return a Wallet Session source');
+  }
+  if (source.walletSessionId !== projection.walletSessionId) {
+    throw new Error('Owner authorization Wallet Session id changed');
+  }
+  if (!projectionContainsAuthorizationId(projection, source.authorizationId)) {
+    throw new Error('Owner authorization id changed');
   }
 }
 

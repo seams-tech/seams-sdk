@@ -49,6 +49,7 @@ import type {
 export const LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 = '/wallet/device-linking/v1/sessions';
 
 const LINKED_DEVICE_POLL_MAX_DELAY_MS = 4_000;
+const LINKED_DEVICE_COMMITTED_PACKAGES_WAIT_TIMEOUT_MS = 60_000;
 
 /** Keep long-lived session polling responsive without creating a tight request loop. */
 export function nextLinkedDevicePollingDelayMsV1(baseDelayMs: number, attempt: number): number {
@@ -61,6 +62,29 @@ export function nextLinkedDevicePollingDelayMsV1(baseDelayMs: number, attempt: n
   const jitterWindowMs = Math.max(1, Math.min(boundedBaseDelayMs, exponentialDelayMs / 4));
   const jitterMs = Math.floor(Math.random() * jitterWindowMs);
   return Math.min(LINKED_DEVICE_POLL_MAX_DELAY_MS, exponentialDelayMs + jitterMs);
+}
+
+async function waitForCommittedAuthorityPackagesV1(input: {
+  readonly options: DeviceLinkingAuthenticatedSessionTransportOptionsV1;
+  readonly baseUrl: string;
+  readonly linkSessionId: LinkDeviceSessionId;
+}): Promise<ReturnType<typeof parseCommittedAuthorityPackagesV1>> {
+  const deadlineMs = input.options.nowMs() + LINKED_DEVICE_COMMITTED_PACKAGES_WAIT_TIMEOUT_MS;
+  let attempt = 0;
+  while (input.options.nowMs() < deadlineMs) {
+    const response = await requestDeviceV1({
+      options: input.options,
+      baseUrl: input.baseUrl,
+      method: 'GET',
+      canonicalPath: sessionActionPath(input.linkSessionId, 'approval'),
+      linkSessionId: input.linkSessionId,
+    });
+    if (response.status !== 204) return parseCommittedAuthorityPackagesV1(response.body);
+    const delayMs = nextLinkedDevicePollingDelayMsV1(input.options.pollIntervalMs, attempt);
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    attempt += 1;
+  }
+  throw new Error('committed authority packages were not ready before the activation deadline');
 }
 
 export type DeviceLinkingAuthenticatedSessionTransportOptionsV1 = {
@@ -242,16 +266,8 @@ export function createDeviceLinkingAuthorityActivationTransportV1(
 ): DeviceLinkingAuthorityActivationTransportPortV1 {
   const baseUrl = normalizeBaseUrl(options.relayerUrl);
   return {
-    receiveCommittedAuthorityPackagesV1: async ({ linkSessionId }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'GET',
-        canonicalPath: sessionActionPath(linkSessionId, 'approval'),
-        linkSessionId,
-      });
-      return parseCommittedAuthorityPackagesV1(response.body);
-    },
+    receiveCommittedAuthorityPackagesV1: async ({ linkSessionId }) =>
+      await waitForCommittedAuthorityPackagesV1({ options, baseUrl, linkSessionId }),
     activateInstalledAuthorityV1: async ({ linkSessionId, receipt }) => {
       const parsedReceipt = parseLocalAuthorityInstallationReceiptV1(receipt);
       const response = await requestDeviceV1({

@@ -356,18 +356,6 @@ export const WALLET_AUTH_METHOD_STORE_D1_SCHEMA_V2_SQL = Object.freeze([
       )
       WHERE kind = 'passkey' AND credential_id_b64u IS NOT NULL
   `,
-  `
-    CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_v2_email_uidx
-      ON wallet_auth_methods (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        email_hash_hex
-      )
-      WHERE kind = 'email_otp' AND email_hash_hex IS NOT NULL
-  `,
 ] as const);
 
 export async function ensureWalletAuthMethodStoreD1Schema(
