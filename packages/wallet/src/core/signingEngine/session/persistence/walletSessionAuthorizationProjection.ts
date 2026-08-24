@@ -16,7 +16,6 @@ import type {
   ReusableWalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
@@ -170,12 +169,6 @@ export async function persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
   },
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
   const session = args.bootstrap.session;
-  const authorizationId = parseWalletSessionAuthorizationId(
-    String(session.authorizationSessionId),
-  );
-  if (!authorizationId.ok) {
-    throw new Error('ECDSA bootstrap returned an invalid Wallet Session authorization id');
-  }
   const thresholdSessionId = parseThresholdEcdsaSessionId(session.thresholdSessionId);
   if (!thresholdSessionId.ok) {
     throw new Error('ECDSA bootstrap returned an invalid threshold session id');
@@ -184,7 +177,7 @@ export async function persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
     walletId: args.walletId,
     walletSessionId: session.walletSessionId,
     quotaId: session.quotaId,
-    authorizationId: authorizationId.value,
+    authorizationId: session.authorizationId,
     authMethod: args.authMethod,
     authority: args.authority,
     expiresAtMs: session.expiresAtMs,

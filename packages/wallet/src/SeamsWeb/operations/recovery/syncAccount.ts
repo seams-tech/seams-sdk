@@ -1042,7 +1042,7 @@ async function persistRecoveredEcdsaWalletSessionAuthorization(
 ): Promise<void> {
   if (continuity.state === 'absent') return;
   const session = continuity.sessionActivation.session;
-  const authorizationId = parseWalletSessionAuthorizationId(session.authorization_session_id);
+  const authorizationId = parseWalletSessionAuthorizationId(session.authorization_id);
   if (!authorizationId.ok) {
     throw new Error('Recovered ECDSA Wallet Session has an invalid authorization identity');
   }

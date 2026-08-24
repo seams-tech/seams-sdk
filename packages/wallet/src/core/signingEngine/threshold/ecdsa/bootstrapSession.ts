@@ -27,6 +27,7 @@ import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/e
 import type {
   MpcWalletSigningQuotaId,
   EcdsaAuthorizationSessionId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
@@ -87,6 +88,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   chainId: number;
   thresholdSessionId: string;
   authorizationSessionId: EcdsaAuthorizationSessionId;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
@@ -167,6 +169,7 @@ async function bootstrapStrictExistingEcdsaSession(
     chainId: args.lanePolicy.chainTarget.chainId,
     thresholdSessionId: strict.sessionActivation.session.threshold_session_id,
     authorizationSessionId: strict.sessionActivation.session.authorization_session_id,
+    authorizationId: strict.sessionActivation.session.authorization_id,
     walletSessionId: strict.sessionActivation.session.wallet_session_id,
     quotaId: strict.sessionActivation.session.quota_id,
     expiresAtMs: strict.sessionActivation.session.expires_at_ms,

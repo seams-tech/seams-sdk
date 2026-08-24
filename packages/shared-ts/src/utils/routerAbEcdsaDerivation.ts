@@ -40,11 +40,13 @@ import {
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type EvmEcdsaMpcOperationKind,
   type MpcWalletSigningQuotaId,
   type ReusableWalletSessionMintId,
   type EcdsaAuthorizationSessionId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
 import {
@@ -386,6 +388,7 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session: {
     authorization_session_id: EcdsaAuthorizationSessionId;
+    authorization_id: WalletSessionAuthorizationId;
     threshold_session_id: ThresholdEcdsaSessionId;
     wallet_session_id: WalletSessionId;
     quota_id: MpcWalletSigningQuotaId;
@@ -985,6 +988,15 @@ function requireEcdsaAuthorizationSessionId(
   label: string,
 ): EcdsaAuthorizationSessionId {
   const parsed = parseEcdsaAuthorizationSessionId(value);
+  if (!parsed.ok) throw new Error(`${label} is invalid`);
+  return parsed.value;
+}
+
+function requireWalletSessionAuthorizationId(
+  value: unknown,
+  label: string,
+): WalletSessionAuthorizationId {
+  const parsed = parseWalletSessionAuthorizationId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
@@ -2301,6 +2313,7 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
   const sessionRecord = requireRecord(record.session, `${label}.session`);
   requireExactKeys(sessionRecord, `${label}.session`, [
     'authorization_session_id',
+    'authorization_id',
     'threshold_session_id',
     'wallet_session_id',
     'quota_id',
@@ -2328,6 +2341,10 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
       authorization_session_id: requireEcdsaAuthorizationSessionId(
         sessionRecord.authorization_session_id,
         `${label}.session.authorization_session_id`,
+      ),
+      authorization_id: requireWalletSessionAuthorizationId(
+        sessionRecord.authorization_id,
+        `${label}.session.authorization_id`,
       ),
       threshold_session_id: requireThresholdEcdsaSessionId(
         sessionRecord.threshold_session_id,

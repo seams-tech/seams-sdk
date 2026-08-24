@@ -2192,7 +2192,7 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
     const session = parsedSession.admission.context.authorization.session;
     if (isOperationStepUpExport) {
       if (
-        authority.subjectId !== String(session.principalId) ||
+        authority.subjectId !== String(session.walletId) ||
         authority.accountId !== String(session.walletId) ||
         !sameRouterAbMpcMaterialActivationRef(
           input.request.request.material_activation,
