@@ -599,12 +599,14 @@ function walletAuthMethodBindingFromRecord(
       const rpId = parseRpId(record.rpId);
       if (!rpId.ok) return null;
       return buildPasskeyWalletAuthMethodBinding({
+        walletAuthMethodId: record.walletAuthMethodId,
         scope: buildPasskeyAuthScope({ wallet, rpId: rpId.value }),
         credentialIdB64u: record.credentialIdB64u,
       });
     }
     case 'email_otp':
       return buildEmailOtpWalletAuthMethodBinding({
+        walletAuthMethodId: record.walletAuthMethodId,
         wallet,
         emailHashHex: record.emailHashHex,
         registrationAuthorityId: record.registrationAuthorityId,

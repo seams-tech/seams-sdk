@@ -137,6 +137,7 @@ test.describe('wallet auth-method binding normalization', () => {
     expect(
       walletAuthMethodBindingId(
         buildPasskeyWalletAuthMethodBinding({
+          walletAuthMethodId: walletAuthMethodId(passkey),
           scope: buildPasskeyAuthScope({
             wallet: buildWalletIdentity({ walletId: passkey.walletId }),
             rpId: passkey.rpId,
@@ -186,6 +187,7 @@ test.describe('wallet auth-method binding normalization', () => {
     expect(
       walletAuthMethodBindingId(
         buildEmailOtpWalletAuthMethodBinding({
+          walletAuthMethodId: walletAuthMethodId(emailOtp),
           wallet: buildWalletIdentity({ walletId: emailOtp.walletId }),
           emailHashHex: emailOtp.emailHashHex,
           registrationAuthorityId: emailOtp.registrationAuthorityId,

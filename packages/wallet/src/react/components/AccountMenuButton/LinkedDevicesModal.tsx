@@ -14,7 +14,6 @@ import { base64UrlDecode } from '@shared/utils/encoders';
 import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import { serializeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import type { WalletSession } from '@/core/types/seams';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
 import './LinkedDevicesModal.css';
@@ -160,40 +159,21 @@ function revokeOutcomeAnnouncement(
 }
 
 function resolveRevokeSourceMethod(
-  session: Pick<WalletSession, 'appIdentity' | 'authentication'>,
+  binding: WalletAuthMethodBinding,
   walletId: string,
+  targetWalletAuthMethodId: string,
 ): RevokeSourceMethod {
-  if (
-    session.authentication.kind !== 'authenticated' ||
-    String(session.authentication.walletId) !== walletId ||
-    session.appIdentity.kind !== 'resolved' ||
-    String(session.appIdentity.walletId) !== walletId
-  ) {
+  const sourceWalletId =
+    binding.kind === 'passkey' ? binding.scope.wallet.walletId : binding.wallet.walletId;
+  if (String(sourceWalletId) !== walletId) {
     throw new Error('Unlock this wallet with a sibling authentication method first.');
   }
-  if (session.authentication.authMethod === 'passkey') {
-    const passkeys = session.appIdentity.authMethods.filter(isPasskeyBinding);
-    const [firstPasskey, ...remainingPasskeys] = passkeys;
-    if (!firstPasskey) {
-      throw new Error('The active wallet authentication method is unavailable.');
-    }
-    return { kind: 'passkey', bindings: [firstPasskey, ...remainingPasskeys] };
+  if (String(binding.walletAuthMethodId) === targetWalletAuthMethodId) {
+    throw new Error('Unlock with the sibling authentication method before removing this one.');
   }
-  const emailOtp = session.appIdentity.authMethods.find(isEmailOtpBinding);
-  if (!emailOtp) throw new Error('The active wallet authentication method is unavailable.');
-  return { kind: 'email_otp', binding: emailOtp };
-}
-
-function isPasskeyBinding(
-  method: WalletAuthMethodBinding,
-): method is PasskeyWalletAuthMethodBinding {
-  return method.kind === 'passkey';
-}
-
-function isEmailOtpBinding(
-  method: WalletAuthMethodBinding,
-): method is EmailOtpWalletAuthMethodBinding {
-  return method.kind === 'email_otp';
+  return binding.kind === 'passkey'
+    ? { kind: 'passkey', bindings: [binding] }
+    : { kind: 'email_otp', binding };
 }
 
 function viewCreatedAtMs(view: WalletDeviceView): number {
@@ -356,7 +336,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { seams } = useSeams();
+  const { seams, loginState } = useSeams();
   const [loadState, setLoadState] = React.useState<LinkedDevicesLoadState>({ kind: 'idle' });
   const [revokeState, setRevokeState] = React.useState<RevokeState>({ kind: 'idle' });
   const [announcement, setAnnouncement] = React.useState('');
@@ -476,8 +456,14 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       const walletAuthMethodId = String(viewCredential(view).walletAuthMethodId);
       const description = deviceDescription(view, deviceNumber);
       try {
-        const walletSession = await seams.auth.getWalletSession(walletId);
-        const sourceMethod = resolveRevokeSourceMethod(walletSession, walletId);
+        if (!loginState.isLoggedIn || loginState.currentAuthMethod.kind !== 'selected') {
+          throw new Error('Unlock this wallet with a sibling authentication method first.');
+        }
+        const sourceMethod = resolveRevokeSourceMethod(
+          loginState.currentAuthMethod.binding,
+          walletId,
+          walletAuthMethodId,
+        );
         const requestedAtMs = Date.now();
         const operationFingerprintDigest = await buildRevokeOperationFingerprint({
           walletId,
@@ -525,7 +511,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
         setRevokeState({ kind: 'error', message: linkedDevicesLoadErrorMessage(error) });
       }
     },
-    [finishRevocation, seams, walletId],
+    [finishRevocation, loginState, seams, walletId],
   );
 
   const submitEmailOtpRevocation = React.useCallback(async () => {

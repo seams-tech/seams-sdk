@@ -59,8 +59,12 @@ function fixtureAuthorizationId(value?: string): WalletSessionAuthorizationId {
 
 function defaultPasskeyBinding(walletId: WalletId): WalletAuthMethodBinding {
   const rpId = parseRpId('wallet.example.localhost');
-  if (!rpId.ok) throw new Error('Wallet Session fixture rpId must be valid');
+  const walletAuthMethodId = parseWalletAuthMethodId('wallet-auth-method:session-fixture');
+  if (!rpId.ok || !walletAuthMethodId.ok) {
+    throw new Error('Wallet Session fixture method identity must be valid');
+  }
   return buildPasskeyWalletAuthMethodBinding({
+    walletAuthMethodId: walletAuthMethodId.value,
     scope: buildPasskeyAuthScope({
       wallet: buildWalletIdentity({ walletId }),
       rpId: rpId.value,

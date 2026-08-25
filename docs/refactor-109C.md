@@ -45,9 +45,19 @@ proof directions — the configuration this refactor creates and the only one
 that proves the sibling guard. No such test exists yet, so the prerequisite is
 unproven rather than partially proven.
 
-- [ ] Exact method revocation between two siblings on ONE authority, proven in
-      both directions, through the composed path. Not yet written.
-- [ ] The cited command exits 0.
+- [x] Exact method revocation between two siblings on ONE authority, proven in
+      both directions, through the composed path —
+      `tests/unit/r109cSiblingRevocation.unit.test.ts`, 4 passing. One authority
+      holds a Passkey and an Email OTP method; each revokes the other through
+      the D1-backed service, the sibling and its envelope survive, the revoked
+      method cannot then take the last one, and no method revokes itself.
+      Repairing it exposed a real fixture defect: the shared management factory
+      stamped placeholder authority digests, which every server read rejects as
+      corrupt. The factory now computes both canonical digests.
+- [ ] The cited command exits 0 — still blocked on the four pre-existing
+      failures in `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`, whose
+      first boundary is now `auth: { kind: 'app_session' }`, a retired auth kind
+      that needs a real assertion fixture rather than a rename.
 - [x] Authority-ID and self-proof revocation requests are rejected at the
       boundary — `linkedDeviceManagement.unit.test.ts` covers exactly this and
       passes on its own.
