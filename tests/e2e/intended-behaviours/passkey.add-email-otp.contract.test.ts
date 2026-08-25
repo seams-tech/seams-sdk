@@ -11,4 +11,5 @@ test('a passkey wallet can add an email code as a second way in', async ({ harne
   await harness.awaitNearReady();
   await harness.addEmailOtpAuthMethod();
   await harness.unlockWithAddedEmailOtp();
+  await harness.signTempoTransaction('post_unlock');
 });

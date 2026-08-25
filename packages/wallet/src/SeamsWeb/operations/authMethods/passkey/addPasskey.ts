@@ -13,6 +13,7 @@ import {
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
   type WalletAuthorityId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -45,6 +46,8 @@ export type AddPasskeyResult = {
   readonly ok: true;
   readonly walletId: WalletId;
   readonly rpId: string;
+  /** The method this addition created, so a caller can name it afterwards. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authMethod: {
     readonly kind: 'passkey';
     readonly status: 'active';
@@ -58,6 +61,7 @@ export type AddPasskeyHooksOptions = Omit<RegistrationHooksOptions, 'afterCall'>
 async function persistAddedPasskey(args: {
   readonly walletId: WalletId;
   readonly rpId: string;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly finalized: Awaited<ReturnType<typeof finalizeWalletAddAuthMethod>>;
 }): Promise<AddPasskeyResult> {
   if (
@@ -79,6 +83,7 @@ async function persistAddedPasskey(args: {
     ok: true,
     walletId: args.finalized.walletId,
     rpId: args.finalized.rpId,
+    walletAuthMethodId: args.walletAuthMethodId,
     authMethod: { kind: 'passkey', status: 'active' },
   };
 }
@@ -259,6 +264,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
     return await persistAddedPasskey({
       walletId: args.walletId,
       rpId: args.rpId,
+      walletAuthMethodId: intentResponse.intent.targetWalletAuthMethodId,
       finalized: linked.finalized,
     });
   } finally {
@@ -394,6 +400,7 @@ async function addPasskeyFromEmailOtpSource(args: {
     ok: true,
     walletId: args.walletId,
     rpId: String(args.rpId),
+    walletAuthMethodId: args.intentResponse.intent.targetWalletAuthMethodId,
     authMethod: { kind: 'passkey', status: 'active' },
   };
 }

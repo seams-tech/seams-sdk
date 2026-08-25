@@ -200,6 +200,7 @@ type Ed25519AddSignerResultSummary = {
 
 type AddEmailOtpAuthMethodResultSummary = {
   kind: 'add_email_otp_success';
+  walletAuthMethodId: string;
   walletId: string;
   emailAddress: string;
   authMethod: { kind: 'email_otp'; status: 'active' };
@@ -209,6 +210,7 @@ type AddPasskeyAuthMethodResultSummary = {
   kind: 'add_passkey_success';
   walletId: string;
   rpId: string;
+  walletAuthMethodId: string;
   authMethod: { kind: 'passkey'; status: 'active' };
 };
 
@@ -253,6 +255,8 @@ type PasskeyUnlockResultSummary =
       nearIdentity: 'ready';
       nearAccountId: string;
       operationalPublicKey: string;
+      /** The exact credential the issued Wallet Session names. */
+      sessionWalletAuthMethodId: string | null;
       signingSessionStatus: string;
       remainingUses: number | null;
     }
@@ -262,6 +266,8 @@ type PasskeyUnlockResultSummary =
       nearIdentity: 'absent';
       nearAccountId?: never;
       operationalPublicKey?: never;
+      /** The exact credential the issued Wallet Session names. */
+      sessionWalletAuthMethodId: string | null;
       signingSessionStatus: string;
       remainingUses: number | null;
     };
@@ -296,6 +302,8 @@ type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSumm
 type AddedEmailOtpUnlockResultSummary = {
   kind: 'added_email_otp_unlock_success';
   walletId: string;
+  /** The exact credential the issued Wallet Session names. */
+  sessionWalletAuthMethodId: string | null;
   signingSessionStatus: string;
   remainingUses: number | null;
 };
@@ -975,6 +983,7 @@ class IntendedPageController {
         result: {
           kind: 'add_email_otp_success',
           walletId: String(result.walletId),
+          walletAuthMethodId: String(result.walletAuthMethodId),
           emailAddress: result.emailAddress,
           authMethod: result.authMethod,
         },
@@ -1031,6 +1040,7 @@ class IntendedPageController {
         result: {
           kind: 'added_email_otp_unlock_success',
           walletId,
+          sessionWalletAuthMethodId: String(capability.authorization.authority.walletAuthMethodId),
           signingSessionStatus: String(capability.authorization.status),
           remainingUses: null,
         },
@@ -1061,6 +1071,7 @@ class IntendedPageController {
           kind: 'add_passkey_success',
           walletId: String(result.walletId),
           rpId: String(result.rpId),
+          walletAuthMethodId: String(result.walletAuthMethodId),
           authMethod: result.authMethod,
         },
       });
@@ -1166,7 +1177,15 @@ class IntendedPageController {
       const result = await this.seams.auth.unlock(this.walletId, {
         onEvent: this.recordLifecycleEvent,
       });
-      const summary = assertPasskeyUnlockSucceeded(result, this.walletId);
+      /* R109C: which credential the session names is the point of an added
+         method - the family alone cannot tell it from the method that added it. */
+      const unlockedSession = await this.seams.auth.getWalletSession(this.walletId);
+      const reusable = unlockedSession.reusableWalletSession;
+      const summary = assertPasskeyUnlockSucceeded(
+        result,
+        this.walletId,
+        reusable.kind === 'active' ? String(reusable.walletAuthMethodId) : null,
+      );
       await this.refreshLoginState(summary.walletId);
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
@@ -2534,6 +2553,7 @@ function assertEmailOtpUnlockSucceeded(args: {
 function assertPasskeyUnlockSucceeded(
   result: Awaited<ReturnType<ReturnType<typeof useSeams>['seams']['auth']['unlock']>>,
   expectedWalletId: string,
+  sessionWalletAuthMethodId: string | null,
 ): PasskeyUnlockResultSummary {
   if (!result.success) {
     throw new Error(result.error || 'Passkey unlock failed');
@@ -2549,6 +2569,7 @@ function assertPasskeyUnlockSucceeded(
   const common = {
     kind: 'passkey_unlock_success' as const,
     walletId: expectedWalletId,
+    sessionWalletAuthMethodId,
     signingSessionStatus,
     remainingUses: normalizeOptionalNumber(result.signingSession?.remainingUses),
   };
