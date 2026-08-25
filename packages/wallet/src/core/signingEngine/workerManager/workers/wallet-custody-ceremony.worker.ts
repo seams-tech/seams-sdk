@@ -1,5 +1,4 @@
-import { parsePasskeyEnvelopeId, parseWalletAuthMethodId } from '@shared/utils/domainIds';
-import { secureRandomId } from '@shared/utils/secureRandomId';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import init, {
   wallet_custody_ceremony_establish_v1,
   wallet_custody_ceremony_join_v1,
@@ -34,6 +33,7 @@ import type {
 } from '@shared/passkey-custody';
 import {
   buildMethodBoundEnvelopeOwnership,
+  parseEnvelopeRevision,
   parsePasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
@@ -941,16 +941,18 @@ function resealUnboundEnvelopeAsMethodBound(input: {
   if (!parsedMethodId.ok) {
     throw new Error(`custody envelope upgrade ${parsedMethodId.error.message}`);
   }
-  const envelopeIdResult = parsePasskeyEnvelopeId(
-    secureRandomId('wallet-custody-envelope', 24, 'wallet custody envelope ids'),
-  );
-  if (!envelopeIdResult.ok) throw new Error(envelopeIdResult.error.message);
+  /* Same envelope id, next revision. The upgrade replaces one row's ciphertext
+     rather than creating a second envelope for the same seed, so it lands
+     through the store's existing rewrap path: that path admits exactly
+     `current + 1`, which makes a replayed upgrade a revision conflict instead
+     of a duplicate, and leaves no old row to retire. */
+  const upgradedRevision = parseEnvelopeRevision(Number(input.envelope.envelopeRevision) + 1);
   const ownership = buildMethodBoundEnvelopeOwnership(parsedMethodId.value);
   const upgradedBindingJson = JSON.stringify({
     walletId: input.envelope.walletId,
-    envelopeId: envelopeIdResult.value,
+    envelopeId: input.envelope.envelopeId,
     factor: input.envelope.factor,
-    envelopeRevision: input.envelope.envelopeRevision,
+    envelopeRevision: upgradedRevision,
     binding: input.envelope.binding,
     ownership: custodyEnvelopeOwnershipWire(ownership),
   });
@@ -966,7 +968,7 @@ function resealUnboundEnvelopeAsMethodBound(input: {
   const nowMs = Date.now();
   return parsePasskeyCustodyEnvelopeRecord({
     ...input.envelope,
-    envelopeId: envelopeIdResult.value,
+    envelopeRevision: upgradedRevision,
     ownership,
     nonceB64u: resealed.nonceB64u,
     sealedCustodySecretB64u: resealed.sealedCustodySecretB64u,
