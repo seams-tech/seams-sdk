@@ -229,6 +229,35 @@ the host handler — because every one of them enumerates request kinds
 explicitly. That is a planned Phase 1/2 surface change, not one localized
 defect, so the "more than five files" stop condition does not apply to it.
 
+### First failing acceptance boundary
+
+`tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts:373`
+("adds Email OTP wallet auth methods through partitioned D1"), at
+`expect(intent.ok).toBe(true)` — `createAddAuthMethodIntent` now refuses a
+command with no caller branch.
+
+This is the R109C addition path's own test and it is `valid_test_needs_update`:
+the protocol changed on purpose, so the test must mint its intent with
+`caller: 'same_device_addition'` and a source claim. It cannot be repaired by
+adding those fields alone — the test builds no source authority or method to
+claim, which is also why it was already red on `dev` with `Passkey wallet
+authority is not active for this wallet` before any R109C change. Repairing it
+means giving it a real founding authority through the shared factory.
+
+The three other failures in that file are unchanged and unrelated: a stale
+WebAuthn assertion fixture, a missing custody envelope in setup, and the same
+missing authority.
+
+### Open: an Email method's custody envelope cannot be revoked
+
+The custody-envelope fix covers Passkey methods only. An Email OTP method's
+envelope factor is keyed by enrollment, `email_otp_wallet_enrollments` holds one
+row per wallet, and every Email method on that wallet therefore resolves to the
+same factor — so revoking one sibling's envelope would revoke the other's.
+Closing this needs a method-to-envelope binding the schema does not express
+today; `0013` adds provider identity, not enrollment identity. Until then the
+Email branch contributes no revocation statements rather than guessing.
+
 ### Open P1: the source-proof protocol does not yet meet the spec
 
 This is the largest correctness gap and nothing on this branch has closed it.
