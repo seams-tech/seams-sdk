@@ -175,7 +175,7 @@ server-side ciphertext that the revoked factor can still unwrap is not among
 the things it invalidates, and `lookupEnvelopeForFactor` will still return it.
 
 This is recorded rather than repaired. R109C's revocation requirement names
-*local* sealed records, so the gap is not on R109C's critical path, and silently
+_local_ sealed records, so the gap is not on R109C's critical path, and silently
 changing accepted revocation behaviour mid-implementation is the wrong way to
 land a security-relevant fix. It needs its own decision and its own change set.
 Note also that the function is passkey-typed, so whoever wires it up has to
@@ -237,13 +237,13 @@ Landed. An envelope now records the one auth method that owns it, and that
 ownership is inside the AAD, so it cannot be relabelled. `Unbound` decodes
 pre-109C envelopes and is never written.
 
-| Behaviour | Where it is proven |
-| --- | --- |
-| V2 opens under its original AAD and is resealed as V3 | `an_unbound_envelope_opens_then_reseals_as_method_bound` |
-| A sibling cannot open or relabel a V3 envelope | `a_sibling_method_cannot_open_a_relabelled_envelope` |
-| Revoking one method preserves the sibling and the shared enrollment | `r109cEmailEnrollmentReferences.unit.test.ts` |
-| Revoking the final method removes the enrollment | same file |
-| No path writes a new V2 envelope | `sealing_an_unbound_envelope_is_refused` |
+| Behaviour                                                           | Where it is proven                                       |
+| ------------------------------------------------------------------- | -------------------------------------------------------- |
+| V2 opens under its original AAD and is resealed as V3               | `an_unbound_envelope_opens_then_reseals_as_method_bound` |
+| A sibling cannot open or relabel a V3 envelope                      | `a_sibling_method_cannot_open_a_relabelled_envelope`     |
+| Revoking one method preserves the sibling and the shared enrollment | `r109cEmailEnrollmentReferences.unit.test.ts`            |
+| Revoking the final method removes the enrollment                    | same file                                                |
+| No path writes a new V2 envelope                                    | `sealing_an_unbound_envelope_is_refused`                 |
 
 Commands: `cargo test --lib --features passkey-custody` in `crates/signer-core`
 (6 passed) and `npx playwright test -c playwright.unit.config.ts
@@ -308,7 +308,7 @@ intentional — R109D requires active and pending methods to keep referencing it
 — but the conclusion did not follow. Three concepts were collapsed into one:
 
 - **the custody envelope and local signer state are per method.** An envelope
-  row is already keyed by its own `envelopeId`; only *lookup by factor* is
+  row is already keyed by its own `envelopeId`; only _lookup by factor_ is
   shared, because `WalletCustodyFactorRef` for Email is
   `(enrollmentId, enrollmentSealKeyVersion)`. The record can carry the auth
   method that owns it, and doing so changes no ciphertext: the AAD is derived
@@ -341,14 +341,14 @@ and intent digest. What exists binds far less:
 - `AddAuthMethodIntentV1` carries only wallet, target description, policy
   scope, and nonce, so the digest a proof signs cannot name the authority, the
   source method, the source session, or the target method.
-- The target `WalletAuthMethodId` is allocated *after* the source is
+- The target `WalletAuthMethodId` is allocated _after_ the source is
   authenticated, so no source proof can be bound to it. Binding it requires
   allocating the target id in the intent rather than in start.
 - The route still admits `auth.kind: 'wallet_session'` — a reusable bearer
   credential — in place of a fresh assertion.
 
 The last one is not simply a bug. That branch is R103E's deliberate zero-prompt
-handoff for the *linked-device* ceremony start, where Device 1 holds owner
+handoff for the _linked-device_ ceremony start, where Device 1 holds owner
 authority and Device 2 holds the PRF, and the two paths share one endpoint. So
 R109C cannot just delete it; the endpoint has to distinguish a same-device
 addition from a linked-device ceremony start, and today nothing in the request
@@ -438,8 +438,9 @@ since R109C's siblings share one authority. That reading is wrong, and the
 correction is the point. `SigningLaneAuthBinding` names a specific method — rpId
 plus credential id for a passkey, provider identity for Email OTP — not an
 authority. A lane is bound to the method that provisioned it by construction,
-and Refactor 102 lane holder shares are per-lane material that is not
-seed-derived. Matching on authority would widen what an existing lane
+and the binding is enforced twice below the filter: the material's AEAD AAD
+commits to that method's authority ref, and capability construction refuses a
+mismatched digest. Matching on authority would widen what an existing lane
 authorizes, which is a signing-material decision and not a resolution tweak.
 
 The plan already answers this, in step 5 of the linear operation: "reseal the
@@ -454,26 +455,63 @@ What is implemented today is only the custody envelope. Steps 5-8 are not:
 an addition writes the auth-method rows and its envelope, and no signer access
 record is resealed for the added method. That is the whole of the gap.
 
-Two facts scope the remaining work, and neither is a blocker so much as a
-warning against a quick fix:
+Tracing the owner ECDSA path to its records answers where the reseal has to
+land, and turns up a contradiction the plan does not yet resolve. Four facts,
+each read off the code rather than inferred:
 
-- `wallet_authority_signer_material_v1` is keyed `(authorityId,
-  walletAuthMethodId)` with `sealedMaterialB64u` — per method, sealed under that
-  method's factor. So the record shape already expects one row per sibling.
-- Its seal and open helpers exist only in the LINKED variant
-  (`linkedAuthoritySignerMaterial.ts`). An owner wallet's ECDSA access comes
-  from canonical lanes provisioned by Refactor 102 through registration and
-  device linking. So the addition path has no owner-side reseal primitive to
-  call yet, and the honest unit of work is to add one rather than to reuse the
-  linked-device path, which assumes a new authority.
+1. The ECDSA role-local material is sealed under a randomly generated,
+   non-extractable AES-GCM key held in IndexedDB
+   (`generateMaterialSealingKey`, `SEALING_KEY_STORE`). It is device-local and
+   not factor-derived, so nothing about it needs a factor to open.
+2. It is nonetheless method-bound, through the AEAD AAD rather than the key.
+   `activationBindingAadProjection` commits `signer.authority` — a
+   `WalletAuthAuthorityRef` carrying that credential's `authorityDigest` and
+   `walletAuthMethodId`. A sibling method cannot open it.
+3. `buildCanonicalEvmFamilyEcdsaSigningCapability` refuses to build a
+   capability whose authority digest differs from the manifest's. So a sibling
+   cannot borrow the source method's capability either; both layers agree the
+   capability belongs to one credential.
+4. `lookupByMaterialActivation` returns `exact_record_conflict` when more than
+   one ACTIVE manifest shares a `materialActivation`. Retired manifests are
+   skipped, active ones are not.
 
-Until steps 5-8 exist, an added method is real on the server, selectable, and
-revocable, and cannot unlock or sign. `harness.unlockWithAddedPasskey()` is the
-step that will prove the fix.
+Facts 2 and 3 say the added method needs its own binding of the material.
+Fact 4 says it cannot have one while the source method keeps its own, and
+invariant 8 forbids giving the target its own signer activation to escape the
+collision. Retiring the source binding would clear fact 4 and violate
+invariant 9, which keeps the source method selected after addition.
 
-Until that is answered, `email-otp.add-passkey.contract.test.ts` proves the
-addition only. `harness.unlockWithAddedPasskey()` exists and is the step that
-will prove the rest.
+So `WalletAuthAuthority` is not the wallet's authority. It is a per-credential
+binding whose digest covers the factor identity, and the ECDSA capability model
+binds one capability to one such binding at three layers: the manifest record,
+the material AAD, and the identity assertion. R109C's "one authority, two
+methods" premise meets that model here, and one of the two has to give.
+
+Two ways out, both real:
+
+- **Bind per method, and allow siblings.** Install a target-bound manifest and
+  material at addition: open under the source binding, reseal under the target
+  binding. That is a local re-AAD, not a derivation — no new activation, share,
+  public key, or key manifest, so invariant 8 holds. It requires relaxing fact
+  4 so that `materialActivation` selects by requested authority rather than
+  erroring on multiplicity. This is step 5 read literally, and it keeps both
+  methods working. `openActiveMaterial` already returns the ready blob to the
+  same JavaScript layer the signing path uses, so this needs no new custody
+  worker operation and no new plaintext exposure.
+- **Bind per authority.** Key manifests to `WalletAuthorityV1.authorityId` and
+  the revocation epoch instead of the per-credential ref, so one manifest
+  serves every active method. Architecturally this is what "one authority, two
+  methods" means, but it changes a persisted, digest-bound record and the
+  per-credential addressing the Refactor 103E revocation contract selects on,
+  which is out of scope here.
+
+The first is the smaller change and the one the plan already describes. The
+second is the one that would be right if this model were being designed now.
+
+Until one lands, `email-otp.add-passkey.contract.test.ts` proves the addition
+only: an added method is real on the server, selectable, and revocable, and
+cannot unlock or sign. `harness.unlockWithAddedPasskey()` exists and is the
+step that will prove the rest.
 
 ## Goal
 
@@ -499,11 +537,11 @@ material, key manifest, revocation epoch, and selected Wallet Session.
 The settings inventory derives the available action from exact active methods
 on the selected authority:
 
-| Current factor families | Available action | Result |
-| --- | --- | --- |
-| Passkey only | **Add email code** | Passkey and Email OTP |
-| Email OTP only | **Add passkey** | Email OTP and Passkey |
-| Passkey and Email OTP | no add action | `already_configured` from the API |
+| Current factor families | Available action   | Result                            |
+| ----------------------- | ------------------ | --------------------------------- |
+| Passkey only            | **Add email code** | Passkey and Email OTP             |
+| Email OTP only          | **Add passkey**    | Email OTP and Passkey             |
+| Passkey and Email OTP   | no add action      | `already_configured` from the API |
 
 An authority may already contain several Passkeys. That counts as “Passkey
 present.” Existing methods remain valid; R109C never creates another method
@@ -686,10 +724,10 @@ messages and diagnostics remain display data.
    family, authority snapshot, nonce, and expiry.
 4. Verify the target factor:
 
-   | Source | Target | User actions |
-   | --- | --- | --- |
-   | Passkey | Email OTP | security note, source assertion, target email code |
-   | Email OTP | Passkey | source email code, target credential creation |
+   | Source    | Target    | User actions                                       |
+   | --------- | --------- | -------------------------------------------------- |
+   | Passkey   | Email OTP | security note, source assertion, target email code |
+   | Email OTP | Passkey   | source email code, target credential creation      |
 
 5. In the custody worker, reseal the same custody seed and every existing local
    signer/export access record under the verified target factor.
@@ -813,9 +851,9 @@ Primary locations:
 Run both transitions against Ed25519-only, ECDSA-only, and both-family wallets:
 
 | Existing method | Added method |
-| --- | --- |
-| Passkey | Email OTP |
-| Email OTP | Passkey |
+| --------------- | ------------ |
+| Passkey         | Email OTP    |
+| Email OTP       | Passkey      |
 
 For every cell and signer configuration:
 
