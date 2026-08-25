@@ -442,18 +442,34 @@ and Refactor 102 lane holder shares are per-lane material that is not
 seed-derived. Matching on authority would widen what an existing lane
 authorizes, which is a signing-material decision and not a resolution tweak.
 
-So the real question is which of these R109C intends, and it is not answerable
-from this ledger alone:
+The plan already answers this, in step 5 of the linear operation: "reseal the
+same custody seed AND EVERY EXISTING LOCAL SIGNER/EXPORT ACCESS RECORD under the
+verified target factor", followed by steps 6-8 which install those sealed
+records as pending, then flip them to active. The addition creates no new
+signer material because it reseals the material the wallet already has, once per
+method. That is the same shape as the custody envelope, extended to signer
+access.
 
-- the added method provisions its own lane at first unlock through the existing
-  Refactor 102 path, which is signer material and so needs reconciling with
-  "factor addition creates no signer material" — provisioning at unlock rather
-  than at addition may satisfy both;
-- or lane bindings gain an authority scope, so siblings share a lane
-  deliberately rather than incidentally.
+What is implemented today is only the custody envelope. Steps 5-8 are not:
+an addition writes the auth-method rows and its envelope, and no signer access
+record is resealed for the added method. That is the whole of the gap.
 
-Nothing here should be patched to make the contract green: both options change
-what signing material a factor can reach.
+Two facts scope the remaining work, and neither is a blocker so much as a
+warning against a quick fix:
+
+- `wallet_authority_signer_material_v1` is keyed `(authorityId,
+  walletAuthMethodId)` with `sealedMaterialB64u` — per method, sealed under that
+  method's factor. So the record shape already expects one row per sibling.
+- Its seal and open helpers exist only in the LINKED variant
+  (`linkedAuthoritySignerMaterial.ts`). An owner wallet's ECDSA access comes
+  from canonical lanes provisioned by Refactor 102 through registration and
+  device linking. So the addition path has no owner-side reseal primitive to
+  call yet, and the honest unit of work is to add one rather than to reuse the
+  linked-device path, which assumes a new authority.
+
+Until steps 5-8 exist, an added method is real on the server, selectable, and
+revocable, and cannot unlock or sign. `harness.unlockWithAddedPasskey()` is the
+step that will prove the fix.
 
 Until that is answered, `email-otp.add-passkey.contract.test.ts` proves the
 addition only. `harness.unlockWithAddedPasskey()` exists and is the step that
