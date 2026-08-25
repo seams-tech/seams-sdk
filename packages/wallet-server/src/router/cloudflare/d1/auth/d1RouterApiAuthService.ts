@@ -515,7 +515,7 @@ function createD1LinkedDeviceComposition(input: {
         readOwnerSourceChildV1: sessionConfig.readOwnerSourceChildV1,
         nowV1,
       }),
-      targetPlanner: {},
+      targetPlanner: { targetPasskeyRpId: sessionConfig.targetPasskeyRpId },
       nowV1,
     });
     ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
@@ -578,6 +578,7 @@ function createD1LinkedDeviceComposition(input: {
         verifiedLinkBuilder,
         targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(
           sessionConfig.targetPasskeyOrigin,
+          sessionConfig.targetPasskeyRpId,
         ),
         targetPlanner: ownerAuthorizationProvider.targetPlanner,
         resolveOwnerSourceChildV1:

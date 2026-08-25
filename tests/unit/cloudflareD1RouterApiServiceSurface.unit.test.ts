@@ -611,6 +611,7 @@ test('Cloudflare D1 full linked-device session composition exposes session and m
         session: {
           readOwnerSourceChildV1: async () => null,
           targetPasskeyOrigin: 'https://wallet.example.test',
+          targetPasskeyRpId: 'wallet.example.test',
           targetCredential: () => ({
             getTargetPreparationV1: async () => {
               throw new Error('target preparation is outside this surface test');

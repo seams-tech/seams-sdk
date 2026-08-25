@@ -133,6 +133,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
   readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
@@ -1348,6 +1349,10 @@ function localLinkedDeviceSessionComposition(
       targetPasskeyOrigin: requireLocalEnvString(
         env.LINKED_DEVICE_WEBAUTHN_ORIGIN,
         'LINKED_DEVICE_WEBAUTHN_ORIGIN',
+      ),
+      targetPasskeyRpId: requireLocalEnvString(
+        env.LINKED_DEVICE_WEBAUTHN_RP_ID,
+        'LINKED_DEVICE_WEBAUTHN_RP_ID',
       ),
       targetCredential: ({
         verifiedLinkBuilder,
