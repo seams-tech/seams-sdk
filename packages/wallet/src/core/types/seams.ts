@@ -24,6 +24,7 @@ import type {
   ResolvedRegistrationNearAccount,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import type {
   WalletSessionAuthorizationId,
@@ -379,6 +380,7 @@ export type ReusableWalletSessionState =
       readonly authorizationId?: never;
       readonly walletSessionId?: never;
       readonly authMethod?: never;
+      readonly walletAuthMethodId?: never;
       readonly remainingUses?: never;
       readonly expiresAtMs?: never;
       readonly detectedAtMs?: never;
@@ -390,6 +392,15 @@ export type ReusableWalletSessionState =
       readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
+      /**
+       * The exact credential this session was issued to.
+       *
+       * `authMethod` names only the family, which stopped identifying anything
+       * once a wallet could hold two methods of different families on one
+       * authority: a caller asking "which credential is this session for" has
+       * no other way to tell an added method from the one that added it.
+       */
+      readonly walletAuthMethodId: WalletAuthMethodId;
       readonly remainingUses: number;
       readonly expiresAtMs: number;
       readonly detectedAtMs?: never;

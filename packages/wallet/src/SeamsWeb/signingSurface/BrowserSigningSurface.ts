@@ -3138,6 +3138,7 @@ export class BrowserSigningSurface {
           authorizationId,
           walletSessionId: authorization.walletSessionId,
           authMethod: authorization.authMethod,
+          walletAuthMethodId: authorization.authority.walletAuthMethodId,
           remainingUses: status.remainingUses,
           expiresAtMs: status.expiresAtMs,
         };

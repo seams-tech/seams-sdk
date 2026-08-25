@@ -25,7 +25,7 @@ import {
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import { base64UrlDecode } from '@shared/utils/base64';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { parseWebAuthnRpId, type WalletAuthMethodId } from '@shared/utils/domainIds';
 import { toError } from '@shared/utils/errors';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -47,6 +47,8 @@ export type AddEmailOtpResult = {
   readonly ok: true;
   readonly walletId: WalletId;
   readonly emailAddress: string;
+  /** The method this addition created, so a caller can name it afterwards. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authMethod: {
     readonly kind: 'email_otp';
     readonly status: 'active';
@@ -300,6 +302,7 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
       ok: true,
       walletId: args.walletId,
       emailAddress,
+      walletAuthMethodId: intentResponse.intent.targetWalletAuthMethodId,
       authMethod: { kind: 'email_otp', status: 'active' },
     };
   } finally {

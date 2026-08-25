@@ -23,7 +23,13 @@ import type {
   WalletAuthenticationState,
 } from '@/core/types/seams';
 import type { WalletSessionId } from '@/core/types/sdkSentEvents';
-import { parseCapabilityInstanceRef, parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import {
+  parseCapabilityInstanceRef,
+  parseWalletAuthMethodId,
+  parseWalletId,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -380,6 +386,12 @@ function parseReusableWalletSession(value: unknown): ReusableWalletSessionState 
       return {
         kind: 'active',
         ...parseReusableWalletSessionIdentityWithExpiry(record),
+        // R109C: only an active session names the exact credential it was
+        // issued to; a retired one is addressed by its authorization id.
+        walletAuthMethodId: requireParsedWalletAuthMethodId(
+          record.walletAuthMethodId,
+          'walletAuthMethodId',
+        ),
         remainingUses: requirePositiveSafeInteger(record.remainingUses, 'remainingUses'),
       };
     case 'exhausted':
@@ -462,6 +474,12 @@ function parseReusableWalletSessionIdentity(
     walletSessionId: walletSessionId.value,
     authMethod: record.authMethod,
   };
+}
+
+function requireParsedWalletAuthMethodId(value: unknown, field: string): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(requireNonEmptyString(value, field));
+  if (!parsed.ok) throw new Error(`${field} is not a wallet auth method id`);
+  return parsed.value;
 }
 
 function parseReusableWalletSessionIdentityWithExpiry(

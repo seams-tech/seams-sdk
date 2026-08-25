@@ -360,6 +360,7 @@ type PasskeyUnlockResultSnapshot =
       nearIdentity: 'ready';
       nearAccountId: string;
       operationalPublicKey: string;
+      sessionWalletAuthMethodId: string | null;
       signingSessionStatus: string;
       remainingUses: number | null;
     }
@@ -369,6 +370,7 @@ type PasskeyUnlockResultSnapshot =
       nearIdentity: 'absent';
       nearAccountId?: never;
       operationalPublicKey?: never;
+      sessionWalletAuthMethodId: string | null;
       signingSessionStatus: string;
       remainingUses: number | null;
     };
@@ -437,6 +439,7 @@ type AddEmailOtpAuthMethodResultSnapshot = {
   kind: 'add_email_otp_success';
   walletId: string;
   emailAddress: string;
+  walletAuthMethodId: string;
   authMethod: { kind: 'email_otp'; status: 'active' };
 };
 
@@ -444,12 +447,14 @@ type AddPasskeyAuthMethodResultSnapshot = {
   kind: 'add_passkey_success';
   walletId: string;
   rpId: string;
+  walletAuthMethodId: string;
   authMethod: { kind: 'passkey'; status: 'active' };
 };
 
 type AddedEmailOtpUnlockResultSnapshot = {
   kind: 'added_email_otp_unlock_success';
   walletId: string;
+  sessionWalletAuthMethodId: string | null;
   signingSessionStatus: string;
   remainingUses: number | null;
 };
@@ -836,6 +841,9 @@ export class IntendedBehaviourHarness {
   /** Set by an auth-method addition, which uses one family to add the other. */
   private crossFamilyAuthMethodAdditionRan = false;
 
+  /** The exact method the last addition created, to check what unlocks later. */
+  private addedWalletAuthMethodId: string | null = null;
+
   private passkeyPromptCount = 0;
 
   private latestPageSnapshot: IntendedPageSnapshot | null = null;
@@ -1060,9 +1068,36 @@ export class IntendedBehaviourHarness {
     }
     this.emailOtpVerificationCount += 1;
     this.crossFamilyAuthMethodAdditionRan = true;
+    this.addedWalletAuthMethodId = result.walletAuthMethodId;
     this.recordService(
-      `email code added wallet=${String(result.walletId)} email=${String(result.emailAddress)}`,
+      `email code added wallet=${String(result.walletId)} email=${String(result.emailAddress)} method=${result.walletAuthMethodId}`,
     );
+  }
+
+  /**
+   * Refactor 109C: the Wallet Session belongs to the method that opened it.
+   *
+   * The family alone proves nothing here - both methods live on one authority,
+   * and the wallet would look identical if it had issued the session to the
+   * method that did the adding. Only the exact id separates the two.
+   */
+  private assertWalletSessionNamesAddedMethod(input: {
+    readonly label: string;
+    readonly sessionWalletAuthMethodId: string | null;
+  }): void {
+    const expected = this.addedWalletAuthMethodId;
+    if (!expected) {
+      throw new Error(`${input.label} unlock ran without a recorded added auth method`);
+    }
+    if (!input.sessionWalletAuthMethodId) {
+      throw new Error(`${input.label} unlock issued a Wallet Session naming no auth method`);
+    }
+    if (input.sessionWalletAuthMethodId !== expected) {
+      throw new Error(
+        `${input.label} unlock issued a Wallet Session for ${input.sessionWalletAuthMethodId}, not the added ${expected}`,
+      );
+    }
+    this.recordService(`${input.label} wallet session method=${expected}`);
   }
 
   /**
@@ -1111,6 +1146,10 @@ export class IntendedBehaviourHarness {
         `unlock with the added passkey did not activate its Wallet Session: ${result.signingSessionStatus}`,
       );
     }
+    this.assertWalletSessionNamesAddedMethod({
+      label: 'added passkey',
+      sessionWalletAuthMethodId: result.sessionWalletAuthMethodId,
+    });
     this.passkeyPromptCount += 1;
     this.recordService(`added passkey unlocked wallet=${String(registration.walletId)}`);
   }
@@ -1138,7 +1177,10 @@ export class IntendedBehaviourHarness {
     this.emailOtpVerificationCount += 1;
     this.passkeyPromptCount += 1;
     this.crossFamilyAuthMethodAdditionRan = true;
-    this.recordService(`passkey added wallet=${String(result.walletId)} rp=${String(result.rpId)}`);
+    this.addedWalletAuthMethodId = result.walletAuthMethodId;
+    this.recordService(
+      `passkey added wallet=${String(result.walletId)} rp=${String(result.rpId)} method=${result.walletAuthMethodId}`,
+    );
   }
 
   async registerEmailOtpWallet(): Promise<void> {
@@ -1216,6 +1258,10 @@ export class IntendedBehaviourHarness {
         `unlock with the added email code did not activate its Wallet Session: ${result.signingSessionStatus}`,
       );
     }
+    this.assertWalletSessionNamesAddedMethod({
+      label: 'added email code',
+      sessionWalletAuthMethodId: result.sessionWalletAuthMethodId,
+    });
     this.currentWarmSigningStage = 'post_unlock';
     this.emailOtpVerificationCount += 1;
     this.recordService(`added email code unlocked wallet=${String(registration.walletId)}`);
@@ -3926,6 +3972,10 @@ function parsePasskeyUnlockResultSnapshot(
   const common = {
     kind: 'passkey_unlock_success' as const,
     walletId: requireString(record.walletId, 'passkey unlock walletId'),
+    sessionWalletAuthMethodId:
+      typeof record.sessionWalletAuthMethodId === 'string'
+        ? record.sessionWalletAuthMethodId
+        : null,
     signingSessionStatus: requireString(
       record.signingSessionStatus,
       'passkey unlock signingSessionStatus',
@@ -3987,6 +4037,10 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         kind,
         walletId: requireString(record.walletId, 'add-email-code walletId'),
         emailAddress: requireString(record.emailAddress, 'add-email-code emailAddress'),
+        walletAuthMethodId: requireString(
+          record.walletAuthMethodId,
+          'add-email-code walletAuthMethodId',
+        ),
         authMethod: { kind: 'email_otp', status: 'active' },
       };
     }
@@ -3999,6 +4053,10 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         kind,
         walletId: requireString(record.walletId, 'add-passkey walletId'),
         rpId: requireString(record.rpId, 'add-passkey rpId'),
+        walletAuthMethodId: requireString(
+          record.walletAuthMethodId,
+          'add-passkey walletAuthMethodId',
+        ),
         authMethod: { kind: 'passkey', status: 'active' },
       };
     }
@@ -4007,6 +4065,10 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
       return {
         kind,
         walletId: requireString(record.walletId, 'added email-code unlock walletId'),
+        sessionWalletAuthMethodId:
+          typeof record.sessionWalletAuthMethodId === 'string'
+            ? record.sessionWalletAuthMethodId
+            : null,
         signingSessionStatus: requireString(
           record.signingSessionStatus,
           'added email-code unlock signing session status',
