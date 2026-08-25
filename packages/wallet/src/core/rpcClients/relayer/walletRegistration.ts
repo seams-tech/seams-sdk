@@ -860,6 +860,8 @@ export type WalletAddAuthMethodFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId: string;
+      /** The authority the new method was added to, as the server records it. */
+      authority: WalletAuthAuthority;
       authMethod: {
         kind: 'passkey';
         status: 'active';
@@ -873,6 +875,7 @@ export type WalletAddAuthMethodFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId?: never;
+      authority: WalletAuthAuthority;
       authMethod: {
         kind: 'email_otp';
         status: 'active';
