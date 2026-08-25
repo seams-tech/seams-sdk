@@ -1169,7 +1169,7 @@ test.describe('console router (express)', () => {
       trigger: 'SLA_BREACH',
       reason: 'SLA breach',
     });
-    const endpoint = await webhooks.createEndpoint(serviceCtx, {
+    const { endpoint } = await webhooks.createEndpoint(serviceCtx, {
       url: 'https://example.com/ops-cockpit-webhook',
       eventCategories: ['billing'],
     });
@@ -6161,7 +6161,7 @@ test.describe('console router (express)', () => {
         }),
       },
     });
-    const endpoint = await webhooks.createEndpoint(
+    const { endpoint } = await webhooks.createEndpoint(
       { orgId: 'org-1', actorUserId: 'user-1' },
       {
         url: 'https://example.com/billing-transition-express',

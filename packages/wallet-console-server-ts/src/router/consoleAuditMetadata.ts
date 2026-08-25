@@ -191,11 +191,18 @@ function summarizeWebhookEndpointAction(action: string, endpointId: string): str
   if (action === 'webhook.endpoint.create') return `Created webhook endpoint ${endpointId}`;
   if (action === 'webhook.endpoint.update') return `Updated webhook endpoint ${endpointId}`;
   if (action === 'webhook.endpoint.delete') return `Deleted webhook endpoint ${endpointId}`;
+  if (action === 'webhook.endpoint.rotate_secret') {
+    return `Rotated the signing secret for webhook endpoint ${endpointId}`;
+  }
   return `Updated webhook endpoint ${endpointId}`;
 }
 
 export function buildConsoleWebhookEndpointAuditEvent(input: {
-  action: 'webhook.endpoint.create' | 'webhook.endpoint.update' | 'webhook.endpoint.delete';
+  action:
+    | 'webhook.endpoint.create'
+    | 'webhook.endpoint.update'
+    | 'webhook.endpoint.delete'
+    | 'webhook.endpoint.rotate_secret';
   endpoint: ConsoleWebhookEndpoint;
 }): {
   summary: string;

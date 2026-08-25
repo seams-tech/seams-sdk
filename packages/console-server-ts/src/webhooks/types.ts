@@ -27,6 +27,21 @@ export interface ConsoleWebhookEndpoint {
   updatedAt: string;
 }
 
+/**
+ * The plaintext signing secret is sealed at rest and never returned by any
+ * read route, so create and rotate are the only moments a customer can capture
+ * it. Both carry it out-of-band from the endpoint record for that reason.
+ */
+export interface CreateConsoleWebhookEndpointResult {
+  endpoint: ConsoleWebhookEndpoint;
+  signingSecret: string;
+}
+
+export interface RotateConsoleWebhookSecretResult {
+  endpoint: ConsoleWebhookEndpoint;
+  signingSecret: string;
+}
+
 export interface ConsoleWebhookDelivery {
   id: string;
   orgId: string;

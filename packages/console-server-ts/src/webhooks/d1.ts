@@ -45,6 +45,7 @@ import type {
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookPage,
   CreateConsoleWebhookEndpointRequest,
+  CreateConsoleWebhookEndpointResult,
   EmitConsoleWebhookEventRequest,
   EmitConsoleWebhookEventResult,
   ListConsoleWebhookAttemptsRequest,
@@ -52,6 +53,7 @@ import type {
   ListConsoleWebhookDeliveriesRequest,
   ReplayConsoleWebhookDeliveryRequest,
   ReplayConsoleWebhookDeliveryResult,
+  RotateConsoleWebhookSecretResult,
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
 
@@ -1614,10 +1616,10 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
   async createEndpoint(
     ctx: ConsoleWebhooksContext,
     request: CreateConsoleWebhookEndpointRequest,
-  ): Promise<ConsoleWebhookEndpoint> {
+  ): Promise<CreateConsoleWebhookEndpointResult> {
     const now = this.state.now();
     const endpointId = makeId('wh', now);
-    const signingSecret = makeSigningSecret(now);
+    const signingSecret = makeSigningSecret();
     const sealedSecret = await this.state.secretCipher.sealConsoleWebhookSecret({
       orgId: ctx.orgId,
       endpointId,
@@ -1672,7 +1674,61 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     if (!endpoint) {
       throw new ConsoleWebhookError('internal', 500, 'Failed to create webhook endpoint');
     }
-    return toPublicEndpoint(endpoint);
+    return { endpoint: toPublicEndpoint(endpoint), signingSecret };
+  }
+
+  /**
+   * Mint a replacement signing secret. The plaintext is returned once and only
+   * here; the bumped version counter is what tells a customer which key signed
+   * which of the deliveries already recorded against this endpoint.
+   */
+  async rotateSecret(
+    ctx: ConsoleWebhooksContext,
+    endpointId: string,
+  ): Promise<RotateConsoleWebhookSecretResult | null> {
+    const findArgs = {
+      categoryValidation: this.state.categoryValidation,
+      database: this.state.database,
+      namespace: this.state.namespace,
+      orgId: ctx.orgId,
+      endpointId,
+    };
+    const current = await findEndpoint(findArgs);
+    if (!current) return null;
+    const now = this.state.now();
+    const signingSecret = makeSigningSecret();
+    const sealedSecret = await this.state.secretCipher.sealConsoleWebhookSecret({
+      orgId: ctx.orgId,
+      endpointId,
+      plaintextSecret: signingSecret,
+    });
+    await this.state.database
+      .prepare(
+        `UPDATE webhook_endpoints
+            SET signing_secret_ciphertext_b64u = ?,
+                signing_secret_key_id = ?,
+                signing_secret_envelope_version = ?,
+                secret_version = secret_version + 1,
+                secret_preview = ?,
+                updated_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND id = ?`,
+      )
+      .bind(
+        sealedSecret.ciphertextB64u,
+        sealedSecret.keyId,
+        sealedSecret.envelopeVersion,
+        makeSecretPreview(signingSecret),
+        nowMs(now),
+        this.state.namespace,
+        ctx.orgId,
+        endpointId,
+      )
+      .run();
+    const endpoint = await findEndpoint(findArgs);
+    if (!endpoint) {
+      throw new ConsoleWebhookError('internal', 500, 'Failed to rotate webhook signing secret');
+    }
+    return { endpoint: toPublicEndpoint(endpoint), signingSecret };
   }
 
   async updateEndpoint(

@@ -26,11 +26,13 @@ import { DashboardPageActions } from '../../components/DashboardPageActions';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardCreateIntent } from '../../utils/routeCreateIntent';
 import { CreateWebhookEndpointModal } from './CreateWebhookEndpointModal';
+import { WebhookSecretRevealModal, type WebhookSecretReveal } from './WebhookSecretRevealModal';
 import { WebhooksGetStarted } from './WebhooksGetStarted';
 import {
   createDashboardWebhookEndpoint,
   deleteDashboardWebhookEndpoint,
   listDashboardWebhookDeliveries,
+  rotateDashboardWebhookSecret,
   listDashboardWebhookEndpoints,
   replayDashboardWebhookDelivery,
   updateDashboardWebhookEndpoint,
@@ -71,6 +73,7 @@ export function WebhooksPage(): React.JSX.Element {
   const [isCreateModalOpen, setIsCreateModalOpen] = React.useState<boolean>(false);
   const [creating, setCreating] = React.useState<boolean>(false);
   const [busyEndpointId, setBusyEndpointId] = React.useState<string>('');
+  const [secretReveal, setSecretReveal] = React.useState<WebhookSecretReveal | null>(null);
   const [selectedEndpointId, setSelectedEndpointId] = React.useState<string>('');
   const [requestedEndpointId, setRequestedEndpointId] = React.useState<string>(
     () => readWebhooksRouteSelection().endpointId,
@@ -219,12 +222,7 @@ export function WebhooksPage(): React.JSX.Element {
     if (deliveriesPagination.page !== targetPage) {
       deliveriesPagination.setPage(targetPage);
     }
-  }, [
-    deliveries,
-    deliveriesPagination,
-    requestedDeliveryId,
-    selectedEndpointId,
-  ]);
+  }, [deliveries, deliveriesPagination, requestedDeliveryId, selectedEndpointId]);
 
   const onOpenCreateModal = React.useCallback(() => {
     setIsCreateModalOpen(true);
@@ -244,6 +242,8 @@ export function WebhooksPage(): React.JSX.Element {
     onOpenCreateModal,
   );
 
+  const onCloseSecretReveal = React.useCallback(() => setSecretReveal(null), []);
+
   const onCreateEndpoint = React.useCallback(
     async (input: { url: string; eventCategories: ConsoleWebhookEventCategory[] }) => {
       if (!session.claims) {
@@ -253,7 +253,7 @@ export function WebhooksPage(): React.JSX.Element {
       setCreating(true);
       setMutationError('');
       try {
-        const endpoint = await createDashboardWebhookEndpoint({
+        const { endpoint, signingSecret } = await createDashboardWebhookEndpoint({
           url: input.url,
           eventCategories: input.eventCategories,
           status: 'ACTIVE',
@@ -261,6 +261,13 @@ export function WebhooksPage(): React.JSX.Element {
         setIsCreateModalOpen(false);
         loadEndpoints();
         setSelectedEndpointId(endpoint.id);
+        setSecretReveal({
+          endpointId: endpoint.id,
+          endpointUrl: endpoint.url,
+          signingSecret,
+          secretVersion: endpoint.secretVersion,
+          reason: 'created',
+        });
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -284,6 +291,42 @@ export function WebhooksPage(): React.JSX.Element {
           status: endpoint.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
         });
         loadEndpoints();
+      } catch (error: unknown) {
+        setMutationError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusyEndpointId('');
+      }
+    },
+    [loadEndpoints, session.claims, session.errorMessage],
+  );
+
+  const onRotateSecret = React.useCallback(
+    async (endpoint: DashboardConsoleWebhookEndpoint) => {
+      if (!session.claims) {
+        setMutationError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      /* Rotation invalidates the secret the customer's handler is verifying
+         with, so it asks first — unlike Disable, it cannot be undone. */
+      if (
+        !window.confirm(
+          `Rotate the signing secret for ${endpoint.url}? Deliveries are signed with the new secret immediately.`,
+        )
+      ) {
+        return;
+      }
+      setBusyEndpointId(endpoint.id);
+      setMutationError('');
+      try {
+        const rotated = await rotateDashboardWebhookSecret({ endpointId: endpoint.id });
+        loadEndpoints();
+        setSecretReveal({
+          endpointId: rotated.endpoint.id,
+          endpointUrl: rotated.endpoint.url,
+          signingSecret: rotated.signingSecret,
+          secretVersion: rotated.endpoint.secretVersion,
+          reason: 'rotated',
+        });
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -370,98 +413,103 @@ export function WebhooksPage(): React.JSX.Element {
 
       {errorMessage && !loading && !session.loading ? (
         <section className="dashboard-view__section" aria-label="Webhook service status">
-          <p className="dashboard-pagination-note">
-            Webhook endpoints unavailable: {errorMessage}
-          </p>
+          <p className="dashboard-pagination-note">Webhook endpoints unavailable: {errorMessage}</p>
         </section>
       ) : showGetStarted ? (
         <WebhooksGetStarted onAddEndpoint={onOpenCreateModal} disabled={creating} />
       ) : (
-      <DashboardTable
-        ariaLabel="Webhook endpoints table"
-        columns={WEBHOOK_ENDPOINTS_TABLE_COLUMNS}
-        pagination={endpointsPagination.pagination}
-      >
-        <DashboardTableHeader>
-          <DashboardTableHeaderCell>Endpoint</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
-        </DashboardTableHeader>
-        {session.loading || loading ? (
-          <DashboardTableState>Loading webhook endpoints...</DashboardTableState>
-        ) : !session.claims ? (
-          <DashboardTableState>
-            Webhooks unavailable: {session.errorMessage || 'unauthorized'}.
-          </DashboardTableState>
-        ) : endpoints.length === 0 ? (
-          <DashboardTableState>No webhook endpoints configured yet.</DashboardTableState>
-        ) : (
-          <>
-            {endpointsPagination.rows.map((endpoint) => (
-              <DashboardTableRow key={endpoint.id}>
-                <DashboardTableCell
-                  title={`${endpoint.url} · ${endpoint.id}`}
-                  className="dashboard-data-table__cell--lead"
-                >
-                  <div className="dashboard-lead">
-                    <span className="dashboard-lead__icon" aria-hidden="true">
-                      <WebhookIcon size={16} />
-                    </span>
-                    <span className="dashboard-lead__copy">
-                      <span className="dashboard-lead__title">
-                        <button
-                          type="button"
-                          className="dashboard-inline-link"
-                          onClick={() => setSelectedEndpointId(endpoint.id)}
-                        >
-                          {endpoint.url}
-                        </button>
+        <DashboardTable
+          ariaLabel="Webhook endpoints table"
+          columns={WEBHOOK_ENDPOINTS_TABLE_COLUMNS}
+          pagination={endpointsPagination.pagination}
+        >
+          <DashboardTableHeader>
+            <DashboardTableHeaderCell>Endpoint</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+          </DashboardTableHeader>
+          {session.loading || loading ? (
+            <DashboardTableState>Loading webhook endpoints...</DashboardTableState>
+          ) : !session.claims ? (
+            <DashboardTableState>
+              Webhooks unavailable: {session.errorMessage || 'unauthorized'}.
+            </DashboardTableState>
+          ) : endpoints.length === 0 ? (
+            <DashboardTableState>No webhook endpoints configured yet.</DashboardTableState>
+          ) : (
+            <>
+              {endpointsPagination.rows.map((endpoint) => (
+                <DashboardTableRow key={endpoint.id}>
+                  <DashboardTableCell
+                    title={`${endpoint.url} · ${endpoint.id}`}
+                    className="dashboard-data-table__cell--lead"
+                  >
+                    <div className="dashboard-lead">
+                      <span className="dashboard-lead__icon" aria-hidden="true">
+                        <WebhookIcon size={16} />
                       </span>
-                      <span className="dashboard-lead__sub">
-                        {endpoint.id}
-                        {endpoint.eventCategories.length > 0
-                          ? ` · ${endpoint.eventCategories.join(', ')}`
-                          : ''}
+                      <span className="dashboard-lead__copy">
+                        <span className="dashboard-lead__title">
+                          <button
+                            type="button"
+                            className="dashboard-inline-link"
+                            onClick={() => setSelectedEndpointId(endpoint.id)}
+                          >
+                            {endpoint.url}
+                          </button>
+                        </span>
+                        <span className="dashboard-lead__sub">
+                          {endpoint.id}
+                          {endpoint.eventCategories.length > 0
+                            ? ` · ${endpoint.eventCategories.join(', ')}`
+                            : ''}
+                        </span>
                       </span>
-                    </span>
-                  </div>
-                </DashboardTableCell>
-                <DashboardTableCell>
-                  <DashboardTableStatus tone={dashboardStatusTone(endpoint.status)}>
-                    {dashboardStatusLabel(endpoint.status)}
-                  </DashboardTableStatus>
-                </DashboardTableCell>
-                <DashboardTableCell truncate>
-                  {formatTimestamp(endpoint.updatedAt)}
-                </DashboardTableCell>
-                <DashboardTableCell>
-                  <DashboardTableActionGroup>
-                    <DashboardTableActionButton
-                      onClick={() => onToggleEndpointStatus(endpoint)}
-                      disabled={busyEndpointId === endpoint.id}
-                    >
-                      {endpoint.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                    </DashboardTableActionButton>
-                    <DashboardTableActionMenu
-                      ariaLabel={`More actions for ${endpoint.url}`}
-                      items={[
-                        {
-                          label: 'Delete',
-                          onSelect: () => onDeleteEndpoint(endpoint.id),
-                          tone: 'danger' as const,
-                          disabled: busyEndpointId === endpoint.id,
-                        },
-                      ]}
-                    />
-                  </DashboardTableActionGroup>
-                </DashboardTableCell>
-              </DashboardTableRow>
-            ))}
-          </>
-        )}
-      </DashboardTable>
+                    </div>
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    <DashboardTableStatus tone={dashboardStatusTone(endpoint.status)}>
+                      {dashboardStatusLabel(endpoint.status)}
+                    </DashboardTableStatus>
+                  </DashboardTableCell>
+                  <DashboardTableCell truncate>
+                    {formatTimestamp(endpoint.updatedAt)}
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    <DashboardTableActionGroup>
+                      <DashboardTableActionButton
+                        onClick={() => onToggleEndpointStatus(endpoint)}
+                        disabled={busyEndpointId === endpoint.id}
+                      >
+                        {endpoint.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+                      </DashboardTableActionButton>
+                      <DashboardTableActionMenu
+                        ariaLabel={`More actions for ${endpoint.url}`}
+                        items={[
+                          {
+                            label: 'Rotate signing secret',
+                            onSelect: () => onRotateSecret(endpoint),
+                            disabled: busyEndpointId === endpoint.id,
+                          },
+                          {
+                            label: 'Delete',
+                            onSelect: () => onDeleteEndpoint(endpoint.id),
+                            tone: 'danger' as const,
+                            disabled: busyEndpointId === endpoint.id,
+                          },
+                        ]}
+                      />
+                    </DashboardTableActionGroup>
+                  </DashboardTableCell>
+                </DashboardTableRow>
+              ))}
+            </>
+          )}
+        </DashboardTable>
       )}
+
+      <WebhookSecretRevealModal reveal={secretReveal} onRequestClose={onCloseSecretReveal} />
 
       <CreateWebhookEndpointModal
         isOpen={isCreateModalOpen}
@@ -474,103 +522,109 @@ export function WebhooksPage(): React.JSX.Element {
       />
 
       {selectedEndpointId && !errorMessage ? (
-      <section
-        className="dashboard-view__section dashboard-view__section--plain"
-        aria-label="Webhook deliveries"
-      >
-        <div className="dashboard-section-toolbar">
-          <div className="dashboard-section-toolbar__copy">
-            <h2>Deliveries</h2>
-            <p className="dashboard-pagination-note">
-              Endpoint <code>{selectedEndpointId}</code>
-              {selectedEndpoint
-                ? ` · Signing secret v${selectedEndpoint.secretVersion} ${selectedEndpoint.secretPreview || ''}`
-                : ''}
-            </p>
+        <section
+          className="dashboard-view__section dashboard-view__section--plain"
+          aria-label="Webhook deliveries"
+        >
+          <div className="dashboard-section-toolbar">
+            <div className="dashboard-section-toolbar__copy">
+              <h2>Deliveries</h2>
+              <p className="dashboard-pagination-note">
+                Endpoint <code>{selectedEndpointId}</code>
+                {selectedEndpoint
+                  ? ` · Signing secret v${selectedEndpoint.secretVersion} ${selectedEndpoint.secretPreview || ''}`
+                  : ''}
+              </p>
+            </div>
           </div>
-        </div>
-      <DashboardTable
-        ariaLabel="Webhook deliveries table"
-        columns={WEBHOOK_DELIVERIES_TABLE_COLUMNS}
-        pagination={deliveriesPagination.pagination}
-      >
-        <DashboardTableHeader>
-          <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
-            Attempts
-          </DashboardTableHeaderCell>
-          <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
-            Response
-          </DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Last attempt</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Action</DashboardTableHeaderCell>
-        </DashboardTableHeader>
-        {deliveriesLoading ? (
-          <DashboardTableState>Loading deliveries for {selectedEndpointId}...</DashboardTableState>
-        ) : deliveriesError ? (
-          <DashboardTableState>Deliveries unavailable: {deliveriesError}</DashboardTableState>
-        ) : deliveries.length === 0 ? (
-          <DashboardTableState>No deliveries recorded for this endpoint yet.</DashboardTableState>
-        ) : (
-          <>
-            {deliveriesPagination.rows.map((delivery) => (
-              <DashboardTableRow key={delivery.id}>
-                <DashboardTableCell
-                  title={`${delivery.eventType} · ${delivery.id} · ${delivery.eventId}`}
-                  className="dashboard-data-table__cell--lead"
-                >
-                  <span className="dashboard-lead__copy">
-                    <span className="dashboard-lead__title">
-                      <span className="dashboard-data-table__summary">
-                        {delivery.eventType || DASHBOARD_EMPTY_VALUE}
+          <DashboardTable
+            ariaLabel="Webhook deliveries table"
+            columns={WEBHOOK_DELIVERIES_TABLE_COLUMNS}
+            pagination={deliveriesPagination.pagination}
+          >
+            <DashboardTableHeader>
+              <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
+                Attempts
+              </DashboardTableHeaderCell>
+              <DashboardTableHeaderCell className="dashboard-data-table__header-cell--end">
+                Response
+              </DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Last attempt</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Action</DashboardTableHeaderCell>
+            </DashboardTableHeader>
+            {deliveriesLoading ? (
+              <DashboardTableState>
+                Loading deliveries for {selectedEndpointId}...
+              </DashboardTableState>
+            ) : deliveriesError ? (
+              <DashboardTableState>Deliveries unavailable: {deliveriesError}</DashboardTableState>
+            ) : deliveries.length === 0 ? (
+              <DashboardTableState>
+                No deliveries recorded for this endpoint yet.
+              </DashboardTableState>
+            ) : (
+              <>
+                {deliveriesPagination.rows.map((delivery) => (
+                  <DashboardTableRow key={delivery.id}>
+                    <DashboardTableCell
+                      title={`${delivery.eventType} · ${delivery.id} · ${delivery.eventId}`}
+                      className="dashboard-data-table__cell--lead"
+                    >
+                      <span className="dashboard-lead__copy">
+                        <span className="dashboard-lead__title">
+                          <span className="dashboard-data-table__summary">
+                            {delivery.eventType || DASHBOARD_EMPTY_VALUE}
+                          </span>
+                          {delivery.id === requestedDeliveryId ? (
+                            <DashboardTableBadge tone="warning">
+                              Opened from audit
+                            </DashboardTableBadge>
+                          ) : null}
+                        </span>
+                        <span className="dashboard-lead__sub">
+                          {delivery.id}
+                          {delivery.eventId ? ` · ${delivery.eventId}` : ''}
+                        </span>
                       </span>
-                      {delivery.id === requestedDeliveryId ? (
-                        <DashboardTableBadge tone="warning">Opened from audit</DashboardTableBadge>
+                    </DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableStatus tone={dashboardStatusTone(delivery.status)}>
+                        {dashboardStatusLabel(delivery.status)}
+                      </DashboardTableStatus>
+                    </DashboardTableCell>
+                    <DashboardTableCell align="end" className="dashboard-data-table__cell--nowrap">
+                      {delivery.attemptCount}
+                      {delivery.replayCount > 0 ? (
+                        <span className="dashboard-data-table__inline-note">
+                          {' '}
+                          · {delivery.replayCount} replay{delivery.replayCount === 1 ? '' : 's'}
+                        </span>
                       ) : null}
-                    </span>
-                    <span className="dashboard-lead__sub">
-                      {delivery.id}
-                      {delivery.eventId ? ` · ${delivery.eventId}` : ''}
-                    </span>
-                  </span>
-                </DashboardTableCell>
-                <DashboardTableCell>
-                  <DashboardTableStatus tone={dashboardStatusTone(delivery.status)}>
-                    {dashboardStatusLabel(delivery.status)}
-                  </DashboardTableStatus>
-                </DashboardTableCell>
-                <DashboardTableCell align="end" className="dashboard-data-table__cell--nowrap">
-                  {delivery.attemptCount}
-                  {delivery.replayCount > 0 ? (
-                    <span className="dashboard-data-table__inline-note">
-                      {' '}
-                      · {delivery.replayCount} replay{delivery.replayCount === 1 ? '' : 's'}
-                    </span>
-                  ) : null}
-                </DashboardTableCell>
-                <DashboardTableCell title={delivery.errorMessage || ''} align="end">
-                  {delivery.responseStatus != null
-                    ? String(delivery.responseStatus)
-                    : DASHBOARD_EMPTY_VALUE}
-                </DashboardTableCell>
-                <DashboardTableCell truncate>
-                  {formatTimestamp(delivery.lastAttemptAt || delivery.deliveredAt)}
-                </DashboardTableCell>
-                <DashboardTableCell>
-                  <DashboardTableActionButton
-                    onClick={() => onReplayDelivery(delivery.endpointId, delivery.id)}
-                    disabled={replayingDeliveryId === delivery.id}
-                  >
-                    {replayingDeliveryId === delivery.id ? 'Replaying...' : 'Replay'}
-                  </DashboardTableActionButton>
-                </DashboardTableCell>
-              </DashboardTableRow>
-            ))}
-          </>
-        )}
-      </DashboardTable>
-      </section>
+                    </DashboardTableCell>
+                    <DashboardTableCell title={delivery.errorMessage || ''} align="end">
+                      {delivery.responseStatus != null
+                        ? String(delivery.responseStatus)
+                        : DASHBOARD_EMPTY_VALUE}
+                    </DashboardTableCell>
+                    <DashboardTableCell truncate>
+                      {formatTimestamp(delivery.lastAttemptAt || delivery.deliveredAt)}
+                    </DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableActionButton
+                        onClick={() => onReplayDelivery(delivery.endpointId, delivery.id)}
+                        disabled={replayingDeliveryId === delivery.id}
+                      >
+                        {replayingDeliveryId === delivery.id ? 'Replaying...' : 'Replay'}
+                      </DashboardTableActionButton>
+                    </DashboardTableCell>
+                  </DashboardTableRow>
+                ))}
+              </>
+            )}
+          </DashboardTable>
+        </section>
       ) : null}
     </div>
   );
