@@ -129,19 +129,20 @@ test('Console applied baseline stays immutable and upgrades to the fresh schema'
     const migrationFiles = listD1MigrationFiles('d1-console');
     const migrationNames = consoleMigrations.map((migration) => migration.name);
     expect(migrationNames).toEqual([
-      '0001_wallet_console_initial.sql',
-      '0002_console_runtime_isolation.sql',
+      '0001_console_d1_initial.sql',
+      '0026_console_canonical_baseline_bridge.sql',
+      '0027_console_runtime_isolation.sql',
     ]);
     expect(migrationFiles.map((file) => path.basename(file))).toEqual(migrationNames);
-    expect(digestMigrations(consoleMigrations.slice(0, 1))).toBe(
-      '34bc5f39e891cb54f95c8d7715e96ec172636d9fa9fc2392982e69b26669f023',
+    expect(digestMigrations(consoleMigrations.slice(0, 2))).toBe(
+      'bce6fa44b122a54ba8a97ab92d7b69e1c6bbbc8f5adeede119f37da8550f79f5',
     );
     const currentFingerprint = digestMigrations(consoleMigrations);
     const appliedMigrationNames = new Set(migrationNames);
 
-    await applyD1MigrationFiles(deployed.database, migrationFiles.slice(0, 1));
+    await applyD1MigrationFiles(deployed.database, migrationFiles.slice(0, 2));
     await deployed.database.exec(deployedConsoleFixtureSql);
-    await applyD1MigrationFiles(deployed.database, migrationFiles.slice(1));
+    await applyD1MigrationFiles(deployed.database, migrationFiles.slice(2));
     await deployed.database.exec(`
       CREATE TABLE d1_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
