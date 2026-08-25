@@ -8,12 +8,14 @@ import type {
   ConsoleWebhookEndpoint,
   ConsoleWebhookPage,
   CreateConsoleWebhookEndpointRequest,
+  CreateConsoleWebhookEndpointResult,
   EmitConsoleWebhookEventRequest,
   EmitConsoleWebhookEventResult,
   ListConsoleWebhookDeliveriesRequest,
   ListConsoleWebhookAttemptsRequest,
   ListConsoleWebhookDeadLettersRequest,
   ReplayConsoleWebhookDeliveryRequest,
+  RotateConsoleWebhookSecretResult,
   ReplayConsoleWebhookDeliveryResult,
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
@@ -90,7 +92,11 @@ export interface ConsoleWebhookService {
   createEndpoint(
     ctx: ConsoleWebhooksContext,
     request: CreateConsoleWebhookEndpointRequest,
-  ): Promise<ConsoleWebhookEndpoint>;
+  ): Promise<CreateConsoleWebhookEndpointResult>;
+  rotateSecret(
+    ctx: ConsoleWebhooksContext,
+    endpointId: string,
+  ): Promise<RotateConsoleWebhookSecretResult | null>;
   updateEndpoint(
     ctx: ConsoleWebhooksContext,
     endpointId: string,
@@ -284,7 +290,10 @@ export function createInMemoryConsoleWebhookService(
     return created;
   }
 
-  function countUnresolvedDeadLettersForEndpoint(store: OrgWebhookStore, endpointId: string): number {
+  function countUnresolvedDeadLettersForEndpoint(
+    store: OrgWebhookStore,
+    endpointId: string,
+  ): number {
     let count = 0;
     for (const delivery of getEndpointDeliveries(store, endpointId)) {
       const deadLetter = store.deadLettersByDelivery.get(delivery.id);
@@ -468,10 +477,10 @@ export function createInMemoryConsoleWebhookService(
     async createEndpoint(
       ctx: ConsoleWebhooksContext,
       request: CreateConsoleWebhookEndpointRequest,
-    ): Promise<ConsoleWebhookEndpoint> {
+    ): Promise<CreateConsoleWebhookEndpointResult> {
       const store = requireOrgStore(ctx.orgId);
       const createdAt = now();
-      const signingSecret = makeSigningSecret(createdAt);
+      const signingSecret = makeSigningSecret();
       const endpoint: StoredWebhookEndpoint = {
         id: makeId('wh', createdAt),
         orgId: ctx.orgId,
@@ -486,7 +495,22 @@ export function createInMemoryConsoleWebhookService(
       };
       store.endpoints.set(endpoint.id, endpoint);
       getEndpointDeliveries(store, endpoint.id);
-      return cloneEndpoint(endpoint);
+      return { endpoint: cloneEndpoint(endpoint), signingSecret };
+    },
+
+    async rotateSecret(
+      ctx: ConsoleWebhooksContext,
+      endpointId: string,
+    ): Promise<RotateConsoleWebhookSecretResult | null> {
+      const store = requireOrgStore(ctx.orgId);
+      const endpoint = getEndpoint(store, endpointId);
+      if (!endpoint) return null;
+      const signingSecret = makeSigningSecret();
+      endpoint.signingSecret = signingSecret;
+      endpoint.secretPreview = makeSecretPreview(signingSecret);
+      endpoint.secretVersion += 1;
+      endpoint.updatedAt = coerceIsoDate(now());
+      return { endpoint: cloneEndpoint(endpoint), signingSecret };
     },
 
     async updateEndpoint(

@@ -2077,7 +2077,7 @@ test.describe('D1 adapter contracts', () => {
         actorUserId: 'user-d1-webhooks-secondary',
       };
 
-      const endpoint = await service.createEndpoint(primaryCtx, {
+      const { endpoint } = await service.createEndpoint(primaryCtx, {
         url: 'https://example.com/d1-webhooks',
         eventCategories: ['billing', 'session', 'billing'],
       });
@@ -2270,7 +2270,7 @@ test.describe('D1 adapter contracts', () => {
         actorUserId: 'user-d1-webhook-retry',
       };
 
-      const endpoint = await service.createEndpoint(ctx, {
+      const { endpoint } = await service.createEndpoint(ctx, {
         url: 'https://example.com/d1-webhook-retry',
         eventCategories: ['billing'],
       });
