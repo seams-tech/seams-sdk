@@ -248,15 +248,37 @@ The three other failures in that file are unchanged and unrelated: a stale
 WebAuthn assertion fixture, a missing custody envelope in setup, and the same
 missing authority.
 
-### Open: an Email method's custody envelope cannot be revoked
+### Email custody: the model, and why the earlier reading was wrong
 
-The custody-envelope fix covers Passkey methods only. An Email OTP method's
-envelope factor is keyed by enrollment, `email_otp_wallet_enrollments` holds one
-row per wallet, and every Email method on that wallet therefore resolves to the
-same factor — so revoking one sibling's envelope would revoke the other's.
-Closing this needs a method-to-envelope binding the schema does not express
-today; `0013` adds provider identity, not enrollment identity. Until then the
-Email branch contributes no revocation statements rather than guessing.
+An earlier revision of this ledger said an Email method's envelope "cannot be
+revoked" because `email_otp_wallet_enrollments` holds one row per wallet, so
+siblings would share an envelope. The shared enrollment is real and
+intentional — R109D requires active and pending methods to keep referencing it
+— but the conclusion did not follow. Three concepts were collapsed into one:
+
+- **the custody envelope and local signer state are per method.** An envelope
+  row is already keyed by its own `envelopeId`; only *lookup by factor* is
+  shared, because `WalletCustodyFactorRef` for Email is
+  `(enrollmentId, enrollmentSealKeyVersion)`. The record can carry the auth
+  method that owns it, and doing so changes no ciphertext: the AAD is derived
+  from `binding` and `factor` alone (`custodyEnvelopeBindingJson`), so a
+  top-level `walletAuthMethodId` sits outside it.
+- **the provider enrollment is shared and stays shared.** Revoking one Email
+  method deletes that method's exact local custody records and leaves the
+  enrollment alone.
+- **the shared enrollment is deleted only when its last reference goes.** No
+  active or pending method may still reference it.
+
+So the binding is a narrow `0013` extension plus one required field on
+`PasskeyCustodyEnvelopeRecord`, not a new enrollment path and not a new table.
+There are exactly four construction sites
+(`walletCustodyRegistrationCommit.ts:136`, `email-otp.worker.ts:4075`,
+`passkeyLink.ts:177`, `deviceLinkingEd25519ExportRoot.ts:276`), and each already
+knows its method — `passkeyLink` now has it from the intent, which the protocol
+change made possible.
+
+Not yet implemented. The revocation path currently contributes envelope
+statements for the Passkey branch only, which is why this is still open.
 
 ### Open P1: the source-proof protocol does not yet meet the spec
 
