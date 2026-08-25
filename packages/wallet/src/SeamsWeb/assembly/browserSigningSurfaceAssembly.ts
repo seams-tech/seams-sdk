@@ -398,7 +398,20 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
   // references and returns the typed `superseded` outcome, which owns the single
   // canonical re-resolution. Throwing here would turn routine replacement into
   // a terminal signing failure before that boundary can classify it.
-  const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
+  const capability = await browserCanonicalEcdsaCapabilityFromManifest(manifest);
+  return { capability, lookup: manifestLookup };
+}
+
+/**
+ * A manifest already names its own exact authority, so build the capability
+ * from it directly. Re-resolving by material activation would ask "which
+ * projection covers this activation" - a question with more than one answer
+ * once an added method holds its own.
+ */
+async function browserCanonicalEcdsaCapabilityFromManifest(
+  manifest: ActiveEcdsaCapabilityManifest,
+): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+  return await buildCanonicalEvmFamilyEcdsaSigningCapability({
     authority: await resolveExactWalletAuthAuthority(manifest.signer.authority, {
       getWalletAuthMethodV2: (id) => IndexedDBManager.getWalletAuthMethodV2(id),
       listWalletAuthMethodsForWallet: (walletId) =>
@@ -411,7 +424,6 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
       publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
     }),
   });
-  return { capability, lookup: manifestLookup };
 }
 
 async function getBrowserCanonicalEcdsaSigningCapability(
@@ -504,11 +516,11 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
       ),
     );
     if (!matchingTarget) continue;
-    const capability = await getBrowserCanonicalEcdsaSigningCapability(args, {
-      walletId,
-      chainTarget: matchingTarget,
-      materialActivation: manifest.activation.materialActivation,
-    });
+    // This loop is already walking one subject at a time, so use that subject's
+    // own manifest. Going back through the activation would collapse every
+    // sibling projection onto whichever method is currently selected, and an
+    // added method would never appear as a candidate for its own family.
+    const capability = await browserCanonicalEcdsaCapabilityFromManifest(manifest);
     const capabilityAuthMethod = isPasskeyWalletAuthAuthority(capability.authority)
       ? 'passkey'
       : isEmailOtpWalletAuthAuthority(capability.authority)

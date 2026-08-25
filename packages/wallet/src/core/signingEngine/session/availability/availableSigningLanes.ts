@@ -1624,6 +1624,20 @@ function canonicalEcdsaLaneSelectionForFacts(
   }
 }
 
+/**
+ * R109C: an added auth method holds its own access projection over the wallet's
+ * existing activation, so the same lane is reachable through two credentials.
+ * For a wallet-level read that names no method, those are one lane, not two
+ * competing ones - and they are indistinguishable to the canonical tie-break,
+ * which keys on material identity precisely because siblings share it. Left
+ * uncollapsed they cancel out as ambiguous and the wallet reports no lane at
+ * all. A read that does name a method never sees more than one of them.
+ */
+function ecdsaMaterialIdentityKey(lane: AvailableEcdsaSigningLane): string | null {
+  if (!isConcreteAvailableSigningLane(lane)) return null;
+  return ecdsaCanonicalStableTieBreakKey(lane);
+}
+
 function canonicalizeEcdsaAvailableLanes(args: {
   targets: readonly ThresholdEcdsaChainTarget[];
   candidatesByTarget: Record<string, AvailableEcdsaSigningLane[]>;
@@ -1634,13 +1648,17 @@ function canonicalizeEcdsaAvailableLanes(args: {
 } {
   const canonicalCandidatesByTarget: Record<string, AvailableEcdsaSigningLane[]> = {};
   const canonicalLanesByTarget: Record<string, AvailableEcdsaSigningLane> = {};
-  const allConcreteFacts = Object.values(args.candidatesByTarget).flatMap(
-    ecdsaRecordFactsForCandidates,
+  const candidatesByTarget: Record<string, AvailableEcdsaSigningLane[]> = Object.fromEntries(
+    Object.entries(args.candidatesByTarget).map(([targetKey, candidates]) => [
+      targetKey,
+      collapseExactDuplicateAvailableLanes(candidates, ecdsaMaterialIdentityKey),
+    ]),
   );
+  const allConcreteFacts = Object.values(candidatesByTarget).flatMap(ecdsaRecordFactsForCandidates);
   const conflictsByFamilyGroup = ecdsaFamilyGroupConflicts(allConcreteFacts);
   for (const chainTarget of args.targets) {
     const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    const concreteFacts = ecdsaRecordFactsForCandidates(args.candidatesByTarget[targetKey] || []);
+    const concreteFacts = ecdsaRecordFactsForCandidates(candidatesByTarget[targetKey] || []);
     const targetConflicts = concreteFacts.flatMap((fact) =>
       ecdsaFactFamilyConflicts({ fact, conflictsByFamilyGroup }),
     );
@@ -1782,8 +1800,7 @@ function ownerAuthorityMatchesLane(
   lane: AvailableEd25519SigningLane | AvailableEcdsaSigningLane,
   scope: OwnerLaneScope,
 ): boolean {
-  const ownerAuthority =
-    scope.auth.kind === 'email_otp' ? scope.ownerAuthority : undefined;
+  const ownerAuthority = scope.auth.kind === 'email_otp' ? scope.ownerAuthority : undefined;
   if (!ownerAuthority) return true;
   if (lane.curve === 'ecdsa' && lane.source === 'active_wallet_authority') {
     return (

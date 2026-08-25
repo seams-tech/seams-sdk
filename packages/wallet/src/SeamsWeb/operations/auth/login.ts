@@ -925,10 +925,7 @@ export async function resolveLinkedDeviceEmailOtpAuthoritySelection(args: {
           : 'Selected Email OTP provider identity does not match the local authority',
     };
   }
-  if (
-    authority.provenance.kind === 'device_link' &&
-    resolved.signerMaterials.length === 0
-  ) {
+  if (authority.provenance.kind === 'device_link' && resolved.signerMaterials.length === 0) {
     return {
       kind: 'rejected',
       message: 'Selected linked Email OTP authority has no signer material',
@@ -936,7 +933,7 @@ export async function resolveLinkedDeviceEmailOtpAuthoritySelection(args: {
   }
   if (
     resolved.signerMaterials.some(
-      material => material.kind !== 'wallet_authority_linked_signer_material_v1',
+      (material) => material.kind !== 'wallet_authority_linked_signer_material_v1',
     )
   ) {
     return {
@@ -3997,6 +3994,8 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   const context = await resolveCanonicalThresholdEcdsaWarmSessionContext(
     args.context,
     args.walletIdentity.walletId,
+    undefined,
+    'passkey',
   );
   const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
   const targetEcdsaKey = context.ecdsaKeys.find((candidate) => candidate.targetKey === targetKey);
@@ -6604,6 +6603,13 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
   context: LoginWebContext,
   walletId: WalletId,
   keyFactsInventoryInput?: LoginEcdsaKeyFactsInventoryInput,
+  /**
+   * R109C: sibling auth methods hold their own access projections over one
+   * activation, so a wallet-wide read returns a lane per method. Warming has to
+   * name the method being unlocked, or it warms the sibling's lane and the
+   * Wallet Session is minted against a credential the user is not presenting.
+   */
+  authMethod?: 'passkey' | 'email_otp',
 ): Promise<CanonicalThresholdEcdsaWarmSessionContext> {
   const configuredTargets = listConfiguredThresholdEcdsaPublicationTargets(
     context.configs.network.chains,
@@ -6618,7 +6624,7 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
     exactStoredKeys,
     runtimePolicyScope,
   );
-  const snapshot = await readAvailableSigningLanesForUi(context, walletId);
+  const snapshot = await readAvailableSigningLanesForUi(context, walletId, authMethod);
   const availableLaneKeys: ConfiguredTargetThresholdEcdsaWarmKey[] = [];
   let availableLaneRuntimePolicyScope: ThresholdRuntimePolicyScope | undefined;
   if (snapshot) {
@@ -6781,9 +6787,11 @@ async function resolveThresholdEcdsaLoginMetadata(
 async function readAvailableSigningLanesForUi(
   context: WalletSessionWebContext,
   walletId: WalletId,
+  authMethod?: 'passkey' | 'email_otp',
 ): Promise<AvailableSigningLanes | null> {
   return await context.signingEngine.readPersistedAvailableSigningLanes({
     walletId,
+    ...(authMethod ? { authMethod } : {}),
   });
 }
 
@@ -7121,8 +7129,8 @@ async function resolveLinkedNearOperationalPublicKey(
   if (resolved.kind !== 'resolved') return null;
   const { selection, authMethod, authority } = resolved;
   if (
-    linkedDeviceUnlockIdentityMismatchLabels({ walletId, selection, authMethod, authority }).length >
-      0 ||
+    linkedDeviceUnlockIdentityMismatchLabels({ walletId, selection, authMethod, authority })
+      .length > 0 ||
     authMethod.status !== 'active' ||
     authority.state !== 'active' ||
     authority.provenance.kind !== 'device_link'
