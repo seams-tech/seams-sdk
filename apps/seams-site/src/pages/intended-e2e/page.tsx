@@ -30,6 +30,7 @@ type IntendedActionName =
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'addEmailOtpAuthMethod'
   | 'unlockWithAddedEmailOtp'
+  | 'revokeSourceAuthMethod'
   | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
@@ -299,6 +300,12 @@ type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSumm
  * the wallet is named directly and what this proves is narrower: this wallet
  * opened, under an active session, through the added method.
  */
+type RevokeAuthMethodResultSummary = {
+  kind: 'revoke_auth_method_success';
+  walletId: string;
+  walletAuthMethodId: string;
+};
+
 type AddedEmailOtpUnlockResultSummary = {
   kind: 'added_email_otp_unlock_success';
   walletId: string;
@@ -363,6 +370,7 @@ type IntendedActionResult =
   | PasskeyUnlockResultSummary
   | EmailOtpUnlockResultSummary
   | AddedEmailOtpUnlockResultSummary
+  | RevokeAuthMethodResultSummary
   | TempoSigningResultSummary
   | ArcEvmSigningResultSummary
   | Ed25519ExportResultSummary
@@ -592,6 +600,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-revoke-source-auth-method"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRevokeSourceAuthMethod}
+            style={buttonStyle}
+          >
+            Revoke Source Method
+          </button>
+          <button
+            type="button"
             data-testid="intended-unlock-added-email-otp"
             disabled={state.action.status === 'running'}
             onClick={controller.runUnlockWithAddedEmailOtp}
@@ -785,6 +802,10 @@ class IntendedPageController {
 
   runUnlockWithAddedEmailOtp = (): void => {
     void this.unlockWithAddedEmailOtp();
+  };
+
+  runRevokeSourceAuthMethod = (): void => {
+    void this.revokeSourceAuthMethod();
   };
 
   runAddPasskeyAuthMethod = (): void => {
@@ -986,6 +1007,58 @@ class IntendedPageController {
           walletAuthMethodId: String(result.walletAuthMethodId),
           emailAddress: result.emailAddress,
           authMethod: result.authMethod,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C: retire the method that did the adding, from the added one.
+   *
+   * The sibling that stays is the one just added, so this is the case that
+   * matters: a wallet must not become unopenable because the credential it was
+   * created with was removed.
+   */
+  private async revokeSourceAuthMethod(): Promise<void> {
+    const action: IntendedActionName = 'revokeSourceAuthMethod';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('revoke requires a registered wallet');
+      const session = await this.seams.auth.getWalletSession(walletId);
+      if (session.appIdentity.kind !== 'resolved') {
+        throw new Error(`revoke wallet identity is ${session.appIdentity.kind}`);
+      }
+      /* Whoever holds the open session is the method to keep. Deriving the
+         target this way needs no memory of the addition, which matters because
+         the page reloads between actions. */
+      const active = session.reusableWalletSession;
+      if (active.kind !== 'active') {
+        throw new Error(`revoke requires an active Wallet Session, found ${active.kind}`);
+      }
+      const keep = String(active.walletAuthMethodId);
+      const siblings = session.appIdentity.authMethods.filter(
+        (binding) => String(binding.walletAuthMethodId) !== keep,
+      );
+      const [target, ...remaining] = siblings;
+      if (!target || remaining.length > 0) {
+        throw new Error(
+          `revoke needs exactly one sibling to remove, found ${siblings.length} beside the added method`,
+        );
+      }
+      const result = await this.seams.registration.revokeAuthMethod({
+        walletId: toWalletId(walletId),
+        walletAuthMethodId: String(target.walletAuthMethodId),
+      });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'revoke_auth_method_success',
+          walletId: String(result.walletId),
+          walletAuthMethodId: String(result.walletAuthMethodId),
         },
       });
     } catch (error) {
@@ -1792,6 +1865,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
     case 'added_email_otp_unlock_success':
+    case 'revoke_auth_method_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
@@ -1820,6 +1894,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'add_email_otp_success':
     case 'add_passkey_success':
     case 'added_email_otp_unlock_success':
+    case 'revoke_auth_method_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
@@ -1848,6 +1923,7 @@ function intendedActionResultNearSignerSlot(
     case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
     case 'added_email_otp_unlock_success':
+    case 'revoke_auth_method_success':
     case 'add_email_otp_success':
     case 'add_passkey_success':
     case 'tempo_sign_success':

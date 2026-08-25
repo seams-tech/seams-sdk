@@ -95,6 +95,7 @@ import type {
   AddEmailOtpHooksOptions,
   AddEmailOtpResult,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
+import type { RevokeAuthMethodResult } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
@@ -111,6 +112,7 @@ export type {
   AddEmailOtpHooksOptions,
   AddEmailOtpResult,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
+export type { RevokeAuthMethodResult } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 export type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
@@ -843,6 +845,17 @@ export interface RegistrationCapability {
     emailAddress: string;
     options?: AddEmailOtpHooksOptions;
   }): Promise<AddEmailOtpResult>;
+  /**
+   * Retire one auth method, authorized by a different active one.
+   *
+   * The inverse of the two addition branches. The proof never comes from the
+   * method being removed, so a credential the user has lost can still be
+   * retired by the one they still hold.
+   */
+  revokeAuthMethod(args: {
+    walletId: WalletId | string;
+    walletAuthMethodId: string;
+  }): Promise<RevokeAuthMethodResult>;
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
     wallet: RegisterWalletInput;

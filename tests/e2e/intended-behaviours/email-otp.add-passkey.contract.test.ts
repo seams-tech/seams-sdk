@@ -13,4 +13,9 @@ test('an Email OTP wallet can add a passkey as a second way in', async ({ harnes
   await harness.addPasskeyAuthMethod();
   await harness.unlockWithAddedPasskey();
   await harness.signTempoTransaction('post_unlock');
+  /* Removing the method that did the adding is the case that matters: the
+     wallet must not become unopenable because its founding credential is
+     gone. Signing again afterwards is the proof it did not. */
+  await harness.revokeSourceAuthMethod();
+  await harness.signTempoTransaction('post_unlock');
 });
