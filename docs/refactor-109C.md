@@ -248,6 +248,45 @@ The three other failures in that file are unchanged and unrelated: a stale
 WebAuthn assertion fixture, a missing custody envelope in setup, and the same
 missing authority.
 
+### Stop condition: authenticating envelope ownership is a Rust change
+
+Binding `walletAuthMethodId` into the AAD cannot be done in TypeScript. The AAD
+is built by `encode_passkey_custody_aad_v1`
+(`crates/signer-core/src/passkey_custody.rs:383`) from
+`PasskeyCustodyEnvelopeBindingV1` (`:247`), whose fields are `wallet_id`,
+`envelope_id`, `factor`, `envelope_revision`, and `binding`. TypeScript's
+`custodyEnvelopeBindingJson` only serialises those; adding a field there changes
+nothing unless the Rust struct and encoder change too.
+
+So making ownership authenticated requires: a new field on that struct, a
+`labeled_str` in the encoder, an envelope version bump so already-sealed
+envelopes still verify, regenerated `wasm/wallet_custody_ceremony` wire
+fixtures, and a wasm rebuild. That is the plan's declared stop condition —
+"changing Rust/WASM cryptography beyond the existing reseal capability" — and
+it is reported rather than performed.
+
+The version bump is not optional. Every deployed envelope was sealed under the
+current AAD; adding a labelled field without discriminating on version makes
+all of them fail `aad_hash` verification, which is indistinguishable from
+custody loss.
+
+An earlier note in this ledger claimed the parser "drops unknown fields", so a
+top-level record field would be free. That was wrong:
+`parsePasskeyCustodyEnvelopeRecord` calls
+`rejectUnknownFields(record, ENVELOPE_RECORD_FIELDS, label)`
+(`custodyEnvelope.ts:322`), so the field must be added to the type, the
+builder, the allowed-field list, the parser, and all four construction sites.
+
+### The four construction sites need the id threaded, not just added
+
+None of the four has an auth-method id in scope today:
+`walletCustodyRegistrationCommit.ts:136`, `passkeyLink.ts:177`,
+`email-otp.worker.ts:4075`, `deviceLinkingEd25519ExportRoot.ts:276`. Each needs
+it passed from its caller, and one of them crosses the Email OTP worker payload
+boundary whose strict unknown-field allow-list produced R103E's silent 60-second
+export hang when a field was added without updating it. That plumbing is the
+next unit of work and was not begun.
+
 ### Email custody: the model, and why the earlier reading was wrong
 
 An earlier revision of this ledger said an Email method's envelope "cannot be
