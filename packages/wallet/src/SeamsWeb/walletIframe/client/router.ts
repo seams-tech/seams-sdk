@@ -3413,6 +3413,7 @@ export class WalletIframeRouter {
     qrData: QrLinkedDeviceSessionPayloadV5;
     options?: {
       onEvent?: (ev: LinkDeviceFlowEvent) => void;
+      emailOtpBaseWalletAuthMethodId?: string;
       confirmationConfig?: Partial<ConfirmationConfig>;
       confirmerText?: { title?: string; body?: string };
     };
@@ -3425,6 +3426,12 @@ export class WalletIframeRouter {
           ...(payload.options
             ? {
                 options: {
+                  ...(payload.options.emailOtpBaseWalletAuthMethodId
+                    ? {
+                        emailOtpBaseWalletAuthMethodId:
+                          payload.options.emailOtpBaseWalletAuthMethodId,
+                      }
+                    : {}),
                   ...(payload.options.confirmationConfig
                     ? { confirmationConfig: payload.options.confirmationConfig }
                     : {}),

@@ -84,8 +84,9 @@ R109D product implementation may proceed.
       masked, stable choices through the owner-authenticated route.
 - [x] Bind the selected Email OTP base method through approval, preparation,
       challenge, verification, and target credential registration.
-- [ ] Present multiple Email OTP base-method choices in the Device 1 UI and
-      submit the selected method.
+- [x] Accept Device 1's explicit Email OTP base-method choice, validate it
+      against the masked candidate set, and submit the selected method.
+- [ ] Render the masked multi-choice selector in the first-party Device 1 UI.
 - [x] Build Passkey targets from managed RP configuration with no dependency on
       the source credential.
 - [ ] Complete the four source/target factor operating paths and their focused

@@ -1638,6 +1638,7 @@ export type ParentToChildEnvelope =
       {
         qrData: QrLinkedDeviceSessionPayloadV5;
         options?: {
+          emailOtpBaseWalletAuthMethodId?: string;
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
         };

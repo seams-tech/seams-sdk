@@ -173,6 +173,8 @@ export interface StartDeviceLinkingOptionsDevice2 {
 }
 
 export interface ScanAndLinkDeviceOptionsDevice1 {
+  /** Exact Email OTP method chosen by Device 1 when several eligible methods exist. */
+  emailOtpBaseWalletAuthMethodId?: string;
   onEvent?: EventCallback<LinkDeviceFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<LinkDeviceResult>;
