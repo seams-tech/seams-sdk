@@ -15,6 +15,7 @@ import type {
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
+  WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import type {
@@ -432,19 +433,40 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
    * The last-active-envelope guard rides along, so revoking the final factor
    * that can open the wallet custody seed still aborts.
    */
-  async prepareFactorEnvelopeRevocationStatements(input: {
+  async prepareMethodEnvelopeRevocationStatements(input: {
     readonly walletId: WalletId;
-    readonly factor: WalletCustodyFactorRef;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly revokedAtMs: number;
   }): Promise<
     | { readonly kind: 'prepared'; readonly statements: readonly D1PreparedStatementLike[] }
     | { readonly kind: 'refused'; readonly reason: string }
     | { readonly kind: 'version_mismatch' }
   > {
+    /* By owning method, not by factor. Email siblings share a factor address —
+       the provider enrollment is deliberately shared — so a factor lookup would
+       revoke the sibling's envelope too. Unbound V2 rows match nothing here by
+       construction, which is what keeps a legacy envelope from being destroyed
+       before it has been safely upgraded. */
+    return await this.prepareEnvelopeRevocationStatements({
+      walletId: input.walletId,
+      revokedAtMs: input.revokedAtMs,
+      selects: (envelope) =>
+        envelope.ownership.kind === 'method_bound' &&
+        String(envelope.ownership.walletAuthMethodId) === String(input.walletAuthMethodId),
+    });
+  }
+
+  private async prepareEnvelopeRevocationStatements(input: {
+    readonly walletId: WalletId;
+    readonly revokedAtMs: number;
+    readonly selects: (envelope: PasskeyCustodyEnvelopeRecord) => boolean;
+  }): Promise<
+    | { readonly kind: 'prepared'; readonly statements: readonly D1PreparedStatementLike[] }
+    | { readonly kind: 'refused'; readonly reason: string }
+    | { readonly kind: 'version_mismatch' }
+  > {
     const envelopes = await this.listWalletEnvelopes(input.walletId, { limit: 1000 });
-    const matching = envelopes.filter((envelope) =>
-      factorRefsMatch(envelopeFactorRef(envelope), input.factor),
-    );
+    const matching = envelopes.filter((envelope) => input.selects(envelope));
     const revocable = matching.filter(
       (envelope) => envelope.lifecycle.state === 'active' || envelope.lifecycle.state === 'retired',
     );
@@ -475,7 +497,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       if (
         String(current.value.walletId) !== String(input.walletId) ||
         String(current.value.envelopeId) !== String(target.envelopeId) ||
-        !factorRefsMatch(envelopeFactorRef(current.value), input.factor)
+        !input.selects(current.value)
       ) {
         return { kind: 'version_mismatch' };
       }

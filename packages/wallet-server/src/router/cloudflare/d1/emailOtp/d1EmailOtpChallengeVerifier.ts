@@ -1,3 +1,4 @@
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
@@ -194,6 +195,16 @@ export class CloudflareD1EmailOtpChallengeVerifier {
   async readEnrollmentForWallet(walletId: string): Promise<EmailOtpWalletEnrollmentRecord | null> {
     return await this.emailOtpEnrollments.readEnrollment(walletId);
   }
+
+  /**
+   * The shared provider enrollment's delete, conditional on its reference count
+   * reaching zero. Exposed as a statement so it commits in the same batch as
+   * the method revocation that may have removed its last reference.
+   */
+  prepareDeleteEnrollmentIfUnreferencedStatement(walletId: string): D1PreparedStatementLike {
+    return this.emailOtpEnrollments.prepareDeleteEnrollmentIfUnreferencedStatement(walletId);
+  }
+
 
   async verifyExisting(
     input: EmailOtpExistingChallengeVerifyInput,
