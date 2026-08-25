@@ -25,6 +25,7 @@ export type RawRecord = Record<string, unknown>;
 export const DIGEST_B64U = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 export const ALT_DIGEST_B64U = 'ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM';
 export const NONCE_12_B64U = 'AQIDBAUGBwgJCgsM';
+export const COMMIT_WALLET_AUTH_METHOD_ID = 'wallet-auth-method:commit-fixture';
 export const CIPHERTEXT_B64U = 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2';
 /**
  * SHA-256 over the decoded `CIPHERTEXT_B64U`. Envelopes must be internally
@@ -291,6 +292,10 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
         factor: rawPasskeyFactor(),
         envelopeRevision: 1,
         binding: rawWalletCustodySeedBinding(),
+        /* The ceremony seals method-bound, and the registration commit reads
+           the owner back out of this exact string, so a fixture without it
+           reproduces a payload no ceremony can now produce. */
+        ownership: { methodBound: { walletAuthMethodId: COMMIT_WALLET_AUTH_METHOD_ID } },
       }),
       envelopeNonceB64u: NONCE_12_B64U,
       sealedCustodySecretB64u: CIPHERTEXT_B64U,
