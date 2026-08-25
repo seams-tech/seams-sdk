@@ -20,12 +20,64 @@ import type {
   UnlockedWalletEd25519ExportRootCapabilityV1,
 } from '../workerManager/workerTypes';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { WorkerOperationContext } from '../workerManager/executeWorkerOperation';
 
 let currentCapability: UnlockedWalletEd25519ExportRootCapabilityV1 | null = null;
 let currentCapabilityTransport: WalletCustodyCeremonyTransportPort | null = null;
 let currentCapabilityExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+let currentUpgradedEnvelopeSink: UnlockedCustodyEnvelopeUpgradeSinkV1 | null = null;
+
+/**
+ * Refactor 109C: where a pre-109C envelope's upgrade goes after an unlock.
+ *
+ * The reseal happens inside the worker, at the one instant both the factor
+ * secret and the selected method are in hand. Only the host knows the relayer
+ * and holds the Wallet Session that authorizes storing it, so the host leaves
+ * this behind and every establishment path reaches persistence — including the
+ * two that call the worker directly and have no relayer of their own.
+ */
+export type UnlockedCustodyEnvelopeUpgradeSinkV1 = (input: {
+  readonly walletId: string;
+  readonly walletAuthMethodId: string;
+  readonly walletSessionId: string;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+}) => void;
+
+export function setUnlockedCustodyEnvelopeUpgradeSinkV1(
+  sink: UnlockedCustodyEnvelopeUpgradeSinkV1 | null,
+): void {
+  currentUpgradedEnvelopeSink = sink;
+}
+
+/**
+ * Hands a returned upgrade to the sink, and never lets it affect the unlock.
+ *
+ * An envelope that fails to parse, a missing sink, a throwing sink: all of them
+ * leave the stored V2 row standing and the wallet working. The next unlock
+ * reseals and tries again, which is why nothing here is worth failing for.
+ */
+function forwardUpgradedEnvelope(capability: UnlockedWalletEd25519ExportRootCapabilityV1): void {
+  const sink = currentUpgradedEnvelopeSink;
+  if (!sink) return;
+  const upgraded: unknown = (capability as { readonly upgradedEnvelope?: unknown })
+    .upgradedEnvelope;
+  if (upgraded === undefined) return;
+  try {
+    sink({
+      walletId: capability.walletId,
+      walletAuthMethodId: capability.walletAuthMethodId,
+      walletSessionId: capability.walletSessionId,
+      envelope: parsePasskeyCustodyEnvelopeRecord(upgraded),
+    });
+  } catch (error: unknown) {
+    console.warn(
+      '[walletCustody] the upgraded custody envelope was not forwarded:',
+      error instanceof Error ? error.message : String(error || 'unknown error'),
+    );
+  }
+}
 
 const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
 
@@ -147,6 +199,7 @@ export async function establishUnlockedWalletEd25519ExportRootCapabilityV1(
   currentCapability = established;
   currentCapabilityTransport = transport;
   scheduleCurrentCapabilityExpiry(established, transport);
+  forwardUpgradedEnvelope(established);
   return established;
 }
 
