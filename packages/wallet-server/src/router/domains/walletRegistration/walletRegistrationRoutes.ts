@@ -120,6 +120,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import {
   parseWalletAuthMethodId,
+  parseWalletId,
   parseWebAuthnRpId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -2519,6 +2520,68 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
     expectedOrigin: origin,
   });
   return routeJson(result.ok ? 200 : 400, result);
+}
+
+/**
+ * Sends the enrollment code for an Email OTP addition.
+ *
+ * The intent grant is the whole gate. The address is read from the intent the
+ * grant names rather than taken from the body: a caller able to name the
+ * recipient could send any wallet's enrollment code anywhere, and the grant is
+ * the only evidence this addition was authorized at all.
+ */
+export async function handleRouterApiWalletAddAuthMethodEmailOtpChallenge(
+  input: RouterApiWalletRegistrationInput,
+): Promise<
+  RouteResponse<
+    | {
+        readonly ok: true;
+        readonly challengeId: string;
+        readonly expiresAtMs: number;
+        readonly emailHint: string;
+      }
+    /* Looser than `RouteErrorBody` on purpose: the OTP issuer's codes —
+       rate_limited, locked_out — are its vocabulary, and collapsing them into
+       the route's would tell a caller "bad request" when the answer is "wait". */
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >
+> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const rawWalletId = String(input.pathParams?.walletId || '').trim();
+  const walletId = parseWalletId(rawWalletId);
+  if (!walletId.ok) return routeError(400, 'invalid_body', 'walletId is required');
+  const grant = addAuthMethodIntentGrantFromString(
+    String(input.body.addAuthMethodIntentGrant || '').trim(),
+  );
+  const digestB64u = String(input.body.addAuthMethodIntentDigestB64u || '').trim();
+  if (!grant || !digestB64u) {
+    return routeError(
+      400,
+      'invalid_body',
+      'addAuthMethodIntentGrant and addAuthMethodIntentDigestB64u are required',
+    );
+  }
+  const result = await input.services.walletRegistration.createAddAuthMethodEmailOtpChallenge({
+    walletId: walletId.value,
+    addAuthMethodIntentGrant: grant,
+    addAuthMethodIntentDigestB64u: digestB64u,
+  });
+  /* Only the grant and the intent identity are gates here, so everything the
+     issuer refuses for — an expired grant, a rate limit — is a bad request
+     rather than a refusal to authorize. The issuer's own code is kept in the
+     body so a caller can still tell a lockout from a typo. */
+  if (!result.ok) {
+    if (result.code === 'unauthorized') {
+      return routeError(401, 'unauthorized', result.message);
+    }
+    if (result.code === 'internal') {
+      return routeError(500, 'internal', result.message);
+    }
+    return routeJson(400, { ok: false, code: result.code, message: result.message });
+  }
+  return routeJson(200, result);
 }
 
 export async function handleRouterApiWalletAddAuthMethodStart(

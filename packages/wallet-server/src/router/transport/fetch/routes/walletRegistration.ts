@@ -3,6 +3,7 @@ import {
   handleRouterApiWalletAddAuthMethodFinalize,
   handleRouterApiWalletAddAuthMethodIntent,
   handleRouterApiWalletRevokeAuthMethod,
+  handleRouterApiWalletAddAuthMethodEmailOtpChallenge,
   handleRouterApiWalletAddAuthMethodStart,
   handleRouterApiWalletAddSignerFinalize,
   handleRouterApiWalletAddSignerEcdsaDerivationRespond,
@@ -38,6 +39,7 @@ const ROUTE_IDS = [
   'wallet_add_signer_ecdsa_activation',
   'wallet_add_signer_finalize',
   'wallet_add_auth_method_intent',
+  'wallet_add_auth_method_email_otp_challenge',
   'wallet_add_auth_method_start',
   'wallet_add_auth_method_finalize',
   'wallet_revoke_auth_method',
@@ -116,14 +118,16 @@ export async function handleWalletRegistration(
                       ? await handleRouterApiWalletAddSignerFinalize(common)
                       : route.id === 'wallet_add_auth_method_intent'
                         ? await handleRouterApiWalletAddAuthMethodIntent(common)
-                        : route.id === 'wallet_add_auth_method_start'
-                          ? await handleRouterApiWalletAddAuthMethodStart(common)
-                          : route.id === 'wallet_add_auth_method_finalize'
-                            ? await handleRouterApiWalletAddAuthMethodFinalize(common)
-                            : route.id === 'wallet_revoke_auth_method'
-                              ? await handleRouterApiWalletRevokeAuthMethod(common)
-                              : route.id === 'wallet_ecdsa_key_facts_inventory'
-                                ? await handleRouterApiWalletEcdsaKeyFactsInventory(common)
-                                : await handleRouterApiWalletNearImplicitAccountFund(common);
+                        : route.id === 'wallet_add_auth_method_email_otp_challenge'
+                          ? await handleRouterApiWalletAddAuthMethodEmailOtpChallenge(common)
+                          : route.id === 'wallet_add_auth_method_start'
+                            ? await handleRouterApiWalletAddAuthMethodStart(common)
+                            : route.id === 'wallet_add_auth_method_finalize'
+                              ? await handleRouterApiWalletAddAuthMethodFinalize(common)
+                              : route.id === 'wallet_revoke_auth_method'
+                                ? await handleRouterApiWalletRevokeAuthMethod(common)
+                                : route.id === 'wallet_ecdsa_key_facts_inventory'
+                                  ? await handleRouterApiWalletEcdsaKeyFactsInventory(common)
+                                  : await handleRouterApiWalletNearImplicitAccountFund(common);
   return toFetchRouteResponse(response);
 }

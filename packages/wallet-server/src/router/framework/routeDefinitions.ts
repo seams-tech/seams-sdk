@@ -734,6 +734,19 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
+      'wallet_add_auth_method_email_otp_challenge',
+      'POST',
+      '/wallets/:walletId/auth-methods/email-otp/challenge',
+      'Send the enrollment code for an Email OTP auth-method addition',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale:
+          'The add-auth-method intent grant is the gate: the code is bound to that intent digest, delivered only to the address the intent already names.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    publicRoute(
       'wallet_add_auth_method_start',
       'POST',
       '/wallets/:walletId/auth-methods/start',

@@ -25,6 +25,7 @@ import {
   computeWalletAuthMethodRevokeOperationFingerprintV1,
   computeAddAuthMethodIntentDigestB64u,
   normalizeEmailOtpRegistrationProof,
+  type AddAuthMethodIntentGrant,
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
   type RegistrationAuthority,
@@ -67,6 +68,7 @@ import {
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
+import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
 import type { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from '../emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
@@ -130,6 +132,23 @@ type OwnerWalletSessionRevocationStatementsV1 = (input: {
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly requestedAtMs: number;
 }) => readonly D1PreparedStatementLike[];
+/** Issues the one-time enrollment code, bound to a digest the caller supplies. */
+type EmailOtpEnrollmentChallengeIssuerV1 = (input: {
+  readonly userId: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly email: string;
+  readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
+  readonly ownerProofBindingDigest: string;
+}) => Promise<
+  | {
+      readonly ok: true;
+      readonly challenge: { readonly challengeId: string; readonly expiresAtMs: number };
+      readonly delivery?: { readonly emailHint?: string };
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+>;
+
 type WalletAuthMethodError = {
   readonly ok: false;
   readonly code: string;
@@ -430,6 +449,7 @@ async function buildAddedPasskeyCredentialBinding(input: {
 
 export class CloudflareD1WalletAuthMethodService {
   private readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
+  private readonly emailOtpEnrollmentChallengeIssuer: EmailOtpEnrollmentChallengeIssuerV1;
   private readonly emailOtpEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
@@ -445,6 +465,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   constructor(input: {
     readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
+    readonly emailOtpEnrollmentChallengeIssuer: EmailOtpEnrollmentChallengeIssuerV1;
     readonly emailOtpEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
@@ -458,6 +479,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly prepareOwnerWalletSessionRevocation: OwnerWalletSessionRevocationStatementsV1;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
+    this.emailOtpEnrollmentChallengeIssuer = input.emailOtpEnrollmentChallengeIssuer;
     this.emailOtpEnrollmentFinalizer = input.emailOtpEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getWalletAuthMethodStore = input.getWalletAuthMethodStore;
@@ -469,6 +491,90 @@ export class CloudflareD1WalletAuthMethodService {
     this.orgId = input.orgId;
     this.verifyWebAuthnAuthenticationLite = input.verifyWebAuthnAuthenticationLite;
     this.prepareOwnerWalletSessionRevocation = input.prepareOwnerWalletSessionRevocation;
+  }
+
+  /**
+   * Sends the enrollment code for an Email OTP addition.
+   *
+   * The challenge is bound to the add-auth-method intent digest, because that
+   * is the value the start's verification checks the code against — the same
+   * digest the source proof signs. Binding it to anything else would issue a
+   * code the ceremony cannot accept.
+   *
+   * The address is the intent's, never the request's. A caller who could name
+   * the recipient would be able to send a wallet's enrollment code anywhere,
+   * and the intent grant is what proves this addition was authorized at all.
+   */
+  async createAddAuthMethodEmailOtpChallenge(input: {
+    readonly walletId: WalletId;
+    readonly addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+    readonly addAuthMethodIntentDigestB64u: string;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly challengeId: string;
+        readonly expiresAtMs: number;
+        readonly emailHint: string;
+      }
+    | WalletAuthMethodError
+  > {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      /* Read, not consumed: the ceremony still has to take this grant, and a
+         resend must be able to read it again. */
+      const stored = await store.getAddAuthMethodIntent(input.addAuthMethodIntentGrant);
+      if (!stored || stored.expiresAtMs <= Date.now()) {
+        return {
+          ok: false,
+          code: 'invalid_grant',
+          message: 'add-auth-method intent grant expired',
+        };
+      }
+      if (
+        stored.digestB64u !== input.addAuthMethodIntentDigestB64u ||
+        stored.intent.walletId !== input.walletId
+      ) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'add-auth-method intent does not match this request',
+        };
+      }
+      if (!isEmailOtpAddAuthMethodIntent(stored.intent)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'an enrollment code belongs to an Email OTP add-auth-method intent',
+        };
+      }
+      const email = String(stored.intent.authMethod.email || '')
+        .trim()
+        .toLowerCase();
+      if (!email) {
+        return { ok: false, code: 'invalid_body', message: 'the intent names no email address' };
+      }
+      const challenge = await this.emailOtpEnrollmentChallengeIssuer({
+        userId: email,
+        walletId: String(input.walletId),
+        orgId: stored.orgId || this.orgId,
+        email,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        ownerProofBindingDigest: stored.digestB64u,
+      });
+      if (!challenge.ok) return challenge;
+      return {
+        ok: true,
+        challengeId: challenge.challenge.challengeId,
+        expiresAtMs: challenge.challenge.expiresAtMs,
+        emailHint: String(challenge.delivery?.emailHint || ''),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to send the Email OTP enrollment code',
+      };
+    }
   }
 
   async startWalletAddAuthMethod(
