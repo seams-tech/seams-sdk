@@ -27,6 +27,7 @@ CONSOLE_BASE_URL = "https://<console-staging-host>"
 CONSOLE_EMAIL_RUNTIME_PROFILE = "PRODUCTION"
 CONSOLE_EMAIL_PROVIDER = "RESEND"
 CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID = "console-email-staging-r1"
+CONSOLE_WEBHOOK_SECRET_KEY_ID = "console-webhook-staging-r1"
 CONSOLE_EMAIL_FROM = "Seams <notifications@<verified-email-domain>>"
 CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 SEAMS_STAGING_ORG_ID = "org_staging"
@@ -70,4 +71,5 @@ required = [
   "STRIPE_WEBHOOK_SECRET",
   "RESEND_API_KEY",
   "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U",
+  "CONSOLE_WEBHOOK_SECRET_KEY_B64U",
 ]
