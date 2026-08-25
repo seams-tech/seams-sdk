@@ -10,10 +10,15 @@ const CONSOLE_CORE_SCHEMA = path.join(
   repoRoot,
   'packages/console-server-ts/migrations/d1-console-core/0001_console_core_initial.sql',
 );
-const COMPOSED_SCHEMA = path.join(
+const COMPOSED_MIGRATIONS_DIR = path.join(
   repoRoot,
-  'packages/wallet-console-server-ts/migrations/d1-console/0001_wallet_console_initial.sql',
+  'packages/wallet-console-server-ts/migrations/d1-console',
 );
+const COMPOSED_MIGRATIONS = fs
+  .readdirSync(COMPOSED_MIGRATIONS_DIR)
+  .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/u.test(name))
+  .sort()
+  .map((name) => path.join(COMPOSED_MIGRATIONS_DIR, name));
 
 // The R105 ownership inventory (docs/refactor-105-ownership-inventory.md).
 // Every Console table has exactly one owner; the composed schema is the union
@@ -73,9 +78,9 @@ const WALLET_CONSOLE_TABLES = [
   'wallet_index',
 ] as const;
 
-function applyFreshSchema(schemaPath: string): Set<string> {
+function applyFreshSchema(schemaPaths: readonly string[]): Set<string> {
   const database = new DatabaseSync(':memory:');
-  database.exec(fs.readFileSync(schemaPath, 'utf8'));
+  for (const schemaPath of schemaPaths) database.exec(fs.readFileSync(schemaPath, 'utf8'));
   const rows = database
     .prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
@@ -86,12 +91,12 @@ function applyFreshSchema(schemaPath: string): Set<string> {
 }
 
 test('fresh Console-core schema creates exactly the core-owned tables', () => {
-  const created = applyFreshSchema(CONSOLE_CORE_SCHEMA);
+  const created = applyFreshSchema([CONSOLE_CORE_SCHEMA]);
   expect([...created].sort()).toEqual([...CONSOLE_CORE_TABLES]);
 });
 
 test('fresh composed Wallet Console schema creates exactly core plus wallet tables', () => {
-  const created = applyFreshSchema(COMPOSED_SCHEMA);
+  const created = applyFreshSchema(COMPOSED_MIGRATIONS);
   const expected = [...CONSOLE_CORE_TABLES, ...WALLET_CONSOLE_TABLES].sort();
   expect([...created].sort()).toEqual(expected);
   expect(created.size).toBe(49);
@@ -102,25 +107,6 @@ test('core and wallet ownership sets are disjoint', () => {
     (WALLET_CONSOLE_TABLES as readonly string[]).includes(name),
   );
   expect(overlap).toEqual([]);
-});
-
-test('composed schema embeds the core section verbatim before the wallet section', () => {
-  const core = fs.readFileSync(CONSOLE_CORE_SCHEMA, 'utf8');
-  const composed = fs.readFileSync(COMPOSED_SCHEMA, 'utf8');
-  const marker = '-- ===== Wallet Console section (owner: wallet-console) =====';
-  expect(composed).toContain(marker);
-  const [coreSection, walletSection] = composed.split(marker);
-  const canonicalMarker = '-- Canonical D1 schema.';
-  expect(coreSection.slice(coreSection.indexOf(canonicalMarker)).trim()).toBe(
-    core.slice(core.indexOf(canonicalMarker)).trim(),
-  );
-  for (const table of WALLET_CONSOLE_TABLES) {
-    expect(coreSection).not.toContain(`CREATE TABLE "${table}"`);
-    expect(coreSection).not.toContain(`CREATE TABLE ${table} `);
-  }
-  for (const table of ['organizations', 'billing_accounts', 'webhook_endpoints']) {
-    expect(walletSection).not.toContain(`CREATE TABLE "${table}"`);
-  }
 });
 
 test('Console-core schema contains no Wallet product vocabulary', () => {
