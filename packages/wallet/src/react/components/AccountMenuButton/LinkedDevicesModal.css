@@ -243,6 +243,14 @@
   line-height: 1.35;
 }
 
+.w3a-linked-devices-modal-security-note {
+  margin: 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .w3a-linked-devices-modal-otp-form {
   display: grid;
   gap: 0.5rem;
