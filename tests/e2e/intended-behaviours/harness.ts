@@ -2411,6 +2411,7 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
   if (normalized.endsWith('passkey.recovery.contract.test.ts')) return 'passkey.recovery';
   if (
     normalized.endsWith('email-otp.registration.contract.test.ts') ||
+    normalized.endsWith('email-otp.add-passkey.contract.test.ts') ||
     normalized.endsWith('email-otp.registration.benchmark.test.ts')
   ) {
     return 'email_otp.registration';
