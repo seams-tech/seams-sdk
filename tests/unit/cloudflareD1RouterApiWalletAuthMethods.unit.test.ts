@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { emailOtpDeviceEnrollmentId } from '@shared/utils/emailOtpDomain';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import {
   buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
+  buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
   CIPHERTEXT_B64U,
   VALID_SECP256K1_PUBLIC_KEY_B64U,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -753,6 +755,18 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
     });
     const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
     await insertSignerWallet({ database, ...scope, walletId });
+    /* An add-signer needs an active full-owner source with live custody, the
+       same as an addition does. */
+    const addSignerFounding = await seedFoundingPasskeyAuthority({
+      database,
+      ...scope,
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:strict-add-signer',
+        walletAuthMethodId: 'wallet-auth-method:strict-add-signer',
+        rpId: 'example.com',
+      },
+    });
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
@@ -794,15 +808,17 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       addSignerIntentGrant: intent.addSignerIntentGrant,
       addSignerIntentDigestB64u: intent.addSignerIntentDigestB64u,
       intent: intent.intent,
+      /* `AddSignerAuth` has one kind. `app_session` was retired here too. */
       auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_signer_provision',
-          walletId,
-          signerSelection: intent.intent.signerSelection,
-          runtimePolicyScope,
-          expiresAtMs: Date.now() + 60_000,
+        kind: 'webauthn_assertion',
+        rpId: 'example.com',
+        credential: {
+          id: String(addSignerFounding.authMethod.credentialIdB64u),
+          rawId: String(addSignerFounding.authMethod.credentialIdB64u),
+          type: 'public-key',
+          response: {},
         },
+        expectedChallengeDigestB64u: intent.addSignerIntentDigestB64u,
       },
     });
     if (!started.ok || !started.ecdsa) {
@@ -982,6 +998,17 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
         updatedAtMs: 1_000,
       },
     });
+    /* The verified passkey needs live custody: an add-signer opens the source
+       envelope to derive the new signer's material. */
+    await new CloudflareD1PasskeyCustodyEnvelopeStore({ database, scope }).createEnvelope(
+      buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+        walletId: String(walletId),
+        envelopeId: 'passkey-envelope:ed25519-add-signer',
+        rpId,
+        credentialIdB64u,
+        walletAuthMethodId: 'wallet-auth-method:ed25519-add-signer',
+      }),
+    );
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,

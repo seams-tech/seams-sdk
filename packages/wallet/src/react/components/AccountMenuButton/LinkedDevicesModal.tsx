@@ -247,11 +247,30 @@ function canRemoveWalletMethod(
   return isActiveWalletMethod(target) ? activeMethodCount > 1 : activeMethodCount > 0;
 }
 
-function missingAuthMethod(
-  bindings: readonly WalletAuthMethodBinding[],
+function viewWalletAuthorityId(view: WalletDeviceView): string {
+  return String(view.kind === 'owner' ? view.owner.walletAuthorityId : view.device.authorityId);
+}
+
+function missingAuthMethodForSelectedAuthority(
+  devices: readonly NumberedWalletDevice[],
+  selectedBinding: WalletAuthMethodBinding,
 ): 'passkey' | 'email_otp' | null {
-  const hasPasskey = bindings.some((binding) => binding.kind === 'passkey');
-  const hasEmailOtp = bindings.some((binding) => binding.kind === 'email_otp');
+  const selectedMethodId = String(selectedBinding.walletAuthMethodId);
+  const selected = devices.find(
+    ({ view }) =>
+      isActiveWalletMethod(view) &&
+      String(viewCredential(view).walletAuthMethodId) === selectedMethodId,
+  );
+  if (!selected) return null;
+  const selectedAuthorityId = viewWalletAuthorityId(selected.view);
+  const activeMethods = devices
+    .map(({ view }) => view)
+    .filter(
+      (view) =>
+        isActiveWalletMethod(view) && viewWalletAuthorityId(view) === selectedAuthorityId,
+    );
+  const hasPasskey = activeMethods.some((view) => viewCredential(view).kind === 'passkey');
+  const hasEmailOtp = activeMethods.some((view) => viewCredential(view).kind === 'email_otp');
   if (hasPasskey === hasEmailOtp) return null;
   return hasPasskey ? 'email_otp' : 'passkey';
 }
@@ -575,10 +594,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     }
   }, [finishRevocation, revokeState, seams, walletId]);
 
-  const addMissingMethod = React.useCallback(async () => {
+  const addMissingMethod = React.useCallback(async (missing: 'passkey' | 'email_otp') => {
     if (!walletId || !loginState.isLoggedIn || addMethodState.kind === 'working') return;
-    const missing = missingAuthMethod(loginState.authMethods);
-    if (!missing) return;
     const emailAddress = addMethodState.emailAddress.trim();
     if (missing === 'email_otp' && !emailAddress) {
       setAddMethodState({
@@ -622,7 +639,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
   const devices = loadState.kind === 'loaded' ? loadState.devices : [];
   const showEmpty = loadState.kind === 'loaded' && devices.length === 0;
-  const missingMethod = loginState.isLoggedIn ? missingAuthMethod(loginState.authMethods) : null;
+  const missingMethod =
+    loginState.isLoggedIn && loginState.currentAuthMethod.kind === 'selected'
+      ? missingAuthMethodForSelectedAuthority(devices, loginState.currentAuthMethod.binding)
+      : null;
   const addingMethod = addMethodState.kind === 'working';
 
   return (
@@ -667,7 +687,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                     className="w3a-linked-devices-modal-otp-form"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void addMissingMethod();
+                      void addMissingMethod('email_otp');
                     }}
                   >
                     <p className="w3a-linked-devices-modal-security-note">
@@ -709,7 +729,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                     type="button"
                     className="w3a-linked-devices-modal-secondary"
                     disabled={addingMethod}
-                    onClick={() => void addMissingMethod()}
+                    onClick={() => void addMissingMethod('passkey')}
                   >
                     {addingMethod ? 'Adding…' : 'Add passkey'}
                   </button>
