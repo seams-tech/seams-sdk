@@ -33,6 +33,13 @@ import {
   walletIdFromString,
 } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import { D1WalletAuthMethodStore } from '../../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import { prepareD1WalletAuthorityPutStatement } from '../../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+  type LinkedDeviceManagementAuthorityFixture,
+  type LinkedDeviceManagementAuthorityIdentityV1,
+} from './linkedDeviceManagement.fixtures';
 import { buildPasskeyWalletAuthAuthority } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
   secp256k1PrivateKey32ToPublicKey33,
@@ -1160,6 +1167,52 @@ export async function insertWalletAuthMethod(input: {
     ensureSchema: false,
   });
   await store.putV2(record);
+}
+
+/**
+ * Seeds the founding authority a same-device addition claims as its source.
+ *
+ * R109C adds a method to an authority that already exists, so a test that
+ * inserts only an auth method is describing a state production cannot reach:
+ * the addition resolves the source authority, revalidates its digest and
+ * revocation epoch, and refuses when there is nothing to revalidate against.
+ *
+ * The authority and its method come from the shared factory so the digests,
+ * the credential encoding, and the signer activation set are the ones the
+ * production parsers accept, not values chosen here.
+ */
+export async function seedFoundingPasskeyAuthority(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+  readonly identity: LinkedDeviceManagementAuthorityIdentityV1;
+}): Promise<LinkedDeviceManagementAuthorityFixture> {
+  const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'founding-source',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+    identity: input.identity,
+  });
+  const scope = {
+    namespace: input.namespace,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    envId: input.envId,
+  };
+  await prepareD1WalletAuthorityPutStatement({
+    database: input.database,
+    scope,
+    authority: fixture.authority,
+  }).run();
+  const store = new D1WalletAuthMethodStore({
+    database: input.database,
+    ...scope,
+    ensureSchema: false,
+  });
+  await store.putV2(fixture.authMethod);
+  return fixture;
 }
 
 export async function readWalletAuthMethodRecord(input: {
