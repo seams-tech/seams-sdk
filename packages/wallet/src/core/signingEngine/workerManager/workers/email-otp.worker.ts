@@ -2551,6 +2551,9 @@ type EmailOtpRequestedCapabilities =
       kind: 'none';
     }
   | {
+      kind: 'wallet_session';
+    }
+  | {
       kind: 'ed25519_yao';
       signerSlot: number;
       remainingUses: number;
@@ -2561,6 +2564,9 @@ function buildEmailOtpRequestedCapabilities(args: {
 }): EmailOtpRequestedCapabilities {
   switch (args.material.kind) {
     case 'ecdsa':
+      return args.material.ecdsaSessionPolicy
+        ? { kind: 'wallet_session' }
+        : { kind: 'none' };
     case 'ed25519_yao_export':
       return { kind: 'none' };
     case 'ed25519_yao_recovery': {
@@ -6120,13 +6126,13 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       );
       const parsedCapabilities = (() => {
         switch (capabilityKind) {
-          case 'none':
+          case 'wallet_session':
             rejectUnknownEmailOtpYaoFields(
               requestedCapabilities,
               ['kind'],
               `${type}.requestedCapabilities`,
             );
-            return { kind: 'none' as const };
+            return { kind: 'wallet_session' as const };
           case 'ed25519_yao': {
             rejectUnknownEmailOtpYaoFields(
               requestedCapabilities,
@@ -6287,6 +6293,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         [
           'relayUrl',
           'walletId',
+          'walletAuthMethodId',
           'orgId',
           'providerSubjectId',
           'nearAccountId',
