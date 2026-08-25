@@ -1155,6 +1155,51 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
   }
 
   /**
+   * Aborts the surrounding batch if the authority already holds an active
+   * method of this family.
+   *
+   * Refactor 109C's admission answers `already_configured` before a ceremony
+   * starts, but an admission read cannot close a race: two ceremonies can pass
+   * it concurrently and both insert. The auth-method insert's own guard covers
+   * only the allocated method id, and migration `0011` deliberately dropped
+   * the Email uniqueness index so linked devices could share one address, so
+   * nothing else in the batch enforces this.
+   *
+   * The idiom is the repo's existing CAS guard read backwards: the sibling
+   * SELECT normally matches nothing and the INSERT is a no-op, and when a
+   * sibling does exist it inserts `guard_id = 1` into a singleton table and
+   * collides, which aborts the batch.
+   */
+  prepareActiveV2TargetFamilyAbsentGuardStatements(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthorityId: WalletAuthorityId;
+    readonly kind: WalletAuthMethodRecordV2['kind'];
+  }): readonly D1PreparedStatementLike[] {
+    const guard = this.database
+      .prepare(
+        `INSERT INTO wallet_authority_cas_guard (guard_id)
+         SELECT 1
+          WHERE EXISTS (
+            SELECT 1
+              FROM wallet_auth_methods
+             WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+               AND wallet_id = ? AND wallet_authority_id = ?
+               AND kind = ? AND status = 'active'
+          )`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(input.walletId),
+        String(input.walletAuthorityId),
+        input.kind,
+      );
+    return [guard];
+  }
+
+  /**
    * Prepares an insert-only active V2 method mutation. A credential or opaque
    * method-id collision stays inside the surrounding transaction boundary.
    */

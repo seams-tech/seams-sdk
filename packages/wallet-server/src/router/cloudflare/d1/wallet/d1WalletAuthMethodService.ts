@@ -1129,6 +1129,17 @@ export class CloudflareD1WalletAuthMethodService {
         envelope: resealedEnvelope,
         additionalStatements: [
           ...this.prepareAddAuthMethodSourceGuard({ ceremony, walletId }),
+          /* The transactional half of the missing-family rule. The admission
+             at start is a read and cannot close a race; this aborts the batch
+             if a concurrent ceremony activated an Email method on the same
+             authority first. Applied to the Email branch only: R109C permits
+             several active Passkeys on one authority, and Passkey uniqueness
+             is credential-scoped and already enforced by its own index. */
+          ...this.getWalletAuthMethodStore().prepareActiveV2TargetFamilyAbsentGuardStatements({
+            walletId,
+            walletAuthorityId: ceremony.sourceWalletAuthorityId,
+            kind: 'email_otp',
+          }),
           ...this.getWalletAuthMethodStore().prepareV2InsertStatements(authMethod),
           ...emailOtpReplayStatements,
           ...atomicCompanionStatements,
