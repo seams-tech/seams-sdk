@@ -36,6 +36,12 @@ Rust repository. The public repository has credential-free validation and npm
 release workflows. The private repository exact-pins npm releases and deploys
 the prebuilt generic Wallet artifacts shipped by those packages.
 
+Inside the private monorepo, Console deployment and Wallet-system deployment
+are separate pipelines. They use different target files, generators, protected
+GitHub environments, secret/variable inventories, scoped Cloudflare tokens,
+rotation commands, backups, and deploy workflows. Neither pipeline can write or
+rotate the other authority's configuration.
+
 The target dependency graph is:
 
 ```text
@@ -402,7 +408,14 @@ seams-monorepo/                       # private, renamed in place
     wallet-console-server-ts/
     platform-admin-server-ts/
   deployment/
+    console/targets.json
+    wallet-system/targets.json
+  scripts/deployment/
+    console/
+    wallet-system/
   .github/workflows/                 # every staging/production workflow
+    deploy-console-*.yml
+    deploy-wallet-system-*.yml
 
 seams-wallet/                         # public, fresh history
   packages/
@@ -456,6 +469,9 @@ Owns:
 - all production and staging GitHub Actions, Cloudflare entrypoints, routes,
   bindings, domains, environment variables, secrets, provider configuration,
   topology, observability, backup, restore, and operational runbooks;
+- separate Console and Wallet-system target files, generators, protected GitHub
+  environments, secret/variable inventories, rotation commands, Cloudflare
+  tokens, and deployment workflows;
 - production migration orchestration for both private schemas and the installed
   Wallet server package's signer schema.
 
@@ -547,6 +563,16 @@ provider account, or deployment procedure.
 13. Rust crates in the public repository are build inputs, not registry
     products. `publish = false` is the default and no crates.io release gate is
     part of Refactor 105.
+14. Console and Wallet-system deployment generation are separate write
+    authorities. No command emits, applies, or rotates both secret/variable
+    inventories.
+15. Console deployment credentials can write only Console Pages, Worker, D1,
+    provider, and session configuration. Wallet-system credentials can write
+    only Wallet Gateway/Runtime, hosted Wallet, signer, Router A/B, relayer, and
+    Wallet-network configuration.
+16. Cross-pipeline configuration is a read-only, non-secret handoff containing
+    public origins, network names, service binding names, and deployed artifact
+    versions. A complete GitHub secret inventory never crosses this boundary.
 
 ## Authentication Boundary
 
@@ -823,6 +849,13 @@ deployment. The required outcome is:
       tests, staging and production GitHub Actions, environment values,
       Cloudflare topology, secrets, provider configuration, operational
       runbooks, and composed-stack harnesses in `seams-monorepo`.
+- [ ] Replace the paired `wallet-core`/`product` environment generation with
+      explicit private `console` and `wallet-system` target files, generators,
+      protected GitHub environments, update/rotation commands, backup outputs,
+      scoped Cloudflare tokens, and deploy workflows.
+- [ ] Remove the combined backend deployment sequence and shared
+      `DEPLOYMENT_SECRETS_JSON` authority. Each pipeline accepts only its owned
+      secret and variable names and cannot write the other pipeline's targets.
 - [ ] Create the public repository with its own workspace manifest, lockfile,
       license, README, credential-free validation workflows, and npm release
       workflow. Rust crates remain repository implementation crates with
@@ -847,7 +880,9 @@ Exit:
 - private deployments use exact-pinned npm packages and prebuilt generic
   artifacts without public source access;
 - public validation is credential-free, npm releases use trusted publishing,
-  and no Rust crate is published to crates.io.
+  and no Rust crate is published to crates.io;
+- Console and Wallet-system configuration can be generated, rotated, and
+  deployed independently without overwriting one another.
 
 ## Minimal Validation
 
@@ -924,6 +959,14 @@ and operational docs in the private monorepo. Public validation and npm release
 jobs use no private credentials; the private deploy consumes only exact-pinned
 packages and their prebuilt generic artifacts.
 
+### Cross-pipeline secret overwrite
+
+The current paired generation and combined backend deployment give one process
+visibility into both Console and Wallet-system configuration. Replace them with
+disjoint manifests, commands, GitHub environments, and scoped deployment
+credentials. Each apply operation rejects unknown names and cannot address the
+other authority's environment.
+
 ## Definition Of Done
 
 - Refactors 100-102, 103E, and 107 satisfied the Wallet-boundary stabilization
@@ -966,6 +1009,8 @@ packages and their prebuilt generic artifacts.
   and all Rust crates remain `publish = false` with no crates.io release;
 - the private repository consumes exact-pinned npm package versions and
   prebuilt generic artifacts without public-repository source access;
+- private Console and Wallet-system secret/variable generation, rotation, and
+  deployment use separate pipelines with disjoint write credentials;
 - the public tree contains no private configuration, credentials, deployment
   workflow, or operational material;
 - the cutover changes repository and release wiring only, without another

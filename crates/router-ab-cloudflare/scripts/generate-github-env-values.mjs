@@ -705,7 +705,6 @@ function buildGeneratedSecrets(environmentPrefix) {
     internalServiceAuth: `router-ab-internal-service-auth-v1:${randomBase64Url(32)}`,
     relaySessionHmac: randomBase64Url(32),
     accountIdDerivation: randomBase64Url(32),
-    consoleEmailInvitationSecret: randomBase64Url(32),
     consoleWebhookSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
     signingSession: {
