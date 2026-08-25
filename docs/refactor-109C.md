@@ -248,6 +248,35 @@ The three other failures in that file are unchanged and unrelated: a stale
 WebAuthn assertion fixture, a missing custody envelope in setup, and the same
 missing authority.
 
+### Method-bound custody envelopes — the five behaviours
+
+Landed. An envelope now records the one auth method that owns it, and that
+ownership is inside the AAD, so it cannot be relabelled. `Unbound` decodes
+pre-109C envelopes and is never written.
+
+| Behaviour | Where it is proven |
+| --- | --- |
+| V2 opens under its original AAD and is resealed as V3 | `an_unbound_envelope_opens_then_reseals_as_method_bound` |
+| A sibling cannot open or relabel a V3 envelope | `a_sibling_method_cannot_open_a_relabelled_envelope` |
+| Revoking one method preserves the sibling and the shared enrollment | `r109cEmailEnrollmentReferences.unit.test.ts` |
+| Revoking the final method removes the enrollment | same file |
+| No path writes a new V2 envelope | `sealing_an_unbound_envelope_is_refused` |
+
+Commands: `cargo test --lib --features passkey-custody` in `crates/signer-core`
+(6 passed) and `npx playwright test -c playwright.unit.config.ts
+./unit/r109cEmailEnrollmentReferences.unit.test.ts` from `tests/` (2 passed).
+
+Two facts worth keeping. Behaviour 5 was genuinely absent until its test asked
+for it — `seal_custody_secret` sealed an unbound binding happily, so nothing
+stopped a fresh V2 being minted. And fixing it broke behaviour 1's own setup,
+which had been sealing a V2 to have one to open; the fixture now seals through
+a test-only legacy helper, because production can no longer produce one.
+
+The upgrade runs on the unlock that opens the envelope, which is the only place
+holding the factor secret and the exact selected method at the same instant. A
+failed persist costs a retry rather than access: the old row stands and the next
+unlock produces the upgrade again.
+
 ### Stop condition: authenticating envelope ownership is a Rust change
 
 Binding `walletAuthMethodId` into the AAD cannot be done in TypeScript. The AAD
