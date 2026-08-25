@@ -19,7 +19,10 @@ import { base64UrlDecode } from '@shared/utils/base64';
 import { toError } from '@shared/utils/errors';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import { IndexedDBManager } from '@/core/indexedDB';
-import { persistFinalizedPasskeyAuthMethodV1 } from './localPasskeyProjection';
+import {
+  persistAddedCrossFamilyPasskeyV1,
+  persistFinalizedPasskeyAuthMethodV1,
+} from './localPasskeyProjection';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   passkeyCredentialIdB64uFromAuthentication,
@@ -196,6 +199,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
       rpId: args.rpId,
       relayerUrl,
       profile,
+      sourceWalletAuthorityId: String(sourceClaim.source.walletAuthorityId),
       intentResponse,
       ...(args.options ? { options: args.options } : {}),
     });
@@ -277,6 +281,7 @@ async function addPasskeyFromEmailOtpSource(args: {
   readonly rpId: WebAuthnRpId;
   readonly relayerUrl: string;
   readonly profile: { readonly defaultSignerSlot: number };
+  readonly sourceWalletAuthorityId: string;
   readonly intentResponse: Awaited<ReturnType<typeof createWalletAddAuthMethodIntent>>;
   readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
@@ -346,11 +351,38 @@ async function addPasskeyFromEmailOtpSource(args: {
       return confirmation.credential;
     },
   });
-  return await persistAddedPasskey({
+  const finalized = linked.finalized;
+  if (
+    finalized.walletId !== args.walletId ||
+    finalized.authMethod.kind !== 'passkey' ||
+    finalized.authMethod.status !== 'active'
+  ) {
+    throw new Error('Wallet add-passkey finalize returned a mismatched auth method');
+  }
+  /* The full local install, not just the auth-method row. This wallet opened
+     with Email OTP, so it has no passkey authenticator and no active V2 passkey
+     record — and unlock needs both. Writing only the V1 row leaves a wallet
+     that has the method on the server and cannot open with it here. */
+  await persistAddedCrossFamilyPasskeyV1({
     walletId: args.walletId,
-    rpId: args.rpId,
-    finalized: linked.finalized,
+    walletAuthMethodId: args.intentResponse.intent.targetWalletAuthMethodId,
+    walletAuthorityId: args.sourceWalletAuthorityId,
+    rpId: String(args.rpId),
+    credentialIdB64u: finalized.authMethod.credentialIdB64u,
+    credentialPublicKeyB64u: finalized.authMethod.credentialPublicKeyB64u,
+    counter: finalized.authMethod.counter,
+    signerSlot: args.profile.defaultSignerSlot,
+    credential: {
+      id: finalized.authMethod.credentialIdB64u,
+      rawId: finalized.authMethod.credentialIdB64u,
+    },
   });
+  return {
+    ok: true,
+    walletId: args.walletId,
+    rpId: String(args.rpId),
+    authMethod: { kind: 'passkey', status: 'active' },
+  };
 }
 
 export async function addPasskeyWalletAuthMethod(args: {

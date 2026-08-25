@@ -74,6 +74,60 @@ export async function persistFinalizedPasskeyAuthMethodV1(
   await IndexedDBManager.upsertWalletAuthMethod(localPasskeyAuthMethodFromFinalizeV1(args));
 }
 
+/**
+ * Refactor 109C: the full local install for a passkey added to a wallet that
+ * registered with another family.
+ *
+ * Three records, and unlock needs all of them. It reads the profile, then the
+ * profile's authenticators, then keeps only those whose credential belongs to
+ * an ACTIVE V2 passkey method — so writing the V1 record alone leaves a wallet
+ * that has the method on the server and cannot open with it locally. That is
+ * precisely the state the first browser run found.
+ *
+ * The same-family addition never showed this: a passkey-registered wallet
+ * already had a profile, an authenticator and a V2 record, so the gap was
+ * invisible until a wallet arrived without them.
+ */
+export async function persistAddedCrossFamilyPasskeyV1(args: {
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId | string;
+  readonly walletAuthorityId: WalletAuthorityId | string;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+  readonly credentialPublicKeyB64u: string;
+  readonly counter: number;
+  readonly signerSlot: number;
+  readonly credential: { readonly id: string; readonly rawId: string };
+}): Promise<void> {
+  await persistFinalizedPasskeyAuthMethodV1(args);
+  const walletAuthMethodId = parseWalletAuthMethodId(args.walletAuthMethodId);
+  const walletAuthorityId = parseWalletAuthorityId(args.walletAuthorityId);
+  if (!walletAuthMethodId.ok || !walletAuthorityId.ok) {
+    throw new Error('added passkey identity is invalid');
+  }
+  await persistSyncedPasskeyAuthMethodV2({
+    walletId: args.walletId,
+    walletAuthMethodId: walletAuthMethodId.value,
+    walletAuthorityId: walletAuthorityId.value,
+    rpId: args.rpId,
+    credentialIdB64u: args.credentialIdB64u,
+    credentialPublicKeyB64u: args.credentialPublicKeyB64u,
+    counter: args.counter,
+  });
+  /* The wallet keeps the profile it registered with — an addition changes how
+     the wallet opens, not which signer it is — so only the credential the
+     addition created is recorded here. */
+  const nowIso = new Date().toISOString();
+  await IndexedDBManager.upsertProfileAuthenticator({
+    profileId: String(args.walletId),
+    signerSlot: args.signerSlot,
+    credentialId: args.credentialIdB64u,
+    credentialPublicKey: base64UrlDecode(args.credentialPublicKeyB64u),
+    registered: nowIso,
+    syncedAt: nowIso,
+  });
+}
+
 export type SyncedPasskeyAuthMethodV2 = {
   readonly walletId: WalletId;
   readonly walletAuthMethodId: WalletAuthMethodId;

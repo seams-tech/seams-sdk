@@ -647,6 +647,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     loginState.isLoggedIn && loginState.currentAuthMethod.kind === 'selected'
       ? missingAuthMethodForSelectedAuthority(devices, loginState.currentAuthMethod.binding)
       : null;
+  const selectedWalletAuthMethodId =
+    loginState.isLoggedIn && loginState.currentAuthMethod.kind === 'selected'
+      ? String(loginState.currentAuthMethod.binding.walletAuthMethodId)
+      : null;
   const addingMethod = addMethodState.kind === 'working';
 
   return (
@@ -781,6 +785,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                   const secondaryDescription = credentialSecondaryDescription(viewCredential(view));
                   const standing = deviceStanding(view);
                   const walletAuthMethodId = String(viewCredential(view).walletAuthMethodId);
+                  const isSelectedMethod = walletAuthMethodId === selectedWalletAuthMethodId;
+                  const hasRemovableSibling = canRemoveWalletMethod(view, devices);
                   const confirming =
                     revokeState.kind === 'confirming' &&
                     revokeState.walletAuthMethodId === walletAuthMethodId;
@@ -807,6 +813,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                       <div className="w3a-linked-devices-modal-item-identity">
                         {secondaryDescription ? <span>{secondaryDescription}</span> : null}
                         {secondaryDescription ? <span aria-hidden="true">&middot;</span> : null}
+                        {isSelectedMethod ? <span>Current unlock method</span> : null}
+                        {isSelectedMethod ? <span aria-hidden="true">&middot;</span> : null}
                         <span className="w3a-linked-devices-modal-device-id">
                           ID {fullIdShown ? displayId : shortDisplayId(displayId)}
                         </span>
@@ -907,7 +915,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                             </button>
                           </div>
                         </div>
-                      ) : canRemoveWalletMethod(view, devices) ? (
+                      ) : hasRemovableSibling && !isSelectedMethod ? (
                         <button
                           type="button"
                           className="w3a-linked-devices-modal-secondary"
@@ -917,6 +925,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                         >
                           {working ? 'Removing…' : 'Remove'}
                         </button>
+                      ) : hasRemovableSibling ? (
+                        <span className="w3a-linked-devices-modal-item-detail">
+                          Unlock with the sibling method to remove this one.
+                        </span>
                       ) : null}
                     </li>
                   );

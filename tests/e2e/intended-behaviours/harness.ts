@@ -1045,6 +1045,37 @@ export class IntendedBehaviourHarness {
     );
   }
 
+  /**
+   * Refactor 109C: the method just added actually opens the wallet.
+   *
+   * Deliberately not `unlockPasskeyWallet`, which requires a passkey-REGISTERED
+   * wallet. The point here is the opposite: this wallet was registered with the
+   * other family, and the passkey it is unlocking with exists only because the
+   * addition created it. Gating on how the wallet was registered would refuse
+   * the exact case under test.
+   */
+  async unlockWithAddedPasskey(): Promise<void> {
+    this.recordStage('unlock_with_added_passkey');
+    const registration = this.requireRegisteredWalletForSigning();
+    const snapshot = await this.runIntendedPageAction(
+      'unlockPasskeyWallet',
+      'intended-unlock-passkey',
+    );
+    if (snapshot.action.status !== 'success') {
+      throw new Error(
+        `unlock with the added passkey ended with ${snapshot.action.status}: ${
+          snapshot.action.status === 'failed' ? snapshot.action.error : ''
+        }`,
+      );
+    }
+    const result = snapshot.action.result;
+    if (String((result as { walletId?: unknown }).walletId) !== String(registration.walletId)) {
+      throw new Error('unlock with the added passkey opened a different wallet');
+    }
+    this.passkeyPromptCount += 1;
+    this.recordService(`added passkey unlocked wallet=${String(registration.walletId)}`);
+  }
+
   /** Refactor 109C acceptance: an Email OTP wallet gains a Passkey method. */
   async addPasskeyAuthMethod(): Promise<void> {
     this.recordStage('add_passkey_auth_method');
