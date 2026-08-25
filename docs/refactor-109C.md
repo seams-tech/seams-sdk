@@ -9,9 +9,18 @@ addition. Refactor 109D remains the separate device-linking plan.
 
 ## Live implementation ledger
 
-Implementation branch `codex/refactor-109c`, based on `dev` at `ff395dfe1`.
-R103E's closure edit was already committed on `dev` in `ff395dfe1`, so this
-branch adds no separate documentation commit for it.
+Implementation branch `codex/refactor-109c`, based on `dev` at `ff395dfe1` and
+merged with `dev` at `c3b96e235` (the three R103E cleanup commits). R103E's
+closure edit was already committed on `dev` in `ff395dfe1`, so this branch adds
+no separate documentation commit for it.
+
+**R109C is not ready to merge.** What exists is shared types plus server-side
+work for the Passkey-to-Email-OTP direction. Not started: `registration.addEmailOtp`,
+the unified client operation, IndexedDB pending/active installation, the
+security-note and method-selection UI, the Email-to-Passkey route support, the
+`0013` migration, and every browser-matrix and interruption case. The
+source-proof protocol gap recorded below is the largest single blocker, and
+Phase 0's prerequisite is unproven.
 
 A checkpoint is marked done only when the named command was run and reported
 green. Green lower-tier evidence does not close a product transition; only a
