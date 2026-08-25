@@ -41,10 +41,12 @@ import {
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  parseWalletAuthMethodId,
   parseWalletId,
   type WalletId,
   type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
+  type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -177,6 +179,7 @@ export type WalletRecoveryRegistrationOptions = {
   readonly challengeId: string;
   readonly challengeB64u: string;
   readonly replacementId: string;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly rpId: WebAuthnRpId;
   readonly user: {
     readonly idB64u: string;
@@ -382,6 +385,7 @@ function parseWalletRecoveryRegistrationOptions(
       'challengeId',
       'challengeB64u',
       'replacementId',
+      'walletAuthMethodId',
       'rpId',
       'user',
       'pubKeyCredParams',
@@ -406,6 +410,10 @@ function parseWalletRecoveryRegistrationOptions(
     registration.replacementId,
     'registration.replacementId',
   );
+  const walletAuthMethodId = parseWalletAuthMethodId(registration.walletAuthMethodId);
+  if (!walletAuthMethodId.ok) {
+    throw new Error('walletRecoveryPrepare.registration.walletAuthMethodId is invalid');
+  }
   const rpIdResult = parseWebAuthnRpId(registration.rpId);
   if (!rpIdResult.ok) throw new Error('walletRecoveryPrepare.registration.rpId is invalid');
   if (rpIdResult.value !== expectedRpId) {
@@ -447,6 +455,7 @@ function parseWalletRecoveryRegistrationOptions(
     challengeId,
     challengeB64u,
     replacementId,
+    walletAuthMethodId: walletAuthMethodId.value,
     rpId: rpIdResult.value,
     user: { idB64u, name, displayName },
     pubKeyCredParams,

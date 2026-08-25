@@ -32,7 +32,12 @@ import type {
 } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { buildPasskeyEnvelopeFactor } from '@shared/passkey-custody';
-import type { WalletId, WebAuthnCredentialIdB64u, WebAuthnRpId } from '@shared/utils/domainIds';
+import type {
+  WalletAuthMethodId,
+  WalletId,
+  WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
+} from '@shared/utils/domainIds';
 
 type NearRecoveryEntry = Extract<
   WalletRecoveryPreparationKeyManifestEntry,
@@ -70,6 +75,7 @@ export type RecoveredWalletCustodyManifestV1 = {
 function replacementForEntry(input: {
   readonly entryIndex: number;
   readonly replacementId: string;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly rpId: WebAuthnRpId;
   readonly credentialIdB64u: WebAuthnCredentialIdB64u;
   readonly factorSecret: ArrayBuffer;
@@ -79,6 +85,7 @@ function replacementForEntry(input: {
     kind: 'reseal_replacement_passkey',
     factorJson: JSON.stringify({
       envelopeId: input.replacementId,
+      walletAuthMethodId: input.walletAuthMethodId,
       factor: buildPasskeyEnvelopeFactor({
         rpId: input.rpId,
         credentialIdB64u: input.credentialIdB64u,
@@ -160,6 +167,7 @@ export async function recoverWalletCustodyManifestV1(input: {
       const replacement = replacementForEntry({
         entryIndex,
         replacementId: input.prepared.registration.replacementId,
+        walletAuthMethodId: input.prepared.registration.walletAuthMethodId,
         rpId: input.prepared.registration.rpId,
         credentialIdB64u: input.replacementCredentialIdB64u,
         factorSecret: input.replacementFactorSecret,
