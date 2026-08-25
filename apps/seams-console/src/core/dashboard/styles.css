@@ -495,7 +495,9 @@ textarea {
 
 .dashboard-sidebar__brand-row {
   position: relative;
-  inset-block-start: -3px;
+  /* Visual-only nudge: the wordmark and the collapse button ride up together
+     while the switcher stack below keeps its laid-out position. */
+  inset-block-start: -7px;
   display: flex;
   align-items: center;
   gap: 4px;
