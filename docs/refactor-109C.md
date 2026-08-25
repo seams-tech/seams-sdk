@@ -605,6 +605,32 @@ anticipates - the challenge boundary takes an operation fingerprint, so the
 proof is a bound challenge plus its code rather than an assertion. Until it
 exists, `passkey_to_email_otp` proves addition and unlock but not removal.
 
+Two items are specified and unstarted, and both sit in code another agent is
+actively changing.
+
+An added Email OTP method has no Ed25519 lane. Lanes come from Yao public
+capability references, each carrying an auth binding that names one exact
+method, so a passkey's reference cannot serve an email sibling. It is not the
+general Email OTP signing defect - that was fixed in fdf67168b, and the
+email-registered lifecycle now reaches every one of its NEAR signing steps. An
+added passkey is fine because it inherits Ed25519 identity through its
+credential binding; email methods have no credential binding, which is exactly
+why that fix does not generalise. The email lane is session-bounded, carrying
+remaining uses and an expiry, so it is minted at unlock rather than copied at
+addition - and unlock requests one capability kind at a time, so producing both
+a wallet session and an ed25519 lane from a single code needs the capability
+intent extended. That is a protocol decision in the unlock code Codex changed
+in fdf67168b.
+
+The Add action's disappearance when both families are active is implemented but
+unproven. `missingAuthMethodForSelectedAuthority` returns null when a wallet has
+both, which is the behaviour wanted. Asserting it needs the modal's test harness
+to render logged in: the component reads `loginState.currentAuthMethod` from the
+`useSeams` context, and the harness supplies only `seams`, so the add section
+never renders there at all. A test written against the harness as it stands
+would pass without exercising anything - confirmed by writing the positive case
+first and watching it fail.
+
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,
 a credential binding, or an identity could be addressed without saying which
