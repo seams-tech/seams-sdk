@@ -2696,7 +2696,7 @@ export class SeamsWalletRepositories {
     );
     const unlockedAtMs = parseNonNegativeSafeInteger(input.unlockedAtMs, 'unlockedAtMs');
     await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.walletSelections],
+      [SEAMS_WALLET_STORES.walletSelections, SEAMS_WALLET_STORES.walletAuthMethods],
       'readwrite',
       this.markWalletSelectionUnlockedInTransaction.bind(this, {
         walletId,
@@ -2863,6 +2863,31 @@ export class SeamsWalletRepositories {
     return lockGeneration;
   }
 
+  private async assertSelectionMoveBetweenAuthorityMembers(
+    input: {
+      readonly walletId: WalletId;
+      readonly fromWalletAuthMethodId: WalletAuthMethodId;
+      readonly toWalletAuthMethodId: WalletAuthMethodId;
+    },
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<void> {
+    const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
+    const fromRaw = await authMethodStore.get(input.fromWalletAuthMethodId);
+    const toRaw = await authMethodStore.get(input.toWalletAuthMethodId);
+    const from = fromRaw === undefined ? null : parseWalletAuthMethodV2StorageRow(fromRaw);
+    const to = toRaw === undefined ? null : parseWalletAuthMethodV2StorageRow(toRaw);
+    if (
+      !from ||
+      !to ||
+      to.record.status !== 'active' ||
+      to.record.walletId !== input.walletId ||
+      from.record.walletId !== input.walletId ||
+      from.record.walletAuthorityId !== to.record.walletAuthorityId
+    ) {
+      throw new Error('wallet selection is missing or corrupt');
+    }
+  }
+
   private async markWalletSelectionUnlockedInTransaction(
     input: {
       readonly walletId: WalletId;
@@ -2875,12 +2900,23 @@ export class SeamsWalletRepositories {
     const selectionRaw = await selectionStore.get(input.walletId);
     const selection =
       selectionRaw === undefined ? null : parseWalletSelectionStorageRow(selectionRaw);
-    if (
-      !selection ||
-      selection.wallet_id !== input.walletId ||
-      selection.record.walletAuthMethodId !== input.walletAuthMethodId
-    ) {
+    if (!selection || selection.wallet_id !== input.walletId) {
       throw new Error('wallet selection is missing or corrupt');
+    }
+    if (selection.record.walletAuthMethodId !== input.walletAuthMethodId) {
+      // R109C: unlocking with a sibling method on the same wallet authority
+      // moves the selection to it. Invariant 9 makes lock and unlock the route
+      // by which a newly added method becomes the one in use, so a selection
+      // still naming the source method is the expected state here rather than
+      // corruption. A method on another authority is refused as before.
+      await this.assertSelectionMoveBetweenAuthorityMembers(
+        {
+          walletId: input.walletId,
+          fromWalletAuthMethodId: selection.record.walletAuthMethodId,
+          toWalletAuthMethodId: input.walletAuthMethodId,
+        },
+        ctx,
+      );
     }
     await selectionStore.put(
       walletSelectionStorageRow({
