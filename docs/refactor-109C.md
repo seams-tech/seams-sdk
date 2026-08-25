@@ -248,6 +248,19 @@ The three other failures in that file are unchanged and unrelated: a stale
 WebAuthn assertion fixture, a missing custody envelope in setup, and the same
 missing authority.
 
+### Acceptance stack: port preflight
+
+The acceptance origins — `9443` (site), `9444` (router/console), `9447` (docs)
+and `8443` (wallet iframe) via one Caddy process, plus `3600` (vite) — are held
+only by the main worktree at `/Users/pta/Dev/rust/seams-sdk`. A second worktree,
+`/private/tmp/seams-sdk-r100`, runs many `workerd` processes, but every one of
+them binds `--socket-addr=entry=127.0.0.1:0`, so none contends for those ports.
+
+The stack is therefore free to take when there is a flow to run. It is not
+taken yet: taking it means rebuilding the SDK dist the running stack serves, and
+there is nothing to exercise until the client operation and its intended-e2e
+action exist. Doing it earlier would disrupt the serving tree for no evidence.
+
 ### Method-bound custody envelopes — the five behaviours
 
 Landed. An envelope now records the one auth method that owns it, and that
