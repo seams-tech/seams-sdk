@@ -36,6 +36,15 @@ export const CIPHERTEXT_B64U = 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkq
  */
 export const CIPHERTEXT_DIGEST_B64U = 'GDwUe-76hc4lJXJ3vyFwZWyL0jf_Kk8TXYlyKfS1vHE';
 export const ED25519_PUBLIC_KEY_B64U = 'MjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFE';
+/**
+ * A real point on secp256k1 — the generator, compressed.
+ *
+ * The neighbouring key constants are shaped like keys but are not on the curve,
+ * which is fine wherever a fixture only carries bytes. Anything that reaches
+ * `validateSecp256k1PublicKey33` needs an actual point, so that path uses this.
+ */
+export const VALID_SECP256K1_PUBLIC_KEY_B64U = 'Anm-Zn753LusVaBilc6HCwcCm_zbLc4o2VnygVsW-BeY';
+
 export const SECP256K1_PUBLIC_KEY_B64U = 'AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEi';
 export const ALT_SECP256K1_PUBLIC_KEY_B64U = 'AwkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJico';
 
