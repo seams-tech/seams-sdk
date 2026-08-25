@@ -13,6 +13,7 @@ import {
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WalletAuthorityId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { base64UrlDecode } from '@shared/utils/base64';
@@ -201,7 +202,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
       rpId: args.rpId,
       relayerUrl,
       profile,
-      sourceWalletAuthorityId: String(sourceClaim.source.walletAuthorityId),
+      sourceWalletAuthorityId: sourceClaim.source.walletAuthorityId,
       sourceWalletAuthMethodId: sourceClaim.source.walletAuthMethodId,
       intentResponse,
       ...(args.options ? { options: args.options } : {}),
@@ -284,7 +285,7 @@ async function addPasskeyFromEmailOtpSource(args: {
   readonly rpId: WebAuthnRpId;
   readonly relayerUrl: string;
   readonly profile: { readonly defaultSignerSlot: number };
-  readonly sourceWalletAuthorityId: string;
+  readonly sourceWalletAuthorityId: WalletAuthorityId;
   readonly sourceWalletAuthMethodId: Parameters<
     typeof copyWalletCustodyEcdsaContinuityToAuthMethod
   >[0]['sourceWalletAuthMethodId'];
@@ -385,6 +386,7 @@ async function addPasskeyFromEmailOtpSource(args: {
   });
   await copyWalletCustodyEcdsaContinuityToAuthMethod({
     walletId: args.walletId,
+    walletAuthorityId: args.sourceWalletAuthorityId,
     sourceWalletAuthMethodId: args.sourceWalletAuthMethodId,
     targetAuthority: await walletAuthAuthorityRef({ authority: finalized.authority }),
   });

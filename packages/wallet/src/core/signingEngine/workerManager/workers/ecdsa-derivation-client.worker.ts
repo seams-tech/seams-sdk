@@ -1551,7 +1551,13 @@ function restoreFailureReasonFromHydrationBlock(
 }
 
 function restoreFailureReasonFromManifestObservation(
-  kind: 'missing' | 'retired' | 'exact_binding_mismatch' | 'exact_record_conflict' | 'corrupt',
+  kind:
+    | 'missing'
+    | 'retired'
+    | 'exact_binding_mismatch'
+    | 'exact_record_conflict'
+    | 'ambiguous_authority'
+    | 'corrupt',
 ): 'missing' | 'expired' | 'binding_mismatch' | 'corrupt' {
   switch (kind) {
     case 'missing':
@@ -1561,6 +1567,7 @@ function restoreFailureReasonFromManifestObservation(
     case 'exact_binding_mismatch':
       return 'binding_mismatch';
     case 'exact_record_conflict':
+    case 'ambiguous_authority':
     case 'corrupt':
       return 'corrupt';
   }
@@ -1584,6 +1591,8 @@ async function openEcdsaRoleLocalSigningMaterial(
   const lookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
     walletId: authority.walletId,
     materialActivation,
+    // R109C: siblings can share this activation, so name the exact method.
+    authority,
   });
   if (lookup.kind === 'persistence_unavailable') {
     throw new Error('Canonical ECDSA role-local material persistence is unavailable');

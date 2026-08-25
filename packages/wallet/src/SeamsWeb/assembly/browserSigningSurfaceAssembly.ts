@@ -295,6 +295,34 @@ type BrowserCanonicalEcdsaCapabilityResolution = {
   readonly lookup: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>;
 };
 
+export async function resolveAmbiguousEcdsaActivationForSelectedAuthMethod(input: {
+  readonly walletId: ReturnType<typeof toWalletId>;
+  readonly materialActivation: Parameters<
+    typeof ecdsaCapabilityManifestStore.lookupByMaterialActivation
+  >[0]['materialActivation'];
+  readonly authorities: readonly WalletAuthAuthorityRef[];
+}) {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(input.walletId));
+  if (selected.kind !== 'resolved') {
+    throw new Error(
+      `ECDSA material activation is ambiguous and the wallet selection is ${selected.kind}`,
+    );
+  }
+  const chosen = input.authorities.find(
+    (authority) => authority.walletAuthMethodId === selected.selection.walletAuthMethodId,
+  );
+  if (!chosen) {
+    throw new Error(
+      'ECDSA material activation has no access projection for the selected wallet auth method',
+    );
+  }
+  return await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+    walletId: input.walletId,
+    materialActivation: input.materialActivation,
+    authority: chosen,
+  });
+}
+
 async function resolveBrowserCanonicalEcdsaSigningCapability(
   args: BrowserEcdsaCapabilityReaderContext,
   input: Parameters<
@@ -329,10 +357,20 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
     }
     return fallback();
   };
-  const manifestLookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+  let manifestLookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
     walletId,
     materialActivation: input.materialActivation,
   });
+  if (manifestLookup.kind === 'ambiguous_authority') {
+    // R109C: several auth methods on one wallet authority each hold their own
+    // access projection over this activation. Signing happens as the selected
+    // method, so name it rather than taking whichever sibling scans first.
+    manifestLookup = await resolveAmbiguousEcdsaActivationForSelectedAuthMethod({
+      walletId,
+      materialActivation: input.materialActivation,
+      authorities: manifestLookup.authorities,
+    });
+  }
   if (
     manifestLookup.kind === 'persistence_unavailable' ||
     manifestLookup.kind === 'exact_record_conflict' ||
