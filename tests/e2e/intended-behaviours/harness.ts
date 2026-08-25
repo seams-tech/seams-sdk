@@ -813,6 +813,9 @@ export class IntendedBehaviourHarness {
 
   private emailOtpVerificationCount = 0;
 
+  /** Set by an auth-method addition, which uses one family to add the other. */
+  private crossFamilyAuthMethodAdditionRan = false;
+
   private passkeyPromptCount = 0;
 
   private latestPageSnapshot: IntendedPageSnapshot | null = null;
@@ -1036,6 +1039,7 @@ export class IntendedBehaviourHarness {
       throw new Error('add-email-code returned a different wallet');
     }
     this.emailOtpVerificationCount += 1;
+    this.crossFamilyAuthMethodAdditionRan = true;
     this.recordService(
       `email code added wallet=${String(result.walletId)} email=${String(result.emailAddress)}`,
     );
@@ -1063,6 +1067,7 @@ export class IntendedBehaviourHarness {
     }
     this.emailOtpVerificationCount += 1;
     this.passkeyPromptCount += 1;
+    this.crossFamilyAuthMethodAdditionRan = true;
     this.recordService(`passkey added wallet=${String(result.walletId)} rp=${String(result.rpId)}`);
   }
 
@@ -1573,6 +1578,13 @@ export class IntendedBehaviourHarness {
   }
 
   assertNoWrongAuthPath(): void {
+    /* Refactor 109C additions are the one lifecycle that legitimately uses
+       both families: the wallet authorizes with the factor it already has and
+       verifies the one being added. The guard exists to catch a lifecycle
+       silently falling back to the other factor, which is still worth checking
+       everywhere else, so this is an opt-out a step must take rather than a
+       prefix the flow can accidentally match. */
+    if (this.crossFamilyAuthMethodAdditionRan) return;
     if (this.flow.startsWith('passkey') && this.emailOtpVerificationCount > 0) {
       throw new Error('Passkey lifecycle used Email OTP verification');
     }

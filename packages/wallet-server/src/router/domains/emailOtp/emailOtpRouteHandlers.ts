@@ -143,8 +143,7 @@ export async function handleEmailOtpDevCleanupGoogleRegistrationRoute(input: {
     providerSubject: verified.providerSubject || verified.userId,
     walletId: toOptionalTrimmedString(body.walletId),
     orgId:
-      toOptionalTrimmedString(body.orgId) ||
-      toOptionalTrimmedString(runtimePolicyScope?.orgId),
+      toOptionalTrimmedString(body.orgId) || toOptionalTrimmedString(runtimePolicyScope?.orgId),
   });
   return { status: result.ok ? 200 : emailOtpStatusCode(result.code), body: result };
 }
@@ -191,7 +190,7 @@ export async function handleEmailOtpDevOutboxRoute(input: {
   if (!isPlainObject(input.body)) {
     return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid body' } };
   }
-  const allowedFields = new Set(['idToken', 'walletId', 'challengeId']);
+  const allowedFields = new Set(['idToken', 'walletId', 'challengeId', 'challengeSubjectId']);
   for (const field of Object.keys(input.body)) {
     if (!allowedFields.has(field)) {
       return {
@@ -203,6 +202,12 @@ export async function handleEmailOtpDevOutboxRoute(input: {
   const idToken = toOptionalTrimmedString(input.body.idToken);
   const walletId = toOptionalTrimmedString(input.body.walletId);
   const challengeId = toOptionalTrimmedString(input.body.challengeId);
+  /* Dev-only, and still behind the verified Google token above. A challenge's
+     subject is not always a Google identity: an Email OTP method added by
+     address alone is enrolled under that address, so a reader that could only
+     ask for the token's own subject could never see its code. The token proves
+     who is asking; this says which challenge to read. */
+  const challengeSubjectId = toOptionalTrimmedString(input.body.challengeSubjectId);
   if (!idToken || !walletId) {
     return {
       status: 400,
@@ -218,7 +223,7 @@ export async function handleEmailOtpDevOutboxRoute(input: {
     };
   }
   const result = await input.service.readEmailOtpOutboxEntry({
-    userId: verified.providerSubject || verified.userId,
+    userId: challengeSubjectId || verified.providerSubject || verified.userId,
     walletId,
     ...(challengeId ? { challengeId } : {}),
   });

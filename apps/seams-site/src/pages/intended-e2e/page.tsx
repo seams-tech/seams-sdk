@@ -920,7 +920,7 @@ class IntendedPageController {
     try {
       const walletId = this.walletId;
       if (!walletId) throw new Error('add-email-code requires a registered wallet');
-      const emailAddress = `add-auth-${walletId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}@example.test`;
+      const emailAddress = intendedAddEmailOtpAddress(walletId);
       const result = await this.seams.registration.addEmailOtp({
         walletId: toWalletId(walletId),
         emailAddress,
@@ -1466,6 +1466,10 @@ class IntendedPageController {
         idToken,
         walletId,
         ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
+        /* Derived, not remembered. The controller is rebuilt on every render,
+           so an instance field set by the action would be gone from the
+           instance the page installed on `window`. */
+        challengeSubjectId: intendedAddEmailOtpAddress(walletId),
       }),
     });
     const json = await response.json();
@@ -2534,6 +2538,17 @@ type EmailOtpCodeLookup =
 
 function emailOtpDevOutboxUrl(input: { relayerUrl: string }): string {
   return new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl).href;
+}
+
+/**
+ * The address an added Email OTP method enrols under in this harness.
+ *
+ * Derived from the wallet so repeated runs against a persistent local stack do
+ * not fight over one provider identity, and shared by the action and the dev
+ * outbox reader so both name the same subject.
+ */
+function intendedAddEmailOtpAddress(walletId: string): string {
+  return `add-auth-${walletId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}@example.test`;
 }
 
 function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCodeLookup {
