@@ -17,6 +17,7 @@ import {
   type ExactEcdsaSealedRuntime,
   type ExactEcdsaSealedRuntimeResolution,
 } from './ecdsaSealedRuntime';
+import { IndexedDBManager } from '@/core/indexedDB';
 import type { ActiveEcdsaCapabilityManifest } from './ecdsaCapabilityManifest';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 
@@ -167,15 +168,33 @@ function exactTwoPartyParticipantIds(value: readonly number[]): readonly [number
   return [first, second];
 }
 
+async function narrowToSelectedMethod(
+  walletId: WalletId,
+  manifests: readonly ActiveEcdsaCapabilityManifest[],
+): Promise<readonly ActiveEcdsaCapabilityManifest[]> {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  if (selected.kind !== 'resolved') return manifests;
+  const selectedMethodId = String(selected.authMethod.walletAuthMethodId);
+  const matching = manifests.filter(
+    (manifest) => String(manifest.signer.authority.walletAuthMethodId) === selectedMethodId,
+  );
+  return matching.length > 0 ? matching : manifests;
+}
+
 export async function resolveActiveEcdsaCapabilityRuntime(args: {
   readonly walletId: WalletId;
   readonly chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<ActiveEcdsaCapabilityRuntimeResolution> {
-  const manifests = await listActiveManifestsForTarget(args);
-  if (manifests.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
-  // Two active capabilities for one wallet/target is a store conflict; the
-  // caller cannot pick between them without guessing which material to use.
-  if (manifests.length > 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
+  const all = await listActiveManifestsForTarget(args);
+  if (all.length === 0) return { kind: 'blocked', reason: 'missing_capability' };
+  /* R109C: several capabilities for one wallet and target used to mean the
+     store had conflicting records, because a wallet had one auth method. Now
+     each method on an authority holds its own access projection over the same
+     activation, so the caller is not guessing - it is operating as the selected
+     method, and that is the one whose projection to use. Two projections for
+     the SAME method is still a conflict. */
+  const manifests = all.length > 1 ? await narrowToSelectedMethod(args.walletId, all) : all;
+  if (manifests.length !== 1) return { kind: 'blocked', reason: 'exact_record_conflict' };
   const manifest = manifests[0]!;
   const sealedRecords = await listSealedEcdsaRecordsForWallet(args);
   const resolution = resolveExactEcdsaSealedRuntime({

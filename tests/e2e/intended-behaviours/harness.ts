@@ -852,6 +852,16 @@ export class IntendedBehaviourHarness {
   /** The exact method the last addition created, to check what unlocks later. */
   private addedWalletAuthMethodId: string | null = null;
 
+  /**
+   * The family the wallet is currently operating as.
+   *
+   * Not the same as `flow`, which names how the wallet was registered. Once a
+   * cross-family method is added and used to unlock, every later step-up runs
+   * through that family instead, and asserting against the registration flow
+   * would demand the credential the user just stopped using.
+   */
+  private operatingAuthFamily: 'passkey' | 'email_otp' | null = null;
+
   private passkeyPromptCount = 0;
 
   private latestPageSnapshot: IntendedPageSnapshot | null = null;
@@ -1194,6 +1204,7 @@ export class IntendedBehaviourHarness {
       sessionWalletAuthMethodId: result.sessionWalletAuthMethodId,
     });
     this.passkeyPromptCount += 1;
+    this.operatingAuthFamily = 'passkey';
     this.recordService(`added passkey unlocked wallet=${String(registration.walletId)}`);
   }
 
@@ -1307,6 +1318,7 @@ export class IntendedBehaviourHarness {
     });
     this.currentWarmSigningStage = 'post_unlock';
     this.emailOtpVerificationCount += 1;
+    this.operatingAuthFamily = 'email_otp';
     this.recordService(`added email code unlocked wallet=${String(registration.walletId)}`);
   }
 
@@ -2329,12 +2341,17 @@ export class IntendedBehaviourHarness {
     this.violations.push(`${matched.id}: ${message}`);
   }
 
+  private currentOperatingAuthFamily(): 'passkey' | 'email_otp' {
+    if (this.operatingAuthFamily) return this.operatingAuthFamily;
+    return this.flow.startsWith('passkey') ? 'passkey' : 'email_otp';
+  }
+
   private assertSigningAuthEvents(
     snapshot: IntendedPageSnapshot,
     stage: IntendedSigningStage,
     label: string,
   ): SigningAuthEventSummary {
-    const expectation = signingAuthExpectationForStage(this.flow, stage);
+    const expectation = signingAuthExpectationForStage(this.currentOperatingAuthFamily(), stage);
     const summary = summarizeSigningAuthEvents(snapshot);
     assertSigningAuthExpectation({
       label,
@@ -2353,7 +2370,7 @@ export class IntendedBehaviourHarness {
   ): AuthCounterIncrement {
     const summary = summarizeKeyExportAuthEvents(snapshot);
     const diagnostics = this.latestWalletIframeAutoConfirmDiagnostics;
-    if (this.flow.startsWith('passkey')) {
+    if (this.currentOperatingAuthFamily() === 'passkey') {
       assertPasskeyKeyExportAuth({ label, summary, diagnostics });
       return { passkeyPrompts: 1, emailOtpVerifications: 0 };
     }
@@ -2800,7 +2817,7 @@ function nearRpcQueryStubResult(params: unknown): unknown {
 }
 
 function signingAuthExpectationForStage(
-  flow: IntendedLifecycleFlow,
+  authFamily: 'passkey' | 'email_otp',
   stage: IntendedSigningStage,
 ): SigningAuthExpectation {
   switch (stage) {
@@ -2810,7 +2827,7 @@ function signingAuthExpectationForStage(
     case 'after_refresh_recovery':
       return 'warm_session';
     case 'step_up_required':
-      return flow.startsWith('passkey') ? 'passkey_step_up' : 'email_otp_step_up';
+      return authFamily === 'passkey' ? 'passkey_step_up' : 'email_otp_step_up';
     default:
       return assertNever(stage);
   }
