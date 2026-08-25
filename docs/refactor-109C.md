@@ -2,7 +2,8 @@
 
 Date created: August 22, 2026
 
-Status: implementation in progress. Depends on Refactor 103E.
+Status: implementation in progress on `codex/refactor-109c`; composed browser
+acceptance is pending. Depends on Refactor 103E.
 
 R109C is the sole implementation authority for same-device auth-method
 addition. Refactor 109D remains the separate device-linking plan.
@@ -651,6 +652,41 @@ a credential binding, or an identity could be addressed without saying which
 method was asking. That is the shape to look for in anything R109C has not yet
 touched.
 
+This ledger separates code checkpoints from product acceptance. Work on the
+implementation branch is not complete or ready to merge until both transitions
+pass through the real browser operating path.
+
+- [x] Add the two-branch internal contract and negative type fixtures.
+- [x] Bind the exact source proof, source method, source session, target method,
+      authority state, and intent.
+- [x] Return `already_configured` before target verification when the target
+      family is already present - and before the challenge that would cost the
+      user a code.
+- [x] Add `0022_r109c_multi_auth_email_cardinality.sql` with canonical Email
+      provider identity and per-authority active Email cardinality.
+- [x] Bind custody envelopes to their exact owning auth method, retain V2 as a
+      decode-only boundary, and upgrade V2 to V3 only after a successful open
+      and reseal.
+- [x] Revoke the exact method's envelope and delete a shared Email enrollment
+      only after its final active or pending reference is gone.
+- [x] Expose `registration.addEmailOtp` through the wallet API and iframe
+      surfaces.
+- [x] Prove same-authority sibling revocation in both directions through the
+      composed server and IndexedDB path, including the final-method guard.
+- [ ] Complete Passkey-to-Email-OTP operating acceptance. Addition, unlock,
+      ECDSA signing and export, `already_configured`, and a locked reload are
+      proven; Ed25519 signing and export wait on explicit method selection,
+      which has no API yet.
+- [x] Complete and accept Email-OTP-to-Passkey through the same internal
+      operation and operating path: unlock, both signer families, both key
+      exports, step-up under the selected method, sibling removal in both
+      directions, the final-method guard, and a locked reload.
+- [ ] Finish inventory-driven addition, explicit method selection, and exact
+      sibling removal in the product UI.
+- [ ] Delete obsolete single-family fixtures and duplicate persistence paths,
+      update the intended-behaviour contract, and run the six-cell browser
+      matrix plus one interruption case per branch.
+
 ## Goal
 
 Give an authenticated user one **Add authentication method** product action:
@@ -776,20 +812,20 @@ intent, challenge, verification receipt, and pending local method.
 - enterprise SSO;
 - a generic ceremony, migration, or projection framework.
 
-## Current gap
+## Remaining gap
 
-The codebase already provides generic intent routes,
-`WalletAuthMethodRecordV2`, D1 and IndexedDB stores, the Passkey custody-link
-path, and `registration.addPasskey`. The missing operating behavior is narrow:
+The branch now contains the shared contract, the new `registration.addEmailOtp`
+surface, the method-bound custody-envelope boundary, the Email cardinality
+migration, and most of the Passkey-to-Email-OTP implementation. The remaining
+operating work is:
 
-- `registration.addPasskey` rejects an Email OTP source proof;
-- `registration.addEmailOtp` does not exist for an established wallet;
-- unlock and settings do not deliberately expose both exact methods on one
-  authority;
-- route and service branches still assume matching source and target families.
-
-R109C keeps `registration.addPasskey`, adds `registration.addEmailOtp`, and
-makes both thin adapters over one internal operation.
+- finish the Passkey-to-Email-OTP browser path and its product UI;
+- route Email-OTP-to-Passkey through the same internal operation;
+- deliberately expose both exact methods in inventory, unlock, step-up, and
+  removal;
+- prove same-authority sibling revocation and the final-method guard through
+  the composed path;
+- remove obsolete single-family assumptions and pass the real browser matrix.
 
 ## Domain model
 
@@ -923,7 +959,7 @@ method is refused.
 
 ## Implementation phases
 
-### Phase 0 — Prove the revocation prerequisite
+### Phase 0 — Prove the revocation prerequisite — in progress
 
 - run exact method revocation through the composed server and IndexedDB path;
 - prove each method can revoke its sibling with fresh proof;
@@ -931,7 +967,7 @@ method is refused.
 - prove authority-ID and batch revocation requests are rejected;
 - block R109C product exposure until these checks pass.
 
-### Phase 1 — Shared internal contract and thin SDK entry points
+### Phase 1 — Shared internal contract and thin SDK entry points — mostly implemented
 
 - add the two-branch verified internal input;
 - retain `registration.addPasskey` and add `registration.addEmailOtp`;
@@ -948,7 +984,7 @@ Primary locations:
 - `packages/wallet/src/SeamsWeb/publicApi/createPublicApi.ts`
 - `tests/typecheck/`
 
-### Phase 2 — Both cross-family paths
+### Phase 2 — Both cross-family paths — partially implemented
 
 - implement Passkey source to Email OTP target with the short security note;
 - implement Email OTP source to Passkey target through the same operation;
@@ -963,7 +999,7 @@ Primary locations:
 - `packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService.ts`
 - existing add-auth-method routes and IndexedDB stores
 
-### Phase 3 — Inventory, selection, and removal
+### Phase 3 — Inventory, selection, and removal — partially implemented
 
 - derive the missing-family action from exact active inventory;
 - hide the add action once both families are active;
@@ -977,7 +1013,7 @@ Primary locations:
 - `packages/wallet/src/react/components/AccountMenuButton/`
 - `packages/wallet/src/SeamsWeb/walletIframe/host/auth-menu/`
 
-### Phase 4 — Delete and verify
+### Phase 4 — Delete and verify — pending
 
 - delete the Email-OTP-source rejection and duplicated branch persistence;
 - delete fixtures and mocks that assume one factor family;
