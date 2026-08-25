@@ -935,13 +935,58 @@ export type AddSignerIntentV1 = {
   nonceB64u: string;
 };
 
-export type AddAuthMethodIntentV1 = {
+/**
+ * Who is starting the ceremony, and therefore what the source has to present.
+ *
+ * One endpoint serves two operations. Refactor 109C's same-device addition
+ * requires a fresh operation-specific source proof; Refactor 103E's
+ * linked-device ceremony start deliberately does not, because Device 1's owner
+ * Wallet Session is the authority and Device 2 holds the factor. Without this
+ * discriminator the endpoint could not tell them apart, so the weaker
+ * requirement applied to both and a same-device addition could be authorized
+ * by a reusable bearer credential.
+ *
+ * The branch lives on the intent rather than the start request because the
+ * intent is what the source proof signs: a caller cannot present a fresh proof
+ * over a same-device intent and then start a linked-device ceremony with it.
+ */
+export type AddAuthMethodIntentSourceV1 = {
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly walletSessionId: string;
+  readonly authorityDigestB64u: string;
+  readonly revocationEpoch: number;
+};
+
+type AddAuthMethodIntentCommonV1 = {
   version: 'add_auth_method_intent_v1';
   walletId: WalletId;
   authMethod: AddAuthMethodInput;
+  /**
+   * Allocated by the server when the intent is minted, not when the ceremony
+   * starts.
+   *
+   * A source proof has to name the method it is authorizing the creation of.
+   * While this was allocated in `start` — after the source had already been
+   * authenticated — no proof could bind it, and one authorization could have
+   * been replayed against a different target.
+   */
+  targetWalletAuthMethodId: WalletAuthMethodId;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
 };
+
+export type AddAuthMethodIntentV1 = AddAuthMethodIntentCommonV1 &
+  (
+    | {
+        readonly caller: 'same_device_addition';
+        readonly source: AddAuthMethodIntentSourceV1;
+      }
+    | {
+        readonly caller: 'linked_device_ceremony';
+        readonly source?: never;
+      }
+  );
 
 export function walletIdFromString(value: string): WalletId {
   const parsed = parseWalletId(value);
@@ -2091,6 +2136,69 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
     };
   }
   return null;
+}
+
+/**
+ * Parses the caller branch once, at the boundary. Core code below this receives
+ * a branch whose identities are branded and complete, never a partially filled
+ * source it has to re-check.
+ */
+export type AddAuthMethodIntentCallerV1 =
+  | { readonly caller: 'same_device_addition'; readonly source: AddAuthMethodIntentSourceV1 }
+  | { readonly caller: 'linked_device_ceremony' };
+
+export function normalizeAddAuthMethodIntentCaller(
+  raw: unknown,
+): AddAuthMethodIntentCallerV1 | null {
+  if (!isRecord(raw)) return null;
+  const caller = trimString(raw.caller);
+  if (caller === 'linked_device_ceremony') {
+    if (Object.prototype.hasOwnProperty.call(raw, 'source')) return null;
+    return { caller: 'linked_device_ceremony' };
+  }
+  if (caller !== 'same_device_addition') return null;
+  if (!isRecord(raw.source)) return null;
+  const source = raw.source;
+  const walletAuthorityId = parseWalletAuthorityId(source.walletAuthorityId);
+  const walletAuthMethodId = parseWalletAuthMethodId(source.walletAuthMethodId);
+  const walletSessionId = trimString(source.walletSessionId);
+  const authorityDigestB64u = trimString(source.authorityDigestB64u);
+  const revocationEpoch = source.revocationEpoch;
+  if (
+    !walletAuthorityId.ok ||
+    !walletAuthMethodId.ok ||
+    !walletSessionId ||
+    !authorityDigestB64u ||
+    typeof revocationEpoch !== 'number' ||
+    !Number.isSafeInteger(revocationEpoch) ||
+    revocationEpoch < 0
+  ) {
+    return null;
+  }
+  return {
+    caller: 'same_device_addition',
+    source: {
+      walletAuthorityId: walletAuthorityId.value,
+      walletAuthMethodId: walletAuthMethodId.value,
+      walletSessionId,
+      authorityDigestB64u,
+      revocationEpoch,
+    },
+  };
+}
+
+/** True when the two source claims name the same session on the same authority. */
+export function sameAddAuthMethodIntentSourceV1(
+  left: AddAuthMethodIntentSourceV1,
+  right: AddAuthMethodIntentSourceV1,
+): boolean {
+  return (
+    left.walletAuthorityId === right.walletAuthorityId &&
+    left.walletAuthMethodId === right.walletAuthMethodId &&
+    left.walletSessionId === right.walletSessionId &&
+    left.authorityDigestB64u === right.authorityDigestB64u &&
+    left.revocationEpoch === right.revocationEpoch
+  );
 }
 
 export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegistrationProof | null {

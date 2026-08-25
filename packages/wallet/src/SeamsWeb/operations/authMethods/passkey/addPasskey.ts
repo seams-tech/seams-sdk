@@ -27,6 +27,7 @@ import {
 } from './ecdsaBootstrap';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { linkWalletPasskeyCustody } from '@/core/signingEngine/walletCustody/passkeyLink';
+import { resolveAddAuthMethodSourceClaimV1 } from '../addAuthMethodSourceClaim';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 export type AddPasskeyAuthorization =
   | { readonly kind: 'existing_passkey' }
@@ -140,6 +141,14 @@ async function addPasskeyWalletAuthMethodInternal(args: {
     );
   }
 
+  /* R109C: the intent names the source it is minted for, so the fresh
+     assertion taken over its digest binds the wallet, authority, source
+     method, source session, authority state, and the server-allocated target
+     method id. */
+  const sourceClaim = await resolveAddAuthMethodSourceClaimV1(args.walletId);
+  if (sourceClaim.kind !== 'resolved') {
+    throw new Error(`Wallet add-passkey requires a selected active source: ${sourceClaim.reason}`);
+  }
   const intentResponse = await createWalletAddAuthMethodIntent({
     relayerUrl,
     walletId: args.walletId,
@@ -147,6 +156,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
       walletId: args.walletId,
       rpId: args.rpId,
       authMethod: { kind: 'passkey', rpId: args.rpId },
+      caller: { caller: 'same_device_addition', source: sourceClaim.source },
     },
     auth: {
       publishableKey: managedRuntimeScope.publishableKey,

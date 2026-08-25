@@ -40,6 +40,7 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   AddAuthMethodInput,
+  AddAuthMethodIntentCallerV1,
   AddAuthMethodIntentGrant,
   AddAuthMethodIntentV1,
   AddSignerIntentGrant,
@@ -155,6 +156,7 @@ export type CreateAddSignerIntentResponse =
 export type CreateAddAuthMethodIntentRequest = {
   walletId: WalletId;
   authMethod: AddAuthMethodInput;
+  caller: AddAuthMethodIntentCallerV1;
 };
 
 export type CreateAddAuthMethodIntentResponse =

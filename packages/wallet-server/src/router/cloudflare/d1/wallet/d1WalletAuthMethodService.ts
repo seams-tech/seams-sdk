@@ -569,7 +569,29 @@ export class CloudflareD1WalletAuthMethodService {
       }
       const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin);
       const addAuthMethodCeremonyId = `wauthc_${secureRandomBase64Url(24)}`;
-      const targetWalletAuthMethodId = allocateWalletAuthMethodId();
+      /* The intent's, not a fresh one. Allocating here would produce a method
+         id no source proof could have named. */
+      const targetWalletAuthMethodId = storedIntent.intent.targetWalletAuthMethodId;
+      /* The intent claims which source it was minted for; this is where that
+         claim is checked against the source actually resolved from the
+         presented credential. A proof is only as good as the identities its
+         digest names, so a mismatch fails closed rather than proceeding on the
+         resolved source. */
+      if (storedIntent.intent.caller === 'same_device_addition') {
+        const claimed = storedIntent.intent.source;
+        if (
+          claimed.walletAuthorityId !== sourceMethod.walletAuthorityId ||
+          claimed.walletAuthMethodId !== sourceMethod.walletAuthMethodId ||
+          claimed.authorityDigestB64u !== String(sourceAuthority.authorityDigestB64u) ||
+          claimed.revocationEpoch !== sourceAuthority.revocationEpoch
+        ) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'Add-auth-method intent names a different source than the presented proof',
+          };
+        }
+      }
       const expiresAtMs = Date.now() + 10 * 60_000;
       if (request.authority.kind === 'passkey') {
         const passkeyIntent = storedIntent.intent;

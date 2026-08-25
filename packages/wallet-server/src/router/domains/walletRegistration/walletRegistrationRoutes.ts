@@ -102,6 +102,7 @@ import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
   normalizeAddAuthMethodInput,
+  normalizeAddAuthMethodIntentCaller,
   addSignerIntentGrantFromString,
   computeAddSignerIntentDigestB64u,
   findRegistrationSignerPlanEvmFamilyEcdsaBranch,
@@ -619,11 +620,20 @@ function parseCreateAddAuthMethodIntentRequest(
   if (!authMethod) {
     return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
   }
+  /* Required, and parsed here once. The branch decides what the source must
+     present at `start`, and it is folded into the digest the source proof
+     signs, so a proof taken for a same-device addition cannot start a
+     linked-device ceremony. */
+  const caller = normalizeAddAuthMethodIntentCaller(body);
+  if (!caller) {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method caller is invalid' };
+  }
   return {
     ok: true,
     value: {
       walletId: walletIdFromString(walletId),
       authMethod,
+      caller,
     },
   };
 }
@@ -956,13 +966,30 @@ async function parseWalletAddAuthMethodStartBody(
   }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
   if (!runtimePolicyScope.ok) return runtimePolicyScope;
-  const normalizedIntent: AddAuthMethodIntentV1 = {
+  const targetWalletAuthMethodId = parseWalletAuthMethodId(intent.targetWalletAuthMethodId);
+  if (!targetWalletAuthMethodId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'add-auth-method intent target method id is invalid',
+    };
+  }
+  const intentCaller = normalizeAddAuthMethodIntentCaller(intent);
+  if (!intentCaller) {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method caller is invalid' };
+  }
+  const intentCommon = {
     version: 'add_auth_method_intent_v1',
     walletId: walletIdFromString(walletId),
     authMethod,
+    targetWalletAuthMethodId: targetWalletAuthMethodId.value,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
     nonceB64u,
-  };
+  } as const;
+  const normalizedIntent: AddAuthMethodIntentV1 =
+    intentCaller.caller === 'same_device_addition'
+      ? { ...intentCommon, caller: 'same_device_addition', source: intentCaller.source }
+      : { ...intentCommon, caller: 'linked_device_ceremony' };
   const expectedDigest =
     typeof body.addAuthMethodIntentDigestB64u === 'string'
       ? body.addAuthMethodIntentDigestB64u.trim()
@@ -2409,6 +2436,7 @@ export async function handleRouterApiWalletAddAuthMethodIntent(
     command: {
       subject: { kind: 'wallet_auth_method_management', walletId: request.value.walletId },
       authMethod: request.value.authMethod,
+      caller: request.value.caller,
     },
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -2438,6 +2466,16 @@ export async function handleRouterApiWalletAddAuthMethodStart(
   const parsedRequest = parsedBody.value;
   let request: WalletAddAuthMethodStartRequest;
   if (parsedRequest.auth.kind === 'webauthn_assertion') {
+    /* The mirror of the refusal below: a fresh assertion is what a same-device
+       addition presents, and the linked-device ceremony start has no local
+       source factor to produce one. */
+    if (parsedRequest.intent.caller !== 'same_device_addition') {
+      return routeError(
+        401,
+        'unauthorized',
+        'Linked-device add-auth-method start requires the owner Wallet Session handoff',
+      );
+    }
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
     const parsedRpId = requireWebAuthnRpId(parsedRequest.auth.rpId);
@@ -2467,6 +2505,18 @@ export async function handleRouterApiWalletAddAuthMethodStart(
       },
     };
   } else if (parsedRequest.auth.kind === 'wallet_session') {
+    /* Only the linked-device ceremony may authorize with a reusable bearer
+       credential. A same-device addition names itself in its own intent and
+       must present a fresh operation-specific proof, so accepting a session
+       here would let a bearer token stand in for the assertion R109C
+       requires. */
+    if (parsedRequest.intent.caller !== 'linked_device_ceremony') {
+      return routeError(
+        401,
+        'unauthorized',
+        'Same-device add-auth-method requires a fresh source proof, not a Wallet Session',
+      );
+    }
     /* R103 zero-prompt handoff: owner authority for the linked-device
        ceremony start is the active owner Wallet Session presented as the
        bearer credential. The session's own minting authority names the

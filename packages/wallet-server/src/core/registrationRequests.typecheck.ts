@@ -18,7 +18,11 @@ import {
   type EmailOtpRegistrationProof,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 
 const materialActivation = {
   kind: 'mpc_material_activation_ref' as const,
@@ -59,6 +63,17 @@ const registrationIntent = {
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
 
+function unwrapFixtureDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid type fixture domain id');
+  return result.value;
+}
+const addAuthMethodTargetId = unwrapFixtureDomainId(
+  parseWalletAuthMethodId('wallet-auth-method:fixture-target'),
+);
+const addAuthMethodSourceAuthorityId = unwrapFixtureDomainId(
+  parseWalletAuthorityId('wallet-authority:fixture-source'),
+);
+
 const addAuthMethodIntent = {
   version: 'add_auth_method_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
@@ -66,8 +81,41 @@ const addAuthMethodIntent = {
     kind: 'passkey',
     rpId: webAuthnRpId,
   },
+  targetWalletAuthMethodId: addAuthMethodTargetId,
+  caller: 'linked_device_ceremony',
   nonceB64u: 'nonce',
 } satisfies AddAuthMethodIntentV1;
+
+/* A same-device intent cannot omit the source it is minted for. */
+// @ts-expect-error same_device_addition requires its source block
+const sameDeviceIntentWithoutSource: AddAuthMethodIntentV1 = {
+  version: 'add_auth_method_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  authMethod: { kind: 'passkey', rpId: webAuthnRpId },
+  targetWalletAuthMethodId: addAuthMethodTargetId,
+  caller: 'same_device_addition',
+  nonceB64u: 'nonce',
+};
+void sameDeviceIntentWithoutSource;
+
+/* A linked-device intent cannot smuggle one in. */
+// @ts-expect-error the linked-device branch carries no source claim
+const linkedIntentWithSource: AddAuthMethodIntentV1 = {
+  version: 'add_auth_method_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  authMethod: { kind: 'passkey', rpId: webAuthnRpId },
+  targetWalletAuthMethodId: addAuthMethodTargetId,
+  caller: 'linked_device_ceremony',
+  nonceB64u: 'nonce',
+  source: {
+    walletAuthorityId: addAuthMethodSourceAuthorityId,
+    walletAuthMethodId: addAuthMethodTargetId,
+    walletSessionId: 'wallet-session:fixture',
+    authorityDigestB64u: 'digest',
+    revocationEpoch: 0,
+  },
+};
+void linkedIntentWithSource;
 
 const mixedAuthoritySpread = {
   emailOtpRegistrationProof: {
