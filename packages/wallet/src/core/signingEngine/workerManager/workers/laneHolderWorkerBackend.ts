@@ -1,3 +1,4 @@
+import { custodyEnvelopeBindingJsonV1 } from '@shared/passkey-custody';
 import type {
   LaneHolderPackageWireV1,
   LaneHolderRecipientWorkerV1,
@@ -32,7 +33,7 @@ export type LaneCustodySealContextV1 = {
   readonly custodyBindingDigestB64u: LaneRecipientCreationInputV1['custodyBindingDigestB64u'];
   readonly envelopeBinding: Pick<
     PasskeyCustodyEnvelopeRecord,
-    'walletId' | 'envelopeId' | 'factor' | 'envelopeRevision' | 'binding'
+    'walletId' | 'envelopeId' | 'factor' | 'envelopeRevision' | 'binding' | 'ownership'
   >;
 };
 
@@ -134,13 +135,7 @@ function productionWasmFactory(): LaneHolderWasmFactoryV1 {
 }
 
 function envelopeBindingJson(binding: LaneCustodySealContextV1['envelopeBinding']): string {
-  return JSON.stringify({
-    walletId: binding.walletId,
-    envelopeId: binding.envelopeId,
-    factor: binding.factor,
-    envelopeRevision: binding.envelopeRevision,
-    binding: binding.binding,
-  });
+  return custodyEnvelopeBindingJsonV1(binding);
 }
 
 export function loadLaneCustodySealV1(

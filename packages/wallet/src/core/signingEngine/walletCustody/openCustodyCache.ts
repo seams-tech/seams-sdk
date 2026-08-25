@@ -1,3 +1,4 @@
+import { custodyEnvelopeBindingJsonV1 } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   isWalletCustodySeedBinding,
@@ -80,13 +81,7 @@ export function walletCustodyCacheEnvelopeFromRecordV1(
     throw new Error('wallet custody cache accepts wallet custody seed envelopes only');
   }
   return {
-    bindingJson: JSON.stringify({
-      walletId: envelope.walletId,
-      envelopeId: envelope.envelopeId,
-      factor: envelope.factor,
-      envelopeRevision: envelope.envelopeRevision,
-      binding: envelope.binding,
-    }),
+    bindingJson: custodyEnvelopeBindingJsonV1(envelope),
     nonceB64u: envelope.nonceB64u,
     ciphertextB64u: envelope.sealedCustodySecretB64u,
     aadHashB64u: envelope.aadHashB64u,
