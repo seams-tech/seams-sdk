@@ -1983,6 +1983,15 @@ export async function createWalletAddAuthMethodIntent(args: {
   if (!publishableKey || !environmentId) {
     throw new Error('add-auth-method intent requires a publishable key and environment id');
   }
+  /* Flat, not nested. The caller branch travels as `caller` and `source`
+     siblings because that is the shape the intent itself has, and the server
+     reads the branch straight off the body with the same normalizer it uses on
+     a stored intent. Sending `caller: { caller, source }` gives that normalizer
+     an object where it expects the discriminant, and it refuses. */
+  const callerBody =
+    args.request.caller.caller === 'same_device_addition'
+      ? { caller: 'same_device_addition' as const, source: args.request.caller.source }
+      : { caller: 'linked_device_ceremony' as const };
   return await postJson<CreateAddAuthMethodIntentResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/intent`,
@@ -1990,7 +1999,12 @@ export async function createWalletAddAuthMethodIntent(args: {
       Authorization: `Bearer ${publishableKey}`,
       [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
     },
-    body: args.request,
+    body: {
+      walletId: args.request.walletId,
+      rpId: args.request.rpId,
+      authMethod: args.request.authMethod,
+      ...callerBody,
+    },
   });
 }
 
