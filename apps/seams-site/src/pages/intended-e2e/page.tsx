@@ -29,6 +29,7 @@ type IntendedActionName =
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'addEmailOtpAuthMethod'
+  | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
@@ -203,6 +204,13 @@ type AddEmailOtpAuthMethodResultSummary = {
   authMethod: { kind: 'email_otp'; status: 'active' };
 };
 
+type AddPasskeyAuthMethodResultSummary = {
+  kind: 'add_passkey_success';
+  walletId: string;
+  rpId: string;
+  authMethod: { kind: 'passkey'; status: 'active' };
+};
+
 type EmailOtpRegistrationCoreSummary = (
   | {
       kind: 'email_otp_registration_success';
@@ -310,6 +318,7 @@ type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | Ed25519AddSignerResultSummary
   | AddEmailOtpAuthMethodResultSummary
+  | AddPasskeyAuthMethodResultSummary
   | EmailOtpRegistrationResultSummary
   | NearProvisioningReadySummary
   | PasskeyRecoveryResultSummary
@@ -546,6 +555,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-add-passkey-auth-method"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runAddPasskeyAuthMethod}
+            style={buttonStyle}
+          >
+            Add Passkey
+          </button>
+          <button
+            type="button"
             data-testid="intended-add-passkey-ed25519-yao-signer"
             disabled={state.action.status === 'running'}
             onClick={controller.runAddPasskeyEd25519YaoWalletSigner}
@@ -717,6 +735,10 @@ class IntendedPageController {
 
   runAddEmailOtpAuthMethod = (): void => {
     void this.addEmailOtpAuthMethod();
+  };
+
+  runAddPasskeyAuthMethod = (): void => {
+    void this.addPasskeyAuthMethod();
   };
 
   runRegisterEmailOtpWallet = (): void => {
@@ -911,6 +933,55 @@ class IntendedPageController {
           kind: 'add_email_otp_success',
           walletId: String(result.walletId),
           emailAddress: result.emailAddress,
+          authMethod: result.authMethod,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /** Refactor 109C: an Email OTP wallet adds a Passkey on the same authority. */
+  private async addPasskeyAuthMethod(): Promise<void> {
+    const action: IntendedActionName = 'addPasskeyAuthMethod';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('add-passkey requires a registered wallet');
+      const idToken = requireGoogleIdToken(this.googleIdToken);
+      const sourceProof = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
+        idToken,
+        mode: 'login',
+        ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
+        emailOtpAuthPolicy: 'session',
+        onEvent: this.recordLifecycleEvent,
+      });
+      if (!sourceProof.ok) throw new Error(sourceProof.error.message);
+      if (sourceProof.value.mode !== 'login' || sourceProof.value.walletId !== walletId) {
+        throw new Error('add-passkey Email OTP source resolved another wallet');
+      }
+      const challengeId = googleEmailOtpLoginFlowChallengeId({
+        flowId: sourceProof.value.flowId,
+        walletId,
+      });
+      const otpCode = await this.readEmailOtpCodeForChallenge({
+        kind: 'challenge',
+        challengeId,
+        walletId,
+      });
+      const result = await this.seams.registration.addPasskey({
+        walletId: toWalletId(walletId),
+        rpId: intendedRegistrationRpId(),
+        authorization: { kind: 'email_otp', challengeId, otpCode },
+        options: { onEvent: this.recordLifecycleEvent },
+      });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'add_passkey_success',
+          walletId: String(result.walletId),
+          rpId: result.rpId,
           authMethod: result.authMethod,
         },
       });
@@ -1609,6 +1680,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'passkey_registration_success':
     case 'wallet_signer_added':
     case 'add_email_otp_success':
+    case 'add_passkey_success':
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
@@ -1641,6 +1713,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     /* An added auth method changes who can unlock the wallet, not which NEAR
        account it signs for. */
     case 'add_email_otp_success':
+    case 'add_passkey_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
@@ -1660,7 +1733,6 @@ function intendedActionResultNearSignerSlot(
     case 'email_otp_registration_success':
       return 1;
     case 'wallet_signer_added':
-    case 'add_email_otp_success':
       return 2;
     case 'near_provisioning_ready':
       return 1;
@@ -1669,6 +1741,8 @@ function intendedActionResultNearSignerSlot(
     case 'passkey_sync_success':
     case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
+    case 'add_email_otp_success':
+    case 'add_passkey_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':

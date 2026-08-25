@@ -1,3 +1,4 @@
+import { allocateWalletAuthMethodId } from './domainIds';
 import {
   implicitNearAccountProvisioning,
   sponsoredNamedNearAccountProvisioning,
@@ -241,8 +242,13 @@ const ed25519WithLegacyCreateBoolean = {
 } satisfies RegistrationSignerSetSelection;
 void ed25519WithLegacyCreateBoolean;
 
+/* Registration allocates the wallet's first auth method with the intent, so a
+   fixture that omits it is describing an intent the custody seal cannot use. */
+const foundingAuthMethodIdFixture = allocateWalletAuthMethodId('founding-fixture');
+
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: emailOtpAuthMethod,
   signerSelection: ecdsaSignerSetSelection,
@@ -251,6 +257,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: googleSsoRegistrationAuthMethod,
   signerSelection: ed25519SignerSetSelection,
@@ -259,6 +266,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519SignerSetSelection,
@@ -267,6 +275,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: passkeyAuthMethod,
   signerSelection: {
@@ -291,6 +300,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('alice.testnet'),
   authMethod: passkeyAuthMethod,
   signerSelection: sponsoredNamedEd25519SignerSetSelection,
@@ -299,6 +309,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519SignerSetSelection,
@@ -363,6 +374,7 @@ void ({
 // @ts-expect-error registration intents require explicit authMethod.
 const missingAuthMethod: RegistrationIntentV1 = {
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   signerSelection: ed25519SignerSetSelection,
   nonceB64u: 'nonce',

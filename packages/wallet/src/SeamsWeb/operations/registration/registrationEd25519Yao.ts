@@ -239,6 +239,9 @@ export function requirePasskeyRegistrationIntent(
     walletId: intent.walletId,
     authMethod: intent.authMethod,
     signerSelection: intent.signerSelection,
+    /* Carried, not dropped: the digest covers it, so an intent rebuilt without
+       it would hash differently than the one the server issued. */
+    foundingWalletAuthMethodId: intent.foundingWalletAuthMethodId,
     ...(intent.runtimePolicyScope ? { runtimePolicyScope: intent.runtimePolicyScope } : {}),
     nonceB64u: intent.nonceB64u,
   };

@@ -3287,6 +3287,11 @@ async function registerEmailOtpEd25519YaoWalletOnly(
             enrollmentId: materialForActivate.enrollmentId,
             enrollmentSealKeyVersion: materialForActivate.enrollmentSealKeyVersion,
           }),
+          /* The wallet's first auth method, from the intent that allocated it.
+             The seal binds the envelope to this exact method, and finalize
+             commits the same id — so the envelope has an owner from the moment
+             it exists. */
+          walletAuthMethodId: setup.intent.foundingWalletAuthMethodId,
         }),
         factorSecret: emailOtpWalletCustodyFactorSecret,
         nearEd25519SigningKeyId:
@@ -3653,6 +3658,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
             rpId: requireWebAuthnRpId(args.authMethod.rpId),
             credentialIdB64u: parsedCredentialId.value,
           }),
+          walletAuthMethodId: setup.intent.foundingWalletAuthMethodId,
         }),
         factorSecret: walletCustodyFactorSecret,
         nearEd25519SigningKeyId:

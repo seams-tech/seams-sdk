@@ -604,6 +604,17 @@ function allocateWalletRegistrationOperationPrepared(): D1WalletRegistrationOper
 function walletRegistrationOperationPreparedFromCeremony(
   ceremony: StoredWalletRegistrationCeremony,
 ): D1WalletRegistrationOperationPreparedV1 {
+  /* The method the wallet commits must be the one its custody envelope was
+     sealed under, and the intent is what the client sealed against. They are
+     allocated together at setup, so a disagreement here is corruption rather
+     than drift — and committing the ceremony's id anyway would leave the
+     wallet with an envelope owned by a method that does not exist. */
+  if (
+    String(ceremony.foundingWalletAuthMethodId) !==
+    String(ceremony.intent.foundingWalletAuthMethodId)
+  ) {
+    throw new Error('registration ceremony and intent name different founding auth methods');
+  }
   return {
     kind: 'd1_wallet_registration_operation_prepared_v1',
     walletAuthorityId: ceremony.foundingWalletAuthorityId,
@@ -3123,10 +3134,14 @@ export class CloudflareD1WalletRegistrationService {
         return walletRegistrationSetupError('invalid_body', 'registration requires a signing root');
       }
 
+      /* Allocated before the intent, because the intent now carries the
+         founding auth method and the digest binds it. */
+      const registrationOperation = allocateWalletRegistrationOperationPrepared();
       const intent = buildRegistrationIntent({
         walletId: wallet.walletId,
         authMethod: normalized.authMethod,
         signerSelection: normalized.signerSelection,
+        foundingWalletAuthMethodId: registrationOperation.walletAuthMethodId,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       });
       const digestB64u = await walletRegistrationSetupIntentDigest(intent);
@@ -3168,7 +3183,6 @@ export class CloudflareD1WalletRegistrationService {
       const nowMs = Date.now();
       const expiresAtMs = walletRegistrationSetupExpiresAtMs(nowMs);
       const { registrationCeremonyId, registrationPreparationId } = walletRegistrationSetupIds();
-      const registrationOperation = allocateWalletRegistrationOperationPrepared();
 
       /* ECDSA preparation only, and only when the plan has an ECDSA branch.
          An Ed25519-only plan has nothing to prepare before the proof: its Yao

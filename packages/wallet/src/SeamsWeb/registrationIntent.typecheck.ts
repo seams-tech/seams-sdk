@@ -9,7 +9,11 @@ import {
   type ThresholdEd25519AddSignerSpec,
   type ThresholdEd25519RegistrationSpec,
 } from '@shared/utils/registrationIntent';
-import { parseWalletAuthMethodId, parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  allocateWalletAuthMethodId,
+  parseWalletAuthMethodId,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 const materialActivation = {
@@ -234,6 +238,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: allocateWalletAuthMethodId('founding-fixture'),
   walletId: walletIdFromString('wallet_alice'),
   authMethod: { kind: 'passkey', rpId },
   signerSelection: publicRegistrationSignerSetSelection,
@@ -267,6 +272,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: allocateWalletAuthMethodId('founding-fixture'),
   walletId: walletIdFromString('wallet_alice'),
   // @ts-expect-error registration intent cannot carry a root rpId
   rpId,
@@ -331,6 +337,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: allocateWalletAuthMethodId('founding-fixture'),
   // @ts-expect-error registration intent requires a branded wallet id
   walletId: 'wallet_alice',
   authMethod: { kind: 'passkey', rpId },
@@ -340,6 +347,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: allocateWalletAuthMethodId('founding-fixture'),
   walletId: walletIdFromString('wallet_alice'),
   authMethod: { kind: 'passkey', rpId },
   signerSelection: publicRegistrationSignerSetSelection,

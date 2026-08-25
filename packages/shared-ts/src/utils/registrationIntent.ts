@@ -923,6 +923,19 @@ export type RegistrationIntentV1 = {
   walletId: WalletId;
   authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSetSelection;
+  /**
+   * The wallet's first auth method, allocated with the intent.
+   *
+   * It has to exist before the custody ceremony runs, because every envelope
+   * the ceremony seals names the method that owns it inside its AAD. Allocated
+   * at finalize — where the record is written — it would be a name the seal
+   * could not have used, and the wallet would register with an envelope owned
+   * by nobody.
+   *
+   * Server-allocated and part of the intent digest, so a client can neither
+   * choose it nor swap it between the seal and the commit.
+   */
+  foundingWalletAuthMethodId: WalletAuthMethodId;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
 };
