@@ -435,6 +435,8 @@ test('backend workflows deploy independent workers concurrently before router', 
     expect(needsOf('deploy_wallet_runtime')).toEqual(['deploy_router', 'migrate']);
     expect(needsOf('deploy_console')).toEqual(['deploy_wallet_runtime']);
     expect(needsOf('deploy_gateway')).toEqual(['deploy_router', 'deploy_console']);
+    expect(workflow.jobs.deploy_wallet_runtime.env?.STRIPE_API_SK).toBeTruthy();
+    expect(workflow.jobs.deploy_gateway.env?.STRIPE_API_SK).toBeTruthy();
   }
 
   expect(existsSync(path.join(repoRoot, '.github/workflows/deploy-production-backend.yml'))).toBe(
