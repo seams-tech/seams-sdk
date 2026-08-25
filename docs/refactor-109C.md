@@ -608,19 +608,21 @@ exists, `passkey_to_email_otp` proves addition and unlock but not removal.
 Two items are specified and unstarted, and both sit in code another agent is
 actively changing.
 
-An added Email OTP method has no Ed25519 lane. Lanes come from Yao public
-capability references, each carrying an auth binding that names one exact
-method, so a passkey's reference cannot serve an email sibling. It is not the
-general Email OTP signing defect - that was fixed in fdf67168b, and the
-email-registered lifecycle now reaches every one of its NEAR signing steps. An
-added passkey is fine because it inherits Ed25519 identity through its
-credential binding; email methods have no credential binding, which is exactly
-why that fix does not generalise. The email lane is session-bounded, carrying
-remaining uses and an expiry, so it is minted at unlock rather than copied at
-addition - and unlock requests one capability kind at a time, so producing both
-a wallet session and an ed25519 lane from a single code needs the capability
-intent extended. That is a protocol decision in the unlock code Codex changed
-in fdf67168b.
+An added Email OTP method reaches Ed25519 only through one entry point it
+cannot currently use. The request is made in `unlockLinkedDeviceEmailOtpWallet`,
+which asked for Ed25519 only when the selection carried linked signer material -
+material an added sibling never has, because it is not a linked device. That
+gate now falls back to the authority's own Ed25519 signer activation, which is
+the right question: the Ed25519 signer belongs to the authority, not to
+whichever credential authenticates it. Nothing is copied, no activation is
+created, and the unlock mints a capability bound to the method that opened it.
+
+What remains is reachability. That function is a dependency of the Google-backed
+flow and has no address-based caller; the supported address-based path runs
+through `loginWithEmailOtpEcdsaCapability`, which never asks for Ed25519. The
+underlying function already accepts `provider: 'email'` - only the wrapper
+around it is Google-shaped. Exposing an address-based caller is a public-API
+decision, and the fix behind it is already in place.
 
 The Add action's disappearance when both families are active is implemented but
 unproven. `missingAuthMethodForSelectedAuthority` returns null when a wallet has
