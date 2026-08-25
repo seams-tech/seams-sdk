@@ -133,7 +133,7 @@ export async function unlockLinkedEmailOtpWallet(args: {
           signerSlot: args.ed25519Yao.signerSlot,
           remainingUses: args.ed25519Yao.remainingUses,
         }
-      : { kind: 'none' };
+      : { kind: 'wallet_session' };
   return await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {

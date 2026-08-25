@@ -2,6 +2,7 @@ import { isPlainObject } from '@shared/utils/validation';
 import { findUnexpectedRouteKey } from '../../framework/routeRequestValidation';
 
 export const EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND = 'none' as const;
+export const EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND = 'wallet_session' as const;
 export const EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND = 'ed25519_yao' as const;
 
 type WalletUnlockEmailOtpRequestedCapabilitiesBase = {
@@ -11,6 +12,7 @@ type WalletUnlockEmailOtpRequestedCapabilitiesBase = {
 
 export type WalletUnlockEmailOtpRequestedCapabilitiesV1 =
   | { readonly kind: typeof EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND }
+  | { readonly kind: typeof EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND }
   | (WalletUnlockEmailOtpRequestedCapabilitiesBase & {
       readonly kind: typeof EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND;
     });
@@ -86,6 +88,13 @@ function parseWalletUnlockEmailOtpRequestedCapabilities(
         );
       }
       return { kind: EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND };
+    case EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND:
+      if (raw.signerSlot !== undefined || raw.remainingUses !== undefined) {
+        return invalidWalletUnlockRequestedCapabilitiesRequest(
+          'requestedCapabilities.wallet_session cannot include signerSlot or remainingUses',
+        );
+      }
+      return { kind: EMAIL_OTP_WALLET_SESSION_REQUESTED_CAPABILITIES_KIND };
     case EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND: {
       const signerSlot = parsePositiveInteger(
         raw.signerSlot,

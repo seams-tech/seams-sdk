@@ -839,7 +839,7 @@ export interface EmailOtpWorkerOperationMap {
       challengeId: string;
       otpCode: string;
       requestedCapabilities:
-        | { readonly kind: 'none' }
+        | { readonly kind: 'wallet_session' }
         | {
             readonly kind: 'ed25519_yao';
             readonly signerSlot: number;

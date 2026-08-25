@@ -1366,7 +1366,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
 
   let activeWalletSession: IssuedWalletSessionAuthorizationV2 | null = null;
   let activeOperationCredential: WalletSessionOperationCredentialV1 | null = null;
-  if (requestedWalletAuthMethodId?.ok) {
+  if (
+    requestedWalletAuthMethodId?.ok &&
+    input.capabilityContext.request.requestedCapabilities.kind !== 'none'
+  ) {
     const walletId = parseWalletId(result.walletId);
     if (!walletId.ok) {
       return {
@@ -1421,7 +1424,8 @@ export async function handleWalletUnlockVerifyRoute(input: {
 
   if (
     input.capabilityContext.kind === 'email_otp' &&
-    input.capabilityContext.request.requestedCapabilities.kind === 'none'
+    (input.capabilityContext.request.requestedCapabilities.kind === 'none' ||
+      input.capabilityContext.request.requestedCapabilities.kind === 'wallet_session')
   ) {
     const ecdsaSession = await provisionFirstEcdsaWalletSession({
       context: input.ecdsaSession,
