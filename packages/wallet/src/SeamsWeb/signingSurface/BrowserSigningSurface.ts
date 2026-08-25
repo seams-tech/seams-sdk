@@ -442,9 +442,7 @@ import type {
   RouterAbEd25519YaoCeremonyBindingV1,
   RouterAbEd25519YaoActivationKeysetV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import {
-  readPasskeyCustodySessionEnvelope,
-} from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
+import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
 import {
@@ -461,7 +459,9 @@ import {
   destroyUnlockedWalletEd25519ExportRootCapabilitiesV1 as destroyUnlockedExportRootCapabilitiesWithWorkerV1,
   establishUnlockedWalletEd25519ExportRootCapabilityV1 as establishUnlockedExportRootCapabilityWithWorkerV1,
   readUnlockedWalletEd25519ExportRootCapabilityV1,
+  setUnlockedCustodyEnvelopeUpgradeSinkV1,
 } from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
+import { upgradeWalletCustodyEnvelopeOwnership } from '@/core/rpcClients/relayer/passkeyCustodyEnvelope';
 import { base58Encode } from '@shared/utils/base58';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { resolveWalletAuthorityOperation } from '@/core/signingEngine/session/authority';
@@ -1049,10 +1049,7 @@ function resolveSelectedEmailOtpEd25519ExportRootV1(args: {
       !isLinkedEd25519SignerMaterial(candidate) ||
       candidate.authorityId !== authority.authorityId ||
       candidate.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-      !mpcMaterialActivationRefsEqual(
-        candidate.materialActivation,
-        args.expectedMaterialActivation,
-      )
+      !mpcMaterialActivationRefsEqual(candidate.materialActivation, args.expectedMaterialActivation)
     ) {
       continue;
     }
@@ -2385,6 +2382,13 @@ export class BrowserSigningSurface {
       session: this.enginePorts.registrationSessionDeps,
     };
 
+    /* R109C: every path that unlocks a pre-109C envelope reseals it, and the
+       reseal has nowhere to go without the relayer and the Wallet Session that
+       only the host holds. Registered once, from the one object that has both. */
+    setUnlockedCustodyEnvelopeUpgradeSinkV1((upgrade) => {
+      void this.persistUpgradedWalletCustodyEnvelopeV1(upgrade);
+    });
+
     deps.initializeRuntime({
       config: this.seamsWebConfigs,
       userPreferencesManager: this.userPreferencesManager,
@@ -3388,6 +3392,49 @@ export class BrowserSigningSurface {
     } catch (error: unknown) {
       console.warn(
         '[BrowserSigningSurface] unlocked Ed25519 export-root capability was not established:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
+  }
+
+  /**
+   * Stores a resealed pre-109C envelope under the method that opened it.
+   *
+   * Absorbed the same way establishment is, and for the same reason: the V2 row
+   * still opens the wallet, so a failure here costs a retry at the next unlock
+   * and nothing else. Surfacing it would interrupt a user who has no action to
+   * take.
+   */
+  private async persistUpgradedWalletCustodyEnvelopeV1(upgrade: {
+    readonly walletId: string;
+    readonly envelope: PasskeyCustodyEnvelopeRecord;
+  }): Promise<void> {
+    try {
+      const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+      if (!relayerUrl) return;
+      const parsedWalletId = parseWalletId(upgrade.walletId);
+      if (!parsedWalletId.ok) return;
+      const authorization = await resolveActiveEd25519WalletSessionAuthorization(
+        parsedWalletId.value,
+      );
+      const walletSessionToken = authorization
+        ? walletSessionTokenForCurve(authorization, 'ed25519')
+        : null;
+      if (!walletSessionToken) return;
+      const outcome = await upgradeWalletCustodyEnvelopeOwnership({
+        relayUrl: relayerUrl,
+        walletId: upgrade.walletId,
+        walletSessionToken: String(walletSessionToken),
+        envelope: upgrade.envelope,
+      });
+      if (outcome.kind === 'upgraded' || outcome.kind === 'already_owned') return;
+      console.warn(
+        '[BrowserSigningSurface] the upgraded custody envelope was not stored:',
+        outcome.message,
+      );
+    } catch (error: unknown) {
+      console.warn(
+        '[BrowserSigningSurface] the upgraded custody envelope was not stored:',
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }

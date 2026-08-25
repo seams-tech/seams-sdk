@@ -1,4 +1,8 @@
-import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+  normalizeRelayerBaseUrl,
+} from './relayerHttp';
 
 /**
  * Fetching a wallet's custody envelope from a device that has none.
@@ -119,4 +123,77 @@ export async function fetchPasskeyCustodyEnvelope(args: {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Refactor 109C: hands a resealed pre-109C envelope to the server.
+ *
+ * The unlock that opened an `unbound` envelope has already resealed it under
+ * the exact method that authenticated. This is the only thing left to do with
+ * that result, and the only thing this call does — no new envelope, no factor
+ * change, no seed leaves the worker.
+ *
+ * Every outcome except a transport failure is terminal for this attempt, and
+ * none of them is worth surfacing to the user: the V2 row stands, the wallet
+ * still opens, and the next unlock tries again. The caller logs and moves on.
+ */
+export type WalletCustodyEnvelopeOwnershipUpgradeOutcome =
+  | { readonly kind: 'upgraded'; readonly envelopeRevision: number }
+  /** The envelope already names this method — an earlier attempt landed. */
+  | { readonly kind: 'already_owned' }
+  | { readonly kind: 'rejected'; readonly code: string; readonly message: string }
+  | { readonly kind: 'transport_failed'; readonly message: string };
+
+export async function upgradeWalletCustodyEnvelopeOwnership(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly walletSessionToken: string;
+  readonly envelope: unknown;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletCustodyEnvelopeOwnershipUpgradeOutcome> {
+  const url = `${normalizeRelayerBaseUrl(args.relayUrl)}/wallets/${encodeURIComponent(
+    args.walletId,
+  )}/custody/envelope/ownership`;
+  const doFetch = args.fetchImpl || fetch;
+
+  let response: Response;
+  try {
+    response = await doFetch(
+      url,
+      buildRelayerJsonPostRequestInit({
+        body: { envelope: args.envelope },
+        headers: buildBearerAuthorizationHeader({
+          token: args.walletSessionToken,
+          missingMessage: 'custody envelope upgrade needs an active Wallet Session',
+        }),
+      }),
+    );
+  } catch (error: unknown) {
+    return {
+      kind: 'transport_failed',
+      message: error instanceof Error ? error.message : 'custody envelope upgrade failed',
+    };
+  }
+
+  const bodyUnknown: unknown = await response.json().catch(() => ({}));
+  const body = isRecord(bodyUnknown) ? bodyUnknown : {};
+  if (response.status === 200 && body.ok === true) {
+    if (body.upgraded !== true) return { kind: 'already_owned' };
+    const envelopeRevision = Number(body.envelopeRevision);
+    return Number.isSafeInteger(envelopeRevision) && envelopeRevision > 0
+      ? { kind: 'upgraded', envelopeRevision }
+      : {
+          kind: 'rejected',
+          code: 'invalid_response',
+          message: 'custody envelope upgrade returned no revision',
+        };
+  }
+  return {
+    kind: 'rejected',
+    code: typeof body.code === 'string' && body.code ? body.code : 'upgrade_rejected',
+    message:
+      typeof body.message === 'string' && body.message
+        ? body.message
+        : `custody envelope upgrade rejected (HTTP ${response.status})`,
+  };
 }
