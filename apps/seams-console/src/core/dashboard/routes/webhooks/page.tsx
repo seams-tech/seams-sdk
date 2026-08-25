@@ -355,7 +355,7 @@ export function WebhooksPage(): React.JSX.Element {
             type="button"
             className="dashboard-pagination-button dashboard-pagination-button--primary"
             onClick={onOpenCreateModal}
-            disabled={creating || session.loading || !session.claims || Boolean(errorMessage)}
+            disabled={creating || session.loading || !session.claims}
           >
             Add endpoint
           </button>
