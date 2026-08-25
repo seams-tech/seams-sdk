@@ -723,6 +723,25 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
     | 'setWalletNearProvisioningState'
   >;
 
+/**
+ * The in-wallet prompt that collects a one-time email code.
+ *
+ * The same channel key export already uses. Adding a factor is a step-up like
+ * any other: the wallet asks, the user types six digits into the wallet's own
+ * surface, and the code never passes through the host application.
+ */
+export interface EmailOtpEnrollmentConfirmationSurface {
+  requestEmailOtpEnrollmentConfirmation(params: {
+    walletId: string;
+    emailAddress: string;
+    challengeId: string;
+    emailHint?: string;
+    confirmerText?: { title?: string; body?: string };
+    confirmationConfigOverride?: Partial<ConfirmationConfig>;
+    onResend: () => Promise<{ challengeId: string; emailHint?: string }>;
+  }): Promise<{ challengeId: string; otpCode: string }>;
+}
+
 export interface WebAuthnRegistrationConfirmationSurface {
   openRegistrationPreparationModal(params: {
     walletLabel: string;
@@ -850,6 +869,7 @@ export type RegistrationSigningSurface = RpIdSurface &
     | 'storeWalletEmailOtpEcdsaRegistrationData'
   > &
   WebAuthnRegistrationConfirmationSurface &
+  EmailOtpEnrollmentConfirmationSurface &
   RegistrationAccountSurface &
   EcdsaRegistrationSurface;
 

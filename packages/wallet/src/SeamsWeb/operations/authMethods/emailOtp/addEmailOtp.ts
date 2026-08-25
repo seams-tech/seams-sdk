@@ -8,14 +8,17 @@
  * the caller just presented and resealed under the verified Email factor. The
  * seed never leaves the worker; what comes back is ciphertext.
  *
- * The OTP code arrives from the host application, exactly as it does for
- * `registerWallet` and every `loginWithEmailOtp*` entry point. This SDK has no
- * OTP prompt of its own, and adding one here would make the newest Email entry
- * point the only one that behaves differently.
+ * The caller supplies an address and nothing else. The code is sent by the
+ * server to the address the intent already names, and typed into the wallet's
+ * own confirmation surface — the same channel key export uses — so it never
+ * passes through the host application.
  */
 import type { AfterCall, RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
-import { createWalletAddAuthMethodIntent } from '@/core/rpcClients/relayer/walletRegistration';
+import {
+  createWalletAddAuthMethodIntent,
+  requestAddAuthMethodEmailOtpChallenge,
+} from '@/core/rpcClients/relayer/walletRegistration';
 import {
   computeAddAuthMethodIntentDigestB64u,
   walletIdFromString,
@@ -127,8 +130,6 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
   readonly emailAddress: string;
-  readonly otpCode: string;
-  readonly challengeId: string;
   readonly options?: AddEmailOtpHooksOptions;
 }): Promise<AddEmailOtpResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
@@ -213,14 +214,36 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
     'Wallet add-email-code custody linking',
   );
 
+  /* The code is sent only after the source proof succeeds. An addition the
+     wallet could not authorize should not put a code in anyone's inbox. */
+  const sendEnrollmentCode = async (): Promise<{ challengeId: string; emailHint: string }> =>
+    await requestAddAuthMethodEmailOtpChallenge({
+      relayerUrl,
+      walletId: args.walletId,
+      addAuthMethodIntentGrant: intentResponse.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: intentResponse.addAuthMethodIntentDigestB64u,
+    });
+  const sent = await sendEnrollmentCode();
+  const confirmed = await args.context.signingEngine.requestEmailOtpEnrollmentConfirmation({
+    walletId: String(args.walletId),
+    emailAddress,
+    challengeId: sent.challengeId,
+    ...(sent.emailHint ? { emailHint: sent.emailHint } : {}),
+    ...(args.options?.confirmerText ? { confirmerText: args.options.confirmerText } : {}),
+    ...(args.options?.confirmationConfig
+      ? { confirmationConfigOverride: args.options.confirmationConfig }
+      : {}),
+    onResend: sendEnrollmentCode,
+  });
+
   const emailAuthority = await collectEmailOtpRegistrationAuthority({
     authMethod: {
       kind: 'email_otp',
       proofKind: 'otp_challenge',
       email: emailAddress,
       providerSubject,
-      otpCode: args.otpCode,
-      challengeId: args.challengeId,
+      otpCode: confirmed.otpCode,
+      challengeId: confirmed.challengeId,
     },
     relayUrl: relayerUrl,
     walletId: String(args.walletId),
@@ -280,17 +303,6 @@ export async function addEmailOtpWalletAuthMethod(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId | string;
   readonly emailAddress: string;
-  readonly otpCode: string;
-  /**
-   * Required. The enrollment challenge the code was sent for.
-   *
-   * `collectEmailOtpRegistrationAuthority` will request one when it is absent,
-   * but the path it requests from has no server route — the challenge is
-   * issued through the operation-bound Email OTP route the application already
-   * uses to send the code. Accepting an omission here would produce a 404 at
-   * the least useful moment, after the source assertion was already collected.
-   */
-  readonly challengeId: string;
   readonly options?: AddEmailOtpHooksOptions;
 }): Promise<AddEmailOtpResult> {
   const walletId = walletIdFromString(String(args.walletId || '').trim());
@@ -299,8 +311,6 @@ export async function addEmailOtpWalletAuthMethod(args: {
       context: args.context,
       walletId,
       emailAddress: args.emailAddress,
-      otpCode: args.otpCode,
-      challengeId: args.challengeId,
       options: args.options,
     });
     await args.options?.afterCall?.(true, result);

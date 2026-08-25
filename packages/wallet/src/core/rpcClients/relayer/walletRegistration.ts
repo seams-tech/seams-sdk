@@ -3601,6 +3601,45 @@ export async function startWalletAddSigner(args: {
   return parseWalletAddSignerStartResponse({ value, expectedIntent: args.intent });
 }
 
+/**
+ * Sends the enrollment code for an Email OTP addition.
+ *
+ * Carries no address: the server reads it from the intent the grant names, so
+ * a client cannot redirect a wallet's enrollment code. Callable more than once
+ * for the same intent, which is what a resend is.
+ */
+export async function requestAddAuthMethodEmailOtpChallenge(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+  addAuthMethodIntentDigestB64u: string;
+}): Promise<{ challengeId: string; expiresAtMs: number; emailHint: string }> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for the Email OTP enrollment code');
+  const value = await postJson<{
+    ok?: unknown;
+    challengeId?: unknown;
+    expiresAtMs?: unknown;
+    emailHint?: unknown;
+  }>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/email-otp/challenge`,
+    body: {
+      addAuthMethodIntentGrant: args.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: args.addAuthMethodIntentDigestB64u,
+    },
+  });
+  const challengeId = String(value?.challengeId || '').trim();
+  if (value?.ok !== true || !challengeId) {
+    throw new Error('Email OTP enrollment code was not sent');
+  }
+  return {
+    challengeId,
+    expiresAtMs: Number(value.expiresAtMs) || 0,
+    emailHint: String(value.emailHint || ''),
+  };
+}
+
 export async function startWalletAddAuthMethod(args: {
   relayerUrl: string;
   walletId: WalletId;
