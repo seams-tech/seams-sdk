@@ -1,10 +1,12 @@
 import type {
   PasskeyEnvelopeId,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
 import {
+  parseWalletAuthMethodId,
   parsePasskeyEnvelopeId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
@@ -25,6 +27,8 @@ import {
 } from './primitives';
 
 export const WALLET_CUSTODY_ENVELOPE_VERSION_V2 = 'wallet_custody_envelope_v2' as const;
+/** Refactor 109C: an envelope whose owning auth method is part of its AAD. */
+export const WALLET_CUSTODY_ENVELOPE_VERSION_V3 = 'wallet_custody_envelope_v3' as const;
 export const PASSKEY_PRF_KEK_VERSION_V1 = 'passkey_prf_kek_hkdf_sha256_v1' as const;
 export const EMAIL_OTP_FACTOR_KEK_VERSION_V1 = 'email_otp_factor_kek_hkdf_sha256_v1' as const;
 
@@ -42,6 +46,19 @@ export type EmailOtpFactorKekVersion = typeof EMAIL_OTP_FACTOR_KEK_VERSION_V1;
  * Email OTP envelope from carrying an RP ID or a passkey envelope from
  * carrying an enrollment id.
  */
+/**
+ * Mirrors `signer_core::PasskeyCustodyEnvelopeOwnershipV1`.
+ *
+ * `method_bound` is the only shape a new envelope may be written in; `unbound`
+ * exists to open envelopes sealed before ownership was authenticated, and a
+ * successful open is followed by a reseal once the exact method is known. The
+ * two encode different AAD, which is what stops a stored envelope from being
+ * relabelled to a sibling method.
+ */
+export type WalletCustodyEnvelopeOwnership =
+  | { readonly kind: 'unbound'; readonly walletAuthMethodId?: never }
+  | { readonly kind: 'method_bound'; readonly walletAuthMethodId: WalletAuthMethodId };
+
 export type WalletCustodyEnvelopeFactor =
   | {
       kind: 'passkey';
@@ -96,6 +113,8 @@ export type PasskeyCustodyEnvelopeRecord = {
   kind: 'wallet_custody_envelope_v2';
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
+  /** Which auth method owns this envelope, and whether that is authenticated. */
+  ownership: WalletCustodyEnvelopeOwnership;
   binding: PasskeyCustodySecretBinding;
   factor: WalletCustodyEnvelopeFactor;
   envelopeVersion: WalletCustodyEnvelopeVersion;
@@ -108,6 +127,41 @@ export type PasskeyCustodyEnvelopeRecord = {
   createdAtMs: number;
   updatedAtMs: number;
 };
+
+const ENVELOPE_OWNERSHIP_FIELDS = ['kind', 'walletAuthMethodId'] as const;
+
+export function parseWalletCustodyEnvelopeOwnership(
+  raw: unknown,
+  label: string,
+): WalletCustodyEnvelopeOwnership {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const record = raw as Record<string, unknown>;
+  rejectUnknownFields(record, ENVELOPE_OWNERSHIP_FIELDS, label);
+  switch (record.kind) {
+    case 'unbound':
+      if (record.walletAuthMethodId !== undefined) {
+        throw new Error(`${label}.walletAuthMethodId belongs to the method_bound branch`);
+      }
+      return { kind: 'unbound' };
+    case 'method_bound': {
+      const parsed = parseWalletAuthMethodId(record.walletAuthMethodId);
+      if (!parsed.ok) {
+        throw new Error(`${label}.walletAuthMethodId ${parsed.error.message}`);
+      }
+      return { kind: 'method_bound', walletAuthMethodId: parsed.value };
+    }
+    default:
+      throw new Error(`${label}.kind must be unbound or method_bound`);
+  }
+}
+
+export function buildMethodBoundEnvelopeOwnership(
+  walletAuthMethodId: WalletAuthMethodId,
+): WalletCustodyEnvelopeOwnership {
+  return { kind: 'method_bound', walletAuthMethodId };
+}
 
 export function buildPasskeyEnvelopeFactor(args: {
   rpId: WebAuthnRpId;
@@ -164,6 +218,7 @@ export function buildRevokedEnvelopeLifecycle(args: {
 export function buildPasskeyCustodyEnvelopeRecord(args: {
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
+  ownership: WalletCustodyEnvelopeOwnership;
   binding: PasskeyCustodySecretBinding;
   factor: WalletCustodyEnvelopeFactor;
   envelopeRevision: EnvelopeRevision;
@@ -179,6 +234,7 @@ export function buildPasskeyCustodyEnvelopeRecord(args: {
     kind: 'wallet_custody_envelope_v2',
     envelopeId: args.envelopeId,
     walletId: args.walletId,
+    ownership: args.ownership,
     binding: args.binding,
     factor: args.factor,
     envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
@@ -293,6 +349,7 @@ const ENVELOPE_RECORD_FIELDS = [
   'kind',
   'envelopeId',
   'walletId',
+  'ownership',
   'binding',
   'factor',
   'envelopeVersion',
@@ -329,6 +386,7 @@ export function parsePasskeyCustodyEnvelopeRecord(
   if (!envelopeId.ok) throw new Error(`${label}.envelopeId ${envelopeId.error.message}`);
   const walletId = parseWalletId(record.walletId);
   if (!walletId.ok) throw new Error(`${label}.walletId ${walletId.error.message}`);
+  const ownership = parseWalletCustodyEnvelopeOwnership(record.ownership, `${label}.ownership`);
 
   const createdAtMs = parseUnixMs(record.createdAtMs, `${label}.createdAtMs`);
   const updatedAtMs = parseUnixMs(record.updatedAtMs, `${label}.updatedAtMs`);
@@ -339,6 +397,7 @@ export function parsePasskeyCustodyEnvelopeRecord(
   return buildPasskeyCustodyEnvelopeRecord({
     envelopeId: envelopeId.value,
     walletId: walletId.value,
+    ownership,
     binding: parsePasskeyCustodySecretBinding(record.binding, `${label}.binding`),
     factor: parseWalletCustodyEnvelopeFactor(record.factor, `${label}.factor`),
     envelopeRevision: parseEnvelopeRevision(record.envelopeRevision, `${label}.envelopeRevision`),

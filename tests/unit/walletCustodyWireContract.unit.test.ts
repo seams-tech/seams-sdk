@@ -123,6 +123,9 @@ test('the TypeScript builders reproduce the Rust envelope bindings byte-for-byte
     }),
     envelopeRevision: 1,
     binding: buildWalletCustodySeedBinding(),
+    // R109C: every sealed envelope names the method it belongs to, and that
+    // name is inside the AAD. A binding without it is a different generation.
+    ownership: { methodBound: { walletAuthMethodId: doc.inputs.walletAuthMethodId } },
   };
   expect(builtEmailOtp).toEqual(JSON.parse(custody!.envelopeBindingJson));
 
@@ -135,6 +138,7 @@ test('the TypeScript builders reproduce the Rust envelope bindings byte-for-byte
     } as Parameters<typeof buildPasskeyEnvelopeFactor>[0]),
     envelopeRevision: 1,
     binding: buildWalletCustodySeedBinding(),
+    ownership: { methodBound: { walletAuthMethodId: doc.inputs.walletAuthMethodId } },
   };
   expect(builtPasskey).toEqual(doc.passkeyEnvelopeBinding);
 });

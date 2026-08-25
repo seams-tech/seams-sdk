@@ -1,4 +1,5 @@
 import {
+  buildMethodBoundEnvelopeOwnership,
   buildPasskeyCustodyEnvelopeRecord,
   buildPasskeyEnvelopeFactor,
   parseDigestField,
@@ -15,6 +16,7 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parsePasskeyEnvelopeId,
   parseWebAuthnCredentialIdB64u,
+  type WalletAuthMethodId,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import { secureRandomId } from '@shared/utils/secureRandomId';
@@ -110,6 +112,8 @@ function requireCredentialId(value: string): WebAuthnCredentialIdB64u {
  */
 export async function createPasskeyCustodyLinkEnvelope(input: {
   readonly registration: WalletAddAuthMethodRegistrationOptions;
+  /** The server-allocated target method this envelope will belong to. */
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly registrationCredential?: WebAuthnRegistrationCredential;
   readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly existingFactorSecret: Uint8Array;
@@ -177,6 +181,7 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
       buildPasskeyCustodyEnvelopeRecord({
         envelopeId: envelopeIdResult.value,
         walletId: input.existingEnvelope.walletId,
+        ownership: buildMethodBoundEnvelopeOwnership(input.walletAuthMethodId),
         binding: input.existingEnvelope.binding,
         factor,
         envelopeRevision: parseEnvelopeRevision(1),
@@ -262,6 +267,7 @@ export async function linkWalletPasskeyCustody(input: {
   readonly intent: Parameters<typeof startWalletAddAuthMethod>[0]['intent'];
   readonly auth: AddAuthMethodAuth;
   readonly existingFactorSecret: Uint8Array;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly worker: WalletCustodyCeremonyTransportPort;
   readonly createRegistrationCredential?: (
     registration: WalletAddAuthMethodRegistrationOptions,
@@ -287,6 +293,7 @@ export async function linkWalletPasskeyCustody(input: {
   }
   const linked = await createPasskeyCustodyLinkEnvelope({
     registration: started.registration,
+    walletAuthMethodId: input.walletAuthMethodId,
     existingEnvelope: started.custodyEnvelope,
     existingFactorSecret: input.existingFactorSecret,
     worker: input.worker,

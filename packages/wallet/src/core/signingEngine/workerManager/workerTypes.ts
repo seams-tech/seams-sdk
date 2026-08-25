@@ -29,6 +29,7 @@ import type {
   MpcMaterialActivationRef,
   ThresholdEd25519SessionId,
   WebAuthnRpId,
+  WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import type {
   PasskeyCustodyEnvelopeRecord,
@@ -764,6 +765,8 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       pendingHandleId: string;
       existingEnvelope: PasskeyCustodyEnvelopeRecord;
+      /** The server-allocated target method the resealed envelope belongs to. */
+      walletAuthMethodId: WalletAuthMethodId;
       registration: {
         readonly kind: 'webauthn_add_auth_method_registration_v1';
         readonly rpId: WebAuthnRpId;

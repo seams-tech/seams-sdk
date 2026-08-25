@@ -17,7 +17,7 @@
     "ed25519LocalMaterialNonceB64u": null,
     "establishedCustody": {
       "envelopeAadHashB64u": "zY0NkocZiiZ5WmCisZCohawta9V_jHBADy8Q84NfGOQ",
-      "envelopeBindingJson": "{\"walletId\":\"alice.testnet\",\"envelopeId\":\"wallet-custody-envelope-1\",\"factor\":{\"kind\":\"email_otp\",\"enrollmentId\":\"enrollment-1\",\"enrollmentSealKeyVersion\":\"seal-v1\",\"kekVersion\":\"email_otp_factor_kek_hkdf_sha256_v1\"},\"envelopeRevision\":1,\"binding\":{\"kind\":\"wallet_custody_seed_v1\",\"derivationScheme\":\"wallet_seed_parallel_hkdf_sha256_v1\"},\"ownership\":{\"methodBound\":{\"wallet_auth_method_id\":\"wallet-auth-method:wire-fixture\"}}}",
+      "envelopeBindingJson": "{\"walletId\":\"alice.testnet\",\"envelopeId\":\"wallet-custody-envelope-1\",\"factor\":{\"kind\":\"email_otp\",\"enrollmentId\":\"enrollment-1\",\"enrollmentSealKeyVersion\":\"seal-v1\",\"kekVersion\":\"email_otp_factor_kek_hkdf_sha256_v1\"},\"envelopeRevision\":1,\"binding\":{\"kind\":\"wallet_custody_seed_v1\",\"derivationScheme\":\"wallet_seed_parallel_hkdf_sha256_v1\"},\"ownership\":{\"methodBound\":{\"walletAuthMethodId\":\"wallet-auth-method:wire-fixture\"}}}",
       "envelopeCiphertextDigestB64u": "YwBM0mZWOPS7mwApgb2wOAIzZezyWO1FcHYva_xVboE",
       "envelopeId": "wallet-custody-envelope-1",
       "envelopeNonceB64u": "CgoKCgoKCgoKCgoK",
@@ -148,6 +148,7 @@
     ],
     "rpId": "example.localhost",
     "seedB64u": "ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM",
+    "walletAuthMethodId": "wallet-auth-method:wire-fixture",
     "walletId": "alice.testnet"
   },
   "joinCommitPayload": {
@@ -182,7 +183,7 @@
       },
       "ownership": {
         "methodBound": {
-          "wallet_auth_method_id": "wallet-auth-method:wire-fixture"
+          "walletAuthMethodId": "wallet-auth-method:wire-fixture"
         }
       },
       "walletId": "alice.testnet"
@@ -205,7 +206,7 @@
     },
     "ownership": {
       "methodBound": {
-        "wallet_auth_method_id": "wallet-auth-method:wire-fixture"
+        "walletAuthMethodId": "wallet-auth-method:wire-fixture"
       }
     },
     "walletId": "alice.testnet"

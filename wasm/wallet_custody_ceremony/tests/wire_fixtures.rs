@@ -287,6 +287,7 @@ fn build_fixture_doc() -> Value {
             "enrollmentSealKeyVersion": ENROLLMENT_SEAL_KEY_VERSION,
             "rpId": RP_ID,
             "credentialIdB64u": b64u(&CREDENTIAL_ID),
+            "walletAuthMethodId": WALLET_AUTH_METHOD_ID,
             "evmFamilySigningKeySlotId": EVM_SLOT_ID,
             "nearEd25519SigningKeyId": NEAR_SIGNING_KEY_ID,
             "recoveryCodes": (0..WALLET_RECOVERY_CODE_COUNT)
