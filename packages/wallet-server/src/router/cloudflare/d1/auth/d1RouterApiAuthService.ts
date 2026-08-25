@@ -173,7 +173,6 @@ import {
 } from '../../signingLanes/cloudflareOrdinaryInactiveSignerMaterialReservation';
 import {
   D1LinkedDeviceEmailOtpTargetFactorV1,
-  linkedDeviceEmailOtpBaseFactorReaderV1,
   linkedDeviceEmailOtpGrantRegistrationPortV1,
 } from '../deviceLinking/d1LinkedDeviceEmailOtpTargetFactor';
 import { createDeviceLinkingOwnerRequestAuthenticatorV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
@@ -490,6 +489,7 @@ function createD1LinkedDeviceComposition(input: {
         verifier: input.emailOtpLinkedDevice.verifier,
         enrollments: input.emailOtpLinkedDevice.enrollments,
         walletAuthMethods: input.emailOtpLinkedDevice.walletAuthMethodStore,
+        walletAuthorities: authorityStore,
         serverSeal: input.emailOtpLinkedDevice.serverSeal,
         grants: linkedEmailOtpGrants,
       });
@@ -522,9 +522,6 @@ function createD1LinkedDeviceComposition(input: {
     const sessionComposition = createD1LinkedDeviceSessionServiceV1({
       sessionStore,
       ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
-      ...(emailOtpTargetFactor === undefined
-        ? {}
-        : { emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor) }),
     });
     const verifiedLinkBuilder = {
       source: verifiedLinkSourceReader,
@@ -574,7 +571,6 @@ function createD1LinkedDeviceComposition(input: {
       ...(emailOtpTargetFactor === undefined
         ? {}
         : {
-            emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor),
             emailOtpTargetFactor,
           }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,

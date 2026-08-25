@@ -234,6 +234,7 @@ export async function buildVerifiedTargetFactorV1(
     grant.deviceId !== input.registration.deviceId ||
     grant.targetPreparationDigestB64u !== input.registration.targetPreparationDigestB64u ||
     grant.grantId !== input.evidence.grant.grantId ||
+    grant.baseWalletAuthMethodId !== input.evidence.grant.baseWalletAuthMethodId ||
     grant.authorityDigestB64u !== input.evidence.grant.authorityDigestB64u
   ) {
     throw new Error('Email OTP target factor grant identity changed');
@@ -246,7 +247,13 @@ export async function buildVerifiedTargetFactorV1(
     emailHashHex: grant.emailHashHex,
     registrationAuthorityId: grant.registrationAuthorityId,
   };
-  return { kind: 'verified_email_otp_target_v1', authMethod, verificationDigestB64u, verifiedAtMs };
+  return {
+    kind: 'verified_email_otp_target_v1',
+    authMethod,
+    baseWalletAuthMethodId: grant.baseWalletAuthMethodId,
+    verificationDigestB64u,
+    verifiedAtMs,
+  };
 }
 
 async function assertSourceRead(

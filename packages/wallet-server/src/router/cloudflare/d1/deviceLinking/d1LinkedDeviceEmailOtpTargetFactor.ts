@@ -14,6 +14,8 @@
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
+  LinkedDeviceEmailOtpBaseFactorRequestV1,
+  LinkedDeviceEmailOtpBaseFactorResolutionV1,
   LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking/contracts';
@@ -36,10 +38,8 @@ import {
   linkedDeviceEmailOtpGrantAdmitsUseV1,
   parseLinkedDeviceEmailOtpGrantRecordV1,
 } from '../../../../core/deviceLinking/linkedDeviceEmailOtpGrant';
-import type {
-  LinkedDeviceEmailOtpBaseFactorReaderV1,
-  LinkedDeviceSessionRecordV1,
-} from '../../../../core/deviceLinking/linkedDeviceSession';
+import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
 import type { EmailOtpWalletEnrollmentRecord } from '../../../../core/EmailOtpStores';
 import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type { DeviceLinkingEmailOtpTargetFactorProviderV1 } from '../../../transport/fetch/routes/deviceLinking';
@@ -101,8 +101,12 @@ export type D1LinkedDeviceEmailOtpTargetFactorOptionsV1 = {
   readonly walletAuthMethods: {
     listForWalletV2(input: { readonly walletId: string }): Promise<WalletAuthMethodRecordV2[]>;
   };
+  readonly walletAuthorities: Pick<D1WalletAuthorityStore, 'readById'>;
   readonly serverSeal: Pick<CloudflareD1EmailOtpServerSealRuntime, 'removeEmailOtpServerSeal'>;
-  readonly grants: D1LinkedDeviceEmailOtpGrantStoreV1;
+  readonly grants: Pick<
+    D1LinkedDeviceEmailOtpGrantStoreV1,
+    'issueV1' | 'readByIdV1' | 'buildConsumeStatementsV1'
+  >;
   readonly grantTtlMs?: number;
   readonly resendCooldownMs?: number;
 };
@@ -121,21 +125,36 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
     );
   }
 
-  /**
-   * Approval-time provenance: the one active verified base factor for this
-   * wallet, or nothing. `null` refuses the approval outright — an `email_otp`
-   * enrollment cannot be approved against a wallet without the factor.
-   */
-  async readActiveEmailOtpBaseFactorV1(input: { readonly walletId: WalletId }): Promise<{
-    readonly baseWalletAuthMethodId: WalletAuthMethodId;
-    readonly maskedEmailHint: string;
-  } | null> {
-    const resolved = await this.resolveBaseFactorV1(input.walletId);
-    if (!resolved) return null;
-    return {
-      baseWalletAuthMethodId: resolved.baseWalletAuthMethodId,
-      maskedEmailHint: resolved.maskedEmailHint,
-    };
+  async resolveBaseFactorSelectionV1(input: {
+    readonly walletId: WalletId;
+    readonly request: LinkedDeviceEmailOtpBaseFactorRequestV1;
+  }): Promise<LinkedDeviceEmailOtpBaseFactorResolutionV1> {
+    const candidates = await this.listEligibleBaseFactorsV1(input.walletId);
+    if (input.request.kind === 'select') {
+      const selected = candidates.find(
+        (candidate) => candidate.baseWalletAuthMethodId === input.request.baseWalletAuthMethodId,
+      );
+      return selected
+        ? {
+            kind: 'selected',
+            choice: {
+              baseWalletAuthMethodId: selected.baseWalletAuthMethodId,
+              maskedEmailHint: selected.maskedEmailHint,
+            },
+          }
+        : { kind: 'unavailable', reason: 'no_active_email_otp_base_factor' };
+    }
+    if (candidates.length === 0) {
+      return { kind: 'unavailable', reason: 'no_active_email_otp_base_factor' };
+    }
+    const choices = candidates.map((candidate) => ({
+      baseWalletAuthMethodId: candidate.baseWalletAuthMethodId,
+      maskedEmailHint: candidate.maskedEmailHint,
+    }));
+    if (choices.length === 1) {
+      return { kind: 'selected', choice: choices[0]! };
+    }
+    return { kind: 'selection_required', choices: [choices[0]!, ...choices.slice(1)] };
   }
 
   async startChallengeV1(
@@ -344,7 +363,13 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
       return { kind: 'rejected', message: 'Email OTP verification grant is unavailable' };
     }
     const tokenDigest = await computeLinkedDeviceEmailOtpGrantTokenDigestV1(wireGrant.grantToken);
-    const baseFactor = await this.resolveBaseFactorV1(input.preparation.walletId);
+    if (!isEmailOtpTargetPreparationV1(input.preparation)) {
+      return { kind: 'rejected', message: 'Email OTP target preparation is unavailable' };
+    }
+    const baseFactor = await this.resolveBaseFactorV1(
+      input.preparation.walletId,
+      input.preparation.baseWalletAuthMethodId,
+    );
     if (
       !baseFactor ||
       tokenDigest !== durable.grantTokenDigestB64u ||
@@ -380,7 +405,9 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
   }
 
   async buildCompletionStatementsV1(
-    input: Parameters<LinkedDeviceEmailOtpGrantRegistrationPortV1['buildCompletionStatementsV1']>[0],
+    input: Parameters<
+      LinkedDeviceEmailOtpGrantRegistrationPortV1['buildCompletionStatementsV1']
+    >[0],
   ) {
     return this.options.grants.buildConsumeStatementsV1({
       grantId: input.grant.grantId,
@@ -409,7 +436,24 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
         message: 'approved target factor is not email OTP',
       };
     }
-    const resolved = await this.resolveBaseFactorV1(approval.walletId);
+    if (preparation.targetFactor.kind !== 'email_otp') {
+      return {
+        kind: 'refused',
+        code: 'wrong_target_factor',
+        message: 'target preparation is not email OTP',
+      };
+    }
+    if (approval.targetFactor.baseWalletAuthMethodId !== preparation.baseWalletAuthMethodId) {
+      return {
+        kind: 'refused',
+        code: 'base_factor_changed',
+        message: 'approved Email OTP base factor changed',
+      };
+    }
+    const resolved = await this.resolveBaseFactorV1(
+      approval.walletId,
+      approval.targetFactor.baseWalletAuthMethodId,
+    );
     if (!resolved) {
       return {
         kind: 'refused',
@@ -447,9 +491,9 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
     };
   }
 
-  private async resolveBaseFactorV1(walletId: WalletId): Promise<ResolvedBaseFactorV1 | null> {
+  private async listEligibleBaseFactorsV1(walletId: WalletId): Promise<ResolvedBaseFactorV1[]> {
     const enrollment = await this.options.enrollments.readEnrollment(String(walletId));
-    if (!enrollment) return null;
+    if (!enrollment || !enrollment.serverSealedFactorCiphertextB64u) return [];
     const emailHashHex = await sha256HexUtf8(enrollment.verifiedEmail);
     const methods = await this.options.walletAuthMethods.listForWalletV2({
       walletId: String(walletId),
@@ -457,42 +501,43 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
     const active = methods.filter(
       (method) => method.kind === 'email_otp' && method.status === 'active',
     );
-    // Exactly one active factor, and it must be the enrollment's destination.
-    // Anything else is an inconsistent wallet, which fails closed.
-    if (active.length !== 1) return null;
-    const factor = active[0];
-    if (!factor || factor.kind !== 'email_otp' || factor.emailHashHex !== emailHashHex) {
-      return null;
+    const candidates: ResolvedBaseFactorV1[] = [];
+    for (const factor of active) {
+      if (factor.kind !== 'email_otp' || factor.emailHashHex !== emailHashHex) continue;
+      const authority = await this.options.walletAuthorities.readById(factor.walletAuthorityId);
+      if (!authority || authority.state !== 'active' || authority.walletId !== walletId) continue;
+      candidates.push({
+        enrollment,
+        emailHashHex,
+        registrationAuthorityId: factor.registrationAuthorityId,
+        baseWalletAuthMethodId: factor.walletAuthMethodId,
+        maskedEmailHint: enrollment.verifiedEmail.trim().toLowerCase(),
+      });
     }
-    return {
-      enrollment,
-      emailHashHex,
-      registrationAuthorityId: factor.registrationAuthorityId,
-      baseWalletAuthMethodId: factor.walletAuthMethodId,
-      // The linked-device flow shows the address in full: device 2 has already
-      // scanned device 1's code, so masking hides the one fact the user needs
-      // to confirm the code is going somewhere they can read. The field keeps
-      // its `maskedEmailHint` name because it is a shared wire field; only this
-      // branch fills it with the verified address. Every other Email OTP
-      // surface still masks, through `maskEmail` in the delivery runtime.
-      //
-      // Normalized, not raw: device 1 claims this same value from its local
-      // account identity, and the provenance check compares the two as
-      // strings. The mask helpers both trimmed and lower-cased internally, so
-      // removing them without restating that here would make the comparison
-      // sensitive to stored casing for the first time.
-      maskedEmailHint: enrollment.verifiedEmail.trim().toLowerCase(),
-    };
+    return candidates.sort((left, right) =>
+      String(left.baseWalletAuthMethodId).localeCompare(String(right.baseWalletAuthMethodId)),
+    );
+  }
+
+  private async resolveBaseFactorV1(
+    walletId: WalletId,
+    baseWalletAuthMethodId: WalletAuthMethodId,
+  ): Promise<ResolvedBaseFactorV1 | null> {
+    const candidates = await this.listEligibleBaseFactorsV1(walletId);
+    return (
+      candidates.find((candidate) => candidate.baseWalletAuthMethodId === baseWalletAuthMethodId) ??
+      null
+    );
   }
 }
 
-/** The provenance reader the session service consumes at approval time. */
-export function linkedDeviceEmailOtpBaseFactorReaderV1(
-  provider: D1LinkedDeviceEmailOtpTargetFactorV1,
-): LinkedDeviceEmailOtpBaseFactorReaderV1 {
-  return {
-    readActiveEmailOtpBaseFactorV1: (input) => provider.readActiveEmailOtpBaseFactorV1(input),
-  };
+function isEmailOtpTargetPreparationV1(
+  preparation: LinkedDeviceTargetPreparationV1,
+): preparation is Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'email_otp' } }
+> {
+  return preparation.targetFactor.kind === 'email_otp';
 }
 
 export function linkedDeviceEmailOtpGrantRegistrationPortV1(

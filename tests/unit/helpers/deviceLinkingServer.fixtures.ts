@@ -25,7 +25,8 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
     devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-    targetFactor: fixture.approval.targetFactor,
+    targetFactor: fixture.payload.targetFactor,
+    sessionRevision: 2,
     claimedAtMs: 1_500,
     claimExpiresAtMs: fixture.payload.expiresAtMs,
   });
@@ -114,7 +115,8 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
     devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-    targetFactor: fixture.approval.targetFactor,
+    targetFactor: fixture.payload.targetFactor,
+    sessionRevision: 2,
     claimedAtMs: 1_500,
     claimExpiresAtMs: fixture.payload.expiresAtMs,
   });

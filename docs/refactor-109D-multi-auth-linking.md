@@ -2,8 +2,8 @@
 
 Date created: August 20, 2026
 
-Status: implementation in progress. R109C is merged and browser-accepted; the
-remaining Phase 0 cleanup is underway.
+Status: implementation in progress. R109C is merged and browser-accepted;
+R109D Phase 0 is complete.
 
 ## Goal
 
@@ -75,6 +75,21 @@ Do not implement R109D until:
       the focused R103E checks green.
 
 R109D product implementation may proceed.
+
+### Implementation checkpoint
+
+- [x] Require the exact reusable Wallet Session and derive source signer facts
+      on the server.
+- [x] Resolve eligible Email OTP base methods from the exact wallet and expose
+      masked, stable choices through the owner-authenticated route.
+- [x] Bind the selected Email OTP base method through approval, preparation,
+      challenge, verification, and target credential registration.
+- [ ] Present multiple Email OTP base-method choices in the Device 1 UI and
+      submit the selected method.
+- [ ] Build Passkey targets from managed RP configuration with no dependency on
+      the source credential.
+- [ ] Complete the four source/target factor operating paths and their focused
+      intended-browser contracts.
 
 ## Successful result
 

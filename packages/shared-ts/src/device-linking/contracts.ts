@@ -73,6 +73,55 @@ export type LinkedDeviceTargetFactorV1 =
   | { readonly kind: 'passkey_prf' }
   | { readonly kind: 'email_otp' };
 
+export type LinkedDeviceApprovedTargetFactorV1 =
+  | {
+      readonly kind: 'passkey_prf';
+      readonly baseWalletAuthMethodId?: never;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    };
+
+export type LinkedDeviceEmailOtpBaseFactorChoiceV1 = {
+  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly maskedEmailHint: string;
+};
+
+export type LinkedDeviceEmailOtpBaseFactorResolutionV1 =
+  | {
+      readonly kind: 'selected';
+      readonly choice: LinkedDeviceEmailOtpBaseFactorChoiceV1;
+    }
+  | {
+      readonly kind: 'selection_required';
+      readonly choices: readonly [
+        LinkedDeviceEmailOtpBaseFactorChoiceV1,
+        ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+      ];
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: 'no_active_email_otp_base_factor';
+    };
+
+export type LinkedDeviceEmailOtpBaseFactorRequestV1 =
+  | {
+      readonly kind: 'resolve';
+      readonly expectedRevision: number;
+      readonly baseWalletAuthMethodId?: never;
+    }
+  | {
+      readonly kind: 'select';
+      readonly expectedRevision: number;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    };
+
+export type LinkedDeviceEmailOtpBaseFactorResolutionResultV1 = {
+  readonly revision: number;
+  readonly resolution: LinkedDeviceEmailOtpBaseFactorResolutionV1;
+};
+
 export type QrLinkedDeviceSessionPayloadV5 = {
   readonly version: 'v5';
   readonly purpose: 'linked_device_lane_creation';
@@ -104,6 +153,7 @@ export type LinkedDeviceSessionClaimV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly sessionRevision: number;
   readonly claimedAtMs: number;
   readonly claimExpiresAtMs: number;
 };
@@ -131,12 +181,12 @@ type LinkedDeviceApprovalBaseV1 = {
 
 export type LinkedDeviceApprovalV1 =
   | (LinkedDeviceApprovalBaseV1 & {
-      readonly targetFactor: LinkedDeviceTargetFactorV1;
+      readonly targetFactor: LinkedDeviceApprovedTargetFactorV1;
       /** The first owner approval precedes Device 2 recipient preparation. */
       readonly sourceContribution?: never;
     })
   | (LinkedDeviceApprovalBaseV1 & {
-      readonly targetFactor: LinkedDeviceTargetFactorV1;
+      readonly targetFactor: LinkedDeviceApprovedTargetFactorV1;
       /** Final owner relay after Device 2 has registered recipient bindings. */
       readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
     });
@@ -187,10 +237,12 @@ export type LinkedDeviceTargetPreparationV1 =
   | (LinkedDeviceTargetPreparationBaseV1 & {
       readonly targetFactor: { readonly kind: 'passkey_prf' };
       readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
+      readonly baseWalletAuthMethodId?: never;
     })
   | (LinkedDeviceTargetPreparationBaseV1 & {
       readonly targetFactor: { readonly kind: 'email_otp' };
       readonly passkeyCreationOptions?: never;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
     });
 
 /** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
@@ -605,6 +657,7 @@ export type VerifiedTargetFactorV1 =
   | {
       readonly kind: 'verified_email_otp_target_v1';
       readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
       readonly verificationDigestB64u: DigestB64u;
       readonly verifiedAtMs: number;
     };

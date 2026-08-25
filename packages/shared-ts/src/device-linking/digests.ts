@@ -15,6 +15,7 @@ import type {
   LinkedDeviceTargetPreparationV1,
   LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceTargetFactorV1,
+  LinkedDeviceApprovedTargetFactorV1,
   OrdinarySignerMaterialRecipientRequirementV1,
 } from './contracts';
 
@@ -127,6 +128,18 @@ function encodeTargetFactor(value: LinkedDeviceTargetFactorV1): Uint8Array {
   return text(value.kind, 'targetFactor.kind');
 }
 
+function encodeApprovedTargetFactor(value: LinkedDeviceApprovedTargetFactorV1): Uint8Array {
+  switch (value.kind) {
+    case 'passkey_prf':
+      return text(value.kind, 'targetFactor.kind');
+    case 'email_otp':
+      return concat([
+        text(value.kind, 'targetFactor.kind'),
+        text(value.baseWalletAuthMethodId, 'targetFactor.baseWalletAuthMethodId'),
+      ]);
+  }
+}
+
 function encodeLinkedDevicePasskeyCreationOptionsV1(
   value: LinkedDevicePasskeyCreationOptionsV1,
 ): Uint8Array {
@@ -211,6 +224,7 @@ export function encodeLinkedDeviceSessionClaimV1(value: LinkedDeviceSessionClaim
     text(value.deviceId, 'deviceId'),
     lp32(rawPublicKey(value.devicePublicKeyB64u, 'devicePublicKeyB64u'), 'devicePublicKeyB64u'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
+    u64(value.sessionRevision, 'sessionRevision'),
     u64(value.claimedAtMs, 'claimedAtMs'),
     u64(value.claimExpiresAtMs, 'claimExpiresAtMs'),
   ]);
@@ -235,7 +249,7 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     lp32(rawPublicKey(value.linkPublicKeyB64u, 'linkPublicKeyB64u'), 'linkPublicKeyB64u'),
     lp32(rawPublicKey(value.devicePublicKeyB64u, 'devicePublicKeyB64u'), 'devicePublicKeyB64u'),
     lp32(encodeDelegatedWalletAuthority(value.permission), 'permission'),
-    lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
+    lp32(encodeApprovedTargetFactor(value.targetFactor), 'targetFactor'),
     ...('sourceContribution' in value
       ? [
           lp32(
@@ -285,11 +299,30 @@ export function encodeLinkedDeviceTargetPreparationV1(
           ),
         ]
       : []),
+    ...encodeEmailTargetPreparationFactorBindingV1(value),
     u32(requirements.length, 'ordinarySignerMaterialRecipientRequirements'),
     ...requirements.map((entry) => lp32(entry, 'ordinarySignerMaterialRecipientRequirements.item')),
     u64(value.issuedAtMs, 'issuedAtMs'),
     u64(value.expiresAtMs, 'expiresAtMs'),
   ]);
+}
+
+function encodeEmailTargetPreparationFactorBindingV1(
+  value: LinkedDeviceTargetPreparationV1,
+): readonly Uint8Array[] {
+  if (isPasskeyTargetPreparationV1(value)) {
+    return [];
+  }
+  return [text(value.baseWalletAuthMethodId, 'baseWalletAuthMethodId')];
+}
+
+function isPasskeyTargetPreparationV1(
+  value: LinkedDeviceTargetPreparationV1,
+): value is Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+> {
+  return value.targetFactor.kind === 'passkey_prf';
 }
 
 export async function computeLinkedDeviceTargetPreparationDigestV1(

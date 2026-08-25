@@ -17,6 +17,7 @@ import { routerAbMpcMaterialActivationRefToWire } from '../../../packages/shared
 import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '../../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceApprovedTargetFactorV1,
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceTargetFactorV1,
@@ -134,6 +135,13 @@ export function buildR103DeviceLinkFixture(
     signingWorker: required(parseMpcSigningWorkerRef('worker:r103')),
   });
   const sourceWalletAuthMethodId = required(parseWalletAuthMethodId('passkey:wallet:r103'));
+  const approvedTargetFactor: LinkedDeviceApprovedTargetFactorV1 =
+    targetFactor.kind === 'passkey_prf'
+      ? { kind: 'passkey_prf' }
+      : {
+          kind: 'email_otp',
+          baseWalletAuthMethodId: required(parseWalletAuthMethodId('email-otp:wallet:r103')),
+        };
   const sourceSignerManifest = buildExactAdministeredSignerManifestV1([
     {
       kind: 'exact_administered_ed25519_signer_v1',
@@ -151,7 +159,7 @@ export function buildR103DeviceLinkFixture(
     linkPublicKeyB64u: payload.linkPublicKeyB64u,
     devicePublicKeyB64u: payload.devicePublicKeyB64u,
     permission: payload.requestedPermission,
-    targetFactor,
+    targetFactor: approvedTargetFactor,
     ownerAuthorization: buildWalletSessionLinkedDeviceOwnerAuthorizationV1({
       walletSessionId: required(parseWalletSessionId('ws:r103')),
       authorizationId: required(parseWalletSessionAuthorizationId('wsa:r103')),
