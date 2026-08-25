@@ -148,6 +148,7 @@ function buildConsoleConfig(deployment, siteOrigin, emailOtpDelivery, packageRoo
     CONSOLE_SESSION_COOKIE_NAME: DEFAULT_CONSOLE_SESSION_COOKIE_NAME,
     CONSOLE_SESSION_ISSUER: `${consoleOrigin}/console`,
     CONSOLE_SESSION_AUDIENCE: DEFAULT_CONSOLE_SESSION_AUDIENCE,
+    CONSOLE_EMAIL_INVITATION_SECRET_KEY_ID: `console-email-${deployment.lane}-r1`,
   };
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
   vars.SPONSORED_EXECUTION_REAL_PRICING_JSON = JSON.stringify(
