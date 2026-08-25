@@ -2769,6 +2769,8 @@ async function registerEcdsaOrMixedWallet(
             rpId: requireWebAuthnRpId(args.authMethod.rpId),
             credentialIdB64u: custodyCredentialId.value,
           }),
+          /* The wallet's first auth method, from the intent that allocated it. */
+          walletAuthMethodId: intentResponse.intent.foundingWalletAuthMethodId,
         }),
         walletCustodyFactorSecret: base64UrlDecode(passkeyAuthority.prfFirstB64u).buffer,
       };
@@ -2891,6 +2893,7 @@ async function registerEcdsaOrMixedWallet(
                   enrollmentId: material.enrollmentId,
                   enrollmentSealKeyVersion: material.enrollmentSealKeyVersion,
                 }),
+                walletAuthMethodId: intentResponse.intent.foundingWalletAuthMethodId,
               });
             }
             return {
