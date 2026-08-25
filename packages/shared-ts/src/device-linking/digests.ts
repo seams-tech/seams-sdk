@@ -98,16 +98,10 @@ function rawPublicKey(value: string, label: string): Uint8Array {
 }
 
 function encodeOwnerAuthorization(value: LinkedDeviceOwnerAuthorizationSourceV1): Uint8Array {
-  if (value.kind === 'wallet_session') {
-    return concat([
-      text(value.kind, 'ownerAuthorization.kind'),
-      text(value.walletSessionId, 'ownerAuthorization.walletSessionId'),
-      text(value.authorizationId, 'ownerAuthorization.authorizationId'),
-    ]);
-  }
   return concat([
     text(value.kind, 'ownerAuthorization.kind'),
-    text(value.evidenceSetId, 'ownerAuthorization.evidenceSetId'),
+    text(value.walletSessionId, 'ownerAuthorization.walletSessionId'),
+    text(value.authorizationId, 'ownerAuthorization.authorizationId'),
   ]);
 }
 

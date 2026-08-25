@@ -2,8 +2,8 @@
 
 Date created: August 20, 2026
 
-Status: implementation blocked on Phase 0. R109C implementation and browser
-acceptance remain incomplete.
+Status: implementation in progress. R109C is merged and browser-accepted; the
+remaining Phase 0 cleanup is underway.
 
 ## Goal
 
@@ -60,7 +60,7 @@ Do not implement R109D until:
 
 - [x] R103E defines the `awaiting_source_contribution` lifecycle and its
       source-contribution boundary.
-- [ ] Merge and accept R109C on the finalized R103E tree.
+- [x] Merge and accept R109C on the finalized R103E tree.
 - [x] Name the R109C schema change
       `0022_r109c_multi_auth_email_cardinality.sql` after the R103E `0021`
       transcript repair without rewriting deployed migrations.
@@ -68,13 +68,14 @@ Do not implement R109D until:
       decoding boundary; core auth-method state remains V2-only.
 - [ ] Confirm every founding and linked ordinary Wallet Session persists the
       operation credential consumed by `readExactWithOperationCredential`.
-- [ ] Delete or verify the absence of linked-device `step_up`,
-      `orderedOwnerSourceLaneHints`, and retired owner/lane projections.
+- [ ] Delete linked-device `orderedOwnerSourceLaneHints` and retired owner/lane
+      projections. The linked-device `step_up` authorization source is deleted;
+      linking now requires the exact reusable Wallet Session.
 - [ ] Repair the authority-install fixture through its shared factory and make
       the focused R103E checks green.
 
-R109D product implementation remains unstarted while these unchecked items are
-open.
+R109D product implementation begins after the remaining unchecked Phase 0 items
+close.
 
 ## Successful result
 
