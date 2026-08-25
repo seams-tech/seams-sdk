@@ -73,6 +73,8 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly readOwnerSourceChildV1: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1['readOwnerSourceChildV1'];
   /** Exact trusted origin where the target Passkey ceremony runs. */
   readonly targetPasskeyOrigin: string;
+  /** Managed RP ID for every linked-device target Passkey. */
+  readonly targetPasskeyRpId: string;
   readonly targetCredential: (input: {
     readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
     readonly targetCredentialVerification: LinkedDeviceTargetCredentialVerificationPortV1;

@@ -86,7 +86,7 @@ R109D product implementation may proceed.
       challenge, verification, and target credential registration.
 - [ ] Present multiple Email OTP base-method choices in the Device 1 UI and
       submit the selected method.
-- [ ] Build Passkey targets from managed RP configuration with no dependency on
+- [x] Build Passkey targets from managed RP configuration with no dependency on
       the source credential.
 - [ ] Complete the four source/target factor operating paths and their focused
       intended-browser contracts.

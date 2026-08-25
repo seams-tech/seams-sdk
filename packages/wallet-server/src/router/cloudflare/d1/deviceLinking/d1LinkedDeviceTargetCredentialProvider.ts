@@ -25,12 +25,13 @@ import {
   hasControlCharacter,
   mpcMaterialActivationRefsEqual,
   parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
   type WalletAuthMethodId,
   type WebAuthnCredentialIdB64u,
+  type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
-import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import type {
@@ -97,13 +98,24 @@ export type LinkedDeviceTargetCredentialVerificationPortV1 = {
 /** Uses the canonical D1 WebAuthn registration verifier with the configured ceremony origin. */
 export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceTargetCredentialVerificationPortV1 {
   private readonly expectedOrigin: string;
+  private readonly expectedRpId: WebAuthnRpId;
 
-  constructor(expectedOrigin: string) {
+  constructor(expectedOrigin: string, expectedRpId: string) {
     const normalized = normalizeCorsOrigin(expectedOrigin);
     if (!normalized || normalized !== expectedOrigin.trim()) {
       throw new Error('linked-device target Passkey origin must be an exact origin');
     }
     this.expectedOrigin = normalized;
+    const parsedRpId = parseWebAuthnRpId(expectedRpId);
+    if (!parsedRpId.ok) {
+      throw new Error(`linked-device target Passkey RP ID: ${parsedRpId.error.message}`);
+    }
+    const originHostname = new URL(normalized).hostname.toLowerCase();
+    const rpId = String(parsedRpId.value).toLowerCase();
+    if (originHostname !== rpId && !originHostname.endsWith(`.${rpId}`)) {
+      throw new Error('linked-device target Passkey origin is outside the configured RP ID');
+    }
+    this.expectedRpId = parsedRpId.value;
   }
 
   async verifyRegistrationV1(input: {
@@ -124,6 +136,9 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
     const options = input.preparation.passkeyCreationOptions;
     if (!options) {
       return { kind: 'rejected', message: 'Passkey preparation options are missing' };
+    }
+    if (options.rpId !== this.expectedRpId) {
+      return { kind: 'rejected', message: 'Passkey preparation RP ID is no longer configured' };
     }
     const verification = await verifyWebAuthnRegistrationCredentialForIntent({
       webauthnRegistration: {
@@ -190,7 +205,6 @@ export type LinkedDeviceTargetPlannerV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
-    readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   }): Promise<LinkedDeviceTargetPreparationV1>;
 };
 
@@ -355,14 +369,8 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     if (input.session.state.state !== 'awaiting_target_factor') {
       throw new Error('linked-device target preparation is unavailable in this session state');
     }
-    const sourceAuthMethod = await readSourceAuthMethodForTargetPreparationV1({
-      source: this.verifiedLinkBuilder.source,
-      session: input.session,
-      approval: input.approval,
-      requestedAtMs: input.requestedAtMs,
-    });
     const preparation = parseLinkedDeviceTargetPreparationV1(
-      await this.planner.createTargetPreparationV1({ ...input, sourceAuthMethod }),
+      await this.planner.createTargetPreparationV1(input),
     );
     assertPreparationMatchesSession(preparation, input.session, input.approval);
     if (preparation.expiresAtMs <= input.requestedAtMs) {
@@ -1464,27 +1472,4 @@ async function digestJsonV1(value: unknown): Promise<DigestB64u> {
 
 async function waitForTargetCommitV1(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-}
-
-async function readSourceAuthMethodForTargetPreparationV1(input: {
-  readonly source: VerifiedLinkSourceReaderV1;
-  readonly session: LinkedDeviceSessionRecordV1;
-  readonly approval: LinkedDeviceApprovalV1;
-  readonly requestedAtMs: number;
-}): Promise<Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>> {
-  if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
-    throw new Error('linked-device target preparation requires an ordinary Wallet Session');
-  }
-  const sessionKeyFamily = input.session.approvalTranscript?.sourceSignerManifest.keyFamilies[0];
-  if (!sessionKeyFamily) {
-    throw new Error('linked-device source signer manifest is missing');
-  }
-  const source = await input.source.readVerifiedSourceV1({
-    walletId: input.approval.walletId,
-    walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
-    authorizationId: String(input.approval.ownerAuthorization.authorizationId),
-    keyFamily: sessionKeyFamily,
-    requestedAtMs: input.requestedAtMs,
-  });
-  return source.authMethod;
 }

@@ -13,7 +13,11 @@ import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
-import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWebAuthnRpId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import type {
   ActiveLaneProtocolSourceV1,
   EcdsaTargetCapabilityBindingV1,
@@ -27,10 +31,7 @@ import type {
   RouterAbEd25519YaoActivationBindingV1,
   RouterAbEd25519YaoApplicationBindingFactsV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type {
-  NearEd25519SigningKeyId,
-  WalletAuthMethodRecordV2,
-} from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type { WalletKeyId } from '@shared/signing-lanes/ids';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { ExactAdministeredSignerV1 } from '@shared/device-linking/delegatedActivationPlan';
@@ -106,6 +107,7 @@ export type LinkedDeviceOwnerSourceChildResolverV1 = {
 
 export type D1LinkedDeviceTargetPlannerOptionsV1 = {
   readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
+  readonly targetPasskeyRpId: string;
   readonly preparationTtlMs?: number;
 };
 
@@ -115,10 +117,16 @@ export type D1LinkedDeviceTargetPlannerOptionsV1 = {
  */
 export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV1 {
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
+  private readonly targetPasskeyRpId: WebAuthnRpId;
   private readonly preparationTtlMs: number;
 
   constructor(input: D1LinkedDeviceTargetPlannerOptionsV1) {
     this.resolveOwnerSourceChildV1 = input.resolveOwnerSourceChildV1;
+    const targetPasskeyRpId = parseWebAuthnRpId(input.targetPasskeyRpId);
+    if (!targetPasskeyRpId.ok) {
+      throw new Error(`linked-device target Passkey RP ID: ${targetPasskeyRpId.error.message}`);
+    }
+    this.targetPasskeyRpId = targetPasskeyRpId.value;
     const ttlMs = input.preparationTtlMs ?? DEFAULT_TARGET_PREPARATION_TTL_MS;
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
       throw new Error('linked-device target preparation TTL must be a positive safe integer');
@@ -130,7 +138,6 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
-    readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   }): Promise<LinkedDeviceTargetPreparationV1> {
     assertPreparationInput(input.session, input.approval, input.requestedAtMs);
     // A preparation cannot outlive the approved link session.
@@ -203,7 +210,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         passkeyCreationOptions: buildPasskeyCreationOptionsV1({
           walletAuthMethodId: walletAuthMethodId.value,
           walletId: input.approval.walletId,
-          sourceAuthMethod: input.sourceAuthMethod,
+          rpId: this.targetPasskeyRpId,
         }),
         ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
           ordinarySignerMaterialRecipientRequirements,
@@ -234,16 +241,10 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
 }
 
 function buildPasskeyCreationOptionsV1(input: {
-  readonly walletAuthMethodId: Extract<
-    WalletAuthMethodRecordV2,
-    { readonly status: 'active' }
-  >['walletAuthMethodId'];
-  readonly walletId: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>['walletId'];
-  readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+  readonly walletAuthMethodId: LinkedDevicePasskeyCreationOptionsV1['walletAuthMethodId'];
+  readonly walletId: LinkedDeviceTargetPreparationV1['walletId'];
+  readonly rpId: WebAuthnRpId;
 }): LinkedDevicePasskeyCreationOptionsV1 {
-  if (input.sourceAuthMethod.kind !== 'passkey') {
-    throw new Error('linked-device passkey preparation requires a passkey source auth method');
-  }
   const challengeId = secureRandomBase64Url(16, 'linked-device target passkey challenge id');
   const challengeB64u = secureRandomBase64Url(32, 'linked-device target passkey challenge');
   return {
@@ -251,7 +252,7 @@ function buildPasskeyCreationOptionsV1(input: {
     walletAuthMethodId: input.walletAuthMethodId,
     challengeId,
     challengeB64u,
-    rpId: input.sourceAuthMethod.rpId,
+    rpId: input.rpId,
     user: {
       idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),
       name: String(input.walletId),
@@ -275,12 +276,7 @@ function buildPasskeyCreationOptionsV1(input: {
         },
       },
     },
-    excludeCredentials: [
-      {
-        type: 'public-key',
-        id: input.sourceAuthMethod.credentialIdB64u,
-      },
-    ],
+    excludeCredentials: [],
   };
 }
 
