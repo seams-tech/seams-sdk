@@ -1710,6 +1710,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     passkeyCustodyEnvelopes,
     sha256Bytes: sha256BytesPortable,
     webAuthnStore,
+    listWalletEd25519Signers: (walletId) => walletStore.listEd25519SignersForWallet({ walletId }),
     walletAuthorityStore,
     orgId: options.orgId,
     verifyWebAuthnAuthenticationLite: async (verifyInput) => {

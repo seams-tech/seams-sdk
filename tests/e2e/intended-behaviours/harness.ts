@@ -1086,8 +1086,16 @@ export class IntendedBehaviourHarness {
     if (result.walletId !== registration.walletId) {
       throw new Error('unlock with the added passkey opened a different wallet');
     }
-    if (result.nearIdentity !== 'absent') {
-      throw new Error('ECDSA-only added-passkey unlock unexpectedly returned a NEAR identity');
+    /* The added method inherits whatever the wallet already had. A NEAR-ready
+       wallet must still open NEAR through it - losing NEAR by adding a passkey
+       would be the bug - while an ECDSA-only wallet has no NEAR identity for
+       any method to return. Asserting one shape for both would encode the
+       wallet's provisioning state into the addition. */
+    const expectedNearIdentity = registration.nearReadiness === 'ready' ? 'ready' : 'absent';
+    if (result.nearIdentity !== expectedNearIdentity) {
+      throw new Error(
+        `added-passkey unlock returned NEAR identity ${result.nearIdentity} for a ${registration.nearReadiness} wallet`,
+      );
     }
     if (result.signingSessionStatus !== 'active') {
       throw new Error(

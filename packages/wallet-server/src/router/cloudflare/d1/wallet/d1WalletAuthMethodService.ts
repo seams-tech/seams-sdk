@@ -100,6 +100,12 @@ import {
 } from '../../../auth/webAuthnCredentialCodecs';
 import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type { WebAuthnCredentialBindingRecord } from '../../../../core/WebAuthnCredentialBindingStore';
+import type { WalletEd25519SignerRecord } from '../../../../core/WalletStore';
+
+/** The wallet's Ed25519 signers, the only server record of its NEAR identity. */
+type ListWalletEd25519SignersV1 = (
+  walletId: WalletId,
+) => Promise<readonly WalletEd25519SignerRecord[]>;
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { D1WalletAuthorityStore } from './d1WalletAuthorityStore';
 import {
@@ -411,6 +417,7 @@ async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
 
 async function buildAddedPasskeyCredentialBinding(input: {
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
   readonly ceremony: Extract<StoredWalletAddAuthMethodCeremony, { readonly kind: 'passkey' }>;
   readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
@@ -418,14 +425,48 @@ async function buildAddedPasskeyCredentialBinding(input: {
   readonly now: number;
 }): Promise<WebAuthnCredentialBindingRecord> {
   if (input.ceremony.auth.kind === 'email_otp') {
-    return {
+    /* R109C: an Email OTP source has no credential binding to copy identity
+       fields from, so they come from the wallet's own Ed25519 signer. Without
+       them the added passkey claims no Ed25519 capability at unlock and the
+       wallet answers that the requested Ed25519 Wallet Session is unavailable -
+       a NEAR-capable wallet would lose NEAR by adding a passkey to it.
+
+       No signer means NEAR was never provisioned, or has not settled yet. An
+       ECDSA-only wallet's added passkey correctly claims no Ed25519, so that
+       stays a binding without identity fields rather than a failure. */
+    const base = {
       version: 'webauthn_credential_binding_v1',
       rpId: input.rpId,
       credentialIdB64u: input.credentialIdB64u,
       userId: String(input.walletId),
       createdAtMs: input.now,
       updatedAtMs: input.now,
+    } satisfies WebAuthnCredentialBindingRecord;
+    const signers = await input.listWalletEd25519Signers(input.walletId);
+    const [signer, ...remaining] = signers;
+    if (!signer) return base;
+    if (remaining.length > 0) {
+      throw new Error(
+        'Added passkey cannot resolve one exact wallet Ed25519 signer to bind against',
+      );
+    }
+    const emailSourced: WebAuthnCredentialBindingRecord = {
+      ...base,
+      nearAccountId: signer.nearAccountId,
+      nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+      signerSlot: signer.signerSlot,
+      publicKey: signer.publicKey,
+      // The relayer key id of an Ed25519 lane is the signing worker that holds
+      // the relayer share; the signer record is where that is written down.
+      relayerKeyId: signer.signingWorkerId,
+      keyVersion: signer.keyVersion,
+      recoveryExportCapable: signer.recoveryExportCapable,
+      clientParticipantId: signer.participantIds[0],
+      relayerParticipantId: signer.participantIds[1],
+      participantIds: [signer.participantIds[0], signer.participantIds[1]],
+      runtimePolicyScope: signer.runtimePolicyScope,
     };
+    return emailSourced;
   }
   const source = await input.webAuthnStore.readBindingByCredential({
     rpId: input.ceremony.auth.rpId,
@@ -480,6 +521,7 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
   private readonly sha256Bytes: Sha256Bytes;
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  private readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
   private readonly walletAuthorityStore: D1WalletAuthorityStore;
   private readonly orgId: string;
   private readonly verifyWebAuthnAuthenticationLite: D1FreshRevokeWebAuthnVerifierV1;
@@ -497,6 +539,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly sha256Bytes: Sha256Bytes;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
+    readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
     readonly walletAuthorityStore: D1WalletAuthorityStore;
     readonly orgId: string;
     readonly verifyWebAuthnAuthenticationLite: D1FreshRevokeWebAuthnVerifierV1;
@@ -512,6 +555,7 @@ export class CloudflareD1WalletAuthMethodService {
     this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
+    this.listWalletEd25519Signers = input.listWalletEd25519Signers;
     this.walletAuthorityStore = input.walletAuthorityStore;
     this.orgId = input.orgId;
     this.verifyWebAuthnAuthenticationLite = input.verifyWebAuthnAuthenticationLite;
@@ -1223,6 +1267,7 @@ export class CloudflareD1WalletAuthMethodService {
         });
         const binding = await buildAddedPasskeyCredentialBinding({
           webAuthnStore: this.webAuthnStore,
+          listWalletEd25519Signers: this.listWalletEd25519Signers,
           ceremony,
           walletId,
           rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
