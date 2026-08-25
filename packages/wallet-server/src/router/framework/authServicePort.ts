@@ -1,5 +1,8 @@
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { AddAuthMethodIntentCallerV1 } from '@shared/utils/registrationIntent';
+import type {
+  AddAuthMethodIntentCallerV1,
+  AddAuthMethodIntentGrant,
+} from '@shared/utils/registrationIntent';
 import type {
   WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
@@ -1242,6 +1245,20 @@ export interface RouterApiWalletAuthMethodService {
   revokeWalletAuthMethod(
     input: RevokeWalletAuthMethodCommand,
   ): Promise<WalletRevokeAuthMethodResponse>;
+  /** Sends the enrollment code for an Email OTP addition, bound to its intent. */
+  createAddAuthMethodEmailOtpChallenge(input: {
+    readonly walletId: WalletId;
+    readonly addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+    readonly addAuthMethodIntentDigestB64u: string;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly challengeId: string;
+        readonly expiresAtMs: number;
+        readonly emailHint: string;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   startWalletAddAuthMethod(
     input: StartWalletAddAuthMethodCommand,
     context?: { readonly userAgent?: string },
