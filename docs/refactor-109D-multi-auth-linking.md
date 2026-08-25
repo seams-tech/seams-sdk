@@ -42,8 +42,9 @@ Do not implement R109D until:
 2. R109C is re-implemented on the final R103E tree. The retired pre-R103E
    implementation is not rebased or cherry-picked.
 3. The R109C schema change becomes
-   `0013_r109c_multi_auth_email_cardinality.sql`, after the R103E `0012` repair.
-   Keep the historical `0004_*` files and lexical migration order.
+   `0022_r109c_multi_auth_email_cardinality.sql`, after the R103E `0021`
+   transcript repair. Keep the eight deployed signer migrations byte-for-byte
+   and preserve lexical migration order.
 4. Only the current V2 `wallet_auth_methods` schema remains. Do not restore a
    legacy table or runtime compatibility path.
 5. Every ordinary Wallet Session, including founding and linked sessions,

@@ -32,6 +32,10 @@ const consoleMigrationRoot = path.join(
   repoRoot,
   'packages/wallet-console-server-ts/migrations/d1-console',
 );
+const signerMigrationRoot = path.join(
+  repoRoot,
+  'packages/wallet-server/migrations/d1-signer',
+);
 
 test('migration fingerprint output is stable per database and uses sorted framed records', () => {
   const migrationsDir = writeMigrationDirectory();
@@ -119,6 +123,25 @@ test('applied migration sources are immutable when a forward migration is added'
       migrations: [appliedMigration, forwardMigration],
     }),
   ).toThrow(/add a new forward migration/u);
+});
+
+test('Signer applied migration prefix stays byte-for-byte immutable', () => {
+  const signerMigrations = readMigrationFiles(signerMigrationRoot);
+  const deployedPrefix = signerMigrations.slice(0, 8);
+
+  expect(deployedPrefix.map((migration) => migration.name)).toEqual([
+    '0001_signer_d1_initial.sql',
+    '0002_signer_post_103_canonical_upgrade.sql',
+    '0003_r107_wallet_authorization.sql',
+    '0004_remove_legacy_email_recovery.sql',
+    '0005_r103p8_linked_owner_auth_bindings.sql',
+    '0006_r103p8_linked_device_custody_transfers.sql',
+    '0007_r103p8_wallet_session_auth_method_provenance.sql',
+    '0008_r103p8_linked_device_session_cas_guard.sql',
+  ]);
+  expect(digestMigrations(deployedPrefix)).toBe(
+    'ded40767b23ce274355ab2f7cf8c57b7142d7125d74b80ae20ebc552bbe5c5f6',
+  );
 });
 
 test('Console applied baseline stays immutable and upgrades to the fresh schema', async () => {
