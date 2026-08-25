@@ -23,7 +23,7 @@ use signer_core::passkey_custody::{
     open_wallet_custody_seed_envelope_v1, seal_wallet_custody_seed_envelope_v1,
     PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
     EMAIL_OTP_FACTOR_KEK_VERSION_V1, PASSKEY_CUSTODY_KEK_VERSION_V1,
-    WALLET_SEED_DERIVATION_SCHEME_V1,
+    PasskeyCustodyEnvelopeOwnershipV1, WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_recovery_custody::{
     derive_wallet_recovery_key_id_v1, seal_wallet_recovery_entry_v1,
@@ -98,6 +98,18 @@ fn recovery_key_id(index: usize) -> String {
         .expect("recovery key id")
 }
 
+/// Refactor 109C seals every new envelope method-bound, so the pinned wire
+/// vectors are V3. `legacy_unbound_binding` below keeps a V2 vector so the
+/// pre-109C AAD stays byte-identical and already-sealed envelopes keep opening.
+const WALLET_AUTH_METHOD_ID: &str = "wallet-auth-method:wire-fixture";
+
+fn legacy_unbound_binding() -> PasskeyCustodyEnvelopeBindingV1 {
+    PasskeyCustodyEnvelopeBindingV1 {
+        ownership: PasskeyCustodyEnvelopeOwnershipV1::Unbound,
+        ..passkey_binding()
+    }
+}
+
 fn email_otp_binding() -> PasskeyCustodyEnvelopeBindingV1 {
     PasskeyCustodyEnvelopeBindingV1 {
         wallet_id: WALLET_ID.to_string(),
@@ -110,6 +122,9 @@ fn email_otp_binding() -> PasskeyCustodyEnvelopeBindingV1 {
         envelope_revision: 1,
         binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
             derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
+        },
+        ownership: PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+            wallet_auth_method_id: WALLET_AUTH_METHOD_ID.to_string(),
         },
     }
 }
@@ -126,6 +141,9 @@ fn passkey_binding() -> PasskeyCustodyEnvelopeBindingV1 {
         envelope_revision: 1,
         binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
             derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
+        },
+        ownership: PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+            wallet_auth_method_id: WALLET_AUTH_METHOD_ID.to_string(),
         },
     }
 }

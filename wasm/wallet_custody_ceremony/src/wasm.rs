@@ -114,6 +114,10 @@ struct EvmFamilyProtocolInputsWireV1 {
 struct FactorSealInputsWireV1 {
     envelope_id: String,
     factor: WalletCustodyEnvelopeFactorV1,
+    /// Refactor 109C: the exact auth method this envelope will belong to.
+    /// Required — a newly sealed envelope is always method-bound, so there is
+    /// no shape in which JavaScript may omit it.
+    wallet_auth_method_id: String,
 }
 
 #[derive(Deserialize)]
@@ -187,6 +191,7 @@ fn factor_seal_inputs(factor_json: &str, factor_secret: &[u8]) -> DecodeResult<F
     Ok(FactorSealInputsV1 {
         envelope_id: wire.envelope_id,
         factor: wire.factor,
+        wallet_auth_method_id: wire.wallet_auth_method_id,
         factor_secret: Zeroizing::new(factor_secret.to_vec()),
     })
 }
