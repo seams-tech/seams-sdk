@@ -377,6 +377,7 @@ export class SeamsWebIframe {
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
       addPasskey: async (args) => await this.addPasskeyDomain(args),
       addEmailOtp: async (args) => await this.addEmailOtpDomain(args),
+      revokeAuthMethod: async (args) => await this.router.revokeAuthMethod(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
       registerPasskey: async (options) => await this.registerPasskeyDomain(options),

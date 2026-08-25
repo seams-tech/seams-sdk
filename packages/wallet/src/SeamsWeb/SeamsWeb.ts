@@ -11,6 +11,7 @@ import {
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+import { revokeWalletAuthMethodOperation } from '@/SeamsWeb/operations/authMethods/revokeAuthMethod';
 import { addEmailOtpWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
 import { MinimalNearClient, type NearClient } from '@/core/rpcClients/near/NearClient';
 import type {
@@ -1304,6 +1305,7 @@ export class SeamsWeb {
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
         addPasskey: async (args) => await this.addPasskeyDomain(args),
         addEmailOtp: async (args) => await this.addEmailOtpDomain(args),
+        revokeAuthMethod: async (args) => await this.revokeAuthMethodDomain(args),
         registerWallet: async (args) => await this.registerWalletDomain(args),
         registerPasskey: async (options) => await this.registerPasskeyDomain(options),
         requestEmailOtpEnrollmentChallenge: async (args) =>
@@ -1676,6 +1678,20 @@ export class SeamsWeb {
       walletId: args.walletId,
       rpId: args.rpId,
       options: args.options,
+    });
+  }
+
+  private async revokeAuthMethodDomain(
+    args: Parameters<RegistrationCapability['revokeAuthMethod']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['revokeAuthMethod']>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
+      return await router.revokeAuthMethod(args);
+    }
+    return await revokeWalletAuthMethodOperation({
+      context: this.getContext(),
+      walletId: args.walletId,
+      walletAuthMethodId: args.walletAuthMethodId,
     });
   }
 

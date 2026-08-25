@@ -156,6 +156,7 @@ import type {
   ResolveExactKeyExportLaneResult,
   AddPasskeyResult,
   AddEmailOtpResult,
+  RevokeAuthMethodResult,
   WalletRecoveryRotationOutcome,
 } from '@/SeamsWeb/publicApi/types';
 import type {
@@ -2668,6 +2669,19 @@ export class WalletIframeRouter {
       },
       options: {
         onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+      },
+    });
+    return res.result;
+  }
+
+  async revokeAuthMethod(
+    payload: Parameters<RegistrationCapability['revokeAuthMethod']>[0],
+  ): Promise<RevokeAuthMethodResult> {
+    const res = await this.post<RevokeAuthMethodResult>({
+      type: 'PM_REVOKE_AUTH_METHOD',
+      payload: {
+        walletId: payload.walletId,
+        walletAuthMethodId: payload.walletAuthMethodId,
       },
     });
     return res.result;

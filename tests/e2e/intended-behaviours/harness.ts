@@ -87,6 +87,7 @@ type IntendedHarnessAction =
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'unlockWithAddedEmailOtp'
+  | 'revokeSourceAuthMethod'
   | 'signNearTransaction'
   | 'signTempoTransaction'
   | 'signArcEvmTransaction'
@@ -451,6 +452,12 @@ type AddPasskeyAuthMethodResultSnapshot = {
   authMethod: { kind: 'passkey'; status: 'active' };
 };
 
+type RevokeAuthMethodResultSnapshot = {
+  kind: 'revoke_auth_method_success';
+  walletId: string;
+  walletAuthMethodId: string;
+};
+
 type AddedEmailOtpUnlockResultSnapshot = {
   kind: 'added_email_otp_unlock_success';
   walletId: string;
@@ -464,6 +471,7 @@ type IntendedActionResultSnapshot =
   | Ed25519AddSignerResultSnapshot
   | AddEmailOtpAuthMethodResultSnapshot
   | AddedEmailOtpUnlockResultSnapshot
+  | RevokeAuthMethodResultSnapshot
   | AddPasskeyAuthMethodResultSnapshot
   | EmailOtpRegistrationResultSnapshot
   | NearProvisioningReadySnapshot
@@ -1072,6 +1080,41 @@ export class IntendedBehaviourHarness {
     this.recordService(
       `email code added wallet=${String(result.walletId)} email=${String(result.emailAddress)} method=${result.walletAuthMethodId}`,
     );
+  }
+
+  /**
+   * Refactor 109C: retire the method that did the adding.
+   *
+   * The page picks the target - the one sibling that is not the method just
+   * added - so the test cannot accidentally revoke the credential it is about
+   * to rely on.
+   */
+  async revokeSourceAuthMethod(): Promise<void> {
+    this.recordStage('revoke_source_auth_method');
+    const registration = this.requireRegisteredWalletForSigning();
+    const snapshot = await this.runIntendedPageAction(
+      'revokeSourceAuthMethod',
+      'intended-revoke-source-auth-method',
+    );
+    if (snapshot.action.status !== 'success') {
+      throw new Error(
+        `revoke ended with ${snapshot.action.status}: ${
+          snapshot.action.status === 'error' ? snapshot.action.error : ''
+        }`,
+      );
+    }
+    const result = snapshot.action.result;
+    if (result.kind !== 'revoke_auth_method_success') {
+      throw new Error(`revoke returned ${result.kind}`);
+    }
+    if (result.walletId !== registration.walletId) {
+      throw new Error('revoke targeted a different wallet');
+    }
+    if (result.walletAuthMethodId === this.addedWalletAuthMethodId) {
+      throw new Error('revoke removed the added method instead of its sibling');
+    }
+    this.passkeyPromptCount += 1;
+    this.recordService(`revoked sibling method=${result.walletAuthMethodId}`);
   }
 
   /**
@@ -4060,6 +4103,12 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         authMethod: { kind: 'passkey', status: 'active' },
       };
     }
+    case 'revoke_auth_method_success':
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'revoke walletId'),
+        walletAuthMethodId: requireString(record.walletAuthMethodId, 'revoke walletAuthMethodId'),
+      };
     case 'added_email_otp_unlock_success': {
       const remainingUses = record.remainingUses;
       return {
@@ -4342,6 +4391,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
     case 'unlockWithAddedEmailOtp':
+    case 'revokeSourceAuthMethod':
     case 'signNearTransaction':
     case 'signTempoTransaction':
     case 'signArcEvmTransaction':

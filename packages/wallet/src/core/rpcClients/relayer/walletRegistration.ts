@@ -21,6 +21,7 @@ import {
   parseNearEd25519SigningKeyId,
   parseWalletAuthMethodRecordV2,
   walletIdFromString,
+  type WalletAuthMethodRevocationProof,
 } from '@shared/utils/registrationIntent';
 import {
   parseWalletAuthorityV1,
@@ -1974,6 +1975,47 @@ export async function createWalletAddSignerIntent(args: {
       [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
     },
     body: args.request,
+  });
+}
+
+export type RevokeWalletAuthMethodResponse = {
+  readonly ok: true;
+  readonly walletId: string;
+  readonly authMethod: { readonly kind: string; readonly status: 'revoked' };
+};
+
+/**
+ * R109C: revoke one auth method using a proof from a different active one.
+ *
+ * The route is the wallet's own auth-method management, not device linking:
+ * a sibling on the same device is not a device, and the linked-device
+ * management path authenticates an owner *request* rather than a factor proof
+ * bound to this exact revocation.
+ */
+export async function revokeWalletAuthMethod(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  walletAuthMethodId: string;
+  requestedAtMs: number;
+  sourceProof: WalletAuthMethodRevocationProof;
+}): Promise<RevokeWalletAuthMethodResponse> {
+  const walletId = String(args.walletId || '').trim();
+  const walletAuthMethodId = String(args.walletAuthMethodId || '').trim();
+  if (!walletId || !walletAuthMethodId) {
+    throw new Error('auth-method revoke requires a wallet and a target method');
+  }
+  return await postJson<RevokeWalletAuthMethodResponse>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/${encodeURIComponent(
+      walletAuthMethodId,
+    )}/revoke`,
+    // The server matches these four keys exactly; anything else is refused.
+    body: {
+      walletId,
+      walletAuthMethodId,
+      requestedAtMs: args.requestedAtMs,
+      sourceProof: args.sourceProof,
+    },
   });
 }
 

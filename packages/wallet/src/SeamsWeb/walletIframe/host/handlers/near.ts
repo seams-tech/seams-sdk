@@ -197,6 +197,18 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_REVOKE_AUTH_METHOD: async (req: Req<'PM_REVOKE_AUTH_METHOD'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload!;
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const result = await pm.registration.revokeAuthMethod({
+        walletId: payload.walletId,
+        walletAuthMethodId: payload.walletAuthMethodId,
+      });
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_GET_NEAR_PROVISIONING_STATE: async (req: Req<'PM_GET_NEAR_PROVISIONING_STATE'>) => {
       const pm = deps.getSeamsWeb();
       const walletId = toWalletId(req.payload?.walletId);
