@@ -27,6 +27,7 @@ import { FRONTEND_CONFIG } from '@/config';
 type IntendedActionName =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
+  | 'registerPasskeyEcdsaOnlyWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'addEmailOtpAuthMethod'
   | 'unlockWithAddedEmailOtp'
@@ -169,10 +170,16 @@ type IntendedActionState =
  * ECDSA-ready with NEAR still provisioning, so no NEAR identifier exists yet.
  * Modelled as a closed union so neither branch can borrow the other's fields.
  */
+/* Three readiness states, discriminated explicitly. 'absent' is a wallet whose
+   signer set never included Ed25519: nothing is coming, unlike 'pending'. It
+   forbids the identity and provisioning fields rather than leaving them
+   optional, so a NEAR-less wallet cannot quietly carry a half-filled identity
+   and no caller has to guess which of the three it holds. */
 type PasskeyRegistrationCoreSummary = (
   | {
       kind: 'passkey_registration_success';
       walletId: string;
+      nearReadiness: 'ready';
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
       operationalPublicKey: string;
@@ -181,10 +188,20 @@ type PasskeyRegistrationCoreSummary = (
   | {
       kind: 'passkey_registration_success';
       walletId: string;
+      nearReadiness: 'pending';
       nearProvisioning: IntendedNearProvisioningSummary;
       nearAccountId?: never;
       nearEd25519SigningKeyId?: never;
       operationalPublicKey?: never;
+    }
+  | {
+      kind: 'passkey_registration_success';
+      walletId: string;
+      nearReadiness: 'absent';
+      nearAccountId?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearProvisioning?: never;
     }
 ) &
   IntendedEcdsaSessionSummary;
@@ -586,6 +603,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-register-passkey-ecdsa-only"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterPasskeyEcdsaOnlyWallet}
+            style={buttonStyle}
+          >
+            Register ECDSA-only Wallet
+          </button>
+          <button
+            type="button"
             data-testid="intended-register-passkey-ed25519-yao"
             disabled={state.action.status === 'running'}
             onClick={controller.runRegisterPasskeyEd25519YaoWallet}
@@ -808,6 +834,10 @@ class IntendedPageController {
     void this.unlockWithAddedEmailOtp();
   };
 
+  runRegisterPasskeyEcdsaOnlyWallet = (): void => {
+    void this.registerPasskeyEcdsaOnlyWallet();
+  };
+
   runRevokeSourceAuthMethod = (): void => {
     void this.revokeSourceAuthMethod();
   };
@@ -901,21 +931,104 @@ class IntendedPageController {
       /* A mixed plan has no NEAR identity yet; a NEAR-only plan does. The two
          summary branches cannot be merged without reintroducing optional
          lifecycle fields. */
-      const summary: PasskeyRegistrationResultSummary = registration.nearProvisioning
-        ? {
-            kind: registration.kind,
-            walletId: registration.walletId,
-            nearProvisioning: registration.nearProvisioning,
-            ...ecdsa,
-          }
-        : {
-            kind: registration.kind,
-            walletId: registration.walletId,
-            nearAccountId: registration.nearAccountId,
-            nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
-            operationalPublicKey: registration.operationalPublicKey,
-            ...ecdsa,
-          };
+      const summary: PasskeyRegistrationResultSummary =
+        registration.nearReadiness === 'pending'
+          ? {
+              kind: registration.kind,
+              walletId: registration.walletId,
+              nearReadiness: 'pending',
+              nearProvisioning: registration.nearProvisioning,
+              ...ecdsa,
+            }
+          : registration.nearReadiness === 'ready'
+            ? {
+                kind: registration.kind,
+                walletId: registration.walletId,
+                nearReadiness: 'ready',
+                nearAccountId: registration.nearAccountId,
+                nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
+                operationalPublicKey: registration.operationalPublicKey,
+                ...ecdsa,
+              }
+            : {
+                kind: registration.kind,
+                walletId: registration.walletId,
+                nearReadiness: 'absent',
+                ...ecdsa,
+              };
+      this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C matrix: a wallet whose signer set is ECDSA only.
+   *
+   * The combined wallets the transition contracts use always have an Ed25519
+   * signer for an added method to inherit. This one has none, so an added
+   * method must correctly claim no Ed25519 rather than fail looking for one.
+   */
+  private async registerPasskeyEcdsaOnlyWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerPasskeyEcdsaOnlyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
+      if (sdkTargets.kind !== 'explicit') {
+        throw new Error('ECDSA-only registration requires configured chain targets');
+      }
+      const result = await this.seams.registration.registerWallet({
+        authMethod: { kind: 'passkey', rpId: intendedRegistrationRpId() },
+        wallet: { kind: 'provided', walletId: toWalletId(this.walletId) },
+        signerSelection: {
+          kind: 'signer_set',
+          signers: [
+            {
+              kind: 'evm_family_ecdsa',
+              chainTargets: [...sdkTargets.targets],
+              participantIds: [1, 2],
+            },
+          ],
+        },
+        options: { onEvent: this.recordLifecycleEvent },
+      });
+      if (!result.success) throw new Error(result.error || 'ECDSA-only registration failed');
+      if (
+        result.kind !== 'wallet_registered' ||
+        result.capabilities.length !== 1 ||
+        result.capabilities[0].kind !== 'evm_family_ecdsa'
+      ) {
+        throw new Error(`ECDSA-only registration returned result kind: ${result.kind}`);
+      }
+      if (String(result.walletId) !== this.walletId) {
+        throw new Error('ECDSA-only registration returned a different wallet');
+      }
+      const ecdsa = requireThresholdEcdsaSessionFields({
+        source: result.capabilities[0],
+        label: 'ECDSA-only registration',
+      });
+      /* The profile follows the configured targets rather than being asserted,
+         and the per-target keys are derived from the threshold address the same
+         way every other registration derives them. */
+      const session: IntendedEcdsaSessionSummary =
+        sdkTargets.targets.length > 1
+          ? {
+              ecdsaTargetProfile: 'tempo_arc',
+              thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+              thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
+            }
+          : {
+              ecdsaTargetProfile: 'tempo',
+              thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+              thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
+            };
+      const summary = {
+        kind: 'passkey_registration_success' as const,
+        walletId: this.walletId,
+        nearReadiness: 'absent' as const,
+        ...session,
+        ecdsaTargetKeys: registrationEcdsaTargetKeys(session),
+      } as PasskeyRegistrationResultSummary;
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -945,12 +1058,13 @@ class IntendedPageController {
         expectedWalletId: this.walletId,
         ecdsaTargetProfile: { kind: 'none' },
       });
-      if (registration.nearProvisioning) {
+      if (registration.nearReadiness !== 'ready') {
         throw new Error('Ed25519-only passkey registration must resolve its NEAR identity');
       }
       const summary: PasskeyRegistrationResultSummary = {
         kind: registration.kind,
         walletId: registration.walletId,
+        nearReadiness: 'ready',
         nearAccountId: registration.nearAccountId,
         nearEd25519SigningKeyId: registration.nearEd25519SigningKeyId,
         operationalPublicKey: registration.operationalPublicKey,
@@ -2266,12 +2380,14 @@ type PendingPasskeyWalletRegistrationResult = Extract<
 type PendingPasskeyRegistrationIdentitySummary = {
   kind: 'passkey_registration_success';
   walletId: string;
+  nearReadiness: 'pending';
   nearProvisioning: IntendedNearProvisioningSummary;
 };
 
 type PasskeyRegistrationIdentitySummary = {
   kind: 'passkey_registration_success';
   walletId: string;
+  nearReadiness: 'ready';
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   operationalPublicKey: string;
@@ -2293,6 +2409,7 @@ function pendingPasskeyRegistrationSummary(args: {
   return {
     kind: 'passkey_registration_success',
     walletId,
+    nearReadiness: 'pending',
     nearProvisioning: registrationNearProvisioningSummary(args.result.nearProvisioning),
   };
 }
@@ -2334,6 +2451,7 @@ function passkeyRegistrationIdentitySummary(args: {
   return {
     kind: 'passkey_registration_success',
     walletId,
+    nearReadiness: 'ready',
     nearAccountId,
     nearEd25519SigningKeyId,
     operationalPublicKey,
