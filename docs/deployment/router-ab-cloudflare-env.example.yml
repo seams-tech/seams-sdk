@@ -44,6 +44,7 @@ github_environments:
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<32-byte-signing-session-seal-root-b64u>'
+      CONSOLE_WEBHOOK_SECRET_KEY_B64U: '<32-byte-console-webhook-secret-key-b64u>'
 
   production:
     vars:
@@ -66,6 +67,7 @@ github_environments:
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<32-byte-signing-session-seal-root-b64u>'
+      CONSOLE_WEBHOOK_SECRET_KEY_B64U: '<32-byte-console-webhook-secret-key-b64u>'
 
   # Production testnet custody is intentionally pending. Generate fresh values
   # before changing these placeholders or dispatching its workflow.
@@ -79,6 +81,7 @@ github_environments:
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<production-testnet-ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<production-testnet-near-relayer-private-key>'
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<production-testnet-signing-session-seal-root-b64u>'
+      CONSOLE_WEBHOOK_SECRET_KEY_B64U: '<production-testnet-console-webhook-secret-key-b64u>'
 
   production-testnet-mpc-router:
     vars:

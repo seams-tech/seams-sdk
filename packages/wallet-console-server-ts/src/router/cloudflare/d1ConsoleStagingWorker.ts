@@ -55,8 +55,6 @@ interface CloudflareD1ConsoleStagingEnv
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly CONSOLE_BASE_URL?: string;
   readonly CONSOLE_SESSION_HMAC_SECRET?: string;
-  readonly CONSOLE_WEBHOOK_SECRET_KEY_B64U?: string;
-  readonly CONSOLE_WEBHOOK_SECRET_KEY_ID?: string;
   readonly CONSOLE_SESSION_COOKIE_NAME?: string;
   readonly CONSOLE_SESSION_ISSUER?: string;
   readonly CONSOLE_SESSION_AUDIENCE?: string;
