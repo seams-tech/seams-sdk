@@ -2,7 +2,8 @@
 
 Date created: August 20, 2026
 
-Status: implementation-blocked on Phase 0.
+Status: implementation blocked on Phase 0. R109C implementation and browser
+acceptance remain incomplete.
 
 ## Goal
 
@@ -54,6 +55,26 @@ Do not implement R109D until:
    retired owner/lane projections.
 7. Fix the stale `VerifiedLinkInputV1` authority-install test fixture through
    its shared factory, then make the focused R103E tests and type checks green.
+
+### Phase 0 live status
+
+- [x] R103E defines the `awaiting_source_contribution` lifecycle and its
+      source-contribution boundary.
+- [ ] Merge and accept R109C on the finalized R103E tree.
+- [x] Name the R109C schema change
+      `0022_r109c_multi_auth_email_cardinality.sql` after the R103E `0021`
+      transcript repair without rewriting deployed migrations.
+- [x] Keep compatibility for pre-109C custody envelopes at the persistence and
+      decoding boundary; core auth-method state remains V2-only.
+- [ ] Confirm every founding and linked ordinary Wallet Session persists the
+      operation credential consumed by `readExactWithOperationCredential`.
+- [ ] Delete or verify the absence of linked-device `step_up`,
+      `orderedOwnerSourceLaneHints`, and retired owner/lane projections.
+- [ ] Repair the authority-install fixture through its shared factory and make
+      the focused R103E checks green.
+
+R109D product implementation remains unstarted while these unchecked items are
+open.
 
 ## Successful result
 
@@ -456,23 +477,26 @@ installation, partial worker activation, and active D1 commit before response.
 
 ## R109C migration
 
-`0013_r109c_multi_auth_email_cardinality.sql` rewrites current V2 Email rows:
+`0022_r109c_multi_auth_email_cardinality.sql` rewrites current V2 Email rows:
 
 1. join the canonical wallet Email enrollment;
 2. copy `provider_user_id`;
 3. infer `provider` with the current rule: a `google:` subject is `google`,
    otherwise `email`;
 4. retain normalized `email_hash_hex`;
-5. rewrite columns and JSON to the final provider identity shape;
-6. remove `registrationAuthorityId` and apply R109C cardinality.
+5. rewrite JSON to the final provider identity shape;
+6. retain `registrationAuthorityId` only as a vestigial persistence-boundary
+   field required by the deployed table constraints; no core reader uses it;
+7. apply R109C cardinality.
 
 Abort if an active or pending Email method cannot resolve its enrollment. Drop
 unresolvable revoked history during the reset. Add no nullable compatibility
 fields.
 
 The migration test covers a successful backfill, an unresolvable live row,
-lexical ordering, the cardinality index, and absence of retired fields and
-legacy tables.
+lexical ordering, the cardinality index, absence of nullable compatibility
+fields and legacy tables, and the rule that core readers ignore the vestigial
+boundary-only `registrationAuthorityId`.
 
 ## Primary code map
 
@@ -528,7 +552,7 @@ Focused coverage also includes:
 - terminal cleanup;
 - retries after pending commit, local install, worker activation, and active D1
   commit without duplicates;
-- the `0013` migration.
+- the `0022` migration.
 
 ## Ready to begin
 

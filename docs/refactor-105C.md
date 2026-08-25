@@ -90,8 +90,10 @@ a server-owned Wallet service target.
 
 Private deployment configuration owns the hosted service targets: deployment
 stage, Wallet network, runtime environment ID, exact service bindings, and the
-reference to the service-auth secret. Customer organization, project, and
-environment IDs do not belong in deployment configuration.
+deployed Wallet runtime version. The private service binding is the capability;
+no Wallet-system secret is copied into Console configuration. Customer
+organization, project, and environment IDs do not belong in deployment
+configuration.
 
 The browser may request an authenticated Console environment ID and Wallet
 network. The server verifies the customer scope and resolves the configured
@@ -202,8 +204,15 @@ Wallet namespaces, then delete the old route literals.
 
 ## Deployment Contract
 
-`deployment/targets.json` remains the single human-edited topology source. Each
-hosted stage declares:
+Console deployment uses a dedicated private target source:
+
+```text
+deployment/console/targets.json
+deployment/wallet-system/targets.json
+```
+
+`deployment/console/targets.json` is the single human-edited source for Console
+topology. Each hosted stage declares:
 
 - the site, docs, and Console origins;
 - the Console Pages project, Worker name, routes, and readiness routes;
@@ -211,7 +220,7 @@ hosted stage declares:
 - the Console issuer, audience, `__Host-seams-console` cookie, and session
   secret reference;
 - Google and GitHub client-ID/secret references and exact callback paths;
-- the allowed Wallet service target for each network in that stage.
+- the allowed Wallet service-binding handoff for each network in that stage.
 
 Production declares exact testnet and mainnet targets. Staging declares only
 its staging testnet target. Local development uses a separate local builder and
@@ -221,6 +230,44 @@ Secret values remain in the private secret store. Generated deployment output
 must not infer a Console hostname from a Wallet Gateway hostname. Delete
 `consoleOriginFor(gatewayOrigin)` and any equivalent substitution once the
 explicit site Console origin is in use.
+
+`deployment/wallet-system/targets.json` is owned by the independent Wallet
+system pipeline. It contains Wallet Gateway/Runtime, hosted Wallet Pages,
+signer D1, Router A/B workers and role D1s, Wallet origins and networks,
+relayer configuration, protocol keys, root shares, ceremony material, and
+signing-session configuration. The Console generator cannot read or write its
+secret values.
+
+The Console pipeline consumes one parsed, read-only handoff per Wallet network:
+network name, public origin where required, exact service binding name, runtime
+environment identity, and deployed artifact/runtime version. The handoff
+contains no secret. The Console-to-Wallet control port uses the private service
+binding itself as the deployment capability; Wallet cryptographic or runtime
+secrets are never copied into a Console environment.
+
+Retire the current paired generation model:
+
+- replace the generic `product:deploy:env-*` commands with
+  `console:deploy:env-*` commands that emit and apply only Console values;
+- keep `wallet-system:deploy:env-*` commands for Wallet infrastructure only;
+- use separate manifest schemas, backup files, generation IDs, protected
+  GitHub environments, Cloudflare tokens, rotation commands, and deployment
+  workflows;
+- remove any combined prepare/rotate command and any apply process that can
+  receive both secret inventories;
+- preserve site/docs-only deployment values under their private site/docs
+  owner; they do not enter the Wallet-system pipeline.
+
+Console uses the protected GitHub environments `staging-console` and
+`production-console`. Wallet-system environments remain lane/role-specific,
+such as `<lane>-gateway`, `<lane>-mpc-router`, `<lane>-deriver-a`,
+`<lane>-deriver-b`, and `<lane>-signing-worker`. No environment is shared by
+both pipelines.
+
+Console rotation cannot generate Router A/B identities, root shares, ceremony
+keys, signing-session material, relayer keys, or Wallet service credentials.
+Wallet-system rotation cannot write Console D1 IDs, session/OAuth/email/webhook/
+billing secrets, Console routes, or Console Pages/Worker configuration.
 
 Console sessions use `Secure`, `HttpOnly`, host-only `__Host-` cookies with
 `Path=/` and no `Domain`. Production and staging use distinct issuers, secrets,
@@ -270,6 +317,9 @@ database.
 - [ ] Confirm the R105B exact-package boundary and R99B Admin boundary.
 - [ ] Identify the current Console routes, databases, session/provider
       authorities, generated links, and deployment targets that must move.
+- [ ] Classify the current paired generator inputs and outputs, GitHub
+      environments, Cloudflare tokens, and every secret/variable name as
+      Console, Wallet-system, or site/docs.
 - [ ] Confirm ownership of both production lane data sets and staging data.
 
 Exit: every current authority has one canonical destination.
@@ -281,6 +331,12 @@ Exit: every current authority has one canonical destination.
 - [ ] Compose only the Wallet product and remove inactive product placeholders.
 - [ ] Add the site-level Console deployment configuration and explicit Wallet
       service targets.
+- [ ] Add the Console-only target file, generator, GitHub environments,
+      update/rotation commands, backup output, scoped Cloudflare token, and
+      deploy workflow. Confirm the Wallet-system equivalents have disjoint
+      inputs and write targets.
+- [ ] Replace paired generation metadata with independent Console and
+      Wallet-system generations and a non-secret Wallet service handoff.
 - [ ] Replace derived Console origins with the configured Console origin.
 
 Exit: invalid stage/environment/network combinations are rejected and the
@@ -290,6 +346,9 @@ private deployment has one explicit Console authority per stage.
 
 - [ ] Provision the staging Pages project, Worker, D1, session authority,
       provider registrations, and staging testnet service target.
+- [ ] Generate and apply staging Console values through the Console pipeline
+      only; consume the staged Wallet-system handoff without invoking or
+      rotating the Wallet-system pipeline.
 - [ ] Migrate staging data, switch the canonical origin, and require fresh
       login.
 - [ ] Complete one staging flow covering organization/project/environment
@@ -301,6 +360,8 @@ Exit: staging uses only `staging.console.seams.sh` and its exact testnet target.
 
 - [ ] Provision the production Console and exact testnet/mainnet service
       targets.
+- [ ] Generate and apply production Console values through the Console pipeline
+      only; preserve the deployed Wallet-system generations for both networks.
 - [ ] Merge the production lane-owned Console data into the canonical
       production D1 and create the Wallet entitlements/bindings.
 - [ ] Cut over provider callbacks, generated links, routes, DNS, and sessions in
@@ -315,6 +376,9 @@ Exit: `console.seams.sh` is the only production Console authority.
 - [ ] Remove the Console bundle and `/dashboard/*` routing from `seams.sh`.
 - [ ] Remove old lane Console routes, D1/session/provider bindings, derived
       origins, environment fallbacks, and obsolete workflow inputs.
+- [ ] Delete the paired `wallet-core`/`product` generator path, combined
+      rotation/verification commands, and the Console component in the combined
+      backend deployment sequence.
 - [ ] Delete inactive product placeholders and compatibility code.
 
 Exit: production and staging each have one Console authority and all R105C
@@ -329,6 +393,8 @@ Keep verification proportional to the cutover:
 - confirm production testnet and mainnet resolve through one authenticated
   Console session;
 - confirm old Console hosts/cookies and cross-plane credentials are rejected;
+- confirm a Console environment update has no Wallet-system write target and a
+  Wallet-system update has no Console write target;
 - run one hosted Wallet registration and signing flow to ensure the
   `sign.seams.sh` boundary is unchanged.
 
@@ -357,8 +423,10 @@ resolve them explicitly.
 ### Cross-plane authority leakage
 
 The Console receives only Console D1, Console providers, and the narrow Wallet
-control bindings. Wallet Gateway receives no Console D1. Admin and signer
-credentials remain unusable on Console routes.
+control bindings. Wallet Gateway receives no Console D1. Their generators,
+GitHub environments, Cloudflare tokens, secret inventories, and deployment
+workflows are disjoint. Admin and signer credentials remain unusable on Console
+routes.
 
 ### Premature product framework
 
@@ -397,5 +465,10 @@ path exist.
 - `seams.sh` contains no customer Console bundle or dashboard route;
 - Console, Wallet Gateway, hosted Wallet, and Admin keep separate credentials,
   bindings, data, and routes;
+- Console and Wallet-system secrets and environment variables are generated,
+  updated, rotated, and deployed through independent pipelines with disjoint
+  write credentials;
+- Console consumes only a non-secret Wallet service handoff and cannot
+  overwrite Wallet-system configuration;
 - old lane Console authorities, derived origins, inactive product placeholders,
   and compatibility paths are deleted.

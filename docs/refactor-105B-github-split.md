@@ -25,6 +25,10 @@ Refactor 105B creates no additional Rust repositories and publishes no crates
 to crates.io. Carried crate manifests use `publish = false` unless a later,
 separately approved plan changes that decision.
 
+Private deployment remains in `seams-monorepo`, with Console and Wallet-system
+secrets and environment variables managed by separate pipelines and disjoint
+write credentials.
+
 ## Repository Ownership
 
 ### Public `seams-wallet`
@@ -58,6 +62,8 @@ Keep:
 - deployment scripts, Cloudflare/Wrangler configuration, domains, routes,
   environment declarations, account identifiers, provider configuration,
   secrets, and production/staging runbooks;
+- the separate Console and Wallet-system target files, environment/secret
+  generators, update/rotation commands, and deployment entrypoints;
 - Console, deployment, staging, and composed-stack tests;
 - internal architecture and refactor plans.
 
@@ -89,6 +95,58 @@ workflows require no Seams deployment credential or private environment.
 The two npm packages may be released together, but their package manifests are
 the version authorities. The private lockfile records the exact compatible
 pair. Do not add a second release-version manifest.
+
+### Private Secret And Environment Pipelines
+
+The repository split also makes private deployment ownership explicit. Replace
+the current paired `wallet-core`/`product` generation with two independent
+private pipelines:
+
+```text
+deployment/console/targets.json
+  console:deploy:env-prepare
+  console:deploy:env-apply
+  console:deploy:env-update
+  console:deploy
+
+deployment/wallet-system/targets.json
+  wallet-system:deploy:env-prepare
+  wallet-system:deploy:env-apply
+  wallet-system:deploy:env-update
+  wallet-system:deploy
+```
+
+The Console pipeline owns Console Pages/Worker/D1, Console session and OAuth
+secrets, Console email/webhook/billing configuration, Console routes, and
+Console origins. The Wallet-system pipeline owns Wallet Gateway/Runtime,
+hosted Wallet Pages, signer and Router A/B infrastructure, protocol keys, root
+shares, ceremony/signing-session material, relayer credentials, Wallet network
+configuration, and Wallet origins.
+
+The two generators have different manifest schemas and output files. Each can
+write only its own protected GitHub environments and owned variable/secret
+names. Preparing or rotating Console configuration never generates Wallet
+cryptographic material. Preparing or rotating Wallet infrastructure never
+reads or writes a Console secret.
+
+Use distinct environment names. Console uses `staging-console` and
+`production-console`. Wallet-system environments remain lane/role-specific,
+for example `<lane>-gateway`, `<lane>-mpc-router`, `<lane>-deriver-a`,
+`<lane>-deriver-b`, and `<lane>-signing-worker`. No GitHub environment belongs
+to both pipelines. Site/docs environments keep their existing private owner and
+are outside the Wallet-system secret set.
+
+Deploy workflows follow the same boundary. Remove the combined backend
+sequence that deploys Wallet Runtime, Console, and Gateway under one secret
+inventory. Do not pass a repository environment's complete secret map into a
+cross-authority deployment process. Each workflow receives the narrow list of
+values owned by its GitHub environment and a Cloudflare token scoped to its
+resources.
+
+The only cross-pipeline handoff is read-only, non-secret deployment identity:
+network names, public origins, service binding names, and deployed Wallet
+artifact/runtime versions. Neither pipeline can invoke, rotate, or overwrite
+the other pipeline.
 
 ## Test Ownership
 
@@ -130,6 +188,8 @@ concrete owner.
 - [ ] Complete the Refactor 105 in-monorepo boundary and classify unfinished
       Refactor 99B paths as private.
 - [ ] Reconcile the ownership inventory against the current tree.
+- [ ] Classify every deployment variable, secret, target, generator output,
+      GitHub environment, and Cloudflare token as Console or Wallet-system.
 - [ ] Confirm the public docs, examples, tests, Rust/Wasm inputs, and package
       artifacts required for an independent Wallet build.
 - [ ] Choose the extraction commit, initial npm versions, public license, and
@@ -183,6 +243,12 @@ Exit: the public source and both npm packages are independently consumable.
 - [ ] Rewire frontend builds to import `@seams/wallet`.
 - [ ] Rewire backend, migration, local-runtime, and deployment scripts to use
       artifacts from `@seams/wallet-server`.
+- [ ] Split `deployment/targets.json`, environment generation, update/rotation
+      commands, GitHub environments, and deploy entrypoints into the Console
+      and Wallet-system owners described above.
+- [ ] Remove the paired generation manifest, shared generation ID, generic
+      `product` component, combined rotation command, and cross-authority
+      `DEPLOYMENT_SECRETS_JSON` input.
 - [ ] Remove Cargo, `wasm-pack`, and public-source build steps from private
       deployment workflows.
 - [ ] Run the private build and one composed Wallet flow before deleting moved
@@ -196,8 +262,9 @@ Exit: private development and deployment use only installed public artifacts.
       public build/extraction paths from `seams-monorepo`.
 - [ ] Remove stale workspace entries, aliases, forwarding packages, and source
       fallbacks. Keep private Console, Admin, deployment, and composed tests.
-- [ ] Deploy staging through the existing private workflow using the exact npm
-      pins. Deploy production only after the staging path succeeds.
+- [ ] Deploy the staging Wallet system and staging Console through their
+      separate private workflows using the exact npm pins. Deploy production
+      only after both staging paths succeed.
 
 Exit: the private repository owns product composition and deployment; the
 public repository owns the Wallet implementation; neither depends on the
@@ -226,6 +293,10 @@ overwriting or unpublishing one.
   example, and a working generic self-host runtime;
 - the private monorepo exact-pins the public packages and deploys their prebuilt
   artifacts without public source access or Rust tooling;
+- Console and Wallet-system secrets, variables, targets, rotations, GitHub
+  environments, Cloudflare tokens, and deployment workflows are disjoint;
+- neither private pipeline can generate, apply, rotate, or deploy the other
+  authority's configuration;
 - no compatibility package or duplicate repository remains.
 
 ## Related Plans
