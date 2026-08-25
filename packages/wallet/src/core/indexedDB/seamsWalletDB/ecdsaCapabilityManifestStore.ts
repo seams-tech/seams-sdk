@@ -3268,6 +3268,7 @@ async function lookupWithoutPointer(
   }
   let hasDifferentAuthority = false;
   let hasExactAuthority = false;
+  let hasSameMethodUnderAnotherDigest = false;
   for (const raw of rows) {
     let parsed: ParsedManifestRow;
     try {
@@ -3277,14 +3278,27 @@ async function lookupWithoutPointer(
     }
     if (selectorsMatch(parsed.selector, selector)) {
       hasExactAuthority = true;
-    } else {
-      hasDifferentAuthority = true;
+      continue;
+    }
+    hasDifferentAuthority = true;
+    // A sibling differs in BOTH method id and digest, because the digest covers
+    // the method's factor and binding id. Same method id under a different
+    // digest is a ref disagreeing with itself, which is a real binding conflict
+    // and must not be softened into "this method simply has none".
+    if (parsed.selector.authority.walletAuthMethodId === selector.authority.walletAuthMethodId) {
+      hasSameMethodUnderAnotherDigest = true;
     }
   }
   if (hasExactAuthority) {
     return {
       kind: 'exact_record_conflict',
       detail: 'exact ECDSA authority has manifest history without a current pointer',
+    };
+  }
+  if (hasSameMethodUnderAnotherDigest) {
+    return {
+      kind: 'exact_binding_mismatch',
+      detail: 'ECDSA capability exists for this method under a different authority digest',
     };
   }
   if (hasDifferentAuthority) {
