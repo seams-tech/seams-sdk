@@ -520,7 +520,17 @@ export async function listBrowserEcdsaSigningCapabilitiesForWallet(
     // own manifest. Going back through the activation would collapse every
     // sibling projection onto whichever method is currently selected, and an
     // added method would never appear as a candidate for its own family.
-    const capability = await browserCanonicalEcdsaCapabilityFromManifest(manifest);
+    let capability: CanonicalEvmFamilyEcdsaSigningCapability;
+    try {
+      capability = await browserCanonicalEcdsaCapabilityFromManifest(manifest);
+    } catch {
+      /* A revoked method keeps its projection until something prunes it, and
+         resolving that projection's authority fails because the method is no
+         longer active. Enumeration is asking which capabilities are usable, so
+         one that is not is a skip - throwing here would let a retired sibling
+         take the surviving method's lanes down with it. */
+      continue;
+    }
     const capabilityAuthMethod = isPasskeyWalletAuthAuthority(capability.authority)
       ? 'passkey'
       : isEmailOtpWalletAuthAuthority(capability.authority)
