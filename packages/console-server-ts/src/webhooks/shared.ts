@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '../boundary';
+import { secureRandomBase36, secureRandomBase64Url } from '../boundary';
 import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
 import type { WebhookEventCategoryValidation } from './types';
 
@@ -21,12 +21,29 @@ export function truncateResponseBody(input: string | undefined): string | null {
   return input.slice(0, DELIVERY_RESPONSE_BODY_MAX_LEN);
 }
 
+const WEBHOOK_SIGNING_SECRET_BYTES = 32;
+export const WEBHOOK_SIGNING_SECRET_PREFIX = 'whsec_';
+
+/**
+ * `whsec_` is a fixed prefix, so a head-slice preview is the same string for
+ * every endpoint. Show the tail instead — that is the part that identifies
+ * which secret a customer is holding.
+ */
 export function makeSecretPreview(secret: string): string {
-  return `${secret.slice(0, 10)}...`;
+  return `${WEBHOOK_SIGNING_SECRET_PREFIX}...${secret.slice(-4)}`;
 }
 
-export function makeSigningSecret(now: Date): string {
-  return `whsec_${makeId('secret', now)}`;
+/**
+ * The signing secret is an HMAC key an attacker can grind offline against any
+ * captured delivery, so it must be full-entropy random. It deliberately does
+ * NOT embed a timestamp: `createdAt` is public on the endpoint, so any encoded
+ * clock is known plaintext that shrinks the search space.
+ */
+export function makeSigningSecret(): string {
+  return `${WEBHOOK_SIGNING_SECRET_PREFIX}${secureRandomBase64Url(
+    WEBHOOK_SIGNING_SECRET_BYTES,
+    'webhook signing secret',
+  )}`;
 }
 
 export function normalizeEventCategory(

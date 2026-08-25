@@ -66,6 +66,16 @@ interface ConsoleWebhookEndpointResponse {
   message?: string;
   endpoint?: unknown;
   removed?: unknown;
+  signingSecret?: unknown;
+}
+
+/**
+ * The plaintext signing secret is sealed server-side and no read route returns
+ * it, so create and rotate are the only chances to capture it.
+ */
+export interface DashboardConsoleWebhookSecretResult {
+  endpoint: DashboardConsoleWebhookEndpoint;
+  signingSecret: string;
 }
 
 interface ConsoleWebhookDeliveriesResponse {
@@ -220,7 +230,7 @@ export async function createDashboardWebhookEndpoint(input: {
   url: string;
   eventCategories: ConsoleWebhookEventCategory[];
   status?: 'ACTIVE' | 'DISABLED';
-}): Promise<DashboardConsoleWebhookEndpoint> {
+}): Promise<DashboardConsoleWebhookSecretResult> {
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}/console/webhooks`, {
     method: 'POST',
@@ -235,7 +245,36 @@ export async function createDashboardWebhookEndpoint(input: {
   }
   const endpoint = decodeEndpoint(body?.endpoint);
   if (!endpoint) throw new Error('Create webhook endpoint response missing endpoint');
-  return endpoint;
+  const signingSecret = String(body?.signingSecret || '').trim();
+  if (!signingSecret) throw new Error('Create webhook endpoint response missing signing secret');
+  return { endpoint, signingSecret };
+}
+
+export async function rotateDashboardWebhookSecret(input: {
+  endpointId: string;
+}): Promise<DashboardConsoleWebhookSecretResult> {
+  const endpointId = String(input.endpointId || '').trim();
+  if (!endpointId) throw new Error('Endpoint id is required');
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(
+    `${base}/console/webhooks/${encodeURIComponent(endpointId)}/rotate-secret`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: '{}',
+    },
+  );
+  const body = (await parseConsoleJson(response)) as ConsoleWebhookEndpointResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Rotate webhook secret request failed'));
+  }
+  const endpoint = decodeEndpoint(body?.endpoint);
+  if (!endpoint) throw new Error('Rotate webhook secret response missing endpoint');
+  const signingSecret = String(body?.signingSecret || '').trim();
+  if (!signingSecret) throw new Error('Rotate webhook secret response missing signing secret');
+  return { endpoint, signingSecret };
 }
 
 export async function updateDashboardWebhookEndpoint(input: {

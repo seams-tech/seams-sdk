@@ -33,6 +33,7 @@ const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['STRIPE_API_SK', 'STRIPE_API_SK'],
   ['STRIPE_WEBHOOK_SECRET', 'STRIPE_WEBHOOK_SECRET'],
   ['CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U', 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U'],
+  ['CONSOLE_WEBHOOK_SECRET_KEY_B64U', 'CONSOLE_WEBHOOK_SECRET_KEY_B64U'],
 ]);
 const GATEWAY_EMAIL_SECRET_INPUTS = Object.freeze([['RESEND_API_KEY', 'RESEND_API_KEY']]);
 const GATEWAY_EMAIL_VARIABLE_INPUTS = Object.freeze([['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM']]);
@@ -236,6 +237,10 @@ function validateExternalValues(values, component) {
   if (invitationSecretKey) {
     requireConsoleEmailInvitationSecretKey(invitationSecretKey);
   }
+  const webhookSecretKey = readValue(values, 'CONSOLE_WEBHOOK_SECRET_KEY_B64U');
+  if (webhookSecretKey) {
+    requireConsoleWebhookSecretKey(webhookSecretKey);
+  }
 }
 
 function validatePair(values, leftName, rightName, label) {
@@ -258,6 +263,13 @@ function requireStripeSecretKey(value) {
 function requireConsoleEmailInvitationSecretKey(value) {
   if (!/^[A-Za-z0-9_-]+$/.test(value) || Buffer.from(value, 'base64url').byteLength !== 32) {
     throw new Error('CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U must encode exactly 32 bytes');
+  }
+  return value;
+}
+
+function requireConsoleWebhookSecretKey(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || Buffer.from(value, 'base64url').byteLength !== 32) {
+    throw new Error('CONSOLE_WEBHOOK_SECRET_KEY_B64U must encode exactly 32 bytes');
   }
   return value;
 }

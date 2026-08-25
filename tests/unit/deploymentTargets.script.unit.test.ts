@@ -307,6 +307,9 @@ test('required secrets are derived from enabled capabilities', async () => {
   expect(module.componentSecretNames(staging, 'console')).toContain(
     'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   );
+  expect(module.componentSecretNames(staging, 'console')).toContain(
+    'CONSOLE_WEBHOOK_SECRET_KEY_B64U',
+  );
   expect(module.componentSecretNames(staging, 'deriver-a')).toEqual([
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',

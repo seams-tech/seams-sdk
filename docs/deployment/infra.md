@@ -149,6 +149,7 @@ cross-run artifact inputs.
 | `STRIPE_WEBHOOK_SECRET`                         | Gateway deploy           | Required Stripe endpoint signing secret for webhook verification.                                         |
 | `RESEND_API_KEY`                                | Gateway deploy           | Required Resend API key for console transactional email.                                                  |
 | `CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U`      | Console deploy           | Generated 32-byte base64url key for invitation-secret encryption.                                         |
+| `CONSOLE_WEBHOOK_SECRET_KEY_B64U`               | Console deploy           | Generated 32-byte base64url key sealing webhook signing secrets at rest. Without it every `/console/webhooks` route answers 501. |
 
 ### Variables
 
