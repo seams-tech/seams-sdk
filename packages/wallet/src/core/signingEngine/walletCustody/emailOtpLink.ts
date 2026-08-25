@@ -167,8 +167,11 @@ export async function linkWalletEmailOtpCustody(input: {
       }),
     );
   } finally {
-    existingFactorSecret.fill(0);
-    replacementFactorSecret.fill(0);
+    /* Both buffers were transferred to the worker, which detaches them here.
+       Zeroing a detached buffer throws; the worker owns and wipes the bytes
+       once the transfer succeeds, so the guard is the whole cleanup. */
+    if (existingFactorSecret.byteLength > 0) existingFactorSecret.fill(0);
+    if (replacementFactorSecret.byteLength > 0) replacementFactorSecret.fill(0);
   }
 
   const nowMs = (input.nowMs ?? Date.now)();
