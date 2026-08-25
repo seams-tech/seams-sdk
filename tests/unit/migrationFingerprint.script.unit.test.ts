@@ -121,20 +121,27 @@ test('applied migration sources are immutable when a forward migration is added'
   ).toThrow(/add a new forward migration/u);
 });
 
-test('Console canonical baseline is a single migration and stays fresh-schema safe', async () => {
+test('Console applied baseline stays immutable and upgrades to the fresh schema', async () => {
   const deployed = createTemporaryD1Database();
   const fresh = createTemporaryD1Database();
   try {
     const consoleMigrations = readMigrationFiles(consoleMigrationRoot);
     const migrationFiles = listD1MigrationFiles('d1-console');
     const migrationNames = consoleMigrations.map((migration) => migration.name);
-    expect(migrationNames).toEqual(['0001_wallet_console_initial.sql']);
+    expect(migrationNames).toEqual([
+      '0001_wallet_console_initial.sql',
+      '0002_console_runtime_isolation.sql',
+    ]);
     expect(migrationFiles.map((file) => path.basename(file))).toEqual(migrationNames);
+    expect(digestMigrations(consoleMigrations.slice(0, 1))).toBe(
+      '34bc5f39e891cb54f95c8d7715e96ec172636d9fa9fc2392982e69b26669f023',
+    );
     const currentFingerprint = digestMigrations(consoleMigrations);
     const appliedMigrationNames = new Set(migrationNames);
 
-    await applyD1MigrationFiles(deployed.database, migrationFiles);
+    await applyD1MigrationFiles(deployed.database, migrationFiles.slice(0, 1));
     await deployed.database.exec(deployedConsoleFixtureSql);
+    await applyD1MigrationFiles(deployed.database, migrationFiles.slice(1));
     await deployed.database.exec(`
       CREATE TABLE d1_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

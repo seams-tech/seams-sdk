@@ -71,6 +71,7 @@ CREATE TABLE audit_events (
   created_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, id),
   CHECK (actor_type IN ('USER', 'SYSTEM')),
+  CHECK (category IN ('POLICY', 'SETTINGS', 'KEY_EXPORT', 'BILLING', 'WEBHOOK', 'API_KEY', 'TEAM', 'APPROVAL', 'ORG_PROJECT_ENV', 'RUNTIME_SNAPSHOT', 'SYSTEM')),
   CHECK (outcome IN ('SUCCESS', 'FAILURE', 'PENDING')),
   CHECK (json_valid(metadata_json))
 );
@@ -88,6 +89,7 @@ CREATE TABLE audit_evidence (
   references_json TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, id),
+  CHECK (domain IN ('POLICY', 'BILLING', 'KEY_EXPORT', 'SECURITY')),
   CHECK (json_valid(event_ids_json)),
   CHECK (json_valid(references_json))
 );
@@ -202,7 +204,7 @@ CREATE TABLE "billing_ledger_entries" (
     entry_type IN (
       'CREDIT_PURCHASE',
       'USAGE_DEBIT',
-      'PRODUCT_EXECUTION_DEBIT',
+      'SPONSORED_EXECUTION_DEBIT',
       'MANUAL_ADJUSTMENT',
       'REFUND',
       'DISPUTE_OPENED',
@@ -210,8 +212,16 @@ CREATE TABLE "billing_ledger_entries" (
     )
   ),
   CHECK (
-    (entry_type IN ('CREDIT_PURCHASE', 'REFUND', 'DISPUTE_WON') AND amount_minor > 0)
-    OR (entry_type IN ('USAGE_DEBIT', 'PRODUCT_EXECUTION_DEBIT', 'DISPUTE_OPENED') AND amount_minor < 0)
+    (entry_type IN ('CREDIT_PURCHASE', 'DISPUTE_WON') AND amount_minor > 0)
+    OR (
+      entry_type IN (
+        'USAGE_DEBIT',
+        'SPONSORED_EXECUTION_DEBIT',
+        'REFUND',
+        'DISPUTE_OPENED'
+      )
+      AND amount_minor < 0
+    )
     OR (entry_type = 'MANUAL_ADJUSTMENT' AND amount_minor != 0)
   ),
   CHECK (currency = 'USD'),
@@ -256,32 +266,13 @@ CREATE TABLE billing_ledger_postings (
       'org_prepaid_liability',
       'stripe_cash_clearing',
       'revenue_usage',
-      'revenue_product_execution',
+      'revenue_sponsored_execution',
       'manual_adjustment_clearing',
       'stripe_dispute_clearing'
     )
   ),
   CHECK (direction IN ('DEBIT', 'CREDIT')),
   CHECK (amount_minor > 0),
-  CHECK (created_at_ms > 0)
-);
-
-CREATE TABLE billing_monthly_active_resources (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  month_utc TEXT NOT NULL,
-  resource_id TEXT NOT NULL,
-  source_event_id TEXT,
-  created_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, month_utc, resource_id),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (
-    month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
-    AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
-  ),
-  CHECK (length(resource_id) > 0),
-  CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
   CHECK (created_at_ms > 0)
 );
 
@@ -572,7 +563,7 @@ CREATE TABLE environments (
   org_id TEXT NOT NULL,
   project_id TEXT NOT NULL,
   env_key TEXT NOT NULL,
-  runtime_version TEXT NOT NULL DEFAULT 'default',
+  signing_root_version TEXT NOT NULL DEFAULT 'default',
   name TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
@@ -602,6 +593,7 @@ CREATE TABLE invoice_line_items (
   FOREIGN KEY (namespace, org_id, invoice_id)
     REFERENCES invoices(namespace, org_id, id)
     ON DELETE CASCADE,
+  CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT')),
   CHECK (quantity > 0),
   CHECK (unit_amount_minor >= 0),
   CHECK (amount_minor >= 0)
@@ -1052,6 +1044,7 @@ CREATE TABLE "webhook_endpoint_categories" (
   CHECK (length(namespace) > 0),
   CHECK (length(org_id) > 0),
   CHECK (length(endpoint_id) > 0),
+  CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
   FOREIGN KEY (namespace, org_id, endpoint_id)
     REFERENCES webhook_endpoints(namespace, org_id, id)
     ON DELETE CASCADE
@@ -1163,10 +1156,6 @@ CREATE UNIQUE INDEX billing_ledger_entries_type_source_uidx
 
 CREATE INDEX billing_ledger_postings_entry_idx
   ON billing_ledger_postings (namespace, org_id, ledger_entry_id);
-
-CREATE UNIQUE INDEX billing_monthly_active_resources_source_uidx
-  ON billing_monthly_active_resources (namespace, org_id, source_event_id)
-  WHERE source_event_id IS NOT NULL;
 
 CREATE UNIQUE INDEX billing_refunds_idempotency_uidx
   ON billing_refunds (namespace, org_id, idempotency_key);
@@ -1348,6 +1337,7 @@ BEGIN
         WHEN NEW.entry_type IN ('CREDIT_PURCHASE', 'REFUND') THEN 'stripe_cash_clearing'
         WHEN NEW.entry_type IN ('DISPUTE_OPENED', 'DISPUTE_WON') THEN 'stripe_dispute_clearing'
         WHEN NEW.entry_type = 'USAGE_DEBIT' THEN 'revenue_usage'
+        WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN 'revenue_sponsored_execution'
         ELSE 'manual_adjustment_clearing'
       END,
       'DEBIT',
@@ -1364,8 +1354,8 @@ BEGIN
         WHEN NEW.entry_type IN ('CREDIT_PURCHASE', 'REFUND') THEN 'stripe_cash_clearing'
         WHEN NEW.entry_type IN ('DISPUTE_OPENED', 'DISPUTE_WON') THEN 'stripe_dispute_clearing'
         WHEN NEW.entry_type = 'USAGE_DEBIT' THEN 'revenue_usage'
-        WHEN NEW.entry_type = 'MANUAL_ADJUSTMENT' THEN 'manual_adjustment_clearing'
-        ELSE 'revenue_product_execution'
+        WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN 'revenue_sponsored_execution'
+        ELSE 'manual_adjustment_clearing'
       END,
       'CREDIT',
       ABS(NEW.amount_minor),
@@ -1580,6 +1570,25 @@ CREATE TABLE approvals (
   CHECK (require_mfa IN (0, 1)),
   CHECK (json_valid(metadata_json)),
   CHECK (json_valid(decisions_json))
+);
+
+CREATE TABLE "billing_monthly_active_wallets" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  month_utc TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  source_event_id TEXT,
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, month_utc, wallet_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (
+    month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+    AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
+  ),
+  CHECK (length(wallet_id) > 0),
+  CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
+  CHECK (created_at_ms > 0)
 );
 
 CREATE TABLE "billing_prepaid_reservation_summaries" (
@@ -2012,6 +2021,10 @@ CREATE INDEX approvals_org_status_idx
 
 CREATE INDEX approvals_org_updated_idx
   ON approvals (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
+
+CREATE UNIQUE INDEX billing_monthly_active_wallets_source_uidx
+  ON billing_monthly_active_wallets (namespace, org_id, source_event_id)
+  WHERE source_event_id IS NOT NULL;
 
 CREATE UNIQUE INDEX billing_prepaid_reservations_namespace_id_idx
   ON billing_prepaid_reservations (namespace, id);
