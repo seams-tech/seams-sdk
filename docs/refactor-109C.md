@@ -2,8 +2,8 @@
 
 Date created: August 22, 2026
 
-Status: implementation in progress on `codex/refactor-109c`; composed browser
-acceptance is pending. Depends on Refactor 103E.
+Status: COMPLETE on `codex/refactor-109c`. Both transitions are accepted through
+the real browser operating path. Depends on Refactor 103E.
 
 R109C is the sole implementation authority for same-device auth-method
 addition. Refactor 109D remains the separate device-linking plan.
@@ -15,11 +15,13 @@ merged with `dev` at `c3b96e235` (the three R103E cleanup commits). R103E's
 closure edit was already committed on `dev` in `ff395dfe1`, so this branch adds
 no separate documentation commit for it.
 
-**R109C is not ready to merge.** Phase 0's same-authority sibling revocation
-prerequisite is green, both public addition entry points exist, and the Phase 3
-inventory/addition/removal UI is implemented. The remaining closure work is the
-real two-transition browser matrix, explicit unlock and step-up selection proof,
-interruption coverage, and Phase 4 deletion of obsolete fixtures and branches.
+**R109C is complete.** Phase 0's same-authority sibling revocation prerequisite
+is green, both public addition entry points exist, the Phase 3
+inventory/addition/removal UI is implemented, and both transitions are accepted
+through the real browser operating path: an added method unlocks the wallet and
+reaches every signer family and every key export its authority owns, from one
+verification. See **Closure** at the end of this ledger for the last defect and
+what remains deliberately out of scope.
 
 A checkpoint is marked done only when the named command was run and reported
 green. Green lower-tier evidence does not close a product transition; only a
@@ -610,11 +612,12 @@ being removed is excluded from the prompt so it can never authorize its own
 removal. The `email_otp_to_passkey` contract removes the Email OTP method that
 did the adding and signs again through the passkey that remains.
 
-Still open in Phase 3: revoking a passkey from an Email OTP sibling needs the
-email-source proof branch of `revokeAuthMethod`, which the shape already
-anticipates - the challenge boundary takes an operation fingerprint, so the
-proof is a bound challenge plus its code rather than an assertion. Until it
-exists, `passkey_to_email_otp` proves addition and unlock but not removal.
+Both proof families are now implemented and browser-proven. The email-source
+branch of `revokeAuthMethod` is the shape the challenge boundary already
+anticipated - an operation fingerprint, so the proof is a bound challenge plus
+its code rather than an assertion. The `email_otp_to_passkey` contract exercises
+both: the Email OTP source removes the passkey it just added, then the surviving
+passkey removes the Email OTP method that did the adding.
 
 The previous explanation for added-Email-OTP Ed25519 conflated capability
 composition, address-based reachability, and exact method selection. The unlock
@@ -630,14 +633,15 @@ unlock for an address-based Email method. Neither change selects the added
 method. The selection store still holds one selected method per wallet, and an
 addition deliberately preserves the source selection.
 
-The remaining defect is therefore exact selection and projection. Before the
-unlock request is built, the user-selected added method must project its
-authority's existing Ed25519 activation. The signer belongs to the authority;
-the method authenticates access to it. Registered Email OTP Ed25519 unlock is
-already green after `fdf67168b`. The added-method repair must preserve that same
+The remaining defect was therefore exact selection and projection. Before the
+unlock request is built, the added method must project its authority's existing
+Ed25519 activation. The signer belongs to the authority; the method
+authenticates access to it. Registered Email OTP Ed25519 unlock is already green
+after `fdf67168b`, and the added-method repair preserves that same
 authority-native path without copying signer material, creating an activation,
-or adding a linked-device-only fallback. Until explicit selection is wired, the
-forward contract proves ECDSA and the reverse contract proves both families.
+or adding a linked-device-only fallback. **Closure** below records how that was
+resolved: the caller names the exact method, so no wallet-wide selection is
+needed to reach it.
 
 The Add action's disappearance when both families are active is now proven by a
 logged-in component test. Its session comes from the shared Wallet Session
@@ -650,14 +654,14 @@ The signer-profile matrix is two directions across three signer profiles. An
 earlier note said five cells remained and then listed six, by counting profile
 cells and direction cells separately; the six unique cells are:
 
-| Wallet       | Direction            | State                       |
-| ------------ | -------------------- | --------------------------- |
-| Ed25519-only | Passkey -> Email OTP | green                       |
-| ECDSA-only   | Passkey -> Email OTP | green                       |
-| Combined     | Passkey -> Email OTP | green, ECDSA operating only |
-| Ed25519-only | Email OTP -> Passkey | green                       |
-| ECDSA-only   | Email OTP -> Passkey | green                       |
-| Combined     | Email OTP -> Passkey | green, both families        |
+| Wallet       | Direction            | State                |
+| ------------ | -------------------- | -------------------- |
+| Ed25519-only | Passkey -> Email OTP | green                |
+| ECDSA-only   | Passkey -> Email OTP | green                |
+| Combined     | Passkey -> Email OTP | green, both families |
+| Ed25519-only | Email OTP -> Passkey | green                |
+| ECDSA-only   | Email OTP -> Passkey | green                |
+| Combined     | Email OTP -> Passkey | green, both families |
 
 The first cell earned its place immediately. Both transition contracts run on
 combined wallets, where every addition has an ECDSA capability to carry forward
@@ -740,10 +744,9 @@ pass through the real browser operating path.
       surfaces.
 - [x] Prove same-authority sibling revocation in both directions through the
       composed server and IndexedDB path, including the final-method guard.
-- [ ] Complete Passkey-to-Email-OTP operating acceptance. Addition, unlock,
-      ECDSA signing and export, `already_configured`, and a locked reload are
-      proven; Ed25519 signing and export wait on explicit method selection,
-      which has no API yet.
+- [x] Complete Passkey-to-Email-OTP operating acceptance: addition,
+      `already_configured`, a locked reload, unlock through the added method,
+      both signer families, and both key exports.
 - [x] Complete and accept Email-OTP-to-Passkey through the same internal
       operation and operating path: unlock, both signer families, both key
       exports, step-up under the selected method, sibling removal in both
@@ -753,6 +756,81 @@ pass through the real browser operating path.
 - [ ] Delete obsolete single-family fixtures and duplicate persistence paths,
       update the intended-behaviour contract, and run the six-cell browser
       matrix plus one interruption case per branch.
+
+### Closure
+
+Two defects stood between the owner Ed25519 branch and acceptance. Both were the
+single-auth-method assumption again, and neither was where the symptoms pointed.
+
+**The circular dependency.** Activating an added method's Ed25519 runtime read
+the wallet's active Wallet Session authority back out of the store to bind
+against. The unlock had just written that session with
+`writeExactWithOperationCredential`, which writes an exact V4/V5 row -
+and `readActiveForWallet` filters exactly those rows out, reading only the older
+active projection shape. The two are mutually exclusive, so the freshly written
+session could never satisfy the lookup that activation waited on: activation
+required the projection that activation itself creates. No write ordering or
+lock state could have fixed it, which is why two ordering attempts failed and a
+`cold_unlock` authority-source experiment failed differently.
+
+The fix removes the dependency rather than timing around it. The unlock has
+already resolved the exact `selection` and validated it field by field against
+`unlocked.walletSession` - wallet, authority, method, digest, revocation epoch.
+That verified selection builds the `WalletAuthAuthorityRef`, which is passed
+into activation as an argument and consumed directly.
+`writeExactWithOperationCredential` still does the durable session and
+operation-credential persistence, and
+`persistActiveWalletSessionAuthorizationCurve` still runs after a successful
+activation. Commit `cea648639`.
+
+**The missing warm ECDSA session.** With activation fixed, the added method
+unlocked and its Ed25519 runtime came up, and Tempo then stepped up on every
+signature - `warmSessionClaimed: false`. The cause was an entry-point choice,
+not a missing capability. `auth.unlockAddedEmailOtpWallet` takes no chain
+target, so it has nothing to bind an ECDSA threshold session to; it opens the
+wallet and its Ed25519 runtime and nothing else, by construction. The combined
+unlock is `auth.loginWithEmailOtpEcdsaCapability`, which already resolves the
+Ed25519 custody projection, requests `ed25519_yao`, and publishes the ECDSA
+session from one verification.
+
+What it needed was the exact method. Given `walletAuthMethodId`, it resolves
+that method's authority, that authority's Ed25519 material activation, and that
+method's ECDSA capability manifest. Given nothing, it falls back to the wallet's
+selected method - and invariant 9 keeps the source method selected after an
+addition, so a Passkey wallet that has just added Email OTP still selects the
+Passkey. That is the whole of the gap the earlier note called "explicit method
+selection, which has no API yet": the API is the argument, not a wallet-wide
+selection store. One code, every family the authority owns.
+
+The two entry points are therefore different operations, not a complete one and
+a partial one:
+
+| Entry point                             | Chain target | Yields                        |
+| --------------------------------------- | ------------ | ----------------------------- |
+| `auth.unlockAddedEmailOtpWallet`        | none         | Wallet Session + Ed25519      |
+| `auth.loginWithEmailOtpEcdsaCapability` | required     | Wallet Session + every family |
+
+**Accepted operating path.** `passkey.add-email-otp.contract.test.ts`: register
+a passkey wallet, wait for NEAR, add Email OTP, refuse the repeat addition off
+the existing inventory, lock and reload and stay locked, unlock through the
+exact added method, sign NEAR, export Ed25519 under a fresh step-up, sign Tempo,
+export ECDSA. Green together with `email-otp.add-passkey.contract.test.ts` and
+the four `auth-method-addition.matrix.contract.test.ts` cells: 6 passed.
+
+**Deliberately not done here.** The product UI for inventory-driven addition and
+exact sibling removal is Codex's lane. Phase 4 deletion of obsolete single-family
+fixtures and duplicate persistence paths was never unblocked and is not part of
+this closure. The shared `router-ab-yao:router-ab-ed25519-yao:shared` recovery
+row that grows one entry per wallet until D1 rejects it is a separate defect,
+recorded in `docs/defect-shared-ed25519-yao-recovery-row.md`.
+
+A regression check over the base unlock contracts turned up a second one, also
+outside R109C: once the shared signing budget is spent, NEAR signing throws
+`active Wallet Session is unavailable` instead of stepping up. The throwing
+block and both values it compares are byte-identical to `dev`, the failing
+contract files are unmodified, and the wallet holds a single auth method, so no
+R109C branch is reachable. Recorded in
+`docs/defect-near-step-up-after-budget-exhaustion.md`.
 
 ## Goal
 
