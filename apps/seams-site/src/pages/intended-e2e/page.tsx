@@ -1447,7 +1447,9 @@ class IntendedPageController {
         idToken,
         walletId,
         ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
-        ...(intendedEmailOtpChallengeSubjectOverride
+        /* Only alongside the exact challenge. The route refuses a named subject
+           without one, so the fallback lookup stays on the token's identity. */
+        ...(lookup.kind === 'challenge' && intendedEmailOtpChallengeSubjectOverride
           ? { challengeSubjectId: intendedEmailOtpChallengeSubjectOverride }
           : {}),
       }),

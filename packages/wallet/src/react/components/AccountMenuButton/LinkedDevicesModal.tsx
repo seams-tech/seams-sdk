@@ -246,6 +246,18 @@ function visibleWalletDevices(
     .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked');
 }
 
+function isActiveWalletMethod(view: WalletDeviceView): boolean {
+  return view.kind === 'owner' || view.device.state === 'active';
+}
+
+function canRemoveWalletMethod(
+  target: WalletDeviceView,
+  devices: readonly NumberedWalletDevice[],
+): boolean {
+  const activeMethodCount = devices.filter(({ view }) => isActiveWalletMethod(view)).length;
+  return isActiveWalletMethod(target) ? activeMethodCount > 1 : activeMethodCount > 0;
+}
+
 /**
  * Plain-language state for one device. The wire model carries five states and a
  * revocation epoch; a person only needs to know whether the device can still
@@ -458,11 +470,11 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     [loadDevices],
   );
 
-  const revokeDevice = React.useCallback(
-    async (device: LinkedDeviceSummaryV1, deviceNumber: number) => {
+  const revokeMethod = React.useCallback(
+    async (view: WalletDeviceView, deviceNumber: number) => {
       if (!walletId) return;
-      const walletAuthMethodId = String(device.credential.walletAuthMethodId);
-      const description = deviceDescription({ kind: 'linked', device }, deviceNumber);
+      const walletAuthMethodId = String(viewCredential(view).walletAuthMethodId);
+      const description = deviceDescription(view, deviceNumber);
       try {
         const walletSession = await seams.auth.getWalletSession(walletId);
         const sourceMethod = resolveRevokeSourceMethod(walletSession, walletId);
@@ -655,8 +667,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                       <div className="w3a-linked-devices-modal-item-detail">
                         Last used {friendlyDay(viewLastActivityAtMs(view), Date.now())}
                       </div>
-                      {view.kind === 'owner' ? null : awaitingEmailOtp &&
-                        revokeState.kind === 'email_otp' ? (
+                      {awaitingEmailOtp && revokeState.kind === 'email_otp' ? (
                         <form
                           className="w3a-linked-devices-modal-otp-form"
                           onSubmit={(event) => {
@@ -735,13 +746,13 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                             <button
                               type="button"
                               className="w3a-linked-devices-modal-danger"
-                              onClick={() => void revokeDevice(view.device, deviceNumber)}
+                              onClick={() => void revokeMethod(view, deviceNumber)}
                             >
                               Yes, remove
                             </button>
                           </div>
                         </div>
-                      ) : (
+                      ) : canRemoveWalletMethod(view, devices) ? (
                         <button
                           type="button"
                           className="w3a-linked-devices-modal-secondary"
@@ -751,7 +762,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                         >
                           {working ? 'Removing…' : 'Remove'}
                         </button>
-                      )}
+                      ) : null}
                     </li>
                   );
                 })}
