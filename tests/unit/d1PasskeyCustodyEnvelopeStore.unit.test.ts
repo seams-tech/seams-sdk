@@ -16,7 +16,9 @@ import {
   DIGEST_B64U,
   ENVELOPE_ID,
   OTHER_WALLET_ID,
+  OWNING_WALLET_AUTH_METHOD_ID,
   RP_ID,
+  SIBLING_WALLET_AUTH_METHOD_ID,
   WALLET_ID,
   passkeyCustodyEnvelope,
   rawEcdsaLaneHolderShareBinding,
@@ -29,6 +31,30 @@ const TEST_SCOPE = {
   projectId: 'project-a',
   envId: 'env-a',
 } as const;
+
+/* Refactor 109C: a rewrap states which row it replaces. The pre-109C row is
+   `unbound` at revision 1, and the only replacement it admits is the method
+   that just proved it can open it, one revision on. */
+const UNBOUND_AT_REVISION_ONE = {
+  envelopeId: ENVELOPE_ID as PasskeyEnvelopeId,
+  envelopeRevision: 1,
+  ownership: { kind: 'unbound' },
+} as const;
+
+function methodBoundEnvelope(overrides: {
+  readonly envelopeRevision: number;
+  readonly walletAuthMethodId?: string;
+  readonly updatedAtMs?: number;
+}) {
+  return passkeyCustodyEnvelope({
+    envelopeRevision: overrides.envelopeRevision,
+    ownership: {
+      kind: 'method_bound',
+      walletAuthMethodId: overrides.walletAuthMethodId ?? OWNING_WALLET_AUTH_METHOD_ID,
+    },
+    ...(overrides.updatedAtMs === undefined ? {} : { updatedAtMs: overrides.updatedAtMs }),
+  });
+}
 
 const LOCATOR = {
   walletId: WALLET_ID as WalletId,
@@ -155,14 +181,21 @@ test('a rewrap must advance the revision by exactly one', async () => {
   await withStore(async (store) => {
     await store.createEnvelope(passkeyCustodyEnvelope());
 
-    const skipped = await store.rewrapEnvelope(passkeyCustodyEnvelope({ envelopeRevision: 3 }));
+    const skipped = await store.rewrapEnvelope(
+      methodBoundEnvelope({ envelopeRevision: 3 }),
+      UNBOUND_AT_REVISION_ONE,
+    );
     expect(skipped).toEqual({ kind: 'revision_conflict', expectedRevision: 2 });
 
-    const replayed = await store.rewrapEnvelope(passkeyCustodyEnvelope({ envelopeRevision: 1 }));
+    const replayed = await store.rewrapEnvelope(
+      methodBoundEnvelope({ envelopeRevision: 1 }),
+      UNBOUND_AT_REVISION_ONE,
+    );
     expect(replayed).toEqual({ kind: 'revision_conflict', expectedRevision: 2 });
 
     const advanced = await store.rewrapEnvelope(
-      passkeyCustodyEnvelope({ envelopeRevision: 2, updatedAtMs: 3_000 }),
+      methodBoundEnvelope({ envelopeRevision: 2, updatedAtMs: 3_000 }),
+      UNBOUND_AT_REVISION_ONE,
     );
     expect(advanced).toEqual({
       kind: 'stored',
@@ -175,9 +208,73 @@ test('a rewrap must advance the revision by exactly one', async () => {
   });
 });
 
+test('an upgraded envelope is never rebound to a sibling method', async () => {
+  await withStore(async (store) => {
+    await store.createEnvelope(passkeyCustodyEnvelope());
+    expect(
+      (
+        await store.rewrapEnvelope(
+          methodBoundEnvelope({ envelopeRevision: 2 }),
+          UNBOUND_AT_REVISION_ONE,
+        )
+      ).kind,
+    ).toBe('stored');
+
+    // The sibling states the ownership it wishes were there, and is refused on
+    // the read rather than on the write: the stored row already names an owner.
+    const sibling = await store.rewrapEnvelope(
+      methodBoundEnvelope({
+        envelopeRevision: 3,
+        walletAuthMethodId: SIBLING_WALLET_AUTH_METHOD_ID,
+      }),
+      { ...UNBOUND_AT_REVISION_ONE, envelopeRevision: 2 },
+    );
+    expect(sibling.kind).toBe('ownership_conflict');
+
+    // Even stating the true owner does not let a sibling take the envelope.
+    const relabel = await store.rewrapEnvelope(
+      methodBoundEnvelope({
+        envelopeRevision: 3,
+        walletAuthMethodId: SIBLING_WALLET_AUTH_METHOD_ID,
+      }),
+      {
+        envelopeId: ENVELOPE_ID as PasskeyEnvelopeId,
+        envelopeRevision: 2,
+        ownership: { kind: 'method_bound', walletAuthMethodId: OWNING_WALLET_AUTH_METHOD_ID },
+      },
+    );
+    expect(relabel.kind).toBe('ownership_conflict');
+
+    const lookup = await store.lookupEnvelope(LOCATOR);
+    expect(
+      lookup.kind === 'active' &&
+        lookup.envelope.ownership.kind === 'method_bound' &&
+        String(lookup.envelope.ownership.walletAuthMethodId),
+    ).toBe(OWNING_WALLET_AUTH_METHOD_ID);
+  });
+});
+
+test('no rewrap may write an envelope back to the unbound V2 shape', async () => {
+  await withStore(async (store) => {
+    await store.createEnvelope(passkeyCustodyEnvelope());
+
+    const downgrade = await store.rewrapEnvelope(
+      passkeyCustodyEnvelope({ envelopeRevision: 2 }),
+      UNBOUND_AT_REVISION_ONE,
+    );
+    expect(downgrade.kind).toBe('ownership_conflict');
+
+    const lookup = await store.lookupEnvelope(LOCATOR);
+    expect(lookup.kind === 'active' && lookup.envelope.envelopeRevision).toBe(1);
+  });
+});
+
 test('rewrapping an absent envelope reports not_found rather than creating one', async () => {
   await withStore(async (store) => {
-    const result = await store.rewrapEnvelope(passkeyCustodyEnvelope({ envelopeRevision: 2 }));
+    const result = await store.rewrapEnvelope(
+      methodBoundEnvelope({ envelopeRevision: 2 }),
+      UNBOUND_AT_REVISION_ONE,
+    );
     expect(result).toEqual({ kind: 'not_found' });
     expect((await store.lookupEnvelope(LOCATOR)).kind).toBe('missing');
   });
@@ -212,7 +309,10 @@ test('retirement and revocation are reported explicitly, never as missing', asyn
 test('a lifecycle transition preserves the envelope revision', async () => {
   await withStore(async (store) => {
     await store.createEnvelope(passkeyCustodyEnvelope());
-    await store.rewrapEnvelope(passkeyCustodyEnvelope({ envelopeRevision: 2 }));
+    await store.rewrapEnvelope(
+      methodBoundEnvelope({ envelopeRevision: 2 }),
+      UNBOUND_AT_REVISION_ONE,
+    );
 
     const retired = await store.retireEnvelope({ locator: LOCATOR, retiredAtMs: 5_000 });
     // The ciphertext did not change, so the sealed AAD must stay valid.
@@ -225,7 +325,12 @@ test('revocation is terminal for both rewrap and further transitions', async () 
     await store.createEnvelope(passkeyCustodyEnvelope());
     await store.revokeEnvelope({ locator: LOCATOR, revokedAtMs: 6_000 });
 
-    expect(await store.rewrapEnvelope(passkeyCustodyEnvelope({ envelopeRevision: 2 }))).toEqual({
+    expect(
+      await store.rewrapEnvelope(
+        methodBoundEnvelope({ envelopeRevision: 2 }),
+        UNBOUND_AT_REVISION_ONE,
+      ),
+    ).toEqual({
       kind: 'terminal_lifecycle',
       state: 'revoked',
     });

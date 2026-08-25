@@ -630,6 +630,13 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
+    sessionPrincipalRoute(
+      'wallet_custody_envelope_ownership_upgrade',
+      'POST',
+      '/wallets/:walletId/custody/envelope/ownership',
+      'Bind a pre-109C wallet custody envelope to the auth method that opened it',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
     publicRoute(
       'wallet_registration_near_provisioning',
       'POST',
