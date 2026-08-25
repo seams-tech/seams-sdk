@@ -3283,16 +3283,39 @@ export class BrowserSigningSurface {
     if (selected.kind !== 'resolved') {
       throw new Error('[SigningEngine] selected Email OTP Wallet Authority is unavailable');
     }
+    if (selected.authority.state !== 'active') {
+      throw new Error('[SigningEngine] selected Email OTP Wallet Authority is inactive');
+    }
     if (
-      selected.authMethod.kind !== WALLET_AUTH_METHODS.emailOtp ||
-      selected.authMethod.status !== 'active' ||
-      selected.authority.state !== 'active'
+      selected.authMethod.kind === WALLET_AUTH_METHODS.emailOtp &&
+      selected.authMethod.status === 'active'
     ) {
+      await this.markWalletSelectionUnlocked({
+        walletId,
+        walletAuthMethodId: selected.authMethod.walletAuthMethodId,
+      });
+      return;
+    }
+    /* R109C: an Email OTP unlock does not imply Email OTP was already selected.
+       Invariant 9 keeps the source method selected after an addition, so a
+       Passkey wallet that has added Email OTP still selects the Passkey until
+       something unlocks with the new method - which is exactly what is
+       happening here. Mark the method that just unlocked, not the one that was
+       already selected. */
+    const localMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(String(walletId));
+    const active = localMethods.filter(
+      (method) =>
+        method.kind === WALLET_AUTH_METHODS.emailOtp &&
+        method.status === 'active' &&
+        String(method.walletId) === String(walletId),
+    );
+    const [method, ...remaining] = active;
+    if (!method || remaining.length > 0 || method.kind !== WALLET_AUTH_METHODS.emailOtp) {
       throw new Error('[SigningEngine] selected Email OTP Wallet Authority is inactive');
     }
     await this.markWalletSelectionUnlocked({
       walletId,
-      walletAuthMethodId: selected.authMethod.walletAuthMethodId,
+      walletAuthMethodId: method.authority.bindingId,
     });
   }
 

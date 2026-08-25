@@ -324,9 +324,10 @@ function normalizeEmailOtpProviderUserId(value: unknown, field: string): string 
   return normalized;
 }
 
-function resolveEmailOtpEcdsaProviderIdentity(args: {
-  identity: EmailOtpEcdsaProviderIdentity;
-}): { provider: EmailOtpProvider; providerUserId: string } {
+function resolveEmailOtpEcdsaProviderIdentity(args: { identity: EmailOtpEcdsaProviderIdentity }): {
+  provider: EmailOtpProvider;
+  providerUserId: string;
+} {
   return {
     provider: args.identity.provider,
     providerUserId: normalizeEmailOtpProviderUserId(
@@ -355,6 +356,49 @@ function emailOtpOwnerLaneScopeStores(): OwnerLaneScopeStores {
   };
 }
 
+/**
+ * The active Email OTP method whose identity the caller is presenting.
+ *
+ * Exactly one must match: the identity is the provider subject plus the email
+ * hash, so two active methods answering to it would mean the wallet cannot say
+ * which credential just proved itself. Nothing matching is not an error - a
+ * wallet with no such method falls back to the canonical boundary as before.
+ */
+async function resolveEmailOtpAuthContextAuthorityFromActiveMethods(args: {
+  walletId: WalletSessionRef['walletId'];
+  emailHashHex: string;
+  provider: EmailOtpProvider;
+  providerUserId: string;
+}): Promise<EmailOtpAuthContextAuthoritySource> {
+  const stores = emailOtpOwnerLaneScopeStores();
+  const localMethods = await stores.listWalletAuthMethodsForWallet(String(args.walletId));
+  const matches: EmailOtpWalletAuthAuthority[] = [];
+  for (const local of localMethods) {
+    if (local.kind !== 'email_otp' || local.status !== 'active') continue;
+    if (String(local.walletId) !== String(args.walletId)) continue;
+    if (String(local.emailHashHex) !== String(args.emailHashHex)) continue;
+    // The local record carries the exact authority the finalize returned, which
+    // is where the server-allocated binding id lives. Rebuilding it from parts
+    // is what produced the synthetic id in the first place.
+    const authority = local.authority;
+    if (
+      String(authority.walletId) !== String(args.walletId) ||
+      authority.factor.provider !== args.provider ||
+      String(authority.factor.providerUserId) !== String(args.providerUserId) ||
+      String(authority.verifier.emailHashHex) !== String(args.emailHashHex)
+    ) {
+      continue;
+    }
+    matches.push(authority);
+  }
+  const [authority, ...remaining] = matches;
+  if (!authority) return { kind: 'canonical_boundary' };
+  if (remaining.length > 0) {
+    throw new Error('Email OTP identity matches more than one active wallet auth method');
+  }
+  return { kind: 'selected_v2', authority };
+}
+
 async function resolveEmailOtpAuthContextAuthoritySource(args: {
   walletId: WalletSessionRef['walletId'];
   emailHashHex: string;
@@ -366,7 +410,16 @@ async function resolveEmailOtpAuthContextAuthoritySource(args: {
   if (selected.kind !== 'resolved') {
     throw new Error(`Email OTP authority selection is unavailable: ${selected.kind}`);
   }
-  if (selected.authMethod.kind !== 'email_otp') return { kind: 'canonical_boundary' };
+  if (selected.authMethod.kind !== 'email_otp') {
+    /* R109C: a wallet can hold an Email OTP method without it being the
+       selected one - invariant 9 keeps the source method selected after an
+       addition, so a Passkey wallet that has just added Email OTP still selects
+       the Passkey. Falling straight through to the canonical boundary here
+       synthesises an `email_otp:<wallet>:<hash>` binding id, which no record of
+       the added method carries, and its capability manifest is then invisible.
+       Ask the wallet's own active methods for the identity being presented. */
+    return await resolveEmailOtpAuthContextAuthorityFromActiveMethods(args);
+  }
   if (
     selected.authMethod.status !== 'active' ||
     selected.authority.state !== 'active' ||
@@ -393,7 +446,9 @@ async function resolveEmailOtpAuthContextAuthoritySource(args: {
     authority.factor.provider !== args.provider ||
     String(authority.factor.providerUserId) !== String(args.providerUserId)
   ) {
-    throw new Error('Email OTP authority selected by the wallet session does not match the request');
+    throw new Error(
+      'Email OTP authority selected by the wallet session does not match the request',
+    );
   }
   return { kind: 'selected_v2', authority };
 }
