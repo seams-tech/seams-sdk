@@ -463,6 +463,9 @@ import {
 } from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
 import { upgradeWalletCustodyEnvelopeOwnership } from '@/core/rpcClients/relayer/passkeyCustodyEnvelope';
 import { base58Encode } from '@shared/utils/base58';
+import { secureRandomId } from '@shared/utils/secureRandomId';
+import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { resolveWalletAuthorityOperation } from '@/core/signingEngine/session/authority';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
@@ -5992,6 +5995,82 @@ export class BrowserSigningSurface {
     input: Parameters<PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']>[0],
   ): ReturnType<PasskeyMpcSessionPort['persistSigningSessionSealForThresholdSession']> {
     return this.passkeyMpcSession.persistSigningSessionSealForThresholdSession(input);
+  }
+
+  /**
+   * Collects the one-time email code inside the wallet.
+   *
+   * Built on the same confirmation channel key export uses, so the code is
+   * typed into the wallet's own surface and never passes through the host
+   * application — the reason `addEmailOtp` takes an address and not a code.
+   */
+  async requestEmailOtpEnrollmentConfirmation(params: {
+    walletId: string;
+    emailAddress: string;
+    challengeId: string;
+    emailHint?: string;
+    confirmerText?: { title?: string; body?: string };
+    confirmationConfigOverride?: Partial<ConfirmationConfig>;
+    onResend: () => Promise<{ challengeId: string; emailHint?: string }>;
+  }): Promise<{ challengeId: string; otpCode: string }> {
+    let currentChallengeId = params.challengeId;
+    const emailOtpPrompt = {
+      challengeId: params.challengeId,
+      ...(params.emailHint ? { emailHint: params.emailHint } : {}),
+      title: params.confirmerText?.title || 'Enter email code to add sign-in',
+      body:
+        params.confirmerText?.body ||
+        `This one-time code confirms ${params.emailAddress} can unlock this wallet.`,
+      helperText: 'Enter the 6-digit code sent to your email',
+      onResend: async () => {
+        const resent = await params.onResend();
+        currentChallengeId = resent.challengeId;
+        return {
+          challengeId: resent.challengeId,
+          ...(resent.emailHint ? { emailHint: resent.emailHint } : {}),
+          delivery: { mode: 'email_provider' as const },
+        };
+      },
+    };
+    const decision = await this.touchConfirm.requestUserConfirmation({
+      requestId: secureRandomId('add-auth-method-email-otp', 32, 'Email OTP enrollment UI ids'),
+      type: UserConfirmationType.SIGN_INTENT_DIGEST,
+      summary: {
+        type: 'add_auth_method',
+        operation: 'Add email code sign-in',
+        title: emailOtpPrompt.title,
+        body: emailOtpPrompt.body,
+        warning:
+          'Security note: Adding email code lowers this wallet\u2019s security because your inbox becomes another way to unlock it.',
+      },
+      payload: {
+        signingSubject: { kind: 'evm_wallet', walletId: params.walletId },
+        challengeB64u: params.challengeId,
+        signingAuthPlan: {
+          kind: SigningAuthPlanKind.EmailOtpReauth,
+          method: 'email_otp',
+          emailOtpPrompt,
+        },
+        emailOtpPrompt,
+      },
+      intentDigest: `add-auth-method:${params.walletId}:email-otp`,
+      ...(params.confirmationConfigOverride
+        ? { confirmationConfigOverride: params.confirmationConfigOverride }
+        : {}),
+    });
+    if (!decision.confirmed) {
+      throw new Error(decision.error || 'Adding an email code was cancelled');
+    }
+    const otpCode = String(decision.otpCode || '')
+      .replace(/\D/g, '')
+      .slice(0, 6);
+    if (otpCode.length !== 6) {
+      throw new Error('Adding an email code requires a 6-digit code');
+    }
+    return {
+      challengeId: String(decision.emailOtpChallengeId || currentChallengeId).trim(),
+      otpCode,
+    };
   }
 
   requestRegistrationCredentialConfirmation(params: {

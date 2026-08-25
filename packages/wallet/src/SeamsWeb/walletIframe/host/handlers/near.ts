@@ -192,8 +192,6 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const result = await pm.registration.addEmailOtp({
         walletId: payload.walletId,
         emailAddress: payload.emailAddress,
-        otpCode: payload.otpCode,
-        challengeId: payload.challengeId,
         options: hooksOptions,
       });
       if (deps.respondIfCancelled(req.requestId)) return;

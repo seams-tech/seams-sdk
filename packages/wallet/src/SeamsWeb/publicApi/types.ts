@@ -842,8 +842,6 @@ export interface RegistrationCapability {
   addEmailOtp(args: {
     walletId: WalletId | string;
     emailAddress: string;
-    otpCode: string;
-    challengeId: string;
     options?: AddEmailOtpHooksOptions;
   }): Promise<AddEmailOtpResult>;
   registerWallet(args: {

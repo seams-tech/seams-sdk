@@ -1690,8 +1690,6 @@ export class SeamsWeb {
       context: this.getContext(),
       walletId: args.walletId,
       emailAddress: args.emailAddress,
-      otpCode: args.otpCode,
-      challengeId: args.challengeId,
       options: args.options,
     });
   }

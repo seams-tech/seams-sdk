@@ -2665,8 +2665,6 @@ export class WalletIframeRouter {
       payload: {
         walletId: payload.walletId,
         emailAddress: payload.emailAddress,
-        otpCode: payload.otpCode,
-        challengeId: payload.challengeId,
         options: safeOptions,
       },
       options: {
