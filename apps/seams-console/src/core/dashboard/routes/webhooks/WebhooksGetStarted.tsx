@@ -34,9 +34,8 @@ export function WebhooksGetStarted(props: {
         </div>
         <h2 className="dashboard-webhooks-start__title">Send Seams events to your backend</h2>
         <p className="dashboard-webhooks-start__lede">
-          A webhook endpoint receives a signed callback whenever a wallet, policy, transaction, or
-          billing event happens in this organization. Every attempt is recorded here with its
-          response status, and can be replayed.{' '}
+          Seams POSTs a signed callback when something happens in this org. Every attempt is logged
+          here, and can be replayed.{' '}
           <a
             className="dashboard-inline-link"
             href={getDocsOrigin()}
@@ -65,9 +64,8 @@ export function WebhooksGetStarted(props: {
           <div className="dashboard-webhooks-start__step-copy">
             <h3>Point an endpoint at your server</h3>
             <p>
-              Give it a URL and pick the event categories it should receive. Each delivery is a JSON
-              envelope — <code>id</code>, <code>type</code>, <code>createdAt</code>,{' '}
-              <code>data</code> — where <code>type</code> starts with the category that selected it.
+              A URL, plus the categories it should receive. Each delivery is a JSON envelope:{' '}
+              <code>id</code>, <code>type</code>, <code>createdAt</code>, <code>data</code>.
             </p>
             <ul className="dashboard-webhooks-start__chips">
               {WEBHOOK_EVENT_CATEGORY_OPTIONS.map((option) => (
@@ -84,12 +82,11 @@ export function WebhooksGetStarted(props: {
             2
           </span>
           <div className="dashboard-webhooks-start__step-copy">
-            <h3>Verify the signature before you trust a payload</h3>
+            <h3>Verify the signature</h3>
             <p>
               Every POST carries <code>X-Console-Webhook-Timestamp</code> and{' '}
-              <code>X-Console-Webhook-Signature: v1=&lt;hex&gt;</code>, an HMAC-SHA256 over the
-              timestamp, a dot, and the raw body, keyed with the endpoint&rsquo;s{' '}
-              <code>whsec_…</code> signing secret.
+              <code>X-Console-Webhook-Signature</code>, an HMAC-SHA256 keyed with the
+              endpoint&rsquo;s <code>whsec_…</code> secret.
             </p>
             <div className="dashboard-webhooks-start__snippet">
               <pre className="dashboard-code-block">
@@ -110,9 +107,8 @@ export function WebhooksGetStarted(props: {
           <div className="dashboard-webhooks-start__step-copy">
             <h3>Answer 2xx within 10 seconds</h3>
             <p>
-              Any 2xx acknowledges the delivery. A non-2xx response or a timeout marks it failed and
-              parks it in the dead-letter queue — fix the handler, then replay the delivery from the
-              deliveries table on this page.
+              Anything else fails the delivery and parks it in the dead-letter queue. Fix the
+              handler, then replay it from the deliveries table.
             </p>
           </div>
         </li>

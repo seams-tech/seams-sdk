@@ -45,6 +45,10 @@ import {
 } from '@seams-internal/wallet-console-server/sponsorship/evmWorkerExecutionAdapter';
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/wallet-console-server/sponsorship/pricing';
 import { createDefaultBillingProviderAdapters } from '@seams-internal/console-server/billing/providers';
+import {
+  createAesGcmConsoleWebhookSecretCipher,
+  type ConsoleWebhookSecretCipher,
+} from '@seams-internal/console-server/webhooks/d1';
 import { createStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { CONSOLE_ORGANIZATION_ID_PATTERN } from '@seams-internal/console-shared/organizationIdentity';
 import {
@@ -52,7 +56,7 @@ import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
 } from '@seams/wallet-server/cloud-host';
-import { base64UrlEncode } from '@seams/wallet-server/cloud-host';
+import { base64UrlDecode, base64UrlEncode } from '@seams/wallet-server/cloud-host';
 import { parseWalletId, parseWebAuthnRpId } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
@@ -134,6 +138,8 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly RELAY_SESSION_ISSUER?: string;
   readonly RELAY_SESSION_AUDIENCE?: string;
   readonly CONSOLE_SESSION_HMAC_SECRET?: string;
+  readonly CONSOLE_WEBHOOK_SECRET_KEY_B64U?: string;
+  readonly CONSOLE_WEBHOOK_SECRET_KEY_ID?: string;
   readonly CONSOLE_SESSION_COOKIE_NAME?: string;
   readonly CONSOLE_SESSION_ISSUER?: string;
   readonly CONSOLE_SESSION_AUDIENCE?: string;
@@ -199,6 +205,10 @@ const DEFAULT_LOCAL_CONSOLE_SESSION_HMAC_SECRET =
 const DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
 const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:9444/console';
 const DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
+const DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY_ID = 'local-console-webhook-k1';
+// AES-256-GCM key material for sealing webhook signing secrets at rest.
+// Exactly 32 ASCII bytes; local dev only, overridden by CONSOLE_WEBHOOK_SECRET_KEY_B64U.
+const DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY = 'seams-local-console-webhook-key!';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 // Local D1 handlers are rebuilt per request, so synthetic provider state must outlive one handler.
@@ -684,6 +694,21 @@ function localTenantStorageNamespace(env: LocalD1DevEnv): string {
   return namespace || 'seams-local';
 }
 
+// Without a secret cipher the console webhook service is never constructed and
+// every /console/webhooks route answers 501 webhooks_not_configured.
+function localConsoleWebhookSecretCipher(env: LocalD1DevEnv): ConsoleWebhookSecretCipher {
+  const configured = normalizeLocalString(env.CONSOLE_WEBHOOK_SECRET_KEY_B64U);
+  const keyBytes = configured
+    ? base64UrlDecode(configured)
+    : new TextEncoder().encode(DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY);
+  return createAesGcmConsoleWebhookSecretCipher({
+    keyId:
+      normalizeLocalString(env.CONSOLE_WEBHOOK_SECRET_KEY_ID) ||
+      DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY_ID,
+    keyBytes,
+  });
+}
+
 class LocalD1DevConsoleAuthAdapter implements ConsoleAuthAdapter {
   constructor(
     private readonly env: LocalD1DevEnv,
@@ -1004,6 +1029,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders,
       billingEmailConsoleBaseUrl: String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
+      webhookSecretCipher: localConsoleWebhookSecretCipher(env),
     },
   });
   const session = localConsoleSession(env);
@@ -1066,6 +1092,7 @@ async function createLocalRouterApiHandler(
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders,
+      webhookSecretCipher: localConsoleWebhookSecretCipher(env),
     },
   });
   const sessionCookieName = localRouterApiSessionCookieName(env);
