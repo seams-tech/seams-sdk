@@ -17,26 +17,47 @@ A checkpoint is marked done only when the named command was run and reported
 green. Green lower-tier evidence does not close a product transition; only a
 real browser flow does.
 
-### Phase 0 — revocation prerequisite
+### Phase 0 — revocation prerequisite — NOT MET
 
-- [x] Exact method revocation runs through the composed D1 path and protects
-      the wallet's final active method. Command:
-      `npx playwright test -c playwright.unit.config.ts ./unit/linkedDeviceManagement.unit.test.ts ./unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts ./unit/d1WalletAuthorityStore.unit.test.ts`
-      from `tests/`, 11 passed. The green cases are: revokes one authority
-      method and protects the final active wallet method; rolls back method
-      revocation when an atomic session fence fails; serializes competing
-      revocations of the final two wallet methods; add-auth commit rejects a
-      source method revoked after ceremony start; rejects a `WalletAuthorityId`
-      in the exact-method revocation boundary; rejects a fresh proof from the
-      target auth method itself; revokes one exact linked auth method, fences
-      sessions, and disables its ordinary refs; replays a durable revocation
-      and retries terminal material deactivation.
-- [x] Authority-ID and self-proof revocation requests are rejected — the first
-      two cases above own exactly that boundary.
-- [x] Real-browser owner-UI revocation with the exact method, revoked-session
-      rejection at signing, revoked-method unlock rejection, and the surviving
-      owner operation are recorded green in `docs/refactor-103E.md`'s
-      verification ledger and are not re-run here.
+This section previously carried three ticked boxes. That was wrong on the
+ledger's own rule, and the boxes are withdrawn.
+
+The cited command exits 1: it runs 15 tests, 11 pass and 4 fail, because the
+file list includes `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts` whose
+four failures are recorded further down as a pre-existing fixture problem. A
+command that reports failure does not mark a checkpoint done, whatever the
+reason for the failure, and citing the passing subset as though the command
+were green is exactly the move this ledger's own rule forbids.
+
+The evidence is also the wrong shape. The eleven passing cases exercise
+revocation between methods on *separate* authorities. R109C's prerequisite is
+revocation between Passkey and Email OTP siblings on *one* authority, in both
+proof directions — the configuration this refactor creates and the only one
+that proves the sibling guard. No such test exists yet, so the prerequisite is
+unproven rather than partially proven.
+
+- [ ] Exact method revocation between two siblings on ONE authority, proven in
+      both directions, through the composed path. Not yet written.
+- [ ] The cited command exits 0.
+- [x] Authority-ID and self-proof revocation requests are rejected at the
+      boundary — `linkedDeviceManagement.unit.test.ts` covers exactly this and
+      passes on its own.
+
+Passing cases in that run, recorded as partial evidence only: revokes one
+authority method and protects the final active wallet method; rolls back method
+revocation when an atomic session fence fails; serializes competing revocations
+of the final two wallet methods; add-auth commit rejects a source method
+revoked after ceremony start; rejects a `WalletAuthorityId` in the exact-method
+revocation boundary; rejects a fresh proof from the target auth method itself;
+revokes one exact linked auth method, fences sessions, and disables its
+ordinary refs; replays a durable revocation and retries terminal material
+deactivation.
+
+Real-browser owner-UI revocation with the exact method, revoked-session
+rejection at signing, revoked-method unlock rejection, and the surviving owner
+operation are recorded green in `docs/refactor-103E.md`'s verification ledger.
+That evidence is about separate authorities too, so it does not close the
+sibling prerequisite either.
 
 Four tests in `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`
 fail on `dev` before any R109C change, with `Passkey wallet authority is not
@@ -216,9 +237,9 @@ by reading the verified provider subject from the installation's own Ed25519
 lanes, requiring exactly one such subject per wallet. On a single device with
 one Email method that assumption still holds, which is the only configuration
 R109C creates — the assumption breaks for R109D's linked devices, not here.
-R109C's activation guard is a conditional insert that succeeds only while the
-target family is absent, so the race is closed transactionally without the
-index.
+R109C's activation guard is NOT yet a conditional insert — see the open defect
+below — so the race is not closed transactionally and the index question cannot
+be settled by pointing at the transaction.
 
 If a real browser flow shows the missing provider identity blocking R109C, this
 decision is wrong and the migration comes back into scope; that is a schema
