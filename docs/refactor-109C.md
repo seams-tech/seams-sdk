@@ -656,7 +656,7 @@ cells and direction cells separately; the six unique cells are:
 | ECDSA-only   | Passkey -> Email OTP | green                       |
 | Combined     | Passkey -> Email OTP | green, ECDSA operating only |
 | Ed25519-only | Email OTP -> Passkey | green                       |
-| ECDSA-only   | Email OTP -> Passkey | written, never yet run      |
+| ECDSA-only   | Email OTP -> Passkey | green                       |
 | Combined     | Email OTP -> Passkey | green, both families        |
 
 The first cell earned its place immediately. Both transition contracts run on
@@ -676,11 +676,17 @@ fields rather than leaving them optional. Registering such a wallet then failed
 at its last step on a path no browser test had taken: the ECDSA activation asked
 for the owner proof after finalize had tombstoned the ceremony it reads from.
 
-The last cell is written and unrun. The local D1 reached
-`SQLITE_TOOBIG` during NEAR provisioning partway through the matrix - a
-contract green minutes earlier failed identically - so it is held out of the
-suite rather than committed red. It needs a local database reset, not a code
-change.
+All six run green together. Getting there turned up something worth recording,
+because it is not a test-environment quirk. Partway through the matrix every
+wallet stopped provisioning NEAR with `SQLITE_TOOBIG`, including contracts green
+minutes earlier. The cause is a single shared partition record,
+`router-ab-yao:router-ab-ed25519-yao:shared`, which carries one recovery
+capability entry per wallet in one row - 122 entries at roughly 19KB each had
+pushed it past D1's value limit. It fails for every wallet at once rather than
+degrading, and it will recur: the row grows with each wallet that provisions
+recovery and nothing prunes it. Clearing that record's entries restored
+provisioning without a restart. Out of scope here, but a scalability defect
+rather than local debris.
 
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,
