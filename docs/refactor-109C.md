@@ -578,51 +578,38 @@ Email OTP, wait for NEAR, add a passkey, and unlock the wallet with that
 passkey, keeping its NEAR identity. `harness.unlockWithAddedPasskey()` is in the
 committed contract.
 
-`passkey_to_email_otp` proves the addition, and its unlock is blocked on
-something the plan does not describe. Chasing it down leads out of custody
-entirely:
+`passkey_to_email_otp` is proven end to end too: register with a passkey, wait
+for NEAR, add an Email OTP method, and unlock the wallet through it.
 
-- `registration.addEmailOtp({ walletId, emailAddress })` enrols the method under
-  the address itself. `providerSubjectForVerifiedAddress` is explicit that there
-  is no external IdP on this branch, so the address is the identity.
-- The only email login that discovers a wallet is
-  `auth.beginGoogleEmailOtpWalletAuth`, which takes a Google `idToken` and
-  resolves the wallet from the Google subject. There is no address-based
-  equivalent on the public surface.
-- So an added Email OTP method cannot open its wallet. Pointed at a wallet
-  registered with a passkey, the Google flow resolves whichever wallet that
-  Google subject owns and fails with a wallet mismatch - correctly, because it
-  was never asked about this wallet.
+Getting there corrected a wrong reading recorded above. An added Email OTP
+method is enrolled under the address itself, and the only email login that
+_discovers_ a wallet resolves a Google subject - so the conclusion drawn was
+that no address-based login exists. Discovery is not unlock. The wallet is
+already known at unlock, `EmailOtpProvider` already spans `google` and `email`,
+and the public `auth.requestEmailOtpChallenge` plus
+`auth.loginWithEmailOtpEcdsaCapability` open it with the address as the provider
+identity. No new public auth surface was needed, and neither of the two
+identity-model changes weighed earlier was required.
 
-The remaining public pieces do not close it. `auth.requestEmailOtpChallenge`
-takes a `walletId` and an exact method id, but the login that consumes it,
-`loginWithEmailOtpEcdsaCapability`, is a capability primitive taking key handles
-and participant ids; the wallet-level orchestration around it exists only inside
-the Google flow, and its Ed25519 half is not exported at all.
+What did block it were two more places holding the same assumption as the rest:
 
-Taking the Google-backed route seriously turns up the constraint that decides
-it. `resolveLoginSession` resolves a Google subject through a single
-`linkedWalletId`: one subject maps to one wallet. Attaching a Google identity to
-a second wallet - which is exactly what adding it to a Passkey wallet means when
-that subject already owns an Email OTP wallet - has no representation, and login
-would have no way to say which wallet was meant. Google-backed additions
-therefore need the identity-to-wallet mapping to become one-to-many plus a
-wallet selector at login, which is a product identity change, not a smaller
-alternative to the address-based login.
+10. `resolveEmailOtpAuthContextAuthoritySource` fell through to the canonical
+    boundary whenever the selected method was not Email OTP - which invariant 9
+    guarantees right after an addition. The canonical boundary synthesises an
+    `email_otp:<wallet>:<hash>` binding id that no record of the added method
+    carries, so its capability manifest was invisible and the refresh reported
+    the activation superseded. The local record already stores the exact
+    authority the finalize returned; the identity is now looked up among the
+    wallet's active methods rather than rebuilt from parts.
+11. `markSelectedEmailOtpWalletAuthorityUnlocked` required Email OTP to already
+    be selected, which is precisely what the unlock is in the middle of making
+    true. It now marks the method that actually unlocked.
 
-That leaves a decision rather than a defect. Either the product grows an
-address-based email login - new public auth surface, which invariant 10 rules
-out for this refactor - or an added Email OTP method is specified to carry an
-IdP subject, in which case `addEmailOtp` needs the Google-backed proof kind its
-own comment already anticipates. The completion criterion "both methods can
-explicitly unlock" cannot be met for the Email OTP direction until one of those
-is chosen, and neither is a custody change.
-
-Nine distinct assumptions had to go before this point, and they were all the
-same assumption: that a wallet has exactly one auth method, so a capability, a
-lane, a selection, a credential binding, or an identity could be addressed
-without saying which method was asking. That is the shape to look for in
-anything R109C has not yet touched.
+Eleven distinct assumptions had to go, and they were all the same assumption:
+that a wallet has exactly one auth method, so a capability, a lane, a selection,
+a credential binding, or an identity could be addressed without saying which
+method was asking. That is the shape to look for in anything R109C has not yet
+touched.
 
 ## Goal
 
