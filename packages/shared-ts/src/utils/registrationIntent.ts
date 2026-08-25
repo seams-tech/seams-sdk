@@ -2270,3 +2270,18 @@ export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegist
   }
   return null;
 }
+
+/** What a client sends to create a wallet's shared Email OTP enrollment. */
+export type WalletEmailOtpEnrollmentMaterialV1 = {
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
+};
+
+export type WalletAddAuthMethodEmailOtpTargetV1 =
+  | { readonly kind: 'existing_enrollment'; readonly enrollment?: never }
+  | {
+      readonly kind: 'new_enrollment';
+      readonly enrollment: WalletEmailOtpEnrollmentMaterialV1;
+    };

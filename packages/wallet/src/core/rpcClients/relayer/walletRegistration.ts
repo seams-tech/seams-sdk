@@ -3,6 +3,7 @@ import type {
   AddAuthMethodIntentGrant,
   AddAuthMethodIntentCallerV1,
   AddAuthMethodIntentV1,
+  WalletAddAuthMethodEmailOtpTargetV1,
   AddSignerIntentV1,
   AddSignerIntentGrant,
   EmailOtpRegistrationProof,
@@ -3748,15 +3749,19 @@ export async function finalizeWalletAddAuthMethod(
         addAuthMethodCeremonyId: string;
         webauthnRegistration: unknown;
         custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+        emailOtpTarget?: never;
       }
     | {
         /* R109C's Email OTP target: verified by its one-use grant, so the body
-           carries the resealed envelope and no created credential. */
+           carries the resealed envelope and no created credential. The
+           enrollment target says whether this addition creates the wallet's
+           shared Email enrollment or binds to the one it already has. */
         relayerUrl: string;
         walletId: WalletId;
         addAuthMethodCeremonyId: string;
         webauthnRegistration?: never;
         custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+        emailOtpTarget: WalletAddAuthMethodEmailOtpTargetV1;
       }
     | {
         relayerUrl: string;
@@ -3764,6 +3769,7 @@ export async function finalizeWalletAddAuthMethod(
         addAuthMethodCeremonyId: string;
         webauthnRegistration?: never;
         custodyEnvelope?: never;
+        emailOtpTarget?: never;
       },
 ): Promise<WalletAddAuthMethodFinalizeResponse> {
   const walletId = String(args.walletId || '').trim();
@@ -3775,6 +3781,7 @@ export async function finalizeWalletAddAuthMethod(
         ? {
             addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
             custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(args.custodyEnvelope),
+            emailOtpTarget: args.emailOtpTarget,
           }
         : {
             addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
