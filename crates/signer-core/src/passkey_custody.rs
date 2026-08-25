@@ -1002,6 +1002,65 @@ mod r109c_method_bound_envelope_tests {
         assert_eq!(&reopened[..], &secret[..]);
     }
 
+    /// The upgrade keeps the envelope's identity and advances its revision, so
+    /// it replaces one row rather than creating a second envelope for the same
+    /// seed. The revision is inside the AAD, which is what stops the superseded
+    /// V2 ciphertext from being replayed into the upgraded row.
+    #[test]
+    fn the_upgrade_is_a_next_revision_reseal_of_the_same_envelope() {
+        let secret = [7u8; 32];
+        let unbound = binding(PasskeyCustodyEnvelopeOwnershipV1::Unbound);
+        let nonce = [1u8; PASSKEY_CUSTODY_NONCE_LEN];
+        let sealed = seal_legacy_unbound_for_test(&[9u8; 32], &unbound, &nonce, &secret);
+        let (_opened, admitted) = open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &unbound,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .expect("v2 opens");
+
+        let upgraded = PasskeyCustodyEnvelopeBindingV1 {
+            envelope_revision: unbound.envelope_revision + 1,
+            ownership: method_bound("wallet-auth-method:owner"),
+            ..unbound.clone()
+        };
+        assert_eq!(upgraded.envelope_id, unbound.envelope_id);
+
+        let resealed = reseal_wallet_custody_seed_under_new_factor_v1(
+            &[9u8; 32],
+            &upgraded,
+            &admitted,
+            &[2u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &secret,
+        )
+        .expect("upgrade reseal");
+
+        // The old ciphertext cannot be presented as the upgraded row.
+        assert!(open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &upgraded,
+            &nonce,
+            &sealed.ciphertext,
+            &sealed.aad_hash,
+            &sealed.ciphertext_digest,
+        )
+        .is_err());
+
+        let (reopened, _) = open_wallet_custody_seed_envelope_v1(
+            &[9u8; 32],
+            &upgraded,
+            &[2u8; PASSKEY_CUSTODY_NONCE_LEN],
+            &resealed.ciphertext,
+            &resealed.aad_hash,
+            &resealed.ciphertext_digest,
+        )
+        .expect("upgraded row opens");
+        assert_eq!(&reopened[..], &secret[..]);
+    }
+
     /// Behaviour 2: relabelling a stored V3 row to a sibling method does not
     /// let the sibling open it. The owner is inside the AAD, so the presented
     /// binding stops reproducing the sealed one.
