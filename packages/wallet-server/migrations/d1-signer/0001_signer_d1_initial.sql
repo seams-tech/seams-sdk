@@ -1,8 +1,56 @@
--- Current D1 signer schema.
---
--- This file describes the schema directly. Data transformations belong at
--- persistence/request boundaries.
-
+-- Canonical D1 schema.
+CREATE TABLE "app_session_versions" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  session_version TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, user_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(user_id) > 0),
+  CHECK (length(session_version) > 0),
+  CHECK (json_valid(record_json)),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms),
+  CHECK (COALESCE(json_extract(record_json, '$.version') = 'app_session_version_v1', 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.userId') = user_id, 0)),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.appSessionVersion') = session_version, 0)
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0))
+);
+CREATE TABLE authorization_sessions (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  auth_source_kind TEXT NOT NULL,
+  auth_source_json TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  audience_kind TEXT NOT NULL,
+  audience_json TEXT NOT NULL,
+  app_session_version TEXT NOT NULL,
+  assurance TEXT NOT NULL,
+  lifecycle_kind TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, tenant_id, session_id),
+  CHECK (assurance IN ('session', 'step_up')),
+  CHECK (auth_source_kind IN ('oidc_provider', 'passkey')),
+  CHECK (audience_kind IN ('first_party_web', 'hosted_wallet_iframe')),
+  CHECK (json_valid(auth_source_json)),
+  CHECK (json_valid(audience_json)),
+  CHECK (lifecycle_kind = 'active'),
+  CHECK (expires_at_ms > created_at_ms)
+);
 CREATE TABLE authorization_wallet_session_quotas (
   namespace TEXT NOT NULL,
   tenant_id TEXT NOT NULL,
@@ -20,6 +68,121 @@ CREATE TABLE authorization_wallet_session_quotas (
     (lifecycle_kind = 'active' AND remaining_uses > 0)
     OR (lifecycle_kind = 'exhausted' AND remaining_uses = 0)
   )
+);
+CREATE TABLE authorized_operation_audit_events (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  audit_event_id TEXT NOT NULL,
+  authorized_operation_id TEXT NOT NULL,
+  operation_fingerprint_digest TEXT NOT NULL,
+  authorization_source_kind TEXT NOT NULL,
+  authorization_id TEXT,
+  evidence_set_digest TEXT,
+  quota_id TEXT,
+  material_activation_id TEXT,
+  result_kind TEXT NOT NULL,
+  claimed_at_ms INTEGER NOT NULL,
+  completed_at_ms INTEGER, authorization_grant_kind TEXT, material_activation_capability TEXT, material_activation_owner TEXT, material_activation_key_binding TEXT, material_activation_lifecycle_binding TEXT, material_activation_signing_worker TEXT, linked_wallet_id TEXT, linked_enrollment_id TEXT, linked_device_id TEXT, linked_wallet_key_id TEXT, linked_lane_id TEXT, linked_lane_share_epoch TEXT, linked_revocation_epoch INTEGER, linked_scope_org_id TEXT, linked_scope_project_id TEXT, linked_scope_env_id TEXT,
+  PRIMARY KEY (namespace, tenant_id, audit_event_id),
+  UNIQUE (namespace, tenant_id, authorized_operation_id),
+  CHECK (authorization_source_kind IN ('authorization_grant', 'verified_step_up')),
+  CHECK (
+    (authorization_source_kind = 'authorization_grant'
+      AND authorization_id IS NOT NULL
+      AND evidence_set_digest IS NULL)
+    OR (authorization_source_kind = 'verified_step_up'
+      AND authorization_id IS NULL
+      AND evidence_set_digest IS NOT NULL)
+  ),
+  CHECK (result_kind IN ('pending', 'succeeded', 'failed_before_side_effect', 'failed_after_side_effect')),
+  CHECK (
+    (result_kind = 'pending' AND completed_at_ms IS NULL)
+    OR (result_kind != 'pending' AND completed_at_ms IS NOT NULL)
+  )
+);
+CREATE TABLE "authorized_operations" (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  authorized_operation_id TEXT NOT NULL,
+  audit_event_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  capability_id TEXT NOT NULL,
+  capability_kind TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  operation_fingerprint_digest TEXT NOT NULL,
+  lane_digest TEXT NOT NULL,
+  intent_digest TEXT NOT NULL,
+  display_digest TEXT NOT NULL,
+  authorization_source_kind TEXT NOT NULL,
+  authorization_id TEXT,
+  evidence_set_digest TEXT,
+  quota_id TEXT,
+  quota_kind TEXT NOT NULL,
+  lifecycle_kind TEXT NOT NULL,
+  result_kind TEXT NOT NULL,
+  result_digest TEXT,
+  result_status INTEGER,
+  result_content_type TEXT,
+  result_body_text TEXT,
+  claimed_at_ms INTEGER NOT NULL,
+  completed_at_ms INTEGER,
+  material_activation_id TEXT, authorization_grant_kind TEXT, material_activation_capability TEXT, material_activation_owner TEXT, material_activation_key_binding TEXT, material_activation_lifecycle_binding TEXT, material_activation_signing_worker TEXT, linked_wallet_id TEXT, linked_enrollment_id TEXT, linked_device_id TEXT, linked_wallet_key_id TEXT, linked_lane_id TEXT, linked_lane_share_epoch TEXT, linked_revocation_epoch INTEGER, linked_scope_org_id TEXT, linked_scope_project_id TEXT, linked_scope_env_id TEXT,
+  PRIMARY KEY (namespace, tenant_id, authorized_operation_id),
+  UNIQUE (namespace, tenant_id, operation_fingerprint_digest),
+  CHECK (authorization_source_kind IN ('authorization_grant', 'verified_step_up')),
+  CHECK (
+    (authorization_source_kind = 'authorization_grant'
+      AND authorization_id IS NOT NULL
+      AND evidence_set_digest IS NULL)
+    OR (authorization_source_kind = 'verified_step_up'
+      AND authorization_id IS NULL
+      AND evidence_set_digest IS NOT NULL)
+  ),
+  CHECK (quota_kind IN ('consume_reusable_wallet_session', 'quota_neutral')),
+  CHECK (
+    (quota_kind = 'consume_reusable_wallet_session'
+      AND authorization_source_kind = 'authorization_grant'
+      AND operation_kind NOT IN ('near.export_key', 'evm.export_key')
+      AND capability_kind != 'vault_access')
+    OR (quota_kind = 'quota_neutral'
+      AND (
+        operation_kind IN ('near.export_key', 'evm.export_key')
+        OR capability_kind = 'vault_access'
+        OR authorization_source_kind = 'verified_step_up'
+      ))
+  ),
+  CHECK (
+    (quota_kind = 'consume_reusable_wallet_session' AND quota_id IS NOT NULL)
+    OR (quota_kind = 'quota_neutral' AND quota_id IS NULL)
+  ),
+  CHECK (lifecycle_kind IN ('claimed', 'completed')),
+  CHECK (
+    (lifecycle_kind = 'claimed'
+      AND result_kind = 'pending'
+      AND result_digest IS NULL
+      AND result_status IS NULL
+      AND result_content_type IS NULL
+      AND result_body_text IS NULL
+      AND completed_at_ms IS NULL)
+    OR (lifecycle_kind = 'completed'
+      AND result_kind IN ('succeeded', 'failed_before_side_effect', 'failed_after_side_effect')
+      AND result_digest IS NOT NULL
+      AND result_status BETWEEN 100 AND 599
+      AND result_content_type IS NOT NULL
+      AND trim(result_content_type) = result_content_type
+      AND length(result_content_type) BETWEEN 1 AND 255
+      AND result_body_text IS NOT NULL
+      AND length(CAST(result_body_text AS BLOB)) <= 65536
+      AND completed_at_ms IS NOT NULL)
+  )
+);
+CREATE TABLE ecdsa_authorization_atomic_guards (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  check_id TEXT NOT NULL,
+  matched INTEGER NOT NULL CHECK (matched = 1),
+  PRIMARY KEY (namespace, tenant_id, check_id)
 );
 CREATE TABLE "email_otp_auth_states" (
   namespace TEXT NOT NULL,
@@ -49,6 +212,66 @@ CREATE TABLE "email_otp_auth_states" (
   CHECK (COALESCE(json_extract(record_json, '$.orgId') = record_org_id, 0)),
   CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
   CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0))
+);
+CREATE TABLE "email_otp_challenges" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  challenge_id TEXT NOT NULL,
+  challenge_subject_id TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  record_org_id TEXT NOT NULL,
+  otp_channel TEXT NOT NULL,
+  session_hash TEXT NOT NULL,
+  app_session_version TEXT NOT NULL,
+  action TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  otp_code TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, challenge_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(challenge_id) > 0),
+  CHECK (length(challenge_subject_id) > 0),
+  CHECK (length(wallet_id) > 0),
+  CHECK (length(record_org_id) > 0),
+  CHECK (otp_channel = 'email_otp'),
+  CHECK (length(session_hash) > 0),
+  CHECK (length(app_session_version) > 0),
+  CHECK (
+    action IN (
+      'wallet_email_otp_login',
+      'wallet_email_otp_registration',
+      'wallet_email_otp_device_recovery'
+    )
+  ),
+  CHECK (operation IN ('wallet_unlock', 'transaction_sign', 'export_key', 'registration')),
+  CHECK (length(otp_code) > 0),
+  CHECK (json_valid(record_json)),
+  CHECK (created_at_ms > 0),
+  CHECK (expires_at_ms > created_at_ms),
+  CHECK (COALESCE(json_extract(record_json, '$.version') = 'email_otp_challenge_v1', 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.challengeId') = challenge_id, 0)),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.challengeSubjectId') = challenge_subject_id, 0)
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.orgId') = record_org_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.otpChannel') = otp_channel, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.sessionHash') = session_hash, 0)),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.appSessionVersion') = app_session_version, 0)
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.action') = action, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.operation') = operation, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.otpCode') = otp_code, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
 );
 CREATE TABLE "email_otp_grants" (
   namespace TEXT NOT NULL,
@@ -107,6 +330,135 @@ CREATE TABLE "email_otp_rate_limits" (
   CHECK (reset_at_ms > 0),
   CHECK (updated_at_ms > 0),
   CHECK (reset_at_ms > updated_at_ms)
+);
+CREATE TABLE "email_otp_recovery_wrapped_enrollment_escrows" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  recovery_key_id TEXT NOT NULL,
+  recovery_key_status TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  issued_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_id, recovery_key_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(wallet_id) > 0),
+  CHECK (length(recovery_key_id) > 0),
+  CHECK (recovery_key_status IN ('active', 'consumed', 'revoked')),
+  CHECK (json_valid(record_json)),
+  CHECK (issued_at_ms > 0),
+  CHECK (updated_at_ms >= issued_at_ms),
+  CHECK (
+    COALESCE(
+      json_extract(record_json, '$.version') = 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+      0
+    )
+  ),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.alg') = 'chacha20poly1305-hkdf-sha256-v1', 0)
+  ),
+  CHECK (
+    COALESCE(
+      json_extract(record_json, '$.secretKind') = 'email_otp_device_enrollment_escrow',
+      0
+    )
+  ),
+  CHECK (
+    COALESCE(
+      json_extract(record_json, '$.escrowKind') = 'recovery_wrapped_enrollment_escrow',
+      0
+    )
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.recoveryKeyId') = recovery_key_id, 0)),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.recoveryKeyStatus') = recovery_key_status, 0)
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.authMethod') = 'google_sso_email_otp', 0)),
+  CHECK (
+    COALESCE(
+      json_extract(record_json, '$.userId') = json_extract(record_json, '$.authSubjectId'),
+      0
+    )
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.issuedAtMs') = issued_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0)),
+  CHECK (
+    (
+      recovery_key_status = 'active'
+      AND json_type(record_json, '$.consumedAtMs') IS NULL
+      AND json_type(record_json, '$.revokedAtMs') IS NULL
+    )
+    OR (
+      recovery_key_status = 'consumed'
+      AND COALESCE(json_extract(record_json, '$.consumedAtMs') >= issued_at_ms, 0)
+      AND json_type(record_json, '$.revokedAtMs') IS NULL
+    )
+    OR (
+      recovery_key_status = 'revoked'
+      AND COALESCE(json_extract(record_json, '$.revokedAtMs') >= issued_at_ms, 0)
+      AND json_type(record_json, '$.consumedAtMs') IS NULL
+    )
+  )
+);
+CREATE TABLE "email_otp_registration_attempts" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  provider_subject TEXT NOT NULL,
+  email TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  app_session_version TEXT NOT NULL,
+  runtime_org_id TEXT NOT NULL,
+  runtime_policy_key TEXT NOT NULL,
+  offer_wallet_ids_json TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, attempt_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(attempt_id) > 0),
+  CHECK (length(provider_subject) > 0),
+  CHECK (length(email) > 0),
+  CHECK (length(wallet_id) > 0),
+  CHECK (state IN ('started', 'key_finalized', 'active', 'abandoned', 'failed', 'expired')),
+  CHECK (length(app_session_version) > 0),
+  CHECK (json_valid(offer_wallet_ids_json)),
+  CHECK (json_type(offer_wallet_ids_json) = 'array'),
+  CHECK (json_valid(record_json)),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms),
+  CHECK (expires_at_ms > created_at_ms),
+  CHECK (
+    COALESCE(
+      json_extract(record_json, '$.version') = 'google_email_otp_registration_attempt_v1',
+      0
+    )
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.attemptId') = attempt_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.providerSubject') = provider_subject, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.email') = email, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.state') = state, 0)),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.appSessionVersion') = app_session_version, 0)
+  ),
+  CHECK (runtime_org_id = '' OR COALESCE(json_extract(record_json, '$.runtimePolicyScope.orgId') = runtime_org_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
 );
 CREATE TABLE "email_otp_unlock_challenges" (
   namespace TEXT NOT NULL,
@@ -176,6 +528,126 @@ CREATE TABLE "email_otp_wallet_enrollments" (
   CHECK (COALESCE(json_extract(record_json, '$.verifiedEmail') = verified_email, 0)),
   CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
   CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0))
+);
+CREATE TABLE "email_recovery_preparations" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  rp_id TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, request_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(request_id) > 0),
+  CHECK (length(account_id) > 0),
+  CHECK (length(wallet_id) > 0),
+  CHECK (length(rp_id) > 0),
+  CHECK (json_valid(record_json)),
+  CHECK (created_at_ms > 0),
+  CHECK (expires_at_ms > created_at_ms),
+  CHECK (
+    COALESCE(json_extract(record_json, '$.version') = 'email_recovery_preparation_v1', 0)
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.requestId') = request_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.accountId') = account_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.rpId') = rp_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.walletBinding.walletId') = wallet_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
+);
+CREATE TABLE google_email_otp_session_exchange_journals (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_fingerprint TEXT NOT NULL,
+  account_mode TEXT NOT NULL,
+  lifecycle_kind TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  phase_data_json TEXT NOT NULL,
+  prepared_seams_session_id TEXT NOT NULL,
+  prepared_device_id TEXT NOT NULL,
+  prepared_created_at_ms INTEGER NOT NULL,
+  response_status INTEGER,
+  response_body_text TEXT,
+  response_set_cookie TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, idempotency_key),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(idempotency_key) BETWEEN 1 AND 512),
+  CHECK (length(request_fingerprint) BETWEEN 1 AND 512),
+  CHECK (account_mode = 'login'),
+  CHECK (lifecycle_kind IN ('in_progress', 'completed')),
+  CHECK (
+    phase IN (
+      'claimed',
+      'session_prepared',
+      'completed'
+    )
+  ),
+  CHECK (version >= 1),
+  CHECK (json_valid(phase_data_json)),
+  CHECK (length(CAST(phase_data_json AS BLOB)) <= 65536),
+  CHECK (length(prepared_seams_session_id) > 0),
+  CHECK (length(prepared_device_id) > 0),
+  CHECK (prepared_created_at_ms > 0),
+  CHECK (prepared_created_at_ms = created_at_ms),
+  CHECK (updated_at_ms >= created_at_ms),
+  CHECK (expires_at_ms > created_at_ms),
+  CHECK (
+    (lifecycle_kind = 'in_progress'
+      AND phase != 'completed'
+      AND response_status IS NULL
+      AND response_body_text IS NULL
+      AND response_set_cookie IS NULL)
+    OR (lifecycle_kind = 'completed'
+      AND phase = 'completed'
+      AND response_status BETWEEN 100 AND 599
+      AND response_body_text IS NOT NULL
+      AND length(CAST(response_body_text AS BLOB)) <= 65536)
+  ),
+  CHECK (response_set_cookie IS NULL OR length(CAST(response_set_cookie AS BLOB)) <= 8192)
+);
+CREATE TABLE hosted_wallet_session_exchange_codes (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  exchange_code_id TEXT NOT NULL,
+  source_session_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  nonce_digest TEXT NOT NULL,
+  app_origin TEXT NOT NULL,
+  wallet_origin TEXT NOT NULL,
+  lifecycle_kind TEXT NOT NULL,
+  issued_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  target_session_id TEXT,
+  consumed_at_ms INTEGER,
+  PRIMARY KEY (namespace, tenant_id, exchange_code_id),
+  UNIQUE (namespace, code_hash),
+  FOREIGN KEY (namespace, tenant_id, source_session_id)
+    REFERENCES authorization_sessions(namespace, tenant_id, session_id),
+  CHECK (lifecycle_kind IN ('issued', 'consumed')),
+  CHECK (expires_at_ms > issued_at_ms),
+  CHECK (
+    (lifecycle_kind = 'issued' AND target_session_id IS NULL AND consumed_at_ms IS NULL)
+    OR
+    (lifecycle_kind = 'consumed' AND target_session_id IS NOT NULL AND consumed_at_ms IS NOT NULL)
+  )
 );
 CREATE TABLE "identity_links" (
   namespace TEXT NOT NULL,
@@ -493,7 +965,7 @@ CREATE TABLE linked_device_session_transcripts (
   ),
   FOREIGN KEY (namespace, org_id, project_id, env_id, link_session_id)
     REFERENCES linked_device_sessions(namespace, org_id, project_id, env_id, link_session_id),
-  CHECK (transcript_kind IN ('claim', 'approval', 'source_contribution')),
+  CHECK (transcript_kind IN ('claim', 'approval')),
   CHECK (length(digest_b64u) > 0),
   CHECK (json_valid(transcript_json)),
   CHECK (created_at_ms > 0)
@@ -522,7 +994,7 @@ CREATE TABLE linked_device_sessions (
   CHECK (state IN (
     'displaying_qr',
     'claimed_by_owner',
-    'awaiting_target_factor',
+    'awaiting_target_passkey',
     'provisioning',
     'active',
     'expired_unclaimed',
@@ -767,6 +1239,94 @@ CREATE TABLE near_public_keys (
   CHECK (updated_at_ms > 0),
   CHECK (removed_at_ms IS NULL OR removed_at_ms > 0)
 );
+CREATE TABLE "recovery_executions" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  chain_id_key TEXT NOT NULL,
+  account_address TEXT NOT NULL,
+  action TEXT NOT NULL,
+  status TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    session_id,
+    chain_id_key,
+    account_address,
+    action
+  ),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(session_id) > 0),
+  CHECK (length(chain_id_key) > 0),
+  CHECK (length(account_address) > 0),
+  CHECK (length(action) > 0),
+  CHECK (status IN ('pending', 'submitted', 'confirmed', 'failed', 'skipped')),
+  CHECK (json_valid(record_json)),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms),
+  CHECK (COALESCE(json_extract(record_json, '$.version') = 'recovery_execution_v1', 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.sessionId') = session_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.chainIdKey') = chain_id_key, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.accountAddress') = account_address, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.action') = action, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.status') = status, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0))
+);
+CREATE TABLE "recovery_sessions" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  near_account_id TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, session_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(project_id) > 0),
+  CHECK (length(env_id) > 0),
+  CHECK (length(session_id) > 0),
+  CHECK (length(near_account_id) > 0),
+  CHECK (json_valid(record_json)),
+  CHECK (expires_at_ms > 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms),
+  CHECK (expires_at_ms > created_at_ms),
+  CHECK (COALESCE(json_extract(record_json, '$.version') = 'recovery_session_v1', 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.sessionId') = session_id, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.nearAccountId') = near_account_id, 0)),
+  CHECK (
+    COALESCE(
+      json_extract(record_json, '$.status') IN (
+        'prepared',
+        'verified',
+        'near_recovered',
+        'evm_recovering',
+        'completed',
+        'failed',
+        'cancelled'
+      ),
+      0
+    )
+  ),
+  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0)),
+  CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
+);
 CREATE TABLE registration_ceremony_cas_guard (
   guard_id INTEGER PRIMARY KEY CHECK (guard_id = 1)
 );
@@ -798,7 +1358,7 @@ CREATE TABLE reusable_wallet_sessions (
   quota_id TEXT NOT NULL,
   lifecycle_kind TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
-  expires_at_ms INTEGER NOT NULL, authorization_id TEXT, wallet_auth_method_id TEXT,
+  expires_at_ms INTEGER NOT NULL, authorization_id TEXT,
   PRIMARY KEY (namespace, tenant_id, wallet_session_id),
   UNIQUE (namespace, tenant_id, quota_id),
   FOREIGN KEY (namespace, tenant_id, quota_id)
@@ -909,6 +1469,41 @@ CREATE TABLE vault_proxy_secrets (
   CHECK (length(sealed_secret_b64u) > 0),
   CHECK (length(nonce_b64u) > 0),
   CHECK (created_at_ms > 0)
+);
+CREATE TABLE verified_grant_evidence_sets (
+  namespace TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  evidence_set_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  evidence_set_digest TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  capability_kind TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  lane_digest TEXT NOT NULL,
+  intent_digest TEXT NOT NULL,
+  display_digest TEXT NOT NULL,
+  assurance TEXT NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, tenant_id, evidence_set_id),
+  FOREIGN KEY (namespace, tenant_id, session_id)
+    REFERENCES authorization_sessions(namespace, tenant_id, session_id),
+  CHECK (json_valid(evidence_json)),
+  CHECK (assurance IN ('session', 'step_up')),
+  CHECK (
+    (capability_kind = 'vault_access'
+      AND operation_kind IN ('vault.proxy_use', 'vault.reveal'))
+    OR (capability_kind = 'near_ed25519_mpc_signing'
+      AND operation_kind IN (
+        'near.sign_transaction',
+        'near.sign_delegate_action',
+        'near.sign_nep413_message',
+        'near.export_key'
+      ))
+    OR (capability_kind = 'evm_ecdsa_mpc_signing'
+      AND operation_kind IN ('evm.sign_transaction', 'evm.export_key'))
+  )
 );
 CREATE TABLE "wallet_auth_methods" (
   namespace TEXT NOT NULL,
@@ -1076,6 +1671,23 @@ CREATE TABLE webauthn_authenticators (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms > 0)
 );
+CREATE TABLE "webauthn_challenges" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  env_id TEXT NOT NULL,
+  challenge_id TEXT NOT NULL,
+  challenge_kind TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, env_id, challenge_id),
+  CHECK (length(challenge_id) > 0),
+  CHECK (challenge_kind IN ('login', 'sync', 'recovery_registration')),
+  CHECK (json_valid(record_json)),
+  CHECK (created_at_ms > 0),
+  CHECK (expires_at_ms > created_at_ms)
+);
 CREATE TABLE "webauthn_credential_bindings" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1097,6 +1709,47 @@ CREATE TABLE "webauthn_credential_bindings" (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms > 0)
 );
+CREATE INDEX authorized_operation_audit_fingerprint_idx
+  ON authorized_operation_audit_events(namespace, tenant_id, operation_fingerprint_digest);
+CREATE INDEX authorized_operation_audit_linked_device_activity_idx
+  ON authorized_operation_audit_events(
+    namespace,
+    authorization_grant_kind,
+    linked_scope_org_id,
+    linked_scope_project_id,
+    linked_scope_env_id,
+    linked_wallet_id,
+    linked_enrollment_id,
+    linked_device_id
+  );
+CREATE INDEX authorized_operations_tenant_fingerprint_idx
+  ON authorized_operations(namespace, tenant_id, operation_fingerprint_digest);
+CREATE INDEX authorized_operations_tenant_lifecycle_idx
+  ON authorized_operations(namespace, tenant_id, lifecycle_kind);
+CREATE INDEX email_otp_challenges_context_idx
+  ON email_otp_challenges (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    challenge_subject_id,
+    wallet_id,
+    record_org_id,
+    otp_channel,
+    session_hash,
+    app_session_version,
+    action,
+    operation,
+    expires_at_ms
+  );
+CREATE INDEX email_otp_challenges_expires_idx
+  ON email_otp_challenges (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    expires_at_ms
+  );
 CREATE INDEX email_otp_grants_expires_idx
   ON email_otp_grants (
     namespace,
@@ -1112,6 +1765,41 @@ CREATE INDEX email_otp_rate_limits_reset_idx
     project_id,
     env_id,
     reset_at_ms
+  );
+CREATE INDEX email_otp_recovery_wrapped_escrows_wallet_idx
+  ON email_otp_recovery_wrapped_enrollment_escrows (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    wallet_id,
+    recovery_key_status,
+    updated_at_ms
+  );
+CREATE INDEX email_otp_registration_attempts_subject_idx
+  ON email_otp_registration_attempts (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    provider_subject,
+    email,
+    state,
+    expires_at_ms,
+    app_session_version,
+    runtime_org_id,
+    runtime_policy_key,
+    updated_at_ms
+  );
+CREATE INDEX email_otp_registration_attempts_wallet_idx
+  ON email_otp_registration_attempts (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    wallet_id,
+    state,
+    expires_at_ms
   );
 CREATE INDEX email_otp_unlock_challenges_expires_idx
   ON email_otp_unlock_challenges (
@@ -1131,6 +1819,31 @@ CREATE INDEX email_otp_wallet_enrollments_provider_idx
     provider_user_id,
     updated_at_ms
   );
+CREATE INDEX email_recovery_preparations_account_idx
+  ON email_recovery_preparations (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    account_id,
+    created_at_ms
+  );
+CREATE INDEX email_recovery_preparations_expires_idx
+  ON email_recovery_preparations (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    expires_at_ms
+  );
+CREATE INDEX google_email_otp_session_exchange_journals_expires_idx
+  ON google_email_otp_session_exchange_journals (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    expires_at_ms
+  );
 CREATE INDEX identity_links_user_idx
   ON identity_links (
     namespace,
@@ -1140,6 +1853,8 @@ CREATE INDEX identity_links_user_idx
     user_id,
     created_at_ms
   );
+CREATE INDEX idx_authorization_sessions_expiry
+  ON authorization_sessions(namespace, tenant_id, expires_at_ms);
 CREATE INDEX idx_registration_ceremony_records_expiry
   ON registration_ceremony_records (
     namespace,
@@ -1170,6 +1885,8 @@ CREATE INDEX idx_router_ab_yao_versioned_json_records_updated
     env_id,
     updated_at_ms
   );
+CREATE INDEX idx_verified_grant_evidence_sets_expiry
+  ON verified_grant_evidence_sets(namespace, tenant_id, expires_at_ms);
 CREATE INDEX lane_enrollments_wallet_idx
   ON lane_enrollments(namespace, org_id, project_id, env_id, wallet_id, updated_at_ms);
 CREATE UNIQUE INDEX lane_product_epochs_one_active_idx
@@ -1240,6 +1957,44 @@ CREATE INDEX near_public_keys_user_idx
     signer_slot,
     created_at_ms
   );
+CREATE INDEX recovery_executions_session_idx
+  ON recovery_executions (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    session_id,
+    chain_id_key,
+    account_address,
+    action
+  );
+CREATE INDEX recovery_executions_status_idx
+  ON recovery_executions (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    status,
+    action,
+    updated_at_ms
+  );
+CREATE INDEX recovery_sessions_expiry_idx
+  ON recovery_sessions (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    expires_at_ms
+  );
+CREATE INDEX recovery_sessions_near_account_idx
+  ON recovery_sessions (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    near_account_id,
+    updated_at_ms DESC
+  );
 CREATE UNIQUE INDEX reusable_wallet_sessions_authorization_idx
   ON reusable_wallet_sessions(namespace, tenant_id, authorization_id);
 CREATE UNIQUE INDEX wallet_auth_methods_email_uidx
@@ -1301,6 +2056,15 @@ CREATE INDEX webauthn_authenticators_user_idx
     user_id,
     created_at_ms
   );
+CREATE INDEX webauthn_challenges_expiry_idx
+  ON webauthn_challenges (
+    namespace,
+    org_id,
+    project_id,
+    env_id,
+    challenge_kind,
+    expires_at_ms
+  );
 CREATE INDEX webauthn_credential_bindings_user_idx
   ON webauthn_credential_bindings (
     namespace,
@@ -1310,264 +2074,6 @@ CREATE INDEX webauthn_credential_bindings_user_idx
     user_id,
     rp_id,
     signer_slot
-  );
-CREATE TRIGGER lane_cas_guard_no_delete
-BEFORE DELETE ON lane_cas_guard
-BEGIN
-  SELECT RAISE(ABORT, 'lane_cas_guard is immutable');
-END;
-CREATE TRIGGER linked_device_wallet_session_authorization_identity_insert
-BEFORE INSERT ON linked_device_wallet_session_authorizations
-WHEN NEW.principal_id != 'linked-device:' || NEW.device_id
-  OR NEW.wallet_session_id = NEW.authorization_id
-  OR NEW.wallet_session_id = NEW.quota_id
-  OR NEW.authorization_id = NEW.quota_id
-  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'delegated_wallet_authority_v1'
-  OR json_type(NEW.permission_json, '$.permissions') IS NOT 'array'
-  OR NOT EXISTS (
-    SELECT 1
-      FROM json_each(NEW.permission_json, '$.permissions') AS permission
-     WHERE permission.value = 'sign'
-  )
-BEGIN
-  SELECT RAISE(ABORT, 'linked_device_wallet_session_authorization_identity_rejected');
-END;
-CREATE TRIGGER linked_device_wallet_session_authorization_identity_update
-BEFORE UPDATE OF principal_id, device_id, authorization_id, wallet_session_id, quota_id, permission_json
-ON linked_device_wallet_session_authorizations
-WHEN NEW.principal_id != 'linked-device:' || NEW.device_id
-  OR NEW.wallet_session_id = NEW.authorization_id
-  OR NEW.wallet_session_id = NEW.quota_id
-  OR NEW.authorization_id = NEW.quota_id
-  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'delegated_wallet_authority_v1'
-  OR json_type(NEW.permission_json, '$.permissions') IS NOT 'array'
-  OR NOT EXISTS (
-    SELECT 1
-      FROM json_each(NEW.permission_json, '$.permissions') AS permission
-     WHERE permission.value = 'sign'
-  )
-BEGIN
-  SELECT RAISE(ABORT, 'linked_device_wallet_session_authorization_identity_rejected');
-END;
-CREATE TRIGGER linked_device_wallet_session_authorization_revoke_atomic
-AFTER UPDATE OF lifecycle_kind ON linked_device_wallet_session_authorizations
-WHEN OLD.lifecycle_kind = 'active' AND NEW.lifecycle_kind = 'revoked'
-BEGIN
-  UPDATE linked_device_wallet_session_quotas
-     SET remaining_uses = 0,
-         lifecycle_kind = 'revoked'
-   WHERE namespace = NEW.namespace
-     AND org_id = NEW.org_id
-     AND project_id = NEW.project_id
-     AND env_id = NEW.env_id
-     AND tenant_id = NEW.tenant_id
-     AND authorization_id = NEW.authorization_id
-     AND quota_id = NEW.quota_id
-     AND lifecycle_kind != 'revoked';
-
-  SELECT CASE
-    WHEN changes() != 1
-    THEN RAISE(ABORT, 'linked_device_wallet_session_quota_revoke_rejected')
-  END;
-END;
-CREATE TRIGGER linked_device_wallet_session_quota_revoke_guard
-BEFORE UPDATE OF lifecycle_kind, remaining_uses ON linked_device_wallet_session_quotas
-WHEN NEW.lifecycle_kind = 'revoked'
-  AND NOT EXISTS (
-    SELECT 1
-      FROM linked_device_wallet_session_authorizations AS authorization
-     WHERE authorization.namespace = NEW.namespace
-       AND authorization.org_id = NEW.org_id
-       AND authorization.project_id = NEW.project_id
-       AND authorization.env_id = NEW.env_id
-       AND authorization.tenant_id = NEW.tenant_id
-       AND authorization.authorization_id = NEW.authorization_id
-       AND authorization.quota_id = NEW.quota_id
-       AND authorization.lifecycle_kind = 'revoked'
-  )
-BEGIN
-  SELECT RAISE(ABORT, 'linked_device_wallet_session_quota_revoke_rejected');
-END;
-CREATE TRIGGER registration_ceremony_cas_guard_no_delete
-BEFORE DELETE ON registration_ceremony_cas_guard
-BEGIN
-  SELECT RAISE(ABORT, 'registration_ceremony_cas_guard is immutable');
-END;
-CREATE TRIGGER reusable_wallet_session_authorization_identity_insert
-BEFORE INSERT ON reusable_wallet_sessions
-WHEN NEW.authorization_id IS NULL
-  OR trim(NEW.authorization_id) = ''
-  OR NEW.authorization_id = NEW.wallet_session_id
-  OR NEW.authorization_id = NEW.quota_id
-  OR NEW.wallet_session_id = NEW.quota_id
-BEGIN
-  SELECT RAISE(ABORT, 'reusable_wallet_session_authorization_identity_rejected');
-END;
-CREATE TRIGGER reusable_wallet_session_authorization_identity_update
-BEFORE UPDATE OF authorization_id, wallet_session_id ON reusable_wallet_sessions
-WHEN NEW.authorization_id IS NULL
-  OR trim(NEW.authorization_id) = ''
-  OR NEW.authorization_id = NEW.wallet_session_id
-  OR NEW.authorization_id = NEW.quota_id
-  OR NEW.wallet_session_id = NEW.quota_id
-BEGIN
-  SELECT RAISE(ABORT, 'reusable_wallet_session_authorization_identity_rejected');
-END;
-CREATE TRIGGER router_ab_yao_versioned_json_cas_guard_no_delete
-BEFORE DELETE ON router_ab_yao_versioned_json_cas_guard
-BEGIN
-  SELECT RAISE(ABORT, 'router_ab_yao_versioned_json_cas_guard is immutable');
-END;
-CREATE TABLE "authorized_operation_audit_events" (
-  namespace TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  audit_event_id TEXT NOT NULL,
-  authorized_operation_id TEXT NOT NULL,
-  operation_fingerprint_digest TEXT NOT NULL,
-  authorization_source_kind TEXT NOT NULL,
-  authorization_id TEXT,
-  evidence_set_digest TEXT,
-  quota_id TEXT,
-  material_activation_id TEXT,
-  result_kind TEXT NOT NULL,
-  claimed_at_ms INTEGER NOT NULL,
-  completed_at_ms INTEGER, authorization_grant_kind TEXT, material_activation_capability TEXT, material_activation_owner TEXT, material_activation_key_binding TEXT, material_activation_lifecycle_binding TEXT, material_activation_signing_worker TEXT, linked_wallet_id TEXT, linked_enrollment_id TEXT, linked_device_id TEXT, linked_wallet_key_id TEXT, linked_lane_id TEXT, linked_lane_share_epoch TEXT, linked_revocation_epoch INTEGER, linked_scope_org_id TEXT, linked_scope_project_id TEXT, linked_scope_env_id TEXT,
-  PRIMARY KEY (namespace, tenant_id, audit_event_id),
-  UNIQUE (namespace, tenant_id, authorized_operation_id),
-  CHECK (authorization_source_kind IN ('authorization_grant', 'verified_step_up')),
-  CHECK (
-    (authorization_source_kind = 'authorization_grant'
-      AND authorization_id IS NOT NULL
-      AND evidence_set_digest IS NULL)
-    OR (authorization_source_kind = 'verified_step_up'
-      AND authorization_id IS NULL
-      AND evidence_set_digest IS NOT NULL)
-  ),
-  CHECK (result_kind IN ('pending', 'succeeded', 'failed_before_side_effect', 'failed_after_side_effect')),
-  CHECK (
-    (result_kind = 'pending' AND completed_at_ms IS NULL)
-    OR (result_kind != 'pending' AND completed_at_ms IS NOT NULL)
-  )
-);
-CREATE TABLE "authorized_operations" (
-  namespace TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  authorized_operation_id TEXT NOT NULL,
-  audit_event_id TEXT NOT NULL,
-  principal_id TEXT NOT NULL,
-  capability_id TEXT NOT NULL,
-  capability_kind TEXT NOT NULL,
-  operation_kind TEXT NOT NULL,
-  operation_id TEXT NOT NULL,
-  operation_fingerprint_digest TEXT NOT NULL,
-  lane_digest TEXT NOT NULL,
-  intent_digest TEXT NOT NULL,
-  display_digest TEXT NOT NULL,
-  authorization_source_kind TEXT NOT NULL,
-  authorization_id TEXT,
-  evidence_set_digest TEXT,
-  quota_id TEXT,
-  quota_kind TEXT NOT NULL,
-  lifecycle_kind TEXT NOT NULL,
-  result_kind TEXT NOT NULL,
-  result_digest TEXT,
-  result_status INTEGER,
-  result_content_type TEXT,
-  result_body_text TEXT,
-  claimed_at_ms INTEGER NOT NULL,
-  completed_at_ms INTEGER,
-  material_activation_id TEXT, authorization_grant_kind TEXT, material_activation_capability TEXT, material_activation_owner TEXT, material_activation_key_binding TEXT, material_activation_lifecycle_binding TEXT, material_activation_signing_worker TEXT, linked_wallet_id TEXT, linked_enrollment_id TEXT, linked_device_id TEXT, linked_wallet_key_id TEXT, linked_lane_id TEXT, linked_lane_share_epoch TEXT, linked_revocation_epoch INTEGER, linked_scope_org_id TEXT, linked_scope_project_id TEXT, linked_scope_env_id TEXT,
-  PRIMARY KEY (namespace, tenant_id, authorized_operation_id),
-  UNIQUE (namespace, tenant_id, operation_fingerprint_digest),
-  CHECK (authorization_source_kind IN ('authorization_grant', 'verified_step_up')),
-  CHECK (
-    (authorization_source_kind = 'authorization_grant'
-      AND authorization_id IS NOT NULL
-      AND evidence_set_digest IS NULL)
-    OR (authorization_source_kind = 'verified_step_up'
-      AND authorization_id IS NULL
-      AND evidence_set_digest IS NOT NULL)
-  ),
-  CHECK (quota_kind IN ('consume_reusable_wallet_session', 'quota_neutral')),
-  CHECK (
-    (quota_kind = 'consume_reusable_wallet_session'
-      AND authorization_source_kind = 'authorization_grant'
-      AND operation_kind NOT IN ('near.export_key', 'evm.export_key')
-      AND capability_kind != 'vault_access')
-    OR (quota_kind = 'quota_neutral'
-      AND (
-        operation_kind IN ('near.export_key', 'evm.export_key')
-        OR capability_kind = 'vault_access'
-        OR authorization_source_kind = 'verified_step_up'
-      ))
-  ),
-  CHECK (
-    (quota_kind = 'consume_reusable_wallet_session' AND quota_id IS NOT NULL)
-    OR (quota_kind = 'quota_neutral' AND quota_id IS NULL)
-  ),
-  CHECK (lifecycle_kind IN ('claimed', 'completed')),
-  CHECK (
-    (lifecycle_kind = 'claimed'
-      AND result_kind = 'pending'
-      AND result_digest IS NULL
-      AND result_status IS NULL
-      AND result_content_type IS NULL
-      AND result_body_text IS NULL
-      AND completed_at_ms IS NULL)
-    OR (lifecycle_kind = 'completed'
-      AND result_kind IN ('succeeded', 'failed_before_side_effect', 'failed_after_side_effect')
-      AND result_digest IS NOT NULL
-      AND result_status BETWEEN 100 AND 599
-      AND result_content_type IS NOT NULL
-      AND trim(result_content_type) = result_content_type
-      AND length(result_content_type) BETWEEN 1 AND 255
-      AND result_body_text IS NOT NULL
-      AND length(CAST(result_body_text AS BLOB)) <= 65536
-      AND completed_at_ms IS NOT NULL)
-  )
-);
-CREATE TABLE "webauthn_challenges" (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  env_id TEXT NOT NULL,
-  challenge_id TEXT NOT NULL,
-  challenge_kind TEXT NOT NULL,
-  record_json TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  expires_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, project_id, env_id, challenge_id),
-  CHECK (length(challenge_id) > 0),
-  CHECK (challenge_kind IN ('login', 'sync', 'recovery_registration')),
-  CHECK (json_valid(record_json)),
-  CHECK (created_at_ms > 0),
-  CHECK (expires_at_ms > created_at_ms)
-);
-CREATE INDEX authorized_operation_audit_fingerprint_idx
-  ON authorized_operation_audit_events(namespace, tenant_id, operation_fingerprint_digest);
-CREATE INDEX authorized_operation_audit_linked_device_activity_idx
-  ON authorized_operation_audit_events(
-    namespace,
-    authorization_grant_kind,
-    linked_scope_org_id,
-    linked_scope_project_id,
-    linked_scope_env_id,
-    linked_wallet_id,
-    linked_enrollment_id,
-    linked_device_id
-  );
-CREATE INDEX authorized_operations_tenant_fingerprint_idx
-  ON authorized_operations(namespace, tenant_id, operation_fingerprint_digest);
-CREATE INDEX authorized_operations_tenant_lifecycle_idx
-  ON authorized_operations(namespace, tenant_id, lifecycle_kind);
-CREATE INDEX webauthn_challenges_expiry_idx
-  ON webauthn_challenges (
-    namespace,
-    org_id,
-    project_id,
-    env_id,
-    challenge_kind,
-    expires_at_ms
   );
 CREATE TRIGGER authorized_operation_audit_claim
 AFTER INSERT ON authorized_operations
@@ -1646,13 +2152,9 @@ WHEN NEW.lifecycle_kind = 'claimed'
   AND NEW.authorization_grant_kind = 'linked_device_wallet_session_authorization_v1'
 BEGIN
   SELECT CASE
-    WHEN (
-        (NEW.operation_kind IN ('near.export_key', 'evm.export_key')
-          AND NEW.quota_kind != 'quota_neutral')
-        OR (NEW.operation_kind NOT IN ('near.export_key', 'evm.export_key')
-          AND NEW.quota_kind != 'consume_reusable_wallet_session')
-      )
+    WHEN NEW.quota_kind != 'consume_reusable_wallet_session'
       OR NEW.capability_kind NOT IN ('near_ed25519_mpc_signing', 'evm_ecdsa_mpc_signing')
+      OR NEW.operation_kind IN ('near.export_key', 'evm.export_key')
       OR NOT EXISTS (
         SELECT 1
           FROM linked_device_wallet_session_authorizations AS grant_record
@@ -1725,26 +2227,15 @@ BEGIN
            AND grant_record.tenant_id = NEW.tenant_id
            AND grant_record.authorization_id = NEW.authorization_id
            AND grant_record.principal_id = NEW.principal_id
-           AND (
-             NEW.quota_kind = 'quota_neutral'
-             OR grant_record.quota_id = NEW.quota_id
-           )
+           AND grant_record.quota_id = NEW.quota_id
            AND grant_record.wallet_id = NEW.linked_wallet_id
            AND grant_record.enrollment_id = NEW.linked_enrollment_id
            AND grant_record.device_id = NEW.linked_device_id
            AND grant_record.lifecycle_kind = 'active'
            AND grant_record.expires_at_ms > NEW.claimed_at_ms
-           AND json_extract(grant_record.permission_json, '$.kind') = 'delegated_wallet_authority_v1'
-           AND json_type(grant_record.permission_json, '$.permissions') = 'array'
-           AND EXISTS (
-             SELECT 1
-               FROM json_each(grant_record.permission_json, '$.permissions') AS permission
-              WHERE permission.value = CASE
-                WHEN NEW.operation_kind IN ('near.export_key', 'evm.export_key')
-                THEN 'export_keys'
-                ELSE 'sign'
-              END
-           )
+           AND json_extract(grant_record.permission_json, '$.kind') = 'owner_equivalent_signing'
+           AND json_extract(grant_record.permission_json, '$.administrationScope') = 'signing_only'
+           AND json_extract(grant_record.permission_json, '$.localUserPresence') = 'required'
       )
     THEN RAISE(ABORT, 'authorization_linked_device_rejected')
   END;
@@ -1816,78 +2307,6 @@ BEGIN
     THEN RAISE(ABORT, 'authorization_wallet_session_quota_rejected')
   END;
 END;
-CREATE TABLE verified_wallet_operation_evidence_sets (
-  namespace TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  evidence_set_id TEXT NOT NULL,
-  principal_id TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  authority_digest TEXT NOT NULL,
-  request_origin TEXT NOT NULL,
-  audience TEXT NOT NULL,
-  evidence_set_digest TEXT NOT NULL,
-  evidence_json TEXT NOT NULL,
-  capability_kind TEXT NOT NULL,
-  operation_kind TEXT NOT NULL,
-  lane_digest TEXT NOT NULL,
-  intent_digest TEXT NOT NULL,
-  display_digest TEXT NOT NULL,
-  assurance TEXT NOT NULL,
-  verified_at_ms INTEGER NOT NULL,
-  expires_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, tenant_id, evidence_set_id),
-  UNIQUE (namespace, tenant_id, evidence_set_digest),
-  CHECK (json_valid(evidence_json)),
-  CHECK (assurance = 'step_up'),
-  CHECK (expires_at_ms > verified_at_ms),
-  CHECK (
-    (capability_kind = 'near_ed25519_mpc_signing'
-      AND operation_kind IN (
-        'near.sign_transaction',
-        'near.sign_delegate_action',
-        'near.sign_nep413_message',
-        'near.export_key'
-      ))
-    OR (capability_kind = 'evm_ecdsa_mpc_signing'
-      AND operation_kind IN ('evm.sign_transaction', 'evm.export_key'))
-    OR (capability_kind = 'vault_access'
-      AND operation_kind IN ('vault.proxy_use', 'vault.reveal'))
-  )
-);
-CREATE TABLE verified_owner_proof_consumptions (
-  namespace TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  proof_id TEXT NOT NULL,
-  purpose TEXT NOT NULL,
-  method TEXT NOT NULL,
-  principal_id TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  authority_digest TEXT NOT NULL,
-  replay_identity TEXT NOT NULL,
-  consumption_scope_id TEXT NOT NULL,
-  consumed_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, tenant_id, proof_id),
-  UNIQUE (namespace, tenant_id, replay_identity),
-  CHECK (purpose IN ('wallet_session', 'operation')),
-  CHECK (method IN ('passkey', 'email_otp')),
-  CHECK (consumed_at_ms > 0)
-);
-CREATE INDEX idx_verified_wallet_operation_evidence_expiry
-  ON verified_wallet_operation_evidence_sets(namespace, tenant_id, expires_at_ms);
-CREATE TABLE opaque_wallet_session_tokens (
-  namespace TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  token_hash TEXT NOT NULL,
-  curve TEXT NOT NULL,
-  wallet_session_id TEXT NOT NULL,
-  binding_json TEXT NOT NULL,
-  PRIMARY KEY (namespace, tenant_id, token_hash),
-  UNIQUE (namespace, tenant_id, wallet_session_id, curve),
-  FOREIGN KEY (namespace, tenant_id, wallet_session_id)
-    REFERENCES reusable_wallet_sessions(namespace, tenant_id, wallet_session_id),
-  CHECK (curve IN ('ecdsa', 'ed25519')),
-  CHECK (json_valid(binding_json))
-);
 CREATE TRIGGER authorized_operation_step_up_claim_atomic
 AFTER INSERT ON authorized_operations
 WHEN NEW.lifecycle_kind = 'claimed'
@@ -1896,7 +2315,12 @@ BEGIN
   SELECT CASE
     WHEN NOT EXISTS (
         SELECT 1
-          FROM verified_wallet_operation_evidence_sets AS evidence
+          FROM verified_grant_evidence_sets AS evidence
+          JOIN authorization_sessions AS session
+            ON session.namespace = evidence.namespace
+           AND session.tenant_id = evidence.tenant_id
+           AND session.session_id = evidence.session_id
+           AND session.principal_id = evidence.principal_id
          WHERE evidence.namespace = NEW.namespace
            AND evidence.tenant_id = NEW.tenant_id
            AND evidence.evidence_set_digest = NEW.evidence_set_digest
@@ -1908,325 +2332,155 @@ BEGIN
            AND evidence.display_digest = NEW.display_digest
            AND evidence.assurance = 'step_up'
            AND evidence.expires_at_ms > NEW.claimed_at_ms
+           AND session.lifecycle_kind = 'active'
+           AND session.expires_at_ms > NEW.claimed_at_ms
       )
     THEN RAISE(ABORT, 'authorization_evidence_claim_rejected')
   END;
 END;
-CREATE TABLE hosted_wallet_session_exchange_codes (
-  namespace TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  exchange_code_id TEXT NOT NULL,
-  wallet_session_id TEXT NOT NULL,
-  code_hash TEXT NOT NULL,
-  nonce_digest TEXT NOT NULL,
-  app_origin TEXT NOT NULL,
-  wallet_origin TEXT NOT NULL,
-  lifecycle_kind TEXT NOT NULL,
-  issued_at_ms INTEGER NOT NULL,
-  expires_at_ms INTEGER NOT NULL,
-  token_hash TEXT,
-  curve TEXT,
-  binding_json TEXT,
-  consumed_at_ms INTEGER,
-  PRIMARY KEY (namespace, tenant_id, exchange_code_id),
-  UNIQUE (namespace, code_hash),
-  FOREIGN KEY (namespace, tenant_id, wallet_session_id)
-    REFERENCES reusable_wallet_sessions(namespace, tenant_id, wallet_session_id),
-  CHECK (lifecycle_kind IN ('issued', 'consumed')),
-  CHECK (curve IN ('ecdsa', 'ed25519')),
-  CHECK (json_valid(binding_json)),
-  CHECK (expires_at_ms > issued_at_ms),
-  CHECK (
-    (lifecycle_kind = 'issued'
-      AND token_hash IS NULL
-      AND curve IS NOT NULL
-      AND binding_json IS NOT NULL
-      AND consumed_at_ms IS NULL)
-    OR (lifecycle_kind = 'consumed'
-      AND token_hash IS NOT NULL
-      AND curve IS NOT NULL
-      AND binding_json IS NOT NULL
-      AND consumed_at_ms IS NOT NULL)
+CREATE TRIGGER lane_cas_guard_no_delete
+BEFORE DELETE ON lane_cas_guard
+BEGIN
+  SELECT RAISE(ABORT, 'lane_cas_guard is immutable');
+END;
+CREATE TRIGGER linked_device_wallet_session_authorization_identity_insert
+BEFORE INSERT ON linked_device_wallet_session_authorizations
+WHEN NEW.principal_id != 'linked-device:' || NEW.device_id
+  OR NEW.wallet_session_id = NEW.authorization_id
+  OR NEW.wallet_session_id = NEW.quota_id
+  OR NEW.authorization_id = NEW.quota_id
+  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'owner_equivalent_signing'
+  OR json_extract(NEW.permission_json, '$.administrationScope') IS NOT 'signing_only'
+  OR json_extract(NEW.permission_json, '$.localUserPresence') IS NOT 'required'
+BEGIN
+  SELECT RAISE(ABORT, 'linked_device_wallet_session_authorization_identity_rejected');
+END;
+CREATE TRIGGER linked_device_wallet_session_authorization_identity_update
+BEFORE UPDATE OF principal_id, device_id, authorization_id, wallet_session_id, quota_id, permission_json
+ON linked_device_wallet_session_authorizations
+WHEN NEW.principal_id != 'linked-device:' || NEW.device_id
+  OR NEW.wallet_session_id = NEW.authorization_id
+  OR NEW.wallet_session_id = NEW.quota_id
+  OR NEW.authorization_id = NEW.quota_id
+  OR json_extract(NEW.permission_json, '$.kind') IS NOT 'owner_equivalent_signing'
+  OR json_extract(NEW.permission_json, '$.administrationScope') IS NOT 'signing_only'
+  OR json_extract(NEW.permission_json, '$.localUserPresence') IS NOT 'required'
+BEGIN
+  SELECT RAISE(ABORT, 'linked_device_wallet_session_authorization_identity_rejected');
+END;
+CREATE TRIGGER linked_device_wallet_session_authorization_revoke_atomic
+AFTER UPDATE OF lifecycle_kind ON linked_device_wallet_session_authorizations
+WHEN OLD.lifecycle_kind = 'active' AND NEW.lifecycle_kind = 'revoked'
+BEGIN
+  UPDATE linked_device_wallet_session_quotas
+     SET remaining_uses = 0,
+         lifecycle_kind = 'revoked'
+   WHERE namespace = NEW.namespace
+     AND org_id = NEW.org_id
+     AND project_id = NEW.project_id
+     AND env_id = NEW.env_id
+     AND tenant_id = NEW.tenant_id
+     AND authorization_id = NEW.authorization_id
+     AND quota_id = NEW.quota_id
+     AND lifecycle_kind != 'revoked';
+
+  SELECT CASE
+    WHEN changes() != 1
+    THEN RAISE(ABORT, 'linked_device_wallet_session_quota_revoke_rejected')
+  END;
+END;
+CREATE TRIGGER linked_device_wallet_session_quota_revoke_guard
+BEFORE UPDATE OF lifecycle_kind, remaining_uses ON linked_device_wallet_session_quotas
+WHEN NEW.lifecycle_kind = 'revoked'
+  AND NOT EXISTS (
+    SELECT 1
+      FROM linked_device_wallet_session_authorizations AS authorization
+     WHERE authorization.namespace = NEW.namespace
+       AND authorization.org_id = NEW.org_id
+       AND authorization.project_id = NEW.project_id
+       AND authorization.env_id = NEW.env_id
+       AND authorization.tenant_id = NEW.tenant_id
+       AND authorization.authorization_id = NEW.authorization_id
+       AND authorization.quota_id = NEW.quota_id
+       AND authorization.lifecycle_kind = 'revoked'
   )
-);
-CREATE INDEX idx_hosted_wallet_session_exchange_expiry
-  ON hosted_wallet_session_exchange_codes(namespace, tenant_id, expires_at_ms);
-CREATE TRIGGER hosted_wallet_session_exchange_mint_token
+BEGIN
+  SELECT RAISE(ABORT, 'linked_device_wallet_session_quota_revoke_rejected');
+END;
+CREATE TRIGGER registration_ceremony_cas_guard_no_delete
+BEFORE DELETE ON registration_ceremony_cas_guard
+BEGIN
+  SELECT RAISE(ABORT, 'registration_ceremony_cas_guard is immutable');
+END;
+CREATE TRIGGER reusable_wallet_session_authorization_identity_insert
+BEFORE INSERT ON reusable_wallet_sessions
+WHEN NEW.authorization_id IS NULL
+  OR trim(NEW.authorization_id) = ''
+  OR NEW.authorization_id = NEW.wallet_session_id
+  OR NEW.authorization_id = NEW.quota_id
+  OR NEW.wallet_session_id = NEW.quota_id
+BEGIN
+  SELECT RAISE(ABORT, 'reusable_wallet_session_authorization_identity_rejected');
+END;
+CREATE TRIGGER reusable_wallet_session_authorization_identity_update
+BEFORE UPDATE OF authorization_id, wallet_session_id ON reusable_wallet_sessions
+WHEN NEW.authorization_id IS NULL
+  OR trim(NEW.authorization_id) = ''
+  OR NEW.authorization_id = NEW.wallet_session_id
+  OR NEW.authorization_id = NEW.quota_id
+  OR NEW.wallet_session_id = NEW.quota_id
+BEGIN
+  SELECT RAISE(ABORT, 'reusable_wallet_session_authorization_identity_rejected');
+END;
+CREATE TRIGGER router_ab_yao_versioned_json_cas_guard_no_delete
+BEFORE DELETE ON router_ab_yao_versioned_json_cas_guard
+BEGIN
+  SELECT RAISE(ABORT, 'router_ab_yao_versioned_json_cas_guard is immutable');
+END;
+CREATE TRIGGER trg_hosted_wallet_exchange_create_target_session
 AFTER UPDATE OF lifecycle_kind ON hosted_wallet_session_exchange_codes
 WHEN OLD.lifecycle_kind = 'issued' AND NEW.lifecycle_kind = 'consumed'
 BEGIN
-  INSERT INTO opaque_wallet_session_tokens (
+  INSERT INTO authorization_sessions (
     namespace,
     tenant_id,
-    token_hash,
-    curve,
-    wallet_session_id,
-    binding_json
-  ) VALUES (
-    NEW.namespace,
-    NEW.tenant_id,
-    NEW.token_hash,
-    NEW.curve,
-    NEW.wallet_session_id,
-    NEW.binding_json
-  );
-END;
-CREATE TABLE email_otp_challenges (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  env_id TEXT NOT NULL,
-  challenge_id TEXT NOT NULL,
-  challenge_subject_id TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  record_org_id TEXT NOT NULL,
-  otp_channel TEXT NOT NULL,
-  owner_proof_binding_digest TEXT NOT NULL,
-  action TEXT NOT NULL,
-  operation TEXT NOT NULL,
-  otp_code TEXT NOT NULL,
-  record_json TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  expires_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, project_id, env_id, challenge_id),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (length(project_id) > 0),
-  CHECK (length(env_id) > 0),
-  CHECK (length(challenge_id) > 0),
-  CHECK (length(challenge_subject_id) > 0),
-  CHECK (length(wallet_id) > 0),
-  CHECK (length(record_org_id) > 0),
-  CHECK (otp_channel = 'email_otp'),
-  CHECK (length(owner_proof_binding_digest) > 0),
-  CHECK (
-    action IN (
-      'wallet_email_otp_login',
-      'wallet_email_otp_registration',
-      'wallet_email_otp_device_recovery'
-    )
-  ),
-  CHECK (operation IN ('wallet_unlock', 'transaction_sign', 'export_key', 'registration')),
-  CHECK (length(otp_code) > 0),
-  CHECK (json_valid(record_json)),
-  CHECK (created_at_ms > 0),
-  CHECK (expires_at_ms > created_at_ms),
-  CHECK (COALESCE(json_extract(record_json, '$.version') = 'email_otp_challenge_v1', 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.challengeId') = challenge_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.challengeSubjectId') = challenge_subject_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.orgId') = record_org_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.otpChannel') = otp_channel, 0)),
-  CHECK (
-    COALESCE(json_extract(record_json, '$.ownerProofBindingDigest') = owner_proof_binding_digest, 0)
-  ),
-  CHECK (COALESCE(json_extract(record_json, '$.action') = action, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.operation') = operation, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.otpCode') = otp_code, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
-);
-CREATE INDEX email_otp_challenges_context_idx
-  ON email_otp_challenges (
-    namespace, org_id, project_id, env_id, challenge_subject_id, wallet_id,
-    record_org_id, otp_channel, owner_proof_binding_digest, action, operation,
-    expires_at_ms, created_at_ms
-  );
-CREATE INDEX email_otp_challenges_expires_idx
-  ON email_otp_challenges (namespace, org_id, project_id, env_id, expires_at_ms);
-CREATE TABLE email_otp_registration_attempts (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  env_id TEXT NOT NULL,
-  attempt_id TEXT NOT NULL,
-  provider_subject TEXT NOT NULL,
-  email TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  state TEXT NOT NULL,
-  owner_proof_binding_digest TEXT NOT NULL,
-  runtime_org_id TEXT NOT NULL,
-  runtime_policy_key TEXT NOT NULL,
-  offer_wallet_ids_json TEXT NOT NULL,
-  record_json TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  expires_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, project_id, env_id, attempt_id),
-  CHECK (length(attempt_id) > 0),
-  CHECK (length(provider_subject) > 0),
-  CHECK (length(email) > 0),
-  CHECK (length(wallet_id) > 0),
-  CHECK (state IN ('started', 'key_finalized', 'active', 'abandoned', 'failed', 'expired')),
-  CHECK (length(owner_proof_binding_digest) > 0),
-  CHECK (json_valid(offer_wallet_ids_json)),
-  CHECK (json_valid(record_json)),
-  CHECK (created_at_ms > 0),
-  CHECK (updated_at_ms >= created_at_ms),
-  CHECK (expires_at_ms > created_at_ms),
-  CHECK (COALESCE(json_extract(record_json, '$.version') = 'google_email_otp_registration_attempt_v1', 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.attemptId') = attempt_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.providerSubject') = provider_subject, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.email') = email, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.state') = state, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.ownerProofBindingDigest') = owner_proof_binding_digest, 0)),
-  CHECK (runtime_org_id = '' OR COALESCE(json_extract(record_json, '$.runtimePolicyScope.orgId') = runtime_org_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.expiresAtMs') = expires_at_ms, 0))
-);
-CREATE INDEX email_otp_registration_attempts_subject_idx
-  ON email_otp_registration_attempts (
-    namespace, org_id, project_id, env_id, provider_subject, email, state,
-    expires_at_ms, owner_proof_binding_digest, runtime_org_id, runtime_policy_key,
-    updated_at_ms
-  );
-CREATE INDEX email_otp_registration_attempts_wallet_idx
-  ON email_otp_registration_attempts (
-    namespace, org_id, project_id, env_id, wallet_id, state, expires_at_ms
-  );
-CREATE TABLE linked_device_owner_auth_bindings (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  env_id TEXT NOT NULL,
-  tenant_id TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  enrollment_id TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  wallet_auth_method_id TEXT NOT NULL,
-  factor_kind TEXT NOT NULL,
-  rp_id TEXT,
-  credential_id_b64u TEXT,
-  email_hash_hex TEXT,
-  registration_authority_id TEXT,
-  key_manifest_digest_b64u TEXT NOT NULL,
-  lifecycle_state TEXT NOT NULL,
-  revocation_epoch INTEGER NOT NULL,
-  record_json TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, project_id, env_id, enrollment_id),
-  FOREIGN KEY (namespace, org_id, project_id, env_id, wallet_auth_method_id)
-    REFERENCES wallet_auth_methods(namespace, org_id, project_id, env_id, wallet_auth_method_id),
-  CHECK (length(tenant_id) > 0),
-  CHECK (length(wallet_id) > 0),
-  CHECK (length(enrollment_id) > 0),
-  CHECK (length(device_id) > 0),
-  CHECK (length(wallet_auth_method_id) > 0),
-  CHECK (length(key_manifest_digest_b64u) > 0),
-  CHECK (factor_kind IN ('passkey', 'email_otp')),
-  CHECK (lifecycle_state IN ('active', 'paused', 'revoked')),
-  CHECK (revocation_epoch >= 0),
-  CHECK (lifecycle_state <> 'revoked' OR revocation_epoch >= 1),
-  CHECK (json_valid(record_json)),
-  CHECK (created_at_ms > 0),
-  CHECK (updated_at_ms >= created_at_ms),
-  CHECK (COALESCE(json_extract(record_json, '$.kind') = 'linked_device_owner_auth_binding_v1', 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.walletId') = wallet_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.enrollmentId') = enrollment_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.deviceId') = device_id, 0)),
-  CHECK (COALESCE(json_extract(record_json, '$.walletAuthMethodId') = wallet_auth_method_id, 0)),
-  CHECK (
-    (
-      factor_kind = 'passkey'
-      AND rp_id IS NOT NULL
-      AND length(rp_id) > 0
-      AND credential_id_b64u IS NOT NULL
-      AND length(credential_id_b64u) > 0
-      AND email_hash_hex IS NULL
-      AND registration_authority_id IS NULL
-      AND wallet_auth_method_id = 'passkey:' || rp_id || ':' || credential_id_b64u
-    )
-    OR
-    (
-      factor_kind = 'email_otp'
-      AND rp_id IS NULL
-      AND credential_id_b64u IS NULL
-      AND email_hash_hex IS NOT NULL
-      AND length(email_hash_hex) > 0
-      AND registration_authority_id IS NOT NULL
-      AND length(registration_authority_id) > 0
-      AND wallet_auth_method_id = 'email_otp:' || wallet_id || ':' || email_hash_hex
-    )
+    session_id,
+    principal_id,
+    auth_source_kind,
+    auth_source_json,
+    device_id,
+    audience_kind,
+    audience_json,
+    app_session_version,
+    assurance,
+    lifecycle_kind,
+    created_at_ms,
+    expires_at_ms
   )
-);
-CREATE UNIQUE INDEX linked_device_owner_auth_bindings_device_idx
-  ON linked_device_owner_auth_bindings (namespace, org_id, project_id, env_id, wallet_id, device_id);
-CREATE UNIQUE INDEX linked_device_owner_auth_bindings_method_idx
-  ON linked_device_owner_auth_bindings (namespace, org_id, project_id, env_id, wallet_id, wallet_auth_method_id);
-CREATE INDEX linked_device_owner_auth_bindings_wallet_idx
-  ON linked_device_owner_auth_bindings (namespace, org_id, project_id, env_id, wallet_id, lifecycle_state);
-CREATE TABLE linked_device_custody_transfers (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  env_id TEXT NOT NULL,
-  link_session_id TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  enrollment_id TEXT NOT NULL,
-  device_id TEXT NOT NULL,
-  state TEXT NOT NULL,
-  transfer_alg TEXT NOT NULL,
-  recipient_public_key_b64u TEXT NOT NULL,
-  recipient_json TEXT NOT NULL,
-  package_json TEXT,
-  ephemeral_public_key_b64u TEXT,
-  ciphertext_digest_b64u TEXT,
-  registered_at_ms INTEGER NOT NULL,
-  sealed_at_ms INTEGER,
-  PRIMARY KEY (namespace, org_id, project_id, env_id, link_session_id),
-  FOREIGN KEY (namespace, org_id, project_id, env_id, link_session_id)
-    REFERENCES linked_device_sessions(namespace, org_id, project_id, env_id, link_session_id),
-  CHECK (length(wallet_id) > 0),
-  CHECK (length(enrollment_id) > 0),
-  CHECK (length(device_id) > 0),
-  CHECK (state IN ('recipient_registered', 'sealed')),
-  CHECK (transfer_alg = 'x25519-hkdf-sha256-chacha20poly1305-v1'),
-  CHECK (length(recipient_public_key_b64u) > 0),
-  CHECK (json_valid(recipient_json)),
-  CHECK (registered_at_ms > 0),
-  CHECK (
-    COALESCE(json_extract(recipient_json, '$.recipientPublicKeyB64u')
-      = recipient_public_key_b64u, 0)
-  ),
-  CHECK (
-    (state = 'recipient_registered'
-      AND package_json IS NULL
-      AND ephemeral_public_key_b64u IS NULL
-      AND ciphertext_digest_b64u IS NULL
-      AND sealed_at_ms IS NULL)
-    OR
-    (state = 'sealed'
-      AND json_valid(package_json)
-      AND length(ephemeral_public_key_b64u) > 0
-      AND length(ciphertext_digest_b64u) > 0
-      AND sealed_at_ms >= registered_at_ms
-      -- A package that names another recipient key would be addressed to a
-      -- device this row never registered.
-      AND COALESCE(json_extract(package_json, '$.recipientPublicKeyB64u')
-        = recipient_public_key_b64u, 0)
-      -- Republishing the recipient key as the ephemeral key is never a valid
-      -- seal; it means no ephemeral key was generated.
-      AND ephemeral_public_key_b64u <> recipient_public_key_b64u)
-  )
-);
-CREATE UNIQUE INDEX linked_device_custody_transfers_enrollment_idx
-  ON linked_device_custody_transfers (
-    namespace, org_id, project_id, env_id, wallet_id, enrollment_id, device_id
-  );
-CREATE INDEX idx_reusable_wallet_sessions_auth_method
-  ON reusable_wallet_sessions(namespace, tenant_id, wallet_id, wallet_auth_method_id);
-CREATE TABLE linked_device_session_cas_guard (
-  guard_id INTEGER PRIMARY KEY CHECK (guard_id = 1)
-);
-CREATE TRIGGER linked_device_session_cas_guard_no_delete
-BEFORE DELETE ON linked_device_session_cas_guard
-BEGIN
-  SELECT RAISE(ABORT, 'linked_device_session_cas_guard row is required');
-END;
+  SELECT
+    source.namespace,
+    source.tenant_id,
+    NEW.target_session_id,
+    source.principal_id,
+    source.auth_source_kind,
+    source.auth_source_json,
+    source.device_id,
+    'hosted_wallet_iframe',
+    json_object('appOrigin', NEW.app_origin, 'walletOrigin', NEW.wallet_origin),
+    source.app_session_version,
+    source.assurance,
+    'active',
+    NEW.consumed_at_ms,
+    source.expires_at_ms
+  FROM authorization_sessions AS source
+  WHERE source.namespace = NEW.namespace
+    AND source.tenant_id = NEW.tenant_id
+    AND source.session_id = NEW.source_session_id
+    AND source.lifecycle_kind = 'active'
+    AND source.expires_at_ms > NEW.consumed_at_ms;
 
--- CAS guard rows are immutable sentinels used by guarded D1 batches.
-INSERT INTO lane_cas_guard (guard_id) VALUES (1);
-INSERT INTO linked_device_session_cas_guard (guard_id) VALUES (1);
+  SELECT CASE
+    WHEN changes() != 1
+    THEN RAISE(ABORT, 'hosted_wallet_source_session_unavailable')
+  END;
+END;
