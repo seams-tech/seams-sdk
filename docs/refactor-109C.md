@@ -54,10 +54,16 @@ unproven rather than partially proven.
       Repairing it exposed a real fixture defect: the shared management factory
       stamped placeholder authority digests, which every server read rejects as
       corrupt. The factory now computes both canonical digests.
-- [ ] The cited command exits 0 — still blocked on the four pre-existing
-      failures in `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`, whose
-      first boundary is now `auth: { kind: 'app_session' }`, a retired auth kind
-      that needs a real assertion fixture rather than a rename.
+- [ ] The cited command exits 0 — the R109C addition test in
+      `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts` now passes; the
+      three still failing are add-signer, a different feature that shares the
+      file, each at its own boundary: the budget refresh has no seeded
+      authority, strict ECDSA rejects a custody client-root key, and the Yao
+      add-signer reads `registeredPublicKeyB64u` off an absent record.
+      Separately, `passkeyCustodyEnvelope.boundary.unit.test.ts` asserts that
+      `ed25519_yao_client_root_v1` no longer parses — a stale premise, since the
+      linked-device export root made that kind live again. Neither belongs to
+      R109C's addition path.
 - [x] Authority-ID and self-proof revocation requests are rejected at the
       boundary — `linkedDeviceManagement.unit.test.ts` covers exactly this and
       passes on its own.

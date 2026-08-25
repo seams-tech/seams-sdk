@@ -323,7 +323,8 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
       recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
       recoveryEntryAadHashB64u: DIGEST_B64U,
     },
-    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
+    /* Reaches a real curve check on the add-signer finalize path. */
+    clientRootPublicKey33B64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
     ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
   };
 }
