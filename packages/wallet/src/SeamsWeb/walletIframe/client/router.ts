@@ -155,6 +155,7 @@ import type {
   ResolveExactKeyExportLaneInput,
   ResolveExactKeyExportLaneResult,
   AddPasskeyResult,
+  AddEmailOtpResult,
   WalletRecoveryRotationOutcome,
 } from '@/SeamsWeb/publicApi/types';
 import type {
@@ -2647,6 +2648,26 @@ export class WalletIframeRouter {
         authorization: payload.authorization,
         options: safeOptions,
         ...(confirmationConfig ? { confirmationConfig } : {}),
+      },
+      options: {
+        onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+      },
+    });
+    return res.result;
+  }
+
+  async addEmailOtp(
+    payload: Parameters<RegistrationCapability['addEmailOtp']>[0],
+  ): Promise<AddEmailOtpResult> {
+    const safeOptions = removeFunctionsFromOptions(payload.options);
+    const res = await this.post<AddEmailOtpResult>({
+      type: 'PM_ADD_EMAIL_OTP',
+      payload: {
+        walletId: payload.walletId,
+        emailAddress: payload.emailAddress,
+        otpCode: payload.otpCode,
+        ...(payload.challengeId ? { challengeId: payload.challengeId } : {}),
+        options: safeOptions,
       },
       options: {
         onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),

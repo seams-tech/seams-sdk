@@ -871,6 +871,7 @@ export type ParentToChildType =
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
   | 'PM_ADD_PASSKEY'
+  | 'PM_ADD_EMAIL_OTP'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -1018,6 +1019,14 @@ export interface PMAddPasskeyPayload {
   rpId: string;
   authorization: AddPasskeyAuthorization;
   confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+}
+
+export interface PMAddEmailOtpPayload {
+  walletId: WalletId | string;
+  emailAddress: string;
+  otpCode: string;
+  challengeId?: string;
   options?: Record<string, unknown>;
 }
 
@@ -1540,6 +1549,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_ADD_PASSKEY', PMAddPasskeyPayload>
+  | RpcEnvelope<'PM_ADD_EMAIL_OTP', PMAddEmailOtpPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
