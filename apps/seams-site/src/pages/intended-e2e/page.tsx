@@ -1288,10 +1288,10 @@ class IntendedPageController {
         challengeId: challenge.challengeId,
         walletId,
       });
-      /* `unlockAddedEmailOtpWallet` now builds the owner Ed25519 runtime inside
-         the unlock, but its activation still cannot resolve the wallet's active
-         Email OTP Wallet Session authority. Until that resolves, the added
-         method opens its ECDSA capability directly. */
+      /* `unlockAddedEmailOtpWallet` now unlocks this exact method and activates
+         its Ed25519 runtime, but does not yet install the warm ECDSA session
+         this path also needs, so Tempo would step up on every signature. Until
+         it does, the added method opens its ECDSA capability directly. */
       const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
       if (sdkTargets.kind !== 'explicit') {
         throw new Error('added email-code unlock requires a configured ECDSA target');

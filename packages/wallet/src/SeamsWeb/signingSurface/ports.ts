@@ -1,5 +1,6 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import type { EmailOtpAuthorityUnlockEd25519Request } from '@/core/signingEngine/session/emailOtp/walletUnlock';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -656,7 +657,7 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   Pick<
     EmailOtpSigningSessionSurface,
     | 'resolveOwnerAuthorityEd25519UnlockRequestInternal'
-    | 'activateEmailOtpEd25519CustodyCapabilityInternal'
+    | 'activateOwnerAuthorityEd25519RuntimeInternal'
   > &
   Ed25519MaterialOwnerQueueSurface &
   Pick<
@@ -798,6 +799,17 @@ export interface EmailOtpSigningSessionSurface {
     walletAuthMethodId: string;
     remainingUses: number;
   }): Promise<EmailOtpAuthorityUnlockEd25519Request | null>;
+  activateOwnerAuthorityEd25519RuntimeInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubjectId: string;
+    walletAuthMethodId: string;
+    emailHashHex: string;
+    /** The exact authority this unlock verified; never reread from a session. */
+    authority: WalletAuthAuthorityRef;
+    activeClientHandle: string;
+    metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+  }): Promise<void>;
   activateEmailOtpEd25519CustodyCapabilityInternal(args: {
     walletSession: WalletSessionRef;
     providerSubject: string;
