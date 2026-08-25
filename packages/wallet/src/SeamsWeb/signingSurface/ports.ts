@@ -783,6 +783,8 @@ export interface EmailOtpSigningSessionSurface {
     walletSession: WalletSessionRef;
     /** Email OTP provider subject id, never derived from `walletSession`. */
     providerSubjectId: string;
+    /** Resolve as this method's authority; omitted, the selected one. */
+    walletAuthMethodId?: string;
   }): Promise<WalletCustodyEd25519Projection | null>;
   activateEmailOtpEd25519CustodyCapabilityInternal(args: {
     walletSession: WalletSessionRef;

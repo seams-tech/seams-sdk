@@ -2669,6 +2669,7 @@ export class SeamsWeb {
         await this.signingEngine.resolveEmailOtpEd25519CustodyProjectionInternal({
           walletSession: args.walletSession,
           providerSubjectId: args.providerIdentity.providerSubjectId,
+          ...(args.walletAuthMethodId ? { walletAuthMethodId: args.walletAuthMethodId } : {}),
         });
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,

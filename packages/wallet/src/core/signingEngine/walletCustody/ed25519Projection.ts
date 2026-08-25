@@ -1,6 +1,10 @@
 import type { ClientUserData } from '@/core/accountData/near/nearAccountData.types';
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { Ed25519YaoPublicCapabilityReferenceV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 
 export type WalletCustodyEd25519Projection = {
   identity: Ed25519YaoPublicCapabilityReferenceV1;
@@ -28,31 +32,38 @@ export async function resolveWalletCustodyEd25519ProjectionV1(
   },
   walletSession: WalletSessionRef,
   providerSubjectId: string,
+  /**
+   * The Ed25519 activation of the authority being unlocked.
+   *
+   * This is the key, and it has to be: a wallet can hold a founding authority
+   * and linked ones, each with its own Ed25519 signer. Selecting "the wallet's
+   * one signer record" would resolve whichever happened to be unique and quietly
+   * pick the wrong authority as soon as a second exists. Selecting the reference
+   * that carries this exact activation names one authority's signer and nothing
+   * else, and the persisted record follows from the reference rather than being
+   * matched independently.
+   */
+  expectedMaterialActivation: MpcMaterialActivationRef,
 ): Promise<WalletCustodyEd25519Projection | null> {
   const walletId = String(walletSession.walletId);
   const providerSubject = requireNonEmpty(String(providerSubjectId), 'providerSubject');
-  /* R109C: the wallet's record, not the Email OTP one.
-   *
-   * `signerSlot` and `operationalPublicKey` describe the authority's Ed25519
-   * signer, so they are the same facts whichever method authenticates. Filtering
-   * on `authMethod === 'email_otp'` assumed the wallet had been REGISTERED that
-   * way and found nothing for an Email method added to a Passkey wallet, which
-   * left that method with no Ed25519 identity to unlock against. One record per
-   * wallet is still required; a second would mean two signer projections and no
-   * way to tell which the authority owns. */
-  const users = (await deps.listUsers()).filter((user) => String(user.walletId) === walletId);
-  if (users.length === 0) return null;
-  if (users.length !== 1 || !users[0]) {
-    throw new Error('Wallet custody Ed25519 requires one exact persisted signer projection');
-  }
-  const user = users[0];
   const references = (await deps.listPublicCapabilityReferences()).filter(
     (identity) =>
       String(identity.walletId) === walletId &&
-      String(identity.nearAccountId) === String(user.nearAccountId),
+      mpcMaterialActivationRefsEqual(identity.materialActivation, expectedMaterialActivation),
   );
+  if (references.length === 0) return null;
   if (references.length !== 1 || !references[0]) {
     throw new Error('Wallet custody Ed25519 requires one exact public capability reference');
   }
-  return { identity: references[0], user, providerSubject };
+  const identity = references[0];
+  const users = (await deps.listUsers()).filter(
+    (user) =>
+      String(user.walletId) === walletId &&
+      String(user.nearAccountId) === String(identity.nearAccountId),
+  );
+  if (users.length !== 1 || !users[0]) {
+    throw new Error('Wallet custody Ed25519 requires one exact persisted signer projection');
+  }
+  return { identity, user: users[0], providerSubject };
 }

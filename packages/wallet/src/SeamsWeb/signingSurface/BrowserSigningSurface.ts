@@ -6204,7 +6204,21 @@ export class BrowserSigningSurface {
   async resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
     providerSubjectId: string;
+    /** Resolve as this method's authority; omitted, the selected one. */
+    walletAuthMethodId?: string;
   }): Promise<WalletCustodyEd25519Projection | null> {
+    const walletId = String(args.walletSession.walletId);
+    const selected = args.walletAuthMethodId
+      ? await IndexedDBManager.resolveWalletAuthorityForMethod(walletId, args.walletAuthMethodId)
+      : await IndexedDBManager.resolveSelectedWalletAuthority(walletId);
+    if (selected.kind !== 'resolved') return null;
+    const activation =
+      selected.authority.state === 'active'
+        ? selected.authority.signerActivations.ed25519?.materialActivation
+        : undefined;
+    /* No Ed25519 activation on this authority is an answer, not a failure: an
+       ECDSA-only wallet has no Ed25519 signer to project. */
+    if (!activation) return null;
     return await resolveWalletCustodyEd25519ProjectionV1(
       {
         listPublicCapabilityReferences: this.ed25519YaoPublicCapabilityReferences.list.bind(
@@ -6214,6 +6228,7 @@ export class BrowserSigningSurface {
       },
       args.walletSession,
       args.providerSubjectId,
+      activation,
     );
   }
 
