@@ -260,6 +260,7 @@ fn target_factor_matches_envelope(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum PasskeyCustodyEnvelopeOwnershipV1 {
     Unbound,
+    #[serde(rename_all = "camelCase")]
     MethodBound { wallet_auth_method_id: String },
 }
 

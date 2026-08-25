@@ -1,3 +1,4 @@
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { base58Encode } from '@shared/utils/base58';
@@ -12,6 +13,7 @@ import {
   parseWebAuthnRpId,
   type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
+  parseWalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
@@ -20,6 +22,7 @@ import {
 } from '@shared/authorization/capabilityKinds';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
+  buildMethodBoundEnvelopeOwnership,
   buildPasskeyCustodyEnvelopeRecord,
   buildPasskeyEnvelopeFactor,
   parseEnvelopeCiphertextB64u,
@@ -4029,9 +4032,16 @@ async function rotateEmailOtpWalletRecoverySet(args: {
   }
 }
 
+function requireWorkerWalletAuthMethodId(value: unknown): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(value);
+  if (!parsed.ok) throw new Error(`walletAuthMethodId ${parsed.error.message}`);
+  return parsed.value;
+}
+
 function completeEmailOtpPasskeyCustodyLink(args: {
   readonly pendingHandleId: string;
   readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly registration: EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['payload']['registration'];
   readonly registrationCredential: EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['payload']['registrationCredential'];
 }): EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['result'] {
@@ -4073,6 +4083,7 @@ function completeEmailOtpPasskeyCustodyLink(args: {
       registrationCredential: credential,
       custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(
         buildPasskeyCustodyEnvelopeRecord({
+          ownership: buildMethodBoundEnvelopeOwnership(args.walletAuthMethodId),
           envelopeId: envelopeId.value,
           walletId: existingEnvelope.walletId,
           binding: existingEnvelope.binding,
@@ -6039,6 +6050,10 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           pendingHandleId: readString(payload.pendingHandleId, 'pendingHandleId'),
           existingEnvelope: parsePasskeyCustodyEnvelopeRecord(payload.existingEnvelope),
+          /* Part of the request allow-list, not an afterthought: a field the
+             parser does not name is rejected, and a rejection here used to
+             escape the responder and hang the caller for its full timeout. */
+          walletAuthMethodId: requireWorkerWalletAuthMethodId(payload.walletAuthMethodId),
           registration: parseEmailOtpPasskeyRegistrationSummary(payload.registration),
           registrationCredential: normalizeRegistrationCredential(payload.registrationCredential),
         },

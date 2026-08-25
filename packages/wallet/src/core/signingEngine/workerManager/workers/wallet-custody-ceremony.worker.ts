@@ -731,6 +731,12 @@ function discardCeremony(request: DiscardRequest): unknown {
   return { ceremonyId, discarded: existed };
 }
 
+/**
+ * The exact shape `signer_core::PasskeyCustodyEnvelopeBindingV1` deserialises,
+ * including the ownership discriminator that selects the AAD generation. A V2
+ * envelope must serialise as `unbound` or its AAD stops matching what it was
+ * sealed under.
+ */
 function custodyEnvelopeBindingJson(envelope: PasskeyCustodyEnvelopeRecord): string {
   return JSON.stringify({
     walletId: envelope.walletId,
@@ -738,7 +744,23 @@ function custodyEnvelopeBindingJson(envelope: PasskeyCustodyEnvelopeRecord): str
     factor: envelope.factor,
     envelopeRevision: envelope.envelopeRevision,
     binding: envelope.binding,
+    ownership: custodyEnvelopeOwnershipWire(envelope.ownership),
   });
+}
+
+function custodyEnvelopeOwnershipWire(ownership: PasskeyCustodyEnvelopeRecord['ownership']): unknown {
+  switch (ownership.kind) {
+    case 'unbound':
+      return 'unbound';
+    case 'method_bound':
+      return { methodBound: { walletAuthMethodId: String(ownership.walletAuthMethodId) } };
+    default:
+      return unreachableCustodyEnvelopeOwnership(ownership);
+  }
+}
+
+function unreachableCustodyEnvelopeOwnership(value: never): never {
+  throw new Error(`Unhandled custody envelope ownership: ${String(value)}`);
 }
 
 async function linkWalletCustodyPasskey(request: LinkPasskeyRequest): Promise<unknown> {

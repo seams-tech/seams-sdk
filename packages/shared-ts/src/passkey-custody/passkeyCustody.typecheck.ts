@@ -7,6 +7,7 @@ import type {
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
+import { parseWalletAuthMethodId } from '../utils/domainIds';
 import type { NearEd25519SigningKeyId } from '../utils/registrationIntent';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import { resolveCrossDeviceCustodyReadiness } from './index';
@@ -249,10 +250,17 @@ void revokedAndRetiredLifecycle;
 
 // --- Envelope record ------------------------------------------------------
 
+const envelopeOwnerMethodId = (() => {
+  const parsed = parseWalletAuthMethodId('wallet-auth-method:envelope-owner');
+  if (!parsed.ok) throw new Error('invalid type fixture auth-method id');
+  return parsed.value;
+})();
+
 const envelope: PasskeyCustodyEnvelopeRecord = {
   kind: 'wallet_custody_envelope_v2',
   envelopeId,
   walletId,
+  ownership: { kind: 'method_bound', walletAuthMethodId: envelopeOwnerMethodId },
   binding: walletSeed,
   factor: passkeyFactor,
   envelopeVersion: 'wallet_custody_envelope_v2',

@@ -1,6 +1,9 @@
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import {
   buildActiveEnvelopeLifecycle,
+  buildMethodBoundEnvelopeOwnership,
   buildPasskeyCustodyEnvelopeRecord,
+  type WalletCustodyEnvelopeOwnership,
   parseDigestField,
   parseEnvelopeCiphertextB64u,
   parseEnvelopeNonceB64u,
@@ -93,6 +96,28 @@ function requirePasskeyEnvelopeId(value: unknown) {
  * so any field this server re-derived instead of carrying through would produce
  * an envelope that cannot open.
  */
+/**
+ * Reads `signer_core::PasskeyCustodyEnvelopeOwnershipV1` as serde emits it:
+ * the unit variant is the bare string, the data variant is a single-key object.
+ * Every newly sealed envelope is method-bound, so an unbound binding arriving
+ * from a live ceremony is a downgrade attempt rather than legacy data.
+ */
+function ownershipFromSealedBinding(raw: unknown, label: string): WalletCustodyEnvelopeOwnership {
+  if (raw === 'unbound') {
+    throw new Error(`${label} must be method-bound; every sealed envelope names its auth method`);
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${label} is missing`);
+  }
+  const methodBound = (raw as { methodBound?: unknown }).methodBound;
+  if (typeof methodBound !== 'object' || methodBound === null) {
+    throw new Error(`${label} must carry a methodBound branch`);
+  }
+  const parsed = parseWalletAuthMethodId((methodBound as { walletAuthMethodId?: unknown }).walletAuthMethodId);
+  if (!parsed.ok) throw new Error(`${label}.walletAuthMethodId ${parsed.error.message}`);
+  return buildMethodBoundEnvelopeOwnership(parsed.value);
+}
+
 export function buildWalletCustodyRegistrationRecords(args: {
   readonly payload: WalletCustodyCeremonyCommitPayload;
   readonly factor: unknown;
@@ -133,9 +158,18 @@ export function buildWalletCustodyRegistrationRecords(args: {
   }
 
   const factor = parseWalletCustodyEnvelopeFactor(args.factor, 'walletCustodyCommit.factor');
+  /* The owner comes from the binding the ceremony actually sealed, not from a
+     separate parameter. The AAD covers it, so a payload that named a different
+     method than it sealed under would already have failed to open — reading it
+     here is what keeps server and ciphertext from disagreeing. */
+  const ownership = ownershipFromSealedBinding(
+    (rawBinding as { ownership?: unknown }).ownership,
+    'walletCustodyCommit.ownership',
+  );
   const envelope = buildPasskeyCustodyEnvelopeRecord({
     envelopeId: requirePasskeyEnvelopeId(custody.envelopeId),
     walletId,
+    ownership,
     binding,
     factor,
     // A registration commit is always the first revision. The store refuses

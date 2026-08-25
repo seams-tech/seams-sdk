@@ -55,7 +55,7 @@ export type DeviceLinkingResealedEd25519ExportRootV1 = {
 
 export type DeviceLinkingEd25519ExportRootReplacementEnvelopeV1 = Pick<
   PasskeyCustodyEnvelopeRecord,
-  'envelopeId' | 'walletId' | 'binding' | 'factor'
+  'envelopeId' | 'walletId' | 'binding' | 'factor' | 'ownership'
 > & {
   readonly createdAtMs: number;
 };
@@ -72,6 +72,7 @@ export function buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1(
   return {
     envelopeId: input.envelopeId,
     walletId: input.walletId,
+    ownership: input.ownership,
     binding: input.binding,
     factor: input.factor,
     createdAtMs: input.createdAtMs,
@@ -276,6 +277,7 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
             buildPasskeyCustodyEnvelopeRecord({
               envelopeId: replacementEnvelope.envelopeId,
               walletId: replacementEnvelope.walletId,
+              ownership: replacementEnvelope.ownership,
               binding: replacementEnvelope.binding,
               factor: replacementEnvelope.factor,
               envelopeRevision: parseEnvelopeRevision(1),

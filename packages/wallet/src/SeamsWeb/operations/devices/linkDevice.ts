@@ -62,6 +62,7 @@ import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   buildEmailOtpEnvelopeFactor,
+  buildMethodBoundEnvelopeOwnership,
   buildEd25519YaoClientRootBinding,
   buildPasskeyEnvelopeFactor,
 } from '@shared/passkey-custody';
@@ -1113,6 +1114,9 @@ export class LinkDeviceFlow {
           recipient,
           replacementEnvelope: buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1({
             walletId: context.preparation.walletId,
+            ownership: buildMethodBoundEnvelopeOwnership(
+              context.preparation.walletAuthMethodId,
+            ),
             envelopeId,
             factor,
             binding,
@@ -1432,6 +1436,7 @@ export class LinkDeviceFlow {
           recipient,
           replacementEnvelope: buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1({
             walletId: preparation.walletId,
+            ownership: buildMethodBoundEnvelopeOwnership(preparation.walletAuthMethodId),
             envelopeId,
             factor,
             binding,

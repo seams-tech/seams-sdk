@@ -217,6 +217,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
         expectedChallengeDigestB64u: intentResponse.addAuthMethodIntentDigestB64u,
       },
       existingFactorSecret,
+      walletAuthMethodId: intentResponse.intent.targetWalletAuthMethodId,
       worker: walletCustodyWorkerTransport(args.context),
       createRegistrationCredential: async (registration) => {
         const confirmation =
