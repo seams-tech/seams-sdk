@@ -66,12 +66,12 @@ Do not implement R109D until:
       transcript repair without rewriting deployed migrations.
 - [x] Keep compatibility for pre-109C custody envelopes at the persistence and
       decoding boundary; core auth-method state remains V2-only.
-- [ ] Confirm every founding and linked ordinary Wallet Session persists the
+- [x] Confirm every founding and linked ordinary Wallet Session persists the
       operation credential consumed by `readExactWithOperationCredential`.
 - [ ] Delete linked-device `orderedOwnerSourceLaneHints` and retired owner/lane
       projections. The linked-device `step_up` authorization source is deleted;
       linking now requires the exact reusable Wallet Session.
-- [ ] Repair the authority-install fixture through its shared factory and make
+- [x] Repair the authority-install fixture through its shared factory and make
       the focused R103E checks green.
 
 R109D product implementation begins after the remaining unchecked Phase 0 items
