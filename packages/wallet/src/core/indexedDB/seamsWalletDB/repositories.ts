@@ -3195,6 +3195,35 @@ export class SeamsWalletRepositories {
   async resolveSelectedWalletAuthority(
     walletId: string,
   ): Promise<ResolveSelectedWalletAuthorityResultV1> {
+    return await this.resolveWalletAuthorityForSelection(walletId, null);
+  }
+
+  /**
+   * R109C: resolve the authority as a named method rather than as the selected
+   * one.
+   *
+   * Unlocking a sibling is how an added method comes into use - invariant 9
+   * makes lock and unlock the route - and the unlock moves the selection to it.
+   * Resolving through the selection first would make that impossible: the
+   * method cannot become selected until it unlocks, and it cannot unlock until
+   * it is selected. Naming the method breaks the circle; the move itself is
+   * still guarded, and still only between members of one authority.
+   */
+  async resolveWalletAuthorityForMethod(
+    walletId: string,
+    walletAuthMethodId: string,
+  ): Promise<ResolveSelectedWalletAuthorityResultV1> {
+    const parsed = parseWalletAuthMethodId(walletAuthMethodId);
+    if (!parsed.ok) {
+      return { kind: 'integrity_error', reason: 'walletAuthMethodId is invalid' };
+    }
+    return await this.resolveWalletAuthorityForSelection(walletId, parsed.value);
+  }
+
+  private async resolveWalletAuthorityForSelection(
+    walletId: string,
+    walletAuthMethodId: WalletAuthMethodId | null,
+  ): Promise<ResolveSelectedWalletAuthorityResultV1> {
     const parsedWalletId = parseWalletId(walletId);
     if (!parsedWalletId.ok) return { kind: 'integrity_error', reason: 'walletId is invalid' };
     return this.manager.runTransaction(
@@ -3206,13 +3235,19 @@ export class SeamsWalletRepositories {
         SEAMS_WALLET_STORES.walletAuthorityExportRoots,
       ],
       'readonly',
-      this.resolveSelectedWalletAuthorityInTransaction.bind(this, parsedWalletId.value),
+      (ctx) =>
+        this.resolveSelectedWalletAuthorityInTransaction(
+          parsedWalletId.value,
+          ctx,
+          walletAuthMethodId,
+        ),
     );
   }
 
   private async resolveSelectedWalletAuthorityInTransaction(
     walletId: WalletId,
     ctx: SeamsWalletTransactionContext,
+    requestedWalletAuthMethodId: WalletAuthMethodId | null = null,
   ): Promise<ResolveSelectedWalletAuthorityResultV1> {
     const selectionRaw = await ctx.store(SEAMS_WALLET_STORES.walletSelections).get(walletId);
     if (selectionRaw === undefined) return { kind: 'missing_selection' };
@@ -3220,13 +3255,14 @@ export class SeamsWalletRepositories {
     if (!selection || selection.wallet_id !== walletId) {
       return { kind: 'integrity_error', reason: 'wallet selection row is invalid' };
     }
+    const resolvedAuthMethodId = requestedWalletAuthMethodId ?? selection.record.walletAuthMethodId;
     const authMethodRaw = await ctx
       .store(SEAMS_WALLET_STORES.walletAuthMethods)
-      .get(selection.wallet_auth_method_id);
+      .get(String(resolvedAuthMethodId));
     if (authMethodRaw === undefined) {
       return {
         kind: 'missing_auth_method',
-        walletAuthMethodId: selection.record.walletAuthMethodId,
+        walletAuthMethodId: resolvedAuthMethodId,
       };
     }
     const authMethod = parseWalletAuthMethodV2StorageRow(authMethodRaw);
