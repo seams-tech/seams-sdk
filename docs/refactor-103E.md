@@ -154,11 +154,13 @@ Passkey-to-Email-OTP and Email-OTP-to-Passkey linking remains R109D scope.
   `operationFingerprintDigest` and no method id, and the revoke verifier
   resolves the source as the unique active Email method whose bound
   challenge digest reproduces the presented proof digest.
-- Migration numbering: R103E owns `0011_r103e_email_otp_device_methods.sql`
-  (renamed from the interim `0012`); the planned R109C cardinality migration
-  moved to `0013` in `docs/refactor-109D-multi-auth-linking.md`. R103E also owns
-  `0012_r103e_wallet_session_operation_credentials.sql`, which repairs databases
-  that applied migration `0008` before operation credentials were added.
+- Migration numbering preserves the eight signer migrations already applied to
+  staging. R103E owns `0019_r103e_email_otp_device_methods.sql` and
+  `0020_r103e_wallet_session_operation_credentials.sql`; the latter repairs
+  databases that applied the V2 Wallet Session migration before operation
+  credentials were added. `0021_linked_device_source_contribution_transcripts.sql`
+  carries the final transcript constraint that had previously existed only in
+  the rewritten development baseline. R109C begins at `0022`.
 - Manual Email OTP owner testing exposed an immediate post-unlock ECDSA pool
   race: Tempo could pop an opaque presign reference after its worker authority
   had discarded the one-time material, while a later Arc operation refilled the
