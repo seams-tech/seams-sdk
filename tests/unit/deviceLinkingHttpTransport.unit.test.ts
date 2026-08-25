@@ -143,6 +143,7 @@ test.describe('R103 authenticated linked-device browser transport', () => {
         deviceId: fixture.approval.deviceId,
         devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
         targetFactor: fixture.payload.targetFactor,
+        sessionRevision: 2,
         claimedAtMs: 2_000,
         claimExpiresAtMs: 9_000,
       }),

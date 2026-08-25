@@ -3,6 +3,7 @@ import {
   parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   parseLinkSessionProjectionV1,
   parseLinkedDeviceSessionClaimV1,
+  parseLinkedDeviceEmailOtpBaseFactorResolutionResultV1,
 } from '@shared/device-linking';
 import type { LinkedDeviceApprovalResultV1 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -58,6 +59,15 @@ export function createDeviceLinkingOwnerTransportV1(
         authentication: input.authentication,
       });
       return parseOwnerResponseV1(response, parseLinkedDeviceSessionClaimV1);
+    },
+    resolveEmailOtpBaseFactorV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `${sessionPath(input.linkSessionId)}/email-otp-base-factor`,
+        body: input.request,
+        authentication: input.authentication,
+      });
+      return parseOwnerResponseV1(response, parseLinkedDeviceEmailOtpBaseFactorResolutionResultV1);
     },
     recordOwnerApprovalV1: async (input) => {
       const response = await options.request.requestOwnerV1({

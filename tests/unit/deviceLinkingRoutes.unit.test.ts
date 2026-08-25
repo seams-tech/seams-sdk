@@ -195,6 +195,7 @@ test('serializes the browser ECDSA recipient in the target credential response',
     target: binding.target,
   };
   const clientEphemeralPublicKey = `x25519:${'22'.repeat(32)}`;
+  const baseWalletAuthMethodId = 'email_otp:wallet:r103:' + 'cd'.repeat(32);
   const targetWalletAuthMethodId = 'email_otp:wallet:r103:' + 'ab'.repeat(32);
   const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
     kind: 'linked_device_target_credential_registration_result_v1',
@@ -207,6 +208,7 @@ test('serializes the browser ECDSA recipient in the target credential response',
     targetPreparationDigestB64u: digest,
     targetFactor: {
       kind: 'verified_email_otp_target_v1',
+      baseWalletAuthMethodId,
       authMethod: {
         walletAuthMethodId: targetWalletAuthMethodId,
         walletId: fixture.approval.walletId,

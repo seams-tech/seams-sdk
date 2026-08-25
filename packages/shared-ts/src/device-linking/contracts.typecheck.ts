@@ -139,6 +139,20 @@ const approval: LinkedDeviceApprovalV1 = {
   expiresAtMs: 2,
 };
 
+const invalidEmailApproval: LinkedDeviceApprovalV1 = {
+  ...approval,
+  // @ts-expect-error Email OTP approval requires the exact base method.
+  targetFactor: { kind: 'email_otp' },
+};
+void invalidEmailApproval;
+
+const invalidPasskeyApproval: LinkedDeviceApprovalV1 = {
+  ...approval,
+  // @ts-expect-error Passkey approval cannot carry an Email OTP base method.
+  targetFactor: { kind: 'passkey_prf', baseWalletAuthMethodId: walletAuthMethodId },
+};
+void invalidPasskeyApproval;
+
 const summary: LinkedDeviceSummaryV1 = {
   deviceId,
   enrollmentId,
@@ -431,6 +445,7 @@ const verifiedPasskeyTarget = {
 const verifiedEmailOtpTarget = {
   kind: 'verified_email_otp_target_v1',
   authMethod: emailOtpAuthMethod,
+  baseWalletAuthMethodId: walletAuthMethodId,
   verificationDigestB64u: digest,
   verifiedAtMs: 9,
 } satisfies VerifiedTargetFactorV1;

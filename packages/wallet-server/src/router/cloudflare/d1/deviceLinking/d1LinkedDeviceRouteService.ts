@@ -22,9 +22,6 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
-  readonly emailOtpBaseFactors?: Parameters<
-    typeof createD1LinkedDeviceSessionServiceV1
-  >[0]['emailOtpBaseFactors'];
   readonly emailOtpTargetFactor?: DeviceLinkingRouteServiceV1['emailOtpTargetFactor'];
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
@@ -52,9 +49,6 @@ export function createD1LinkedDeviceRouteServiceV1(
   const { sessionService } = createD1LinkedDeviceSessionServiceV1({
     sessionStore,
     ownerAuthorization: options.ownerAuthorization,
-    ...(options.emailOtpBaseFactors === undefined
-      ? {}
-      : { emailOtpBaseFactors: options.emailOtpBaseFactors }),
   });
 
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {

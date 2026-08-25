@@ -14,7 +14,7 @@ import type {
   LinkedDeviceEcdsaSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
-  LinkedDeviceTargetFactorV1,
+  LinkedDeviceApprovedTargetFactorV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import { assertNeverLinkSessionStateV1 } from '@shared/device-linking/contracts';
@@ -37,6 +37,7 @@ import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAb
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   hasWhitespaceOrControlCharacters,
+  parseWalletAuthMethodId,
   parseWalletAuthorityId,
   type DomainIdParseResult,
   type WalletAuthorityId,
@@ -140,7 +141,10 @@ type LinkedDeviceTargetFactorRecordV1 =
       readonly emailOtpChallenge?: never;
     }
   | {
-      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetFactor: {
+        readonly kind: 'email_otp';
+        readonly baseWalletAuthMethodId: import('@shared/utils/domainIds').WalletAuthMethodId;
+      };
       readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     };
 
@@ -242,7 +246,7 @@ type LinkedDeviceSessionTerminalRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   >;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -281,12 +285,6 @@ export type LinkedDeviceOwnerAuthorizationContextV1 = {
   readonly permission: DelegatedWalletAuthorityV1;
   readonly curve: 'ed25519' | 'ecdsa';
   readonly keyManifestDigestB64u: DigestB64u;
-};
-
-export type LinkedDeviceEmailOtpBaseFactorReaderV1 = {
-  readActiveEmailOtpBaseFactorV1(input: { readonly walletId: WalletId }): Promise<{
-    readonly baseWalletAuthMethodId: import('@shared/utils/domainIds').WalletAuthMethodId;
-  } | null>;
 };
 
 export type LinkedDeviceOwnerAuthorizationPortV1 = {
@@ -513,24 +511,16 @@ export type LinkedDeviceSessionActivationInputV1 = {
   readonly nowMs: number;
 };
 
-const FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1: LinkedDeviceEmailOtpBaseFactorReaderV1 = {
-  readActiveEmailOtpBaseFactorV1: () => Promise.resolve(null),
-};
-
 export class LinkedDeviceSessionServiceV1 {
   private readonly store: LinkedDeviceSessionStoreV1;
   private readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
-  private readonly emailOtpBaseFactors: LinkedDeviceEmailOtpBaseFactorReaderV1;
 
   constructor(input: {
     readonly store: LinkedDeviceSessionStoreV1;
     readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
-    readonly emailOtpBaseFactors?: LinkedDeviceEmailOtpBaseFactorReaderV1;
   }) {
     this.store = input.store;
     this.authorization = input.authorization;
-    this.emailOtpBaseFactors =
-      input.emailOtpBaseFactors ?? FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1;
   }
 
   async createUnclaimedSessionV1(
@@ -577,7 +567,7 @@ export class LinkedDeviceSessionServiceV1 {
       if (authorization.kind === 'denied') {
         return unauthorizedResult(authorization.code, authorization.message);
       }
-      const claim = buildClaimV1(payload, authorization.identity, nowMs);
+      const claim = buildClaimV1(payload, authorization.identity, existing.revision + 1, nowMs);
       const claimDigestB64u = await digestTranscriptV1('claim', claim);
       if (sameClaim(existing, claimDigestB64u, claim))
         return { outcome: 'replayed', record: existing };
@@ -1120,7 +1110,7 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     revision,
     claimTranscript: parseOptionalClaimTranscript(record.claimTranscript),
     approvalTranscript: parseOptionalApprovalTranscript(record.approvalTranscript),
-    targetFactor: parseOptionalTargetFactor(record.targetFactor),
+    targetFactor: parseOptionalApprovedTargetFactor(record.targetFactor),
     emailOtpChallenge: parseOptionalEmailOtpChallenge(record.emailOtpChallenge),
     sourceContributionPreparation: parseOptionalSourceContributionPreparation(
       record.sourceContributionPreparation,
@@ -1146,7 +1136,7 @@ function buildSessionRecordV1(input: {
   readonly revision: number;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -1225,7 +1215,7 @@ function buildApprovedSessionRecordV1(input: {
   readonly revision: number;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -1277,7 +1267,7 @@ function buildSourceContributionSessionRecordV1(input: {
   readonly revision: number;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -1334,7 +1324,7 @@ function buildProvisioningSessionRecordV1(input: {
   readonly revision: number;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -1394,7 +1384,7 @@ function buildPendingSessionRecordV1(input: {
   readonly revision: number;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -1455,7 +1445,7 @@ function buildActiveSessionRecordV1(input: {
   readonly revision: number;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
   readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
   readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -1511,7 +1501,7 @@ function replaceSessionRecordV1(
     readonly state?: LinkSessionStateV1;
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
     readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -2102,11 +2092,26 @@ function assertSourceKeyManifestDigestFamiliesMatchManifestV1(
   }
 }
 
-function parseOptionalTargetFactor(raw: unknown): LinkedDeviceTargetFactorV1 | undefined {
+function parseOptionalApprovedTargetFactor(
+  raw: unknown,
+): LinkedDeviceApprovedTargetFactorV1 | undefined {
   if (raw === undefined) return undefined;
   const record = requireRecord(raw, 'targetFactor');
-  requireExactKeys(record, ['kind']);
-  if (record.kind === 'passkey_prf' || record.kind === 'email_otp') return { kind: record.kind };
+  if (record.kind === 'passkey_prf') {
+    requireExactKeys(record, ['kind']);
+    return { kind: 'passkey_prf' };
+  }
+  if (record.kind === 'email_otp') {
+    requireExactKeys(record, ['kind', 'baseWalletAuthMethodId']);
+    return {
+      kind: 'email_otp',
+      baseWalletAuthMethodId: parseId(
+        record.baseWalletAuthMethodId,
+        parseWalletAuthMethodId,
+        'targetFactor.baseWalletAuthMethodId',
+      ),
+    };
+  }
   throw new Error('targetFactor.kind is invalid');
 }
 
@@ -2183,7 +2188,7 @@ function requireNoRecordFacts(
   input: {
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
     readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -2209,7 +2214,7 @@ function requireClaimRecordFacts(
   input: {
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
     readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -2235,7 +2240,7 @@ function requireApprovedRecordFacts(
   input: {
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
     readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -2246,7 +2251,7 @@ function requireApprovedRecordFacts(
 ): asserts input is typeof input & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly targetFactor: LinkedDeviceApprovedTargetFactorV1;
 } {
   if (!input.claimTranscript || !input.approvalTranscript || !input.targetFactor)
     throw new Error(`${state} session facts are incomplete`);
@@ -2260,7 +2265,7 @@ function requireCommittedRecordFacts(
   input: {
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
     readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -2271,7 +2276,7 @@ function requireCommittedRecordFacts(
 ): asserts input is typeof input & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly targetFactor: LinkedDeviceApprovedTargetFactorV1;
   readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
   readonly sourceContributionTranscript: LinkedDeviceSourceContributionTranscriptV1;
   readonly authorityId: WalletAuthorityId;
@@ -2305,7 +2310,7 @@ function requireRecordIdentityFacts(input: {
   readonly state: LinkSessionStateV1;
   readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-  readonly targetFactor?: LinkedDeviceTargetFactorV1;
+  readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
 }): void {
   if (input.targetFactor && input.targetFactor.kind !== input.qrPayload.targetFactor.kind) {
     throw new Error('target factor does not match QR payload');
@@ -2372,7 +2377,7 @@ function requireTerminalRecordFacts(
   input: {
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
-    readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetFactor?: LinkedDeviceApprovedTargetFactorV1;
     readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     readonly sourceContributionPreparation?: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
     readonly sourceContributionTranscript?: LinkedDeviceSourceContributionTranscriptV1;
@@ -2408,6 +2413,7 @@ function requireTerminalRecordFacts(
 function buildClaimV1(
   payload: QrLinkedDeviceSessionPayloadV5,
   identity: LinkedDeviceSessionClaimIdentityV1,
+  sessionRevision: number,
   claimedAtMs: number,
 ): LinkedDeviceClaimV1 {
   if (identity.claimExpiresAtMs <= claimedAtMs || identity.claimExpiresAtMs > payload.expiresAtMs)
@@ -2420,6 +2426,7 @@ function buildClaimV1(
     deviceId: identity.deviceId,
     devicePublicKeyB64u: payload.devicePublicKeyB64u,
     targetFactor: payload.targetFactor,
+    sessionRevision,
     claimedAtMs,
     claimExpiresAtMs: identity.claimExpiresAtMs,
   };

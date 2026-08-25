@@ -8,6 +8,7 @@ import {
 import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceApprovalV1,
+  LinkedDeviceApprovedTargetFactorV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
@@ -147,6 +148,13 @@ export async function scanAndLinkDevice(
     ) {
       throw new Error('linked-device claim does not match the scanned QR payload');
     }
+    const targetFactor = await resolveApprovedTargetFactorV1({
+      targetFactor: parsedQrData.targetFactor,
+      linkSessionId: claim.linkSessionId,
+      sessionRevision: claim.sessionRevision,
+      transport: ports.transport,
+      authentication: owner.authentication,
+    });
     const approval = buildLinkedDeviceApprovalV1({
       linkSessionId: claim.linkSessionId,
       walletId: claim.walletId,
@@ -154,7 +162,7 @@ export async function scanAndLinkDevice(
       deviceId: claim.deviceId,
       linkPublicKeyB64u: parsedQrData.linkPublicKeyB64u,
       devicePublicKeyB64u: claim.devicePublicKeyB64u,
-      targetFactor: parsedQrData.targetFactor,
+      targetFactor,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
       approvedAtMs: Date.now(),
@@ -220,6 +228,34 @@ export async function scanAndLinkDevice(
     notifyError(options.onError, failure);
     await options.afterCall?.(false, undefined, failure);
     throw failure;
+  }
+}
+
+async function resolveApprovedTargetFactorV1(input: {
+  readonly targetFactor: QrLinkedDeviceSessionPayloadV5['targetFactor'];
+  readonly linkSessionId: QrLinkedDeviceSessionPayloadV5['linkSessionId'];
+  readonly sessionRevision: number;
+  readonly transport: LinkSessionOwnerTransportPortV1;
+  readonly authentication: Parameters<
+    LinkSessionOwnerTransportPortV1['resolveEmailOtpBaseFactorV1']
+  >[0]['authentication'];
+}): Promise<LinkedDeviceApprovedTargetFactorV1> {
+  if (input.targetFactor.kind === 'passkey_prf') return { kind: 'passkey_prf' };
+  const result = await input.transport.resolveEmailOtpBaseFactorV1({
+    linkSessionId: input.linkSessionId,
+    request: { kind: 'resolve', expectedRevision: input.sessionRevision },
+    authentication: input.authentication,
+  });
+  switch (result.resolution.kind) {
+    case 'selected':
+      return {
+        kind: 'email_otp',
+        baseWalletAuthMethodId: result.resolution.choice.baseWalletAuthMethodId,
+      };
+    case 'selection_required':
+      throw new Error('Choose the Email OTP method to use for the linked device');
+    case 'unavailable':
+      throw new Error('No active Email OTP method can authorize this linked device');
   }
 }
 

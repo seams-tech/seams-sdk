@@ -6,6 +6,8 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEmailOtpChallengeResendRequestV1,
   LinkedDeviceEmailOtpChallengeStartRequestV1,
+  LinkedDeviceEmailOtpBaseFactorRequestV1,
+  LinkedDeviceEmailOtpBaseFactorResolutionV1,
   LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceEmailOtpVerificationResultV1,
@@ -23,6 +25,7 @@ import type { CommittedAuthorityPackagesV1 } from '@shared/device-linking/commit
 import {
   parseLinkedDeviceApprovalDeliveryV1,
   parseLinkedDeviceApprovalV1,
+  parseLinkedDeviceEmailOtpBaseFactorRequestV1,
   parseLinkedDeviceEmailOtpChallengeResendRequestV1,
   parseLinkedDeviceEmailOtpChallengeResultV1,
   parseLinkedDeviceEmailOtpChallengeStartRequestV1,
@@ -74,10 +77,8 @@ import { json, readJson } from '../../../framework/http';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
-import {
-  parseLinkDeviceSessionId,
-  type LinkDeviceSessionId,
-} from '@shared/signing-lanes/ids';
+import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import type { WalletId } from '@shared/utils/domainIds';
 
 const DEVICE_LINKING_BASE = '/wallet/device-linking/v1/sessions';
 export const DEVICE_LINKING_REQUEST_PROOF_HEADER_V1 = LINKED_DEVICE_REQUEST_PROOF_HEADER_V1;
@@ -149,6 +150,10 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
 };
 
 export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
+  resolveBaseFactorSelectionV1(input: {
+    readonly walletId: WalletId;
+    readonly request: LinkedDeviceEmailOtpBaseFactorRequestV1;
+  }): Promise<LinkedDeviceEmailOtpBaseFactorResolutionV1>;
   startChallengeV1(
     input:
       | {
@@ -288,6 +293,7 @@ type RouteAction =
         | 'email-otp-challenge'
         | 'email-otp-resend'
         | 'email-otp-verify'
+        | 'email-otp-base-factor'
         | 'ed25519-export-root'
         | 'ed25519-export-root-recipient'
         | 'receipt'
@@ -328,6 +334,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
         return await handleEmailOtpChallenge(ctx, service, action.linkSessionId, nowMs, true);
       case 'email-otp-verify':
         return await handleEmailOtpVerify(ctx, service, action.linkSessionId, nowMs);
+      case 'email-otp-base-factor':
+        return await handleEmailOtpBaseFactor(ctx, service, action.linkSessionId, nowMs);
       case 'ed25519-export-root-recipient':
         return await handleExportRootRecipient(ctx, service, action.linkSessionId, nowMs);
       case 'ed25519-export-root':
@@ -345,20 +353,47 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
   }
 }
 
-async function handleCreate(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, nowMs: number): Promise<Response> {
+async function handleCreate(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  nowMs: number,
+): Promise<Response> {
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const rawBody = await readJsonBody(ctx.request);
   const body = parseBoundary(() => parseCreateRequest(rawBody));
   const keyDigest = await computeDevicePublicKeyDigestB64u(body.payload.devicePublicKeyB64u);
   const proof = parseBoundary(() => parseRequestProofHeader(ctx.request));
-  validateRequestProof(proof, ctx.method, ctx.pathname, body.payload.linkSessionId, bodyDigestB64u, keyDigest, nowMs);
-  const verified = await service.verifyPublicSessionProofV1({ payload: body.payload, proof, method: ctx.method, canonicalPath: ctx.pathname, bodyDigestB64u, devicePublicKeyDigestB64u: keyDigest, requestedAtMs: nowMs });
+  validateRequestProof(
+    proof,
+    ctx.method,
+    ctx.pathname,
+    body.payload.linkSessionId,
+    bodyDigestB64u,
+    keyDigest,
+    nowMs,
+  );
+  const verified = await service.verifyPublicSessionProofV1({
+    payload: body.payload,
+    proof,
+    method: ctx.method,
+    canonicalPath: ctx.pathname,
+    bodyDigestB64u,
+    devicePublicKeyDigestB64u: keyDigest,
+    requestedAtMs: nowMs,
+  });
   if (verified.kind === 'denied') return authDeniedResponse(verified);
-  return sessionResultResponse(await service.sessionService.createUnclaimedSessionV1({ payload: body.payload, nowMs }));
+  return sessionResultResponse(
+    await service.sessionService.createUnclaimedSessionV1({ payload: body.payload, nowMs }),
+  );
 }
 
-async function handleSession(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleSession(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
@@ -366,20 +401,35 @@ async function handleSession(ctx: FetchRouterApiContext, service: DeviceLinkingR
   return sessionProjectionResponse(authenticated.session, 'applied');
 }
 
-async function handleClaim(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleClaim(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const request = parseBoundary(() =>
-    parseLinkedDeviceSessionClaimRequestV1(authentication.body),
-  );
-  if (request.payload.linkSessionId !== parseSessionId(rawLinkSessionId)) return invalidInputResponse('link session id does not match route');
+  const request = parseBoundary(() => parseLinkedDeviceSessionClaimRequestV1(authentication.body));
+  if (request.payload.linkSessionId !== parseSessionId(rawLinkSessionId))
+    return invalidInputResponse('link session id does not match route');
   validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
-  return claimResultResponse(await service.sessionService.claimSessionV1({ payload: request.payload, nowMs, owner: authentication.owner }));
+  return claimResultResponse(
+    await service.sessionService.claimSessionV1({
+      payload: request.payload,
+      nowMs,
+      owner: authentication.owner,
+    }),
+  );
 }
 
-async function handleApproval(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleApproval(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   if (ctx.method === 'GET') {
     const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
     if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
@@ -399,16 +449,64 @@ async function handleApproval(ctx: FetchRouterApiContext, service: DeviceLinking
     }
     const approval = authenticated.session.approvalTranscript?.value;
     if (!approval) return invalidStateResponse(authenticated.session);
-    return json(parseLinkedDeviceApprovalDeliveryV1({ kind: 'linked_device_approval_delivery_v1', approval }), { status: 200 });
+    return json(
+      parseLinkedDeviceApprovalDeliveryV1({ kind: 'linked_device_approval_delivery_v1', approval }),
+      { status: 200 },
+    );
   }
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(authentication.body));
-  if (approval.linkSessionId !== parseSessionId(rawLinkSessionId)) return invalidInputResponse('link session id does not match route');
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  if (approval.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
   validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
-  return approvalResultResponse(await service.sessionService.recordOwnerApprovalV1({ approval, nowMs, owner: authentication.owner }));
+  if (approval.targetFactor.kind === 'email_otp') {
+    const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+    if (!session) return notFoundResponse();
+    if (session.state.state !== 'claimed' || !session.claimTranscript) {
+      return invalidStateResponse(session);
+    }
+    if (
+      authentication.owner.walletId !== approval.walletId ||
+      session.claimTranscript.value.walletId !== approval.walletId
+    ) {
+      return authDeniedResponse({
+        kind: 'denied',
+        code: 'unauthorized',
+        message: 'owner session does not match link wallet',
+      });
+    }
+    const provider = service.emailOtpTargetFactor;
+    if (!provider) return notSupportedResponse('Email OTP linking is not configured');
+    const selection = await provider.resolveBaseFactorSelectionV1({
+      walletId: approval.walletId,
+      request: {
+        kind: 'select',
+        expectedRevision: session.revision,
+        baseWalletAuthMethodId: approval.targetFactor.baseWalletAuthMethodId,
+      },
+    });
+    if (
+      selection.kind !== 'selected' ||
+      selection.choice.baseWalletAuthMethodId !== approval.targetFactor.baseWalletAuthMethodId
+    ) {
+      return authDeniedResponse({
+        kind: 'denied',
+        code: 'unauthorized',
+        message: 'Email OTP base method is unavailable',
+      });
+    }
+  }
+  return approvalResultResponse(
+    await service.sessionService.recordOwnerApprovalV1({
+      approval,
+      nowMs,
+      owner: authentication.owner,
+    }),
+  );
 }
 
 async function handleTargetPreparation(
@@ -428,13 +526,16 @@ async function handleTargetPreparation(
     approval,
     nowMs,
   );
-  const preparation = parseBoundary(() =>
-    parseLinkedDeviceTargetPreparationV1(rawPreparation),
-  );
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   return json(preparation, { status: 200 });
 }
 
-async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleCredential(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
@@ -442,12 +543,19 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   const registration = parseBoundary(() =>
     parseLinkedDeviceTargetCredentialRegistrationV1(authenticated.body),
   );
-  if (registration.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
+  if (registration.linkSessionId !== authenticated.linkSessionId)
+    return invalidInputResponse('link session id does not match route');
   const session = authenticated.session;
   const approval = requireApproval(session);
   const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
-  const result = await service.targetCredential.registerTargetCredentialV1({ registration, preparation, session, approval, requestedAtMs: nowMs });
+  const result = await service.targetCredential.registerTargetCredentialV1({
+    registration,
+    preparation,
+    session,
+    approval,
+    requestedAtMs: nowMs,
+  });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
   let sessionOutcome: 'applied' | 'replayed' = result.outcome;
   let recordedSession = session;
@@ -471,11 +579,7 @@ async function handleCredential(ctx: FetchRouterApiContext, service: DeviceLinki
   ) {
     return invalidStateResponse(session);
   }
-  return targetCredentialResultResponse(
-    recordedSession,
-    sessionOutcome,
-    result.targetCredential,
-  );
+  return targetCredentialResultResponse(recordedSession, sessionOutcome, result.targetCredential);
 }
 
 async function handleSourceContributionPreparation(
@@ -578,9 +682,7 @@ async function handleSourceContributionExecute(
   if (!router) return notSupportedResponse('Ed25519 source-preserving linking is not configured');
   const preparation = requireEd25519SourceContributionPreparation(owner.session);
   const targetRequest = parseBoundary(() => {
-    const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-      owner.body,
-    );
+    const parsed = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(owner.body);
     if (!parsed.ok) throw new Error(parsed.message);
     return parsed.value;
   });
@@ -611,30 +713,116 @@ async function handleSourceContributionExecute(
   return json(rawReservation, { status: 200 });
 }
 
-async function handleEmailOtpChallenge(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number, resend: boolean): Promise<Response> {
+async function handleEmailOtpChallenge(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+  resend: boolean,
+): Promise<Response> {
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const request = parseBoundary(() => parseEmailOtpChallengeRequest(authenticated.body, resend));
-  if (request.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
+  if (request.linkSessionId !== authenticated.linkSessionId)
+    return invalidInputResponse('link session id does not match route');
   const provider = service.emailOtpTargetFactor;
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const session = authenticated.session;
   const approval = requireApproval(session);
   const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
-  const started = await provider.startChallengeV1({ session, approval, preparation, resend, requestedAtMs: nowMs });
-  if (started.kind === 'refused') return json({ ok: false, code: started.code, message: started.message }, { status: 403 });
-  const workerEphemeralPublicKey65B64u = request.kind === 'linked_device_email_otp_challenge_start_request_v1'
-    ? request.workerEphemeralPublicKey65B64u
-    : requireSentEmailOtpChallenge(session).workerEphemeralPublicKey65B64u;
-  const recorded = await service.sessionService.recordEmailOtpChallengeStateV1({ linkSessionId: session.linkSessionId, expectedRevision: session.revision, challenge: { challengeId: started.challengeId, workerEphemeralPublicKey65B64u, maskedEmailHint: started.maskedEmailHint, expiresAtMs: started.expiresAtMs, resendAvailableAtMs: started.resendAvailableAtMs }, nowMs });
-  if (recorded.outcome !== 'applied' && recorded.outcome !== 'replayed') return sessionResultResponse(recorded);
-  return json(parseLinkedDeviceEmailOtpChallengeResultV1({ kind: 'linked_device_email_otp_challenge_result_v1', challengeId: started.challengeId, maskedEmailHint: started.maskedEmailHint, expiresAtMs: started.expiresAtMs, resendAvailableAtMs: started.resendAvailableAtMs }), { status: 200 });
+  const started = await provider.startChallengeV1({
+    session,
+    approval,
+    preparation,
+    resend,
+    requestedAtMs: nowMs,
+  });
+  if (started.kind === 'refused')
+    return json({ ok: false, code: started.code, message: started.message }, { status: 403 });
+  const workerEphemeralPublicKey65B64u =
+    request.kind === 'linked_device_email_otp_challenge_start_request_v1'
+      ? request.workerEphemeralPublicKey65B64u
+      : requireSentEmailOtpChallenge(session).workerEphemeralPublicKey65B64u;
+  const recorded = await service.sessionService.recordEmailOtpChallengeStateV1({
+    linkSessionId: session.linkSessionId,
+    expectedRevision: session.revision,
+    challenge: {
+      challengeId: started.challengeId,
+      workerEphemeralPublicKey65B64u,
+      maskedEmailHint: started.maskedEmailHint,
+      expiresAtMs: started.expiresAtMs,
+      resendAvailableAtMs: started.resendAvailableAtMs,
+    },
+    nowMs,
+  });
+  if (recorded.outcome !== 'applied' && recorded.outcome !== 'replayed')
+    return sessionResultResponse(recorded);
+  return json(
+    parseLinkedDeviceEmailOtpChallengeResultV1({
+      kind: 'linked_device_email_otp_challenge_result_v1',
+      challengeId: started.challengeId,
+      maskedEmailHint: started.maskedEmailHint,
+      expiresAtMs: started.expiresAtMs,
+      resendAvailableAtMs: started.resendAvailableAtMs,
+    }),
+    { status: 200 },
+  );
 }
 
-async function handleEmailOtpVerify(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleEmailOtpBaseFactor(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  const authenticated = await authenticateOwnerForSession(ctx, service, linkSessionId, nowMs);
+  if (authenticated.kind !== 'authorized') return ownerSessionResponse(authenticated);
+  const session = authenticated.session;
+  if (
+    session.state.state !== 'claimed' ||
+    session.qrPayload.targetFactor.kind !== 'email_otp' ||
+    !session.claimTranscript
+  ) {
+    return invalidStateResponse(session);
+  }
+  const walletId = session.claimTranscript.value.walletId;
+  if (authenticated.owner.walletId !== walletId) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'owner session does not match link wallet' },
+      { status: 401 },
+    );
+  }
+  const request = parseBoundary(() =>
+    parseLinkedDeviceEmailOtpBaseFactorRequestV1(authenticated.body),
+  );
+  if (request.expectedRevision !== session.revision) {
+    return json(
+      {
+        ok: false,
+        outcome: 'conflict',
+        expectedRevision: request.expectedRevision,
+        actualRevision: session.revision,
+      },
+      { status: 409 },
+    );
+  }
+  const provider = service.emailOtpTargetFactor;
+  if (!provider) return notSupportedResponse('Email OTP linking is not configured');
+  const resolution = await provider.resolveBaseFactorSelectionV1({ walletId, request });
+  return json({ revision: session.revision, resolution }, { status: 200 });
+}
+
+async function handleEmailOtpVerify(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
@@ -642,7 +830,8 @@ async function handleEmailOtpVerify(ctx: FetchRouterApiContext, service: DeviceL
   const request = parseBoundary(() =>
     parseLinkedDeviceEmailOtpChallengeVerifyRequestV1(authenticated.body),
   );
-  if (request.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
+  if (request.linkSessionId !== authenticated.linkSessionId)
+    return invalidInputResponse('link session id does not match route');
   const provider = service.emailOtpTargetFactor;
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const session = authenticated.session;
@@ -650,53 +839,98 @@ async function handleEmailOtpVerify(ctx: FetchRouterApiContext, service: DeviceL
   const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const challenge = requireSentEmailOtpChallenge(session);
-  if (challenge.challengeId !== request.challengeId) return invalidInputResponse('email OTP challenge does not match this session');
-  const verified = await provider.verifyChallengeV1({ session, approval, preparation, challengeId: request.challengeId, otpCode: request.otpCode, requestedAtMs: nowMs });
-  if (verified.kind === 'refused') return json({ ok: false, code: verified.code, message: verified.message }, { status: 403 });
-  const response: LinkedDeviceEmailOtpVerificationResultV1 = parseBoundary(() => parseLinkedDeviceEmailOtpVerificationResultV1({ kind: 'linked_device_email_otp_verification_result_v1', verificationGrant: verified.grant, factorRelease: verified.factorRelease }));
+  if (challenge.challengeId !== request.challengeId)
+    return invalidInputResponse('email OTP challenge does not match this session');
+  const verified = await provider.verifyChallengeV1({
+    session,
+    approval,
+    preparation,
+    challengeId: request.challengeId,
+    otpCode: request.otpCode,
+    requestedAtMs: nowMs,
+  });
+  if (verified.kind === 'refused')
+    return json({ ok: false, code: verified.code, message: verified.message }, { status: 403 });
+  const response: LinkedDeviceEmailOtpVerificationResultV1 = parseBoundary(() =>
+    parseLinkedDeviceEmailOtpVerificationResultV1({
+      kind: 'linked_device_email_otp_verification_result_v1',
+      verificationGrant: verified.grant,
+      factorRelease: verified.factorRelease,
+    }),
+  );
   return json(response, { status: 200 });
 }
 
-async function handleExportRootRecipient(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleExportRootRecipient(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const port = service.ed25519ExportRoot;
-  if (!port) return notSupportedResponse('Linked-device Ed25519 export-root relay is not configured');
+  if (!port)
+    return notSupportedResponse('Linked-device Ed25519 export-root relay is not configured');
   const sessionId = parseSessionId(rawLinkSessionId);
   if (ctx.method === 'GET') {
     const owner = await authenticateOwnerForSession(ctx, service, sessionId, nowMs);
     if (owner.kind !== 'authorized') return ownerSessionResponse(owner);
     const transfer = await port.readTransferV1(sessionId);
-    return transfer ? json(transfer.recipient, { status: 200 }) : new Response(null, { status: 204 });
+    return transfer
+      ? json(transfer.recipient, { status: 200 })
+      : new Response(null, { status: 204 });
   }
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
-  const recipient = parseBoundary(() => parseLinkedDeviceEd25519ExportRootRecipientV1(authenticated.body));
-  if (recipient.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
+  const recipient = parseBoundary(() =>
+    parseLinkedDeviceEd25519ExportRootRecipientV1(authenticated.body),
+  );
+  if (recipient.linkSessionId !== authenticated.linkSessionId)
+    return invalidInputResponse('link session id does not match route');
   return exportRootWriteResponse(await port.registerRecipientV1({ recipient }));
 }
 
-async function handleExportRootPackage(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleExportRootPackage(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const port = service.ed25519ExportRoot;
-  if (!port) return notSupportedResponse('Linked-device Ed25519 export-root relay is not configured');
+  if (!port)
+    return notSupportedResponse('Linked-device Ed25519 export-root relay is not configured');
   const sessionId = parseSessionId(rawLinkSessionId);
   if (ctx.method === 'GET') {
     const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
     if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
     if (authenticated.kind === 'not_found') return notFoundResponse();
     const transfer = await port.readTransferV1(sessionId);
-    return transfer?.state === 'sealed' ? json(transfer.package, { status: 200 }) : new Response(null, { status: 204 });
+    return transfer?.state === 'sealed'
+      ? json(transfer.package, { status: 200 })
+      : new Response(null, { status: 204 });
   }
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const owner = await authenticateOwnerForSession(ctx, service, sessionId, nowMs);
   if (owner.kind !== 'authorized') return ownerSessionResponse(owner);
-  const submission = parseBoundary(() => parseLinkedDeviceEd25519ExportRootSubmissionV1(owner.body));
-  if (submission.linkSessionId !== sessionId) return invalidInputResponse('link session id does not match route');
-  return exportRootWriteResponse(await port.submitPackageV1({ linkSessionId: sessionId, package: submission.package }));
+  const submission = parseBoundary(() =>
+    parseLinkedDeviceEd25519ExportRootSubmissionV1(owner.body),
+  );
+  if (submission.linkSessionId !== sessionId)
+    return invalidInputResponse('link session id does not match route');
+  return exportRootWriteResponse(
+    await port.submitPackageV1({ linkSessionId: sessionId, package: submission.package }),
+  );
 }
 
-async function handleReceipt(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
-  if (!service.installationReceipt) return notSupportedResponse('Installation receipt is not configured');
+async function handleReceipt(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  if (!service.installationReceipt)
+    return notSupportedResponse('Installation receipt is not configured');
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
@@ -715,10 +949,9 @@ async function handleReceipt(ctx: FetchRouterApiContext, service: DeviceLinkingR
     });
     return new Response(null, { status: 204 });
   }
-  const receipt = parseBoundary(() =>
-    parseLocalAuthorityInstallationReceiptV1(authenticated.body),
-  );
-  if (receipt.deviceId !== authenticated.session.state.deviceId) return invalidInputResponse('installation receipt device does not match this session');
+  const receipt = parseBoundary(() => parseLocalAuthorityInstallationReceiptV1(authenticated.body));
+  if (receipt.deviceId !== authenticated.session.state.deviceId)
+    return invalidInputResponse('installation receipt device does not match this session');
   const result = await service.installationReceipt.activateInstalledAuthorityV1({
     receipt,
     session: authenticated.session,
@@ -766,9 +999,7 @@ type D1IssuedWalletSessionV1 = Extract<
   { readonly kind: 'active' }
 >['walletSession'];
 
-function activeWalletSessionWireV1(
-  issued: D1IssuedWalletSessionV1,
-): ActiveWalletSessionV1 {
+function activeWalletSessionWireV1(issued: D1IssuedWalletSessionV1): ActiveWalletSessionV1 {
   const session = issued.session;
   const capabilitySubjects = session.capabilitySubjects.map((subject) => {
     switch (subject.kind) {
@@ -802,7 +1033,12 @@ function activeWalletSessionWireV1(
   });
 }
 
-async function handleCancel(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<Response> {
+async function handleCancel(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
   const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
@@ -810,36 +1046,86 @@ async function handleCancel(ctx: FetchRouterApiContext, service: DeviceLinkingRo
   const request = parseBoundary(() =>
     parseLinkedDeviceSessionTransportRequestV1(authenticated.body),
   );
-  if (request.kind !== 'linked_device_session_cancel_unclaimed_request_v1' && request.kind !== 'linked_device_session_cancel_claimed_request_v1') return invalidInputResponse('cancel request kind is invalid');
-  if (request.linkSessionId !== authenticated.linkSessionId) return invalidInputResponse('link session id does not match route');
-  return sessionResultResponse(await service.sessionService.cancelSessionV1({ linkSessionId: authenticated.linkSessionId, expectedRevision: authenticated.session.revision, nowMs }));
+  if (
+    request.kind !== 'linked_device_session_cancel_unclaimed_request_v1' &&
+    request.kind !== 'linked_device_session_cancel_claimed_request_v1'
+  )
+    return invalidInputResponse('cancel request kind is invalid');
+  if (request.linkSessionId !== authenticated.linkSessionId)
+    return invalidInputResponse('link session id does not match route');
+  return sessionResultResponse(
+    await service.sessionService.cancelSessionV1({
+      linkSessionId: authenticated.linkSessionId,
+      expectedRevision: authenticated.session.revision,
+      nowMs,
+    }),
+  );
 }
 
 type AuthenticatedOwnerForSession =
-  | { readonly kind: 'authorized'; readonly body: unknown; readonly owner: LinkedDeviceOwnerAuthorizationContextV1; readonly linkSessionId: LinkDeviceSessionId; readonly session: LinkedDeviceSessionRecordV1 }
+  | {
+      readonly kind: 'authorized';
+      readonly body: unknown;
+      readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
+      readonly linkSessionId: LinkDeviceSessionId;
+      readonly session: LinkedDeviceSessionRecordV1;
+    }
   | DeviceLinkingAuthDeniedV1
   | { readonly kind: 'not_found' };
 
-async function authenticateOwnerForSession(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, linkSessionId: LinkDeviceSessionId, nowMs: number): Promise<AuthenticatedOwnerForSession> {
+async function authenticateOwnerForSession(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  linkSessionId: LinkDeviceSessionId,
+  nowMs: number,
+): Promise<AuthenticatedOwnerForSession> {
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const authentication = await authenticateOwner(service, ctx, bodyDigestB64u, nowMs);
   if (authentication.kind === 'denied') return authentication;
   const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
   if (!session) return { kind: 'not_found' };
   validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
-  return { kind: 'authorized', body: authentication.body, owner: authentication.owner, linkSessionId, session };
+  return {
+    kind: 'authorized',
+    body: authentication.body,
+    owner: authentication.owner,
+    linkSessionId,
+    session,
+  };
 }
 
-async function authenticateOwner(service: DeviceLinkingRouteServiceV1, ctx: FetchRouterApiContext, bodyDigestB64u: DigestB64u, nowMs: number): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1> {
-  return service.authenticateOwnerRequestV1({ request: ctx.request, method: ctx.method, pathname: ctx.pathname, bodyDigestB64u, requestedAtMs: nowMs });
+async function authenticateOwner(
+  service: DeviceLinkingRouteServiceV1,
+  ctx: FetchRouterApiContext,
+  bodyDigestB64u: DigestB64u,
+  nowMs: number,
+): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1> {
+  return service.authenticateOwnerRequestV1({
+    request: ctx.request,
+    method: ctx.method,
+    pathname: ctx.pathname,
+    bodyDigestB64u,
+    requestedAtMs: nowMs,
+  });
 }
 
 type AuthenticatedDeviceForSession =
-  | { readonly kind: 'authorized'; readonly body: unknown; readonly proof: DeviceLinkingRequestProofV1; readonly linkSessionId: LinkDeviceSessionId; readonly session: LinkedDeviceSessionRecordV1 }
+  | {
+      readonly kind: 'authorized';
+      readonly body: unknown;
+      readonly proof: DeviceLinkingRequestProofV1;
+      readonly linkSessionId: LinkDeviceSessionId;
+      readonly session: LinkedDeviceSessionRecordV1;
+    }
   | DeviceLinkingAuthDeniedV1
   | { readonly kind: 'not_found' };
 
-async function authenticateDeviceForSession(ctx: FetchRouterApiContext, service: DeviceLinkingRouteServiceV1, rawLinkSessionId: string, nowMs: number): Promise<AuthenticatedDeviceForSession> {
+async function authenticateDeviceForSession(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<AuthenticatedDeviceForSession> {
   const linkSessionId = parseSessionId(rawLinkSessionId);
   const rawSession = await service.sessionService.getSessionV1(linkSessionId);
   if (!rawSession) return { kind: 'not_found' };
@@ -847,12 +1133,36 @@ async function authenticateDeviceForSession(ctx: FetchRouterApiContext, service:
   const expectedKey = rawSession.qrPayload.devicePublicKeyB64u;
   const keyDigest = await computeDevicePublicKeyDigestB64u(expectedKey);
   const proof = parseBoundary(() => parseRequestProofHeader(ctx.request));
-  validateRequestProof(proof, ctx.method, ctx.pathname, linkSessionId, bodyDigestB64u, keyDigest, nowMs);
-  const authentication = await service.authenticateDeviceRequestV1({ request: ctx.request, method: ctx.method, pathname: ctx.pathname, linkSessionId: String(linkSessionId), bodyDigestB64u, expectedDevicePublicKeyB64u: expectedKey, expectedDevicePublicKeyDigestB64u: keyDigest, proof, requestedAtMs: nowMs });
+  validateRequestProof(
+    proof,
+    ctx.method,
+    ctx.pathname,
+    linkSessionId,
+    bodyDigestB64u,
+    keyDigest,
+    nowMs,
+  );
+  const authentication = await service.authenticateDeviceRequestV1({
+    request: ctx.request,
+    method: ctx.method,
+    pathname: ctx.pathname,
+    linkSessionId: String(linkSessionId),
+    bodyDigestB64u,
+    expectedDevicePublicKeyB64u: expectedKey,
+    expectedDevicePublicKeyDigestB64u: keyDigest,
+    proof,
+    requestedAtMs: nowMs,
+  });
   if (authentication.kind === 'denied') return authentication;
   const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
   if (!session) return { kind: 'not_found' };
-  return { kind: 'authorized', body: authentication.body, proof: authentication.proof, linkSessionId, session };
+  return {
+    kind: 'authorized',
+    body: authentication.body,
+    proof: authentication.proof,
+    linkSessionId,
+    session,
+  };
 }
 
 function parseRoutePath(pathname: string): RouteAction | null {
@@ -862,10 +1172,26 @@ function parseRoutePath(pathname: string): RouteAction | null {
   const linkSessionId = parts[0];
   if (!linkSessionId) return null;
   if (parts.length === 1) return { kind: 'session', linkSessionId };
-  if (parts.length === 3 && parts[1] === 'email-otp' && parts[2] === 'challenge') return { kind: 'email-otp-challenge', linkSessionId };
-  if (parts.length === 4 && parts[1] === 'email-otp' && parts[2] === 'challenge' && parts[3] === 'resend') return { kind: 'email-otp-resend', linkSessionId };
-  if (parts.length === 4 && parts[1] === 'email-otp' && parts[2] === 'challenge' && parts[3] === 'verify') return { kind: 'email-otp-verify', linkSessionId };
-  if (parts.length === 3 && parts[1] === 'source-contribution' && parts[2] === 'execute') return { kind: 'source-contribution-execute', linkSessionId };
+  if (parts.length === 3 && parts[1] === 'email-otp' && parts[2] === 'challenge')
+    return { kind: 'email-otp-challenge', linkSessionId };
+  if (
+    parts.length === 4 &&
+    parts[1] === 'email-otp' &&
+    parts[2] === 'challenge' &&
+    parts[3] === 'resend'
+  )
+    return { kind: 'email-otp-resend', linkSessionId };
+  if (
+    parts.length === 4 &&
+    parts[1] === 'email-otp' &&
+    parts[2] === 'challenge' &&
+    parts[3] === 'verify'
+  )
+    return { kind: 'email-otp-verify', linkSessionId };
+  if (parts.length === 2 && parts[1] === 'email-otp-base-factor')
+    return { kind: 'email-otp-base-factor', linkSessionId };
+  if (parts.length === 3 && parts[1] === 'source-contribution' && parts[2] === 'execute')
+    return { kind: 'source-contribution-execute', linkSessionId };
   if (parts.length !== 2 || !parts[1]) return null;
   switch (parts[1]) {
     case 'claim':
@@ -907,9 +1233,7 @@ function requireEd25519SourceContributionPreparation(
   session: LinkedDeviceSessionRecordV1,
 ): LinkedDeviceEd25519SourceContributionPreparationV1 {
   if (!session.sourceContributionPreparation) {
-    throw new DeviceLinkingInputError(
-      'link session has no source contribution preparation',
-    );
+    throw new DeviceLinkingInputError('link session has no source contribution preparation');
   }
   const preparations = parseBoundary(() =>
     parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
@@ -936,18 +1260,38 @@ function requireEd25519SourceContributionPreparation(
   return ed25519;
 }
 
-function requireSentEmailOtpChallenge(session: LinkedDeviceSessionRecordV1): Extract<NonNullable<LinkedDeviceSessionRecordV1['emailOtpChallenge']>, { readonly state: 'sent' }> {
+function requireSentEmailOtpChallenge(
+  session: LinkedDeviceSessionRecordV1,
+): Extract<
+  NonNullable<LinkedDeviceSessionRecordV1['emailOtpChallenge']>,
+  { readonly state: 'sent' }
+> {
   const challenge = session.emailOtpChallenge;
-  if (!challenge || challenge.state !== 'sent') throw new DeviceLinkingInputError('email OTP challenge has not been sent');
+  if (!challenge || challenge.state !== 'sent')
+    throw new DeviceLinkingInputError('email OTP challenge has not been sent');
   return challenge;
 }
 
-function parseEmailOtpChallengeRequest(raw: unknown, resend: boolean): LinkedDeviceEmailOtpChallengeStartRequestV1 | LinkedDeviceEmailOtpChallengeResendRequestV1 {
-  return resend ? parseLinkedDeviceEmailOtpChallengeResendRequestV1(raw) : parseLinkedDeviceEmailOtpChallengeStartRequestV1(raw);
+function parseEmailOtpChallengeRequest(
+  raw: unknown,
+  resend: boolean,
+): LinkedDeviceEmailOtpChallengeStartRequestV1 | LinkedDeviceEmailOtpChallengeResendRequestV1 {
+  return resend
+    ? parseLinkedDeviceEmailOtpChallengeResendRequestV1(raw)
+    : parseLinkedDeviceEmailOtpChallengeStartRequestV1(raw);
 }
 
-function readTargetPreparation(service: DeviceLinkingRouteServiceV1, session: LinkedDeviceSessionRecordV1, approval: LinkedDeviceApprovalV1, nowMs: number): Promise<LinkedDeviceTargetPreparationV1> {
-  return service.targetCredential.getTargetPreparationV1({ session, approval, requestedAtMs: nowMs });
+function readTargetPreparation(
+  service: DeviceLinkingRouteServiceV1,
+  session: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+  nowMs: number,
+): Promise<LinkedDeviceTargetPreparationV1> {
+  return service.targetCredential.getTargetPreparationV1({
+    session,
+    approval,
+    requestedAtMs: nowMs,
+  });
 }
 
 function projectLinkSessionStateV1(state: LinkSessionStateV1): LinkSessionStateV1 {
@@ -996,7 +1340,10 @@ function projectSession(record: LinkedDeviceSessionRecordV1): LinkSessionProject
   };
 }
 
-function sessionProjectionResponse(record: LinkedDeviceSessionRecordV1, outcome: 'applied' | 'replayed'): Response {
+function sessionProjectionResponse(
+  record: LinkedDeviceSessionRecordV1,
+  outcome: 'applied' | 'replayed',
+): Response {
   return json({ ok: true, outcome, session: projectSession(record) }, { status: 200 });
 }
 
@@ -1005,20 +1352,40 @@ export function targetCredentialResultResponse(
   outcome: 'applied' | 'replayed',
   targetCredential: LinkedDeviceTargetCredentialRegistrationResultV1,
 ): Response {
-  return json({ ok: true, outcome, targetCredential, session: projectSession(record) }, { status: 200 });
+  return json(
+    { ok: true, outcome, targetCredential, session: projectSession(record) },
+    { status: 200 },
+  );
 }
 
 function claimResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {
-  if (result.outcome !== 'applied' && result.outcome !== 'replayed') return sessionResultResponse(result);
+  if (result.outcome !== 'applied' && result.outcome !== 'replayed')
+    return sessionResultResponse(result);
   const claim = result.record.claimTranscript?.value;
   return claim ? json(claim, { status: 200 }) : invalidStateResponse(result.record);
 }
 
 function approvalResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {
-  if (result.outcome !== 'applied' && result.outcome !== 'replayed') return sessionResultResponse(result);
+  if (result.outcome !== 'applied' && result.outcome !== 'replayed')
+    return sessionResultResponse(result);
   const record = result.record;
-  if (record.state.state === 'active') return json({ ok: true, outcome: result.outcome, state: record.state, authorityId: record.authorityId }, { status: 200 });
-  if (record.state.state === 'awaiting_target_factor' || record.state.state === 'awaiting_source_contribution' || record.state.state === 'provisioning' || record.state.state === 'authority_pending_local_install') return result.outcome === 'replayed' ? json({ outcome: 'replayed', replay: { state: 'pending', session: record.state } }, { status: 200 }) : json({ outcome: 'pending', state: record.state }, { status: 200 });
+  if (record.state.state === 'active')
+    return json(
+      { ok: true, outcome: result.outcome, state: record.state, authorityId: record.authorityId },
+      { status: 200 },
+    );
+  if (
+    record.state.state === 'awaiting_target_factor' ||
+    record.state.state === 'awaiting_source_contribution' ||
+    record.state.state === 'provisioning' ||
+    record.state.state === 'authority_pending_local_install'
+  )
+    return result.outcome === 'replayed'
+      ? json(
+          { outcome: 'replayed', replay: { state: 'pending', session: record.state } },
+          { status: 200 },
+        )
+      : json({ outcome: 'pending', state: record.state }, { status: 200 });
   return invalidStateResponse(record);
 }
 
@@ -1028,15 +1395,46 @@ function sessionResultResponse(result: LinkedDeviceSessionServiceResultV1): Resp
     case 'replayed':
       return sessionProjectionResponse(result.record, result.outcome);
     case 'conflict':
-      return json({ ok: false, outcome: result.outcome, expectedRevision: result.expectedRevision, actualRevision: result.actualRevision, session: result.record ? projectSession(result.record) : null }, { status: 409 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          expectedRevision: result.expectedRevision,
+          actualRevision: result.actualRevision,
+          session: result.record ? projectSession(result.record) : null,
+        },
+        { status: 409 },
+      );
     case 'expired':
-      return json({ ok: false, outcome: result.outcome, session: projectSession(result.record) }, { status: 410 });
+      return json(
+        { ok: false, outcome: result.outcome, session: projectSession(result.record) },
+        { status: 410 },
+      );
     case 'invalid_state':
-      return json({ ok: false, outcome: result.outcome, state: result.state, session: projectSession(result.record) }, { status: 409 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          state: result.state,
+          session: projectSession(result.record),
+        },
+        { status: 409 },
+      );
     case 'integrity_error':
-      return json({ ok: false, outcome: result.outcome, reason: result.reason, session: projectSession(result.record) }, { status: 500 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          reason: result.reason,
+          session: projectSession(result.record),
+        },
+        { status: 500 },
+      );
     case 'unauthorized':
-      return json({ ok: false, outcome: result.outcome, code: result.code, message: result.message }, { status: 401 });
+      return json(
+        { ok: false, outcome: result.outcome, code: result.code, message: result.message },
+        { status: 401 },
+      );
     case 'invalid_input':
       return invalidInputResponse(result.message);
     case 'deleted':
@@ -1047,23 +1445,47 @@ function sessionResultResponse(result: LinkedDeviceSessionServiceResultV1): Resp
 }
 
 function invalidStateResponse(record: LinkedDeviceSessionRecordV1): Response {
-  return json({ ok: false, outcome: 'invalid_state', state: record.state.state, session: projectSession(record) }, { status: 409 });
+  return json(
+    {
+      ok: false,
+      outcome: 'invalid_state',
+      state: record.state.state,
+      session: projectSession(record),
+    },
+    { status: 409 },
+  );
 }
 
-function exportRootWriteResponse(result: { readonly outcome: 'applied' | 'replayed' | 'conflict'; readonly reason?: string }): Response {
-  return result.outcome === 'conflict' ? json({ ok: false, code: result.reason ?? 'conflict', message: 'export-root relay conflict' }, { status: 409 }) : json({ ok: true, outcome: result.outcome }, { status: 200 });
+function exportRootWriteResponse(result: {
+  readonly outcome: 'applied' | 'replayed' | 'conflict';
+  readonly reason?: string;
+}): Response {
+  return result.outcome === 'conflict'
+    ? json(
+        { ok: false, code: result.reason ?? 'conflict', message: 'export-root relay conflict' },
+        { status: 409 },
+      )
+    : json({ ok: true, outcome: result.outcome }, { status: 200 });
 }
 
-function ownerSessionResponse(context: Exclude<AuthenticatedOwnerForSession, { readonly kind: 'authorized' }>): Response {
+function ownerSessionResponse(
+  context: Exclude<AuthenticatedOwnerForSession, { readonly kind: 'authorized' }>,
+): Response {
   return context.kind === 'denied' ? authDeniedResponse(context) : notFoundResponse();
 }
 
 function authDeniedResponse(result: DeviceLinkingAuthDeniedV1): Response {
-  return json({ ok: false, outcome: 'unauthorized', code: result.code, message: result.message }, { status: result.code === 'expired' ? 410 : 401 });
+  return json(
+    { ok: false, outcome: 'unauthorized', code: result.code, message: result.message },
+    { status: result.code === 'expired' ? 410 : 401 },
+  );
 }
 
 function invalidInputResponse(message: string): Response {
-  return json({ ok: false, outcome: 'invalid_input', code: 'invalid_input', message }, { status: 400 });
+  return json(
+    { ok: false, outcome: 'invalid_input', code: 'invalid_input', message },
+    { status: 400 },
+  );
 }
 
 function notSupportedResponse(message = 'Device linking is not configured'): Response {
@@ -1071,18 +1493,28 @@ function notSupportedResponse(message = 'Device linking is not configured'): Res
 }
 
 function notFoundResponse(): Response {
-  return json({ ok: false, code: 'not_found', message: 'Linked-device session not found' }, { status: 404 });
+  return json(
+    { ok: false, code: 'not_found', message: 'Linked-device session not found' },
+    { status: 404 },
+  );
 }
 
 function methodNotAllowedResponse(): Response {
-  return json({ ok: false, code: 'method_not_allowed', message: 'Method is not allowed' }, { status: 405 });
+  return json(
+    { ok: false, code: 'method_not_allowed', message: 'Method is not allowed' },
+    { status: 405 },
+  );
 }
 
 function parseCreateRequest(raw: unknown): DeviceLinkingCreateRequestV1 {
   const record = requireRecord(raw, 'device-linking create request');
   requireExactKeys(record, ['kind', 'payload']);
-  if (record.kind !== 'linked_device_session_create_request_v1') throw new Error('device-linking create request kind is invalid');
-  return { kind: 'linked_device_session_create_request_v1', payload: parseQrLinkedDeviceSessionPayloadV5(record.payload) };
+  if (record.kind !== 'linked_device_session_create_request_v1')
+    throw new Error('device-linking create request kind is invalid');
+  return {
+    kind: 'linked_device_session_create_request_v1',
+    payload: parseQrLinkedDeviceSessionPayloadV5(record.payload),
+  };
 }
 
 function parseSessionId(raw: string): LinkDeviceSessionId {
@@ -1110,17 +1542,51 @@ function parseRequestProofHeader(request: Request): DeviceLinkingRequestProofV1 
   return parseLinkedDeviceRequestProofV1(raw);
 }
 
-function validateRequestProof(proof: DeviceLinkingRequestProofV1, method: string, pathname: string, linkSessionId: LinkDeviceSessionId, bodyDigestB64u: DigestB64u, devicePublicKeyDigestB64u: DigestB64u, nowMs: number): void {
-  if (proof.method !== method || proof.canonicalPath !== pathname || proof.linkSessionId !== linkSessionId) throw new DeviceLinkingInputError('request proof does not match method, path, or session');
-  if (proof.bodyDigestB64u !== bodyDigestB64u) throw new DeviceLinkingInputError('request body digest does not match authenticated bytes');
-  if (proof.devicePublicKeyDigestB64u !== devicePublicKeyDigestB64u) throw new DeviceLinkingInputError('request proof device identity does not match QR session');
-  if (proof.expiresAtMs <= nowMs || proof.issuedAtMs > nowMs || proof.expiresAtMs <= proof.issuedAtMs) throw new DeviceLinkingInputError('request proof is expired');
-  if (proof.expiresAtMs - proof.issuedAtMs > LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1) throw new DeviceLinkingInputError('request proof lifetime exceeds the maximum');
+function validateRequestProof(
+  proof: DeviceLinkingRequestProofV1,
+  method: string,
+  pathname: string,
+  linkSessionId: LinkDeviceSessionId,
+  bodyDigestB64u: DigestB64u,
+  devicePublicKeyDigestB64u: DigestB64u,
+  nowMs: number,
+): void {
+  if (
+    proof.method !== method ||
+    proof.canonicalPath !== pathname ||
+    proof.linkSessionId !== linkSessionId
+  )
+    throw new DeviceLinkingInputError('request proof does not match method, path, or session');
+  if (proof.bodyDigestB64u !== bodyDigestB64u)
+    throw new DeviceLinkingInputError('request body digest does not match authenticated bytes');
+  if (proof.devicePublicKeyDigestB64u !== devicePublicKeyDigestB64u)
+    throw new DeviceLinkingInputError('request proof device identity does not match QR session');
+  if (
+    proof.expiresAtMs <= nowMs ||
+    proof.issuedAtMs > nowMs ||
+    proof.expiresAtMs <= proof.issuedAtMs
+  )
+    throw new DeviceLinkingInputError('request proof is expired');
+  if (proof.expiresAtMs - proof.issuedAtMs > LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1)
+    throw new DeviceLinkingInputError('request proof lifetime exceeds the maximum');
 }
 
-function validateOwnerRequestBinding(binding: DeviceLinkingRequestBindingV1, ctx: FetchRouterApiContext, bodyDigestB64u: DigestB64u, nowMs: number): void {
-  if (binding.kind !== 'linked_device_owner_request_binding_v1' || binding.method !== ctx.method || binding.pathname !== ctx.pathname) throw new DeviceLinkingInputError('owner request binding does not match method or path');
-  if (binding.bodyDigestB64u !== bodyDigestB64u || binding.expiresAtMs <= nowMs) throw new DeviceLinkingInputError('owner request proof is expired or does not match the request');
+function validateOwnerRequestBinding(
+  binding: DeviceLinkingRequestBindingV1,
+  ctx: FetchRouterApiContext,
+  bodyDigestB64u: DigestB64u,
+  nowMs: number,
+): void {
+  if (
+    binding.kind !== 'linked_device_owner_request_binding_v1' ||
+    binding.method !== ctx.method ||
+    binding.pathname !== ctx.pathname
+  )
+    throw new DeviceLinkingInputError('owner request binding does not match method or path');
+  if (binding.bodyDigestB64u !== bodyDigestB64u || binding.expiresAtMs <= nowMs)
+    throw new DeviceLinkingInputError(
+      'owner request proof is expired or does not match the request',
+    );
 }
 
 async function requestBodyDigest(request: Request): Promise<DigestB64u> {
@@ -1137,14 +1603,16 @@ async function computeDevicePublicKeyDigestB64u(publicKeyB64u: string): Promise<
 }
 
 function parseB64uBytes(raw: unknown, field: string): Uint8Array {
-  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw)) throw new Error(`${field} is invalid`);
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw))
+    throw new Error(`${field} is invalid`);
   let bytes: Uint8Array;
   try {
     bytes = base64UrlDecode(raw);
   } catch {
     throw new Error(`${field} is invalid`);
   }
-  if (bytes.length === 0 || base64UrlEncode(bytes) !== raw) throw new Error(`${field} is not canonical base64url`);
+  if (bytes.length === 0 || base64UrlEncode(bytes) !== raw)
+    throw new Error(`${field} is not canonical base64url`);
   return bytes;
 }
 
@@ -1161,14 +1629,16 @@ function parseBoundary<T>(parse: () => T): T {
 }
 
 function requireRecord(raw: unknown, field: string): Record<string, unknown> {
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${field} must be an object`);
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+    throw new Error(`${field} must be an object`);
   return raw as Record<string, unknown>;
 }
 
 function requireExactKeys(record: Record<string, unknown>, keys: readonly string[]): void {
   const actual = Object.keys(record).sort();
   const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) throw new Error('record contains invalid fields');
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index]))
+    throw new Error('record contains invalid fields');
 }
 
 function errorMessage(error: unknown): string {

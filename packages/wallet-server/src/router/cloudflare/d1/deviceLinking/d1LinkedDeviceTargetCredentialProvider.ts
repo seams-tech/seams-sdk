@@ -1106,6 +1106,7 @@ function assertPreparationMatchesSession(
     preparation.enrollmentId !== approval.enrollmentId ||
     preparation.deviceId !== approval.deviceId ||
     preparation.targetFactor.kind !== approval.targetFactor.kind ||
+    !preparationBaseFactorMatchesApprovalV1(preparation, approval) ||
     preparation.ordinarySignerMaterialRecipientRequirements.length !==
       sourceSignerManifest.signers.length
   ) {
@@ -1129,6 +1130,31 @@ function assertPreparationMatchesSession(
       );
     }
   }
+}
+
+function preparationBaseFactorMatchesApprovalV1(
+  preparation: LinkedDeviceTargetPreparationV1,
+  approval: LinkedDeviceApprovalV1,
+): boolean {
+  if (isEmailOtpPreparationV1(preparation)) {
+    const approvalTargetFactor = approval.targetFactor;
+    return (
+      approvalTargetFactor.kind === 'email_otp' &&
+      preparation.baseWalletAuthMethodId === approvalTargetFactor.baseWalletAuthMethodId
+    );
+  }
+  return (
+    preparation.targetFactor.kind === 'passkey_prf' && approval.targetFactor.kind === 'passkey_prf'
+  );
+}
+
+function isEmailOtpPreparationV1(
+  preparation: LinkedDeviceTargetPreparationV1,
+): preparation is Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'email_otp' } }
+> {
+  return preparation.targetFactor.kind === 'email_otp';
 }
 
 async function readVerifiedSourceForTargetCredentialV1(input: {

@@ -93,6 +93,10 @@ import {
   type LinkDevicePublicKeyB64u,
   type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceTargetFactorV1,
+  type LinkedDeviceApprovedTargetFactorV1,
+  type LinkedDeviceEmailOtpBaseFactorRequestV1,
+  type LinkedDeviceEmailOtpBaseFactorResolutionV1,
+  type LinkedDeviceEmailOtpBaseFactorResolutionResultV1,
   type ActiveWalletSessionV1,
   type ActivateInstalledAuthorityResultV1,
   type ActivationRetryReasonV1,
@@ -137,6 +141,7 @@ const CLAIM_FIELDS = [
   'deviceId',
   'devicePublicKeyB64u',
   'targetFactor',
+  'sessionRevision',
   'claimedAtMs',
   'claimExpiresAtMs',
 ] as const;
@@ -193,6 +198,10 @@ const TARGET_PREPARATION_BASE_FIELDS = [
 const TARGET_PREPARATION_PASSKEY_FIELDS = [
   ...TARGET_PREPARATION_BASE_FIELDS,
   'passkeyCreationOptions',
+] as const;
+const TARGET_PREPARATION_EMAIL_FIELDS = [
+  ...TARGET_PREPARATION_BASE_FIELDS,
+  'baseWalletAuthMethodId',
 ] as const;
 const EMAIL_OTP_VERIFICATION_GRANT_FIELDS = [
   'kind',
@@ -478,6 +487,29 @@ function parseTargetFactor(raw: unknown, label: string): LinkedDeviceTargetFacto
     default:
       throw new Error(`${label}.kind is unsupported`);
   }
+}
+
+function parseApprovedTargetFactor(
+  raw: unknown,
+  label: string,
+): LinkedDeviceApprovedTargetFactorV1 {
+  const record = requireRecord(raw, label);
+  if (record.kind === 'passkey_prf') {
+    exactRecord(record, ['kind'], label);
+    return { kind: 'passkey_prf' };
+  }
+  if (record.kind === 'email_otp') {
+    const exact = exactRecord(record, ['kind', 'baseWalletAuthMethodId'], label);
+    return {
+      kind: 'email_otp',
+      baseWalletAuthMethodId: parseId(
+        parseWalletAuthMethodId,
+        exact.baseWalletAuthMethodId,
+        `${label}.baseWalletAuthMethodId`,
+      ),
+    };
+  }
+  throw new Error(`${label}.kind is unsupported`);
 }
 
 function parseSessionId(raw: unknown, label: string): LinkDeviceSessionId {
@@ -1087,6 +1119,10 @@ export function parseLinkedDeviceSessionClaimV1(raw: unknown): LinkedDeviceSessi
       'LinkedDeviceSessionClaimV1.devicePublicKeyB64u',
     ),
     targetFactor: parseTargetFactor(record.targetFactor, 'LinkedDeviceSessionClaimV1.targetFactor'),
+    sessionRevision: parseUnixTime(
+      record.sessionRevision,
+      'LinkedDeviceSessionClaimV1.sessionRevision',
+    ),
     claimedAtMs,
     claimExpiresAtMs,
   };
@@ -1122,7 +1158,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
     linkPublicKeyB64u: parsePublicKey(record.linkPublicKeyB64u, `${label}.linkPublicKeyB64u`),
     devicePublicKeyB64u: parsePublicKey(record.devicePublicKeyB64u, `${label}.devicePublicKeyB64u`),
     permission: parseDelegatedWalletAuthority(record.permission, `${label}.permission`),
-    targetFactor: parseTargetFactor(record.targetFactor, `${label}.targetFactor`),
+    targetFactor: parseApprovedTargetFactor(record.targetFactor, `${label}.targetFactor`),
     ownerAuthorization: parseLinkedDeviceOwnerAuthorizationSourceV1(
       record.ownerAuthorization,
       `${label}.ownerAuthorization`,
@@ -1179,7 +1215,7 @@ export function parseLinkedDeviceTargetPreparationV1(
     candidate,
     targetFactor.kind === 'passkey_prf'
       ? TARGET_PREPARATION_PASSKEY_FIELDS
-      : TARGET_PREPARATION_BASE_FIELDS,
+      : TARGET_PREPARATION_EMAIL_FIELDS,
     'LinkedDeviceTargetPreparationV1',
   );
   if (record.kind !== 'linked_device_target_preparation_v1') {
@@ -1230,7 +1266,126 @@ export function parseLinkedDeviceTargetPreparationV1(
     );
     return { ...base, targetFactor, passkeyCreationOptions };
   }
-  return { ...base, targetFactor };
+  return {
+    ...base,
+    targetFactor,
+    baseWalletAuthMethodId: parseId(
+      parseWalletAuthMethodId,
+      record.baseWalletAuthMethodId,
+      'LinkedDeviceTargetPreparationV1.baseWalletAuthMethodId',
+    ),
+  };
+}
+
+export function parseLinkedDeviceEmailOtpBaseFactorRequestV1(
+  raw: unknown,
+): LinkedDeviceEmailOtpBaseFactorRequestV1 {
+  const record = requireRecord(raw, 'LinkedDeviceEmailOtpBaseFactorRequestV1');
+  const expectedRevision = parseUnixTime(
+    record.expectedRevision,
+    'LinkedDeviceEmailOtpBaseFactorRequestV1.expectedRevision',
+  );
+  if (record.kind === 'resolve') {
+    exactRecord(record, ['kind', 'expectedRevision'], 'LinkedDeviceEmailOtpBaseFactorRequestV1');
+    return { kind: 'resolve', expectedRevision };
+  }
+  if (record.kind === 'select') {
+    const exact = exactRecord(
+      record,
+      ['kind', 'expectedRevision', 'baseWalletAuthMethodId'],
+      'LinkedDeviceEmailOtpBaseFactorRequestV1',
+    );
+    return {
+      kind: 'select',
+      expectedRevision,
+      baseWalletAuthMethodId: parseId(
+        parseWalletAuthMethodId,
+        exact.baseWalletAuthMethodId,
+        'LinkedDeviceEmailOtpBaseFactorRequestV1.baseWalletAuthMethodId',
+      ),
+    };
+  }
+  throw new Error('LinkedDeviceEmailOtpBaseFactorRequestV1.kind is unsupported');
+}
+
+function parseLinkedDeviceEmailOtpBaseFactorChoiceV1(raw: unknown) {
+  const record = exactRecord(
+    raw,
+    ['baseWalletAuthMethodId', 'maskedEmailHint'],
+    'LinkedDeviceEmailOtpBaseFactorChoiceV1',
+  );
+  if (typeof record.maskedEmailHint !== 'string' || record.maskedEmailHint.length === 0) {
+    throw new Error('LinkedDeviceEmailOtpBaseFactorChoiceV1.maskedEmailHint is invalid');
+  }
+  return {
+    baseWalletAuthMethodId: parseId(
+      parseWalletAuthMethodId,
+      record.baseWalletAuthMethodId,
+      'LinkedDeviceEmailOtpBaseFactorChoiceV1.baseWalletAuthMethodId',
+    ),
+    maskedEmailHint: record.maskedEmailHint,
+  };
+}
+
+export function parseLinkedDeviceEmailOtpBaseFactorResolutionV1(
+  raw: unknown,
+): LinkedDeviceEmailOtpBaseFactorResolutionV1 {
+  const record = requireRecord(raw, 'LinkedDeviceEmailOtpBaseFactorResolutionV1');
+  switch (record.kind) {
+    case 'selected': {
+      const exact = exactRecord(
+        record,
+        ['kind', 'choice'],
+        'LinkedDeviceEmailOtpBaseFactorResolutionV1',
+      );
+      return {
+        kind: 'selected',
+        choice: parseLinkedDeviceEmailOtpBaseFactorChoiceV1(exact.choice),
+      };
+    }
+    case 'selection_required': {
+      const exact = exactRecord(
+        record,
+        ['kind', 'choices'],
+        'LinkedDeviceEmailOtpBaseFactorResolutionV1',
+      );
+      if (!Array.isArray(exact.choices) || exact.choices.length === 0) {
+        throw new Error('LinkedDeviceEmailOtpBaseFactorResolutionV1.choices must not be empty');
+      }
+      const choices = exact.choices.map(parseLinkedDeviceEmailOtpBaseFactorChoiceV1);
+      return { kind: 'selection_required', choices: [choices[0]!, ...choices.slice(1)] };
+    }
+    case 'unavailable': {
+      const exact = exactRecord(
+        record,
+        ['kind', 'reason'],
+        'LinkedDeviceEmailOtpBaseFactorResolutionV1',
+      );
+      if (exact.reason !== 'no_active_email_otp_base_factor') {
+        throw new Error('LinkedDeviceEmailOtpBaseFactorResolutionV1.reason is unsupported');
+      }
+      return { kind: 'unavailable', reason: exact.reason };
+    }
+    default:
+      throw new Error('LinkedDeviceEmailOtpBaseFactorResolutionV1.kind is unsupported');
+  }
+}
+
+export function parseLinkedDeviceEmailOtpBaseFactorResolutionResultV1(
+  raw: unknown,
+): LinkedDeviceEmailOtpBaseFactorResolutionResultV1 {
+  const record = exactRecord(
+    raw,
+    ['revision', 'resolution'],
+    'LinkedDeviceEmailOtpBaseFactorResolutionResultV1',
+  );
+  return {
+    revision: parseUnixTime(
+      record.revision,
+      'LinkedDeviceEmailOtpBaseFactorResolutionResultV1.revision',
+    ),
+    resolution: parseLinkedDeviceEmailOtpBaseFactorResolutionV1(record.resolution),
+  };
 }
 
 function parseLinkedDevicePasskeyCreationOptionsV1(
@@ -1725,7 +1880,11 @@ function parseVerifiedTargetFactorV1(raw: unknown, label: string): VerifiedTarge
     };
   }
   if (record.kind === 'verified_email_otp_target_v1') {
-    exactRecord(record, ['kind', 'authMethod', 'verificationDigestB64u', 'verifiedAtMs'], label);
+    exactRecord(
+      record,
+      ['kind', 'authMethod', 'baseWalletAuthMethodId', 'verificationDigestB64u', 'verifiedAtMs'],
+      label,
+    );
     const authMethod = parseEmailOtpWalletAuthMethodDraftV1(
       record.authMethod,
       `${label}.authMethod`,
@@ -1737,6 +1896,11 @@ function parseVerifiedTargetFactorV1(raw: unknown, label: string): VerifiedTarge
     return {
       kind: 'verified_email_otp_target_v1',
       authMethod,
+      baseWalletAuthMethodId: parseId(
+        parseWalletAuthMethodId,
+        record.baseWalletAuthMethodId,
+        `${label}.baseWalletAuthMethodId`,
+      ),
       verificationDigestB64u: parseDigest(
         record.verificationDigestB64u,
         `${label}.verificationDigestB64u`,

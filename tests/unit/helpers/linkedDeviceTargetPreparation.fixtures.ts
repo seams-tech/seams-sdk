@@ -121,6 +121,9 @@ export function buildEmailOtpTargetPreparationFixtureV1(): Extract<
   const walletAuthMethodId = required(
     parseWalletAuthMethodId('email_otp:wallet:target-preparation-test'),
   );
+  const baseWalletAuthMethodId = required(
+    parseWalletAuthMethodId('email_otp:wallet:target-preparation-base'),
+  );
   const preparation = buildLinkedDeviceTargetPreparationV1({
     linkSessionId: LINK_SESSION_ID,
     walletId: WALLET_ID,
@@ -129,6 +132,7 @@ export function buildEmailOtpTargetPreparationFixtureV1(): Extract<
     walletAuthMethodId,
     ed25519ExportRoot: null,
     targetFactor: { kind: 'email_otp' },
+    baseWalletAuthMethodId,
     ordinarySignerMaterialRecipientRequirements: [recipientRequirement()],
     issuedAtMs: 1_000,
     expiresAtMs: 2_000,
