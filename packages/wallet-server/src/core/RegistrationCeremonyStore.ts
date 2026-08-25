@@ -31,6 +31,7 @@ import {
 import {
   addAuthMethodIntentGrantFromString,
   normalizeAddAuthMethodInput,
+  normalizeAddAuthMethodIntentCaller,
   normalizeRegistrationSignerPlan,
   registrationSignerPlanFromSelection,
   walletIdFromString,
@@ -1479,20 +1480,39 @@ function parseStoredAddAuthMethodIntent(value: unknown): StoredAddAuthMethodInte
   const walletId = walletIdFromString(trimString(intent.walletId));
   const authMethod = normalizeAddAuthMethodInput(intent.authMethod);
   const nonceB64u = trimString(intent.nonceB64u);
-  if (version !== 'add_auth_method_intent_v1' || !walletId || !authMethod || !nonceB64u) {
+  const targetWalletAuthMethodId = parseWalletAuthMethodId(intent.targetWalletAuthMethodId);
+  const caller = normalizeAddAuthMethodIntentCaller(intent);
+  if (
+    version !== 'add_auth_method_intent_v1' ||
+    !walletId ||
+    !authMethod ||
+    !nonceB64u ||
+    !targetWalletAuthMethodId.ok ||
+    !caller
+  ) {
     return null;
   }
-  const parsedIntent: AddAuthMethodIntentV1 = {
+  const runtimePolicyScope = Object.prototype.hasOwnProperty.call(intent, 'runtimePolicyScope')
+    ? parseRuntimePolicyScopeLike(intent.runtimePolicyScope)
+    : undefined;
+  if (
+    Object.prototype.hasOwnProperty.call(intent, 'runtimePolicyScope') &&
+    !runtimePolicyScope
+  ) {
+    return null;
+  }
+  const intentCommon = {
     version: 'add_auth_method_intent_v1',
     walletId,
     authMethod,
+    targetWalletAuthMethodId: targetWalletAuthMethodId.value,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     nonceB64u,
-  };
-  if (Object.prototype.hasOwnProperty.call(intent, 'runtimePolicyScope')) {
-    const runtimePolicyScope = parseRuntimePolicyScopeLike(intent.runtimePolicyScope);
-    if (!runtimePolicyScope) return null;
-    parsedIntent.runtimePolicyScope = runtimePolicyScope;
-  }
+  } as const;
+  const parsedIntent: AddAuthMethodIntentV1 =
+    caller.caller === 'same_device_addition'
+      ? { ...intentCommon, caller: 'same_device_addition', source: caller.source }
+      : { ...intentCommon, caller: 'linked_device_ceremony' };
   const normalizedGrant = addAuthMethodIntentGrantFromString(grant);
   if (!normalizedGrant) {
     return null;

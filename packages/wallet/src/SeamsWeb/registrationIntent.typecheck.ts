@@ -9,7 +9,7 @@ import {
   type ThresholdEd25519AddSignerSpec,
   type ThresholdEd25519RegistrationSpec,
 } from '@shared/utils/registrationIntent';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { parseWalletAuthMethodId, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 const materialActivation = {
@@ -250,10 +250,18 @@ void ({
   nonceB64u: 'nonce',
 } satisfies AddSignerIntentV1);
 
+const addAuthMethodTargetIdFixture = (() => {
+  const parsed = parseWalletAuthMethodId('wallet-auth-method:fixture-target');
+  if (!parsed.ok) throw new Error('invalid type fixture auth-method id');
+  return parsed.value;
+})();
+
 void ({
   version: 'add_auth_method_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
   authMethod: { kind: 'passkey', rpId },
+  targetWalletAuthMethodId: addAuthMethodTargetIdFixture,
+  caller: 'linked_device_ceremony',
   nonceB64u: 'nonce',
 } satisfies AddAuthMethodIntentV1);
 

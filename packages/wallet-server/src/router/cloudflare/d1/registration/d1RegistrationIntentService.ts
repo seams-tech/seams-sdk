@@ -7,6 +7,7 @@ import {
   normalizeAddSignerSelection,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { ThresholdRuntimePolicyScope } from '../../../../core/types';
 import type {
@@ -125,9 +126,19 @@ export class CloudflareD1RegistrationIntentService {
 
       const runtimePolicyScope =
         input.runtimePolicyScope || inferRuntimePolicyScopeFromSigningRoot(input);
+      /* Allocated with the intent, so the fresh source proof taken over this
+         digest names the exact method it authorizes creating. */
+      const targetWalletAuthMethodId = parseWalletAuthMethodId(
+        `wallet-auth-method:${secureRandomBase64Url(32)}`,
+      );
+      if (!targetWalletAuthMethodId.ok) {
+        return { ok: false, code: 'internal', message: 'Failed to allocate a target auth-method id' };
+      }
       const intent = buildAddAuthMethodIntent({
         walletId,
         authMethod,
+        targetWalletAuthMethodId: targetWalletAuthMethodId.value,
+        caller: input.command.caller,
         runtimePolicyScope,
       });
       const digestB64u = await computeAddAuthMethodIntentDigestB64u(intent);

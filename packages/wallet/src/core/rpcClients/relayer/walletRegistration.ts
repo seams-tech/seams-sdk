@@ -1,6 +1,7 @@
 import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
+  AddAuthMethodIntentCallerV1,
   AddAuthMethodIntentV1,
   AddSignerIntentV1,
   AddSignerIntentGrant,
@@ -752,6 +753,12 @@ export type CreateAddAuthMethodIntentRequest = {
   walletId: WalletId;
   rpId: string;
   authMethod: AddAuthMethodInput;
+  /**
+   * Which operation is asking. Required, and part of the digest the source
+   * proof signs, so a proof taken for a same-device addition cannot start a
+   * linked-device ceremony.
+   */
+  caller: AddAuthMethodIntentCallerV1;
 };
 
 export type CreateAddAuthMethodIntentResponse = {

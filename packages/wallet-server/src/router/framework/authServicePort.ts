@@ -1,4 +1,5 @@
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { AddAuthMethodIntentCallerV1 } from '@shared/utils/registrationIntent';
 import type {
   WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
@@ -145,6 +146,12 @@ export type ActiveWalletSessionAuthorityResolution =
 export type CreateAddAuthMethodIntentCommand = Readonly<{
   subject: WalletAuthMethodManagementSubject;
   authMethod: AddAuthMethodInput;
+  /**
+   * Which operation is asking. Required, because it decides what the source
+   * must present at `start` and it is part of the digest the source proof
+   * signs.
+   */
+  caller: AddAuthMethodIntentCallerV1;
 }>;
 
 export type WalletSignerManagementSubject = Readonly<{

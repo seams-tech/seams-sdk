@@ -12,6 +12,8 @@ import {
   addSignerIntentGrantFromString,
   createServerAllocatedWalletId,
   normalizeAddAuthMethodInput,
+  normalizeAddAuthMethodIntentCaller,
+  type AddAuthMethodIntentCallerV1,
   normalizeAddSignerSelection,
   normalizeRegistrationAuthMethodInput,
   normalizeRegistrationSignerPlan,
@@ -249,27 +251,42 @@ export function buildAddSignerIntent(input: {
   };
 }
 
+/**
+ * Mints the intent, including the target method id the source proof will sign.
+ *
+ * The id is allocated here rather than in `start` so a fresh proof can name the
+ * method it authorizes creating. The caller branch is carried through
+ * unchanged: it decides what the source has to present, and it is part of the
+ * digest so a proof taken over one branch cannot start the other.
+ */
 export function buildAddAuthMethodIntent(input: {
   readonly walletId: WalletId;
   readonly authMethod: AddAuthMethodInput;
+  readonly targetWalletAuthMethodId: AddAuthMethodIntentV1['targetWalletAuthMethodId'];
+  readonly caller: AddAuthMethodIntentCallerV1;
   readonly runtimePolicyScope?: RuntimePolicyScope;
 }): AddAuthMethodIntentV1 {
   const nonceB64u = secureRandomBase64Url(32);
-  if (input.runtimePolicyScope) {
-    return {
-      version: 'add_auth_method_intent_v1',
-      walletId: input.walletId,
-      authMethod: input.authMethod,
-      runtimePolicyScope: input.runtimePolicyScope,
-      nonceB64u,
-    };
-  }
-  return {
+  const common = {
     version: 'add_auth_method_intent_v1',
     walletId: input.walletId,
     authMethod: input.authMethod,
+    targetWalletAuthMethodId: input.targetWalletAuthMethodId,
+    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
     nonceB64u,
-  };
+  } as const;
+  switch (input.caller.caller) {
+    case 'same_device_addition':
+      return { ...common, caller: 'same_device_addition', source: input.caller.source };
+    case 'linked_device_ceremony':
+      return { ...common, caller: 'linked_device_ceremony' };
+    default:
+      return unreachableAddAuthMethodIntentCaller(input.caller);
+  }
+}
+
+function unreachableAddAuthMethodIntentCaller(value: never): never {
+  throw new Error(`Unhandled add-auth-method intent caller: ${String(value)}`);
 }
 
 export function addAuthMethodInputMatches(
@@ -2615,23 +2632,50 @@ export function parseD1AddAuthMethodIntent(raw: unknown): AddAuthMethodIntentV1 
   const authMethod = normalizeAddAuthMethodInput(record.authMethod);
   const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
   const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
-  if (!walletId || !authMethod || !nonceB64u) return null;
-  if (record.runtimePolicyScope !== undefined && !runtimePolicyScope) return null;
-  if (runtimePolicyScope) {
-    return {
-      version: 'add_auth_method_intent_v1',
-      walletId,
-      authMethod,
-      runtimePolicyScope,
-      nonceB64u,
-    };
+  const targetWalletAuthMethodId = parseWalletAuthMethodId(record.targetWalletAuthMethodId);
+  const caller = normalizeAddAuthMethodIntentCaller(record);
+  if (!walletId || !authMethod || !nonceB64u || !targetWalletAuthMethodId.ok || !caller) {
+    return null;
   }
-  return {
-    version: 'add_auth_method_intent_v1',
+  if (record.runtimePolicyScope !== undefined && !runtimePolicyScope) return null;
+  return buildStoredAddAuthMethodIntentRecord({
     walletId,
     authMethod,
+    targetWalletAuthMethodId: targetWalletAuthMethodId.value,
+    caller,
+    runtimePolicyScope,
     nonceB64u,
-  };
+  });
+}
+
+/**
+ * Rebuilds a persisted intent without re-minting its nonce or target id.
+ * `buildAddAuthMethodIntent` allocates both, so a parser cannot reuse it.
+ */
+function buildStoredAddAuthMethodIntentRecord(input: {
+  readonly walletId: WalletId;
+  readonly authMethod: AddAuthMethodInput;
+  readonly targetWalletAuthMethodId: AddAuthMethodIntentV1['targetWalletAuthMethodId'];
+  readonly caller: AddAuthMethodIntentCallerV1;
+  readonly runtimePolicyScope: RuntimePolicyScope | undefined;
+  readonly nonceB64u: string;
+}): AddAuthMethodIntentV1 {
+  const common = {
+    version: 'add_auth_method_intent_v1',
+    walletId: input.walletId,
+    authMethod: input.authMethod,
+    targetWalletAuthMethodId: input.targetWalletAuthMethodId,
+    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+    nonceB64u: input.nonceB64u,
+  } as const;
+  switch (input.caller.caller) {
+    case 'same_device_addition':
+      return { ...common, caller: 'same_device_addition', source: input.caller.source };
+    case 'linked_device_ceremony':
+      return { ...common, caller: 'linked_device_ceremony' };
+    default:
+      return unreachableAddAuthMethodIntentCaller(input.caller);
+  }
 }
 
 export function parseD1RuntimePolicyScope(raw: unknown): RuntimePolicyScope | undefined {
