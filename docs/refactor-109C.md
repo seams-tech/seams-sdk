@@ -688,6 +688,31 @@ recovery and nothing prunes it. Clearing that record's entries restored
 provisioning without a restart. Out of scope here, but a scalability defect
 rather than local debris.
 
+The owner Ed25519 branch is specified down to its last unknown, and the
+unknown is now named. Its shape: the Email OTP unlock verifies the factor once,
+and the same `/wallet/unlock/verify` response already carries `walletCustody` -
+the projection whose envelope `openWalletCustodyEd25519ActiveClientV1` needs. So
+the runtime can be built inside that unlock with no second code, no grant, and
+no extra round trip, which is the whole reason not to send an owner sibling
+through the owner login entry point.
+
+What the linked unlock op does not yet carry is the rest of what
+`restoreEmailOtpEd25519FromCustodyCache` wants: an `ed25519_yao_recovery`
+material request, which needs `ed25519YaoRecovery`, `providerSubject`,
+`nearAccountId`, the expected operational public key and threshold session id,
+alongside the custody material request. Its payload carries a signer slot and
+remaining uses and nothing else.
+
+So the work is: widen that payload to carry the recovery material when Ed25519
+is requested, parse `verified.walletCustody` in the same op, build the runtime
+there, and return it as `ed25519_activation_ready` with handle, metadata and
+bootstrap together - or `ed25519_activation_absent` with none of the three. The
+handle stays inside the wallet runtime. The client then validates metadata and
+bootstrap against the exact selected method, authority and material activation
+before activating, disposes the handle if activation fails, and zeroizes the
+factor secret on every exit. The linked-device branch reads its bootstrap from
+the same ready arm and is otherwise untouched.
+
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,
 a credential binding, or an identity could be addressed without saying which
