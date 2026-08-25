@@ -67,21 +67,22 @@ SELECT 1
  );
 DROP TABLE r109c_email_identity_backfill_guard;
 
--- Fold the identity into the canonical record and drop the retired field, so
--- no reader can fall back to provenance.
+-- Fold the provider identity into the canonical record.
+--
+-- `registration_authority_id` is deliberately NOT cleared here. The table's
+-- CHECK constraints require it non-null for an Email row and require
+-- `record_json.$.registrationAuthorityId` to equal it, so nulling either would
+-- fail the constraint on exactly the wallets this migration exists for — a
+-- fresh database has no Email rows, which is what would have hidden it. Dropping
+-- the column needs a table rebuild, and that is a separate decision from
+-- establishing provider identity; until then the column is vestigial and no
+-- reader consults it.
 UPDATE wallet_auth_methods
-   SET record_json = json_remove(
-         json_set(
-           json_set(record_json, '$.provider', provider),
-           '$.providerUserId',
-           provider_user_id
-         ),
-         '$.registrationAuthorityId'
+   SET record_json = json_set(
+         json_set(record_json, '$.provider', provider),
+         '$.providerUserId',
+         provider_user_id
        )
- WHERE kind = 'email_otp';
-
-UPDATE wallet_auth_methods
-   SET registration_authority_id = NULL
  WHERE kind = 'email_otp';
 
 -- R109C cardinality: one active Email OTP method per authority, across
