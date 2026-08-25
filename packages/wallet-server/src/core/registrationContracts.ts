@@ -2,6 +2,10 @@ import type {
   PasskeyCustodyEnvelopeRecord,
   WalletCustodyRegistrationOutcome,
 } from '@shared/passkey-custody';
+import type {
+  WalletAddAuthMethodEmailOtpTargetV1,
+  WalletEmailOtpEnrollmentMaterialV1,
+} from '@shared/utils/registrationIntent';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WalletAuthMethodId, WebAuthnRpId } from '@shared/utils/domainIds';
@@ -315,20 +319,10 @@ export type WalletAddAuthMethodStartResponse =
  * because the two cases carry different material and a caller that guessed
  * wrong should be refused rather than quietly switched.
  */
-/** What a client sends to create a wallet's shared Email OTP enrollment. */
-export type WalletEmailOtpEnrollmentMaterialV1 = {
-  enrollmentSealKeyVersion: string;
-  clientUnlockPublicKeyB64u: string;
-  unlockKeyVersion: string;
-  serverSealedFactorCiphertextB64u: string;
-};
-
-export type WalletAddAuthMethodEmailOtpTargetV1 =
-  | { readonly kind: 'existing_enrollment'; readonly enrollment?: never }
-  | {
-      readonly kind: 'new_enrollment';
-      readonly enrollment: WalletEmailOtpEnrollmentMaterialV1;
-    };
+export type {
+  WalletAddAuthMethodEmailOtpTargetV1,
+  WalletEmailOtpEnrollmentMaterialV1,
+} from '@shared/utils/registrationIntent';
 
 export type WalletAddAuthMethodFinalizeRequest =
   | {
