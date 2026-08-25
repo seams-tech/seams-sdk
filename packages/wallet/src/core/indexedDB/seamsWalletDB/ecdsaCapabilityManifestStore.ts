@@ -16,6 +16,7 @@ import {
   type CapabilityInstanceRef,
   type DomainIdParseResult,
   type MpcMaterialActivationRef,
+  type WalletAuthMethodId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -2923,6 +2924,93 @@ export async function importWalletCustodyEcdsaContinuity(
       new Date(receipt.ecdsa_activation.activated_at_ms).toISOString(),
     ),
   });
+}
+
+export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
+  readonly walletId: WalletId;
+  readonly sourceWalletAuthMethodId: WalletAuthMethodId;
+  readonly targetAuthority: WalletAuthAuthorityRef;
+}): Promise<void> {
+  if (
+    input.targetAuthority.walletId !== input.walletId ||
+    input.targetAuthority.walletAuthMethodId === input.sourceWalletAuthMethodId
+  ) {
+    throw new Error('ECDSA custody continuity target is invalid');
+  }
+  const store = new IndexedDbEcdsaCapabilityManifestStore();
+  const listed = await store.listActiveWalletCapabilitySubjects(input.walletId);
+  if (listed.kind !== 'resolved') {
+    throw new Error(`ECDSA custody continuity inventory is ${listed.kind}`);
+  }
+  const sources = listed.subjects.filter(
+    (subject) => subject.authority.walletAuthMethodId === input.sourceWalletAuthMethodId,
+  );
+  for (const source of sources) {
+    const sourceLookup = await store.lookup(source);
+    if (sourceLookup.kind !== 'active') {
+      throw new Error(`ECDSA custody continuity source is ${sourceLookup.kind}`);
+    }
+    const targetSelector = {
+      capability: source.capability,
+      authority: input.targetAuthority,
+    };
+    const targetLookup = await store.lookup(targetSelector);
+    if (targetLookup.kind === 'active') {
+      if (
+        targetLookup.manifest.durableMaterial.materialActivation.activationId !==
+          sourceLookup.manifest.durableMaterial.materialActivation.activationId ||
+        targetLookup.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId !==
+          sourceLookup.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId
+      ) {
+        throw new Error('ECDSA custody continuity target conflicts with source material');
+      }
+      continue;
+    }
+    if (targetLookup.kind !== 'missing') {
+      throw new Error(`ECDSA custody continuity target is ${targetLookup.kind}`);
+    }
+    const opened = await store.openActiveMaterialLookup(sourceLookup);
+    if (opened.kind !== 'active') {
+      throw new Error(`ECDSA custody continuity material is ${opened.kind}`);
+    }
+    const manifest = opened.manifest;
+    const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
+    const imported = await importWalletCustodyEcdsaContinuity({
+      store,
+      authority: input.targetAuthority,
+      chainTargets: manifest.signer.scope.targetMemberships,
+      walletId: String(input.walletId),
+      keyHandle: publicFacts.keyHandle,
+      ecdsaThresholdKeyId: String(publicFacts.ecdsaThresholdKeyId),
+      signingRootId: String(publicFacts.signingRootId),
+      signingRootVersion: String(publicFacts.signingRootVersion),
+      relayerKeyId: String(manifest.durableMaterial.roleLocalBinding.relayerKeyId),
+      participantIds: publicFacts.participantIds,
+      publicCapability: publicFacts.publicCapability,
+      activationReceipt:
+        manifest.activation.serverActivation.serverActivationReceipt.protocolReceipt,
+      runtimePolicyScope: manifest.durableMaterial.runtimePolicyScope,
+      readyStateBlobB64u: opened.readyStateBlobB64u,
+      publicFacts: {
+        contextBinding32B64u: publicFacts.contextBinding32B64u,
+        derivationClientSharePublicKey33B64u:
+          publicFacts.derivationClientSharePublicKey33B64u,
+        clientVerifyingShare33B64u:
+          publicFacts.publicCapability.public_identity
+            .derivation_client_share_public_key33_b64u,
+        relayerPublicKey33B64u: publicFacts.relayerPublicKey33B64u,
+        groupPublicKey33B64u: publicFacts.groupPublicKey33B64u,
+        ethereumAddress: publicFacts.ethereumAddress,
+        clientShareRetryCounter:
+          publicFacts.publicCapability.public_identity.client_share_retry_counter,
+        relayerShareRetryCounter:
+          publicFacts.publicCapability.public_identity.server_share_retry_counter,
+      },
+    });
+    if (imported.kind !== 'committed') {
+      throw new Error(`ECDSA custody continuity import is ${imported.kind}`);
+    }
+  }
 }
 
 async function lookupInTransaction(

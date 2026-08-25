@@ -40,6 +40,8 @@ import { linkWalletEmailOtpCustody } from '@/core/signingEngine/walletCustody/em
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { persistFinalizedEmailOtpAuthMethodV1 } from './localEmailOtpProjection';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { copyWalletCustodyEcdsaContinuityToAuthMethod } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 
 export type AddEmailOtpResult = {
   readonly ok: true;
@@ -287,6 +289,11 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
       walletAuthorityId: sourceClaim.source.walletAuthorityId,
       emailAddress,
       authority: linked.finalized.authority,
+    });
+    await copyWalletCustodyEcdsaContinuityToAuthMethod({
+      walletId: args.walletId,
+      sourceWalletAuthMethodId: sourceClaim.source.walletAuthMethodId,
+      targetAuthority: await walletAuthAuthorityRef({ authority: linked.finalized.authority }),
     });
     return {
       ok: true,

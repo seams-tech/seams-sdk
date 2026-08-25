@@ -34,6 +34,8 @@ import { resolveAddAuthMethodSourceClaimV1 } from '../addAuthMethodSourceClaim';
 import { requestAddAuthMethodEmailOtpChallenge } from '@/core/rpcClients/relayer/walletRegistration';
 import { readUnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
+import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { copyWalletCustodyEcdsaContinuityToAuthMethod } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 export type AddPasskeyAuthorization =
   | { readonly kind: 'existing_passkey' }
   | { readonly kind: 'email_otp'; readonly challengeId: string; readonly otpCode: string };
@@ -200,6 +202,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
       relayerUrl,
       profile,
       sourceWalletAuthorityId: String(sourceClaim.source.walletAuthorityId),
+      sourceWalletAuthMethodId: sourceClaim.source.walletAuthMethodId,
       intentResponse,
       ...(args.options ? { options: args.options } : {}),
     });
@@ -282,6 +285,9 @@ async function addPasskeyFromEmailOtpSource(args: {
   readonly relayerUrl: string;
   readonly profile: { readonly defaultSignerSlot: number };
   readonly sourceWalletAuthorityId: string;
+  readonly sourceWalletAuthMethodId: Parameters<
+    typeof copyWalletCustodyEcdsaContinuityToAuthMethod
+  >[0]['sourceWalletAuthMethodId'];
   readonly intentResponse: Awaited<ReturnType<typeof createWalletAddAuthMethodIntent>>;
   readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
@@ -376,6 +382,11 @@ async function addPasskeyFromEmailOtpSource(args: {
       id: finalized.authMethod.credentialIdB64u,
       rawId: finalized.authMethod.credentialIdB64u,
     },
+  });
+  await copyWalletCustodyEcdsaContinuityToAuthMethod({
+    walletId: args.walletId,
+    sourceWalletAuthMethodId: args.sourceWalletAuthMethodId,
+    targetAuthority: await walletAuthAuthorityRef({ authority: finalized.authority }),
   });
   return {
     ok: true,
