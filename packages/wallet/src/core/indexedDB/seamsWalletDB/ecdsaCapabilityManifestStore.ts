@@ -3022,12 +3022,17 @@ export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
   if (listed.kind !== 'resolved') {
     throw new Error(`ECDSA custody continuity inventory is ${listed.kind}`);
   }
+  /* A wallet whose signer set never included ECDSA has nothing to carry
+     forward, and saying so is not a failure - an Ed25519-only wallet must still
+     be able to gain a second auth method. */
+  if (listed.subjects.length === 0) return;
   const sources = listed.subjects.filter(
     (subject) => subject.authority.walletAuthMethodId === input.sourceWalletAuthMethodId,
   );
-  // Copying nothing has to be loud. If the source method holds no capability,
-  // the added method silently ends up with no access and only surfaces later as
-  // a missing lane at unlock, with nothing pointing back to here.
+  // Copying nothing has to be loud when there was something to copy. If the
+  // wallet holds ECDSA capabilities but none for the source method, the added
+  // method silently ends up with no access and only surfaces later as a missing
+  // lane at unlock, with nothing pointing back to here.
   if (sources.length === 0) {
     throw new Error(
       `ECDSA custody continuity found no active capability for source method ${String(

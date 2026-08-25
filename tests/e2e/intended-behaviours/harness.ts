@@ -2736,6 +2736,7 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
     normalized.endsWith('passkey.registration.contract.test.ts') ||
     normalized.endsWith('passkey.ed25519-yao-local.contract.test.ts') ||
     normalized.endsWith('passkey.add-email-otp.contract.test.ts') ||
+    normalized.endsWith('auth-method-addition.matrix.contract.test.ts') ||
     normalized.endsWith('passkey.registration.benchmark.test.ts')
   ) {
     return 'passkey.registration';
