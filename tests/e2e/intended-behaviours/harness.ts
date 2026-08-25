@@ -79,6 +79,7 @@ type IntendedHarnessAction =
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'addEmailOtpAuthMethod'
+  | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
@@ -420,9 +421,25 @@ type NearProvisioningReadySnapshot = {
   operationalPublicKey: string;
 };
 
+type AddEmailOtpAuthMethodResultSnapshot = {
+  kind: 'add_email_otp_success';
+  walletId: string;
+  emailAddress: string;
+  authMethod: { kind: 'email_otp'; status: 'active' };
+};
+
+type AddPasskeyAuthMethodResultSnapshot = {
+  kind: 'add_passkey_success';
+  walletId: string;
+  rpId: string;
+  authMethod: { kind: 'passkey'; status: 'active' };
+};
+
 type IntendedActionResultSnapshot =
   | PasskeyRegistrationResultSnapshot
   | Ed25519AddSignerResultSnapshot
+  | AddEmailOtpAuthMethodResultSnapshot
+  | AddPasskeyAuthMethodResultSnapshot
   | EmailOtpRegistrationResultSnapshot
   | NearProvisioningReadySnapshot
   | NearSigningResultSnapshot
@@ -1006,15 +1023,13 @@ export class IntendedBehaviourHarness {
       'addEmailOtpAuthMethod',
       'intended-add-email-otp-auth-method',
     );
-    const result = snapshot.result as {
-      kind?: unknown;
-      walletId?: unknown;
-      emailAddress?: unknown;
-      authMethod?: unknown;
-    } | null;
-    if (!result || result.kind !== 'add_email_otp_success') {
+    if (snapshot.action.status !== 'success') {
+      throw new Error(`add-email-code ended with ${snapshot.action.status}`);
+    }
+    const result = snapshot.action.result;
+    if (result.kind !== 'add_email_otp_success') {
       throw new Error(
-        `add-email-code did not succeed: ${snapshot.error || JSON.stringify(snapshot.result)}`,
+        `add-email-code returned the wrong result: ${JSON.stringify(snapshot.action.result)}`,
       );
     }
     if (String(result.walletId) !== String(registration.walletId)) {
@@ -1024,6 +1039,31 @@ export class IntendedBehaviourHarness {
     this.recordService(
       `email code added wallet=${String(result.walletId)} email=${String(result.emailAddress)}`,
     );
+  }
+
+  /** Refactor 109C acceptance: an Email OTP wallet gains a Passkey method. */
+  async addPasskeyAuthMethod(): Promise<void> {
+    this.recordStage('add_passkey_auth_method');
+    const registration = this.requireRegisteredWalletForSigning();
+    const snapshot = await this.runIntendedPageAction(
+      'addPasskeyAuthMethod',
+      'intended-add-passkey-auth-method',
+    );
+    if (snapshot.action.status !== 'success') {
+      throw new Error(`add-passkey ended with ${snapshot.action.status}`);
+    }
+    const result = snapshot.action.result;
+    if (result.kind !== 'add_passkey_success') {
+      throw new Error(
+        `add-passkey returned the wrong result: ${JSON.stringify(snapshot.action.result)}`,
+      );
+    }
+    if (String(result.walletId) !== String(registration.walletId)) {
+      throw new Error('add-passkey returned a different wallet');
+    }
+    this.emailOtpVerificationCount += 1;
+    this.passkeyPromptCount += 1;
+    this.recordService(`passkey added wallet=${String(result.walletId)} rp=${String(result.rpId)}`);
   }
 
   async registerEmailOtpWallet(): Promise<void> {
@@ -3778,6 +3818,30 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
           'Ed25519 add-signer operationalPublicKey',
         ),
       };
+    case 'add_email_otp_success': {
+      const authMethod = requireRecord(record.authMethod, 'add-email-code auth method');
+      if (authMethod.kind !== 'email_otp' || authMethod.status !== 'active') {
+        throw new Error('add-email-code auth method is not active Email OTP');
+      }
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'add-email-code walletId'),
+        emailAddress: requireString(record.emailAddress, 'add-email-code emailAddress'),
+        authMethod: { kind: 'email_otp', status: 'active' },
+      };
+    }
+    case 'add_passkey_success': {
+      const authMethod = requireRecord(record.authMethod, 'add-passkey auth method');
+      if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+        throw new Error('add-passkey auth method is not an active Passkey');
+      }
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'add-passkey walletId'),
+        rpId: requireString(record.rpId, 'add-passkey rpId'),
+        authMethod: { kind: 'passkey', status: 'active' },
+      };
+    }
     case 'near_sign_success':
       return {
         kind,
@@ -4048,6 +4112,8 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'registerPasskeyWallet':
     case 'registerPasskeyEd25519YaoWallet':
     case 'addPasskeyEd25519YaoWalletSigner':
+    case 'addEmailOtpAuthMethod':
+    case 'addPasskeyAuthMethod':
     case 'registerEmailOtpWallet':
     case 'awaitNearReady':
     case 'syncPasskeyWallet':
