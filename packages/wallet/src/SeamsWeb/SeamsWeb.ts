@@ -120,6 +120,7 @@ import type {
 import { LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 } from './operations/devices/deviceLinkingHttpTransport';
 import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { resolveAmbiguousEcdsaActivationForSelectedAuthMethod } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
 import {
   isConcreteAvailableSigningLane,
   type AvailableSigningLanes,
@@ -1052,10 +1053,19 @@ function createWalletHostEcdsaSourceContributionMetadataReaderV1(args: {
       if (authentication.kind !== 'authenticated') {
         throw new Error('ECDSA source metadata requires an authenticated wallet');
       }
-      const lookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+      let lookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
         walletId: authentication.walletId,
         materialActivation,
       });
+      if (lookup.kind === 'ambiguous_authority') {
+        // R109C: the source contribution is made as the selected method, so
+        // name it rather than reading whichever sibling projection scans first.
+        lookup = await resolveAmbiguousEcdsaActivationForSelectedAuthMethod({
+          walletId: authentication.walletId,
+          materialActivation,
+          authorities: lookup.authorities,
+        });
+      }
       if (lookup.kind !== 'active') {
         throw new Error(`ECDSA source metadata manifest is ${lookup.kind}`);
       }

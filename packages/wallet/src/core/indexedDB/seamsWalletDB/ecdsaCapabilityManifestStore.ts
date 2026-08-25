@@ -17,6 +17,7 @@ import {
   type DomainIdParseResult,
   type MpcMaterialActivationRef,
   type WalletAuthMethodId,
+  type WalletAuthorityId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -114,6 +115,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import type { WalletCustodyEvmFamilyPublicFacts } from '@shared/passkey-custody';
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
+import { SeamsWalletRepositories } from './repositories';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 
 // Bumped with the authority ref: these rows now record which wallet auth
@@ -321,10 +323,7 @@ function activeManifestMatchesWalletCustodyImport(input: {
           .material_activation,
       ),
     ) &&
-    canonicalValuesMatch(
-      manifest.durableMaterial.roleLocalBinding,
-      binding.roleLocalBinding,
-    ) &&
+    canonicalValuesMatch(manifest.durableMaterial.roleLocalBinding, binding.roleLocalBinding) &&
     manifest.durableMaterial.bindingDigest === binding.bindingDigest &&
     canonicalValuesMatch(
       manifest.durableMaterial.roleLocalPublicFacts,
@@ -393,9 +392,23 @@ export type EcdsaCapabilityMaterialRefLookup =
   | Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' | 'retired' }>
   | EcdsaCapabilityMaterialRefLookupFailure;
 
+/**
+ * R109C: one cryptographic activation can back several exact method-bound
+ * access projections, one per wallet auth method installed on the same wallet
+ * authority. A material activation therefore no longer names one manifest.
+ * A caller that does not say which method it is acting as gets
+ * `ambiguous_authority` and must ask again with the exact authority; picking a
+ * sibling here would silently sign under a credential the caller never named.
+ */
 export type EcdsaCapabilityActivationLookup =
   | Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' | 'retired' }>
-  | EcdsaCapabilityMaterialRefLookupFailure;
+  | EcdsaCapabilityMaterialRefLookupFailure
+  | {
+      readonly kind: 'ambiguous_authority';
+      readonly capability: CapabilityInstanceRef;
+      readonly authorities: readonly WalletAuthAuthorityRef[];
+      readonly subject?: never;
+    };
 
 export type EcdsaCapabilityActivationFinalizationResult =
   | {
@@ -548,6 +561,17 @@ function selectorKey(selector: EcdsaCapabilitySelector): readonly [string, strin
     String(selector.authority.walletId),
     String(selector.authority.authorityDigest),
   ];
+}
+
+function walletAuthAuthorityRefsMatch(
+  left: WalletAuthAuthorityRef,
+  right: WalletAuthAuthorityRef,
+): boolean {
+  return (
+    left.walletId === right.walletId &&
+    left.authorityDigest === right.authorityDigest &&
+    left.walletAuthMethodId === right.walletAuthMethodId
+  );
 }
 
 function selectorsMatch(left: EcdsaCapabilitySelector, right: EcdsaCapabilitySelector): boolean {
@@ -2211,6 +2235,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
   async lookupByMaterialActivation(input: {
     readonly walletId: WalletId;
     readonly materialActivation: MpcMaterialActivationRef;
+    readonly authority?: WalletAuthAuthorityRef;
   }): Promise<EcdsaCapabilityActivationLookup> {
     const walletIdResult = parseWalletId(input.walletId);
     const materialActivationResult = parseMpcMaterialActivationRef(input.materialActivation);
@@ -2280,7 +2305,24 @@ export class IndexedDbEcdsaCapabilityManifestStore {
           return { kind: lookup.kind, capability };
       }
     }
-    if (exact.length > 1) return { kind: 'exact_record_conflict', capability };
+    const requested = input.authority;
+    if (requested) {
+      const selected = exact.filter((candidate) =>
+        walletAuthAuthorityRefsMatch(candidate.manifest.signer.authority, requested),
+      );
+      // Two projections cannot share one authority digest: the digest is the
+      // store's own selector key. More than one here is corruption, not the
+      // sibling case.
+      if (selected.length > 1) return { kind: 'exact_record_conflict', capability };
+      return selected[0] ?? { kind: 'exact_binding_mismatch', capability };
+    }
+    if (exact.length > 1) {
+      return {
+        kind: 'ambiguous_authority',
+        capability,
+        authorities: exact.map((candidate) => candidate.manifest.signer.authority),
+      };
+    }
     return exact[0] ?? { kind: 'exact_binding_mismatch', capability };
   }
 
@@ -2926,8 +2968,41 @@ export async function importWalletCustodyEcdsaContinuity(
   });
 }
 
+async function assertSharedWalletAuthorityMembership(input: {
+  readonly walletId: WalletId;
+  readonly walletAuthorityId: WalletAuthorityId;
+  readonly walletAuthMethodIds: readonly WalletAuthMethodId[];
+}): Promise<void> {
+  const repositories = new SeamsWalletRepositories(seamsWalletDB);
+  for (const walletAuthMethodId of input.walletAuthMethodIds) {
+    const authMethod = await repositories.getWalletAuthMethodV2(String(walletAuthMethodId));
+    if (
+      !authMethod ||
+      authMethod.status !== 'active' ||
+      authMethod.walletId !== input.walletId ||
+      authMethod.walletAuthorityId !== input.walletAuthorityId
+    ) {
+      throw new Error(
+        `ECDSA custody continuity method ${String(walletAuthMethodId)} is not an active member of the wallet authority`,
+      );
+    }
+  }
+}
+
+/**
+ * R109C: give an added auth method its own encrypted access projection over the
+ * activation the wallet already has. The activation is not re-created and the
+ * source credential's authority is not widened; only a second method-bound
+ * record over the same material appears.
+ *
+ * The membership check is the whole safety argument. Copying access to a method
+ * on another wallet authority would hand that credential custody it was never
+ * granted, so both methods are read back and required to be active members of
+ * the exact same authority before anything is opened.
+ */
 export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
   readonly walletId: WalletId;
+  readonly walletAuthorityId: WalletAuthorityId;
   readonly sourceWalletAuthMethodId: WalletAuthMethodId;
   readonly targetAuthority: WalletAuthAuthorityRef;
 }): Promise<void> {
@@ -2937,6 +3012,11 @@ export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
   ) {
     throw new Error('ECDSA custody continuity target is invalid');
   }
+  await assertSharedWalletAuthorityMembership({
+    walletId: input.walletId,
+    walletAuthorityId: input.walletAuthorityId,
+    walletAuthMethodIds: [input.sourceWalletAuthMethodId, input.targetAuthority.walletAuthMethodId],
+  });
   const store = new IndexedDbEcdsaCapabilityManifestStore();
   const listed = await store.listActiveWalletCapabilitySubjects(input.walletId);
   if (listed.kind !== 'resolved') {
@@ -2956,11 +3036,26 @@ export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
     };
     const targetLookup = await store.lookup(targetSelector);
     if (targetLookup.kind === 'active') {
+      // Repeating a finished copy is a no-op, but only when the projection
+      // already there describes the same activation, threshold key, public
+      // facts, and role-local binding. Anything else is a different capability
+      // wearing the target's key.
+      const targetMaterial = targetLookup.manifest.durableMaterial;
+      const sourceMaterial = sourceLookup.manifest.durableMaterial;
       if (
-        targetLookup.manifest.durableMaterial.materialActivation.activationId !==
-          sourceLookup.manifest.durableMaterial.materialActivation.activationId ||
-        targetLookup.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId !==
-          sourceLookup.manifest.durableMaterial.roleLocalBinding.ecdsaThresholdKeyId
+        targetMaterial.materialActivation.activationId !==
+          sourceMaterial.materialActivation.activationId ||
+        targetMaterial.roleLocalBinding.ecdsaThresholdKeyId !==
+          sourceMaterial.roleLocalBinding.ecdsaThresholdKeyId ||
+        !canonicalValuesMatch(targetMaterial.roleLocalBinding, sourceMaterial.roleLocalBinding) ||
+        !canonicalValuesMatch(
+          targetMaterial.roleLocalPublicFacts,
+          sourceMaterial.roleLocalPublicFacts,
+        ) ||
+        !canonicalValuesMatch(
+          targetLookup.manifest.signer.registeredPublicFacts,
+          sourceLookup.manifest.signer.registeredPublicFacts,
+        )
       ) {
         throw new Error('ECDSA custody continuity target conflicts with source material');
       }
@@ -2993,11 +3088,9 @@ export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
       readyStateBlobB64u: opened.readyStateBlobB64u,
       publicFacts: {
         contextBinding32B64u: publicFacts.contextBinding32B64u,
-        derivationClientSharePublicKey33B64u:
-          publicFacts.derivationClientSharePublicKey33B64u,
+        derivationClientSharePublicKey33B64u: publicFacts.derivationClientSharePublicKey33B64u,
         clientVerifyingShare33B64u:
-          publicFacts.publicCapability.public_identity
-            .derivation_client_share_public_key33_b64u,
+          publicFacts.publicCapability.public_identity.derivation_client_share_public_key33_b64u,
         relayerPublicKey33B64u: publicFacts.relayerPublicKey33B64u,
         groupPublicKey33B64u: publicFacts.groupPublicKey33B64u,
         ethereumAddress: publicFacts.ethereumAddress,

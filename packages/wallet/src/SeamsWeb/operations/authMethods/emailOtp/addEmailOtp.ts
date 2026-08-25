@@ -292,6 +292,7 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
     });
     await copyWalletCustodyEcdsaContinuityToAuthMethod({
       walletId: args.walletId,
+      walletAuthorityId: sourceClaim.source.walletAuthorityId,
       sourceWalletAuthMethodId: sourceClaim.source.walletAuthMethodId,
       targetAuthority: await walletAuthAuthorityRef({ authority: linked.finalized.authority }),
     });
