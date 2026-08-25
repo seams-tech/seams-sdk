@@ -1692,6 +1692,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   });
   const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
     emailOtpChallengeVerifier,
+    emailOtpEnrollmentFinalizer: emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,

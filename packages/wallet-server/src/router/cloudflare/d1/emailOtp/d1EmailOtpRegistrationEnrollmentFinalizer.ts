@@ -176,6 +176,40 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
     };
   }
 
+  /**
+   * Refactor 109C: the enrollment statements for a wallet's first Email OTP
+   * method, to commit in the batch that inserts that method.
+   *
+   * Same construction as registration's, deliberately — the shared enrollment
+   * is one record whichever operation creates it, and a second builder would
+   * be a second answer to what a wallet's verified email is. What differs is
+   * only the batch it lands in: here it must commit or fail together with the
+   * auth method and the envelope sealed against it.
+   */
+  async prepareAddedAuthMethodEnrollment(input: {
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly authSubjectId: string;
+    readonly verifiedEmail: string;
+    readonly material: EmailOtpEnrollmentMaterialBoundaryInput;
+    readonly nowMs: number;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly enrollment: EmailOtpWalletEnrollmentRecord;
+        readonly statements: readonly D1PreparedStatementLike[];
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    const prepared = await this.buildPersistence(input);
+    if (!prepared.ok) return prepared;
+    return {
+      ok: true,
+      enrollment: prepared.persistence.enrollment,
+      statements: this.prepareRegistrationCommitPlan(prepared.persistence).statements,
+    };
+  }
+
   private async buildPersistence(input: {
     readonly walletId: string;
     readonly orgId: string;

@@ -55,6 +55,7 @@ import type {
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
+  WalletAddAuthMethodEmailOtpTargetV1,
   WalletAddAuthMethodRegistrationOptions,
   WalletAddSignerStartRequest,
   EmailOtpWalletRegistrationAuthorityInput,
@@ -67,6 +68,7 @@ import {
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
+import type { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from '../emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
 import { parseWalletIdForIntent } from '../registration/d1RegistrationCeremonyRecords';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/d1GoogleEmailOtpRegistrationAttemptStore';
@@ -314,6 +316,10 @@ function runtimePolicyScopeKeyForRegistrationIntent(input: unknown): string {
   }
 }
 
+function unreachableAddAuthMethodEmailOtpTarget(value: never): never {
+  throw new Error(`Unhandled Email OTP add-auth-method target: ${String(value)}`);
+}
+
 function unreachableRevokedMethodKind(value: never): never {
   throw new Error(`Unhandled revoked wallet auth-method kind: ${String(value)}`);
 }
@@ -424,6 +430,7 @@ async function buildAddedPasskeyCredentialBinding(input: {
 
 export class CloudflareD1WalletAuthMethodService {
   private readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
+  private readonly emailOtpEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
   private readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
@@ -438,6 +445,7 @@ export class CloudflareD1WalletAuthMethodService {
 
   constructor(input: {
     readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
+    readonly emailOtpEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
     readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
@@ -450,6 +458,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly prepareOwnerWalletSessionRevocation: OwnerWalletSessionRevocationStatementsV1;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
+    this.emailOtpEnrollmentFinalizer = input.emailOtpEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getWalletAuthMethodStore = input.getWalletAuthMethodStore;
     this.googleEmailOtpRegistrationAttempts = input.googleEmailOtpRegistrationAttempts;
@@ -789,6 +798,11 @@ export class CloudflareD1WalletAuthMethodService {
             addAuthMethodCeremonyId: request.addAuthMethodCeremonyId,
             webauthnRegistration: request.webauthnRegistration ?? null,
             custodyEnvelope: request.custodyEnvelope ?? null,
+            /* An addition that enrols a new address is not the same request as
+               one binding to the wallet's existing enrollment, even with an
+               identical envelope. Leaving this out would let the second reach
+               the first's stored response. */
+            emailOtpTarget: request.emailOtpTarget ?? null,
             authorization: request.authorization,
           }),
         ),
@@ -1069,16 +1083,27 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'Email OTP add-auth-method finalize requires the resealed custody envelope',
         };
       }
+      const emailOtpTarget = request.emailOtpTarget;
+      if (emailOtpTarget === undefined) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP add-auth-method finalize must state its enrollment target',
+        };
+      }
       /* R109C: the browser opened the source envelope this ceremony carried and
          resealed the same seed under the verified Email OTP factor. The
-         enrollment is read here rather than trusted from the request, so the
-         envelope has to name the exact enrollment this wallet just verified. */
-      const targetEnrollment = await this.emailOtpChallengeVerifier.readActiveEnrollmentForWallet({
-        walletId: String(walletId),
-        orgId: ceremony.orgId,
-        providerUserId: String(ceremony.authority.providerSubject),
+         enrollment the envelope must name is resolved here rather than trusted
+         from the request — either the wallet's existing shared one, or the one
+         this addition is about to create in the very same batch. */
+      const enrollmentPlan = await this.resolveAddedEmailOtpEnrollment({
+        walletId,
+        ceremony,
+        target: emailOtpTarget,
+        nowMs: Date.now(),
       });
-      if (!targetEnrollment.ok) return targetEnrollment;
+      if (!enrollmentPlan.ok) return enrollmentPlan;
+      const targetEnrollment = enrollmentPlan.enrollment;
       let resealedEnvelope: PasskeyCustodyEnvelopeRecord;
       try {
         resealedEnvelope = parsePasskeyCustodyEnvelopeRecord(request.custodyEnvelope);
@@ -1091,9 +1116,9 @@ export class CloudflareD1WalletAuthMethodService {
       if (
         resealedEnvelope.walletId !== walletId ||
         resealedEnvelope.factor.kind !== 'email_otp' ||
-        resealedEnvelope.factor.enrollmentId !== targetEnrollment.enrollment.enrollmentId ||
+        resealedEnvelope.factor.enrollmentId !== targetEnrollment.enrollmentId ||
         resealedEnvelope.factor.enrollmentSealKeyVersion !==
-          targetEnrollment.enrollment.enrollmentSealKeyVersion ||
+          targetEnrollment.enrollmentSealKeyVersion ||
         resealedEnvelope.envelopeRevision !== 1 ||
         resealedEnvelope.lifecycle.state !== 'active' ||
         resealedEnvelope.envelopeId === ceremony.custodyEnvelope.envelopeId ||
@@ -1167,6 +1192,12 @@ export class CloudflareD1WalletAuthMethodService {
             kind: 'email_otp',
           }),
           ...this.getWalletAuthMethodStore().prepareV2InsertStatements(authMethod),
+          /* Empty when the wallet already had its shared enrollment. When it
+             did not, the enrollment lands here so the method, the envelope
+             sealed against it, and the enrollment itself all commit together
+             or not at all — a method whose enrollment did not land could never
+             be unlocked. */
+          ...enrollmentPlan.statements,
           ...emailOtpReplayStatements,
           ...atomicCompanionStatements,
         ],
@@ -1236,6 +1267,84 @@ export class CloudflareD1WalletAuthMethodService {
    * both share one provider enrollment. Legacy unbound envelopes match nothing
    * and survive until an open has upgraded them.
    */
+  /**
+   * Resolves which enrollment an added Email OTP method binds to.
+   *
+   * The wallet's Email OTP enrollment is per provider identity, not per method:
+   * every Email method on the wallet reads its factor secret through the same
+   * record, and its seal key version is inside each of their envelopes' AAD. So
+   * re-enrolling on a wallet that already has one would leave the existing
+   * methods holding ciphertext that no longer opens.
+   *
+   * The caller states which case it believes it is in and is refused when live
+   * state disagrees, rather than being silently switched to the other branch —
+   * a client that thought it was enrolling a new address, and was quietly bound
+   * to an existing one, would report the wrong email as verified.
+   */
+  private async resolveAddedEmailOtpEnrollment(input: {
+    readonly walletId: WalletId;
+    readonly ceremony: Extract<StoredWalletAddAuthMethodCeremony, { readonly kind: 'email_otp' }>;
+    readonly target: WalletAddAuthMethodEmailOtpTargetV1;
+    readonly nowMs: number;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly enrollment: {
+          readonly enrollmentId: string;
+          readonly enrollmentSealKeyVersion: string;
+        };
+        readonly statements: readonly D1PreparedStatementLike[];
+      }
+    | WalletAuthMethodError
+  > {
+    const existing = await this.emailOtpChallengeVerifier.readActiveEnrollmentForWallet({
+      walletId: String(input.walletId),
+      orgId: input.ceremony.orgId,
+      providerUserId: String(input.ceremony.authority.providerSubject),
+    });
+    switch (input.target.kind) {
+      case 'existing_enrollment': {
+        if (!existing.ok) return existing;
+        return {
+          ok: true,
+          enrollment: {
+            enrollmentId: existing.enrollment.enrollmentId,
+            enrollmentSealKeyVersion: existing.enrollment.enrollmentSealKeyVersion,
+          },
+          statements: [],
+        };
+      }
+      case 'new_enrollment': {
+        if (existing.ok) {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'this wallet already has an Email OTP enrollment for this identity',
+          };
+        }
+        const prepared = await this.emailOtpEnrollmentFinalizer.prepareAddedAuthMethodEnrollment({
+          walletId: String(input.walletId),
+          orgId: input.ceremony.orgId,
+          authSubjectId: String(input.ceremony.authority.providerSubject),
+          verifiedEmail: String(input.ceremony.authority.email),
+          material: input.target.enrollment,
+          nowMs: input.nowMs,
+        });
+        if (!prepared.ok) return prepared;
+        return {
+          ok: true,
+          enrollment: {
+            enrollmentId: prepared.enrollment.enrollmentId,
+            enrollmentSealKeyVersion: prepared.enrollment.enrollmentSealKeyVersion,
+          },
+          statements: prepared.statements,
+        };
+      }
+      default:
+        return unreachableAddAuthMethodEmailOtpTarget(input.target);
+    }
+  }
+
   private async prepareRevokedMethodEnvelopeStatements(input: {
     readonly walletId: WalletId;
     readonly method: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
@@ -2137,9 +2246,11 @@ export class CloudflareD1WalletAuthMethodService {
              this batch just revoked. The shared provider enrollment survives
              every revocation but the one that removes its final reference. */
           ...(targetMethod.kind === 'email_otp'
-            ? [this.emailOtpChallengeVerifier.prepareDeleteEnrollmentIfUnreferencedStatement(
-                String(walletId),
-              )]
+            ? [
+                this.emailOtpChallengeVerifier.prepareDeleteEnrollmentIfUnreferencedStatement(
+                  String(walletId),
+                ),
+              ]
             : []),
         ],
       });
@@ -2662,8 +2773,7 @@ export class CloudflareD1WalletAuthMethodService {
       .filter(isActiveWalletAuthMethodRecordV2)
       .filter(
         (method) =>
-          method.kind === 'email_otp' &&
-          method.walletAuthorityId === input.sourceWalletAuthorityId,
+          method.kind === 'email_otp' && method.walletAuthorityId === input.sourceWalletAuthorityId,
       );
     if (authorityEmailOtpMethods.length > 0) {
       return {
