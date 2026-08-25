@@ -77,6 +77,14 @@ test.describe('available signing lane curve isolation', () => {
           {
             walletId: sealedRecord.walletId,
             ecdsaChainTargets: [],
+            ownerScope: {
+              auth: {
+                kind: 'passkey',
+                rpId: sealedRecord.ed25519Restore.rpId,
+                credentialIdB64u: sealedRecord.ed25519Restore.credentialIdB64u,
+              },
+              signerSlot: sealedRecord.ed25519Restore.signerSlot,
+            },
           },
           {
             listSealedRecordsForWallet: async () => [sealedRecord],
@@ -153,6 +161,14 @@ test.describe('available signing lane curve isolation', () => {
           {
             walletId: durableRecord.walletId,
             ecdsaChainTargets: [],
+            ownerScope: {
+              auth: {
+                kind: 'passkey',
+                rpId: durableRecord.ed25519Restore.rpId,
+                credentialIdB64u: durableRecord.ed25519Restore.credentialIdB64u,
+              },
+              signerSlot: durableRecord.ed25519Restore.signerSlot,
+            },
           },
           {
             listSealedRecordsForWallet: async () => [durableRecord],
@@ -223,6 +239,14 @@ test.describe('available signing lane curve isolation', () => {
           {
             walletId: currentRecord.walletId,
             ecdsaChainTargets: [],
+            ownerScope: {
+              auth: {
+                kind: 'passkey',
+                rpId: currentRecord.ed25519Restore.rpId,
+                credentialIdB64u: currentRecord.ed25519Restore.credentialIdB64u,
+              },
+              signerSlot: currentRecord.ed25519Restore.signerSlot,
+            },
           },
           {
             listSealedRecordsForWallet: async () => [retiredRecord, currentRecord],
@@ -288,6 +312,16 @@ test.describe('available signing lane curve isolation', () => {
           {
             walletId: publicCapabilityReference.walletId,
             ecdsaChainTargets: [],
+            ownerScope: {
+              auth: {
+                kind: 'email_otp',
+                providerSubjectId: publicCapabilityReference.auth.providerSubjectId,
+              },
+              ownerAuthority: {
+                walletAuthMethodId: authorization.authority.walletAuthMethodId,
+                authorityDigest: authorization.authority.authorityDigest,
+              },
+            },
           },
           {
             listSealedRecordsForWallet: async () => [record],
