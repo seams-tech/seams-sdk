@@ -2,7 +2,7 @@
 
 Date created: August 22, 2026
 
-Status: implementation-ready. Depends on Refactor 103E.
+Status: implementation in progress. Depends on Refactor 103E.
 
 R109C is the sole implementation authority for same-device auth-method
 addition. Refactor 109D remains the separate device-linking plan.
@@ -14,36 +14,17 @@ merged with `dev` at `c3b96e235` (the three R103E cleanup commits). R103E's
 closure edit was already committed on `dev` in `ff395dfe1`, so this branch adds
 no separate documentation commit for it.
 
-**R109C is not ready to merge.** What exists is shared types plus server-side
-work for the Passkey-to-Email-OTP direction. Not started: `registration.addEmailOtp`,
-the unified client operation, IndexedDB pending/active installation, the
-security-note and method-selection UI, the Email-to-Passkey route support, the
-`0013` migration, and every browser-matrix and interruption case. The
-source-proof protocol gap recorded below is the largest single blocker, and
-Phase 0's prerequisite is unproven.
+**R109C is not ready to merge.** Phase 0's same-authority sibling revocation
+prerequisite is green, both public addition entry points exist, and the Phase 3
+inventory/addition/removal UI is implemented. The remaining closure work is the
+real two-transition browser matrix, explicit unlock and step-up selection proof,
+interruption coverage, and Phase 4 deletion of obsolete fixtures and branches.
 
 A checkpoint is marked done only when the named command was run and reported
 green. Green lower-tier evidence does not close a product transition; only a
 real browser flow does.
 
-### Phase 0 — revocation prerequisite — NOT MET
-
-This section previously carried three ticked boxes. That was wrong on the
-ledger's own rule, and the boxes are withdrawn.
-
-The cited command exits 1: it runs 15 tests, 11 pass and 4 fail, because the
-file list includes `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts` whose
-four failures are recorded further down as a pre-existing fixture problem. A
-command that reports failure does not mark a checkpoint done, whatever the
-reason for the failure, and citing the passing subset as though the command
-were green is exactly the move this ledger's own rule forbids.
-
-The evidence is also the wrong shape. The eleven passing cases exercise
-revocation between methods on *separate* authorities. R109C's prerequisite is
-revocation between Passkey and Email OTP siblings on *one* authority, in both
-proof directions — the configuration this refactor creates and the only one
-that proves the sibling guard. No such test exists yet, so the prerequisite is
-unproven rather than partially proven.
+### Phase 0 — revocation prerequisite — MET
 
 - [x] Exact method revocation between two siblings on ONE authority, proven in
       both directions, through the composed path —
@@ -54,51 +35,14 @@ unproven rather than partially proven.
       Repairing it exposed a real fixture defect: the shared management factory
       stamped placeholder authority digests, which every server read rejects as
       corrupt. The factory now computes both canonical digests.
-- [ ] The cited command exits 0 — the R109C addition test in
-      `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts` now passes; the
-      three still failing are add-signer, a different feature that shares the
-      file, each at its own boundary: the budget refresh has no seeded
-      authority, strict ECDSA rejects a custody client-root key, and the Yao
-      add-signer reads `registeredPublicKeyB64u` off an absent record.
-      Separately, `passkeyCustodyEnvelope.boundary.unit.test.ts` asserts that
-      `ed25519_yao_client_root_v1` no longer parses — a stale premise, since the
-      linked-device export root made that kind live again. Neither belongs to
-      R109C's addition path.
 - [x] Authority-ID and self-proof revocation requests are rejected at the
       boundary — `linkedDeviceManagement.unit.test.ts` covers exactly this and
       passes on its own.
 
-Passing cases in that run, recorded as partial evidence only: revokes one
-authority method and protects the final active wallet method; rolls back method
-revocation when an atomic session fence fails; serializes competing revocations
-of the final two wallet methods; add-auth commit rejects a source method
-revoked after ceremony start; rejects a `WalletAuthorityId` in the exact-method
-revocation boundary; rejects a fresh proof from the target auth method itself;
-revokes one exact linked auth method, fences sessions, and disables its
-ordinary refs; replays a durable revocation and retries terminal material
-deactivation.
-
-Real-browser owner-UI revocation with the exact method, revoked-session
-rejection at signing, revoked-method unlock rejection, and the surviving owner
-operation are recorded green in `docs/refactor-103E.md`'s verification ledger.
-That evidence is about separate authorities too, so it does not close the
-sibling prerequisite either.
-
-Four tests in `tests/unit/cloudflareD1RouterApiWalletAuthMethods.unit.test.ts`
-fail on `dev` before any R109C change, with `Passkey wallet authority is not
-active for this wallet`, `Missing ownerProofBindingDigest`, `Missing
-webauthn_authentication.id/rawId`, and `the verified passkey has no active
-wallet custody envelope`. All four are inline hand-written setup fixtures that
-predate R103E's authority, owner-proof-binding, and custody-envelope
-requirements — the lowest-authority tier in `AGENTS.md`. They are recorded here
-as the Phase 4 fixture worklist rather than repaired now, because repairing
-them before either product transition works is exactly the stale-fixture loop
-the plan forbids.
-
-`tests/scripts/check-auth-method-domain-boundaries.mjs` also fails on `dev`
-before any R109C change: five source files carry unallowlisted binary auth
-fallbacks and one allowlist entry is stale. R109C adds no new occurrence; the
-guard's disposition is Phase 4 work.
+The unrelated add-signer fixtures in
+`cloudflareD1RouterApiWalletAuthMethods.unit.test.ts` and the stale
+`ed25519_yao_client_root_v1` parser assertion remain Phase 4 cleanup. They are
+outside the completed sibling-revocation prerequisite.
 
 ### Phase 1 — shared contract and thin SDK entry points
 
@@ -113,6 +57,27 @@ covered by no `tsconfig` in the repo, so nothing compiles it; the fixtures live
 beside the contract in `packages/shared-ts/src/utils/`, which
 `packages/wallet/tsconfig.json` does include and `pnpm type-check:sdk`
 therefore enforces.
+
+### Phase 3 — inventory, explicit selection, and removal — IN PROGRESS
+
+- [x] Inventory projects every exact active method instead of truncating each
+      authority to its first method. Owner entries carry `walletAuthorityId`;
+      linked entries group by their stable linked-device identity.
+- [x] The addition action is derived from active methods on the authority that
+      contains the exact selected `walletAuthMethodId`. It offers only the
+      missing family and disappears when both Passkey and Email OTP are active.
+- [x] The Passkey-to-Email-OTP form renders the required security note and uses
+      a labelled email input. The Email-OTP-to-Passkey branch uses the configured
+      wallet RP ID.
+- [x] Removal targets one exact `walletAuthMethodId`, requires a different
+      selected sibling as its proof source, exposes both owner methods, and
+      preserves the server's atomic final-method guard.
+- [ ] Run both browser transitions, explicitly lock and unlock with each method,
+      then prove step-up and Wallet Session issuance remain bound to the exact
+      method selected by the user.
+
+Checkpoint commands: `pnpm -C packages/wallet type-check` and scoped
+`git diff --check`, both clean after `8924bf4ef` and `3c55658a8`.
 
 ### Architecture facts established before implementation
 
@@ -155,34 +120,23 @@ These were read directly and change the size of the remaining work. The plan's
   escaped defects R103E repaired. R109C must use the exact-method resolver
   `resolveActiveEmailOtpAuthorityForVerifiedMethod` that R103E already added.
 
-### Inventory defects that block the product contract
+### Inventory defects resolved during Phase 3
 
-Found while mapping Phase 3, and each one is load-bearing for "derive the
-available add action from exact active methods".
+These defects were found while mapping Phase 3. Each was load-bearing for
+deriving the available add action from exact active methods.
 
-- **Only the first active method per authority is projected.**
-  `packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement.ts:176-178`
-  builds both the linked-device and owner summaries from `activeMethods[0]`, so
-  an authority holding both families renders as one card and the sibling is
-  invisible. `docs/intended-behaviours.md` already says inventory is derived
-  from active authorities "and their exact auth methods", plural, so this is a
-  defect against the accepted contract rather than a new R109C requirement.
-- **`OwnerDeviceSummaryV1` carries no `walletAuthorityId`**
-  (`packages/shared-ts/src/device-linking/contracts.ts:629`), so a client cannot
-  scope "the methods on this authority" and cannot decide the add action
-  correctly for a wallet that also has linked devices.
-- **Owner methods cannot be removed.** The card's remove control is gated off
-  owner cards in `LinkedDevicesModal.tsx:658`, and the server refuses any
-  revoke whose target authority provenance is not `device_link`
-  (`linkedDeviceManagement.ts:239`). R109C requires each method to be removable
-  once its sibling is active, so both gates have to go. This widens which
-  authorities a user-facing revoke may target; it adds no second revocation
-  model — the target is still one exact `WalletAuthMethodId` with a fresh
-  sibling proof, and the D1 final-method guard is untouched.
+- **First-method truncation:** the management projection now emits one entry
+  for every exact active method on owner and linked authorities.
+- **Missing owner authority identity:** `OwnerDeviceSummaryV1` now carries
+  `walletAuthorityId`, allowing the UI to scope the missing-family action to
+  the authority containing the selected method.
+- **Owner-method removal gate:** owner and linked cards now use the same exact
+  `WalletAuthMethodId` revocation model. A different selected sibling supplies
+  fresh proof, while the D1 final-method guard remains atomic.
 
-An earlier reading of this file recorded the opposite — that owner-method
-removal already worked, because `revokeDevice` handles owner cards. It does
-handle them; nothing reaches it.
+An earlier reading said owner-method removal already worked because
+`revokeDevice` handled owner cards. The UI and server gates prevented that path
+from being reached; both are now removed.
 
 ### The unit suite cannot gate R109C
 
