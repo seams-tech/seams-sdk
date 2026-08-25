@@ -15,11 +15,14 @@ test('a passkey wallet can add an email code as a second way in', async ({ harne
      An added method that can only reach one of them is not a second way in. */
   await harness.signTempoTransaction('post_unlock');
   await harness.exportEcdsaKey();
-  /* ECDSA only, deliberately. The Ed25519 family is not reachable through an
-     Email OTP method today, and not because of this refactor:
-     `email-otp.unlock.contract.test.ts` fails on its very first
-     `signNearTransaction`, before any addition is involved. Asserting NEAR
-     signing or Ed25519 export here would report that defect as an R109C one.
-     The reverse direction, whose surviving method is a passkey, does cover
-     both families. */
+  /* ECDSA only, and the reason is now specific. Ed25519 signing under a
+     REGISTERED Email OTP method works (fdf67168b); this wallet's Email OTP
+     method was ADDED, and an added method has no Ed25519 Yao public capability
+     reference of its own. Those references carry the lane's auth binding, which
+     names one exact method, so the passkey's reference cannot serve the email
+     sibling. It is the Ed25519 counterpart of the ECDSA continuity copy the
+     addition already performs, and it does not exist yet.
+
+     The reverse direction covers both families, because an added passkey gets
+     its Ed25519 identity through its credential binding (b81ed4de7). */
 });
