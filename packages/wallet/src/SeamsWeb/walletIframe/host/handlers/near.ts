@@ -8,6 +8,7 @@ import type {
   SignTransactionHooksOptions,
 } from '@/core/types/sdkSentEvents';
 import type { AddPasskeyHooksOptions } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+import type { AddEmailOtpHooksOptions } from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
 import {
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
@@ -123,9 +124,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         payload.options || {},
       ) as RegistrationHooksOptions;
       const result = await pm.registration.registerWallet({
-        authMethod: walletOriginRegistrationAuthMethod(
-          payload.authMethod,
-        ),
+        authMethod: walletOriginRegistrationAuthMethod(payload.authMethod),
         wallet: payload.wallet,
         signerSelection: payload.signerSelection,
         options: {
@@ -176,6 +175,26 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
           ...hooksOptions,
           ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
         },
+      });
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_ADD_EMAIL_OTP: async (req: Req<'PM_ADD_EMAIL_OTP'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload!;
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const hooksOptions = withProgress(
+        deps,
+        req.requestId,
+        payload.options || {},
+      ) as AddEmailOtpHooksOptions;
+      const result = await pm.registration.addEmailOtp({
+        walletId: payload.walletId,
+        emailAddress: payload.emailAddress,
+        otpCode: payload.otpCode,
+        ...(payload.challengeId ? { challengeId: payload.challengeId } : {}),
+        options: hooksOptions,
       });
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);

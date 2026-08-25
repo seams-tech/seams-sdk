@@ -376,6 +376,7 @@ export class SeamsWebIframe {
         ),
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
       addPasskey: async (args) => await this.addPasskeyDomain(args),
+      addEmailOtp: async (args) => await this.addEmailOtpDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
       registerPasskey: async (options) => await this.registerPasskeyDomain(options),
@@ -806,6 +807,22 @@ export class SeamsWebIframe {
     try {
       await this.requireRouterReady();
       const res = await this.router.addWalletSigner(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async addEmailOtpDomain(
+    args: Parameters<RegistrationCapability['addEmailOtp']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addEmailOtp']>>> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addEmailOtp(args);
       await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {

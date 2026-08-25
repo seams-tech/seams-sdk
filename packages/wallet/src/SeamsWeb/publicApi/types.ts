@@ -92,6 +92,10 @@ import type {
   AddPasskeyResult,
 } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import type {
+  AddEmailOtpHooksOptions,
+  AddEmailOtpResult,
+} from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
+import type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
   WalletCustodyEmailOtpChallengeResult,
@@ -103,6 +107,10 @@ export type {
   AddPasskeyHooksOptions,
   AddPasskeyResult,
 } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+export type {
+  AddEmailOtpHooksOptions,
+  AddEmailOtpResult,
+} from '@/SeamsWeb/operations/authMethods/emailOtp/addEmailOtp';
 export type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
@@ -825,6 +833,19 @@ export interface RegistrationCapability {
     authorization: AddPasskeyAuthorization;
     options?: AddPasskeyHooksOptions;
   }): Promise<AddPasskeyResult>;
+  /**
+   * Refactor 109C: adds an Email OTP method to a wallet that already unlocks
+   * with a passkey. The selected Wallet Session supplies the source method and
+   * authority; the caller supplies only the address being verified and the code
+   * that verifies it, the same way `registerWallet` and `loginWithEmailOtp*` do.
+   */
+  addEmailOtp(args: {
+    walletId: WalletId | string;
+    emailAddress: string;
+    otpCode: string;
+    challengeId?: string;
+    options?: AddEmailOtpHooksOptions;
+  }): Promise<AddEmailOtpResult>;
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
     wallet: RegisterWalletInput;
