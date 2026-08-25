@@ -10,6 +10,9 @@ test('a passkey wallet can add an email code as a second way in', async ({ harne
   await harness.registerPasskeyWallet();
   await harness.awaitNearReady();
   await harness.addEmailOtpAuthMethod();
+  /* Both families are active now, so the same addition again must be refused
+     off the existing inventory rather than costing another code. */
+  await harness.assertRepeatAdditionIsAlreadyConfigured('addEmailOtpAuthMethod');
   await harness.unlockWithAddedEmailOtp();
   /* Every signer family the wallet has, then every key family it can export.
      An added method that can only reach one of them is not a second way in. */

@@ -574,6 +574,27 @@ export class CloudflareD1WalletAuthMethodService {
    * the recipient would be able to send a wallet's enrollment code anywhere,
    * and the intent grant is what proves this addition was authorized at all.
    */
+  /**
+   * The active methods on the authority this intent was issued against.
+   *
+   * The intent's own source names the authority, so admission can be answered
+   * before any factor is verified. A linked-device ceremony names no source;
+   * there the wallet's active methods are the honest answer, because the
+   * question is only whether the family already exists.
+   */
+  private async activeMethodsOnIntentAuthority(input: {
+    readonly walletId: WalletId;
+    readonly intent: AddAuthMethodIntentV1;
+  }): Promise<readonly Extract<WalletAuthMethodRecordV2, { status: 'active' }>[]> {
+    const active = (
+      await this.getWalletAuthMethodStore().listForWalletV2({ walletId: input.walletId })
+    ).filter(isActiveWalletAuthMethodRecordV2);
+    const source =
+      input.intent.caller === 'same_device_addition' ? input.intent.source : null;
+    if (!source) return active;
+    return active.filter((method) => method.walletAuthorityId === source.walletAuthorityId);
+  }
+
   async createAddAuthMethodEmailOtpChallenge(input: {
     readonly walletId: WalletId;
     readonly addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
@@ -620,6 +641,22 @@ export class CloudflareD1WalletAuthMethodService {
           orgId: stored.orgId || this.orgId,
           ownerProofBindingDigest: stored.digestB64u,
         });
+      }
+      /* R109C admission, here rather than only at start: this is the last hop
+         before a code leaves the building. `startWalletAddAuthMethod` also
+         admits, but the client reaches it after the challenge, so checking
+         only there means a repeat addition costs the user a code and a wait
+         before being told the authority already has the family. */
+      const activeOnAuthority = await this.activeMethodsOnIntentAuthority({
+        walletId: input.walletId,
+        intent: stored.intent,
+      });
+      if (activeOnAuthority.some((method) => method.kind === 'email_otp')) {
+        return {
+          ok: false,
+          code: 'already_configured',
+          message: 'Wallet authority already has an active email_otp auth method',
+        };
       }
       const email = String(stored.intent.authMethod.email || '')
         .trim()
