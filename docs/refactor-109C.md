@@ -573,37 +573,37 @@ signer is refused rather than guessed at.
 
 ## Where this stands
 
-`email_otp_to_passkey` is proven end to end in a real browser: register with
-Email OTP, wait for NEAR, add a passkey, and unlock the wallet with that
-passkey, keeping its NEAR identity. `harness.unlockWithAddedPasskey()` is in the
-committed contract.
+Phase 3 acceptance now stands as follows.
 
-`passkey_to_email_otp` is proven end to end too: register with a passkey, wait
-for NEAR, add an Email OTP method, and unlock the wallet through it.
+Both transitions are proven end to end in a real browser: register, wait for
+NEAR, add the missing family, unlock through the method just added, and sign
+through the session it issued. `harness.unlockWithAddedPasskey()` and
+`harness.unlockWithAddedEmailOtp()` are both in their committed contracts.
 
-Getting there corrected a wrong reading recorded above. An added Email OTP
-method is enrolled under the address itself, and the only email login that
-_discovers_ a wallet resolves a Google subject - so the conclusion drawn was
-that no address-based login exists. Discovery is not unlock. The wallet is
-already known at unlock, `EmailOtpProvider` already spans `google` and `email`,
-and the public `auth.requestEmailOtpChallenge` plus
-`auth.loginWithEmailOtpEcdsaCapability` open it with the address as the provider
-identity. No new public auth surface was needed, and neither of the two
-identity-model changes weighed earlier was required.
+Wallet Session issuance is checked against the exact method, not the family. An
+active reusable session now reports its `walletAuthMethodId` alongside
+`authMethod`, and both additions return the method they created, so the
+contracts assert that unlocking with the added method issues a session naming
+that method. The family alone could not have told it from the method that added
+it, which is precisely the confusion the rest of this refactor kept running
+into.
 
-What did block it were two more places holding the same assumption as the rest:
+Sibling removal is proven for the direction whose surviving method is a
+passkey. `registration.revokeAuthMethod` is the client entry point that was
+missing: the server route existed and the unit tests covered both directions,
+but the only client revoke was `devices.revokeLinkedDevice`, which
+authenticates an owner request against the device-linking management service
+rather than proving a factor against this exact revocation. The proof is a
+WebAuthn assertion over the revoke operation fingerprint, and the credential
+being removed is excluded from the prompt so it can never authorize its own
+removal. The `email_otp_to_passkey` contract removes the Email OTP method that
+did the adding and signs again through the passkey that remains.
 
-10. `resolveEmailOtpAuthContextAuthoritySource` fell through to the canonical
-    boundary whenever the selected method was not Email OTP - which invariant 9
-    guarantees right after an addition. The canonical boundary synthesises an
-    `email_otp:<wallet>:<hash>` binding id that no record of the added method
-    carries, so its capability manifest was invisible and the refresh reported
-    the activation superseded. The local record already stores the exact
-    authority the finalize returned; the identity is now looked up among the
-    wallet's active methods rather than rebuilt from parts.
-11. `markSelectedEmailOtpWalletAuthorityUnlocked` required Email OTP to already
-    be selected, which is precisely what the unlock is in the middle of making
-    true. It now marks the method that actually unlocked.
+Still open in Phase 3: revoking a passkey from an Email OTP sibling needs the
+email-source proof branch of `revokeAuthMethod`, which the shape already
+anticipates - the challenge boundary takes an operation fingerprint, so the
+proof is a bound challenge plus its code rather than an assertion. Until it
+exists, `passkey_to_email_otp` proves addition and unlock but not removal.
 
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,
