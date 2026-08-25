@@ -125,6 +125,10 @@ export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord 
     walletId: WALLET_ID,
     binding: rawWalletCustodySeedBinding(),
     factor: rawPasskeyFactor(),
+    /* Envelopes now record the method that owns them. `unbound` is the
+       pre-109C shape, which is what a raw fixture should default to; the
+       method-bound builders below are for records a live path would write. */
+    ownership: { kind: 'unbound' },
     envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
     envelopeRevision: 1,
     nonceB64u: NONCE_12_B64U,
@@ -306,4 +310,52 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
     clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
     ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
   };
+}
+
+/**
+ * An active, method-bound custody envelope built through the production
+ * builders, for setup that needs a wallet to have live custody.
+ *
+ * Refactor 109C requires every written envelope to name its owning auth
+ * method, so a seed built by hand would either fail the parser or encode a
+ * shape no production path can produce.
+ */
+export function buildActiveMethodBoundPasskeyCustodyEnvelopeFixture(args: {
+  readonly walletId: string;
+  readonly envelopeId: string;
+  readonly rpId: string;
+  readonly credentialIdB64u: string;
+  readonly walletAuthMethodId: string;
+}): PasskeyCustodyEnvelopeRecord {
+  return parsePasskeyCustodyEnvelopeRecord(
+    rawPasskeyCustodyEnvelope({
+      walletId: args.walletId,
+      envelopeId: args.envelopeId,
+      factor: rawPasskeyFactor({
+        rpId: args.rpId,
+        credentialIdB64u: args.credentialIdB64u,
+      }),
+      ownership: { kind: 'method_bound', walletAuthMethodId: args.walletAuthMethodId },
+    }),
+  );
+}
+
+export function buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture(args: {
+  readonly walletId: string;
+  readonly envelopeId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly walletAuthMethodId: string;
+}): PasskeyCustodyEnvelopeRecord {
+  return parsePasskeyCustodyEnvelopeRecord(
+    rawPasskeyCustodyEnvelope({
+      walletId: args.walletId,
+      envelopeId: args.envelopeId,
+      factor: rawEmailOtpFactor({
+        enrollmentId: args.enrollmentId,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+      }),
+      ownership: { kind: 'method_bound', walletAuthMethodId: args.walletAuthMethodId },
+    }),
+  );
 }
