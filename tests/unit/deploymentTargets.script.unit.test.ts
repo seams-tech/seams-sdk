@@ -297,7 +297,6 @@ test('required secrets are derived from enabled capabilities', async () => {
   const targets = module.parseDeploymentTargets(validTargets());
   const staging = targets.backendLanes['staging-testnet'];
   expect(module.componentSecretNames(staging, 'gateway')).toEqual([
-    'CONSOLE_SESSION_HMAC_SECRET',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
@@ -305,6 +304,9 @@ test('required secrets are derived from enabled capabilities', async () => {
     'STRIPE_API_SK',
     'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U',
   ]);
+  expect(module.componentSecretNames(staging, 'console')).toContain(
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
+  );
   expect(module.componentSecretNames(staging, 'deriver-a')).toEqual([
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'DERIVER_A_ROOT_SHARE_WIRE_SECRET',

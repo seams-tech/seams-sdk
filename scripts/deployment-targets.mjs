@@ -129,6 +129,7 @@ export function consoleSecretNames(lane) {
   const names = [
     'CONSOLE_INITIAL_OWNER_EMAIL',
     'CONSOLE_SESSION_HMAC_SECRET',
+    'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
     'STRIPE_API_SK',
     'STRIPE_WEBHOOK_SECRET',
   ];
