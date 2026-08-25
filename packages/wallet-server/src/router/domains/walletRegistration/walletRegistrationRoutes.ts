@@ -34,6 +34,7 @@ import type {
   WalletAddSignerEcdsaDerivationRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
+  WalletAddAuthMethodEmailOtpTargetV1,
   WalletAddAuthMethodFinalizeRequest,
   WalletAddAuthMethodFinalizeResponse,
   WalletRevokeAuthMethodRequest,
@@ -1588,6 +1589,72 @@ function parseWalletAddSignerFinalizeRequest(
   return { ok: false, code: 'invalid_body', message: 'add-signer finalize kind is invalid' };
 }
 
+/**
+ * The caller's statement about the wallet's shared Email OTP enrollment.
+ *
+ * Required on this branch rather than optional. The two cases carry different
+ * material and land on different persistence, and a body that simply omitted
+ * the field would read as "reuse whatever is there" — which on a wallet with no
+ * enrollment is not a reusable state, and on a wallet with one is a claim the
+ * caller never made.
+ */
+function parseWalletAddAuthMethodEmailOtpTarget(
+  raw: unknown,
+):
+  | { readonly ok: true; readonly value: WalletAddAuthMethodEmailOtpTargetV1 }
+  | { readonly ok: false; readonly code: 'invalid_body'; readonly message: string } {
+  if (!isPlainObject(raw)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpTarget is required for an Email OTP add-auth-method finalize',
+    };
+  }
+  if (raw.kind === 'existing_enrollment') {
+    if (raw.enrollment !== undefined) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpTarget.enrollment belongs to the new_enrollment branch',
+      };
+    }
+    return { ok: true, value: { kind: 'existing_enrollment' } };
+  }
+  if (raw.kind !== 'new_enrollment') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpTarget.kind must be existing_enrollment or new_enrollment',
+    };
+  }
+  const enrollment = raw.enrollment;
+  if (!isPlainObject(enrollment)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpTarget.enrollment is required to create an enrollment',
+    };
+  }
+  const material = {
+    enrollmentSealKeyVersion: '',
+    clientUnlockPublicKeyB64u: '',
+    unlockKeyVersion: '',
+    serverSealedFactorCiphertextB64u: '',
+  };
+  for (const field of Object.keys(material) as (keyof typeof material)[]) {
+    const value = enrollment[field];
+    if (typeof value !== 'string' || !value.trim()) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `emailOtpTarget.enrollment.${field} is required`,
+      };
+    }
+    material[field] = value.trim();
+  }
+  return { ok: true, value: { kind: 'new_enrollment', enrollment: material } };
+}
+
 function parseWalletAddAuthMethodFinalizeRequest(
   body: Record<string, unknown>,
 ): ParseResult<WalletAddAuthMethodFinalizeRequest> {
@@ -1611,12 +1678,15 @@ function parseWalletAddAuthMethodFinalizeRequest(
        rather than by a created credential, so the body carries the resealed
        envelope alone. Requiring the pair here would refuse the exact request
        the finalize service now demands for this branch. */
+    const emailOtpTarget = parseWalletAddAuthMethodEmailOtpTarget(body.emailOtpTarget);
+    if (!emailOtpTarget.ok) return emailOtpTarget;
     try {
       return {
         ok: true,
         value: {
           addAuthMethodCeremonyId: addAuthMethodCeremonyId.value,
           custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(body.custodyEnvelope),
+          emailOtpTarget: emailOtpTarget.value,
         },
       };
     } catch {

@@ -300,16 +300,48 @@ export type WalletAddAuthMethodStartResponse =
  * That is admission data the server derives from an authenticated link session,
  * so a caller cannot assert it. See the finalize command's `authorization`.
  */
+/**
+ * Refactor 109C: whether this addition expects to find the wallet's shared
+ * Email OTP enrollment or to create it.
+ *
+ * The enrollment is per wallet and per provider identity, not per method: a
+ * wallet that has linked a device already has one, and every Email method on
+ * the wallet reads its factor secret through it. So the first Email method on
+ * a Passkey-only wallet has to enrol, and every later one must not — enrolling
+ * again would replace the seal key that the existing methods' envelopes name in
+ * their AAD, and their ciphertext would stop opening.
+ *
+ * Stated by the caller and checked against live state rather than inferred,
+ * because the two cases carry different material and a caller that guessed
+ * wrong should be refused rather than quietly switched.
+ */
+/** What a client sends to create a wallet's shared Email OTP enrollment. */
+export type WalletEmailOtpEnrollmentMaterialV1 = {
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
+};
+
+export type WalletAddAuthMethodEmailOtpTargetV1 =
+  | { readonly kind: 'existing_enrollment'; readonly enrollment?: never }
+  | {
+      readonly kind: 'new_enrollment';
+      readonly enrollment: WalletEmailOtpEnrollmentMaterialV1;
+    };
+
 export type WalletAddAuthMethodFinalizeRequest =
   | {
       addAuthMethodCeremonyId: string;
       webauthnRegistration: unknown;
       custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      emailOtpTarget?: never;
     }
   | {
       addAuthMethodCeremonyId: string;
       webauthnRegistration: unknown;
       custodyEnvelope?: never;
+      emailOtpTarget?: never;
     }
   | {
       /**
@@ -320,11 +352,13 @@ export type WalletAddAuthMethodFinalizeRequest =
       addAuthMethodCeremonyId: string;
       webauthnRegistration?: never;
       custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      emailOtpTarget: WalletAddAuthMethodEmailOtpTargetV1;
     }
   | {
       addAuthMethodCeremonyId: string;
       webauthnRegistration?: never;
       custodyEnvelope?: never;
+      emailOtpTarget?: never;
     };
 
 export type WalletAuthMethodStatusAnnotation<Status extends WalletAuthMethodRecord['status']> = {
@@ -795,12 +829,7 @@ type WalletRegistrationFinalizeRequestBase = {
    * payload is a different request and must not adopt a prior operation row.
    */
   walletCustodyCommit?: unknown;
-  emailOtpEnrollment?: {
-    enrollmentSealKeyVersion: string;
-    clientUnlockPublicKeyB64u: string;
-    unlockKeyVersion: string;
-    serverSealedFactorCiphertextB64u: string;
-  };
+  emailOtpEnrollment?: WalletEmailOtpEnrollmentMaterialV1;
 };
 
 export type WalletRegistrationFinalizeRequest = WalletRegistrationFinalizeRequestBase &
