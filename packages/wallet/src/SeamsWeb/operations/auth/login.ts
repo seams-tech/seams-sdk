@@ -2729,6 +2729,34 @@ async function activateLinkedDeviceEd25519Runtime(args: {
   };
 }
 
+/**
+ * R109C: an Email method added to an existing authority asks for that
+ * authority's Ed25519 capability.
+ *
+ * A linked device carries its own sealed Ed25519 material and is answered
+ * above. An added sibling has none, and looking for one is what made a
+ * NEAR-capable wallet lose NEAR the moment its Email method opened it: the
+ * request was skipped, so the unlock issued no Yao capability and no lane
+ * existed to sign with.
+ *
+ * The authority's own signer activation is the right question, because the
+ * Ed25519 signer belongs to the authority rather than to whichever credential
+ * authenticates. Nothing is copied and no activation is created - the existing
+ * material activation is left exactly as it is, and the unlock mints a fresh
+ * capability bound to this method. The signer slot comes from the wallet's own
+ * profile, which is where its NEAR signer slot lives whether or not a passkey
+ * ever existed.
+ */
+async function ownerAuthorityEd25519UnlockRequest(
+  selection: LinkedDeviceEmailOtpAuthoritySelection,
+): Promise<{ signerSlot: number; remainingUses: number } | undefined> {
+  if (!selection.authority.signerActivations.ed25519) return undefined;
+  const profile = await IndexedDBManager.getProfile(String(selection.walletId));
+  const signerSlot = profile ? parseSignerSlot(profile.defaultSignerSlot, { min: 1 }) : null;
+  if (signerSlot === null) return undefined;
+  return { signerSlot, remainingUses: DEFAULT_UNLOCK_REMAINING_USES };
+}
+
 export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly context: LoginWebContext;
   readonly walletIdInput: string;
@@ -2772,7 +2800,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         signerSlot: ed25519MaterialRecord.publicFacts.applicationBinding.key_creation_signer_slot,
         remainingUses: DEFAULT_UNLOCK_REMAINING_USES,
       }
-    : undefined;
+    : await ownerAuthorityEd25519UnlockRequest(selection);
   const unlocked: LinkedEmailOtpWalletUnlockResult = await unlockLinkedEmailOtpWallet({
     relayUrl,
     walletId: String(selection.walletId),
