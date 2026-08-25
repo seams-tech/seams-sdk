@@ -78,6 +78,7 @@ type IntendedHarnessAction =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
+  | 'addEmailOtpAuthMethod'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
@@ -993,6 +994,38 @@ export class IntendedBehaviourHarness {
     );
   }
 
+  /**
+   * Refactor 109C acceptance: the registered passkey wallet gains an Email OTP
+   * method. The wallet prompts for the code on its own surface, so the same
+   * auto-confirm that drives every other Email OTP step drives this one.
+   */
+  async addEmailOtpAuthMethod(): Promise<void> {
+    this.recordStage('add_email_otp_auth_method');
+    const registration = this.requireRegisteredWalletForSigning();
+    const snapshot = await this.runIntendedPageAction(
+      'addEmailOtpAuthMethod',
+      'intended-add-email-otp-auth-method',
+    );
+    const result = snapshot.result as {
+      kind?: unknown;
+      walletId?: unknown;
+      emailAddress?: unknown;
+      authMethod?: unknown;
+    } | null;
+    if (!result || result.kind !== 'add_email_otp_success') {
+      throw new Error(
+        `add-email-code did not succeed: ${snapshot.error || JSON.stringify(snapshot.result)}`,
+      );
+    }
+    if (String(result.walletId) !== String(registration.walletId)) {
+      throw new Error('add-email-code returned a different wallet');
+    }
+    this.emailOtpVerificationCount += 1;
+    this.recordService(
+      `email code added wallet=${String(result.walletId)} email=${String(result.emailAddress)}`,
+    );
+  }
+
   async registerEmailOtpWallet(): Promise<void> {
     this.recordStage('register_email_otp_wallet');
     const snapshot = await this.runIntendedPageAction(
@@ -1156,9 +1189,7 @@ export class IntendedBehaviourHarness {
       return;
     }
     if (status !== 200) {
-      throw new Error(
-        `Source Wallet Session revocation check returned HTTP ${status}`,
-      );
+      throw new Error(`Source Wallet Session revocation check returned HTTP ${status}`);
     }
     const responseText = await response.text();
     assertRevokedWalletBudgetStatus({
@@ -2319,6 +2350,7 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
   if (
     normalized.endsWith('passkey.registration.contract.test.ts') ||
     normalized.endsWith('passkey.ed25519-yao-local.contract.test.ts') ||
+    normalized.endsWith('passkey.add-email-otp.contract.test.ts') ||
     normalized.endsWith('passkey.registration.benchmark.test.ts')
   ) {
     return 'passkey.registration';
