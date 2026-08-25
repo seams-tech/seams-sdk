@@ -555,28 +555,40 @@ method.
    NEAR account id. That was the test's sequencing, not the product's; every
    other unlock contract already calls `awaitNearReady()`.
 
-What remains is the Ed25519 half, and it is a server-side gate rather than a
-custody one. With NEAR ready, the added passkey now resolves a NEAR subject and
-reaches `provisionPasskeyEd25519YaoSession`, which answers `capability_unavailable`
-with "Requested Ed25519 Wallet Session is unavailable" because the `ed25519`
-it is handed - `passkeyCustody?.ed25519 ?? result.ed25519` in
-`walletUnlockRouteHandlers.ts` - is not `active` for the added credential. The
-server does not yet associate an added passkey with the wallet's existing
-Ed25519 signer activation, even though both methods share the authority that
-owns it.
+The Ed25519 half was the last of it, and it was a server-side gate rather than
+a custody one. The server builds a credential binding for an added passkey, and
+the Email OTP branch of that builder returned early with no wallet identity
+fields at all - there is no source credential binding to copy them from, and
+nothing filled the gap. WebAuthn login reads exactly those fields to decide
+whether a credential carries Ed25519, so the added passkey claimed none and
+unlock answered `capability_unavailable`. Adding a second way into a NEAR wallet
+silently cost it NEAR.
 
-A client-side Ed25519 lane copy was written and reverted: publishing an
-`Ed25519YaoPublicCapabilityLaneReferenceV1` for the added credential, mirroring
-the ECDSA access copy. It changed nothing, because the server gate above fails
-first, and it is not worth carrying unproven code through the custody path. It
-is the likely client half once the server half exists, and the lane reference
-carries a `thresholdSessionId`, so whether it should be copied or provisioned at
-unlock is an open question rather than a settled one.
+The fields now come from the wallet's own Ed25519 signer, the only server record
+of its NEAR identity, through a narrow lister rather than the whole wallet
+store. Nothing is derived; the added credential points at the signer the wallet
+already has. A wallet with no Ed25519 signer still gets a binding without
+identity fields - that is the ECDSA-only case, not a failure - and more than one
+signer is refused rather than guessed at.
 
-Both narrow transition contracts pass together. The addition is proven in a
-browser in both directions; `harness.unlockWithAddedPasskey()` exists and is
-deliberately not in the committed contract, so the intended suite stays green
-while the Ed25519 gate is open.
+## Where this stands
+
+`email_otp_to_passkey` is proven end to end in a real browser: register with
+Email OTP, wait for NEAR, add a passkey, and unlock the wallet with that
+passkey, keeping its NEAR identity. `harness.unlockWithAddedPasskey()` is in the
+committed contract.
+
+`passkey_to_email_otp` proves the addition. Its unlock is not yet asserted: the
+generic Email OTP unlock helper gates on an Email-OTP-REGISTERED wallet, which
+is the opposite of the case under test, and a first attempt at the mirror helper
+resolved a different wallet from the one registered - an email-identity-to-
+wallet resolution question, not a custody one.
+
+Nine distinct assumptions had to go, and they were all the same assumption: that
+a wallet has exactly one auth method, so a capability, a lane, a selection, a
+credential binding, or an identity could be addressed without saying which
+method was asking. That is the shape to look for in anything R109C has not yet
+touched.
 
 ## Goal
 
