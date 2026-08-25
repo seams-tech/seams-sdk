@@ -723,11 +723,17 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   const registrationArgs: GoogleEmailOtpWalletRegistrationArgs = {
     wallet: { kind: 'provided', walletId: selectedWalletId },
     authMethod: registrationAuthMethod,
-    signerSelection: buildNearWalletRegistrationSignerSetSelection({
-      configs: deps.configs,
-      options: registrationOptions,
-      ecdsaChainTargets: requiredTargets,
-    }),
+    /* An explicit selection registers exactly that set; without one the flow
+       builds it from configuration, which is what an application wants. The
+       explicit form is how a wallet comes to own one signer family rather than
+       whatever the environment configures. */
+    signerSelection:
+      args.input.signerSelection ??
+      buildNearWalletRegistrationSignerSetSelection({
+        configs: deps.configs,
+        options: registrationOptions,
+        ecdsaChainTargets: requiredTargets,
+      }),
     options: registrationOptions,
   };
   const prewarm =

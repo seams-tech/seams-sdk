@@ -34,6 +34,8 @@ type IntendedActionName =
   | 'revokeSourceAuthMethod'
   | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
+  | 'registerEmailOtpEd25519OnlyWallet'
+  | 'registerEmailOtpEcdsaOnlyWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
   | 'recoverPasskeyWallet'
@@ -232,11 +234,14 @@ type AddPasskeyAuthMethodResultSummary = {
   authMethod: { kind: 'passkey'; status: 'active' };
 };
 
+/* Same three readiness states as the passkey summary, for the same reason: an
+   Email OTP wallet can own an ECDSA-only signer set too. */
 type EmailOtpRegistrationCoreSummary = (
   | {
       kind: 'email_otp_registration_success';
       initialWalletId: string;
       walletId: string;
+      nearReadiness: 'ready';
       nearAccountId: string;
       operationalPublicKey: string;
       nearProvisioning?: never;
@@ -247,9 +252,21 @@ type EmailOtpRegistrationCoreSummary = (
       kind: 'email_otp_registration_success';
       initialWalletId: string;
       walletId: string;
+      nearReadiness: 'pending';
       nearProvisioning: IntendedNearProvisioningSummary;
       nearAccountId?: never;
       operationalPublicKey?: never;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    }
+  | {
+      kind: 'email_otp_registration_success';
+      initialWalletId: string;
+      walletId: string;
+      nearReadiness: 'absent';
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+      nearProvisioning?: never;
       signingSessionStatus: string;
       remainingUses: number | null;
     }
@@ -666,6 +683,24 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-register-email-otp-ecdsa-only"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterEmailOtpEcdsaOnlyWallet}
+            style={buttonStyle}
+          >
+            Register ECDSA-only Email Wallet
+          </button>
+          <button
+            type="button"
+            data-testid="intended-register-email-otp-ed25519-only"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRegisterEmailOtpEd25519OnlyWallet}
+            style={buttonStyle}
+          >
+            Register Ed25519-only Email Wallet
+          </button>
+          <button
+            type="button"
             data-testid="intended-register-email-otp"
             disabled={state.action.status === 'running'}
             onClick={controller.runRegisterEmailOtpWallet}
@@ -848,6 +883,14 @@ class IntendedPageController {
 
   runRegisterEmailOtpWallet = (): void => {
     void this.registerEmailOtpWallet();
+  };
+
+  runRegisterEmailOtpEd25519OnlyWallet = (): void => {
+    void this.registerEmailOtpEd25519OnlyWallet();
+  };
+
+  runRegisterEmailOtpEcdsaOnlyWallet = (): void => {
+    void this.registerEmailOtpEcdsaOnlyWallet();
   };
 
   runAwaitNearReady = (): void => {
@@ -1314,6 +1357,68 @@ class IntendedPageController {
     }
   }
 
+  /**
+   * Refactor 109C matrix: an Email OTP wallet whose signer set is Ed25519 only.
+   *
+   * Same registration flow as every other Email OTP wallet; only the signer
+   * set differs, which is the point - a parallel registration variant would
+   * prove something about the variant rather than about this flow.
+   */
+  private async registerEmailOtpEd25519OnlyWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerEmailOtpEd25519OnlyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const registration = await this.registerEmailOtpWalletWithPublicSdk(
+        intendedEd25519YaoSignerSelection(),
+      );
+      this.walletId = registration.walletId;
+      this.nearAccountId = registration.nearAccountId ?? null;
+      if (registration.ecdsaTargetProfile !== 'none') {
+        throw new Error('Ed25519-only Email OTP registration provisioned an ECDSA signer');
+      }
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: { ...registration, ecdsaTargetKeys: { kind: 'none' } },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /** Refactor 109C matrix: an Email OTP wallet whose signer set is ECDSA only. */
+  private async registerEmailOtpEcdsaOnlyWallet(): Promise<void> {
+    const action: IntendedActionName = 'registerEmailOtpEcdsaOnlyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
+      if (sdkTargets.kind !== 'explicit') {
+        throw new Error('ECDSA-only Email OTP registration requires configured chain targets');
+      }
+      const registration = await this.registerEmailOtpWalletWithPublicSdk({
+        kind: 'signer_set',
+        signers: [
+          {
+            kind: 'evm_family_ecdsa',
+            chainTargets: [...sdkTargets.targets],
+            participantIds: [1, 2],
+          },
+        ],
+      });
+      this.walletId = registration.walletId;
+      this.nearAccountId = registration.nearAccountId ?? null;
+      const ecdsaTargetKeys = registrationEcdsaTargetKeys(registration);
+      const ecdsa = assertEcdsaTargetKeysForSession({ session: registration, ecdsaTargetKeys });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: { ...registration, ...ecdsa } as EmailOtpRegistrationResultSummary,
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
   private async registerEmailOtpWallet(): Promise<void> {
     const action: IntendedActionName = 'registerEmailOtpWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -1326,30 +1431,33 @@ class IntendedPageController {
         session: registration,
         ecdsaTargetKeys,
       });
-      /* Branch on the arm rather than copying members out: deferred NEAR means
-         the result carries either a resolved identity or a provisioning
-         status, never both, and flattening the two into one object loses
-         exactly that guarantee. NEAR identity is read only on the ready arm. */
-      const summary: EmailOtpRegistrationResultSummary = registration.nearProvisioning
-        ? {
-            kind: registration.kind,
-            initialWalletId: registration.initialWalletId,
-            walletId: registration.walletId,
-            nearProvisioning: registration.nearProvisioning,
-            signingSessionStatus: registration.signingSessionStatus,
-            remainingUses: registration.remainingUses,
-            ...ecdsa,
-          }
-        : {
-            kind: registration.kind,
-            initialWalletId: registration.initialWalletId,
-            walletId: registration.walletId,
-            nearAccountId: registration.nearAccountId,
-            operationalPublicKey: registration.operationalPublicKey,
-            signingSessionStatus: registration.signingSessionStatus,
-            remainingUses: registration.remainingUses,
-            ...ecdsa,
-          };
+      /* Branch on the arm rather than copying members out: the result carries a
+         resolved identity, a provisioning status, or neither, and flattening
+         them into one object loses exactly that guarantee. */
+      const common = {
+        kind: registration.kind,
+        initialWalletId: registration.initialWalletId,
+        walletId: registration.walletId,
+        signingSessionStatus: registration.signingSessionStatus,
+        remainingUses: registration.remainingUses,
+      };
+      const summary: EmailOtpRegistrationResultSummary =
+        registration.nearReadiness === 'pending'
+          ? {
+              ...common,
+              nearReadiness: 'pending',
+              nearProvisioning: registration.nearProvisioning,
+              ...ecdsa,
+            }
+          : registration.nearReadiness === 'ready'
+            ? {
+                ...common,
+                nearReadiness: 'ready',
+                nearAccountId: registration.nearAccountId,
+                operationalPublicKey: registration.operationalPublicKey,
+                ...ecdsa,
+              }
+            : { ...common, nearReadiness: 'absent', ...ecdsa };
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -1705,15 +1813,27 @@ class IntendedPageController {
     };
   }
 
-  private async registerEmailOtpWalletWithPublicSdk(): Promise<EmailOtpRegistrationCoreSummary> {
+  private async registerEmailOtpWalletWithPublicSdk(
+    signerSelection?: RegistrationSignerSetSelection,
+  ): Promise<EmailOtpRegistrationCoreSummary> {
     const idToken = requireGoogleIdToken(this.googleIdToken);
+    /* The profile follows the selection when one is given, and is then used for
+       both the request and the assertion. Asking for ECDSA targets while
+       registering an Ed25519-only set makes the flow expect a threshold address
+       the wallet was never going to have. */
+    const effectiveEcdsaProfile: IntendedEmailOtpEcdsaTargetProfile =
+      signerSelection &&
+      !signerSelection.signers.some((signer) => signer.kind === 'evm_family_ecdsa')
+        ? { kind: 'none', sdkTargets: { kind: 'none' }, chainTargets: [] }
+        : this.emailOtpEcdsaTargetProfile;
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'register',
       // The harness registers a fresh wallet per run against a persistent
       // local stack; the fixed Google test subject may already hold one.
       replaceExistingWallet: true,
-      ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
+      ecdsaTargets: effectiveEcdsaProfile.sdkTargets,
+      ...(signerSelection ? { signerSelection } : {}),
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
     });
@@ -1739,7 +1859,7 @@ class IntendedPageController {
     return assertEmailOtpRegistrationCompleted({
       completed: completed.value,
       initialWalletId,
-      ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
+      ecdsaTargetProfile: effectiveEcdsaProfile,
       nearProvisioning,
     });
   }
@@ -2641,16 +2761,20 @@ function assertEmailOtpRegistrationCompleted(args: {
   if (nearAccountId && operationalPublicKey) {
     return {
       ...common,
+      nearReadiness: 'ready',
       nearAccountId,
       operationalPublicKey,
       ...ecdsa,
     };
   }
+  /* No identity and no provisioning means this wallet's signer set never
+     included Ed25519, which is a shape rather than a failure. */
   if (!args.nearProvisioning) {
-    throw new Error('Email OTP registration returned neither NEAR identity nor provisioning state');
+    return { ...common, nearReadiness: 'absent', ...ecdsa };
   }
   return {
     ...common,
+    nearReadiness: 'pending',
     nearProvisioning: nearProvisioningSummaryStatus(args.nearProvisioning),
     ...ecdsa,
   };

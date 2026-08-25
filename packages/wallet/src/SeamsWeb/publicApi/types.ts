@@ -753,6 +753,15 @@ export type GoogleEmailOtpWalletAuthStartInput = {
   replaceExistingWallet?: boolean;
   relayUrl?: string;
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
+  /**
+   * Register-mode only: the exact signer set to provision.
+   *
+   * Omitted, the flow builds the set from configuration and `ecdsaTargets`,
+   * which is what an application wants. Supplied, it registers exactly this
+   * set - the way to obtain a wallet that owns one signer family rather than
+   * whatever the environment happens to configure.
+   */
+  signerSelection?: RegistrationSignerSetSelection;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   onDemoOtp?: (response: DemoEmailOtpCodeResponse) => void;
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
