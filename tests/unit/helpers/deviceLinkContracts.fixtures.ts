@@ -1,6 +1,6 @@
 import {
   buildLinkedDeviceApprovalV1,
-  buildStepUpLinkedDeviceOwnerAuthorizationV1,
+  buildWalletSessionLinkedDeviceOwnerAuthorizationV1,
   parseLinkedDeviceSessionClaimRequestV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
@@ -19,7 +19,6 @@ import type {
   QrLinkedDeviceSessionPayloadV5,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
 import {
-  parseAuthorizationEvidenceSetId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -181,8 +180,9 @@ export function buildR103DeviceLinkFixture(
     devicePublicKeyB64u: payload.devicePublicKeyB64u,
     permission: payload.requestedPermission,
     targetFactor,
-    ownerAuthorization: buildStepUpLinkedDeviceOwnerAuthorizationV1({
-      evidenceSetId: required(parseAuthorizationEvidenceSetId('evidence:r103')),
+    ownerAuthorization: buildWalletSessionLinkedDeviceOwnerAuthorizationV1({
+      walletSessionId: required(parseWalletSessionId('ws:r103')),
+      authorizationId: required(parseWalletSessionAuthorizationId('wsa:r103')),
     }),
     orderedOwnerSourceLaneHints: [
       {

@@ -171,8 +171,14 @@ const invalidOwnerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1 = {
   kind: 'wallet_session',
   walletSessionId,
   authorizationId,
-  // @ts-expect-error wallet-session authorization cannot carry step-up evidence
+  // @ts-expect-error linked-device authorization cannot carry step-up evidence
   stepUpEvidenceSetId: digest,
+};
+
+const invalidStepUpOwnerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1 = {
+  // @ts-expect-error linked-device authorization requires an exact Wallet Session
+  kind: 'step_up',
+  evidenceSetId: digest,
 };
 
 const approval: LinkedDeviceApprovalV1 = {

@@ -5,11 +5,9 @@ import {
   type DelegatedWalletPermissionV1,
 } from '../authorization/delegatedAuthority';
 import {
-  parseAuthorizationEvidenceSetId,
   parseDeviceId as parseAuthorizationDeviceId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
-  type AuthorizationEvidenceSetId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -168,7 +166,6 @@ const CLAIM_FIELDS = [
   'claimExpiresAtMs',
 ] as const;
 const OWNER_AUTH_WALLET_SESSION_FIELDS = ['kind', 'walletSessionId', 'authorizationId'] as const;
-const OWNER_AUTH_STEP_UP_FIELDS = ['kind', 'evidenceSetId'] as const;
 const ENROLLMENT_FIELDS = [
   'kind',
   'linkSessionId',
@@ -530,10 +527,6 @@ function parseWalletSession(raw: unknown, label: string): WalletSessionId {
 function parseWalletAuthorization(raw: unknown, label: string): WalletSessionAuthorizationId {
   return parseId(parseWalletSessionAuthorizationId, raw, label);
 }
-function parseEvidenceSet(raw: unknown, label: string): AuthorizationEvidenceSetId {
-  return parseId(parseAuthorizationEvidenceSetId, raw, label);
-}
-
 function parseLinkedOwnerCredentialMetadata(
   raw: unknown,
   label: string,
@@ -1216,13 +1209,6 @@ export function parseLinkedDeviceOwnerAuthorizationSourceV1(
       kind: 'wallet_session',
       walletSessionId: parseWalletSession(exact.walletSessionId, `${label}.walletSessionId`),
       authorizationId: parseWalletAuthorization(exact.authorizationId, `${label}.authorizationId`),
-    };
-  }
-  if (record.kind === 'step_up') {
-    const exact = exactRecord(record, OWNER_AUTH_STEP_UP_FIELDS, label);
-    return {
-      kind: 'step_up',
-      evidenceSetId: parseEvidenceSet(exact.evidenceSetId, `${label}.evidenceSetId`),
     };
   }
   throw new Error(`${label}.kind is unsupported`);
@@ -2367,12 +2353,6 @@ export function buildWalletSessionLinkedDeviceOwnerAuthorizationV1(args: {
     walletSessionId: args.walletSessionId,
     authorizationId: args.authorizationId,
   };
-}
-
-export function buildStepUpLinkedDeviceOwnerAuthorizationV1(args: {
-  readonly evidenceSetId: AuthorizationEvidenceSetId;
-}): LinkedDeviceOwnerAuthorizationSourceV1 {
-  return { kind: 'step_up', evidenceSetId: args.evidenceSetId };
 }
 
 function validateEnrollmentTimes(

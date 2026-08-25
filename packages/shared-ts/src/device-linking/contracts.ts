@@ -1,6 +1,5 @@
 import type { DelegatedWalletAuthorityV1 } from '../authorization/delegatedAuthority';
 import type {
-  AuthorizationEvidenceSetId,
   DeviceId,
   WalletSessionAuthorizationId,
   WalletSessionId,
@@ -155,20 +154,12 @@ export type LinkedDeviceSessionClaimV1 = {
   readonly claimExpiresAtMs: number;
 };
 
-/** Exactly one opaque Wallet Session or one fresh step-up authorization source. */
-export type LinkedDeviceOwnerAuthorizationSourceV1 =
-  | {
-      readonly kind: 'wallet_session';
-      readonly walletSessionId: WalletSessionId;
-      readonly authorizationId: WalletSessionAuthorizationId;
-      readonly stepUpEvidenceSetId?: never;
-    }
-  | {
-      readonly kind: 'step_up';
-      readonly evidenceSetId: AuthorizationEvidenceSetId;
-      readonly walletSessionId?: never;
-      readonly authorizationId?: never;
-    };
+/** The exact reusable Wallet Session authorizing a link. */
+export type LinkedDeviceOwnerAuthorizationSourceV1 = {
+  readonly kind: 'wallet_session';
+  readonly walletSessionId: WalletSessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+};
 
 type LinkedDeviceApprovalBaseV1 = {
   readonly kind: 'linked_device_approval_v1';

@@ -70,28 +70,11 @@ function assertAuthorizationSourcesMatch(
   left: LinkedDeviceOwnerAuthorizationSourceV1,
   right: LinkedDeviceOwnerAuthorizationSourceV1,
 ): void {
-  if (left.kind !== right.kind) {
-    throw new Error('owner authorization selected more than one source');
-  }
-  switch (left.kind) {
-    case 'wallet_session':
-      if (
-        right.kind !== 'wallet_session' ||
-        left.walletSessionId !== right.walletSessionId ||
-        left.authorizationId !== right.authorizationId
-      ) {
-        throw new Error('wallet-session authorization source changed during linking');
-      }
-      return;
-    case 'step_up':
-      if (right.kind !== 'step_up' || left.evidenceSetId !== right.evidenceSetId) {
-        throw new Error('step-up authorization source changed during linking');
-      }
-      return;
-    default: {
-      const exhaustive: never = left;
-      throw new Error(`unsupported owner authorization source: ${String(exhaustive)}`);
-    }
+  if (
+    left.walletSessionId !== right.walletSessionId ||
+    left.authorizationId !== right.authorizationId
+  ) {
+    throw new Error('wallet-session authorization source changed during linking');
   }
 }
 
