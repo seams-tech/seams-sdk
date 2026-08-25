@@ -38,3 +38,11 @@ test('an Ed25519-only Email OTP wallet gains a passkey', async ({ harness }) => 
   await harness.addPasskeyAuthMethod();
   await harness.assertRepeatAdditionIsAlreadyConfigured('addPasskeyAuthMethod');
 });
+
+test('an ECDSA-only Email OTP wallet gains a passkey', async ({ harness }) => {
+  await harness.registerEmailOtpEcdsaOnlyWallet();
+  /* The last of the six: no Ed25519 signer for the added passkey to inherit,
+     so it must claim none rather than fail resolving one. */
+  await harness.addPasskeyAuthMethod();
+  await harness.assertRepeatAdditionIsAlreadyConfigured('addPasskeyAuthMethod');
+});
