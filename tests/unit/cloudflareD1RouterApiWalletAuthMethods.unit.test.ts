@@ -43,6 +43,7 @@ import {
   applySignerMigrations,
   insertSignerWallet,
   insertWalletAuthMethod,
+  seedFoundingPasskeyAuthority,
   readWalletAuthMethodRecord,
   readWalletSignerRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -491,20 +492,17 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     const appSessionVersion = 'add-auth-session-v1';
     const durableObjects = new RecordingDurableObjectNamespace();
     await insertSignerWallet({ database, ...scope, walletId });
-    await insertWalletAuthMethod({
+    /* R109C adds to an authority that already exists, so the founding one is
+       seeded rather than implied: the addition resolves it, checks it is an
+       active full owner, and revalidates its digest and revocation epoch. */
+    const founding = await seedFoundingPasskeyAuthority({
       database,
       ...scope,
-      record: {
-        kind: 'passkey',
+      identity: {
+        walletId: String(walletId),
+        authorityId: 'wallet-authority:add-auth-wallet',
         walletAuthMethodId: 'wallet-auth-method:add-auth-existing-passkey',
-        walletAuthorityId: 'wallet-authority:add-auth-wallet',
-        walletId,
         rpId,
-        credentialIdB64u: 'existing-passkey-credential',
-        credentialPublicKeyB64u: 'existing-passkey-public-key',
-        counter: 0,
-        createdAtMs: 1_000,
-        updatedAtMs: 1_000,
       },
     });
 
@@ -533,9 +531,23 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           walletId,
         },
         authMethod: { kind: 'email_otp', email },
+        /* The source the fresh proof will be taken over. Every identity the
+           start revalidates is named here, so a claim that drifts from live
+           state fails closed instead of authorizing against the resolved
+           source. */
+        caller: {
+          caller: 'same_device_addition',
+          source: {
+            walletAuthorityId: founding.authMethod.walletAuthorityId,
+            walletAuthMethodId: founding.authMethod.walletAuthMethodId,
+            walletSessionId: String(founding.issuedSession.session.walletSessionId),
+            authorityDigestB64u: String(founding.authority.authorityDigestB64u),
+            revocationEpoch: founding.authority.revocationEpoch,
+          },
+        },
       },
     });
-    expect(intent.ok).toBe(true);
+    expect(intent.ok, JSON.stringify(intent)).toBe(true);
     if (!intent.ok) throw new Error(intent.message);
     expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
     const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);

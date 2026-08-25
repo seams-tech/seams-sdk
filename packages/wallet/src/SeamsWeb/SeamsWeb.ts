@@ -1691,7 +1691,7 @@ export class SeamsWeb {
       walletId: args.walletId,
       emailAddress: args.emailAddress,
       otpCode: args.otpCode,
-      ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+      challengeId: args.challengeId,
       options: args.options,
     });
   }
@@ -2196,7 +2196,7 @@ export class SeamsWeb {
         walletId: toWalletId(args.walletId),
         otpCode: args.otpCode,
         ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
-        ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+        challengeId: args.challengeId,
         ...(args.groupId ? { groupId: args.groupId } : {}),
         ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
       });

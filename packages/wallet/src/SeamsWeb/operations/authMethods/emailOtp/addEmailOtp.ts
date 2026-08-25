@@ -128,7 +128,7 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
   readonly walletId: WalletId;
   readonly emailAddress: string;
   readonly otpCode: string;
-  readonly challengeId?: string;
+  readonly challengeId: string;
   readonly options?: AddEmailOtpHooksOptions;
 }): Promise<AddEmailOtpResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
@@ -220,7 +220,7 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
       email: emailAddress,
       providerSubject,
       otpCode: args.otpCode,
-      ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+      challengeId: args.challengeId,
     },
     relayUrl: relayerUrl,
     walletId: String(args.walletId),
@@ -281,7 +281,16 @@ export async function addEmailOtpWalletAuthMethod(args: {
   readonly walletId: WalletId | string;
   readonly emailAddress: string;
   readonly otpCode: string;
-  readonly challengeId?: string;
+  /**
+   * Required. The enrollment challenge the code was sent for.
+   *
+   * `collectEmailOtpRegistrationAuthority` will request one when it is absent,
+   * but the path it requests from has no server route — the challenge is
+   * issued through the operation-bound Email OTP route the application already
+   * uses to send the code. Accepting an omission here would produce a 404 at
+   * the least useful moment, after the source assertion was already collected.
+   */
+  readonly challengeId: string;
   readonly options?: AddEmailOtpHooksOptions;
 }): Promise<AddEmailOtpResult> {
   const walletId = walletIdFromString(String(args.walletId || '').trim());
@@ -291,7 +300,7 @@ export async function addEmailOtpWalletAuthMethod(args: {
       walletId,
       emailAddress: args.emailAddress,
       otpCode: args.otpCode,
-      ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+      challengeId: args.challengeId,
       options: args.options,
     });
     await args.options?.afterCall?.(true, result);

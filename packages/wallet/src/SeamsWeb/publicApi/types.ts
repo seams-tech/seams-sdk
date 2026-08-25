@@ -843,7 +843,7 @@ export interface RegistrationCapability {
     walletId: WalletId | string;
     emailAddress: string;
     otpCode: string;
-    challengeId?: string;
+    challengeId: string;
     options?: AddEmailOtpHooksOptions;
   }): Promise<AddEmailOtpResult>;
   registerWallet(args: {

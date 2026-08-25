@@ -1026,7 +1026,7 @@ export interface PMAddEmailOtpPayload {
   walletId: WalletId | string;
   emailAddress: string;
   otpCode: string;
-  challengeId?: string;
+  challengeId: string;
   options?: Record<string, unknown>;
 }
 
