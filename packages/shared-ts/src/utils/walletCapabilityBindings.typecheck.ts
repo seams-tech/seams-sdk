@@ -17,11 +17,13 @@ declare const rpId: PasskeyAuthScope['rpId'];
 declare const credentialIdB64u: string;
 declare const emailHashHex: string;
 declare const registrationAuthorityId: string;
+declare const walletAuthMethodId: WalletAuthMethodId;
 declare const namedNearAccountId: NamedNearAccountId;
 declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 
 const validPasskeyBinding = {
   kind: 'passkey',
+  walletAuthMethodId,
   scope: {
     wallet,
     rpId,
@@ -33,6 +35,7 @@ void (walletAuthMethodBindingId(validPasskeyBinding) satisfies WalletAuthMethodI
 
 const validEmailOtpBinding = {
   kind: 'email_otp',
+  walletAuthMethodId,
   wallet,
   emailHashHex,
   registrationAuthorityId,
@@ -64,6 +67,7 @@ void invalidEmailOtpWithRpId;
 
 const invalidPasskeyWithoutRpId = {
   kind: 'passkey',
+  walletAuthMethodId,
   // @ts-expect-error passkey scope requires rpId.
   scope: {
     wallet,
@@ -71,6 +75,14 @@ const invalidPasskeyWithoutRpId = {
   credentialIdB64u,
 } satisfies WalletAuthMethodBinding;
 void invalidPasskeyWithoutRpId;
+
+const invalidPasskeyWithoutMethodId = {
+  kind: 'passkey',
+  scope: { wallet, rpId },
+  credentialIdB64u,
+  // @ts-expect-error exact method selection requires the allocated method id.
+} satisfies WalletAuthMethodBinding;
+void invalidPasskeyWithoutMethodId;
 
 const invalidNearAccountWithoutWallet = {
   kind: 'named_near_account',

@@ -5,6 +5,8 @@ import {
 } from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
 import {
   buildActiveWalletAuthorityV1,
+  computeWalletAuthorityDigestB64u,
+  computeWalletSignerActivationSetDigestB64u,
   buildRevokedWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
   type ActiveWalletAuthorityV1,
@@ -166,7 +168,14 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
             parseLinkDeviceSessionId(`link-session:management-${input.label}`),
           ),
         };
-  const authority = buildActiveWalletAuthorityV1({
+  /* Canonical, not placeholder. Every server path that reads an authority
+     recomputes both digests and refuses a record whose stored values disagree,
+     so a fixture with a stand-in digest describes a row production would treat
+     as corrupt. The authority digest covers the activation digest, so they are
+     computed in that order. */
+  const signerActivationSetDigestB64u =
+    await computeWalletSignerActivationSetDigestB64u(signerActivations);
+  const authorityWithoutDigest = buildActiveWalletAuthorityV1({
     kind: 'wallet_authority_v1',
     authorityId,
     walletId,
@@ -174,13 +183,17 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     provenance,
     permissions: input.permissions,
     signerActivations,
-    signerActivationSetDigestB64u: MANAGEMENT_DIGEST,
+    signerActivationSetDigestB64u,
     authorityDigestB64u: MANAGEMENT_DIGEST,
     revocationEpoch: 0,
     createdAtMs: 100,
     updatedAtMs: 200,
     state: 'active',
     activatedAtMs: 200,
+  });
+  const authority = buildActiveWalletAuthorityV1({
+    ...authorityWithoutDigest,
+    authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityWithoutDigest),
   });
   const rpId = required(parseWebAuthnRpId(input.identity?.rpId ?? 'management.example.test'));
   const credentialIdB64u = required(
@@ -226,7 +239,7 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     walletId,
     authorityId,
     walletAuthMethodId: authMethodId,
-    authorityDigestB64u: MANAGEMENT_DIGEST,
+    authorityDigestB64u: authority.authorityDigestB64u,
     authorityRevocationEpoch: authority.revocationEpoch,
     mintId,
     authorizationId,
