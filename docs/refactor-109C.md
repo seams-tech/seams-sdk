@@ -508,10 +508,47 @@ Two ways out, both real:
 The first is the smaller change and the one the plan already describes. The
 second is the one that would be right if this model were being designed now.
 
-Until one lands, `email-otp.add-passkey.contract.test.ts` proves the addition
-only: an added method is real on the server, selectable, and revocable, and
-cannot unlock or sign. `harness.unlockWithAddedPasskey()` exists and is the
-step that will prove the rest.
+The per-method branch is now built, and the sibling model holds. An added method
+gets its own encrypted access projection over the wallet's existing activation:
+uniqueness moved from one active manifest per material activation to one per
+(material activation, exact authority), the activation lookup takes the exact
+`WalletAuthAuthorityRef` and answers `ambiguous_authority` rather than picking a
+sibling, and the copy boundary requires both methods to be active members of the
+same `walletAuthorityId` before it opens anything. No activation, share, public
+key, or key manifest is created, so invariant 8 holds.
+
+Three further assumptions were in the way, each hiding the next, and each is
+recorded here because the shape repeats: a place that reasoned about a
+capability as though it had exactly one auth method.
+
+1. A pointerless lookup scanned by capability and wallet, found the source
+   method's manifest, and called the target's absent projection a binding
+   mismatch. Installing the second method's access read as corruption.
+2. The capability listing walked one subject at a time and then rebuilt each
+   capability by material activation, which no longer names one manifest. Every
+   sibling collapsed onto the selected method, so an added method never appeared
+   as a candidate for its own family.
+3. Canonical lane selection cancelled the siblings out. They share a material
+   identity by construction, which is what the tie-break keys on, so neither
+   superseded the other and the wallet reported no lane for a target it can
+   sign for. Siblings are one lane reachable by two credentials; the Ed25519
+   side already collapses them, and now so does ECDSA.
+
+What remains is one gap, and it is no longer about custody. Unlocking with the
+added passkey reaches a `deferred` lane with `candidateCount: 1` - the lane
+resolves and selects, and the material is there. `deferred` means no Wallet
+Session has ever been minted under the added method's authority, and
+`readEcdsaUseCaseReadyLane` requires a `ready` lane with an authorization while
+the unlock postcondition still runs before the session is committed. A method
+that has never been unlocked cannot satisfy that ordering, which is a property
+of the unlock sequence rather than of the addition: invariant 9 makes lock and
+unlock the supported route to a new method, so the unlock has to be able to
+establish that method's first session.
+
+Until it does, `email-otp.add-passkey.contract.test.ts` proves the addition
+only. `harness.unlockWithAddedPasskey()` exists and is the step that will prove
+the rest; it is deliberately not in the committed contract, so the intended
+suite stays green while the gap is open.
 
 ## Goal
 
