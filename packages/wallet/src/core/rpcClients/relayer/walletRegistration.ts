@@ -806,7 +806,14 @@ export type AddAuthMethodAuth =
       walletSessionToken: string;
     }
   | {
+      /* R109C `email_otp_to_passkey`: the source is the wallet's Email OTP
+         method, proved freshly by a one-time code the server verifies against
+         this addition's intent digest. The digest travels so the server can
+         refuse a code taken for any other operation. */
       kind: 'email_otp';
+      challengeId: string;
+      otpCode: string;
+      expectedChallengeDigestB64u: string;
     };
 
 export type WalletAddAuthMethodAuthority =
@@ -3577,7 +3584,12 @@ function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
       // refuses a body that carries session or credential facts.
       return { kind: 'wallet_session' };
     case 'email_otp':
-      return { kind: 'email_otp' };
+      return {
+        kind: 'email_otp',
+        challengeId: auth.challengeId,
+        otpCode: auth.otpCode,
+        expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
+      };
   }
 }
 

@@ -167,7 +167,16 @@ type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'
 type ParsedWalletAddAuthMethodStartRequest = Omit<WalletAddAuthMethodStartRequest, 'auth'> & {
   readonly auth:
     | Extract<WalletAddAuthMethodStartRequest['auth'], { readonly kind: 'webauthn_assertion' }>
-    | { readonly kind: 'wallet_session' };
+    | { readonly kind: 'wallet_session' }
+    /* Parsed, not yet resolved: the route verifies the code and turns this
+       into the service's `email_otp` auth, whose identity fields come from the
+       verified challenge rather than the body. */
+    | {
+        readonly kind: 'email_otp_source_proof';
+        readonly challengeId: string;
+        readonly otpCode: string;
+        readonly expectedChallengeDigestB64u: string;
+      };
 };
 
 type RegistrationTraceContextParseResult =
@@ -1028,6 +1037,38 @@ async function parseWalletAddAuthMethodStartBody(
       rpId: authRpId.value,
       credential: credential.value,
       expectedChallengeDigestB64u,
+    };
+  } else if (auth.kind === 'email_otp') {
+    /* R109C `email_otp_to_passkey`: the source is the wallet's Email OTP
+       method. The body carries only the one-time code and the digest it was
+       taken over; every identity fact — provider subject, enrollment, authority
+       — is resolved from the verified challenge in the route handler, so a
+       caller cannot name whose method authorized the addition. */
+    const emailChallengeId = typeof auth.challengeId === 'string' ? auth.challengeId.trim() : '';
+    const emailOtpCode = typeof auth.otpCode === 'string' ? auth.otpCode.trim() : '';
+    const emailExpectedDigest =
+      typeof auth.expectedChallengeDigestB64u === 'string'
+        ? auth.expectedChallengeDigestB64u.trim()
+        : '';
+    if (!emailChallengeId || !emailOtpCode) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'email_otp auth requires a challenge and a one-time code',
+      };
+    }
+    if (emailExpectedDigest !== expectedDigest) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth.expectedChallengeDigestB64u must match add-auth-method intent digest',
+      };
+    }
+    existingAuth = {
+      kind: 'email_otp_source_proof',
+      challengeId: emailChallengeId,
+      otpCode: emailOtpCode,
+      expectedChallengeDigestB64u: emailExpectedDigest,
     };
   } else if (auth.kind === 'wallet_session') {
     /* R103 zero-prompt handoff: the body names only the auth kind. Every
@@ -2637,6 +2678,34 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       },
     };
+  } else if (parsedRequest.auth.kind === 'email_otp_source_proof') {
+    /* R109C `email_otp_to_passkey`. The same rule as the assertion branch: a
+       same-device addition proves its source freshly, so the linked-device
+       ceremony cannot borrow this path. */
+    if (parsedRequest.intent.caller !== 'same_device_addition') {
+      return routeError(
+        401,
+        'unauthorized',
+        'Linked-device add-auth-method start requires the owner Wallet Session handoff',
+      );
+    }
+    const sourceProof = parsedRequest.auth;
+    const verified = await input.services.walletRegistration.verifyAddAuthMethodEmailOtpSourceProof(
+      {
+        walletId: walletIdFromString(walletId),
+        challengeId: sourceProof.challengeId,
+        otpCode: sourceProof.otpCode,
+        expectedDigestB64u: sourceProof.expectedChallengeDigestB64u,
+      },
+    );
+    if (!verified.ok) {
+      return routeError(
+        verified.code === 'invalid_state' ? 400 : 401,
+        verified.code === 'invalid_state' ? 'invalid_body' : 'unauthorized',
+        verified.message,
+      );
+    }
+    request = { ...parsedRequest, auth: verified.auth };
   } else if (parsedRequest.auth.kind === 'wallet_session') {
     /* Only the linked-device ceremony may authorize with a reusable bearer
        credential. A same-device addition names itself in its own intent and

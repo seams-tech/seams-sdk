@@ -28,6 +28,8 @@ import {
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { linkWalletPasskeyCustody } from '@/core/signingEngine/walletCustody/passkeyLink';
 import { resolveAddAuthMethodSourceClaimV1 } from '../addAuthMethodSourceClaim';
+import { requestAddAuthMethodEmailOtpChallenge } from '@/core/rpcClients/relayer/walletRegistration';
+import { readUnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/walletCustody/unlockedEd25519ExportRootCapability';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 export type AddPasskeyAuthorization =
   | { readonly kind: 'existing_passkey' }
@@ -129,7 +131,6 @@ async function addPasskeyWalletAuthMethodInternal(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
-  readonly authorization: AddPasskeyAuthorization;
   readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
@@ -183,8 +184,21 @@ async function addPasskeyWalletAuthMethodInternal(args: {
   ) {
     throw new Error('Wallet add-passkey requires an initialized wallet profile');
   }
-  if (args.authorization.kind === 'email_otp') {
-    throw new Error('Wallet add-passkey requires a fresh passkey owner proof');
+  /* R109C `email_otp_to_passkey`: the source is the wallet's Email OTP method,
+     so the fresh proof is a one-time code taken over this intent's digest
+     rather than an assertion. The seed itself is not re-released — the Email
+     unlock that opened this session left its factor secret in the worker, and
+     the reseal draws from that handle. */
+  if (sourceClaim.sourceFamily === 'email_otp') {
+    return await addPasskeyFromEmailOtpSource({
+      context: args.context,
+      walletId: args.walletId,
+      rpId: args.rpId,
+      relayerUrl,
+      profile,
+      intentResponse,
+      ...(args.options ? { options: args.options } : {}),
+    });
   }
   const authenticators = await IndexedDBManager.listProfileAuthenticators(String(args.walletId));
   const allowCredentials = requireExistingPasskeyCredentials(authenticators);
@@ -216,7 +230,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
         credential: redactCredentialExtensionOutputs(credential),
         expectedChallengeDigestB64u: intentResponse.addAuthMethodIntentDigestB64u,
       },
-      existingFactorSecret,
+      sealSource: { kind: 'factor_secret', existingFactorSecret },
       walletAuthMethodId: intentResponse.intent.targetWalletAuthMethodId,
       worker: walletCustodyWorkerTransport(args.context),
       createRegistrationCredential: async (registration) => {
@@ -244,11 +258,105 @@ async function addPasskeyWalletAuthMethodInternal(args: {
   }
 }
 
+/**
+ * Refactor 109C's `email_otp_to_passkey` branch.
+ *
+ * The Email OTP method that already unlocks this wallet authorizes adding a
+ * passkey. Three things stay exactly as they are in the Passkey-source branch,
+ * deliberately: the target method id comes from the same intent, the reseal and
+ * finalize run through the same custody link, and the local installation is the
+ * same projection. Only the source proof and the seed's door change.
+ *
+ * The Email source method and its Wallet Session stay selected — nothing here
+ * re-selects, revokes, or re-mints them. Adding a way in does not change the
+ * way you came in.
+ */
+async function addPasskeyFromEmailOtpSource(args: {
+  readonly context: RegistrationWebContext;
+  readonly walletId: WalletId;
+  readonly rpId: WebAuthnRpId;
+  readonly relayerUrl: string;
+  readonly profile: { readonly defaultSignerSlot: number };
+  readonly intentResponse: Awaited<ReturnType<typeof createWalletAddAuthMethodIntent>>;
+  readonly options?: AddPasskeyHooksOptions;
+}): Promise<AddPasskeyResult> {
+  /* The seed's door. An Email unlock parked the factor secret with the opened
+     handle, so this addition needs no factor release and no second code. A
+     wallet without the capability has not unlocked in this session — the
+     honest answer is to unlock, not to prompt for another code. */
+  const capability = readUnlockedWalletEd25519ExportRootCapabilityV1(String(args.walletId));
+  if (!capability) {
+    throw new Error('Wallet add-passkey from an Email OTP source requires an unlocked wallet');
+  }
+  /* The code goes to the address the wallet already trusts, and the server
+     binds it to this intent's digest. Requested only after the intent exists,
+     so a refused addition sends no mail. */
+  const sendSourceCode = async (): Promise<{ challengeId: string; emailHint: string }> =>
+    await requestAddAuthMethodEmailOtpChallenge({
+      relayerUrl: args.relayerUrl,
+      walletId: args.walletId,
+      addAuthMethodIntentGrant: args.intentResponse.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: args.intentResponse.addAuthMethodIntentDigestB64u,
+    });
+  const sent = await sendSourceCode();
+  const confirmed = await args.context.signingEngine.requestEmailOtpEnrollmentConfirmation({
+    walletId: String(args.walletId),
+    emailAddress: sent.emailHint || 'your email',
+    challengeId: sent.challengeId,
+    ...(sent.emailHint ? { emailHint: sent.emailHint } : {}),
+    confirmerText: {
+      title: 'Enter email code to add a passkey',
+      body: 'This one-time code confirms you can add a new passkey to this wallet.',
+    },
+    ...(args.options?.confirmationConfig
+      ? { confirmationConfigOverride: args.options.confirmationConfig }
+      : {}),
+    onResend: sendSourceCode,
+  });
+  const linked = await linkWalletPasskeyCustody({
+    relayerUrl: args.relayerUrl,
+    walletId: args.walletId,
+    addAuthMethodIntentGrant: args.intentResponse.addAuthMethodIntentGrant,
+    addAuthMethodIntentDigestB64u: args.intentResponse.addAuthMethodIntentDigestB64u,
+    intent: args.intentResponse.intent,
+    /* The fresh source proof: a one-time code the server verifies against this
+       intent's digest, so a code taken for some other operation cannot start
+       this ceremony. */
+    auth: {
+      kind: 'email_otp',
+      challengeId: confirmed.challengeId,
+      otpCode: confirmed.otpCode,
+      expectedChallengeDigestB64u: args.intentResponse.addAuthMethodIntentDigestB64u,
+    },
+    sealSource: { kind: 'unlocked_capability', capability },
+    walletAuthMethodId: args.intentResponse.intent.targetWalletAuthMethodId,
+    worker: walletCustodyWorkerTransport(args.context),
+    createRegistrationCredential: async (registration) => {
+      const confirmation =
+        await args.context.signingEngine.requestRegistrationCredentialConfirmation({
+          walletId: String(args.walletId),
+          signerSlot: args.profile.defaultSignerSlot,
+          confirmerText: args.options?.confirmerText,
+          confirmationConfigOverride: args.options?.confirmationConfig,
+          registrationOptions: registration,
+        });
+      if (!confirmation.confirmed) {
+        throw new Error('Wallet add-passkey registration was cancelled');
+      }
+      return confirmation.credential;
+    },
+  });
+  return await persistAddedPasskey({
+    walletId: args.walletId,
+    rpId: args.rpId,
+    finalized: linked.finalized,
+  });
+}
+
 export async function addPasskeyWalletAuthMethod(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId | string;
   readonly rpId: string;
-  readonly authorization: AddPasskeyAuthorization;
   readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
   const walletId = walletIdFromString(String(args.walletId || '').trim());
@@ -259,7 +367,6 @@ export async function addPasskeyWalletAuthMethod(args: {
       context: args.context,
       walletId,
       rpId: parsedRpId.value,
-      authorization: args.authorization,
       options: args.options,
     });
     await args.options?.afterCall?.(true, result);

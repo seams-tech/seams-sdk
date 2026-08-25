@@ -1259,6 +1259,22 @@ export interface RouterApiWalletAuthMethodService {
       }
     | { readonly ok: false; readonly code: string; readonly message: string }
   >;
+  /** Verifies the fresh Email OTP source proof and resolves the identity it proved. */
+  verifyAddAuthMethodEmailOtpSourceProof(input: {
+    readonly walletId: WalletId;
+    readonly challengeId: string;
+    readonly otpCode: string;
+    readonly expectedDigestB64u: string;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly auth: Extract<
+          StartWalletAddAuthMethodCommand['auth'],
+          { readonly kind: 'email_otp' }
+        >;
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   startWalletAddAuthMethod(
     input: StartWalletAddAuthMethodCommand,
     context?: { readonly userAgent?: string },

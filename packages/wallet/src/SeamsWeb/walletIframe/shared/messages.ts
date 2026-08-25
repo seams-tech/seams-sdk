@@ -1017,7 +1017,6 @@ export interface PMAddWalletSignerPayload {
 export interface PMAddPasskeyPayload {
   walletId: WalletId | string;
   rpId: string;
-  authorization: AddPasskeyAuthorization;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }

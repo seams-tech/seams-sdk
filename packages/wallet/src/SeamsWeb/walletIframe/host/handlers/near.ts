@@ -170,7 +170,6 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const result = await pm.registration.addPasskey({
         walletId: payload.walletId,
         rpId: payload.rpId,
-        authorization: payload.authorization,
         options: {
           ...hooksOptions,
           ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
