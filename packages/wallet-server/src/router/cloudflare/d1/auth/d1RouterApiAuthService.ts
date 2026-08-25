@@ -34,6 +34,10 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
@@ -2157,6 +2161,7 @@ async function issueWalletSessionForActiveAuthority(input: {
   }
 
   const issuedAtMs = Date.now();
+  const deviceLinked = input.resolved.authority.provenance.kind === 'device_link';
   try {
     const reusableWalletSession = await input.authorizationService.issueReusableWalletSession({
       tenantId: tenantId.value,
@@ -2164,9 +2169,13 @@ async function issueWalletSessionForActiveAuthority(input: {
       walletId: input.resolved.authority.walletId,
       authority: await walletAuthAuthorityRefForActiveUnlock(input.resolved),
       mintId: mintId.value,
-      remainingUses: LINKED_DEVICE_WALLET_SESSION_REMAINING_USES,
+      remainingUses: deviceLinked
+        ? LINKED_DEVICE_WALLET_SESSION_REMAINING_USES
+        : DEFAULT_WALLET_SESSION_REMAINING_USES,
       issuedAtMs,
-      expiresAtMs: issuedAtMs + LINKED_DEVICE_WALLET_SESSION_TTL_MS,
+      expiresAtMs:
+        issuedAtMs +
+        (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
     });
     const walletSession =
       await input.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
