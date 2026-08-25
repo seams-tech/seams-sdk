@@ -28,3 +28,13 @@ test('an ECDSA-only wallet gains an Email OTP method', async ({ harness }) => {
   await harness.addEmailOtpAuthMethod();
   await harness.assertRepeatAdditionIsAlreadyConfigured('addEmailOtpAuthMethod');
 });
+
+test('an Ed25519-only Email OTP wallet gains a passkey', async ({ harness }) => {
+  await harness.registerEmailOtpEd25519OnlyWallet();
+  await harness.awaitNearReady();
+  /* The reverse direction on a wallet with no ECDSA: the added passkey must
+     inherit the Ed25519 identity and claim no ECDSA, rather than fail on the
+     capability the wallet never had. */
+  await harness.addPasskeyAuthMethod();
+  await harness.assertRepeatAdditionIsAlreadyConfigured('addPasskeyAuthMethod');
+});

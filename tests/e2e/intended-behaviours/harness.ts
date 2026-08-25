@@ -82,6 +82,8 @@ type IntendedHarnessAction =
   | 'addEmailOtpAuthMethod'
   | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
+  | 'registerEmailOtpEd25519OnlyWallet'
+  | 'registerEmailOtpEcdsaOnlyWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
   | 'recoverPasskeyWallet'
@@ -1325,6 +1327,60 @@ export class IntendedBehaviourHarness {
     this.recordService(
       `ECDSA-only passkey registration succeeded wallet=${result.walletId} profile=${result.ecdsaTargetProfile}`,
     );
+  }
+
+  /** Refactor 109C matrix: an Email OTP wallet whose signer set is ECDSA only. */
+  async registerEmailOtpEcdsaOnlyWallet(): Promise<void> {
+    this.recordStage('register_email_otp_ecdsa_only_wallet');
+    const snapshot = await this.runIntendedPageAction(
+      'registerEmailOtpEcdsaOnlyWallet',
+      'intended-register-email-otp-ecdsa-only',
+    );
+    if (snapshot.action.status !== 'success') {
+      throw new Error(
+        `ECDSA-only Email OTP registration ended with ${snapshot.action.status}: ${
+          snapshot.action.status === 'error' ? snapshot.action.error : ''
+        }`,
+      );
+    }
+    const result = snapshot.action.result;
+    if (result.kind !== 'email_otp_registration_success') {
+      throw new Error(`ECDSA-only Email OTP registration returned ${result.kind}`);
+    }
+    if (result.ecdsaTargetProfile === 'none') {
+      throw new Error('ECDSA-only Email OTP registration provisioned no ECDSA target');
+    }
+    this.registeredWallet = result;
+    this.currentWarmSigningStage = 'post_registration';
+    this.emailOtpVerificationCount += 1;
+    this.recordService(`ECDSA-only Email OTP registration succeeded wallet=${result.walletId}`);
+  }
+
+  /** Refactor 109C matrix: an Email OTP wallet whose signer set is Ed25519 only. */
+  async registerEmailOtpEd25519OnlyWallet(): Promise<void> {
+    this.recordStage('register_email_otp_ed25519_only_wallet');
+    const snapshot = await this.runIntendedPageAction(
+      'registerEmailOtpEd25519OnlyWallet',
+      'intended-register-email-otp-ed25519-only',
+    );
+    if (snapshot.action.status !== 'success') {
+      throw new Error(
+        `Ed25519-only Email OTP registration ended with ${snapshot.action.status}: ${
+          snapshot.action.status === 'error' ? snapshot.action.error : ''
+        }`,
+      );
+    }
+    const result = snapshot.action.result;
+    if (result.kind !== 'email_otp_registration_success') {
+      throw new Error(`Ed25519-only Email OTP registration returned ${result.kind}`);
+    }
+    if (result.ecdsaTargetProfile !== 'none') {
+      throw new Error('Ed25519-only Email OTP registration provisioned an ECDSA signer');
+    }
+    this.registeredWallet = result;
+    this.currentWarmSigningStage = 'post_registration';
+    this.emailOtpVerificationCount += 1;
+    this.recordService(`Ed25519-only Email OTP registration succeeded wallet=${result.walletId}`);
   }
 
   /** Refactor 109C acceptance: an Email OTP wallet gains a Passkey method. */
@@ -4563,6 +4619,8 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'addEmailOtpAuthMethod':
     case 'addPasskeyAuthMethod':
     case 'registerEmailOtpWallet':
+    case 'registerEmailOtpEd25519OnlyWallet':
+    case 'registerEmailOtpEcdsaOnlyWallet':
     case 'awaitNearReady':
     case 'syncPasskeyWallet':
     case 'recoverPasskeyWallet':

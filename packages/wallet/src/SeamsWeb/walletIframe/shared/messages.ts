@@ -1049,6 +1049,8 @@ export type PMGoogleEmailOtpWalletAuthStartPayload = {
   mode: GoogleEmailOtpWalletAuthRequestedMode;
   relayUrl?: string;
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
+  /** Register-mode only; see the public start input. */
+  signerSelection?: RegistrationSignerSetSelection;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   diagnostics: {
     emailOtpUnlockTimings: boolean;
