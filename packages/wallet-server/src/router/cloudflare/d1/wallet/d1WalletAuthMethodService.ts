@@ -693,6 +693,7 @@ export class CloudflareD1WalletAuthMethodService {
         authority: request.authority,
         expectedDigestB64u: storedIntent.digestB64u,
         intent: emailOtpIntent,
+        sourceWalletAuthorityId: sourceMethod.walletAuthorityId,
       });
       if (!authority.ok) return authority;
       /* R109C: the browser reseals the wallet's existing custody seed under the
@@ -2494,6 +2495,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly authority: EmailOtpWalletRegistrationAuthorityInput;
     readonly expectedDigestB64u: string;
     readonly intent: AddAuthMethodIntentV1;
+    readonly sourceWalletAuthorityId: WalletAuthMethodRecordV2['walletAuthorityId'];
   }): Promise<
     | {
         readonly ok: true;
@@ -2550,15 +2552,28 @@ export class CloudflareD1WalletAuthMethodService {
       };
     }
     const emailHashHex = await this.emailHashHex(proof.email);
-    const duplicateEmailOtp = await this.getWalletAuthMethodStore().getEmailOtpV2({
-      walletId: input.intent.walletId,
-      emailHashHex,
-    });
-    if (duplicateEmailOtp && duplicateEmailOtp.status === 'active') {
+    /* Authority-scoped. `getEmailOtpV2` answers a wallet-wide question and
+       returns the earliest matching row regardless of status, so it both
+       blocked this addition because a SIBLING authority held an Email method
+       — every wallet that has linked a device — and could miss a later active
+       row behind an earlier revoked one. The invariant R109C states is one
+       active Email OTP method per authority, so that is what is checked. The
+       registration path above keeps the wallet-wide question, which is the
+       right one for a wallet that has no authority yet. */
+    const authorityEmailOtpMethods = (
+      await this.getWalletAuthMethodStore().listForWalletV2({ walletId: input.intent.walletId })
+    )
+      .filter(isActiveWalletAuthMethodRecordV2)
+      .filter(
+        (method) =>
+          method.kind === 'email_otp' &&
+          method.walletAuthorityId === input.sourceWalletAuthorityId,
+      );
+    if (authorityEmailOtpMethods.length > 0) {
       return {
         ok: false,
-        code: 'duplicate_auth_method',
-        message: 'Email OTP auth method is already registered',
+        code: 'already_configured',
+        message: 'Wallet authority already has an active email_otp auth method',
       };
     }
     const providerSubject = parseProviderSubject(proof.providerSubject);
