@@ -7,6 +7,7 @@ import {
 } from '../../../framework/routeDefinitions';
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import {
   isHostWithinRpId,
   originHostnameOrEmpty,
@@ -101,6 +102,7 @@ const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 const RECOVERY_READ_ROUTE_ID = 'wallet_recovery_codes_read';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
 const EMAIL_OTP_CHALLENGE_ROUTE_ID = 'wallet_custody_email_otp_challenge';
+const ENVELOPE_OWNERSHIP_UPGRADE_ROUTE_ID = 'wallet_custody_envelope_ownership_upgrade';
 
 type WalletCustodyOwnerProofWire =
   | {
@@ -735,6 +737,118 @@ export async function handleWalletCustodyCredentialsList(
     ok: true,
     credentials: result,
   });
+}
+
+/**
+ * Refactor 109C: binds a pre-109C custody envelope to the method that opened it.
+ *
+ * Authorized by the Wallet Session bearer alone, and deliberately so. The
+ * session names the exact auth method it was minted through, which is the one
+ * fact this operation needs — and it is a fact the caller already proved by
+ * unlocking. Asking for a fresh assertion here would prompt the user for
+ * permission to finish work their unlock had already done.
+ *
+ * A session minted before provenance was recorded carries no method, so it
+ * cannot name an owner and is refused rather than guessed at.
+ */
+export async function handleWalletCustodyEnvelopeOwnershipUpgrade(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, ENVELOPE_OWNERSHIP_UPGRADE_ROUTE_ID);
+  if (!route)
+    throw new Error(`Missing route definition for ${ENVELOPE_OWNERSHIP_UPGRADE_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const parsedWalletId = parseWalletId(walletIdFromPath(route.path, ctx.pathname));
+  if (!parsedWalletId.ok) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'wallet id is invalid' },
+    });
+  }
+  const token = extractBearerCredential(ctx.request.headers);
+  if (!token) {
+    return toFetchRouteResponse({
+      status: 401,
+      body: { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+    });
+  }
+  const nowMs = Date.now();
+  const resolved =
+    (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      token,
+      curve: 'ed25519',
+      nowMs,
+    })) ??
+    (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
+      tenantId: ctx.service.authorizationSessions.tenantId,
+      token,
+      curve: 'ecdsa',
+      nowMs,
+    }));
+  if (!resolved || String(resolved.authorization.walletId) !== String(parsedWalletId.value)) {
+    return toFetchRouteResponse({
+      status: 401,
+      body: { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+    });
+  }
+  const walletAuthMethodId = resolved.authorization.walletAuthMethodId;
+  if (walletAuthMethodId === null) {
+    return toFetchRouteResponse({
+      status: 403,
+      body: {
+        ok: false,
+        code: 'forbidden',
+        message: 'this Wallet Session does not name the auth method that minted it',
+      },
+    });
+  }
+
+  const body = await readJsonObject(ctx.request);
+  let envelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    envelope = parsePasskeyCustodyEnvelopeRecord(body?.envelope);
+  } catch (error: unknown) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: error instanceof Error ? error.message : 'custody envelope is invalid',
+      },
+    });
+  }
+
+  const result = await ctx.service.passkeyCustody.upgradeEnvelopeOwnership({
+    walletId: parsedWalletId.value,
+    walletAuthMethodId,
+    envelope,
+  });
+  switch (result.kind) {
+    case 'upgraded':
+      return toFetchRouteResponse({
+        status: 200,
+        body: { ok: true, upgraded: true, envelopeRevision: result.envelopeRevision },
+      });
+    case 'already_owned':
+      return toFetchRouteResponse({ status: 200, body: { ok: true, upgraded: false } });
+    case 'not_found':
+      return toFetchRouteResponse({
+        status: 404,
+        body: { ok: false, code: 'not_found', message: 'no custody envelope to upgrade' },
+      });
+    case 'conflict':
+      return toFetchRouteResponse({
+        status: 409,
+        body: { ok: false, code: 'conflict', message: result.reason },
+      });
+    case 'refused':
+      return toFetchRouteResponse({
+        status: 403,
+        body: { ok: false, code: 'forbidden', message: result.reason },
+      });
+  }
 }
 
 /** Renames one passkey credential; the label is metadata and never AAD. */

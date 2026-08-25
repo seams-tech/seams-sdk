@@ -5,6 +5,7 @@ import type {
   WalletCustodyFactorRef,
   WalletCredentialActivityProjection,
 } from './d1PasskeyCustodyEnvelopeStore';
+import { envelopeFactorRef } from './d1PasskeyCustodyEnvelopeStore';
 import {
   handlePasskeyCustodyEnvelopeRetrieval,
   type PasskeyCustodyEnvelopeRetrievalRouteResponse,
@@ -26,6 +27,7 @@ import {
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WalletAuthMethodId,
   type WalletId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -125,6 +127,21 @@ export type PasskeyCustodyEnvelopeRetrievalWireRequest = {
   readonly webauthnAuthentication: PasskeyCustodyEnvelopeRetrievalRequest['webauthnAuthentication'];
 };
 
+/**
+ * Refactor 109C: what became of a pre-109C envelope's ownership upgrade.
+ *
+ * `already_owned` is a success, not a near-miss. The upgrade runs on every
+ * unlock until it lands, so the second unlock after a successful one finds the
+ * work already done — reporting that as a conflict would turn the normal case
+ * into an error the client has to special-case anyway.
+ */
+export type WalletCustodyEnvelopeOwnershipUpgradeResult =
+  | { readonly kind: 'upgraded'; readonly envelopeRevision: number }
+  | { readonly kind: 'already_owned' }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'conflict'; readonly reason: string }
+  | { readonly kind: 'refused'; readonly reason: string };
+
 export interface RouterApiPasskeyCustodyService {
   readVerifiedFactorCustody(request: {
     readonly walletId: WalletId;
@@ -147,6 +164,20 @@ export interface RouterApiPasskeyCustodyService {
   retrieveEnvelope(
     request: PasskeyCustodyEnvelopeRetrievalWireRequest,
   ): Promise<PasskeyCustodyEnvelopeRetrievalRouteResponse>;
+
+  /**
+   * Binds a pre-109C custody envelope to the auth method that just opened it.
+   *
+   * The ciphertext is the client's — the server never holds a factor secret and
+   * cannot verify a reseal. What it can verify, and does, is that the submitted
+   * envelope names the method the caller authenticated as, and that the row it
+   * replaces is still the unbound one at the revision below it.
+   */
+  upgradeEnvelopeOwnership(request: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly envelope: PasskeyCustodyEnvelopeRecord;
+  }): Promise<WalletCustodyEnvelopeOwnershipUpgradeResult>;
 
   listWalletCredentials(request: {
     readonly walletId: WalletId;
@@ -380,6 +411,72 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         ...(label === undefined ? {} : { label }),
         nowMs: (assembly.nowMs ?? Date.now)(),
       });
+    },
+    upgradeEnvelopeOwnership: async (request) => {
+      const submitted = request.envelope;
+      if (String(submitted.walletId) !== String(request.walletId)) {
+        return { kind: 'refused', reason: 'the custody envelope belongs to a different wallet' };
+      }
+      /* The authorization, stated once: the envelope must name the method the
+         caller proved. Everything below is a precondition on the row being
+         replaced, not on who may replace it. */
+      if (
+        submitted.ownership.kind !== 'method_bound' ||
+        String(submitted.ownership.walletAuthMethodId) !== String(request.walletAuthMethodId)
+      ) {
+        return {
+          kind: 'refused',
+          reason: 'an upgraded custody envelope must name the authenticated auth method',
+        };
+      }
+      const submittedRevision = Number(submitted.envelopeRevision);
+      const lookup = await assembly.passkeyCustodyEnvelopes.lookupEnvelope({
+        walletId: request.walletId,
+        factor: envelopeFactorRef(submitted),
+        envelopeId: submitted.envelopeId,
+      });
+      if (lookup.kind === 'missing') return { kind: 'not_found' };
+      if (lookup.kind !== 'active') {
+        return { kind: 'refused', reason: `the custody envelope is ${lookup.kind}` };
+      }
+      const stored = lookup.envelope;
+      if (stored.ownership.kind === 'method_bound') {
+        /* Already bound. Same method means the upgrade landed on an earlier
+           attempt; a different one means this caller never owned it. */
+        return String(stored.ownership.walletAuthMethodId) === String(request.walletAuthMethodId)
+          ? { kind: 'already_owned' }
+          : {
+              kind: 'refused',
+              reason: 'the custody envelope is owned by a different auth method',
+            };
+      }
+      if (Number(stored.envelopeRevision) !== submittedRevision - 1) {
+        return {
+          kind: 'conflict',
+          reason: 'the custody envelope moved before the upgrade could be stored',
+        };
+      }
+      const rewrapped = await assembly.passkeyCustodyEnvelopes.rewrapEnvelope(submitted, {
+        envelopeId: stored.envelopeId,
+        envelopeRevision: Number(stored.envelopeRevision),
+        ownership: stored.ownership,
+      });
+      switch (rewrapped.kind) {
+        case 'stored':
+          return { kind: 'upgraded', envelopeRevision: rewrapped.envelopeRevision };
+        case 'not_found':
+          return { kind: 'not_found' };
+        case 'ownership_conflict':
+          return { kind: 'refused', reason: rewrapped.reason };
+        case 'terminal_lifecycle':
+          return { kind: 'refused', reason: 'the custody envelope is revoked' };
+        case 'revision_conflict':
+        case 'version_mismatch':
+          return {
+            kind: 'conflict',
+            reason: 'the custody envelope moved before the upgrade could be stored',
+          };
+      }
     },
     retrieveEnvelope: async (request) => {
       const challengeId = String(request.challengeId || '').trim();

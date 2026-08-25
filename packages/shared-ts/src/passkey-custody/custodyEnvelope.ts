@@ -182,9 +182,7 @@ export function custodyEnvelopeBindingJsonV1(
 }
 
 /** Serde's shape for the ownership enum: a bare string, or a one-key object. */
-export function custodyEnvelopeOwnershipWireV1(
-  ownership: WalletCustodyEnvelopeOwnership,
-): unknown {
+export function custodyEnvelopeOwnershipWireV1(ownership: WalletCustodyEnvelopeOwnership): unknown {
   switch (ownership.kind) {
     case 'unbound':
       return 'unbound';
@@ -457,4 +455,58 @@ export function parsePasskeyCustodyEnvelopeRecord(
 
 export function isActivePasskeyCustodyEnvelope(envelope: PasskeyCustodyEnvelopeRecord): boolean {
   return envelope.lifecycle.state === 'active';
+}
+
+/** Two ownerships name the same owner. */
+export function sameWalletCustodyEnvelopeOwnership(
+  left: WalletCustodyEnvelopeOwnership,
+  right: WalletCustodyEnvelopeOwnership,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'unbound') return true;
+  return (
+    right.kind === 'method_bound' &&
+    String(left.walletAuthMethodId) === String(right.walletAuthMethodId)
+  );
+}
+
+export type WalletCustodyEnvelopeOwnershipReplacementAdmissionV1 =
+  | { readonly kind: 'admitted' }
+  | { readonly kind: 'refused'; readonly reason: string };
+
+/**
+ * Whether a stored envelope's ownership may be replaced by another.
+ *
+ * Two rules, and both are load-bearing. A replacement is always `method_bound`,
+ * because no path may write a new V2 envelope — `unbound` exists only to decode
+ * what was sealed before ownership was authenticated. And a stored owner may
+ * only be replaced by itself: an envelope already bound to one method is never
+ * rebound to a sibling, which is the whole point of putting the owner in the
+ * AAD. That leaves exactly one transition that moves anything — the pre-109C
+ * upgrade, `unbound` to the method that just proved it can open the envelope.
+ */
+export function admitWalletCustodyEnvelopeOwnershipReplacementV1(input: {
+  readonly stored: WalletCustodyEnvelopeOwnership;
+  readonly replacement: WalletCustodyEnvelopeOwnership;
+}): WalletCustodyEnvelopeOwnershipReplacementAdmissionV1 {
+  if (input.replacement.kind === 'unbound') {
+    return {
+      kind: 'refused',
+      reason: 'a replacement custody envelope must name its owning method',
+    };
+  }
+  switch (input.stored.kind) {
+    case 'unbound':
+      return { kind: 'admitted' };
+    case 'method_bound':
+      return String(input.stored.walletAuthMethodId) ===
+        String(input.replacement.walletAuthMethodId)
+        ? { kind: 'admitted' }
+        : {
+            kind: 'refused',
+            reason: 'a custody envelope owned by one auth method is never rebound to another',
+          };
+    default:
+      return { kind: 'refused', reason: 'unhandled stored custody envelope ownership' };
+  }
 }

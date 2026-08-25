@@ -1,10 +1,13 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import {
+  admitWalletCustodyEnvelopeOwnershipReplacementV1,
   buildRevokedEnvelopeLifecycle,
   parsePasskeyCustodyEnvelopeRecord,
+  sameWalletCustodyEnvelopeOwnership,
   type PasskeyDeviceEnvelopeIndexRecord,
   type PasskeyCustodyEnvelopeRecord,
+  type WalletCustodyEnvelopeOwnership,
 } from '@shared/passkey-custody';
 import {
   parseWalletCredentialActivityRecordV1,
@@ -87,7 +90,7 @@ export type PasskeyCustodyEnvelopeLocator = {
 };
 
 /** The factor address a stored envelope actually carries. */
-function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustodyFactorRef {
+export function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustodyFactorRef {
   switch (envelope.factor.kind) {
     case 'passkey':
       return {
@@ -175,6 +178,17 @@ export type PasskeyCustodyEnvelopePutResult =
   | { readonly kind: 'revision_conflict'; readonly expectedRevision: number }
   | { readonly kind: 'not_found' }
   | { readonly kind: 'terminal_lifecycle'; readonly state: 'revoked' };
+
+/** What the caller believes it is replacing, checked before the ciphertext moves. */
+export type ExpectedCustodyEnvelopeState = {
+  readonly envelopeId: PasskeyEnvelopeId;
+  readonly envelopeRevision: number;
+  readonly ownership: WalletCustodyEnvelopeOwnership;
+};
+
+export type PasskeyCustodyEnvelopeRewrapResult =
+  | PasskeyCustodyEnvelopePutResult
+  | { readonly kind: 'ownership_conflict'; readonly reason: string };
 
 export type PasskeyCustodyEnvelopeRevocationResult =
   | {
@@ -769,10 +783,21 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
    *
    * The read-then-CAS window is closed by the store version: a concurrent
    * writer changes it, so the put fails rather than skipping a revision.
+   *
+   * `expected` is the caller's statement of which row it believes it is
+   * replacing — the exact envelope, the exact revision it was read at, and the
+   * exact method that owned it. The store refuses when any of the three has
+   * moved. Passing the replacement alone would let a caller that read a stale
+   * row overwrite whatever is there now as long as the arithmetic happened to
+   * line up, and for an envelope the arithmetic is not the identity.
    */
   async rewrapEnvelope(
     envelope: PasskeyCustodyEnvelopeRecord,
-  ): Promise<PasskeyCustodyEnvelopePutResult> {
+    expected: ExpectedCustodyEnvelopeState,
+  ): Promise<PasskeyCustodyEnvelopeRewrapResult> {
+    if (String(expected.envelopeId) !== String(envelope.envelopeId)) {
+      throw new Error('a custody envelope rewrap must name the envelope it replaces');
+    }
     const locator = envelopeLocator(envelope);
     const key = this.recordKey(locator);
     const current = await this.records.read(key);
@@ -782,8 +807,24 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     }
 
     const nextRevision = Number(current.value.envelopeRevision) + 1;
-    if (Number(envelope.envelopeRevision) !== nextRevision) {
+    if (
+      Number(current.value.envelopeRevision) !== Number(expected.envelopeRevision) ||
+      Number(envelope.envelopeRevision) !== nextRevision
+    ) {
       return { kind: 'revision_conflict', expectedRevision: nextRevision };
+    }
+    if (!sameWalletCustodyEnvelopeOwnership(current.value.ownership, expected.ownership)) {
+      return {
+        kind: 'ownership_conflict',
+        reason: 'the stored custody envelope is owned by a different auth method',
+      };
+    }
+    const admission = admitWalletCustodyEnvelopeOwnershipReplacementV1({
+      stored: current.value.ownership,
+      replacement: envelope.ownership,
+    });
+    if (admission.kind === 'refused') {
+      return { kind: 'ownership_conflict', reason: admission.reason };
     }
 
     const stored = await this.records.put(key, envelope, current.version);
