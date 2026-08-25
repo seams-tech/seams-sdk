@@ -534,21 +534,49 @@ capability as though it had exactly one auth method.
    sign for. Siblings are one lane reachable by two credentials; the Ed25519
    side already collapses them, and now so does ECDSA.
 
-What remains is one gap, and it is no longer about custody. Unlocking with the
-added passkey reaches a `deferred` lane with `candidateCount: 1` - the lane
-resolves and selects, and the material is there. `deferred` means no Wallet
-Session has ever been minted under the added method's authority, and
-`readEcdsaUseCaseReadyLane` requires a `ready` lane with an authorization while
-the unlock postcondition still runs before the session is committed. A method
-that has never been unlocked cannot satisfy that ordering, which is a property
-of the unlock sequence rather than of the addition: invariant 9 makes lock and
-unlock the supported route to a new method, so the unlock has to be able to
-establish that method's first session.
+Unlocking with the added passkey has since been driven through four more
+layers, each a real defect and each hiding the next. They are recorded because
+the pattern is the same one: a place that assumed a wallet has exactly one auth
+method.
 
-Until it does, `email-otp.add-passkey.contract.test.ts` proves the addition
-only. `harness.unlockWithAddedPasskey()` exists and is the step that will prove
-the rest; it is deliberately not in the committed contract, so the intended
-suite stays green while the gap is open.
+4. The unlock postcondition saw a `deferred` lane, because the ECDSA capability
+   listing had not yet produced an authorized capability for the added
+   credential. Once the sibling projection resolved, the Wallet Session minted
+   during warm-up matched the added method's authority digest exactly, and the
+   lane reached `ready`.
+5. The wallet selection refused to move. The stored selection still named the
+   source method, as invariant 9 requires, and marking a different method
+   unlocked was read as a corrupt selection - which made lock and unlock, the
+   route invariant 9 gives a new method, the one thing it could not do. The
+   selection now moves between active members of the same wallet authority.
+6. The reverse contract had not waited for NEAR. An Email OTP registration can
+   return ECDSA-ready with NEAR still provisioning, so the wallet had no
+   Ed25519 signer and unlock correctly resolved it as ECDSA-only, returning no
+   NEAR account id. That was the test's sequencing, not the product's; every
+   other unlock contract already calls `awaitNearReady()`.
+
+What remains is the Ed25519 half, and it is a server-side gate rather than a
+custody one. With NEAR ready, the added passkey now resolves a NEAR subject and
+reaches `provisionPasskeyEd25519YaoSession`, which answers `capability_unavailable`
+with "Requested Ed25519 Wallet Session is unavailable" because the `ed25519`
+it is handed - `passkeyCustody?.ed25519 ?? result.ed25519` in
+`walletUnlockRouteHandlers.ts` - is not `active` for the added credential. The
+server does not yet associate an added passkey with the wallet's existing
+Ed25519 signer activation, even though both methods share the authority that
+owns it.
+
+A client-side Ed25519 lane copy was written and reverted: publishing an
+`Ed25519YaoPublicCapabilityLaneReferenceV1` for the added credential, mirroring
+the ECDSA access copy. It changed nothing, because the server gate above fails
+first, and it is not worth carrying unproven code through the custody path. It
+is the likely client half once the server half exists, and the lane reference
+carries a `thresholdSessionId`, so whether it should be copied or provisioned at
+unlock is an open question rather than a settled one.
+
+Both narrow transition contracts pass together. The addition is proven in a
+browser in both directions; `harness.unlockWithAddedPasskey()` exists and is
+deliberately not in the committed contract, so the intended suite stays green
+while the Ed25519 gate is open.
 
 ## Goal
 
