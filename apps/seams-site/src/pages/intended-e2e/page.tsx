@@ -28,6 +28,7 @@ type IntendedActionName =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
+  | 'addEmailOtpAuthMethod'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
@@ -195,6 +196,13 @@ type Ed25519AddSignerResultSummary = {
   operationalPublicKey: string;
 };
 
+type AddEmailOtpAuthMethodResultSummary = {
+  kind: 'add_email_otp_success';
+  walletId: string;
+  emailAddress: string;
+  authMethod: { kind: 'email_otp'; status: 'active' };
+};
+
 type EmailOtpRegistrationCoreSummary = (
   | {
       kind: 'email_otp_registration_success';
@@ -301,6 +309,7 @@ type PasskeyRecoveryResultSummary = {
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | Ed25519AddSignerResultSummary
+  | AddEmailOtpAuthMethodResultSummary
   | EmailOtpRegistrationResultSummary
   | NearProvisioningReadySummary
   | PasskeyRecoveryResultSummary
@@ -528,6 +537,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-add-email-otp-auth-method"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runAddEmailOtpAuthMethod}
+            style={buttonStyle}
+          >
+            Add Email Code
+          </button>
+          <button
+            type="button"
             data-testid="intended-add-passkey-ed25519-yao-signer"
             disabled={state.action.status === 'running'}
             onClick={controller.runAddPasskeyEd25519YaoWalletSigner}
@@ -697,6 +715,10 @@ class IntendedPageController {
     void this.addPasskeyEd25519YaoWalletSigner();
   };
 
+  runAddEmailOtpAuthMethod = (): void => {
+    void this.addEmailOtpAuthMethod();
+  };
+
   runRegisterEmailOtpWallet = (): void => {
     void this.registerEmailOtpWallet();
   };
@@ -857,6 +879,41 @@ class IntendedPageController {
       const summary = assertEd25519AddSignerSucceeded(result, this.walletId);
       this.nearAccountId = summary.nearAccountId;
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C: the passkey wallet on screen gains an Email OTP method.
+   *
+   * The address is derived from the wallet so repeated runs against a
+   * persistent local stack do not fight over one provider identity — an
+   * enrollment is per wallet and per identity, and a shared address would make
+   * each run move the previous run's enrollment.
+   */
+  private async addEmailOtpAuthMethod(): Promise<void> {
+    const action: IntendedActionName = 'addEmailOtpAuthMethod';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('add-email-code requires a registered wallet');
+      const emailAddress = `add-auth-${walletId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}@example.test`;
+      const result = await this.seams.registration.addEmailOtp({
+        walletId: toWalletId(walletId),
+        emailAddress,
+        options: { onEvent: this.recordLifecycleEvent },
+      });
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'add_email_otp_success',
+          walletId: String(result.walletId),
+          emailAddress: result.emailAddress,
+          authMethod: result.authMethod,
+        },
+      });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
     }
@@ -1551,6 +1608,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
   switch (result.kind) {
     case 'passkey_registration_success':
     case 'wallet_signer_added':
+    case 'add_email_otp_success':
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
@@ -1580,6 +1638,9 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
       return result.nearAccountId ?? null;
+    /* An added auth method changes who can unlock the wallet, not which NEAR
+       account it signs for. */
+    case 'add_email_otp_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
@@ -1599,6 +1660,7 @@ function intendedActionResultNearSignerSlot(
     case 'email_otp_registration_success':
       return 1;
     case 'wallet_signer_added':
+    case 'add_email_otp_success':
       return 2;
     case 'near_provisioning_ready':
       return 1;
