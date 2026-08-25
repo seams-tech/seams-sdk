@@ -476,6 +476,38 @@ the Wallet packages and tests via the `@shared/*` alias (446 files in
 importers) — it is Wallet-owned and goes to the public repository. The
 console analogue is `console-shared-ts`.
 
+## Deployment Secret And Environment Generation
+
+The current private deployment tooling still couples the two authorities:
+
+- `deployment/targets.json` contains site, Console D1, Wallet Gateway, Wallet
+  origin, signer, Router A/B, and frontend targets in one structure;
+- `generate-github-env-values.mjs` prepares one generation containing both
+  `wallet-core` and `product` manifests. Its generated secret set includes
+  Router/signing material together with Console invitation and webhook secrets;
+- the root commands `wallet-core:deploy:env-*`, `product:deploy:env-*`, and the
+  combined rotation/verification commands share generation metadata;
+- `deploy-backend.mjs` deploys Wallet Runtime, Console, and Gateway in one
+  sequence and can receive the GitHub environment's full
+  `DEPLOYMENT_SECRETS_JSON` inventory;
+- `deploy-frontend.mjs` currently composes the site, docs, Wallet Pages, and the
+  mounted Console build.
+
+These remain private, but the coupled generation and write authority is
+retired by Refactors 105B/105C. The destination is two explicit private
+pipelines:
+
+| Pipeline | Owns | Must never write |
+| --- | --- | --- |
+| Console | Console Pages/Worker/D1, Console session and OAuth secrets, Console email/webhook/billing inputs, Console routes and origins | Wallet Gateway/Runtime, hosted Wallet, signer, Router A/B, root-share, ceremony, signing-session, or relayer values |
+| Wallet system | Wallet Gateway/Runtime, hosted Wallet Pages, signer D1, Router A/B workers and role D1s, protocol keys, root shares, ceremony/signing-session material, relayer and Wallet-network values | Console D1, Console session/OAuth/email/webhook/billing values, Console Pages/Worker, or Console routes |
+
+Each pipeline receives its own target file, generator, protected GitHub
+environments, update/rotation command, backup output, and deploy workflow. A
+shared read-only handoff may contain public origins, network names, service
+binding names, and deployed artifact versions. It contains no secret and grants
+neither pipeline write access to the other's environments.
+
 ## Current Repository Destination Addendum
 
 - The existing private repository is renamed in place to
@@ -490,6 +522,9 @@ console analogue is `console-shared-ts`.
 - Current deployment/local scripts are not moved by directory assumption.
   Generic Wallet behavior is re-expressed in the public runtime; Console,
   environment, provider, and deployment orchestration remains private.
+- Private deployment is split into Console and Wallet-system pipelines. Each
+  pipeline owns disjoint GitHub environments and secret/variable names, and no
+  command generates or applies both ownership sets.
 - Rust crates remain co-located implementation inputs with `publish = false`.
   Refactor 105 publishes no crate and creates no Rust repository.
 - The private monorepo deploys exact-pinned npm artifacts and has no Cargo,
