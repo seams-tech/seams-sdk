@@ -247,8 +247,10 @@ function canRemoveWalletMethod(
   return isActiveWalletMethod(target) ? activeMethodCount > 1 : activeMethodCount > 0;
 }
 
-function viewWalletAuthorityId(view: WalletDeviceView): string {
-  return String(view.kind === 'owner' ? view.owner.walletAuthorityId : view.device.authorityId);
+function viewWalletAuthorityGroup(view: WalletDeviceView): string {
+  return view.kind === 'owner'
+    ? `owner:${String(view.owner.walletAuthorityId)}`
+    : `linked:${String(view.device.deviceId)}`;
 }
 
 function missingAuthMethodForSelectedAuthority(
@@ -262,12 +264,11 @@ function missingAuthMethodForSelectedAuthority(
       String(viewCredential(view).walletAuthMethodId) === selectedMethodId,
   );
   if (!selected) return null;
-  const selectedAuthorityId = viewWalletAuthorityId(selected.view);
+  const selectedAuthority = viewWalletAuthorityGroup(selected.view);
   const activeMethods = devices
     .map(({ view }) => view)
     .filter(
-      (view) =>
-        isActiveWalletMethod(view) && viewWalletAuthorityId(view) === selectedAuthorityId,
+      (view) => isActiveWalletMethod(view) && viewWalletAuthorityGroup(view) === selectedAuthority,
     );
   const hasPasskey = activeMethods.some((view) => viewCredential(view).kind === 'passkey');
   const hasEmailOtp = activeMethods.some((view) => viewCredential(view).kind === 'email_otp');
@@ -594,46 +595,49 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     }
   }, [finishRevocation, revokeState, seams, walletId]);
 
-  const addMissingMethod = React.useCallback(async (missing: 'passkey' | 'email_otp') => {
-    if (!walletId || !loginState.isLoggedIn || addMethodState.kind === 'working') return;
-    const emailAddress = addMethodState.emailAddress.trim();
-    if (missing === 'email_otp' && !emailAddress) {
-      setAddMethodState({
-        kind: 'error',
-        emailAddress,
-        message: 'Enter the email address to verify.',
-      });
-      return;
-    }
-    setAddMethodState({ kind: 'working', method: missing, emailAddress });
-    setAnnouncement(
-      missing === 'passkey' ? 'Adding a passkey…' : 'Adding Email OTP authentication…',
-    );
-    try {
-      if (missing === 'passkey') {
-        await seams.registration.addPasskey({
-          walletId,
-          rpId: configuredWalletRpId(seams),
+  const addMissingMethod = React.useCallback(
+    async (missing: 'passkey' | 'email_otp') => {
+      if (!walletId || !loginState.isLoggedIn || addMethodState.kind === 'working') return;
+      const emailAddress = addMethodState.emailAddress.trim();
+      if (missing === 'email_otp' && !emailAddress) {
+        setAddMethodState({
+          kind: 'error',
+          emailAddress,
+          message: 'Enter the email address to verify.',
         });
-      } else {
-        await seams.registration.addEmailOtp({ walletId, emailAddress });
+        return;
       }
-      await refreshLoginState(walletId);
-      await loadDevices();
-      setAddMethodState({ kind: 'idle', emailAddress: '' });
+      setAddMethodState({ kind: 'working', method: missing, emailAddress });
       setAnnouncement(
-        missing === 'passkey'
-          ? 'Passkey authentication was added.'
-          : 'Email OTP authentication was added.',
+        missing === 'passkey' ? 'Adding a passkey…' : 'Adding Email OTP authentication…',
       );
-    } catch (error: unknown) {
-      setAddMethodState({
-        kind: 'error',
-        emailAddress,
-        message: linkedDevicesLoadErrorMessage(error),
-      });
-    }
-  }, [addMethodState, loadDevices, loginState, refreshLoginState, seams, walletId]);
+      try {
+        if (missing === 'passkey') {
+          await seams.registration.addPasskey({
+            walletId,
+            rpId: configuredWalletRpId(seams),
+          });
+        } else {
+          await seams.registration.addEmailOtp({ walletId, emailAddress });
+        }
+        await refreshLoginState(walletId);
+        await loadDevices();
+        setAddMethodState({ kind: 'idle', emailAddress: '' });
+        setAnnouncement(
+          missing === 'passkey'
+            ? 'Passkey authentication was added.'
+            : 'Email OTP authentication was added.',
+        );
+      } catch (error: unknown) {
+        setAddMethodState({
+          kind: 'error',
+          emailAddress,
+          message: linkedDevicesLoadErrorMessage(error),
+        });
+      }
+    },
+    [addMethodState, loadDevices, loginState, refreshLoginState, seams, walletId],
+  );
 
   if (!isOpen) return null;
 
