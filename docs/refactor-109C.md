@@ -600,6 +600,16 @@ takes a `walletId` and an exact method id, but the login that consumes it,
 and participant ids; the wallet-level orchestration around it exists only inside
 the Google flow, and its Ed25519 half is not exported at all.
 
+Taking the Google-backed route seriously turns up the constraint that decides
+it. `resolveLoginSession` resolves a Google subject through a single
+`linkedWalletId`: one subject maps to one wallet. Attaching a Google identity to
+a second wallet - which is exactly what adding it to a Passkey wallet means when
+that subject already owns an Email OTP wallet - has no representation, and login
+would have no way to say which wallet was meant. Google-backed additions
+therefore need the identity-to-wallet mapping to become one-to-many plus a
+wallet selector at login, which is a product identity change, not a smaller
+alternative to the address-based login.
+
 That leaves a decision rather than a defect. Either the product grows an
 address-based email login - new public auth surface, which invariant 10 rules
 out for this refactor - or an added Email OTP method is specified to carry an
