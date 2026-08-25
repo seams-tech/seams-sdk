@@ -19,3 +19,12 @@ test('an Ed25519-only wallet gains an Email OTP method', async ({ harness }) => 
      on a wallet whose signer set never included ECDSA. */
   await harness.assertRepeatAdditionIsAlreadyConfigured('addEmailOtpAuthMethod');
 });
+
+test('an ECDSA-only wallet gains an Email OTP method', async ({ harness }) => {
+  await harness.registerPasskeyEcdsaOnlyWallet();
+  /* The mirror of the cell above: the ECDSA capability exists and the Ed25519
+     signer does not, so the addition must carry the one and not go looking for
+     the other. */
+  await harness.addEmailOtpAuthMethod();
+  await harness.assertRepeatAdditionIsAlreadyConfigured('addEmailOtpAuthMethod');
+});

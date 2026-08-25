@@ -77,6 +77,7 @@ type IntendedNearSigningScenario =
 type IntendedHarnessAction =
   | 'registerPasskeyWallet'
   | 'registerPasskeyEd25519YaoWallet'
+  | 'registerPasskeyEcdsaOnlyWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'addEmailOtpAuthMethod'
   | 'addPasskeyAuthMethod'
@@ -303,6 +304,17 @@ type EcdsaEnabledSnapshot =
     };
 
 type RegisteredNearStateSnapshot =
+  /* A wallet whose signer set never included Ed25519. Distinct from 'pending',
+     which is an account on its way: nothing is coming, so asking this wallet to
+     sign NEAR is a test-authoring mistake rather than a wait. The identity and
+     provisioning fields are forbidden rather than optional, so a NEAR-less
+     wallet cannot carry a half-filled identity. */
+  | {
+      nearReadiness: 'absent';
+      nearProvisioning?: never;
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+    }
   | {
       nearReadiness: 'pending';
       nearProvisioning:
@@ -1284,6 +1296,35 @@ export class IntendedBehaviourHarness {
     this.passkeyPromptCount += 1;
     this.operatingAuthFamily = 'passkey';
     this.recordService(`added passkey unlocked wallet=${String(registration.walletId)}`);
+  }
+
+  /**
+   * Refactor 109C matrix: register a wallet whose signer set is ECDSA only.
+   *
+   * It becomes the registered wallet like any other, but with NEAR reported
+   * absent rather than pending, so anything that would ask it to sign NEAR
+   * fails on the readiness check instead of waiting for an account that is
+   * never coming.
+   */
+  async registerPasskeyEcdsaOnlyWallet(): Promise<void> {
+    this.recordStage('register_passkey_ecdsa_only_wallet');
+    const snapshot = await this.runIntendedPageAction(
+      'registerPasskeyEcdsaOnlyWallet',
+      'intended-register-passkey-ecdsa-only',
+    );
+    const result = requirePasskeyRegistrationResult(snapshot, this.walletId);
+    if (result.nearReadiness !== 'absent') {
+      throw new Error(`ECDSA-only registration reported NEAR ${result.nearReadiness}`);
+    }
+    if (result.ecdsaTargetProfile === 'none') {
+      throw new Error('ECDSA-only registration provisioned no ECDSA target');
+    }
+    this.registeredWallet = result;
+    this.currentWarmSigningStage = 'post_registration';
+    this.passkeyPromptCount += 1;
+    this.recordService(
+      `ECDSA-only passkey registration succeeded wallet=${result.walletId} profile=${result.ecdsaTargetProfile}`,
+    );
   }
 
   /** Refactor 109C acceptance: an Email OTP wallet gains a Passkey method. */
@@ -4378,6 +4419,7 @@ function parseRegisteredNearState(
   record: Record<string, unknown>,
   label: string,
 ): RegisteredNearStateSnapshot {
+  if (record.nearReadiness === 'absent') return { nearReadiness: 'absent' };
   const rawProvisioning = record.nearProvisioning;
   if (rawProvisioning !== undefined) {
     const provisioning = requireRecord(rawProvisioning, `${label} nearProvisioning`);
@@ -4516,6 +4558,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
   switch (action) {
     case 'registerPasskeyWallet':
     case 'registerPasskeyEd25519YaoWallet':
+    case 'registerPasskeyEcdsaOnlyWallet':
     case 'addPasskeyEd25519YaoWalletSigner':
     case 'addEmailOtpAuthMethod':
     case 'addPasskeyAuthMethod':

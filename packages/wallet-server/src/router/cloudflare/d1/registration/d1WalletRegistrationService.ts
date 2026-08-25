@@ -3591,6 +3591,18 @@ export class CloudflareD1WalletRegistrationService {
   }): Promise<Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>> {
     const context = await this.readRegistrationOwnerProofContext(input.registrationCeremonyId);
     if (!context) throw new Error('Registration owner proof context is unavailable');
+    return await this.registrationOwnerProofWithContext(context, input);
+  }
+
+  /** For callers that must read the context before finalize tombstones it. */
+  private async registrationOwnerProofWithContext(
+    context: RegistrationOwnerProofContext,
+    input: {
+      readonly registrationCeremonyId: string;
+      readonly authMethod: WalletRegistrationFinalizeAuthMethod;
+      readonly authority: WalletAuthAuthority;
+    },
+  ): Promise<Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>> {
     return await buildRegistrationOwnerProof({
       ...input,
       tenantId: this.authorizationTenantId,
@@ -4300,6 +4312,16 @@ export class CloudflareD1WalletRegistrationService {
         message: 'ECDSA activation completed without a key handle to commit',
       };
     }
+    /* Read before finalize, which tombstones the ceremony. The NEAR
+       provisioning route already does this for the same reason; an ECDSA-only
+       registration has no NEAR route to carry it, so asking afterwards found
+       nothing and the registration failed at its last step. */
+    const ownerProofContext = await this.readRegistrationOwnerProofContext(
+      context.registrationCeremonyId,
+    );
+    if (!ownerProofContext) {
+      throw new Error('Registration owner proof context is unavailable');
+    }
     const commit = await this.executeWalletRegistrationFinalize(
       {
         kind: 'evm_family_ecdsa',
@@ -4344,7 +4366,7 @@ export class CloudflareD1WalletRegistrationService {
       bootstrap: activated.ecdsa.bootstrap,
       runtimePolicyScope,
       keyManifestDigestB64u: commit.custodyKeyManifestDigestB64u,
-      proof: await this.registrationOwnerProof({
+      proof: await this.registrationOwnerProofWithContext(ownerProofContext, {
         registrationCeremonyId: context.registrationCeremonyId,
         authMethod: commit.authMethod,
         authority: commit.authority,
