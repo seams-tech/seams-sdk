@@ -1103,6 +1103,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         activeRoute={activeRoute}
         disableNavigationItems={isSidebarNavigationLocked}
         enabledWhenLockedPaths={navigationLockExemptPaths}
+        onToggleSidebar={toggleSidebar}
         onToggleGroup={toggleGroup}
         linkProps={linkProps}
         homeProps={homeProps}

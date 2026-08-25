@@ -358,15 +358,17 @@ export function DashboardTopbar({
   return (
     <header ref={topbarRef} className="dashboard-topbar" aria-label="Workspace context">
       <div className="dashboard-topbar__lead">
-        <button
-          type="button"
-          className="dashboard-sidebar-toggle"
-          aria-label={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          aria-expanded={isSidebarExpanded}
-          onClick={onToggleSidebar}
-        >
-          <DashboardSidebarToggleIcon expanded={isSidebarExpanded} />
-        </button>
+        {!isSidebarExpanded ? (
+          <button
+            type="button"
+            className="dashboard-sidebar-toggle"
+            aria-label="Expand sidebar"
+            aria-expanded="false"
+            onClick={onToggleSidebar}
+          >
+            <DashboardSidebarToggleIcon expanded={false} />
+          </button>
+        ) : null}
         <span className="dashboard-topbar__page-title">{pageTitle}</span>
       </div>
 
