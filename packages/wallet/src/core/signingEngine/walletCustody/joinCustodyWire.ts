@@ -19,6 +19,11 @@
  * revoked envelope read from local storage must not open custody either.
  */
 
+import {
+  custodyEnvelopeOwnershipWireV1,
+  parseWalletCustodyEnvelopeOwnership,
+} from '@shared/passkey-custody';
+
 export type JoinCustodyWireResult =
   | { readonly ok: true; readonly custodyJson: string }
   | { readonly ok: false; readonly reason: string };
@@ -67,10 +72,22 @@ export function joinCustodyWireFromEnvelopeRecord(record: unknown): JoinCustodyW
     return { ok: false, reason: 'custody envelope has no revision' };
   }
 
+  /* Part of the AAD, exactly like the revision above: an envelope that names no
+     owner decodes as the pre-109C `unbound` shape, and one that names the wrong
+     owner fails to decrypt. Neither is defaulted here. */
+  let ownership: unknown;
+  try {
+    ownership = custodyEnvelopeOwnershipWireV1(
+      parseWalletCustodyEnvelopeOwnership(record.ownership, 'custody envelope ownership'),
+    );
+  } catch {
+    return { ok: false, reason: 'custody envelope has no readable ownership' };
+  }
+
   return {
     ok: true,
     custodyJson: JSON.stringify({
-      envelopeBinding: { walletId, envelopeId, factor, envelopeRevision, binding },
+      envelopeBinding: { walletId, envelopeId, factor, envelopeRevision, binding, ownership },
       nonceB64u,
       sealedCustodySecretB64u,
       aadHashB64u,

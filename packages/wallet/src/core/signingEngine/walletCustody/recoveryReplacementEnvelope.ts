@@ -1,6 +1,7 @@
 import {
   WALLET_CUSTODY_ENVELOPE_VERSION_V2,
   parsePasskeyCustodyEnvelopeRecord,
+  parseWalletCustodyEnvelopeOwnershipWireV1,
   rejectUnknownFields,
   requireRecord,
   type PasskeyCustodyEnvelopeRecord,
@@ -13,6 +14,7 @@ const RECOVERY_BINDING_FIELDS = [
   'factor',
   'envelopeRevision',
   'binding',
+  'ownership',
 ] as const;
 
 /**
@@ -39,6 +41,14 @@ export function buildRecoveredCustodyEnvelopeRecord(args: {
       walletId: binding.walletId,
       binding: binding.binding,
       factor: binding.factor,
+      /* Read from the binding rather than supplied: the binding is what Rust
+         sealed against, so the owner it names is the only owner the ciphertext
+         opens for. Anything reconstructed here would be a guess the AEAD
+         rejects. */
+      ownership: parseWalletCustodyEnvelopeOwnershipWireV1(
+        binding.ownership,
+        'recoveryReplacementEnvelope.binding.ownership',
+      ),
       envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
       envelopeRevision: binding.envelopeRevision,
       nonceB64u: args.replacement.envelopeNonceB64u,

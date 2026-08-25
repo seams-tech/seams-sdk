@@ -181,6 +181,37 @@ export function custodyEnvelopeBindingJsonV1(
   });
 }
 
+/**
+ * Reads the serde shape back — the inverse of `custodyEnvelopeOwnershipWireV1`.
+ *
+ * The record shape and the wire shape are deliberately different: one is
+ * TypeScript's tagged union, the other is what `serde` emits for a Rust enum.
+ * Anything that came out of wasm carries the wire shape, and passing it to the
+ * record parser would reject a perfectly valid ownership for having no `kind`.
+ */
+export function parseWalletCustodyEnvelopeOwnershipWireV1(
+  raw: unknown,
+  label: string,
+): WalletCustodyEnvelopeOwnership {
+  if (raw === 'unbound') return { kind: 'unbound' };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${label} must be "unbound" or a methodBound object`);
+  }
+  const record = raw as Record<string, unknown>;
+  rejectUnknownFields(record, ['methodBound'], label);
+  const methodBound = record.methodBound;
+  if (typeof methodBound !== 'object' || methodBound === null || Array.isArray(methodBound)) {
+    throw new Error(`${label}.methodBound must be an object`);
+  }
+  const fields = methodBound as Record<string, unknown>;
+  rejectUnknownFields(fields, ['walletAuthMethodId'], `${label}.methodBound`);
+  const parsed = parseWalletAuthMethodId(fields.walletAuthMethodId);
+  if (!parsed.ok) {
+    throw new Error(`${label}.methodBound.walletAuthMethodId ${parsed.error.message}`);
+  }
+  return { kind: 'method_bound', walletAuthMethodId: parsed.value };
+}
+
 /** Serde's shape for the ownership enum: a bare string, or a one-key object. */
 export function custodyEnvelopeOwnershipWireV1(ownership: WalletCustodyEnvelopeOwnership): unknown {
   switch (ownership.kind) {

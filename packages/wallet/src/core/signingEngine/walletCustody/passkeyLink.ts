@@ -1,6 +1,7 @@
 import {
   buildMethodBoundEnvelopeOwnership,
   buildPasskeyCustodyEnvelopeRecord,
+  custodyEnvelopeBindingJsonV1,
   buildPasskeyEnvelopeFactor,
   parseDigestField,
   parseEnvelopeCiphertextB64u,
@@ -145,12 +146,14 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
     rpId: input.registration.rpId,
     credentialIdB64u: credentialId,
   });
-  const replacementBindingJson = JSON.stringify({
+  const ownership = buildMethodBoundEnvelopeOwnership(input.walletAuthMethodId);
+  const replacementBindingJson = custodyEnvelopeBindingJsonV1({
     walletId: input.existingEnvelope.walletId,
     envelopeId: envelopeIdResult.value,
     factor,
-    envelopeRevision: 1,
+    envelopeRevision: parseEnvelopeRevision(1),
     binding: input.existingEnvelope.binding,
+    ownership,
   });
   const existingFactorSecret = input.existingFactorSecret.slice();
   const replacementFactorSecret = base64UrlDecode(prfFirstB64u);
@@ -181,7 +184,7 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
       buildPasskeyCustodyEnvelopeRecord({
         envelopeId: envelopeIdResult.value,
         walletId: input.existingEnvelope.walletId,
-        ownership: buildMethodBoundEnvelopeOwnership(input.walletAuthMethodId),
+        ownership,
         binding: input.existingEnvelope.binding,
         factor,
         envelopeRevision: parseEnvelopeRevision(1),

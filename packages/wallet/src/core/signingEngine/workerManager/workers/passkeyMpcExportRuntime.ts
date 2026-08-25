@@ -52,7 +52,10 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { normalizeThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { normalizeAuthenticationCredential } from '../../webauthnAuth/credentials/helpers';
-import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  custodyEnvelopeBindingJsonV1,
+  parsePasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import { walletCustodyCacheEnvelopeFromRecordV1 } from '../../walletCustody/openCustodyCache';
 
 type EcdsaDerivationThresholdExportWorkerPayload = Extract<
@@ -144,7 +147,10 @@ function parseWorkerBytes32(value: unknown): readonly number[] | null {
 function custodyEnvelopeInputForExport(
   record: RouterAbEd25519YaoExportWorkerPayloadV1['walletCustodyEnvelope'],
 ) {
-  if (record.binding.kind !== 'wallet_custody_seed_v1' && record.binding.kind !== 'ed25519_yao_client_root_v1') {
+  if (
+    record.binding.kind !== 'wallet_custody_seed_v1' &&
+    record.binding.kind !== 'ed25519_yao_client_root_v1'
+  ) {
     throw new Error('Ed25519 export requires a wallet seed or Client-root envelope');
   }
   if (record.lifecycle.state !== 'active') {
@@ -154,13 +160,7 @@ function custodyEnvelopeInputForExport(
     record.binding.kind === 'wallet_custody_seed_v1'
       ? walletCustodyCacheEnvelopeFromRecordV1(record)
       : {
-          bindingJson: JSON.stringify({
-            walletId: record.walletId,
-            envelopeId: record.envelopeId,
-            factor: record.factor,
-            envelopeRevision: record.envelopeRevision,
-            binding: record.binding,
-          }),
+          bindingJson: custodyEnvelopeBindingJsonV1(record),
           nonceB64u: record.nonceB64u,
           ciphertextB64u: record.sealedCustodySecretB64u,
           aadHashB64u: record.aadHashB64u,
