@@ -402,6 +402,40 @@ parsers, and this refactor's own `addWalletAuthMethod.ts` contract, because
 `registrationAuthorityId` disappears from the Email branch. It is not started
 yet and is the largest single remaining server item.
 
+### Open: an added method can be created but cannot yet unlock
+
+Completion asks that both methods "explicitly unlock, issue sessions, sign,
+export, step up, and revoke their sibling". Revocation is proven both
+directions. Unlock is not, and a browser run says why in two steps.
+
+The first was a real local-installation gap, now fixed. Unlock reads the
+profile, then the profile's authenticators, then keeps only those whose
+credential belongs to an ACTIVE V2 passkey method. A cross-family addition
+wrote the V1 auth-method row alone, so an Email-registered wallet that gained a
+passkey had the method on the server and could not open with it here —
+`[login] ECDSA wallet <id> has no local passkey profile`. The same-family
+addition never showed it, because a passkey-registered wallet already had all
+three records.
+
+The second is unresolved and deeper:
+
+    [WalletRuntimePostcondition] ecdsa_lane_missing
+    {"source":"wallet_unlock","authMethod":"passkey","curve":"ecdsa",
+     "targetKey":"tempo:42431","state":"missing","candidateCount":0}
+
+The added passkey reaches unlock and finds no ECDSA lane material. This is the
+interesting case rather than a defect to patch: R109C states that factor
+addition creates no signer material and that both methods reference the
+original authority and signer activations. So the added method must reach the
+lane material the wallet already has, and today unlock resolves candidates in a
+way that finds none for it. Whether the fix belongs in lane resolution or in
+what the addition records is the open question — inventing per-method lane
+material would contradict the refactor's own scope.
+
+Until that is answered, `email-otp.add-passkey.contract.test.ts` proves the
+addition only. `harness.unlockWithAddedPasskey()` exists and is the step that
+will prove the rest.
+
 ## Goal
 
 Give an authenticated user one **Add authentication method** product action:
