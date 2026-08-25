@@ -26,8 +26,8 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
 | `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to mint a Wallet Session or authorize one exact operation.    |
 | `opaque token`       | Random Wallet Session bearer whose identity, budget, expiry, and revocation state are resolved by the server.                        |
-| `walletAuthorityId`  | Opaque identity of one permissioned wallet authority and its exact signer activations.                                                |
-| `walletAuthMethodId` | Opaque identity of one Passkey or Email OTP method attached to a wallet authority.                                                     |
+| `walletAuthorityId`  | Opaque identity of one permissioned wallet authority and its exact signer activations.                                               |
+| `walletAuthMethodId` | Opaque identity of one Passkey or Email OTP method attached to a wallet authority.                                                   |
 | `deviceId`           | Installation identity for one wallet authority on one browser or device; it is not a hardware fingerprint.                           |
 
 ## Global Invariants
@@ -463,6 +463,35 @@ Failure behaviour:
 - Unknown wallets, unusable codes, RP mismatch, and unsupported auth-method
   shapes expose no distinguishing recovery detail.
 
+## Adding an Authentication Method
+
+A wallet authority holds at most one Passkey method and one Email OTP method.
+The product offers one **Add authentication method** action, and which branch it
+runs is decided by the exact active inventory of the selected authority rather
+than chosen by the caller.
+
+- The action is offered only when the authority is missing a family, and
+  disappears once both are active.
+- Adding a family the authority already has answers `already_configured` at
+  admission, before any target factor is verified and before any code is sent.
+  Repeating an addition must not cost the user a verification.
+- The source method supplies a fresh proof bound to that exact addition. The
+  target factor is verified independently; the source proof never serves as
+  target verification.
+- The new method reuses the authority and device it was added to. It creates no
+  authority, signer activation, share, public key, export root, or key manifest,
+  and it carries forward whatever signer access the authority already has. A
+  wallet owning one signer family gains a method that correctly claims only that
+  family.
+- The source method and its Wallet Session stay selected. The added method comes
+  into use only through explicit selection, or through lock and unlock naming
+  it; an unlock that names it moves the selection to it, and that move is
+  allowed only between members of one authority.
+- A Wallet Session names the exact method that opened it, not merely its family.
+- Either sibling can revoke the other, proving with its own factor rather than
+  the one being removed. The last remaining method cannot be revoked.
+- Revoking a method must not prevent adding another of that family afterwards.
+
 ## Linked Devices
 
 Expected behaviour:
@@ -527,25 +556,31 @@ Each row needs either an automated test or an explicit manual verification note
 when a change touches registration, unlock, signing, step-up, export, session
 restore, lane selection, or budget handling.
 
-| Behaviour                                                                | Evidence                                                   |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| Email OTP registration with zero rerolls uses one OTP code               | Relayer route/auth-service test                            |
-| Email OTP registration with one reroll uses the original OTP code        | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Email OTP registration with multiple rerolls uses the original OTP code  | Relayer route test or manual registration reroll note      |
-| Wrong Email OTP provider subject is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Wrong Email OTP challenged email is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Registration and unlock produce equivalent runtime lanes                 | Client runtime-postcondition test                          |
-| Passkey registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                   |
-| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness | Intended-behaviour registration contract                   |
-| Passkey step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                 |
-| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                         | Client signing test or manual browser note                 |
-| Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                  |
-| Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                  |
-| Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note           |
-| Code recovery replaces one Passkey and preserves all public identities   | Intended-behaviour recovery contract                       |
-| Code recovery revokes source sessions and consumes exactly one code      | Intended-behaviour recovery contract                       |
-| Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                |
-| ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                |
+| Behaviour                                                                  | Evidence                                                                     |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Email OTP registration with zero rerolls uses one OTP code                 | Relayer route/auth-service test                                              |
+| Email OTP registration with one reroll uses the original OTP code          | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Email OTP registration with multiple rerolls uses the original OTP code    | Relayer route test or manual registration reroll note                        |
+| Wrong Email OTP provider subject is rejected                               | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Wrong Email OTP challenged email is rejected                               | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Registration and unlock produce equivalent runtime lanes                   | Client runtime-postcondition test                                            |
+| Passkey registration signs Tempo/Arc immediately and NEAR at readiness     | Intended-behaviour registration contract                                     |
+| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                                     |
+| Passkey step-up signs NEAR, Tempo, and Arc/EVM                             | Client signing test or manual browser note                                   |
+| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                                   |
+| Passkey Ed25519 and ECDSA export require fresh export auth                 | Client export test or manual browser note                                    |
+| Email OTP Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                                    |
+| Page refresh restores only exact valid lanes                               | Page-refresh session test or manual browser note                             |
+| Adding a method reuses the authority and creates no new signer material    | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
+| Both addition directions unlock, sign, and export through the added method | `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`       |
+| Addition works on wallets owning one signer family                         | `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts` |
+| Repeating an addition answers already_configured before sending a code     | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
+| Either sibling revokes the other; the last method cannot be revoked        | `tests/unit/r109cSiblingRevocation.unit.test.ts`                             |
+| The Add action disappears once both families are active                    | `tests/unit/linkedDevicesModal.unit.test.ts`                                 |
+| Code recovery replaces one Passkey and preserves all public identities     | Intended-behaviour recovery contract                                         |
+| Code recovery revokes source sessions and consumes exactly one code        | Intended-behaviour recovery contract                                         |
+| Email OTP paths never call passkey credential lookup or PRF restore        | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
+| ECDSA budget checks are exact to chain target                              | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
 
 ## Non-Goals
 
