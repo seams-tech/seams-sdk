@@ -1,8 +1,3 @@
--- Composed Wallet Console fresh schema (owner: composition root).
--- Section 1: Console core tables (owner: console-core).
--- Section 2: Wallet Console tables (owner: wallet-console).
--- R105 Phase 6; one private seams-console D1 during R105.
-
 -- Canonical D1 schema.
 CREATE TABLE api_keys (
   namespace TEXT NOT NULL,
@@ -54,7 +49,33 @@ CREATE TABLE api_keys (
       AND ip_allowlist_json = '[]')
   )
 );
-
+CREATE TABLE approvals (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  operation_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  requested_by_user_id TEXT NOT NULL,
+  required_approvals INTEGER NOT NULL,
+  require_mfa INTEGER NOT NULL,
+  project_id TEXT,
+  environment_id TEXT,
+  resource_type TEXT,
+  resource_id TEXT,
+  metadata_json TEXT NOT NULL,
+  decisions_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER,
+  PRIMARY KEY (namespace, org_id, id),
+  CHECK (operation_type IN ('POLICY_PUBLISH', 'KEY_EXPORT')),
+  CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELED')),
+  CHECK (required_approvals > 0),
+  CHECK (require_mfa IN (0, 1)),
+  CHECK (json_valid(metadata_json)),
+  CHECK (json_valid(decisions_json))
+);
 CREATE TABLE audit_events (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -75,7 +96,6 @@ CREATE TABLE audit_events (
   CHECK (outcome IN ('SUCCESS', 'FAILURE', 'PENDING')),
   CHECK (json_valid(metadata_json))
 );
-
 CREATE TABLE audit_evidence (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -93,7 +113,6 @@ CREATE TABLE audit_evidence (
   CHECK (json_valid(event_ids_json)),
   CHECK (json_valid(references_json))
 );
-
 CREATE TABLE "billing_accounts" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -108,7 +127,6 @@ CHECK (low_balance_warning_active IN (0, 1)),
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE "billing_credit_purchases" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -148,7 +166,6 @@ CREATE TABLE "billing_credit_purchases" (
     )
   )
 );
-
 CREATE TABLE billing_disputes (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -177,7 +194,6 @@ CREATE TABLE billing_disputes (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE "billing_ledger_entries" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -243,7 +259,6 @@ CREATE TABLE "billing_ledger_entries" (
   CHECK (idempotency_key IS NULL OR length(idempotency_key) > 0),
   CHECK (created_at_ms > 0)
 );
-
 CREATE TABLE billing_ledger_postings (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -275,7 +290,76 @@ CREATE TABLE billing_ledger_postings (
   CHECK (amount_minor > 0),
   CHECK (created_at_ms > 0)
 );
-
+CREATE TABLE "billing_monthly_active_wallets" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  month_utc TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  source_event_id TEXT,
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, month_utc, wallet_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (
+    month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+    AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
+  ),
+  CHECK (length(wallet_id) > 0),
+  CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
+  CHECK (created_at_ms > 0)
+);
+CREATE TABLE "billing_prepaid_reservation_summaries" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  reserved_minor INTEGER NOT NULL DEFAULT 0,
+  active_reservation_count INTEGER NOT NULL DEFAULT 0,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (reserved_minor >= 0),
+  CHECK (active_reservation_count >= 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms)
+);
+CREATE TABLE "billing_prepaid_reservations" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  environment_id TEXT NOT NULL,
+  policy_id TEXT,
+  source_event_id TEXT NOT NULL,
+  requested_minor INTEGER NOT NULL,
+  posted_balance_minor INTEGER NOT NULL,
+  settled_minor INTEGER NOT NULL DEFAULT 0,
+  released_minor INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  tx_or_execution_ref TEXT,
+  pricing_version TEXT,
+  expires_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(id) > 0),
+  CHECK (length(environment_id) > 0),
+  CHECK (length(source_event_id) > 0),
+  CHECK (requested_minor > 0),
+  CHECK (posted_balance_minor >= 0),
+  CHECK (settled_minor >= 0),
+  CHECK (released_minor >= 0),
+  CHECK (status IN ('RESERVED', 'SETTLED', 'RELEASED', 'EXPIRED')),
+  CHECK (expires_at_ms > created_at_ms),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms),
+  CHECK (
+    (status = 'RESERVED' AND settled_minor = 0 AND released_minor = 0 AND tx_or_execution_ref IS NULL AND pricing_version IS NULL)
+    OR (status = 'SETTLED' AND released_minor = CASE WHEN requested_minor > settled_minor THEN requested_minor - settled_minor ELSE 0 END)
+    OR (status IN ('RELEASED', 'EXPIRED') AND settled_minor = 0 AND released_minor = requested_minor)
+  )
+);
 CREATE TABLE billing_refunds (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -338,7 +422,6 @@ CREATE TABLE billing_refunds (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE billing_stripe_post_processing_outbox (
   namespace TEXT NOT NULL,
   event_id TEXT NOT NULL,
@@ -367,7 +450,6 @@ CREATE TABLE billing_stripe_post_processing_outbox (
     REFERENCES stripe_webhook_events(namespace, event_id)
     ON DELETE CASCADE
 );
-
 CREATE TABLE console_email_deliveries (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -410,7 +492,6 @@ CREATE TABLE console_email_deliveries (
     )
   )
 );
-
 CREATE TABLE "console_email_outbox" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -556,7 +637,6 @@ CREATE TABLE "console_email_outbox" (
     )
   )
 );
-
 CREATE TABLE environments (
   namespace TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -576,7 +656,6 @@ CREATE TABLE environments (
     REFERENCES projects(namespace, id, org_id)
     ON DELETE CASCADE
 );
-
 CREATE TABLE invoice_line_items (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -598,7 +677,6 @@ CREATE TABLE invoice_line_items (
   CHECK (unit_amount_minor >= 0),
   CHECK (amount_minor >= 0)
 );
-
 CREATE TABLE invoices (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -618,7 +696,28 @@ CREATE TABLE invoices (
   CHECK (amount_due_minor >= 0),
   CHECK (amount_paid_minor >= 0)
 );
-
+CREATE TABLE key_exports (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  environment_id TEXT NOT NULL,
+  wallet_id TEXT,
+  mode TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  requested_by_user_id TEXT NOT NULL,
+  required_approvals INTEGER NOT NULL,
+  approvals_json TEXT NOT NULL,
+  constraints_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, id),
+  CHECK (mode IN ('DISABLED', 'APPROVAL_REQUIRED', 'ALLOWED_WITH_CONSTRAINTS')),
+  CHECK (status IN ('PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'EXECUTED', 'CANCELED')),
+  CHECK (required_approvals > 0),
+  CHECK (json_valid(approvals_json)),
+  CHECK (json_valid(constraints_json))
+);
 CREATE TABLE observability_event_dedup (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -626,7 +725,6 @@ CREATE TABLE observability_event_dedup (
   created_at_ms INTEGER NOT NULL,
   PRIMARY KEY (namespace, org_id, event_id)
 );
-
 CREATE TABLE observability_events (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -656,7 +754,6 @@ CREATE TABLE observability_events (
   CHECK (redaction_version >= 1),
   CHECK (redaction_applied IN (0, 1))
 );
-
 CREATE TABLE observability_ingest_windows (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -666,7 +763,6 @@ CREATE TABLE observability_ingest_windows (
   PRIMARY KEY (namespace, org_id, window_start_ms),
   CHECK (accepted_count >= 0)
 );
-
 CREATE TABLE observability_request_rollups_minute (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -705,7 +801,6 @@ CREATE TABLE observability_request_rollups_minute (
   CHECK (latency_max_ms >= 0),
   CHECK (error_count <= request_count)
 );
-
 CREATE TABLE organization_admin_permissions (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -721,7 +816,6 @@ CREATE TABLE organization_admin_permissions (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE organization_invitations (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -821,7 +915,6 @@ CREATE TABLE organization_invitations (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE organization_memberships (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -859,7 +952,6 @@ CREATE TABLE organization_memberships (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE organization_owner_events (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -878,7 +970,6 @@ CREATE TABLE organization_owner_events (
   CHECK (length(actor_user_id) > 0),
   CHECK (created_at_ms > 0)
 );
-
 CREATE TABLE organizations (
   namespace TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -891,783 +982,6 @@ CREATE TABLE organizations (
   PRIMARY KEY (namespace, id),
   CHECK (status IN ('ACTIVE'))
 );
-
-CREATE TABLE project_member_access (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  membership_id TEXT NOT NULL,
-  access_level TEXT NOT NULL,
-  granted_by_user_id TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, project_id, membership_id),
-  FOREIGN KEY (namespace, org_id, membership_id)
-    REFERENCES organization_memberships(namespace, org_id, id)
-    ON DELETE CASCADE,
-  FOREIGN KEY (namespace, project_id, org_id)
-    REFERENCES projects(namespace, id, org_id)
-    ON DELETE CASCADE,
-  CHECK (access_level IN ('viewer', 'editor')),
-  CHECK (length(granted_by_user_id) > 0),
-  CHECK (created_at_ms > 0),
-  CHECK (updated_at_ms >= created_at_ms)
-);
-
-CREATE TABLE projects (
-  namespace TEXT NOT NULL,
-  id TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  slug TEXT NOT NULL,
-  status TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, id),
-  CHECK (status IN ('ACTIVE', 'ARCHIVED')),
-  FOREIGN KEY (namespace, org_id)
-    REFERENCES organizations(namespace, id)
-    ON DELETE CASCADE
-);
-
-CREATE TABLE stripe_webhook_events (
-  namespace TEXT NOT NULL,
-  event_id TEXT NOT NULL,
-  provider_ref TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  processed_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, event_id)
-);
-
-CREATE TABLE user_backup_emails (
-  namespace TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  email TEXT NOT NULL,
-  email_normalized TEXT NOT NULL,
-  status TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, user_id, email_normalized),
-  CHECK (status IN ('PENDING', 'VERIFIED'))
-);
-
-CREATE TABLE user_profiles (
-  namespace TEXT NOT NULL,
-  user_id TEXT NOT NULL,
-  display_name TEXT,
-  primary_email TEXT,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, user_id)
-);
-
-CREATE TABLE webhook_attempts (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  endpoint_id TEXT NOT NULL,
-  delivery_id TEXT NOT NULL,
-  attempt_no INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  response_status INTEGER,
-  response_body TEXT,
-  error_message TEXT,
-  attempted_at_ms INTEGER NOT NULL,
-  is_replay INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, id),
-  UNIQUE (namespace, org_id, delivery_id, attempt_no),
-  CHECK (attempt_no > 0),
-  CHECK (status IN ('SUCCEEDED', 'FAILED')),
-  CHECK (is_replay IN (0, 1)),
-  FOREIGN KEY (namespace, org_id, delivery_id)
-    REFERENCES webhook_deliveries(namespace, org_id, id)
-    ON DELETE CASCADE
-);
-
-CREATE TABLE webhook_dead_letters (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  endpoint_id TEXT NOT NULL,
-  delivery_id TEXT NOT NULL,
-  event_id TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  failed_attempts INTEGER NOT NULL,
-  last_response_status INTEGER,
-  last_error_message TEXT,
-  payload_json TEXT NOT NULL,
-  moved_to_dlq_at_ms INTEGER NOT NULL,
-  resolved_at_ms INTEGER,
-  PRIMARY KEY (namespace, org_id, id),
-  UNIQUE (namespace, org_id, delivery_id),
-  CHECK (failed_attempts > 0),
-  CHECK (json_valid(payload_json)),
-  FOREIGN KEY (namespace, org_id, delivery_id)
-    REFERENCES webhook_deliveries(namespace, org_id, id)
-    ON DELETE CASCADE
-);
-
-CREATE TABLE webhook_deliveries (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  endpoint_id TEXT NOT NULL,
-  event_id TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  status TEXT NOT NULL,
-  attempt_count INTEGER NOT NULL,
-  replay_count INTEGER NOT NULL,
-  response_status INTEGER,
-  response_body TEXT,
-  error_message TEXT,
-  payload_json TEXT NOT NULL,
-  delivered_at_ms INTEGER,
-  last_attempt_at_ms INTEGER,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL, retry_claimed_by TEXT, retry_claim_expires_at_ms INTEGER,
-  PRIMARY KEY (namespace, org_id, id),
-  CHECK (status IN ('SUCCEEDED', 'FAILED')),
-  CHECK (attempt_count >= 0),
-  CHECK (replay_count >= 0),
-  CHECK (json_valid(payload_json)),
-  FOREIGN KEY (namespace, org_id, endpoint_id)
-    REFERENCES webhook_endpoints(namespace, org_id, id)
-    ON DELETE CASCADE
-);
-
-CREATE TABLE "webhook_endpoint_categories" (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  endpoint_id TEXT NOT NULL,
-  category TEXT NOT NULL,
-  PRIMARY KEY (namespace, org_id, endpoint_id, category),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (length(endpoint_id) > 0),
-  CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
-  FOREIGN KEY (namespace, org_id, endpoint_id)
-    REFERENCES webhook_endpoints(namespace, org_id, id)
-    ON DELETE CASCADE
-);
-
-CREATE TABLE "webhook_endpoints" (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  url TEXT NOT NULL,
-  status TEXT NOT NULL,
-  signing_secret_ciphertext_b64u TEXT NOT NULL,
-  signing_secret_key_id TEXT NOT NULL,
-  signing_secret_envelope_version TEXT NOT NULL,
-  secret_version INTEGER NOT NULL,
-  secret_preview TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, id),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (length(id) > 0),
-  CHECK (url GLOB 'http://*' OR url GLOB 'https://*'),
-  CHECK (status IN ('ACTIVE', 'DISABLED')),
-  CHECK (length(signing_secret_ciphertext_b64u) > 0),
-  CHECK (signing_secret_ciphertext_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
-  CHECK (length(signing_secret_key_id) > 0),
-  CHECK (length(signing_secret_envelope_version) > 0),
-  CHECK (secret_version > 0),
-  CHECK (length(secret_preview) > 0),
-  CHECK (created_at_ms > 0),
-  CHECK (updated_at_ms >= created_at_ms)
-);
-
-CREATE VIEW organization_access_ownerless_organizations AS
-SELECT
-  organization.namespace,
-  organization.id AS org_id
-FROM organizations AS organization
-WHERE organization.owner_anchor_membership_id IS NULL
-   OR NOT EXISTS (
-     SELECT 1
-     FROM organization_memberships AS owner
-     WHERE owner.namespace = organization.namespace
-       AND owner.org_id = organization.id
-       AND owner.kind = 'ACTIVE'
-       AND owner.role = 'OWNER'
-   );
-
-CREATE UNIQUE INDEX api_keys_auth_lookup_uidx
-  ON api_keys (namespace, kind, key_prefix, secret_hash);
-
-CREATE UNIQUE INDEX api_keys_namespace_id_uidx
-  ON api_keys (namespace, id);
-
-CREATE INDEX api_keys_org_status_idx
-  ON api_keys (namespace, org_id, status);
-
-CREATE INDEX api_keys_org_updated_idx
-  ON api_keys (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
-
-CREATE INDEX audit_events_org_category_idx
-  ON audit_events (namespace, org_id, category, created_at_ms DESC);
-
-CREATE INDEX audit_events_org_created_idx
-  ON audit_events (namespace, org_id, created_at_ms DESC, id DESC);
-
-CREATE INDEX audit_events_org_outcome_idx
-  ON audit_events (namespace, org_id, outcome, created_at_ms DESC);
-
-CREATE INDEX audit_evidence_org_created_idx
-  ON audit_evidence (namespace, org_id, created_at_ms DESC, id DESC);
-
-CREATE INDEX audit_evidence_org_domain_idx
-  ON audit_evidence (namespace, org_id, domain, created_at_ms DESC);
-
-CREATE UNIQUE INDEX billing_credit_purchases_checkout_uidx
-  ON billing_credit_purchases (namespace, org_id, provider_checkout_session_ref)
-  WHERE provider_checkout_session_ref IS NOT NULL;
-
-CREATE INDEX billing_credit_purchases_namespace_checkout_idx
-  ON billing_credit_purchases (namespace, provider_checkout_session_ref)
-  WHERE provider_checkout_session_ref IS NOT NULL;
-
-CREATE INDEX billing_credit_purchases_namespace_customer_idx
-  ON billing_credit_purchases (namespace, provider_customer_ref)
-  WHERE provider_customer_ref IS NOT NULL;
-
-CREATE UNIQUE INDEX billing_credit_purchases_payment_uidx
-  ON billing_credit_purchases (namespace, provider_payment_ref)
-  WHERE provider_payment_ref IS NOT NULL;
-
-CREATE UNIQUE INDEX billing_disputes_provider_uidx
-  ON billing_disputes (namespace, provider_dispute_id);
-
-CREATE UNIQUE INDEX billing_ledger_entries_idempotency_uidx
-  ON billing_ledger_entries (namespace, org_id, idempotency_key)
-  WHERE idempotency_key IS NOT NULL;
-
-CREATE INDEX billing_ledger_entries_org_created_idx
-  ON billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC);
-
-CREATE INDEX billing_ledger_entries_org_month_idx
-  ON billing_ledger_entries (namespace, org_id, month_utc, entry_type);
-
-CREATE UNIQUE INDEX billing_ledger_entries_type_source_uidx
-  ON billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
-  WHERE source_event_id IS NOT NULL;
-
-CREATE INDEX billing_ledger_postings_entry_idx
-  ON billing_ledger_postings (namespace, org_id, ledger_entry_id);
-
-CREATE UNIQUE INDEX billing_refunds_idempotency_uidx
-  ON billing_refunds (namespace, org_id, idempotency_key);
-
-CREATE UNIQUE INDEX billing_refunds_provider_uidx
-  ON billing_refunds (namespace, provider_refund_id)
-  WHERE provider_refund_id IS NOT NULL;
-
-CREATE INDEX billing_refunds_purchase_idx
-  ON billing_refunds (namespace, org_id, purchase_id, created_at_ms DESC);
-
-CREATE INDEX billing_stripe_post_processing_pending_idx
-  ON billing_stripe_post_processing_outbox (
-    namespace,
-    audit_completed_at_ms,
-    customer_webhook_completed_at_ms,
-    created_at_ms,
-    event_id
-  );
-
-CREATE INDEX console_email_deliveries_outbox_idx
-  ON console_email_deliveries (namespace, org_id, outbox_id, attempt_number DESC);
-
-CREATE INDEX console_email_outbox_dispatch_idx
-  ON console_email_outbox (namespace, status, available_at_ms ASC, created_at_ms ASC, id ASC);
-
-CREATE INDEX console_email_outbox_final_failure_idx
-  ON console_email_outbox (namespace, org_id, status, updated_at_ms DESC, id DESC);
-
-CREATE INDEX console_email_outbox_invitation_idx
-  ON console_email_outbox (namespace, org_id, invitation_id, status)
-  WHERE invitation_id IS NOT NULL;
-
-CREATE UNIQUE INDEX environments_namespace_id_project_org_unique_idx
-  ON environments (namespace, id, project_id, org_id);
-
-CREATE INDEX environments_org_project_updated_idx
-  ON environments (namespace, org_id, project_id, updated_at_ms DESC, created_at_ms DESC);
-
-CREATE INDEX invoice_line_items_invoice_idx
-  ON invoice_line_items (namespace, org_id, invoice_id);
-
-CREATE INDEX invoices_org_created_idx
-  ON invoices (namespace, org_id, created_at_ms DESC, id DESC);
-
-CREATE UNIQUE INDEX invoices_org_statement_month_uidx
-  ON invoices (namespace, org_id, document_type, period_month_utc)
-  WHERE document_type = 'USAGE_STATEMENT';
-
-CREATE INDEX observability_event_dedup_created_idx
-  ON observability_event_dedup (namespace, org_id, created_at_ms);
-
-CREATE INDEX observability_events_org_created_idx
-  ON observability_events (namespace, org_id, created_at_ms DESC, event_id DESC);
-
-CREATE INDEX observability_events_org_level_created_idx
-  ON observability_events (namespace, org_id, level, created_at_ms DESC, event_id DESC);
-
-CREATE INDEX observability_events_org_service_created_idx
-  ON observability_events (namespace, org_id, service, created_at_ms DESC, event_id DESC);
-
-CREATE INDEX observability_events_org_timestamp_idx
-  ON observability_events (namespace, org_id, timestamp_ms DESC, event_id DESC);
-
-CREATE INDEX observability_ingest_windows_window_idx
-  ON observability_ingest_windows (namespace, org_id, window_start_ms);
-
-CREATE INDEX observability_request_rollups_org_route_window_idx
-  ON observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC);
-
-CREATE INDEX observability_request_rollups_org_service_window_idx
-  ON observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC);
-
-CREATE INDEX observability_request_rollups_org_window_idx
-  ON observability_request_rollups_minute (namespace, org_id, window_start_ms DESC);
-
-CREATE INDEX org_created_by_user_idx
-  ON organizations (namespace, created_by_user_id, updated_at_ms DESC, created_at_ms DESC);
-
-CREATE UNIQUE INDEX organization_invitations_namespace_id_uidx
-  ON organization_invitations (namespace, id);
-
-CREATE INDEX organization_invitations_org_kind_idx
-  ON organization_invitations (namespace, org_id, kind, updated_at_ms DESC);
-
-CREATE UNIQUE INDEX organization_invitations_pending_email_uidx
-  ON organization_invitations (namespace, org_id, email_normalized)
-  WHERE kind = 'PENDING';
-
-CREATE UNIQUE INDEX organization_memberships_current_email_uidx
-  ON organization_memberships (namespace, org_id, email_normalized)
-  WHERE kind <> 'REMOVED';
-
-CREATE UNIQUE INDEX organization_memberships_current_user_uidx
-  ON organization_memberships (namespace, org_id, user_id)
-  WHERE kind <> 'REMOVED';
-
-CREATE INDEX organization_memberships_org_kind_idx
-  ON organization_memberships (namespace, org_id, kind, updated_at_ms DESC);
-
-CREATE INDEX organization_memberships_org_role_idx
-  ON organization_memberships (namespace, org_id, role, kind);
-
-CREATE INDEX organization_owner_events_org_created_idx
-  ON organization_owner_events (namespace, org_id, created_at_ms DESC, id DESC);
-
-CREATE INDEX project_member_access_membership_idx
-  ON project_member_access (namespace, org_id, membership_id, project_id);
-
-CREATE UNIQUE INDEX projects_namespace_id_org_unique_idx
-  ON projects (namespace, id, org_id);
-
-CREATE INDEX projects_org_updated_idx
-  ON projects (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
-
-CREATE INDEX stripe_webhook_events_org_idx
-  ON stripe_webhook_events (namespace, org_id, processed_at_ms DESC);
-
-CREATE INDEX webhook_attempts_endpoint_delivery_page_idx
-  ON webhook_attempts (namespace, org_id, endpoint_id, delivery_id, attempted_at_ms DESC, id DESC);
-
-CREATE INDEX webhook_attempts_endpoint_page_idx
-  ON webhook_attempts (namespace, org_id, endpoint_id, attempted_at_ms DESC, id DESC);
-
-CREATE INDEX webhook_dead_letters_endpoint_page_idx
-  ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC);
-
-CREATE INDEX webhook_dead_letters_unresolved_endpoint_page_idx
-  ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
-  WHERE resolved_at_ms IS NULL;
-
-CREATE INDEX webhook_deliveries_endpoint_page_idx
-  ON webhook_deliveries (namespace, org_id, endpoint_id, created_at_ms DESC, id DESC);
-
-CREATE UNIQUE INDEX webhook_deliveries_event_endpoint_uidx
-  ON webhook_deliveries (namespace, org_id, endpoint_id, event_id);
-
-CREATE INDEX webhook_deliveries_event_idx
-  ON webhook_deliveries (namespace, org_id, event_id);
-
-CREATE INDEX webhook_deliveries_retry_claim_idx
-  ON webhook_deliveries (
-    namespace,
-    org_id,
-    status,
-    retry_claim_expires_at_ms,
-    last_attempt_at_ms,
-    created_at_ms,
-    id
-  );
-
-CREATE INDEX webhook_endpoint_categories_lookup_idx
-  ON webhook_endpoint_categories (namespace, org_id, category, endpoint_id);
-
-CREATE INDEX webhook_endpoints_org_created_idx
-  ON webhook_endpoints (namespace, org_id, created_at_ms DESC, id DESC);
-
-CREATE TRIGGER billing_ledger_entries_balanced_postings
-AFTER INSERT ON billing_ledger_entries
-BEGIN
-  INSERT INTO billing_ledger_postings (
-    namespace,
-    org_id,
-    id,
-    ledger_entry_id,
-    account_code,
-    direction,
-    amount_minor,
-    created_at_ms
-  )
-  VALUES
-    (
-      NEW.namespace,
-      NEW.org_id,
-      NEW.id || ':debit',
-      NEW.id,
-      CASE
-        WHEN NEW.amount_minor < 0 THEN 'org_prepaid_liability'
-        WHEN NEW.entry_type IN ('CREDIT_PURCHASE', 'REFUND') THEN 'stripe_cash_clearing'
-        WHEN NEW.entry_type IN ('DISPUTE_OPENED', 'DISPUTE_WON') THEN 'stripe_dispute_clearing'
-        WHEN NEW.entry_type = 'USAGE_DEBIT' THEN 'revenue_usage'
-        WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN 'revenue_sponsored_execution'
-        ELSE 'manual_adjustment_clearing'
-      END,
-      'DEBIT',
-      ABS(NEW.amount_minor),
-      NEW.created_at_ms
-    ),
-    (
-      NEW.namespace,
-      NEW.org_id,
-      NEW.id || ':credit',
-      NEW.id,
-      CASE
-        WHEN NEW.amount_minor > 0 THEN 'org_prepaid_liability'
-        WHEN NEW.entry_type IN ('CREDIT_PURCHASE', 'REFUND') THEN 'stripe_cash_clearing'
-        WHEN NEW.entry_type IN ('DISPUTE_OPENED', 'DISPUTE_WON') THEN 'stripe_dispute_clearing'
-        WHEN NEW.entry_type = 'USAGE_DEBIT' THEN 'revenue_usage'
-        WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN 'revenue_sponsored_execution'
-        ELSE 'manual_adjustment_clearing'
-      END,
-      'CREDIT',
-      ABS(NEW.amount_minor),
-      NEW.created_at_ms
-    );
-END;
-
-CREATE TRIGGER organization_admin_permissions_authorization_delete
-AFTER DELETE ON organization_admin_permissions
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1
-  WHERE namespace = OLD.namespace
-    AND id = OLD.org_id;
-END;
-
-CREATE TRIGGER organization_admin_permissions_authorization_insert
-AFTER INSERT ON organization_admin_permissions
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1
-  WHERE namespace = NEW.namespace
-    AND id = NEW.org_id;
-END;
-
-CREATE TRIGGER organization_admin_permissions_role_insert
-BEFORE INSERT ON organization_admin_permissions
-WHEN NOT EXISTS (
-  SELECT 1
-  FROM organization_memberships
-  WHERE namespace = NEW.namespace
-    AND org_id = NEW.org_id
-    AND id = NEW.membership_id
-    AND role = 'ADMIN'
-    AND kind <> 'REMOVED'
-)
-BEGIN
-  SELECT RAISE(ABORT, 'admin_permission_membership_invalid');
-END;
-
-CREATE TRIGGER organization_memberships_authorization_delete
-AFTER DELETE ON organization_memberships
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1,
-      owner_set_version = owner_set_version + CASE
-        WHEN OLD.kind = 'ACTIVE' AND OLD.role = 'OWNER' THEN 1
-        ELSE 0
-      END
-  WHERE namespace = OLD.namespace
-    AND id = OLD.org_id;
-END;
-
-CREATE TRIGGER organization_memberships_authorization_insert
-AFTER INSERT ON organization_memberships
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1,
-      owner_set_version = owner_set_version + CASE
-        WHEN NEW.kind = 'ACTIVE' AND NEW.role = 'OWNER' THEN 1
-        ELSE 0
-      END
-  WHERE namespace = NEW.namespace
-    AND id = NEW.org_id;
-END;
-
-CREATE TRIGGER organization_memberships_authorization_update
-AFTER UPDATE OF kind, role ON organization_memberships
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1,
-      owner_set_version = owner_set_version + CASE
-        WHEN OLD.kind = 'ACTIVE' AND OLD.role = 'OWNER'
-         AND (NEW.kind <> 'ACTIVE' OR NEW.role <> 'OWNER') THEN 1
-        WHEN (OLD.kind <> 'ACTIVE' OR OLD.role <> 'OWNER')
-         AND NEW.kind = 'ACTIVE' AND NEW.role = 'OWNER' THEN 1
-        ELSE 0
-      END
-  WHERE namespace = NEW.namespace
-    AND id = NEW.org_id;
-END;
-
-CREATE TRIGGER organization_memberships_last_owner_delete
-BEFORE DELETE ON organization_memberships
-WHEN OLD.kind = 'ACTIVE'
- AND OLD.role = 'OWNER'
- AND (
-   SELECT COUNT(*)
-   FROM organization_memberships
-   WHERE namespace = OLD.namespace
-     AND org_id = OLD.org_id
-     AND kind = 'ACTIVE'
-     AND role = 'OWNER'
- ) <= 1
-BEGIN
-  SELECT RAISE(ABORT, 'last_owner_required');
-END;
-
-CREATE TRIGGER organization_memberships_last_owner_update
-BEFORE UPDATE OF kind, role ON organization_memberships
-WHEN OLD.kind = 'ACTIVE'
- AND OLD.role = 'OWNER'
- AND (NEW.kind <> 'ACTIVE' OR NEW.role <> 'OWNER')
- AND (
-   SELECT COUNT(*)
-   FROM organization_memberships
-   WHERE namespace = OLD.namespace
-     AND org_id = OLD.org_id
-     AND kind = 'ACTIVE'
-     AND role = 'OWNER'
- ) <= 1
-BEGIN
-  SELECT RAISE(ABORT, 'last_owner_required');
-END;
-
-CREATE TRIGGER organization_memberships_owner_anchor_update
-BEFORE UPDATE OF kind, role ON organization_memberships
-WHEN OLD.id = (
-   SELECT owner_anchor_membership_id
-   FROM organizations
-   WHERE namespace = OLD.namespace
-     AND id = OLD.org_id
- )
- AND (NEW.kind <> 'ACTIVE' OR NEW.role <> 'OWNER')
-BEGIN
-  SELECT RAISE(ABORT, 'owner_anchor_required');
-END;
-
-CREATE TRIGGER organizations_owner_anchor_update
-BEFORE UPDATE OF owner_anchor_membership_id ON organizations
-WHEN NEW.owner_anchor_membership_id IS NOT NULL
- AND NOT EXISTS (
-   SELECT 1
-   FROM organization_memberships
-   WHERE namespace = NEW.namespace
-     AND org_id = NEW.id
-     AND id = NEW.owner_anchor_membership_id
-     AND kind = 'ACTIVE'
-     AND role = 'OWNER'
- )
-BEGIN
-  SELECT RAISE(ABORT, 'owner_anchor_invalid');
-END;
-
-CREATE TRIGGER project_member_access_authorization_delete
-AFTER DELETE ON project_member_access
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1
-  WHERE namespace = OLD.namespace
-    AND id = OLD.org_id;
-END;
-
-CREATE TRIGGER project_member_access_authorization_insert
-AFTER INSERT ON project_member_access
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1
-  WHERE namespace = NEW.namespace
-    AND id = NEW.org_id;
-END;
-
-CREATE TRIGGER project_member_access_authorization_update
-AFTER UPDATE OF access_level ON project_member_access
-BEGIN
-  UPDATE organizations
-  SET authorization_version = authorization_version + 1
-  WHERE namespace = NEW.namespace
-    AND id = NEW.org_id;
-END;
-
-CREATE TRIGGER project_member_access_role_insert
-BEFORE INSERT ON project_member_access
-WHEN NOT EXISTS (
-  SELECT 1
-  FROM organization_memberships
-  WHERE namespace = NEW.namespace
-    AND org_id = NEW.org_id
-    AND id = NEW.membership_id
-    AND role = 'MEMBER'
-    AND kind = 'ACTIVE'
-)
-BEGIN
-  SELECT RAISE(ABORT, 'project_access_membership_invalid');
-END;
-
--- ===== Wallet Console section (owner: wallet-console) =====
-
-CREATE TABLE approvals (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  operation_type TEXT NOT NULL,
-  status TEXT NOT NULL,
-  reason TEXT NOT NULL,
-  requested_by_user_id TEXT NOT NULL,
-  required_approvals INTEGER NOT NULL,
-  require_mfa INTEGER NOT NULL,
-  project_id TEXT,
-  environment_id TEXT,
-  resource_type TEXT,
-  resource_id TEXT,
-  metadata_json TEXT NOT NULL,
-  decisions_json TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  resolved_at_ms INTEGER,
-  PRIMARY KEY (namespace, org_id, id),
-  CHECK (operation_type IN ('POLICY_PUBLISH', 'KEY_EXPORT')),
-  CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELED')),
-  CHECK (required_approvals > 0),
-  CHECK (require_mfa IN (0, 1)),
-  CHECK (json_valid(metadata_json)),
-  CHECK (json_valid(decisions_json))
-);
-
-CREATE TABLE "billing_monthly_active_wallets" (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  month_utc TEXT NOT NULL,
-  wallet_id TEXT NOT NULL,
-  source_event_id TEXT,
-  created_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, month_utc, wallet_id),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (
-    month_utc GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
-    AND substr(month_utc, 6, 2) BETWEEN '01' AND '12'
-  ),
-  CHECK (length(wallet_id) > 0),
-  CHECK (source_event_id IS NULL OR length(source_event_id) > 0),
-  CHECK (created_at_ms > 0)
-);
-
-CREATE TABLE "billing_prepaid_reservation_summaries" (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  reserved_minor INTEGER NOT NULL DEFAULT 0,
-  active_reservation_count INTEGER NOT NULL DEFAULT 0,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (reserved_minor >= 0),
-  CHECK (active_reservation_count >= 0),
-  CHECK (created_at_ms > 0),
-  CHECK (updated_at_ms >= created_at_ms)
-);
-
-CREATE TABLE "billing_prepaid_reservations" (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  environment_id TEXT NOT NULL,
-  policy_id TEXT,
-  source_event_id TEXT NOT NULL,
-  requested_minor INTEGER NOT NULL,
-  posted_balance_minor INTEGER NOT NULL,
-  settled_minor INTEGER NOT NULL DEFAULT 0,
-  released_minor INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL,
-  tx_or_execution_ref TEXT,
-  pricing_version TEXT,
-  expires_at_ms INTEGER NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, id),
-  CHECK (length(namespace) > 0),
-  CHECK (length(org_id) > 0),
-  CHECK (length(id) > 0),
-  CHECK (length(environment_id) > 0),
-  CHECK (length(source_event_id) > 0),
-  CHECK (requested_minor > 0),
-  CHECK (posted_balance_minor >= 0),
-  CHECK (settled_minor >= 0),
-  CHECK (released_minor >= 0),
-  CHECK (status IN ('RESERVED', 'SETTLED', 'RELEASED', 'EXPIRED')),
-  CHECK (expires_at_ms > created_at_ms),
-  CHECK (created_at_ms > 0),
-  CHECK (updated_at_ms >= created_at_ms),
-  CHECK (
-    (status = 'RESERVED' AND settled_minor = 0 AND released_minor = 0 AND tx_or_execution_ref IS NULL AND pricing_version IS NULL)
-    OR (status = 'SETTLED' AND released_minor = CASE WHEN requested_minor > settled_minor THEN requested_minor - settled_minor ELSE 0 END)
-    OR (status IN ('RELEASED', 'EXPIRED') AND settled_minor = 0 AND released_minor = requested_minor)
-  )
-);
-
-CREATE TABLE key_exports (
-  namespace TEXT NOT NULL,
-  org_id TEXT NOT NULL,
-  id TEXT NOT NULL,
-  environment_id TEXT NOT NULL,
-  wallet_id TEXT,
-  mode TEXT NOT NULL,
-  status TEXT NOT NULL,
-  reason TEXT NOT NULL,
-  requested_by_user_id TEXT NOT NULL,
-  required_approvals INTEGER NOT NULL,
-  approvals_json TEXT NOT NULL,
-  constraints_json TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER NOT NULL,
-  PRIMARY KEY (namespace, org_id, id),
-  CHECK (mode IN ('DISABLED', 'APPROVAL_REQUIRED', 'ALLOWED_WITH_CONSTRAINTS')),
-  CHECK (status IN ('PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'EXECUTED', 'CANCELED')),
-  CHECK (required_approvals > 0),
-  CHECK (json_valid(approvals_json)),
-  CHECK (json_valid(constraints_json))
-);
-
 CREATE TABLE policies (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1689,7 +1003,6 @@ CREATE TABLE policies (
   CHECK (is_system_default IN (0, 1)),
   CHECK (json_valid(rules_json))
 );
-
 CREATE TABLE policy_assignments (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1706,7 +1019,6 @@ CREATE TABLE policy_assignments (
     ON DELETE CASCADE,
   CHECK (scope_type IN ('ORG', 'PROJECT', 'ENVIRONMENT', 'WALLET'))
 );
-
 CREATE TABLE policy_versions (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1727,7 +1039,42 @@ CREATE TABLE policy_versions (
   CHECK (version >= 0),
   CHECK (json_valid(rules_json))
 );
-
+CREATE TABLE project_member_access (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  membership_id TEXT NOT NULL,
+  access_level TEXT NOT NULL,
+  granted_by_user_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, project_id, membership_id),
+  FOREIGN KEY (namespace, org_id, membership_id)
+    REFERENCES organization_memberships(namespace, org_id, id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (namespace, project_id, org_id)
+    REFERENCES projects(namespace, id, org_id)
+    ON DELETE CASCADE,
+  CHECK (access_level IN ('viewer', 'editor')),
+  CHECK (length(granted_by_user_id) > 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms)
+);
+CREATE TABLE projects (
+  namespace TEXT NOT NULL,
+  id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, id),
+  CHECK (status IN ('ACTIVE', 'ARCHIVED')),
+  FOREIGN KEY (namespace, org_id)
+    REFERENCES organizations(namespace, id)
+    ON DELETE CASCADE
+);
 CREATE TABLE "runtime_snapshot_outbox" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1798,7 +1145,6 @@ CREATE TABLE "runtime_snapshot_outbox" (
     )
   )
 );
-
 CREATE TABLE "runtime_snapshots" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1825,7 +1171,6 @@ CREATE TABLE "runtime_snapshots" (
   CHECK (created_at_ms > 0),
   CHECK (length(created_by) > 0)
 );
-
 CREATE TABLE "sponsored_call_records" (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1878,7 +1223,6 @@ CREATE TABLE "sponsored_call_records" (
   CHECK (updated_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE sponsorship_pricing_rules (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1920,7 +1264,6 @@ CREATE TABLE sponsorship_pricing_rules (
   CHECK (created_at_ms > 0),
   CHECK (updated_at_ms >= created_at_ms)
 );
-
 CREATE TABLE sponsorship_spend_cap_reservations (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1952,7 +1295,6 @@ CREATE TABLE sponsorship_spend_cap_reservations (
   CHECK (settled_minor >= 0),
   CHECK (released_minor >= 0)
 );
-
 CREATE TABLE sponsorship_spend_cap_windows (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -1988,7 +1330,34 @@ CREATE TABLE sponsorship_spend_cap_windows (
   CHECK (reserved_minor >= 0),
   CHECK (settled_minor >= 0)
 );
-
+CREATE TABLE stripe_webhook_events (
+  namespace TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  provider_ref TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  processed_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, event_id)
+);
+CREATE TABLE user_backup_emails (
+  namespace TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  email_normalized TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, user_id, email_normalized),
+  CHECK (status IN ('PENDING', 'VERIFIED'))
+);
+CREATE TABLE user_profiles (
+  namespace TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  display_name TEXT,
+  primary_email TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, user_id)
+);
 CREATE TABLE wallet_index (
   namespace TEXT NOT NULL,
   org_id TEXT NOT NULL,
@@ -2012,63 +1381,295 @@ CREATE TABLE wallet_index (
   CHECK (wallet_type IN ('EOA', 'SMART')),
   CHECK (status IN ('ACTIVE', 'FROZEN', 'ARCHIVED'))
 );
-
+CREATE TABLE webhook_attempts (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL,
+  delivery_id TEXT NOT NULL,
+  attempt_no INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  response_status INTEGER,
+  response_body TEXT,
+  error_message TEXT,
+  attempted_at_ms INTEGER NOT NULL,
+  is_replay INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, id),
+  UNIQUE (namespace, org_id, delivery_id, attempt_no),
+  CHECK (attempt_no > 0),
+  CHECK (status IN ('SUCCEEDED', 'FAILED')),
+  CHECK (is_replay IN (0, 1)),
+  FOREIGN KEY (namespace, org_id, delivery_id)
+    REFERENCES webhook_deliveries(namespace, org_id, id)
+    ON DELETE CASCADE
+);
+CREATE TABLE webhook_dead_letters (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL,
+  delivery_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  failed_attempts INTEGER NOT NULL,
+  last_response_status INTEGER,
+  last_error_message TEXT,
+  payload_json TEXT NOT NULL,
+  moved_to_dlq_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER,
+  PRIMARY KEY (namespace, org_id, id),
+  UNIQUE (namespace, org_id, delivery_id),
+  CHECK (failed_attempts > 0),
+  CHECK (json_valid(payload_json)),
+  FOREIGN KEY (namespace, org_id, delivery_id)
+    REFERENCES webhook_deliveries(namespace, org_id, id)
+    ON DELETE CASCADE
+);
+CREATE TABLE webhook_deliveries (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL,
+  replay_count INTEGER NOT NULL,
+  response_status INTEGER,
+  response_body TEXT,
+  error_message TEXT,
+  payload_json TEXT NOT NULL,
+  delivered_at_ms INTEGER,
+  last_attempt_at_ms INTEGER,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL, retry_claimed_by TEXT, retry_claim_expires_at_ms INTEGER,
+  PRIMARY KEY (namespace, org_id, id),
+  CHECK (status IN ('SUCCEEDED', 'FAILED')),
+  CHECK (attempt_count >= 0),
+  CHECK (replay_count >= 0),
+  CHECK (json_valid(payload_json)),
+  FOREIGN KEY (namespace, org_id, endpoint_id)
+    REFERENCES webhook_endpoints(namespace, org_id, id)
+    ON DELETE CASCADE
+);
+CREATE TABLE "webhook_endpoint_categories" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  endpoint_id TEXT NOT NULL,
+  category TEXT NOT NULL,
+  PRIMARY KEY (namespace, org_id, endpoint_id, category),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(endpoint_id) > 0),
+  CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
+  FOREIGN KEY (namespace, org_id, endpoint_id)
+    REFERENCES webhook_endpoints(namespace, org_id, id)
+    ON DELETE CASCADE
+);
+CREATE TABLE "webhook_endpoints" (
+  namespace TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  status TEXT NOT NULL,
+  signing_secret_ciphertext_b64u TEXT NOT NULL,
+  signing_secret_key_id TEXT NOT NULL,
+  signing_secret_envelope_version TEXT NOT NULL,
+  secret_version INTEGER NOT NULL,
+  secret_preview TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (namespace, org_id, id),
+  CHECK (length(namespace) > 0),
+  CHECK (length(org_id) > 0),
+  CHECK (length(id) > 0),
+  CHECK (url GLOB 'http://*' OR url GLOB 'https://*'),
+  CHECK (status IN ('ACTIVE', 'DISABLED')),
+  CHECK (length(signing_secret_ciphertext_b64u) > 0),
+  CHECK (signing_secret_ciphertext_b64u NOT GLOB '*[^A-Za-z0-9_-]*'),
+  CHECK (length(signing_secret_key_id) > 0),
+  CHECK (length(signing_secret_envelope_version) > 0),
+  CHECK (secret_version > 0),
+  CHECK (length(secret_preview) > 0),
+  CHECK (created_at_ms > 0),
+  CHECK (updated_at_ms >= created_at_ms)
+);
+CREATE VIEW organization_access_ownerless_organizations AS
+SELECT
+  organization.namespace,
+  organization.id AS org_id
+FROM organizations AS organization
+WHERE organization.owner_anchor_membership_id IS NULL
+   OR NOT EXISTS (
+     SELECT 1
+     FROM organization_memberships AS owner
+     WHERE owner.namespace = organization.namespace
+       AND owner.org_id = organization.id
+       AND owner.kind = 'ACTIVE'
+       AND owner.role = 'OWNER'
+   );
+CREATE UNIQUE INDEX api_keys_auth_lookup_uidx
+  ON api_keys (namespace, kind, key_prefix, secret_hash);
+CREATE UNIQUE INDEX api_keys_namespace_id_uidx
+  ON api_keys (namespace, id);
+CREATE INDEX api_keys_org_status_idx
+  ON api_keys (namespace, org_id, status);
+CREATE INDEX api_keys_org_updated_idx
+  ON api_keys (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 CREATE INDEX approvals_org_operation_idx
   ON approvals (namespace, org_id, operation_type, updated_at_ms DESC);
-
 CREATE INDEX approvals_org_status_idx
   ON approvals (namespace, org_id, status, updated_at_ms DESC);
-
 CREATE INDEX approvals_org_updated_idx
   ON approvals (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
-
+CREATE INDEX audit_events_org_category_idx
+  ON audit_events (namespace, org_id, category, created_at_ms DESC);
+CREATE INDEX audit_events_org_created_idx
+  ON audit_events (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX audit_events_org_outcome_idx
+  ON audit_events (namespace, org_id, outcome, created_at_ms DESC);
+CREATE INDEX audit_evidence_org_created_idx
+  ON audit_evidence (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX audit_evidence_org_domain_idx
+  ON audit_evidence (namespace, org_id, domain, created_at_ms DESC);
+CREATE UNIQUE INDEX billing_credit_purchases_checkout_uidx
+  ON billing_credit_purchases (namespace, org_id, provider_checkout_session_ref)
+  WHERE provider_checkout_session_ref IS NOT NULL;
+CREATE INDEX billing_credit_purchases_namespace_checkout_idx
+  ON billing_credit_purchases (namespace, provider_checkout_session_ref)
+  WHERE provider_checkout_session_ref IS NOT NULL;
+CREATE INDEX billing_credit_purchases_namespace_customer_idx
+  ON billing_credit_purchases (namespace, provider_customer_ref)
+  WHERE provider_customer_ref IS NOT NULL;
+CREATE UNIQUE INDEX billing_credit_purchases_payment_uidx
+  ON billing_credit_purchases (namespace, provider_payment_ref)
+  WHERE provider_payment_ref IS NOT NULL;
+CREATE UNIQUE INDEX billing_disputes_provider_uidx
+  ON billing_disputes (namespace, provider_dispute_id);
+CREATE UNIQUE INDEX billing_ledger_entries_idempotency_uidx
+  ON billing_ledger_entries (namespace, org_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+CREATE INDEX billing_ledger_entries_org_created_idx
+  ON billing_ledger_entries (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE INDEX billing_ledger_entries_org_month_idx
+  ON billing_ledger_entries (namespace, org_id, month_utc, entry_type);
+CREATE UNIQUE INDEX billing_ledger_entries_type_source_uidx
+  ON billing_ledger_entries (namespace, org_id, entry_type, source_event_id)
+  WHERE source_event_id IS NOT NULL;
+CREATE INDEX billing_ledger_postings_entry_idx
+  ON billing_ledger_postings (namespace, org_id, ledger_entry_id);
 CREATE UNIQUE INDEX billing_monthly_active_wallets_source_uidx
   ON billing_monthly_active_wallets (namespace, org_id, source_event_id)
   WHERE source_event_id IS NOT NULL;
-
 CREATE UNIQUE INDEX billing_prepaid_reservations_namespace_id_idx
   ON billing_prepaid_reservations (namespace, id);
-
 CREATE INDEX billing_prepaid_reservations_org_status_idx
   ON billing_prepaid_reservations (namespace, org_id, status, expires_at_ms ASC);
-
 CREATE UNIQUE INDEX billing_prepaid_reservations_source_event_idx
   ON billing_prepaid_reservations (namespace, org_id, source_event_id);
-
 CREATE INDEX billing_prepaid_reservations_status_idx
   ON billing_prepaid_reservations (namespace, status, expires_at_ms ASC);
-
+CREATE UNIQUE INDEX billing_refunds_idempotency_uidx
+  ON billing_refunds (namespace, org_id, idempotency_key);
+CREATE UNIQUE INDEX billing_refunds_provider_uidx
+  ON billing_refunds (namespace, provider_refund_id)
+  WHERE provider_refund_id IS NOT NULL;
+CREATE INDEX billing_refunds_purchase_idx
+  ON billing_refunds (namespace, org_id, purchase_id, created_at_ms DESC);
+CREATE INDEX billing_stripe_post_processing_pending_idx
+  ON billing_stripe_post_processing_outbox (
+    namespace,
+    audit_completed_at_ms,
+    customer_webhook_completed_at_ms,
+    created_at_ms,
+    event_id
+  );
+CREATE INDEX console_email_deliveries_outbox_idx
+  ON console_email_deliveries (namespace, org_id, outbox_id, attempt_number DESC);
+CREATE INDEX console_email_outbox_dispatch_idx
+  ON console_email_outbox (namespace, status, available_at_ms ASC, created_at_ms ASC, id ASC);
+CREATE INDEX console_email_outbox_final_failure_idx
+  ON console_email_outbox (namespace, org_id, status, updated_at_ms DESC, id DESC);
+CREATE INDEX console_email_outbox_invitation_idx
+  ON console_email_outbox (namespace, org_id, invitation_id, status)
+  WHERE invitation_id IS NOT NULL;
+CREATE UNIQUE INDEX environments_namespace_id_project_org_unique_idx
+  ON environments (namespace, id, project_id, org_id);
+CREATE INDEX environments_org_project_updated_idx
+  ON environments (namespace, org_id, project_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE INDEX invoice_line_items_invoice_idx
+  ON invoice_line_items (namespace, org_id, invoice_id);
+CREATE INDEX invoices_org_created_idx
+  ON invoices (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE UNIQUE INDEX invoices_org_statement_month_uidx
+  ON invoices (namespace, org_id, document_type, period_month_utc)
+  WHERE document_type = 'USAGE_STATEMENT';
 CREATE INDEX key_exports_org_environment_idx
   ON key_exports (namespace, org_id, environment_id, updated_at_ms DESC);
-
 CREATE INDEX key_exports_org_status_idx
   ON key_exports (namespace, org_id, status, updated_at_ms DESC);
-
 CREATE INDEX key_exports_org_updated_idx
   ON key_exports (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
-
+CREATE INDEX observability_event_dedup_created_idx
+  ON observability_event_dedup (namespace, org_id, created_at_ms);
+CREATE INDEX observability_events_org_created_idx
+  ON observability_events (namespace, org_id, created_at_ms DESC, event_id DESC);
+CREATE INDEX observability_events_org_level_created_idx
+  ON observability_events (namespace, org_id, level, created_at_ms DESC, event_id DESC);
+CREATE INDEX observability_events_org_service_created_idx
+  ON observability_events (namespace, org_id, service, created_at_ms DESC, event_id DESC);
+CREATE INDEX observability_events_org_timestamp_idx
+  ON observability_events (namespace, org_id, timestamp_ms DESC, event_id DESC);
+CREATE INDEX observability_ingest_windows_window_idx
+  ON observability_ingest_windows (namespace, org_id, window_start_ms);
+CREATE INDEX observability_request_rollups_org_route_window_idx
+  ON observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC);
+CREATE INDEX observability_request_rollups_org_service_window_idx
+  ON observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC);
+CREATE INDEX observability_request_rollups_org_window_idx
+  ON observability_request_rollups_minute (namespace, org_id, window_start_ms DESC);
+CREATE INDEX org_created_by_user_idx
+  ON organizations (namespace, created_by_user_id, updated_at_ms DESC, created_at_ms DESC);
+CREATE UNIQUE INDEX organization_invitations_namespace_id_uidx
+  ON organization_invitations (namespace, id);
+CREATE INDEX organization_invitations_org_kind_idx
+  ON organization_invitations (namespace, org_id, kind, updated_at_ms DESC);
+CREATE UNIQUE INDEX organization_invitations_pending_email_uidx
+  ON organization_invitations (namespace, org_id, email_normalized)
+  WHERE kind = 'PENDING';
+CREATE UNIQUE INDEX organization_memberships_current_email_uidx
+  ON organization_memberships (namespace, org_id, email_normalized)
+  WHERE kind <> 'REMOVED';
+CREATE UNIQUE INDEX organization_memberships_current_user_uidx
+  ON organization_memberships (namespace, org_id, user_id)
+  WHERE kind <> 'REMOVED';
+CREATE INDEX organization_memberships_org_kind_idx
+  ON organization_memberships (namespace, org_id, kind, updated_at_ms DESC);
+CREATE INDEX organization_memberships_org_role_idx
+  ON organization_memberships (namespace, org_id, role, kind);
+CREATE INDEX organization_owner_events_org_created_idx
+  ON organization_owner_events (namespace, org_id, created_at_ms DESC, id DESC);
 CREATE UNIQUE INDEX policies_namespace_id_uidx
   ON policies (namespace, id);
-
 CREATE INDEX policies_org_status_idx
   ON policies (namespace, org_id, status);
-
 CREATE UNIQUE INDEX policies_org_system_default_uidx
   ON policies (namespace, org_id)
   WHERE is_system_default = 1;
-
 CREATE INDEX policies_org_updated_idx
   ON policies (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
-
 CREATE INDEX policy_assignments_org_scope_idx
   ON policy_assignments (namespace, org_id, scope_type, scope_id);
-
 CREATE INDEX policy_assignments_org_updated_idx
   ON policy_assignments (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
-
 CREATE INDEX policy_versions_org_policy_created_idx
   ON policy_versions (namespace, org_id, policy_id, created_at_ms DESC);
-
+CREATE INDEX project_member_access_membership_idx
+  ON project_member_access (namespace, org_id, membership_id, project_id);
+CREATE UNIQUE INDEX projects_namespace_id_org_unique_idx
+  ON projects (namespace, id, org_id);
+CREATE INDEX projects_org_updated_idx
+  ON projects (namespace, org_id, updated_at_ms DESC, created_at_ms DESC);
 CREATE INDEX runtime_snapshot_outbox_claim_idx
   ON runtime_snapshot_outbox (
     namespace,
@@ -2076,7 +1677,6 @@ CREATE INDEX runtime_snapshot_outbox_claim_idx
     claimed_by,
     claim_expires_at_ms
   );
-
 CREATE INDEX runtime_snapshot_outbox_visible_idx
   ON runtime_snapshot_outbox (
     namespace,
@@ -2086,7 +1686,6 @@ CREATE INDEX runtime_snapshot_outbox_visible_idx
     created_at_ms ASC,
     event_id ASC
   );
-
 CREATE INDEX runtime_snapshots_env_version_idx
   ON runtime_snapshots (
     namespace,
@@ -2095,7 +1694,6 @@ CREATE INDEX runtime_snapshots_env_version_idx
     version DESC,
     created_at_ms DESC
   );
-
 CREATE INDEX runtime_snapshots_scope_version_idx
   ON runtime_snapshots (
     namespace,
@@ -2105,19 +1703,14 @@ CREATE INDEX runtime_snapshots_scope_version_idx
     version DESC,
     created_at_ms DESC
   );
-
 CREATE UNIQUE INDEX sponsored_call_idempotency_key_idx
   ON sponsored_call_records (namespace, org_id, idempotency_key);
-
 CREATE INDEX sponsored_call_org_created_idx
   ON sponsored_call_records (namespace, org_id, created_at_ms DESC, id DESC);
-
 CREATE INDEX sponsored_call_org_environment_created_idx
   ON sponsored_call_records (namespace, org_id, environment_id, created_at_ms DESC, id DESC);
-
 CREATE INDEX sponsored_call_org_policy_created_idx
   ON sponsored_call_records (namespace, org_id, policy_id, created_at_ms DESC, id DESC);
-
 CREATE UNIQUE INDEX sponsorship_pricing_active_selector_idx
   ON sponsorship_pricing_rules (
     namespace,
@@ -2131,7 +1724,6 @@ CREATE UNIQUE INDEX sponsorship_pricing_active_selector_idx
     executor_kind
   )
   WHERE status = 'active';
-
 CREATE INDEX sponsorship_pricing_environment_idx
   ON sponsorship_pricing_rules (
     namespace,
@@ -2141,34 +1733,104 @@ CREATE INDEX sponsorship_pricing_environment_idx
     status,
     effective_from_ms DESC
   );
-
 CREATE UNIQUE INDEX sponsorship_spend_cap_source_event_idx
   ON sponsorship_spend_cap_reservations (namespace, org_id, source_event_id);
-
 CREATE INDEX sponsorship_spend_cap_windows_updated_idx
   ON sponsorship_spend_cap_windows (namespace, org_id, updated_at_ms DESC);
-
+CREATE INDEX stripe_webhook_events_org_idx
+  ON stripe_webhook_events (namespace, org_id, processed_at_ms DESC);
 CREATE INDEX wallet_index_org_balance_idx
   ON wallet_index (namespace, org_id, balance_minor DESC, id DESC);
-
 CREATE INDEX wallet_index_org_created_idx
   ON wallet_index (namespace, org_id, created_at_ms DESC, id DESC);
-
 CREATE INDEX wallet_index_org_external_ref_idx
   ON wallet_index (namespace, org_id, external_ref_id);
-
 CREATE INDEX wallet_index_org_last_activity_idx
   ON wallet_index (namespace, org_id, COALESCE(last_activity_at_ms, 0) DESC, id DESC);
-
 CREATE INDEX wallet_index_org_project_env_idx
   ON wallet_index (namespace, org_id, project_id, environment_id);
-
 CREATE INDEX wallet_index_org_status_type_chain_idx
   ON wallet_index (namespace, org_id, status, wallet_type, chain);
-
 CREATE INDEX wallet_index_org_user_idx
   ON wallet_index (namespace, org_id, user_id);
-
+CREATE INDEX webhook_attempts_endpoint_delivery_page_idx
+  ON webhook_attempts (namespace, org_id, endpoint_id, delivery_id, attempted_at_ms DESC, id DESC);
+CREATE INDEX webhook_attempts_endpoint_page_idx
+  ON webhook_attempts (namespace, org_id, endpoint_id, attempted_at_ms DESC, id DESC);
+CREATE INDEX webhook_dead_letters_endpoint_page_idx
+  ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC);
+CREATE INDEX webhook_dead_letters_unresolved_endpoint_page_idx
+  ON webhook_dead_letters (namespace, org_id, endpoint_id, moved_to_dlq_at_ms DESC, id DESC)
+  WHERE resolved_at_ms IS NULL;
+CREATE INDEX webhook_deliveries_endpoint_page_idx
+  ON webhook_deliveries (namespace, org_id, endpoint_id, created_at_ms DESC, id DESC);
+CREATE UNIQUE INDEX webhook_deliveries_event_endpoint_uidx
+  ON webhook_deliveries (namespace, org_id, endpoint_id, event_id);
+CREATE INDEX webhook_deliveries_event_idx
+  ON webhook_deliveries (namespace, org_id, event_id);
+CREATE INDEX webhook_deliveries_retry_claim_idx
+  ON webhook_deliveries (
+    namespace,
+    org_id,
+    status,
+    retry_claim_expires_at_ms,
+    last_attempt_at_ms,
+    created_at_ms,
+    id
+  );
+CREATE INDEX webhook_endpoint_categories_lookup_idx
+  ON webhook_endpoint_categories (namespace, org_id, category, endpoint_id);
+CREATE INDEX webhook_endpoints_org_created_idx
+  ON webhook_endpoints (namespace, org_id, created_at_ms DESC, id DESC);
+CREATE TRIGGER billing_ledger_entries_balanced_postings
+AFTER INSERT ON billing_ledger_entries
+BEGIN
+  INSERT INTO billing_ledger_postings (
+    namespace,
+    org_id,
+    id,
+    ledger_entry_id,
+    account_code,
+    direction,
+    amount_minor,
+    created_at_ms
+  )
+  VALUES
+    (
+      NEW.namespace,
+      NEW.org_id,
+      NEW.id || ':debit',
+      NEW.id,
+      CASE
+        WHEN NEW.amount_minor < 0 THEN 'org_prepaid_liability'
+        WHEN NEW.entry_type IN ('CREDIT_PURCHASE', 'REFUND') THEN 'stripe_cash_clearing'
+        WHEN NEW.entry_type IN ('DISPUTE_OPENED', 'DISPUTE_WON') THEN 'stripe_dispute_clearing'
+        WHEN NEW.entry_type = 'USAGE_DEBIT' THEN 'revenue_usage'
+        WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN 'revenue_sponsored_execution'
+        ELSE 'manual_adjustment_clearing'
+      END,
+      'DEBIT',
+      ABS(NEW.amount_minor),
+      NEW.created_at_ms
+    ),
+    (
+      NEW.namespace,
+      NEW.org_id,
+      NEW.id || ':credit',
+      NEW.id,
+      CASE
+        WHEN NEW.amount_minor > 0 THEN 'org_prepaid_liability'
+        WHEN NEW.entry_type IN ('CREDIT_PURCHASE', 'REFUND') THEN 'stripe_cash_clearing'
+        WHEN NEW.entry_type IN ('DISPUTE_OPENED', 'DISPUTE_WON') THEN 'stripe_dispute_clearing'
+        WHEN NEW.entry_type = 'USAGE_DEBIT' THEN 'revenue_usage'
+        WHEN NEW.entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN 'revenue_sponsored_execution'
+        ELSE 'manual_adjustment_clearing'
+      END,
+      'CREDIT',
+      ABS(NEW.amount_minor),
+      NEW.created_at_ms
+    );
+END;
 CREATE TRIGGER billing_prepaid_reservations_reserve_insert
 BEFORE INSERT ON billing_prepaid_reservations
 WHEN NEW.status = 'RESERVED'
@@ -2194,7 +1856,6 @@ BEGIN
          updated_at_ms = NEW.created_at_ms
    WHERE namespace = NEW.namespace AND org_id = NEW.org_id;
 END;
-
 CREATE TRIGGER billing_prepaid_reservations_reserved_exit_update
 AFTER UPDATE OF status ON billing_prepaid_reservations
 WHEN OLD.status = 'RESERVED' AND NEW.status IN ('SETTLED', 'RELEASED', 'EXPIRED')
@@ -2205,7 +1866,171 @@ BEGIN
          updated_at_ms = NEW.updated_at_ms
    WHERE namespace = NEW.namespace AND org_id = NEW.org_id;
 END;
-
+CREATE TRIGGER organization_admin_permissions_authorization_delete
+AFTER DELETE ON organization_admin_permissions
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1
+  WHERE namespace = OLD.namespace
+    AND id = OLD.org_id;
+END;
+CREATE TRIGGER organization_admin_permissions_authorization_insert
+AFTER INSERT ON organization_admin_permissions
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1
+  WHERE namespace = NEW.namespace
+    AND id = NEW.org_id;
+END;
+CREATE TRIGGER organization_admin_permissions_role_insert
+BEFORE INSERT ON organization_admin_permissions
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM organization_memberships
+  WHERE namespace = NEW.namespace
+    AND org_id = NEW.org_id
+    AND id = NEW.membership_id
+    AND role = 'ADMIN'
+    AND kind <> 'REMOVED'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'admin_permission_membership_invalid');
+END;
+CREATE TRIGGER organization_memberships_authorization_delete
+AFTER DELETE ON organization_memberships
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1,
+      owner_set_version = owner_set_version + CASE
+        WHEN OLD.kind = 'ACTIVE' AND OLD.role = 'OWNER' THEN 1
+        ELSE 0
+      END
+  WHERE namespace = OLD.namespace
+    AND id = OLD.org_id;
+END;
+CREATE TRIGGER organization_memberships_authorization_insert
+AFTER INSERT ON organization_memberships
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1,
+      owner_set_version = owner_set_version + CASE
+        WHEN NEW.kind = 'ACTIVE' AND NEW.role = 'OWNER' THEN 1
+        ELSE 0
+      END
+  WHERE namespace = NEW.namespace
+    AND id = NEW.org_id;
+END;
+CREATE TRIGGER organization_memberships_authorization_update
+AFTER UPDATE OF kind, role ON organization_memberships
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1,
+      owner_set_version = owner_set_version + CASE
+        WHEN OLD.kind = 'ACTIVE' AND OLD.role = 'OWNER'
+         AND (NEW.kind <> 'ACTIVE' OR NEW.role <> 'OWNER') THEN 1
+        WHEN (OLD.kind <> 'ACTIVE' OR OLD.role <> 'OWNER')
+         AND NEW.kind = 'ACTIVE' AND NEW.role = 'OWNER' THEN 1
+        ELSE 0
+      END
+  WHERE namespace = NEW.namespace
+    AND id = NEW.org_id;
+END;
+CREATE TRIGGER organization_memberships_last_owner_delete
+BEFORE DELETE ON organization_memberships
+WHEN OLD.kind = 'ACTIVE'
+ AND OLD.role = 'OWNER'
+ AND (
+   SELECT COUNT(*)
+   FROM organization_memberships
+   WHERE namespace = OLD.namespace
+     AND org_id = OLD.org_id
+     AND kind = 'ACTIVE'
+     AND role = 'OWNER'
+ ) <= 1
+BEGIN
+  SELECT RAISE(ABORT, 'last_owner_required');
+END;
+CREATE TRIGGER organization_memberships_last_owner_update
+BEFORE UPDATE OF kind, role ON organization_memberships
+WHEN OLD.kind = 'ACTIVE'
+ AND OLD.role = 'OWNER'
+ AND (NEW.kind <> 'ACTIVE' OR NEW.role <> 'OWNER')
+ AND (
+   SELECT COUNT(*)
+   FROM organization_memberships
+   WHERE namespace = OLD.namespace
+     AND org_id = OLD.org_id
+     AND kind = 'ACTIVE'
+     AND role = 'OWNER'
+ ) <= 1
+BEGIN
+  SELECT RAISE(ABORT, 'last_owner_required');
+END;
+CREATE TRIGGER organization_memberships_owner_anchor_update
+BEFORE UPDATE OF kind, role ON organization_memberships
+WHEN OLD.id = (
+   SELECT owner_anchor_membership_id
+   FROM organizations
+   WHERE namespace = OLD.namespace
+     AND id = OLD.org_id
+ )
+ AND (NEW.kind <> 'ACTIVE' OR NEW.role <> 'OWNER')
+BEGIN
+  SELECT RAISE(ABORT, 'owner_anchor_required');
+END;
+CREATE TRIGGER organizations_owner_anchor_update
+BEFORE UPDATE OF owner_anchor_membership_id ON organizations
+WHEN NEW.owner_anchor_membership_id IS NOT NULL
+ AND NOT EXISTS (
+   SELECT 1
+   FROM organization_memberships
+   WHERE namespace = NEW.namespace
+     AND org_id = NEW.id
+     AND id = NEW.owner_anchor_membership_id
+     AND kind = 'ACTIVE'
+     AND role = 'OWNER'
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'owner_anchor_invalid');
+END;
+CREATE TRIGGER project_member_access_authorization_delete
+AFTER DELETE ON project_member_access
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1
+  WHERE namespace = OLD.namespace
+    AND id = OLD.org_id;
+END;
+CREATE TRIGGER project_member_access_authorization_insert
+AFTER INSERT ON project_member_access
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1
+  WHERE namespace = NEW.namespace
+    AND id = NEW.org_id;
+END;
+CREATE TRIGGER project_member_access_authorization_update
+AFTER UPDATE OF access_level ON project_member_access
+BEGIN
+  UPDATE organizations
+  SET authorization_version = authorization_version + 1
+  WHERE namespace = NEW.namespace
+    AND id = NEW.org_id;
+END;
+CREATE TRIGGER project_member_access_role_insert
+BEFORE INSERT ON project_member_access
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM organization_memberships
+  WHERE namespace = NEW.namespace
+    AND org_id = NEW.org_id
+    AND id = NEW.membership_id
+    AND role = 'MEMBER'
+    AND kind = 'ACTIVE'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'project_access_membership_invalid');
+END;
 CREATE TRIGGER sponsorship_spend_cap_reservations_release_update
 BEFORE UPDATE OF status ON sponsorship_spend_cap_reservations
 WHEN OLD.status = 'RESERVED' AND NEW.status = 'RELEASED'
@@ -2257,7 +2082,6 @@ BEGIN
      AND period = OLD.period
      AND window_start_ms = OLD.window_start_ms;
 END;
-
 CREATE TRIGGER sponsorship_spend_cap_reservations_reserve_insert
 BEFORE INSERT ON sponsorship_spend_cap_reservations
 WHEN NEW.status = 'RESERVED'
@@ -2340,7 +2164,6 @@ BEGIN
      AND period = NEW.period
      AND window_start_ms = NEW.window_start_ms;
 END;
-
 CREATE TRIGGER sponsorship_spend_cap_reservations_settle_update
 BEFORE UPDATE OF status ON sponsorship_spend_cap_reservations
 WHEN OLD.status = 'RESERVED' AND NEW.status = 'SETTLED'
