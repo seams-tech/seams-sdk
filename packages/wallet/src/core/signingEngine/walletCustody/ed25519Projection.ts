@@ -31,9 +31,16 @@ export async function resolveWalletCustodyEd25519ProjectionV1(
 ): Promise<WalletCustodyEd25519Projection | null> {
   const walletId = String(walletSession.walletId);
   const providerSubject = requireNonEmpty(String(providerSubjectId), 'providerSubject');
-  const users = (await deps.listUsers()).filter(
-    (user) => String(user.walletId) === walletId && user.authMethod === 'email_otp',
-  );
+  /* R109C: the wallet's record, not the Email OTP one.
+   *
+   * `signerSlot` and `operationalPublicKey` describe the authority's Ed25519
+   * signer, so they are the same facts whichever method authenticates. Filtering
+   * on `authMethod === 'email_otp'` assumed the wallet had been REGISTERED that
+   * way and found nothing for an Email method added to a Passkey wallet, which
+   * left that method with no Ed25519 identity to unlock against. One record per
+   * wallet is still required; a second would mean two signer projections and no
+   * way to tell which the authority owns. */
+  const users = (await deps.listUsers()).filter((user) => String(user.walletId) === walletId);
   if (users.length === 0) return null;
   if (users.length !== 1 || !users[0]) {
     throw new Error('Wallet custody Ed25519 requires one exact persisted signer projection');
