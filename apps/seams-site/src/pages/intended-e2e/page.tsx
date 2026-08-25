@@ -1031,6 +1031,15 @@ class IntendedPageController {
       if (session.appIdentity.kind !== 'resolved') {
         throw new Error(`revoke wallet identity is ${session.appIdentity.kind}`);
       }
+      /* With one method there is nothing to revoke from, whatever the session
+         is doing - say that before asking about the session, so the refusal
+         names the real reason rather than whichever check happened first. */
+      const methods = session.appIdentity.authMethods;
+      if (methods.length <= 1) {
+        throw new Error(
+          `revoke needs exactly one sibling to remove, found ${Math.max(methods.length - 1, 0)}`,
+        );
+      }
       /* Whoever holds the open session is the method to keep. Deriving the
          target this way needs no memory of the addition, which matters because
          the page reloads between actions. */
@@ -1039,9 +1048,7 @@ class IntendedPageController {
         throw new Error(`revoke requires an active Wallet Session, found ${active.kind}`);
       }
       const keep = String(active.walletAuthMethodId);
-      const siblings = session.appIdentity.authMethods.filter(
-        (binding) => String(binding.walletAuthMethodId) !== keep,
-      );
+      const siblings = methods.filter((binding) => String(binding.walletAuthMethodId) !== keep);
       const [target, ...remaining] = siblings;
       if (!target || remaining.length > 0) {
         throw new Error(

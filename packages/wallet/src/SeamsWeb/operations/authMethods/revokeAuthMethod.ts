@@ -12,7 +12,9 @@
  * wants a factor proof bound to this exact revocation instead.
  */
 import { toError } from '@shared/utils/errors';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
+  parseWalletAuthMethodRecordV2,
   computeWalletAuthMethodRevokeOperationFingerprintV1,
   walletIdFromString,
   type WalletId,
@@ -21,6 +23,7 @@ import {
   parseWalletAuthMethodId,
   parseWebAuthnRpId,
   type WalletAuthMethodId,
+  type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
@@ -28,6 +31,9 @@ import { passkeyCredentialIdB64uFromAuthentication } from './passkey/ecdsaBootst
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 import { revokeWalletAuthMethod as revokeWalletAuthMethodRoute } from '@/core/rpcClients/relayer/walletRegistration';
+import { requestEmailOtpChallenge } from './emailOtp/challenge';
+import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/emailOtpDomain';
+import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
 
 export type RevokeAuthMethodResult = {
@@ -69,6 +75,85 @@ async function passkeySourceCredentials(args: {
   return allowCredentials;
 }
 
+async function passkeySourceProof(args: {
+  readonly context: RegistrationWebContext;
+  readonly walletId: WalletId;
+  readonly rpId: WebAuthnRpId;
+  readonly operationFingerprintDigest: string;
+  readonly allowCredentials: WebAuthnAllowCredential[];
+}): Promise<WalletAuthMethodRevocationProof> {
+  const credential = await args.context.signingEngine.getAuthenticationCredentialsSerialized({
+    subjectId: String(args.walletId),
+    challengeB64u: args.operationFingerprintDigest,
+    allowCredentials: args.allowCredentials,
+    includeSecondPrfOutput: false,
+  });
+  const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
+  if (
+    !credentialIdB64u ||
+    !args.allowCredentials.some((allowed) => allowed.id === credentialIdB64u)
+  ) {
+    throw new Error('registration.revokeAuthMethod used a credential outside the wallet');
+  }
+  return {
+    kind: 'webauthn_assertion',
+    rpId: args.rpId,
+    credential: redactCredentialExtensionOutputs(credential),
+    expectedChallengeDigestB64u: args.operationFingerprintDigest,
+  };
+}
+
+async function emailOtpSourceProof(args: {
+  readonly context: RegistrationWebContext;
+  readonly relayerUrl: string;
+  readonly walletId: WalletId;
+  readonly targetWalletAuthMethodId: WalletAuthMethodId;
+  readonly operationFingerprintDigest: string;
+}): Promise<WalletAuthMethodRevocationProof> {
+  const local = await IndexedDBManager.listWalletAuthMethodsForWallet(String(args.walletId));
+  const sources = local.filter(
+    (method) =>
+      method.kind === 'email_otp' &&
+      method.status === 'active' &&
+      String(method.walletId) === String(args.walletId) &&
+      String(method.authority.bindingId) !== String(args.targetWalletAuthMethodId),
+  );
+  const [source, ...remaining] = sources;
+  if (!source || remaining.length > 0 || source.kind !== 'email_otp') {
+    throw new Error(
+      'registration.revokeAuthMethod needs exactly one other active method to authorize with',
+    );
+  }
+  const walletAuthMethodId = String(source.authority.bindingId);
+  const requestChallenge = async () =>
+    await requestEmailOtpChallenge({
+      relayUrl: args.relayerUrl,
+      walletId: String(args.walletId),
+      walletAuthMethodId,
+      operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+      operationFingerprintDigest: parseDigestB64u(args.operationFingerprintDigest),
+    });
+  const challenge = await requestChallenge();
+  const confirmed = await args.context.signingEngine.requestEmailOtpEnrollmentConfirmation({
+    walletId: String(args.walletId),
+    emailAddress: String(challenge.emailHint || ''),
+    challengeId: challenge.challengeId,
+    ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
+    onResend: async () => {
+      const resent = await requestChallenge();
+      return resent.emailHint
+        ? { challengeId: resent.challengeId, emailHint: resent.emailHint }
+        : { challengeId: resent.challengeId };
+    },
+  });
+  return {
+    kind: 'email_otp',
+    challengeId: confirmed.challengeId,
+    otpCode: confirmed.otpCode,
+    ownerProofBindingDigest: challenge.ownerProofBindingDigest,
+  };
+}
+
 async function revokeAuthMethodInternal(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
@@ -96,33 +181,54 @@ async function revokeAuthMethodInternal(args: {
     walletId: args.walletId,
     excludeCredentialIdB64u,
   });
-  if (allowCredentials.length === 0) {
-    throw new Error('registration.revokeAuthMethod requires another passkey to authorize with');
-  }
-  const credential = await args.context.signingEngine.getAuthenticationCredentialsSerialized({
-    subjectId: String(args.walletId),
-    challengeB64u: String(operationFingerprintDigest),
-    allowCredentials,
-    includeSecondPrfOutput: false,
-  });
-  const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
-  if (!credentialIdB64u || !allowCredentials.some((allowed) => allowed.id === credentialIdB64u)) {
-    throw new Error('registration.revokeAuthMethod used a credential outside the wallet');
-  }
+  /* Whichever family the surviving sibling belongs to proves this. A passkey
+     answers with an assertion over the fingerprint; an Email OTP method answers
+     with a code against a challenge the server bound to the same fingerprint,
+     which is why the binding digest comes back from the challenge rather than
+     being computed here. */
+  const sourceProof =
+    allowCredentials.length > 0
+      ? await passkeySourceProof({
+          context: args.context,
+          walletId: args.walletId,
+          rpId: parsedRpId.value,
+          operationFingerprintDigest: String(operationFingerprintDigest),
+          allowCredentials,
+        })
+      : await emailOtpSourceProof({
+          context: args.context,
+          relayerUrl,
+          walletId: args.walletId,
+          targetWalletAuthMethodId: args.walletAuthMethodId,
+          operationFingerprintDigest: String(operationFingerprintDigest),
+        });
   const response = await revokeWalletAuthMethodRoute({
     relayerUrl,
     walletId: args.walletId,
     walletAuthMethodId: args.walletAuthMethodId,
     requestedAtMs,
-    sourceProof: {
-      kind: 'webauthn_assertion',
-      rpId: parsedRpId.value,
-      credential: redactCredentialExtensionOutputs(credential),
-      expectedChallengeDigestB64u: String(operationFingerprintDigest),
-    },
+    sourceProof,
   });
   if (!response.ok || response.authMethod.status !== 'revoked') {
     throw new Error('registration.revokeAuthMethod did not revoke the method');
+  }
+  /* Carry the server's decision into the local record. The wallet builds its
+     own view of which methods exist from these rows, so leaving one active
+     after the server retired it means the wallet keeps offering a credential
+     that can no longer do anything - and, worse, keeps counting it when it
+     asks how many methods are left. */
+  const local = await IndexedDBManager.getWalletAuthMethodV2(args.walletAuthMethodId);
+  if (local && local.status !== 'revoked') {
+    const revokedAtMs = Date.now();
+    const activatedAtMs = local.status === 'active' ? local.activatedAtMs : revokedAtMs;
+    const revoked = parseWalletAuthMethodRecordV2({
+      ...local,
+      status: 'revoked',
+      activatedAtMs,
+      revokedAtMs,
+      updatedAtMs: revokedAtMs,
+    });
+    if (revoked) await IndexedDBManager.upsertWalletAuthMethodV2(revoked);
   }
   return {
     ok: true,

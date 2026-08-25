@@ -1099,8 +1099,8 @@ export class IntendedBehaviourHarness {
    * added - so the test cannot accidentally revoke the credential it is about
    * to rely on.
    */
-  async revokeSourceAuthMethod(): Promise<void> {
-    this.recordStage('revoke_source_auth_method');
+  async revokeSourceAuthMethod(expect: 'source' | 'added' = 'source'): Promise<void> {
+    this.recordStage(`revoke_${expect}_auth_method`);
     const registration = this.requireRegisteredWalletForSigning();
     const snapshot = await this.runIntendedPageAction(
       'revokeSourceAuthMethod',
@@ -1120,11 +1120,48 @@ export class IntendedBehaviourHarness {
     if (result.walletId !== registration.walletId) {
       throw new Error('revoke targeted a different wallet');
     }
-    if (result.walletAuthMethodId === this.addedWalletAuthMethodId) {
+    /* The page always removes the sibling of whoever holds the session, so
+       which one that is depends on which method the test is operating as. Say
+       it out loud, otherwise a contract that unlocked with the wrong method
+       would still look like it passed. */
+    const removedAdded = result.walletAuthMethodId === this.addedWalletAuthMethodId;
+    if (expect === 'added' && !removedAdded) {
+      throw new Error('revoke removed the source method, not the added one');
+    }
+    if (expect === 'source' && removedAdded) {
       throw new Error('revoke removed the added method instead of its sibling');
     }
-    this.passkeyPromptCount += 1;
-    this.recordService(`revoked sibling method=${result.walletAuthMethodId}`);
+    if (this.currentOperatingAuthFamily() === 'passkey') {
+      this.passkeyPromptCount += 1;
+    } else {
+      this.emailOtpVerificationCount += 1;
+    }
+    this.recordService(`revoked ${expect} method=${result.walletAuthMethodId}`);
+  }
+
+  /**
+   * Refactor 109C: the last way into a wallet cannot be removed.
+   *
+   * A wallet with one method has no sibling to authorize the removal, and a
+   * method may not authorize its own. Together those leave the last credential
+   * un-removable, which is the property that makes revocation safe to offer at
+   * all.
+   */
+  async assertFinalAuthMethodCannotBeRevoked(): Promise<void> {
+    this.recordStage('final_auth_method_revocation_refused');
+    const snapshot = await this.runIntendedPageAction(
+      'revokeSourceAuthMethod',
+      'intended-revoke-source-auth-method',
+      { expectedOutcome: 'error' },
+    );
+    if (snapshot.action.status === 'success') {
+      throw new Error('revoking the final auth method succeeded; it must be refused');
+    }
+    const detail = snapshot.action.status === 'error' ? snapshot.action.error : '';
+    if (!/sibling/i.test(String(detail))) {
+      throw new Error(`final auth method revocation failed for the wrong reason: ${detail}`);
+    }
+    this.recordService('final auth method revocation refused');
   }
 
   /**
