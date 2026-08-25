@@ -11,6 +11,7 @@ import {
   consoleCoreServicesFromBundle,
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
+  createConsoleWebhookSecretCipherFromEnv,
   walletConsoleServicesFromBundle,
 } from './d1ConsoleServices';
 import { createHostedWalletConsoleRouter } from '../consoleComposition';
@@ -181,6 +182,8 @@ type CloudflareD1RouterApiStagingEnv = CloudflareD1GatewayBaseEnv &
     readonly CONSOLE_PLATFORM_SUPPORT_EMAILS?: string;
     readonly CONSOLE_BASE_URL?: string;
     readonly CONSOLE_SESSION_HMAC_SECRET: string;
+    readonly CONSOLE_WEBHOOK_SECRET_KEY_B64U: string;
+    readonly CONSOLE_WEBHOOK_SECRET_KEY_ID: string;
     readonly CONSOLE_SESSION_COOKIE_NAME: string;
     readonly CONSOLE_SESSION_ISSUER: string;
     readonly CONSOLE_SESSION_AUDIENCE: string;
@@ -476,6 +479,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
+      webhookSecretCipher: createConsoleWebhookSecretCipherFromEnv(env),
     },
   });
   const session = stagingSessionAdapter(env);

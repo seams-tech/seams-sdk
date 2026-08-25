@@ -3810,7 +3810,10 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
         (req as any).body,
         WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       );
-      const endpoint = await webhooks.createEndpoint(toBillingContext(claims), request);
+      const { endpoint, signingSecret } = await webhooks.createEndpoint(
+        toBillingContext(claims),
+        request,
+      );
       const auditEvent = buildConsoleWebhookEndpointAuditEvent({
         action: 'webhook.endpoint.create',
         endpoint,
@@ -3821,7 +3824,49 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
         summary: auditEvent.summary,
         metadata: auditEvent.metadata,
       });
-      res.status(201).json({ ok: true, endpoint });
+      // Sole delivery of the plaintext: no read route can return it again.
+      res.status(201).json({ ok: true, endpoint, signingSecret });
+    } catch (error: unknown) {
+      sendWebhookError(res, error);
+    }
+  });
+
+  router.post('/console/webhooks/:id/rotate-secret', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const webhooks = requireWebhookService(res, ctx);
+    if (!webhooks) return;
+    const endpointId = readPathParam(req, 'id');
+    if (!endpointId) {
+      res
+        .status(400)
+        .json({ ok: false, code: 'invalid_path', message: 'Missing webhook endpoint id' });
+      return;
+    }
+    try {
+      const rotated = await webhooks.rotateSecret(toBillingContext(claims), endpointId);
+      if (!rotated) {
+        res.status(404).json({
+          ok: false,
+          code: 'webhook_not_found',
+          message: `Webhook endpoint ${endpointId} was not found`,
+        });
+        return;
+      }
+      const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+        action: 'webhook.endpoint.rotate_secret',
+        endpoint: rotated.endpoint,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'WEBHOOK',
+        action: 'webhook.endpoint.rotate_secret',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
+      res
+        .status(200)
+        .json({ ok: true, endpoint: rotated.endpoint, signingSecret: rotated.signingSecret });
     } catch (error: unknown) {
       sendWebhookError(res, error);
     }

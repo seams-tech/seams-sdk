@@ -8034,3 +8034,45 @@ select.dashboard-input {
   background: rgba(255, 255, 255, 0.1);
   color: #fafafa;
 }
+
+/* Show-once signing secret. The value is the whole point of the dialog, so it
+   sits in a bordered slab at full width and wraps rather than truncating —
+   a clipped secret is a secret the customer copies wrong. */
+.dashboard-modal__lede {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-webhook-secret {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.dashboard-webhook-secret__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-webhook-secret__value {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dashboard-line);
+  border-radius: 10px;
+  background: var(--dashboard-surface-soft);
+}
+
+.dashboard-webhook-secret__value code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--dashboard-ink);
+}

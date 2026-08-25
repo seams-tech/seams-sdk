@@ -3724,6 +3724,7 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
   const attemptsMatch = ctx.pathname.match(/^\/console\/webhooks\/([^/]+)\/attempts$/);
   const deadLettersMatch = ctx.pathname.match(/^\/console\/webhooks\/([^/]+)\/dead-letters$/);
   const replayMatch = ctx.pathname.match(/^\/console\/webhooks\/([^/]+)\/replay$/);
+  const rotateSecretMatch = ctx.pathname.match(/^\/console\/webhooks\/([^/]+)\/rotate-secret$/);
 
   try {
     if (ctx.method === 'GET' && ctx.pathname === '/console/webhooks') {
@@ -3738,7 +3739,7 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
         await readJson(ctx.request),
         WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       );
-      const endpoint = await webhooks.createEndpoint(webhookCtx, request);
+      const { endpoint, signingSecret } = await webhooks.createEndpoint(webhookCtx, request);
       const auditEvent = buildConsoleWebhookEndpointAuditEvent({
         action: 'webhook.endpoint.create',
         endpoint,
@@ -3749,7 +3750,39 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
         summary: auditEvent.summary,
         metadata: auditEvent.metadata,
       });
-      return json({ ok: true, endpoint }, { status: 201 });
+      // Sole delivery of the plaintext: no read route can return it again.
+      return json({ ok: true, endpoint, signingSecret }, { status: 201 });
+    }
+
+    if (ctx.method === 'POST' && rotateSecretMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const endpointId = decodePathPart(rotateSecretMatch[1]);
+      const rotated = await webhooks.rotateSecret(webhookCtx, endpointId);
+      if (!rotated) {
+        return json(
+          {
+            ok: false,
+            code: 'webhook_not_found',
+            message: `Webhook endpoint ${endpointId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+        action: 'webhook.endpoint.rotate_secret',
+        endpoint: rotated.endpoint,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'WEBHOOK',
+        action: 'webhook.endpoint.rotate_secret',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
+      return json(
+        { ok: true, endpoint: rotated.endpoint, signingSecret: rotated.signingSecret },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'PATCH' && endpointMatch) {

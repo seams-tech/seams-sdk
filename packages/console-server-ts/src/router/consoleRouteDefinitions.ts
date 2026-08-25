@@ -26,11 +26,7 @@ export interface ConsoleRouteDefinition {
   readonly summary: string;
 }
 
-type ConsoleRouteTuple = readonly [
-  id: string,
-  method: ConsoleRouteMethod,
-  path: string,
-];
+type ConsoleRouteTuple = readonly [id: string, method: ConsoleRouteMethod, path: string];
 
 const AUTHENTICATED_ROUTES: readonly ConsoleRouteTuple[] = [
   ['console_session_get', 'GET', '/console/session'],
@@ -44,7 +40,11 @@ const AUTHENTICATED_ROUTES: readonly ConsoleRouteTuple[] = [
     'POST',
     '/console/account/organizations/:orgId/switch-context',
   ],
-  ['console_account_invitations_accept', 'POST', '/console/account/invitations/:invitationId/accept'],
+  [
+    'console_account_invitations_accept',
+    'POST',
+    '/console/account/invitations/:invitationId/accept',
+  ],
   [
     'console_account_invitations_decline',
     'POST',
@@ -56,11 +56,7 @@ const AUTHENTICATED_ROUTES: readonly ConsoleRouteTuple[] = [
 ];
 
 const OWNER_ROUTES: readonly ConsoleRouteTuple[] = [
-  [
-    'console_account_organizations_delete',
-    'DELETE',
-    '/console/account/organizations/:orgId',
-  ],
+  ['console_account_organizations_delete', 'DELETE', '/console/account/organizations/:orgId'],
   [
     'console_organization_membership_change_role',
     'POST',
@@ -75,24 +71,12 @@ const OWNER_ROUTES: readonly ConsoleRouteTuple[] = [
 ];
 
 const MEMBERS_READ_ROUTES: readonly ConsoleRouteTuple[] = [
-  [
-    'console_organization_memberships_list',
-    'GET',
-    '/console/organization/memberships',
-  ],
-  [
-    'console_organization_invitations_list',
-    'GET',
-    '/console/organization/invitations',
-  ],
+  ['console_organization_memberships_list', 'GET', '/console/organization/memberships'],
+  ['console_organization_invitations_list', 'GET', '/console/organization/invitations'],
 ];
 
 const MEMBERS_MANAGE_ROUTES: readonly ConsoleRouteTuple[] = [
-  [
-    'console_organization_invitations_create',
-    'POST',
-    '/console/organization/invitations',
-  ],
+  ['console_organization_invitations_create', 'POST', '/console/organization/invitations'],
   [
     'console_organization_invitations_resend',
     'POST',
@@ -121,11 +105,7 @@ const MEMBERS_MANAGE_ROUTES: readonly ConsoleRouteTuple[] = [
 ];
 
 const PROJECTS_MANAGE_ROUTES: readonly ConsoleRouteTuple[] = [
-  [
-    'console_account_organizations_update',
-    'PATCH',
-    '/console/account/organizations/:orgId',
-  ],
+  ['console_account_organizations_update', 'PATCH', '/console/account/organizations/:orgId'],
   ['console_onboarding_project_create', 'POST', '/console/onboarding/project'],
   ['console_projects_create', 'POST', '/console/projects'],
   ['console_projects_update', 'PATCH', '/console/projects/:id'],
@@ -197,6 +177,7 @@ const PROJECT_EDIT_ROUTES: readonly ConsoleRouteTuple[] = [
   ['console_webhooks_update', 'PATCH', '/console/webhooks/:id'],
   ['console_webhooks_delete', 'DELETE', '/console/webhooks/:id'],
   ['console_webhooks_replay', 'POST', '/console/webhooks/:id/replay'],
+  ['console_webhooks_rotate_secret', 'POST', '/console/webhooks/:id/rotate-secret'],
   ['console_key_exports_create', 'POST', '/console/key-exports'],
   ['console_key_exports_approve', 'POST', '/console/key-exports/:id/approve'],
   ['console_runtime_snapshots_publish', 'POST', '/console/runtime-snapshots/publish'],
@@ -214,16 +195,8 @@ const PROJECT_EDIT_ROUTES: readonly ConsoleRouteTuple[] = [
 
 const BILLING_VIEW_ROUTES: readonly ConsoleRouteTuple[] = [
   ['console_billing_overview_get', 'GET', '/console/billing/overview'],
-  [
-    'console_billing_account_activity_get',
-    'GET',
-    '/console/billing/account/activity',
-  ],
-  [
-    'console_billing_sponsored_executions_get',
-    'GET',
-    '/console/billing/sponsored-executions',
-  ],
+  ['console_billing_account_activity_get', 'GET', '/console/billing/account/activity'],
+  ['console_billing_sponsored_executions_get', 'GET', '/console/billing/sponsored-executions'],
   [
     'console_billing_sponsored_executions_reconciliation_get',
     'GET',
@@ -232,16 +205,8 @@ const BILLING_VIEW_ROUTES: readonly ConsoleRouteTuple[] = [
   ['console_billing_invoices_list', 'GET', '/console/billing/invoices'],
   ['console_billing_invoices_get', 'GET', '/console/billing/invoices/:id'],
   ['console_billing_invoices_pdf_get', 'GET', '/console/billing/invoices/:id/pdf'],
-  [
-    'console_billing_invoices_activity_get',
-    'GET',
-    '/console/billing/invoices/:id/activity',
-  ],
-  [
-    'console_billing_invoices_line_items_get',
-    'GET',
-    '/console/billing/invoices/:id/line-items',
-  ],
+  ['console_billing_invoices_activity_get', 'GET', '/console/billing/invoices/:id/activity'],
+  ['console_billing_invoices_line_items_get', 'GET', '/console/billing/invoices/:id/line-items'],
   [
     'console_billing_usage_monthly_active_wallets',
     'GET',
@@ -275,11 +240,7 @@ const PLATFORM_SUPPORT_ROUTES: readonly ConsoleRouteTuple[] = [
     'POST',
     '/console/billing/adjustments/support-credit',
   ],
-  [
-    'console_billing_adjustments_admin_debit',
-    'POST',
-    '/console/billing/adjustments/admin-debit',
-  ],
+  ['console_billing_adjustments_admin_debit', 'POST', '/console/billing/adjustments/admin-debit'],
   [
     'console_platform_billing_adjustments_support_credit',
     'POST',
@@ -290,11 +251,7 @@ const PLATFORM_SUPPORT_ROUTES: readonly ConsoleRouteTuple[] = [
     'POST',
     '/console/platform/billing/adjustments/admin-debit',
   ],
-  [
-    'console_platform_billing_refunds_create',
-    'POST',
-    '/console/platform/billing/refunds',
-  ],
+  ['console_platform_billing_refunds_create', 'POST', '/console/platform/billing/refunds'],
   [
     'console_platform_billing_refunds_reconcile',
     'POST',
