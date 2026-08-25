@@ -106,38 +106,26 @@ type EmailOtpWalletUnlockBaseArgs = {
   verification: EmailOtpWalletUnlockVerification;
 };
 
-export type LinkedEmailOtpWalletUnlockResult = {
-  readonly kind: 'linked_email_otp_wallet_unlock_v1';
-  readonly factorSecret32: Uint8Array;
-  readonly walletSession: ActiveWalletSessionV1;
-  readonly operationCredential: WalletSessionOperationCredentialV1;
-  readonly ed25519YaoCapability?: EmailOtpEd25519YaoRecoveryBootstrapV1;
-};
+export type EmailOtpAuthorityWalletUnlockResult =
+  EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['result'];
 
-export async function unlockLinkedEmailOtpWallet(args: {
+/** What the caller wants from this unlock, and what that branch must supply. */
+export type EmailOtpAuthorityUnlockEd25519Request =
+  EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['payload']['ed25519'];
+
+export async function unlockEmailOtpAuthorityWallet(args: {
   readonly relayUrl: string;
   readonly walletId: string;
   readonly walletAuthMethodId: string;
   readonly challengeId: string;
   readonly otpCode: string;
-  readonly ed25519Yao?: {
-    readonly signerSlot: number;
-    readonly remainingUses: number;
-  };
+  readonly ed25519: EmailOtpAuthorityUnlockEd25519Request;
   readonly workerCtx: WorkerOperationContext;
-}): Promise<LinkedEmailOtpWalletUnlockResult> {
-  const requestedCapabilities: EmailOtpWorkerOperationMap['unlockLinkedEmailOtpWallet']['payload']['requestedCapabilities'] =
-    args.ed25519Yao
-      ? {
-          kind: 'ed25519_yao',
-          signerSlot: args.ed25519Yao.signerSlot,
-          remainingUses: args.ed25519Yao.remainingUses,
-        }
-      : { kind: 'wallet_session' };
+}): Promise<EmailOtpAuthorityWalletUnlockResult> {
   return await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'unlockLinkedEmailOtpWallet',
+      type: 'unlockEmailOtpAuthorityWallet',
       timeoutMs: 60_000,
       payload: {
         relayUrl: args.relayUrl,
@@ -145,7 +133,7 @@ export async function unlockLinkedEmailOtpWallet(args: {
         walletAuthMethodId: args.walletAuthMethodId,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
-        requestedCapabilities,
+        ed25519: args.ed25519,
       },
     },
   });
