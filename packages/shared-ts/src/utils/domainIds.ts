@@ -324,6 +324,23 @@ export function parsePasskeyEnvelopeId(raw: unknown): DomainIdParseResult<Passke
   return parseDomainId(raw, 'passkeyEnvelopeId');
 }
 
+/**
+ * Mints a wallet auth-method id.
+ *
+ * Server-side only, and there is exactly one of these because an auth method's
+ * identity is now authenticated data: it goes into the custody envelope's AAD,
+ * so an id minted to a second shape would seal envelopes the parsers reject.
+ * A client never chooses one — registration and every addition receive theirs
+ * from the intent that allocated it.
+ */
+export function allocateWalletAuthMethodId(randomSuffix: string): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(`wallet-auth-method:${randomSuffix}`);
+  if (!parsed.ok) {
+    throw new Error(`Generated wallet auth-method ID is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
 export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {
   return parseDomainId(raw, 'walletAuthMethodId');
 }

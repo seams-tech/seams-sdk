@@ -1,3 +1,4 @@
+import { allocateWalletAuthMethodId } from '@shared/utils/domainIds';
 import type {
   CreateAddAuthMethodIntentRequest,
   CreateAddSignerIntentRequest,
@@ -41,8 +42,13 @@ function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
 
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
+/* Registration allocates the wallet's first auth method with the intent; a
+   fixture without one describes an intent no custody seal could use. */
+const foundingAuthMethodIdFixture = allocateWalletAuthMethodId('founding-fixture');
+
 const registrationIntent = {
   version: 'registration_intent_v1',
+  foundingWalletAuthMethodId: foundingAuthMethodIdFixture,
   walletId: walletIdFromString('wallet_alice'),
   authMethod: {
     kind: 'passkey',

@@ -52,6 +52,7 @@ import {
   parseProviderSubject,
   parseRootShareEpoch,
   parseWalletAuthMethodId,
+  type WalletAuthMethodId,
   parseWalletAuthorityId,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -206,15 +207,22 @@ export function buildRegistrationIntent(input: {
   readonly walletId: WalletId;
   readonly authMethod: RegistrationAuthMethodInput;
   readonly signerSelection: RegistrationSignerSetSelection;
+  /* The wallet's first auth method, allocated with the rest of the founding
+     operation. Passed in rather than minted here so the intent, the stored
+     ceremony and the setup response all name one id — a second allocation
+     would give the custody seal a different owner than finalize commits. */
+  readonly foundingWalletAuthMethodId: WalletAuthMethodId;
   readonly runtimePolicyScope?: RuntimePolicyScope;
 }): RegistrationIntentV1 {
   const nonceB64u = secureRandomBase64Url(32);
+  const foundingWalletAuthMethodId = input.foundingWalletAuthMethodId;
   if (input.runtimePolicyScope) {
     return {
       version: 'registration_intent_v1',
       walletId: input.walletId,
       authMethod: input.authMethod,
       signerSelection: input.signerSelection,
+      foundingWalletAuthMethodId,
       runtimePolicyScope: input.runtimePolicyScope,
       nonceB64u,
     };
@@ -224,6 +232,7 @@ export function buildRegistrationIntent(input: {
     walletId: input.walletId,
     authMethod: input.authMethod,
     signerSelection: input.signerSelection,
+    foundingWalletAuthMethodId,
     nonceB64u,
   };
 }
@@ -344,7 +353,12 @@ export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | 
     : signerPlan;
   const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
   const runtimePolicyScope = parseD1RuntimePolicyScope(record.runtimePolicyScope);
+  /* Required, with no fallback. An intent minted before the founding method was
+     allocated cannot produce an envelope anyone owns, so it is unusable rather
+     than upgradable — reading one back is a refusal, not a migration. */
+  const foundingWalletAuthMethodId = parseWalletAuthMethodId(record.foundingWalletAuthMethodId);
   if (!walletId || !authMethod || !signerSelection.ok || !nonceB64u) return null;
+  if (!foundingWalletAuthMethodId.ok) return null;
   if (record.runtimePolicyScope !== undefined && !runtimePolicyScope) return null;
   if (runtimePolicyScope) {
     return {
@@ -352,6 +366,7 @@ export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | 
       walletId,
       authMethod,
       signerSelection: signerSelection.value,
+      foundingWalletAuthMethodId: foundingWalletAuthMethodId.value,
       runtimePolicyScope,
       nonceB64u,
     };
@@ -361,6 +376,7 @@ export function parseD1RegistrationIntent(raw: unknown): RegistrationIntentV1 | 
     walletId,
     authMethod,
     signerSelection: signerSelection.value,
+    foundingWalletAuthMethodId: foundingWalletAuthMethodId.value,
     nonceB64u,
   };
 }
