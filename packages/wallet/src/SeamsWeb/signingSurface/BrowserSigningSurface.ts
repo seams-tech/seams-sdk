@@ -3646,36 +3646,41 @@ export class BrowserSigningSurface {
           );
         }
         const reusableSession = await this.readReusableWalletSessionState(args.walletId);
-        if (
-          reusableSession.kind !== 'active' ||
-          reusableSession.walletSessionId !== authorizationRead.projection.walletSessionId ||
-          reusableSession.authMethod !== authorizationRead.projection.authMethod
-        ) {
+        if (reusableSession.kind === 'active') {
+          if (
+            reusableSession.walletSessionId !== authorizationRead.projection.walletSessionId ||
+            reusableSession.authMethod !== authorizationRead.projection.authMethod
+          ) {
+            throw new Error('[SigningEngine][near] active Wallet Session is unavailable');
+          }
+          const signingAuthorization =
+            await resolveNearEd25519WalletSessionAuthorizationForSigning({
+              walletId: args.walletId,
+              authorization: authorizationRead.projection,
+              materialActivation: publicCapabilityMaterialActivation,
+            });
+          return buildAuthorizedNearEd25519YaoSigningPreparation({
+            hydration: buildUseLiveRuntimeHydrationPlan({
+              authority: signingAuthorization.authority,
+              runtime: liveRuntime.runtime,
+              materialActivation: publicCapabilityMaterialActivation,
+            }),
+            requirement: identity.auth,
+            authorization: buildActiveNearEd25519WalletSessionAuthorization({
+              projection: signingAuthorization,
+              status: {
+                status: 'active',
+                walletSessionId: signingAuthorization.walletSessionId,
+                quotaId: signingAuthorization.quotaId,
+                remainingUses: reusableSession.remainingUses,
+                expiresAtMs: signingAuthorization.expiresAtMs,
+              },
+            }),
+          });
+        }
+        if (reusableSession.kind !== 'exhausted') {
           throw new Error('[SigningEngine][near] active Wallet Session is unavailable');
         }
-        const signingAuthorization = await resolveNearEd25519WalletSessionAuthorizationForSigning({
-          walletId: args.walletId,
-          authorization: authorizationRead.projection,
-          materialActivation: publicCapabilityMaterialActivation,
-        });
-        return buildAuthorizedNearEd25519YaoSigningPreparation({
-          hydration: buildUseLiveRuntimeHydrationPlan({
-            authority: signingAuthorization.authority,
-            runtime: liveRuntime.runtime,
-            materialActivation: publicCapabilityMaterialActivation,
-          }),
-          requirement: identity.auth,
-          authorization: buildActiveNearEd25519WalletSessionAuthorization({
-            projection: signingAuthorization,
-            status: {
-              status: 'active',
-              walletSessionId: signingAuthorization.walletSessionId,
-              quotaId: signingAuthorization.quotaId,
-              remainingUses: reusableSession.remainingUses,
-              expiresAtMs: signingAuthorization.expiresAtMs,
-            },
-          }),
-        });
       }
     }
     const sealedRuntime =

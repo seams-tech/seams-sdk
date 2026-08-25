@@ -1,6 +1,7 @@
 # Defect — NEAR signing throws instead of stepping up once the budget is spent
 
 Date: August 25, 2026
+Status: Resolved August 26, 2026
 
 Found while regression-checking the base unlock contracts at the close of
 Refactor 109C. Not caused by R109C, and not fixed by it.
@@ -70,3 +71,17 @@ already holds. `readActiveForWallet` reads only the older active projection and
 filters out exact V4/V5 rows, so anything that mints an exact row and then reads
 it back finds nothing. Worth checking whether the step-up mint here writes the
 row that this read cannot see.
+
+## Resolution
+
+The live Passkey runtime now treats an exhausted reusable session as the normal
+transition into authorization-required preparation. Mismatched, missing, or
+unavailable sessions still fail the invariant check.
+
+The shared active-authority unlock issuer also preserves its two intended
+policies: device-linked authorities retain the 100-use, 15-minute session, while
+wallet-registration authorities receive the canonical 3-use, 24-hour session.
+The previous shared implementation applied the device-linked budget to founding
+Email OTP authorities, preventing their unlock contract from reaching step-up.
+
+Verified with the two affected intended-behaviour contract files: 4 tests passed.
