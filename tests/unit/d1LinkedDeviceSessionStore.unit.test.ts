@@ -434,6 +434,7 @@ function ownerAuthorization(
     }),
     authorizeOwnerApprovalV1: async () => ({
       kind: 'authorized' as const,
+      sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     }),
   };

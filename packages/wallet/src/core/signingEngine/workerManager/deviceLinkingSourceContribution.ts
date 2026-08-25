@@ -1,14 +1,13 @@
 import type {
   LinkedDeviceEd25519SourceContributionPreparationV1,
-  LinkedDeviceEd25519SourceContributionV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionV1,
   LinkedDeviceEcdsaSourceDerivationV1,
 } from '@shared/device-linking/sourceContribution';
-import type { LinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking/contracts';
 import { parseLinkedDeviceEd25519SourcePreservingReservationV1 } from '@shared/device-linking/sourceContribution';
 import type { MpcMaterialActivationRef, WalletKeyId } from '@shared/utils/domainIds';
-import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual, parseWalletKeyId } from '@shared/utils/domainIds';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseEcdsaThresholdKeyId } from '../session/keyMaterialBrands';
@@ -32,15 +31,7 @@ export type DeviceLinkingEcdsaSourceContributionMetadataReaderV1 = (input: {
   readonly preparation: LinkedDeviceEcdsaSourceContributionPreparationV1;
 }) => Promise<DeviceLinkingEcdsaSourceContributionMetadataV1>;
 
-/**
- * The source lane and manifest are read independently by the active browser
- * surface. The activation is the join key; callers must not select a sibling
- * owner lane or a replacement manifest when the exact activation is absent.
- */
 export type DeviceLinkingEcdsaSourceContributionMetadataContextV1 = {
-  readonly readActiveOwnerSourceLaneV1: (input: {
-    readonly materialActivation: MpcMaterialActivationRef;
-  }) => Promise<LinkedDeviceOwnerSourceLaneV1>;
   readonly readActiveEcdsaCapabilityManifestV1: (input: {
     readonly materialActivation: MpcMaterialActivationRef;
   }) => Promise<ActiveEcdsaCapabilityManifest>;
@@ -51,17 +42,15 @@ export function createDeviceLinkingEcdsaSourceContributionMetadataReaderV1(
 ): DeviceLinkingEcdsaSourceContributionMetadataReaderV1 {
   return async ({ preparation }) => {
     const sourceActivation = preparation.source.activation;
-    const [ownerLane, manifest] = await Promise.all([
-      context.readActiveOwnerSourceLaneV1({ materialActivation: sourceActivation }),
-      context.readActiveEcdsaCapabilityManifestV1({ materialActivation: sourceActivation }),
-    ]);
+    const manifest = await context.readActiveEcdsaCapabilityManifestV1({
+      materialActivation: sourceActivation,
+    });
     assertExactEcdsaSourceMetadataContextV1({
       sourceActivation,
-      ownerLane,
       manifest,
     });
     return {
-      walletKeyId: ownerLane.walletKey.walletKeyId,
+      walletKeyId: walletKeyIdForActiveManifestV1(manifest),
       sourceDerivation: {
         applicationBindingDigestB64u: parseDigestB64u(
           manifest.durableMaterial.routerAbEcdsaDerivationNormalSigning.scope.context
@@ -81,15 +70,8 @@ export function createDeviceLinkingEcdsaSourceContributionMetadataReaderV1(
 
 function assertExactEcdsaSourceMetadataContextV1(input: {
   readonly sourceActivation: MpcMaterialActivationRef;
-  readonly ownerLane: LinkedDeviceOwnerSourceLaneV1;
   readonly manifest: ActiveEcdsaCapabilityManifest;
 }): void {
-  if (input.ownerLane.keyFamily !== 'ecdsa_secp256k1') {
-    throw new Error('ECDSA source metadata resolved a non-ECDSA owner lane');
-  }
-  if (!mpcMaterialActivationRefsEqual(input.ownerLane.materialActivation, input.sourceActivation)) {
-    throw new Error('ECDSA owner source lane activation does not match preparation');
-  }
   if (
     !mpcMaterialActivationRefsEqual(
       input.manifest.activation.materialActivation,
@@ -98,21 +80,17 @@ function assertExactEcdsaSourceMetadataContextV1(input: {
   ) {
     throw new Error('ECDSA capability manifest activation does not match preparation');
   }
-  if (input.manifest.signer.walletId !== input.ownerLane.walletKey.walletId) {
-    throw new Error('ECDSA source owner lane and capability manifest wallet identities differ');
-  }
-  if (
-    String(input.ownerLane.walletKey.thresholdPublicKey33B64u) !==
-    String(input.manifest.signer.registeredPublicFacts.publicKeyB64u)
-  ) {
-    throw new Error('ECDSA source owner lane and capability manifest public keys differ');
-  }
-  if (
-    input.ownerLane.walletKey.evmAddress !==
-    input.manifest.signer.registeredPublicFacts.thresholdOwnerAddress
-  ) {
-    throw new Error('ECDSA source owner lane and capability manifest addresses differ');
-  }
+}
+
+function walletKeyIdForActiveManifestV1(manifest: ActiveEcdsaCapabilityManifest): WalletKeyId {
+  const signingKeySlotId = deriveEvmFamilySigningKeySlotId({
+    walletId: manifest.signer.walletId,
+    signingRootId: manifest.signer.signingRootId,
+    signingRootVersion: manifest.signer.signingRootVersion,
+  });
+  const parsed = parseWalletKeyId(signingKeySlotId);
+  if (!parsed.ok) throw new Error(`ECDSA source wallet key identity: ${parsed.error.message}`);
+  return parsed.value;
 }
 
 export type DeviceLinkingSourceContributionPortFactoryInputV1 = {

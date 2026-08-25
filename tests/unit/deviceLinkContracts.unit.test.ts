@@ -70,8 +70,6 @@ test.describe('R103E link-session contracts', () => {
 
   test('round-trips the opaque operation credential in the exact persisted session row', () => {
     const fixture = buildR103DeviceLinkFixture();
-    const sourceLane = fixture.approval.orderedOwnerSourceLaneHints[0];
-    if (!sourceLane) throw new Error('R103 fixture source lane is missing');
     const walletSessionId = parseWalletSessionId('wallet-session:persisted-credential');
     const authorizationId = parseWalletSessionAuthorizationId('authorization:persisted-credential');
     const authorityId = parseWalletAuthorityId('authority:persisted-credential');
@@ -81,7 +79,7 @@ test.describe('R103E link-session contracts', () => {
     const record = buildActiveWalletSessionV1({
       walletId: fixture.approval.walletId,
       authorityId: authorityId.value,
-      authMethodId: sourceLane.lane.walletAuthMethodId,
+      authMethodId: fixture.sourceWalletAuthMethodId,
       authorizationId: authorizationId.value,
       authorityDigestB64u: fixture.packageSetDigestB64u,
       authorityRevocationEpoch: 0,
@@ -89,7 +87,7 @@ test.describe('R103E link-session contracts', () => {
         {
           kind: 'sign',
           keyFamily: 'ed25519',
-          materialActivation: sourceLane.materialActivation,
+          materialActivation: fixture.sourceMaterialActivation,
         },
       ],
       issuedAtMs: 2_100,

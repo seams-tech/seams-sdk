@@ -1,7 +1,6 @@
 import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import type {
   LinkedDeviceApprovalV1,
-  LinkedDeviceOwnerSourceLaneV1,
   LinkedDevicePasskeyCreationOptionsV1,
   LinkedDeviceTargetPreparationV1,
   OrdinarySignerMaterialRecipientRequirementV1,
@@ -14,13 +13,9 @@ import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
-import {
-  parseWalletAuthMethodId,
-  mpcMaterialActivationRefsEqual,
-} from '@shared/utils/domainIds';
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import type {
   ActiveLaneProtocolSourceV1,
-  EcdsaSourceCapabilityBindingV1,
   EcdsaTargetCapabilityBindingV1,
   LaneTargetSigningWorkerV1,
 } from '@shared/signing-lanes/rotation';
@@ -38,9 +33,8 @@ import type {
 } from '@shared/utils/registrationIntent';
 import type { WalletKeyId } from '@shared/signing-lanes/ids';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type {
-  LinkedDeviceTargetPlannerV1,
-} from './d1LinkedDeviceTargetCredentialProvider';
+import type { ExactAdministeredSignerV1 } from '@shared/device-linking/delegatedActivationPlan';
+import type { LinkedDeviceTargetPlannerV1 } from './d1LinkedDeviceTargetCredentialProvider';
 
 const DEFAULT_TARGET_PREPARATION_TTL_MS = 5 * 60 * 1_000;
 
@@ -70,7 +64,6 @@ type LinkedDeviceOwnerEcdsaSourceChildResolutionV1 =
     readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
     readonly thresholdPublicKey33B64u: string;
     readonly evmAddress: string;
-    readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
     readonly sourceHolderVerifyingShare33B64u: string;
     readonly sourceServerVerifyingShare33B64u: string;
     readonly applicationBindingDigestB64u: DigestB64u;
@@ -97,14 +90,13 @@ export type LinkedDeviceTargetEnrichedChildResolutionV1 =
 
 export type LinkedDeviceTargetPreparationResolutionV1 = LinkedDeviceOwnerSourceChildResolutionV1;
 
-export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
-  | {
-      readonly kind: 'preparation';
-      readonly session: LinkedDeviceSessionRecordV1;
-      readonly approval: LinkedDeviceApprovalV1;
-      readonly sourceLaneHint: LinkedDeviceOwnerSourceLaneV1;
-      readonly childIndex: number;
-    };
+export type LinkedDeviceOwnerSourceChildResolutionRequestV1 = {
+  readonly kind: 'preparation';
+  readonly session: LinkedDeviceSessionRecordV1;
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly sourceSigner: ExactAdministeredSignerV1;
+  readonly childIndex: number;
+};
 
 export type LinkedDeviceOwnerSourceChildResolverV1 = {
   resolveOwnerSourceChildV1(
@@ -150,23 +142,24 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       throw new Error('linked-device target preparation has no remaining lifetime');
     }
 
-    const ordinarySignerMaterialRecipientRequirements: OrdinarySignerMaterialRecipientRequirementV1[] = [];
+    const ordinarySignerMaterialRecipientRequirements: OrdinarySignerMaterialRecipientRequirementV1[] =
+      [];
     let ed25519ExportRoot: LinkedDeviceTargetPreparationV1['ed25519ExportRoot'] = null;
-    for (
-      let childIndex = 0;
-      childIndex < input.approval.orderedOwnerSourceLaneHints.length;
-      childIndex += 1
-    ) {
-      const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[childIndex];
-      if (!sourceLaneHint) throw new Error(`linked-device approval child ${childIndex} is missing`);
+    const sourceSignerManifest = input.session.approvalTranscript?.sourceSignerManifest;
+    if (!sourceSignerManifest) {
+      throw new Error('linked-device verified source signer manifest is unavailable');
+    }
+    for (let childIndex = 0; childIndex < sourceSignerManifest.signers.length; childIndex += 1) {
+      const sourceSigner = sourceSignerManifest.signers[childIndex];
+      if (!sourceSigner) throw new Error(`linked-device source signer ${childIndex} is missing`);
       const resolution = await this.resolveOwnerSourceChildV1({
         kind: 'preparation',
         session: input.session,
         approval: input.approval,
-        sourceLaneHint,
+        sourceSigner,
         childIndex,
       });
-      assertResolutionMatchesSourceLaneHint(resolution, sourceLaneHint, childIndex);
+      assertResolutionMatchesSourceSigner(resolution, sourceSigner, childIndex);
       if (
         resolution.keyFamily === 'ed25519' &&
         hasDelegatedWalletPermissionV1(input.approval.permission, 'export_keys')
@@ -184,8 +177,8 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       }
       ordinarySignerMaterialRecipientRequirements.push({
         kind: 'ordinary_signer_material_recipient_requirement_v1',
-        walletKeyId: sourceLaneHint.walletKey.walletKeyId,
-        keyFamily: sourceLaneHint.keyFamily,
+        walletKeyId: sourceSigner.walletKeyId,
+        keyFamily: sourceSigner.keyFamily,
       });
     }
 
@@ -193,7 +186,9 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       `wallet-auth-method:${secureRandomBase64Url(32, 'linked-device target wallet auth method')}`,
     );
     if (!walletAuthMethodId.ok) {
-      throw new Error(`linked-device target wallet auth method id: ${walletAuthMethodId.error.message}`);
+      throw new Error(
+        `linked-device target wallet auth method id: ${walletAuthMethodId.error.message}`,
+      );
     }
 
     if (input.approval.targetFactor.kind === 'passkey_prf') {
@@ -235,11 +230,13 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       expiresAtMs,
     });
   }
-
 }
 
 function buildPasskeyCreationOptionsV1(input: {
-  readonly walletAuthMethodId: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>['walletAuthMethodId'];
+  readonly walletAuthMethodId: Extract<
+    WalletAuthMethodRecordV2,
+    { readonly status: 'active' }
+  >['walletAuthMethodId'];
   readonly walletId: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>['walletId'];
   readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
 }): LinkedDevicePasskeyCreationOptionsV1 {
@@ -303,26 +300,16 @@ function assertPreparationInput(
   }
 }
 
-function assertResolutionMatchesSourceLaneHint(
+function assertResolutionMatchesSourceSigner(
   resolution: LinkedDeviceOwnerSourceChildResolutionV1,
-  sourceLaneHint: LinkedDeviceOwnerSourceLaneV1,
+  sourceSigner: ExactAdministeredSignerV1,
   childIndex: number,
 ): void {
   if (
-    resolution.walletKeyId !== sourceLaneHint.walletKey.walletKeyId ||
-    resolution.keyFamily !== sourceLaneHint.keyFamily ||
-    resolution.source.laneId !== sourceLaneHint.lane.laneId ||
-    resolution.source.laneKind !== sourceLaneHint.lane.laneKind ||
-    resolution.source.laneShareEpoch !== sourceLaneHint.lane.laneShareEpoch ||
-    resolution.source.revocationEpoch !== sourceLaneHint.lane.lifecycle.revocationEpoch ||
-    resolution.source.participantBindingDigestB64u !==
-      sourceLaneHint.lane.participantBindingDigestB64u ||
-    !mpcMaterialActivationRefsEqual(
-      resolution.source.materialActivation,
-      sourceLaneHint.materialActivation,
-    )
+    resolution.walletKeyId !== sourceSigner.walletKeyId ||
+    resolution.keyFamily !== sourceSigner.keyFamily
   ) {
-    throw new Error(`linked-device source resolution ${childIndex} differs from approval`);
+    throw new Error(`linked-device source resolution ${childIndex} differs from verified signer`);
   }
 }
 

@@ -2,7 +2,6 @@ import {
   buildExactAdministeredSignerManifestV1,
   type ExactAdministeredSignerManifestV1,
 } from '@shared/device-linking/delegatedActivationPlan';
-import type { LinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking/contracts';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   parseWalletSessionAuthorizationId,
@@ -84,7 +83,10 @@ export function createD1LinkedDeviceVerifiedLinkSourceReaderV1(input: {
       if (!authority || authority.state !== 'active') {
         throw new Error('source Wallet Authority is not active');
       }
-      if (authMethod.walletId !== request.walletId || authMethod.walletAuthorityId !== authorityId) {
+      if (
+        authMethod.walletId !== request.walletId ||
+        authMethod.walletAuthorityId !== authorityId
+      ) {
         throw new Error('source Wallet Auth Method authority provenance is invalid');
       }
       assertSourceSessionAuthorityV1(sourceSession, authority);
@@ -135,7 +137,7 @@ async function resolveSourceWalletSessionV1(input: {
   readonly walletId: Parameters<VerifiedLinkSourceReaderV1['readVerifiedSourceV1']>[0]['walletId'];
   readonly walletSessionId: WalletSessionId;
   readonly authorizationId: WalletSessionAuthorizationId;
-  readonly keyFamily: LinkedDeviceOwnerSourceLaneV1['keyFamily'];
+  readonly keyFamily: ExactAdministeredSignerV1['keyFamily'];
   readonly nowMs: number;
 }): Promise<SourceWalletSessionV1> {
   const issued = await input.authorizationService.readWalletSessionAuthorizationV2ByIdentity({
@@ -158,8 +160,7 @@ async function resolveSourceWalletSessionV1(input: {
     return { kind: 'wallet_session_v2', session };
   }
 
-  const curve: OpaqueWalletSessionCurve =
-    input.keyFamily === 'ed25519' ? 'ed25519' : 'ecdsa';
+  const curve: OpaqueWalletSessionCurve = input.keyFamily === 'ed25519' ? 'ed25519' : 'ecdsa';
   const ordinary = await input.ordinaryWalletSessions.readOpaqueWalletSessionTokenByIdentity({
     tenantId: input.tenantId,
     walletSessionId: input.walletSessionId,
@@ -235,7 +236,7 @@ function assertSourceSessionAuthorityV1(
 
 function sourceSignerForFamilyV1(input: {
   readonly authority: ActiveWalletAuthorityV1;
-  readonly keyFamily: LinkedDeviceOwnerSourceLaneV1['keyFamily'];
+  readonly keyFamily: ExactAdministeredSignerV1['keyFamily'];
   readonly signers: readonly (WalletEd25519SignerRecord | WalletEcdsaSignerRecord)[];
 }): WalletEd25519SignerRecord | WalletEcdsaSignerRecord {
   const activation =

@@ -1,7 +1,6 @@
 import type {
   LinkedDeviceOwnerAuthorizationRequestV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceOwnerSourceLaneV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
@@ -26,6 +25,7 @@ import {
 } from '@shared/authorization/delegatedAuthority';
 import type { WalletExecutionLaneAuthSource } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { ExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
@@ -50,10 +50,7 @@ export type DeviceLinkingOwnerAuthorizationResponseV1 = {
   readonly authentication: DeviceLinkingOwnerAuthorizationAuthenticationV1;
   readonly walletId: WalletId;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly orderedOwnerSourceLaneHints: readonly [
-    LinkedDeviceOwnerSourceLaneV1,
-    ...LinkedDeviceOwnerSourceLaneV1[],
-  ];
+  readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
   readonly expiresAtMs: number;
 };
 
@@ -105,7 +102,6 @@ export type DeviceLinkingOwnerRequestAuthenticationV1 =
 export type DeviceLinkingOwnerAuthorizationRouteServiceV1 = {
   authorizeOwnerForLinkingV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV5;
-    readonly orderedOwnerSourceLaneHints: LinkedDeviceOwnerAuthorizationRequestV1['orderedOwnerSourceLaneHints'];
     readonly requestedAtMs: number;
     readonly bodyDigestB64u: DigestB64u;
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
@@ -228,7 +224,6 @@ export async function handleDeviceLinkingOwnerAuthorization(
   try {
     const response = await service.authorizeOwnerForLinkingV1({
       payload: body.payload,
-      orderedOwnerSourceLaneHints: body.orderedOwnerSourceLaneHints,
       requestedAtMs: body.requestedAtMs,
       bodyDigestB64u,
       owner: validated.owner,

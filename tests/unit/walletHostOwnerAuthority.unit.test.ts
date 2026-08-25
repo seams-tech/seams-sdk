@@ -1,19 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
-import { parseLinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking';
-import { base64UrlEncode } from '@shared/utils/base64';
 import { createWalletHostOwnerAuthoritiesV1 } from '@/SeamsWeb/operations/devices/walletHostOwnerAuthority';
 import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
-import { selectWalletHostOwnerSourceLaneCandidatesV1 } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import {
-  authorizedPasskeyEd25519AvailableLane,
-  availableEd25519Inventory,
-  availableLaneEd25519Authorization,
-} from './helpers/availableSigningLanes.fixtures';
-import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
+import type { HttpTransport } from '@/core/platform/http';
 
 const walletId = parseWalletId('wallet:r103').value;
 
@@ -41,55 +34,6 @@ function buildUnlockedEd25519ExportRootCapabilityFixtureV1(
   };
 }
 
-function buildEd25519OwnerSourceLaneHintFixtureV1() {
-  const digestB64u = base64UrlEncode(new Uint8Array(32).fill(7));
-  const materialActivation = buildMpcMaterialActivationRefFixture(
-    'capability-source',
-    String(walletId),
-  );
-  return parseLinkedDeviceOwnerSourceLaneV1({
-    kind: 'linked_device_owner_source_lane_v1',
-    keyFamily: 'ed25519',
-    walletKey: {
-      kind: 'wallet_key_record_v1',
-      keyFamily: 'ed25519',
-      walletId: String(walletId),
-      walletKeyId: 'wallet-key:capability-ed25519',
-      walletKeyVersion: 'wallet-key-version:capability-ed25519',
-      nearEd25519SigningKeyId: 'near-key:capability-ed25519',
-      keyCreationSignerSlot: 1,
-      registeredPublicKeyB64u: digestB64u,
-      lifecycle: { state: 'active', activatedAtMs: 1_900_000_000_000 },
-    },
-    lane: {
-      kind: 'signing_lane_reference_v1',
-      walletId: String(walletId),
-      walletKeyId: 'wallet-key:capability-ed25519',
-      laneId: 'lane:owner-capability-ed25519',
-      laneKind: 'owner_passkey',
-      laneShareEpoch: 'lane-share-epoch:capability-ed25519',
-      participantBindingDigestB64u: digestB64u,
-      walletAuthMethodId: 'passkey:wallet.example.test:credential-capability',
-      ownerParticipantContinuity: {
-        kind: 'owner_lane_participant_continuity_v1',
-        signerId: 'owner-signer:capability-ed25519',
-        participantIds: [1, 2],
-        signingWorkerId: 'worker:capability-source',
-        custodyKeyManifestDigestB64u: digestB64u,
-        sourceIdentityDigestB64u: digestB64u,
-      },
-      lifecycle: {
-        state: 'active',
-        revocationEpoch: 0,
-        activatedAtMs: 1_900_000_000_000,
-        activationReceiptDigestB64u: digestB64u,
-      },
-    },
-    materialActivation,
-    verifiedActivationReceiptDigestB64u: digestB64u,
-  });
-}
-
 function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
   return createWalletHostOwnerAuthoritiesV1({
     http: {
@@ -108,12 +52,43 @@ function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
       walletId,
       authMethod: 'passkey',
     }),
-    readOwnerSourceLaneHintsV1: async () => {
-      throw new Error('owner lane hints are not exercised by this test');
-    },
     readUnlockedEd25519ExportRootCapabilityV1: () => undefined,
     ...overrides,
   });
+}
+
+function authorizedOwnerHttp(
+  projection: ReturnType<typeof availableLaneEd25519Authorization>,
+  fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
+): HttpTransport {
+  if (projection.walletSessionTokens.kind !== 'near_ed25519') {
+    throw new Error('owner authorization fixture requires an Ed25519 token');
+  }
+  const source = {
+    kind: 'wallet_session' as const,
+    walletSessionId: projection.walletSessionId,
+    authorizationId: projection.walletSessionTokens.ed25519.authorizationId,
+  };
+  return {
+    kind: 'http_transport',
+    request: async () => ({
+      ok: true,
+      value: {
+        status: 200,
+        body: {
+          authentication: {
+            kind: 'link_session_authenticated_request_v1',
+            source,
+            proofDigestB64u: fixture.packageSetDigestB64u,
+          },
+          walletId: projection.walletId,
+          ownerAuthorization: source,
+          sourceSignerManifest: fixture.sourceSignerManifest,
+          expiresAtMs: projection.expiresAtMs,
+        },
+      },
+    }),
+  };
 }
 
 async function expectWalletUnlockRequired(
@@ -192,11 +167,11 @@ test('an export_keys owner request requires a matching unexpired export-root cap
     identitySeed: 'capability-preflight',
     authMethod: 'passkey',
   });
+  const fixture = buildR103DeviceLinkFixture();
   const payload = {
-    ...buildR103DeviceLinkFixture().payload,
+    ...fixture.payload,
     requestedPermission: buildFullOwnerDelegatedWalletAuthorityV1(),
   };
-  const ownerSourceLaneHint = buildEd25519OwnerSourceLaneHintFixtureV1();
   const aligned = () =>
     buildUnlockedEd25519ExportRootCapabilityFixtureV1({
       walletId: String(projection.walletId),
@@ -212,6 +187,7 @@ test('an export_keys owner request requires a matching unexpired export-root cap
   for (const [label, readCapability] of arms) {
     await expectWalletUnlockRequired(
       stopBeforeHttp({
+        http: authorizedOwnerHttp(projection, fixture),
         walletSessions: {
           read: async () => ({ kind: 'missing' as const }),
           readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
@@ -221,7 +197,6 @@ test('an export_keys owner request requires a matching unexpired export-root cap
           walletId: projection.walletId,
           authMethod: 'passkey',
         }),
-        readOwnerSourceLaneHintsV1: async () => [ownerSourceLaneHint],
         readUnlockedEd25519ExportRootCapabilityV1: readCapability,
       }),
       payload,
@@ -229,39 +204,4 @@ test('an export_keys owner request requires a matching unexpired export-root cap
       throw new Error(`${label}: ${String(error)}`);
     });
   }
-});
-
-test('device-link owner handoff excludes historical Ed25519 candidates', async () => {
-  const currentAuthorization = availableLaneEd25519Authorization({
-    walletId: String(walletId),
-    identitySeed: 'device-link-current-owner',
-    authMethod: 'passkey',
-  });
-  const current = authorizedPasskeyEd25519AvailableLane({
-    authorization: currentAuthorization,
-    materialActivation: buildMpcMaterialActivationRefFixture(
-      'device-link-current-owner',
-      String(walletId),
-    ),
-  });
-  const historical = authorizedPasskeyEd25519AvailableLane({
-    authorization: currentAuthorization,
-    materialActivation: buildMpcMaterialActivationRefFixture(
-      'device-link-historical-owner',
-      String(walletId),
-    ),
-  });
-  const available = availableEd25519Inventory({
-    primary: current,
-    candidates: [historical, current],
-  });
-
-  const selected = selectWalletHostOwnerSourceLaneCandidatesV1(available, currentAuthorization);
-
-  expect(selected).toEqual([
-    {
-      curve: 'ed25519',
-      materialActivation: current.materialActivation,
-    },
-  ]);
 });

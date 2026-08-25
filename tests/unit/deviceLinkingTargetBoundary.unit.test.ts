@@ -4,15 +4,9 @@ import {
   parseLinkedDeviceTargetCredentialRegistrationResultV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
 } from '@shared/device-linking/parsers';
-import {
-  targetCredentialResultResponse,
-} from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinking';
-import {
-  buildR103DeviceLinkFixture,
-} from './helpers/deviceLinkContracts.fixtures';
-import {
-  buildR103ActiveLinkedDeviceSessionRecordV1,
-} from './helpers/deviceLinkingServer.fixtures';
+import { targetCredentialResultResponse } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinking';
+import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { buildR103ActiveLinkedDeviceSessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
 import {
   buildOrdinaryEcdsaReservationPreparationFixture,
   buildOrdinaryMaterialActivationFixture,
@@ -28,8 +22,7 @@ test('serializes server preparations with the browser recipient request', async 
     'target-boundary',
     activation,
   );
-  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
-  if (!walletKeyId) throw new Error('fixture signer binding is missing');
+  const walletKeyId = fixture.sourceWalletKeyId;
   const walletAuthMethodId = 'email_otp:wallet:r103:' + 'ab'.repeat(32);
   const targetCredential = parseLinkedDeviceTargetCredentialRegistrationResultV1({
     kind: 'linked_device_target_credential_registration_result_v1',
@@ -110,9 +103,10 @@ function x25519PublicKeyFromB64u(value: string): string {
 }
 
 test('registration rejects private recipient material and activation choices', () => {
-  const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:target-boundary-reject' });
-  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
-  if (!walletKeyId) throw new Error('fixture signer binding is missing');
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:target-boundary-reject',
+  });
+  const walletKeyId = fixture.sourceWalletKeyId;
   const base = {
     kind: 'linked_device_target_credential_registration_v1',
     linkSessionId: fixture.payload.linkSessionId,

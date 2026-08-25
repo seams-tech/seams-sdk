@@ -50,6 +50,8 @@ import {
   type VerifiedLinkSourceReaderV1,
 } from './d1LinkedDeviceVerifiedLinkBuilder';
 import { linkedDeviceX25519RecipientPublicKeyB64uV1 } from './d1LinkedDeviceSourceContributionPreparationPlanner';
+import type { ExactAdministeredSignerV1 } from '@shared/device-linking/delegatedActivationPlan';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type VerifiedLinkedDeviceWebAuthnCredentialV1 = {
   readonly credentialIdB64u: string;
@@ -93,9 +95,7 @@ export type LinkedDeviceTargetCredentialVerificationPortV1 = {
 };
 
 /** Uses the canonical D1 WebAuthn registration verifier with the configured ceremony origin. */
-export class LinkedDeviceWebAuthnRegistrationVerifierV1
-  implements LinkedDeviceTargetCredentialVerificationPortV1
-{
+export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceTargetCredentialVerificationPortV1 {
   private readonly expectedOrigin: string;
 
   constructor(expectedOrigin: string) {
@@ -318,7 +318,10 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private readonly verifiedLinkBuilder: LinkedDeviceVerifiedLinkBuilderV1;
   private readonly inFlightCommits = new Map<
     string,
-    Promise<TargetCredentialRegistrationSuccessV1 | { readonly outcome: 'invalid_input'; readonly message: string }>
+    Promise<
+      | TargetCredentialRegistrationSuccessV1
+      | { readonly outcome: 'invalid_input'; readonly message: string }
+    >
   >();
 
   constructor(input: {
@@ -354,6 +357,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     }
     const sourceAuthMethod = await readSourceAuthMethodForTargetPreparationV1({
       source: this.verifiedLinkBuilder.source,
+      session: input.session,
       approval: input.approval,
       requestedAtMs: input.requestedAtMs,
     });
@@ -758,9 +762,8 @@ SELECT 1
       sourceAuthMethod: source.authMethod,
       requestedAtMs: input.requestedAtMs,
     });
-    const parsedPreparations = parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
-      preparations,
-    );
+    const parsedPreparations =
+      parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(preparations);
     assertSourceContributionPreparationContextV1({
       preparations: parsedPreparations,
       session: input.session,
@@ -1092,6 +1095,10 @@ function assertPreparationMatchesSession(
   session: LinkedDeviceSessionRecordV1,
   approval: LinkedDeviceApprovalV1,
 ): void {
+  const sourceSignerManifest = session.approvalTranscript?.sourceSignerManifest;
+  if (!sourceSignerManifest) {
+    throw new Error('linked-device verified source signer manifest is unavailable');
+  }
   if (
     preparation.linkSessionId !== session.linkSessionId ||
     preparation.linkSessionId !== approval.linkSessionId ||
@@ -1100,7 +1107,7 @@ function assertPreparationMatchesSession(
     preparation.deviceId !== approval.deviceId ||
     preparation.targetFactor.kind !== approval.targetFactor.kind ||
     preparation.ordinarySignerMaterialRecipientRequirements.length !==
-      approval.orderedOwnerSourceLaneHints.length
+      sourceSignerManifest.signers.length
   ) {
     throw new Error('linked-device target preparation differs from its approved session');
   }
@@ -1110,14 +1117,16 @@ function assertPreparationMatchesSession(
     index += 1
   ) {
     const requirement = preparation.ordinarySignerMaterialRecipientRequirements[index];
-    const approved = approval.orderedOwnerSourceLaneHints[index];
+    const approved = sourceSignerManifest.signers[index];
     if (
       !requirement ||
       !approved ||
-      requirement.walletKeyId !== approved.walletKey.walletKeyId ||
+      requirement.walletKeyId !== approved.walletKeyId ||
       requirement.keyFamily !== approved.keyFamily
     ) {
-      throw new Error(`linked-device target preparation recipient requirement ${index} is not approved`);
+      throw new Error(
+        `linked-device target preparation recipient requirement ${index} is not approved`,
+      );
     }
   }
 }
@@ -1131,13 +1140,13 @@ async function readVerifiedSourceForTargetCredentialV1(input: {
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('verified device linking requires an ordinary Wallet Session');
   }
-  const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[0];
-  if (!sourceLaneHint) throw new Error('verified device linking source lane hints are missing');
+  const keyFamily = input.registration.ordinarySignerMaterialRecipientRequests[0]?.keyFamily;
+  if (!keyFamily) throw new Error('verified device linking source signer manifest is missing');
   return await input.source.readVerifiedSourceV1({
     walletId: input.registration.walletId,
     walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
     authorizationId: String(input.approval.ownerAuthorization.authorizationId),
-    keyFamily: sourceLaneHint.keyFamily,
+    keyFamily,
     requestedAtMs: input.requestedAtMs,
   });
 }
@@ -1155,11 +1164,11 @@ function assertSourceContributionPreparationContextV1(input: {
     input.session.linkSessionId !== input.registration.linkSessionId ||
     input.approval.linkSessionId !== input.registration.linkSessionId ||
     input.preparation.linkSessionId !== input.registration.linkSessionId ||
-    input.session.state.state !== 'awaiting_target_factor' &&
+    (input.session.state.state !== 'awaiting_target_factor' &&
       input.session.state.state !== 'awaiting_source_contribution' &&
       input.session.state.state !== 'provisioning' &&
       input.session.state.state !== 'authority_pending_local_install' &&
-      input.session.state.state !== 'active'
+      input.session.state.state !== 'active')
   ) {
     throw new Error('linked-device source contribution preparation session is invalid');
   }
@@ -1176,7 +1185,9 @@ function assertSourceContributionPreparationContextV1(input: {
     input.registration.ordinarySignerMaterialRecipientRequests.length !== signers.length ||
     input.preparation.ordinarySignerMaterialRecipientRequirements.length !== signers.length
   ) {
-    throw new Error('linked-device source contribution preparations do not cover the signer manifest');
+    throw new Error(
+      'linked-device source contribution preparations do not cover the signer manifest',
+    );
   }
   const targetActivations = input.preparations.map((value) =>
     'kind' in value ? value.targetMaterialActivation : value.target.activation,
@@ -1208,42 +1219,45 @@ function assertSourceContributionPreparationContextV1(input: {
       request.walletKeyId !== signer.walletKeyId ||
       request.keyFamily !== signer.keyFamily
     ) {
-      throw new Error(`linked-device source preparation ${index} identity differs from the manifest`);
+      throw new Error(
+        `linked-device source preparation ${index} identity differs from the manifest`,
+      );
     }
-    const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints.find(
-      (candidate) => candidate.walletKey.walletKeyId === signer.walletKeyId,
-    );
-    if (!sourceLaneHint) {
-      throw new Error(`linked-device source preparation ${index} has no approved source lane`);
-    }
+    const sourceMaterialActivation = sourceMaterialActivationForSignerV1(input.source, signer);
     if ('kind' in preparation) {
       if (
         signer.keyFamily !== 'ed25519' ||
         preparation.walletKeyId !== signer.walletKeyId ||
         String(preparation.targetDeviceId) !== String(input.registration.deviceId) ||
-        preparation.targetFactorVerificationDigestB64u !== input.targetFactor.verificationDigestB64u ||
+        preparation.targetFactorVerificationDigestB64u !==
+          input.targetFactor.verificationDigestB64u ||
         preparation.sourceRegisteredPublicKeyB64u !== signer.registeredPublicKeyB64u ||
         !mpcMaterialActivationRefsEqual(
           routerAbMpcMaterialActivationRefFromWire(preparation.sourceBinding.material_activation),
-          sourceLaneHint.materialActivation,
+          sourceMaterialActivation,
         ) ||
         !mpcMaterialActivationRefsEqual(
-          routerAbMpcMaterialActivationRefFromWire(preparation.targetAdmission.binding.material_activation),
+          routerAbMpcMaterialActivationRefFromWire(
+            preparation.targetAdmission.binding.material_activation,
+          ),
           preparation.targetMaterialActivation,
         ) ||
         preparation.targetClientRecipientPublicKeyB64u !==
           ('recipientPublicKeyB64u' in request ? request.recipientPublicKeyB64u : '')
       ) {
-        throw new Error(`linked-device Ed25519 source preparation ${index} differs from its inputs`);
+        throw new Error(
+          `linked-device Ed25519 source preparation ${index} differs from its inputs`,
+        );
       }
       continue;
     }
     if (
       signer.keyFamily !== 'ecdsa_secp256k1' ||
       String(preparation.target.targetDeviceId) !== String(input.registration.deviceId) ||
-      preparation.target.targetFactorVerificationDigestB64u !== input.targetFactor.verificationDigestB64u ||
+      preparation.target.targetFactorVerificationDigestB64u !==
+        input.targetFactor.verificationDigestB64u ||
       preparation.source.thresholdPublicKey33B64u !== signer.thresholdPublicKey33B64u ||
-      !mpcMaterialActivationRefsEqual(preparation.source.activation, sourceLaneHint.materialActivation) ||
+      !mpcMaterialActivationRefsEqual(preparation.source.activation, sourceMaterialActivation) ||
       preparation.target.clientRecipientPublicKeyB64u !==
         ('clientEphemeralPublicKey' in request
           ? linkedDeviceX25519RecipientPublicKeyB64uV1(request.clientEphemeralPublicKey)
@@ -1252,6 +1266,20 @@ function assertSourceContributionPreparationContextV1(input: {
       throw new Error(`linked-device ECDSA source preparation ${index} differs from its inputs`);
     }
   }
+}
+
+function sourceMaterialActivationForSignerV1(
+  source: VerifiedLinkSourceReadV1,
+  signer: ExactAdministeredSignerV1,
+): MpcMaterialActivationRef {
+  const activation =
+    signer.keyFamily === 'ed25519'
+      ? source.authority.signerActivations.ed25519
+      : source.authority.signerActivations.ecdsa;
+  if (!activation || activation.signer.walletKeyId !== signer.walletKeyId) {
+    throw new Error(`linked-device ${signer.keyFamily} source activation is unavailable`);
+  }
+  return activation.materialActivation;
 }
 
 async function parseTargetCredentialRow(
@@ -1414,19 +1442,22 @@ async function waitForTargetCommitV1(delayMs: number): Promise<void> {
 
 async function readSourceAuthMethodForTargetPreparationV1(input: {
   readonly source: VerifiedLinkSourceReaderV1;
+  readonly session: LinkedDeviceSessionRecordV1;
   readonly approval: LinkedDeviceApprovalV1;
   readonly requestedAtMs: number;
 }): Promise<Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>> {
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('linked-device target preparation requires an ordinary Wallet Session');
   }
-  const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[0];
-  if (!sourceLaneHint) throw new Error('linked-device target preparation source lane hints are missing');
+  const sessionKeyFamily = input.session.approvalTranscript?.sourceSignerManifest.keyFamilies[0];
+  if (!sessionKeyFamily) {
+    throw new Error('linked-device source signer manifest is missing');
+  }
   const source = await input.source.readVerifiedSourceV1({
     walletId: input.approval.walletId,
     walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
     authorizationId: String(input.approval.ownerAuthorization.authorizationId),
-    keyFamily: sourceLaneHint.keyFamily,
+    keyFamily: sessionKeyFamily,
     requestedAtMs: input.requestedAtMs,
   });
   return source.authMethod;

@@ -34,7 +34,6 @@ test('an approval survives its own parser', () => {
     permission: fixture.approval.permission,
     targetFactor: fixture.approval.targetFactor,
     ownerAuthorization: fixture.approval.ownerAuthorization,
-    orderedOwnerSourceLaneHints: fixture.approval.orderedOwnerSourceLaneHints,
     approvedAtMs: fixture.approval.approvedAtMs,
     expiresAtMs: fixture.approval.expiresAtMs,
   });

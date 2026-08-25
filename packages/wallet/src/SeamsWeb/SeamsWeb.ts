@@ -1,7 +1,6 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import {
   walletSessionAuthorizations,
-  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
@@ -47,10 +46,7 @@ import {
   RegistrationEventPhase,
   UnlockEventPhase,
 } from '@/core/types/sdkSentEvents';
-import {
-  awaitNearProvisioningInFlight,
-  readNearProvisioningState,
-} from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
+import { readNearProvisioningState } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -65,11 +61,7 @@ import type {
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
-import {
-  parseMpcMaterialActivationRef,
-  mpcMaterialActivationRefsEqual,
-  type MpcMaterialActivationRef,
-} from '@shared/utils/domainIds';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -119,14 +111,8 @@ import type {
   LinkSessionOwnerAuthenticatedRequestPortV1,
 } from './operations/devices/deviceLinkingOwnerTransport';
 import { LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 } from './operations/devices/deviceLinkingHttpTransport';
-import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { resolveAmbiguousEcdsaActivationForSelectedAuthMethod } from '@/SeamsWeb/assembly/browserSigningSurfaceAssembly';
-import {
-  isConcreteAvailableSigningLane,
-  type AvailableSigningLanes,
-  type ConcreteAvailableEd25519SigningLane,
-} from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   walletCustodyCeremonyTransportFromWorkerContextV1,
   readUnlockedWalletEd25519ExportRootCapabilityV1,
@@ -138,15 +124,8 @@ import {
   type DeviceLinkingEcdsaSourceContributionMetadataReaderV1,
   type DeviceLinkingEcdsaSourceContributionMetadataContextV1,
 } from '@/core/signingEngine/workerManager/deviceLinkingSourceContribution';
-import {
-  parseLinkedDeviceApprovalResultV1,
-  type LinkedDeviceOwnerSourceLaneV1,
-} from '@shared/device-linking';
+import { parseLinkedDeviceApprovalResultV1 } from '@shared/device-linking';
 import type { DeviceLinkingSourceContributionPortV1 } from './operations/devices/deviceLinkingPorts';
-import type {
-  EcdsaCapabilityManifestId,
-  EcdsaCapabilityManifestRevision,
-} from '@shared/utils/ecdsaCapabilityActivation';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -780,20 +759,6 @@ type SeamsWebDeviceDomain = {
   readonly dispose: () => void;
 };
 
-type WalletHostOwnerSourceLaneCandidateV1 =
-  | {
-      readonly curve: 'ed25519';
-      readonly materialActivation: MpcMaterialActivationRef;
-    }
-  | {
-      readonly curve: 'ecdsa_secp256k1';
-      readonly materialActivation: MpcMaterialActivationRef;
-      readonly ecdsaSourceManifest: {
-        readonly manifestId: EcdsaCapabilityManifestId;
-        readonly manifestRevision: EcdsaCapabilityManifestRevision;
-      };
-    };
-
 export function resolveSeamsWebDeviceDomainModeV1(mode: SeamsWebRuntimeMode): 'direct' | 'iframe' {
   return mode === 'wallet_host' ? 'direct' : 'iframe';
 }
@@ -864,143 +829,6 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
 
 function noopDeviceLinkingDisposeV1(): void {}
 
-function ownerSourceLaneCandidateKeyV1(candidate: WalletHostOwnerSourceLaneCandidateV1): string {
-  const activation = candidate.materialActivation;
-  return [
-    candidate.curve,
-    activation.activationId,
-    activation.capability,
-    activation.materialOwner,
-    activation.keyBinding,
-    activation.lifecycleBinding,
-    activation.signingWorker,
-  ].join('|');
-}
-
-function collectWalletHostOwnerSourceLaneCandidatesV1(
-  available: AvailableSigningLanes,
-  hasActiveEd25519Material: (lane: ConcreteAvailableEd25519SigningLane) => boolean,
-): readonly WalletHostOwnerSourceLaneCandidateV1[] {
-  const candidates = new Map<string, WalletHostOwnerSourceLaneCandidateV1>();
-  for (const lane of available.candidates.ed25519.near) {
-    if (
-      !isConcreteAvailableSigningLane(lane) ||
-      lane.curve !== 'ed25519' ||
-      (lane.state !== 'ready' && (lane.state !== 'restorable' || !hasActiveEd25519Material(lane)))
-    ) {
-      continue;
-    }
-    const candidate: WalletHostOwnerSourceLaneCandidateV1 = {
-      curve: 'ed25519',
-      materialActivation: lane.materialActivation,
-    };
-    candidates.set(ownerSourceLaneCandidateKeyV1(candidate), candidate);
-  }
-  for (const lane of Object.values(available.ecdsa.candidatesByTarget).flat()) {
-    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa' || lane.state !== 'ready') {
-      continue;
-    }
-    const candidate: WalletHostOwnerSourceLaneCandidateV1 = {
-      curve: 'ecdsa_secp256k1',
-      materialActivation: lane.materialActivation,
-      ecdsaSourceManifest: {
-        manifestId: lane.capability.manifest.identity.manifestId,
-        manifestRevision: lane.capability.manifest.identity.manifestRevision,
-      },
-    };
-    const key = ownerSourceLaneCandidateKeyV1(candidate);
-    const previous = candidates.get(key);
-    if (
-      previous?.curve === 'ecdsa_secp256k1' &&
-      (previous.ecdsaSourceManifest.manifestId !== candidate.ecdsaSourceManifest.manifestId ||
-        previous.ecdsaSourceManifest.manifestRevision !==
-          candidate.ecdsaSourceManifest.manifestRevision)
-    ) {
-      throw new Error('Wallet-host owner ECDSA source lane identity is ambiguous');
-    }
-    candidates.set(key, candidate);
-  }
-  return [...candidates.values()];
-}
-
-function buildWalletHostOwnerSourceLaneHintV1(
-  candidate: WalletHostOwnerSourceLaneCandidateV1,
-  projection: Awaited<ReturnType<typeof readOwnerWalletExecutionLaneProjectionV1>>,
-): LinkedDeviceOwnerSourceLaneV1 {
-  switch (candidate.curve) {
-    case 'ed25519':
-      if (projection.walletKey.keyFamily !== 'ed25519') {
-        throw new Error('Wallet-host owner Ed25519 source lane family changed');
-      }
-      return {
-        kind: 'linked_device_owner_source_lane_v1',
-        keyFamily: 'ed25519',
-        walletKey: projection.walletKey,
-        lane: projection.lane,
-        materialActivation: projection.materialActivation,
-        verifiedActivationReceiptDigestB64u: projection.verifiedActivationReceiptDigestB64u,
-      };
-    case 'ecdsa_secp256k1':
-      if (projection.walletKey.keyFamily !== 'ecdsa_secp256k1') {
-        throw new Error('Wallet-host owner ECDSA source lane family changed');
-      }
-      return {
-        kind: 'linked_device_owner_source_lane_v1',
-        keyFamily: 'ecdsa_secp256k1',
-        walletKey: projection.walletKey,
-        lane: projection.lane,
-        materialActivation: projection.materialActivation,
-        verifiedActivationReceiptDigestB64u: projection.verifiedActivationReceiptDigestB64u,
-        ecdsaSourceManifest: candidate.ecdsaSourceManifest,
-      };
-  }
-}
-
-async function readWalletHostOwnerSourceLaneHintsV1(args: {
-  readonly signingEngine: WalletHostEcdsaSourceMetadataSigningSurfaceV1;
-  readonly relayerUrl: string;
-  readonly projection: ActiveWalletSessionAuthorizationProjection;
-}): Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]> {
-  await awaitNearProvisioningInFlight(args.projection.walletId);
-  const ownerScope = await args.signingEngine.resolveActiveOwnerLaneScope(args.projection.walletId);
-  const available = await args.signingEngine.readOwnerScopedSigningLanes({
-    walletId: args.projection.walletId,
-    ownerScope,
-  });
-  const candidates = collectWalletHostOwnerSourceLaneCandidatesV1(available, (lane) =>
-    args.signingEngine.hasActiveNearEd25519YaoMaterial({
-      walletId: lane.walletId,
-      nearAccountId: lane.nearAccountId,
-      materialActivation: lane.materialActivation,
-    }),
-  );
-  if (candidates.length === 0) {
-    throw new Error('Wallet-host owner source lanes are unavailable');
-  }
-  const tokenByCurve = {
-    ed25519: walletSessionTokenForCurve(args.projection, 'ed25519'),
-    ecdsa_secp256k1: walletSessionTokenForCurve(args.projection, 'ecdsa'),
-  } as const;
-  const hints = await Promise.all(
-    candidates.map(async (candidate) => {
-      const token = tokenByCurve[candidate.curve];
-      if (!token) {
-        throw new Error(`Wallet-host owner ${candidate.curve} Wallet Session token is unavailable`);
-      }
-      const projection = await readOwnerWalletExecutionLaneProjectionV1({
-        relayerUrl: args.relayerUrl,
-        walletSessionToken: token,
-        curve: candidate.curve,
-        expectedMaterialActivation: candidate.materialActivation,
-      });
-      return buildWalletHostOwnerSourceLaneHintV1(candidate, projection);
-    }),
-  );
-  const first = hints[0];
-  if (!first) throw new Error('Wallet-host owner source lanes are unavailable');
-  return [first, ...hints.slice(1)];
-}
-
 function createWalletHostOwnerApprovalUpdatesV1(args: {
   readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly pollIntervalMs: number;
@@ -1014,41 +842,13 @@ function createWalletHostOwnerApprovalUpdatesV1(args: {
 
 type WalletHostEcdsaSourceMetadataSigningSurfaceV1 = Pick<
   BrowserSigningSurface,
-  | 'hasActiveNearEd25519YaoMaterial'
-  | 'readWalletAuthenticationState'
-  | 'resolveActiveOwnerLaneScope'
-  | 'readOwnerScopedSigningLanes'
+  'readWalletAuthenticationState'
 >;
 
 function createWalletHostEcdsaSourceContributionMetadataReaderV1(args: {
   readonly signingEngine: WalletHostEcdsaSourceMetadataSigningSurfaceV1;
-  readonly relayerUrl: string;
 }): DeviceLinkingEcdsaSourceContributionMetadataReaderV1 {
   const context: DeviceLinkingEcdsaSourceContributionMetadataContextV1 = {
-    readActiveOwnerSourceLaneV1: async ({ materialActivation }) => {
-      const authentication = args.signingEngine.readWalletAuthenticationState();
-      if (authentication.kind !== 'authenticated') {
-        throw new Error('ECDSA source metadata requires an authenticated wallet');
-      }
-      const active = await walletSessionAuthorizations.readActiveForWallet(authentication.walletId);
-      if (active.kind !== 'found') {
-        throw new Error(`ECDSA source metadata Wallet Session is ${active.kind}`);
-      }
-      const hints = await readWalletHostOwnerSourceLaneHintsV1({
-        signingEngine: args.signingEngine,
-        relayerUrl: args.relayerUrl,
-        projection: active.projection,
-      });
-      const matches = hints.filter(
-        (hint) =>
-          hint.keyFamily === 'ecdsa_secp256k1' &&
-          mpcMaterialActivationRefsEqual(hint.materialActivation, materialActivation),
-      );
-      if (matches.length !== 1) {
-        throw new Error('ECDSA source metadata owner lane is not uniquely active');
-      }
-      return matches[0]!;
-    },
     readActiveEcdsaCapabilityManifestV1: async ({ materialActivation }) => {
       const authentication = args.signingEngine.readWalletAuthenticationState();
       if (authentication.kind !== 'authenticated') {
@@ -1095,12 +895,6 @@ function createWalletHostDeviceDomainConstructionV1(args: {
     readWalletAuthenticationState: args.signingEngine.readWalletAuthenticationState.bind(
       args.signingEngine,
     ),
-    readOwnerSourceLaneHintsV1: (input) =>
-      readWalletHostOwnerSourceLaneHintsV1({
-        signingEngine: args.signingEngine,
-        relayerUrl,
-        projection: input.projection,
-      }),
     readUnlockedEd25519ExportRootCapabilityV1: readUnlockedWalletEd25519ExportRootCapabilityV1,
   });
   const sourceContribution = createWalletHostDeviceLinkingSourceContributionPortV1({
@@ -1108,7 +902,6 @@ function createWalletHostDeviceDomainConstructionV1(args: {
     ownerRequest: ownerAuthorities.ownerRequest,
     readEcdsaMetadataV1: createWalletHostEcdsaSourceContributionMetadataReaderV1({
       signingEngine: args.signingEngine,
-      relayerUrl,
     }),
   });
   return { platform, ownerAuthorities, sourceContribution };

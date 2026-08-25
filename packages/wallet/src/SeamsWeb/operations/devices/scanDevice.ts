@@ -157,7 +157,6 @@ export async function scanAndLinkDevice(
       targetFactor: parsedQrData.targetFactor,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
-      orderedOwnerSourceLaneHints: owner.orderedOwnerSourceLaneHints,
       approvedAtMs: Date.now(),
       expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
     });
@@ -274,10 +273,7 @@ async function submitSourceContributionsV1(input: {
     ed25519ExportRootCapability: input.ed25519ExportRootCapability,
     authentication: input.authentication,
   });
-  const finalApproval = buildFinalLinkedDeviceApprovalV1(
-    input.initialApproval,
-    sourceContribution,
-  );
+  const finalApproval = buildFinalLinkedDeviceApprovalV1(input.initialApproval, sourceContribution);
   const result = await input.transport.recordSourceContributionV1({
     approval: finalApproval,
     authentication: input.authentication,
@@ -300,7 +296,6 @@ function buildFinalLinkedDeviceApprovalV1(
       targetFactor: initialApproval.targetFactor,
       permission: initialApproval.permission,
       ownerAuthorization: initialApproval.ownerAuthorization,
-      orderedOwnerSourceLaneHints: initialApproval.orderedOwnerSourceLaneHints,
       approvedAtMs: initialApproval.approvedAtMs,
       expiresAtMs: initialApproval.expiresAtMs,
       sourceContribution,
@@ -316,7 +311,6 @@ function buildFinalLinkedDeviceApprovalV1(
     targetFactor: initialApproval.targetFactor,
     permission: initialApproval.permission,
     ownerAuthorization: initialApproval.ownerAuthorization,
-    orderedOwnerSourceLaneHints: initialApproval.orderedOwnerSourceLaneHints,
     approvedAtMs: initialApproval.approvedAtMs,
     expiresAtMs: initialApproval.expiresAtMs,
     sourceContribution,
@@ -372,10 +366,7 @@ function isEd25519SourceContributionPreparationV1(
 function assertSourceContributionRecordedV1(
   result: Awaited<ReturnType<LinkSessionOwnerTransportPortV1['recordSourceContributionV1']>>,
 ): void {
-  if (
-    result.state.state !== 'authority_pending_local_install' &&
-    result.state.state !== 'active'
-  ) {
+  if (result.state.state !== 'authority_pending_local_install' && result.state.state !== 'active') {
     throw new Error('source contribution acknowledgement did not commit the linked device');
   }
 }
