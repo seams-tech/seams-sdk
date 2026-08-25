@@ -1288,18 +1288,19 @@ class IntendedPageController {
         challengeId: challenge.challengeId,
         walletId,
       });
-      /* `unlockAddedEmailOtpWallet` now unlocks this exact method and activates
-         its Ed25519 runtime, but does not yet install the warm ECDSA session
-         this path also needs, so Tempo would step up on every signature. Until
-         it does, the added method opens its ECDSA capability directly. */
+      /* One code, every family the authority owns. Naming the exact method is
+         what makes that true: without it the wallet falls back to whichever
+         method it has selected, and invariant 9 keeps that the source. The
+         named method resolves its own authority, its Ed25519 activation, and
+         its ECDSA capability from the single verification below. */
       const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
       if (sdkTargets.kind !== 'explicit') {
         throw new Error('added email-code unlock requires a configured ECDSA target');
       }
       const [chainTarget] = sdkTargets.targets;
-      void addedMethodId;
       await this.seams.auth.loginWithEmailOtpEcdsaCapability({
         walletSession: { walletId: toWalletId(walletId), walletSessionUserId: walletId },
+        walletAuthMethodId: addedMethodId,
         chainTarget,
         providerIdentity: { provider: 'email', providerSubjectId: emailAddress },
         emailOtpAuthorityEmail: emailAddress,

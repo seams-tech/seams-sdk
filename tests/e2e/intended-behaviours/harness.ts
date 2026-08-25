@@ -333,6 +333,18 @@ type RegisteredNearStateSnapshot =
       operationalPublicKey: string;
     };
 
+/**
+ * What to call a wallet's NEAR state in a log line when it is not ready.
+ *
+ * Only 'pending' carries a provisioning record - 'absent' has nothing coming,
+ * so there is no status to report and the readiness itself is the answer.
+ */
+function nearStateLabel(snapshot: RegisteredNearStateSnapshot): string {
+  return snapshot.nearReadiness === 'pending'
+    ? snapshot.nearProvisioning.status
+    : snapshot.nearReadiness;
+}
+
 type PasskeyRegistrationResultSnapshot = {
   kind: 'passkey_registration_success';
   walletId: string;
@@ -976,7 +988,7 @@ export class IntendedBehaviourHarness {
     this.recordService(
       result.nearReadiness === 'ready'
         ? `passkey registration succeeded wallet=${result.walletId} near=${result.nearAccountId}`
-        : `passkey registration succeeded ECDSA-ready wallet=${result.walletId} near=${result.nearProvisioning.status}`,
+        : `passkey registration succeeded ECDSA-ready wallet=${result.walletId} near=${nearStateLabel(result)}`,
     );
   }
 
@@ -1430,7 +1442,7 @@ export class IntendedBehaviourHarness {
     this.recordService(
       result.nearReadiness === 'ready'
         ? `email otp registration succeeded initial=${result.initialWalletId} wallet=${result.walletId} near=${result.nearAccountId}`
-        : `email otp registration succeeded ECDSA-ready initial=${result.initialWalletId} wallet=${result.walletId} near=${result.nearProvisioning.status}`,
+        : `email otp registration succeeded ECDSA-ready initial=${result.initialWalletId} wallet=${result.walletId} near=${nearStateLabel(result)}`,
     );
   }
 
@@ -2664,7 +2676,7 @@ function requireNearReadyRegisteredWallet(
 ): NearReadyRegisteredWalletSnapshot {
   if (registration.nearReadiness === 'ready') return registration;
   throw new Error(
-    `${operation} requires NEAR readiness; current state is ${registration.nearProvisioning.status}`,
+    `${operation} requires NEAR readiness; current state is ${nearStateLabel(registration)}`,
   );
 }
 
