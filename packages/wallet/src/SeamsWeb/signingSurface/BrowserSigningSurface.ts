@@ -338,7 +338,10 @@ import { isRetryableSealedRefreshCapabilityFetchError } from '@/core/signingEngi
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEngine/walletCustody/ed25519Login';
-import { unlockEmailOtpEd25519YaoCapability } from '@/core/signingEngine/session/emailOtp/walletUnlock';
+import {
+  unlockEmailOtpEd25519YaoCapability,
+  type EmailOtpAuthorityUnlockEd25519Request,
+} from '@/core/signingEngine/session/emailOtp/walletUnlock';
 import { buildFreshEmailOtpRoutePlan } from '@/core/signingEngine/session/emailOtp/routePlan';
 import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -6230,6 +6233,52 @@ export class BrowserSigningSurface {
       args.providerSubjectId,
       activation,
     );
+  }
+
+  /**
+   * R109C: what an owner authority needs to have its Ed25519 runtime built
+   * inside the unlock that verifies its factor.
+   *
+   * Assembled here rather than by the caller because every field is read off
+   * the exact authority projection - the identity, its runtime policy scope,
+   * and the custody material cached against that signer. A caller assembling
+   * them independently could pair one authority's identity with another's
+   * material.
+   */
+  async resolveOwnerAuthorityEd25519UnlockRequestInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubjectId: string;
+    walletAuthMethodId: string;
+    remainingUses: number;
+  }): Promise<EmailOtpAuthorityUnlockEd25519Request | null> {
+    const projection = await this.resolveEmailOtpEd25519CustodyProjectionInternal({
+      walletSession: args.walletSession,
+      providerSubjectId: args.providerSubjectId,
+      walletAuthMethodId: args.walletAuthMethodId,
+    });
+    if (!projection) return null;
+    const signerSlot = projection.user.signerSlot;
+    return {
+      kind: 'owner_authority',
+      signerSlot,
+      remainingUses: args.remainingUses,
+      recovery: {
+        ed25519YaoRecovery: {
+          kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
+          signerSlot,
+          remainingUses: args.remainingUses,
+          orgId: projection.identity.runtimePolicyScope.orgId,
+        },
+        providerSubject: projection.providerSubject,
+        nearAccountId: String(projection.identity.nearAccountId),
+        expectedOperationalPublicKey: projection.user.operationalPublicKey,
+        expectedThresholdSessionId: String(projection.identity.thresholdSessionId),
+        walletCustodyEd25519Material: await this.loadEmailOtpWalletCustodyEd25519Material({
+          nearAccountId: String(projection.identity.nearAccountId),
+          signerSlot,
+        }),
+      },
+    };
   }
 
   async activateEmailOtpEd25519RegistrationMaterialInternal(args: {

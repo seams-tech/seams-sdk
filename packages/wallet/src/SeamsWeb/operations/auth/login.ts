@@ -188,9 +188,11 @@ import {
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
-  unlockLinkedEmailOtpWallet,
-  type LinkedEmailOtpWalletUnlockResult,
+  unlockEmailOtpAuthorityWallet,
+  type EmailOtpAuthorityWalletUnlockResult,
+  type EmailOtpAuthorityUnlockEd25519Request,
 } from '@/core/signingEngine/session/emailOtp/walletUnlock';
+import { disposeWalletCustodyEd25519ActiveClientV1 } from '@/core/signingEngine/walletCustody/ed25519ActiveClient';
 import {
   destroyUnlockedWalletEd25519ExportRootCapabilitiesV1,
   establishUnlockedWalletEd25519ExportRootCapabilityV1 as establishUnlockedExportRootCapabilityV1,
@@ -2831,6 +2833,109 @@ function emailOtpUnlockSource(
   return { kind: 'owner_authority', selection };
 }
 
+/**
+ * What this unlock should build, decided by the branch rather than by whichever
+ * fields happened to be present.
+ *
+ * A linked device names the signer slot its own sealed material carries. An
+ * owner authority has none, so the request is assembled from its exact
+ * authority projection and the runtime is built inside the unlock.
+ */
+async function emailOtpAuthorityUnlockEd25519Request(input: {
+  readonly context: LoginWebContext;
+  readonly source: EmailOtpUnlockSourceV1;
+  readonly providerIdentity: LinkedDeviceEmailOtpProviderIdentity;
+}): Promise<EmailOtpAuthorityUnlockEd25519Request> {
+  const { source } = input;
+  if (source.kind === 'linked_device') {
+    const ed25519Material = source.signerMaterials.find(
+      (
+        material,
+      ): material is Extract<
+        WalletAuthorityLinkedSignerMaterialRecordV1,
+        { keyFamily: 'ed25519' }
+      > =>
+        material.kind === 'wallet_authority_linked_signer_material_v1' &&
+        material.keyFamily === 'ed25519',
+    );
+    if (!ed25519Material) return { kind: 'no_ed25519' };
+    return {
+      kind: 'linked_device',
+      signerSlot: ed25519Material.publicFacts.applicationBinding.key_creation_signer_slot,
+      remainingUses: DEFAULT_UNLOCK_REMAINING_USES,
+    };
+  }
+  if (!source.selection.authority.signerActivations.ed25519) return { kind: 'no_ed25519' };
+  const request =
+    await input.context.signingEngine.resolveOwnerAuthorityEd25519UnlockRequestInternal({
+      walletSession: {
+        walletId: source.selection.walletId,
+        walletSessionUserId: String(source.selection.walletId),
+      },
+      providerSubjectId: input.providerIdentity.providerSubjectId,
+      walletAuthMethodId: String(source.selection.authMethod.walletAuthMethodId),
+      remainingUses: DEFAULT_UNLOCK_REMAINING_USES,
+    });
+  return request ?? { kind: 'no_ed25519' };
+}
+
+/**
+ * R109C: install the Ed25519 runtime an owner authority's unlock just built.
+ *
+ * Everything is checked against the authority and method that were selected,
+ * before the handle is used: a session naming a different method, or a
+ * capability naming a different activation, must not be able to activate a
+ * runtime under this one.
+ */
+async function unlockOwnerAuthorityEmailOtpEd25519(input: {
+  readonly context: LoginWebContext;
+  readonly selection: LinkedDeviceEmailOtpAuthoritySelection;
+  readonly unlocked: EmailOtpAuthorityWalletUnlockResult;
+  readonly providerIdentity: LinkedDeviceEmailOtpProviderIdentity;
+  readonly emailHashHex: string;
+}): Promise<void> {
+  const { selection, unlocked } = input;
+  const session = unlocked.walletSession;
+  if (
+    session.walletId !== selection.walletId ||
+    session.authorityId !== selection.authority.authorityId ||
+    session.authMethodId !== selection.authMethod.walletAuthMethodId ||
+    session.authorityDigestB64u !== selection.authority.authorityDigestB64u ||
+    session.authorityRevocationEpoch !== selection.authority.revocationEpoch
+  ) {
+    throw new Error('[login] owner Email OTP Wallet Session does not match the selected authority');
+  }
+  const activation = selection.authority.signerActivations.ed25519?.materialActivation;
+  if (!activation) return;
+  if (unlocked.ed25519Activation.kind !== 'ed25519_activation_ready') {
+    throw new Error('[login] owner Email OTP unlock built no Ed25519 runtime to install');
+  }
+  const ready = unlocked.ed25519Activation;
+  if (!mpcMaterialActivationRefsEqual(ready.bootstrap.capability.materialActivation, activation)) {
+    throw new Error('[login] owner Email OTP Ed25519 capability names another activation');
+  }
+  if (!mpcMaterialActivationRefsEqual(ready.metadata.materialActivation, activation)) {
+    throw new Error('[login] owner Email OTP Ed25519 runtime names another activation');
+  }
+  if (ready.bootstrap.session.walletSessionId !== unlocked.operationCredential.walletSessionId) {
+    throw new Error('[login] owner Email OTP Ed25519 session credential mismatch');
+  }
+  await input.context.signingEngine.activateEmailOtpEd25519CustodyCapabilityInternal({
+    walletSession: {
+      walletId: selection.walletId,
+      walletSessionUserId: String(selection.walletId),
+    },
+    providerSubject: input.providerIdentity.providerSubjectId,
+    emailHashHex: input.emailHashHex,
+    signerSlot: ready.bootstrap.capability.applicationBinding.key_creation_signer_slot,
+    expectedOperationalPublicKey: String(ready.bootstrap.capability.registeredPublicKey),
+    expectedThresholdSessionId: String(ready.bootstrap.session.thresholdSessionId),
+    bootstrap: ready.bootstrap,
+    activeClientHandle: ready.activeClientHandle,
+    metadata: ready.metadata,
+  });
+}
+
 export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly context: LoginWebContext;
   readonly walletIdInput: string;
@@ -2863,26 +2968,19 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
   }
   const relayUrl = String(args.relayUrl || '').trim();
   if (!relayUrl) throw new Error('[login] linked Email OTP unlock requires relayer.url');
-  const ed25519MaterialRecord = selection.signerMaterials.find(
-    (
-      material,
-    ): material is Extract<WalletAuthorityLinkedSignerMaterialRecordV1, { keyFamily: 'ed25519' }> =>
-      material.kind === 'wallet_authority_linked_signer_material_v1' &&
-      material.keyFamily === 'ed25519',
-  );
-  const ed25519Requested = ed25519MaterialRecord
-    ? {
-        signerSlot: ed25519MaterialRecord.publicFacts.applicationBinding.key_creation_signer_slot,
-        remainingUses: DEFAULT_UNLOCK_REMAINING_USES,
-      }
-    : await ownerAuthorityEd25519UnlockRequest(selection);
-  const unlocked: LinkedEmailOtpWalletUnlockResult = await unlockLinkedEmailOtpWallet({
+  const source = emailOtpUnlockSource(selection);
+  const ed25519Request = await emailOtpAuthorityUnlockEd25519Request({
+    context: args.context,
+    source,
+    providerIdentity,
+  });
+  const unlocked: EmailOtpAuthorityWalletUnlockResult = await unlockEmailOtpAuthorityWallet({
     relayUrl,
     walletId: String(selection.walletId),
     walletAuthMethodId: String(selection.authMethod.walletAuthMethodId),
     challengeId: args.challengeId,
     otpCode: args.otpCode,
-    ...(ed25519Requested ? { ed25519Yao: ed25519Requested } : {}),
+    ed25519: ed25519Request,
     workerCtx: args.context.signingEngine.getSignerWorkerContext(),
   });
   const factorSecret32: Uint8Array | null = unlocked.factorSecret32;
@@ -2890,7 +2988,43 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     | readonly [LinkedDevicePasskeyOpenedMaterial, ...LinkedDevicePasskeyOpenedMaterial[]]
     | null = null;
   let installedEcdsaRuntime: LinkedEcdsaHolderRuntimeV1 | null = null;
+  /* A handle exists only on the owner branch, and only until the runtime it
+     belongs to takes ownership. Until then every exit disposes it. */
+  let ownedActiveClientHandle: string | null =
+    unlocked.ed25519Activation.kind === 'ed25519_activation_ready'
+      ? unlocked.ed25519Activation.activeClientHandle
+      : null;
   try {
+    if (source.kind === 'owner_authority') {
+      /* The authorization is written first because activation resolves the
+         active Wallet Session authority to bind against; activating before it
+         exists looks to that lookup like no session at all. */
+      await walletSessionAuthorizations.writeExactWithOperationCredential({
+        record: unlocked.walletSession,
+        operationCredential: unlocked.operationCredential,
+      });
+      /* The selection moves to this method before activation, because the
+         activation resolves the wallet's active session and a wallet still
+         marked locked has none to resolve. */
+      await args.context.signingEngine.markWalletSelectionUnlocked({
+        walletId: selection.walletId,
+        walletAuthMethodId: selection.authMethod.walletAuthMethodId,
+      });
+      await unlockOwnerAuthorityEmailOtpEd25519({
+        context: args.context,
+        selection,
+        unlocked,
+        providerIdentity,
+        emailHashHex: args.emailHashHex,
+      });
+      ownedActiveClientHandle = null;
+      args.context.signingEngine.setWalletAuthenticated({
+        kind: 'authenticated',
+        walletId: selection.walletId,
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      });
+      return;
+    }
     assertLinkedDeviceWalletSessionExact(selection, unlocked.walletSession);
     if (!factorSecret32) {
       throw new Error('[login] linked Email OTP factor secret ownership was lost');
@@ -2902,14 +3036,14 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     const ed25519Material = linkedDeviceEd25519Material(openedMaterials);
     const ecdsaMaterial = linkedDeviceEcdsaMaterial(openedMaterials);
     if (linkedDeviceRuntimeRequiresCurve(unlocked.walletSession, 'ed25519')) {
-      if (!ed25519Material || !unlocked.ed25519YaoCapability) {
+      if (!ed25519Material || !unlocked.ed25519Activation.bootstrap) {
         throw new Error(
           '[login] linked Email OTP Ed25519 runtime material or capability is missing',
         );
       }
       if (
         !mpcMaterialActivationRefsEqual(
-          unlocked.ed25519YaoCapability.capability.materialActivation,
+          unlocked.ed25519Activation.bootstrap!.capability.materialActivation,
           ed25519Material.materialActivation,
         )
       ) {
@@ -2932,9 +3066,9 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
       if (activatedEcdsa.installed) installedEcdsaRuntime = activatedEcdsa.runtime;
     }
     let loginResult: Extract<LoginResult, { success: true }>;
-    if (ed25519Material && unlocked.ed25519YaoCapability) {
+    if (ed25519Material && unlocked.ed25519Activation.bootstrap) {
       const ed25519Session = linkedDeviceEd25519SessionFromEmailOtpBootstrap({
-        session: unlocked.ed25519YaoCapability.session,
+        session: unlocked.ed25519Activation.bootstrap.session,
         providerIdentity,
       });
       if (ed25519Session.walletSessionId !== unlocked.operationCredential.walletSessionId) {
@@ -3018,6 +3152,19 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     ]);
     throw error;
   } finally {
+    /* A handle still owned here belongs to no runtime - either activation never
+       ran or it threw - so it is disposed rather than left registered in the
+       worker for the rest of the session. */
+    if (ownedActiveClientHandle) {
+      const workerContext = args.context.signingEngine.getSignerWorkerContext();
+      if (workerContext) {
+        await disposeWalletCustodyEd25519ActiveClientV1({
+          workerContext,
+          activeClientHandle: ownedActiveClientHandle,
+        }).catch(() => undefined);
+      }
+      ownedActiveClientHandle = null;
+    }
     for (const openedMaterial of openedMaterials || []) openedMaterial.material.fill(0);
     factorSecret32?.fill(0);
   }

@@ -831,27 +831,77 @@ export interface EmailOtpWorkerOperationMap {
       };
     } & EmailOtpWalletUnlockMaterialResult;
   };
-  unlockLinkedEmailOtpWallet: {
+  unlockEmailOtpAuthorityWallet: {
     payload: {
       relayUrl: string;
       walletId: string;
       walletAuthMethodId: string;
       challengeId: string;
       otpCode: string;
-      requestedCapabilities:
-        | { readonly kind: 'wallet_session' }
+      /**
+       * Which branch is unlocking, and what that branch requires.
+       *
+       * A linked device opens sealed material of its own after this call and
+       * sends none of it here. An owner authority has no such material and
+       * instead needs the runtime built inside this unlock, from the custody
+       * projection the verify response already returns. Neither can hold the
+       * other's fields, so a caller cannot ask for an owner runtime on the
+       * linked branch or omit it on the owner one.
+       */
+      ed25519:
+        | { readonly kind: 'no_ed25519'; readonly recovery?: never }
         | {
-            readonly kind: 'ed25519_yao';
+            readonly kind: 'owner_authority';
             readonly signerSlot: number;
             readonly remainingUses: number;
+            readonly recovery: {
+              readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
+              readonly providerSubject: string;
+              readonly nearAccountId: string;
+              readonly expectedOperationalPublicKey: string;
+              readonly expectedThresholdSessionId: string;
+              readonly walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
+            };
+          }
+        | {
+            readonly kind: 'linked_device';
+            readonly signerSlot: number;
+            readonly remainingUses: number;
+            readonly recovery?: never;
           };
     };
     result: {
-      readonly kind: 'linked_email_otp_wallet_unlock_v1';
+      readonly kind: 'email_otp_authority_wallet_unlock_v1';
       readonly factorSecret32: Uint8Array;
       readonly walletSession: ActiveWalletSessionV1;
       readonly operationCredential: WalletSessionOperationCredentialV1;
-      readonly ed25519YaoCapability?: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      /**
+       * Either the runtime is ready and every part of it is present, or there
+       * is none. Three optional fields would let a caller hold a handle with no
+       * metadata to check it against.
+       */
+      readonly ed25519Activation:
+        | {
+            readonly kind: 'ed25519_activation_ready';
+            readonly activeClientHandle: string;
+            readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+            readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+          }
+        /* A linked device gets its bootstrap here and opens its own sealed
+           material afterwards; no runtime is built in this call, so it carries
+           no handle to hold or dispose. */
+        | {
+            readonly kind: 'ed25519_bootstrap_only';
+            readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+            readonly activeClientHandle?: never;
+            readonly metadata?: never;
+          }
+        | {
+            readonly kind: 'ed25519_activation_absent';
+            readonly bootstrap?: never;
+            readonly activeClientHandle?: never;
+            readonly metadata?: never;
+          };
     };
   };
   getEmailOtpWarmSessionStatus: {

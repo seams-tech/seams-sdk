@@ -2146,9 +2146,9 @@ async function releaseEmailOtpFactorSecret(
   }
 }
 
-async function unlockLinkedEmailOtpWallet(
-  args: EmailOtpWorkerOperationMap['unlockLinkedEmailOtpWallet']['payload'],
-): Promise<EmailOtpWorkerOperationMap['unlockLinkedEmailOtpWallet']['result']> {
+async function unlockEmailOtpAuthorityWallet(
+  args: EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['payload'],
+): Promise<EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['result']> {
   await ensureEvmCryptoWasm();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const walletId = readString(args.walletId, 'walletId');
@@ -2210,7 +2210,14 @@ async function unlockLinkedEmailOtpWallet(
           publicKey: base64UrlEncode(unlockPublicKey33),
           signature: base64UrlEncode(unlockSignature65),
         },
-        requestedCapabilities: args.requestedCapabilities,
+        requestedCapabilities:
+          args.ed25519.kind === 'no_ed25519'
+            ? { kind: 'wallet_session' }
+            : {
+                kind: 'ed25519_yao',
+                signerSlot: args.ed25519.signerSlot,
+                remainingUses: args.ed25519.remainingUses,
+              },
       },
     });
     const walletSession = parseActiveWalletSessionV1(verified.walletSession);
@@ -2221,20 +2228,65 @@ async function unlockLinkedEmailOtpWallet(
       String(walletSession.walletId) !== walletId ||
       String(walletSession.authMethodId) !== walletAuthMethodId
     ) {
-      throw new Error('Email OTP linked Wallet Session identity changed');
+      throw new Error('Email OTP authority Wallet Session identity changed');
     }
-    const ed25519YaoCapability =
-      args.requestedCapabilities.kind === 'ed25519_yao'
-        ? parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability)
-        : undefined;
+    let ed25519Activation: EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['result']['ed25519Activation'] =
+      { kind: 'ed25519_activation_absent' };
+    if (args.ed25519.kind !== 'no_ed25519') {
+      const bootstrap = parseEmailOtpEd25519YaoRecoveryBootstrap(verified.ed25519YaoCapability);
+      if (args.ed25519.kind === 'linked_device') {
+        /* A linked device opens its own sealed material after this call, so the
+           bootstrap is all it needs from here. */
+        ed25519Activation = { kind: 'ed25519_bootstrap_only', bootstrap };
+      } else {
+        /* An owner authority has no sealed material of its own. The verify
+           response above already carried the custody projection, so the runtime
+           is built here from the seed this unlock already holds rather than by
+           verifying the factor a second time somewhere else. */
+        const walletCustody = parseEmailOtpWalletCustodyUnlockProjection({
+          raw: verified.walletCustody,
+          walletId,
+          enrollmentId: released.enrollmentId,
+          enrollmentSealKeyVersion: released.enrollmentSealKeyVersion,
+        });
+        if (!factorSecret32) {
+          throw new Error('Email OTP authority unlock lost its factor secret');
+        }
+        const restored = await restoreEmailOtpEd25519FromCustodyCache({
+          relayUrl,
+          walletId,
+          projection: walletCustody,
+          material: {
+            kind: 'ed25519_yao_recovery',
+            ed25519YaoRecovery: args.ed25519.recovery.ed25519YaoRecovery,
+            providerSubject: args.ed25519.recovery.providerSubject,
+            nearAccountId: args.ed25519.recovery.nearAccountId,
+            expectedOperationalPublicKey: args.ed25519.recovery.expectedOperationalPublicKey,
+            expectedThresholdSessionId: args.ed25519.recovery.expectedThresholdSessionId,
+            walletCustodyEd25519Material: args.ed25519.recovery.walletCustodyEd25519Material,
+          },
+          bootstrap,
+          clientSecret32: factorSecret32,
+        });
+        if (restored.kind !== 'opened') {
+          throw new Error(`Email OTP authority Ed25519 runtime is ${restored.kind}`);
+        }
+        ed25519Activation = {
+          kind: 'ed25519_activation_ready',
+          activeClientHandle: restored.activeClientHandle,
+          metadata: restored.metadata,
+          bootstrap,
+        };
+      }
+    }
     const ownedFactorSecret32 = factorSecret32;
     factorSecret32 = null;
     return {
-      kind: 'linked_email_otp_wallet_unlock_v1',
+      kind: 'email_otp_authority_wallet_unlock_v1',
       factorSecret32: ownedFactorSecret32,
       walletSession,
       operationCredential,
-      ...(ed25519YaoCapability ? { ed25519YaoCapability } : {}),
+      ed25519Activation,
     };
   } finally {
     zeroizeBytes(factorSecret32);
@@ -6103,46 +6155,80 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           material: parseEmailOtpWalletUnlockMaterialRequest(payload.material),
         },
       };
-    case 'unlockLinkedEmailOtpWallet': {
+    case 'unlockEmailOtpAuthorityWallet': {
       rejectUnknownEmailOtpYaoFields(
         payload,
-        [
-          'relayUrl',
-          'walletId',
-          'walletAuthMethodId',
-          'challengeId',
-          'otpCode',
-          'requestedCapabilities',
-        ],
+        ['relayUrl', 'walletId', 'walletAuthMethodId', 'challengeId', 'otpCode', 'ed25519'],
         type,
       );
-      const requestedCapabilities = workerPayloadObject(payload.requestedCapabilities);
-      if (!requestedCapabilities) {
-        throw new Error('unlockLinkedEmailOtpWallet.requestedCapabilities is required');
-      }
-      const capabilityKind = readString(
-        requestedCapabilities.kind,
-        `${type}.requestedCapabilities.kind`,
-      );
-      const parsedCapabilities = (() => {
-        switch (capabilityKind) {
-          case 'wallet_session':
+      const ed25519Payload = workerPayloadObject(payload.ed25519);
+      if (!ed25519Payload) throw new Error(`${type}.ed25519 is required`);
+      const branch = readString(ed25519Payload.kind, `${type}.ed25519.kind`);
+      const parsedEd25519 = (() => {
+        switch (branch) {
+          case 'no_ed25519':
+            rejectUnknownEmailOtpYaoFields(ed25519Payload, ['kind'], `${type}.ed25519`);
+            return { kind: 'no_ed25519' as const };
+          case 'linked_device': {
             rejectUnknownEmailOtpYaoFields(
-              requestedCapabilities,
-              ['kind'],
-              `${type}.requestedCapabilities`,
-            );
-            return { kind: 'wallet_session' as const };
-          case 'ed25519_yao': {
-            rejectUnknownEmailOtpYaoFields(
-              requestedCapabilities,
+              ed25519Payload,
               ['kind', 'signerSlot', 'remainingUses'],
-              `${type}.requestedCapabilities`,
+              `${type}.ed25519`,
             );
             return {
-              kind: 'ed25519_yao' as const,
-              signerSlot: normalizePositiveInteger(requestedCapabilities.signerSlot) || 0,
-              remainingUses: normalizePositiveInteger(requestedCapabilities.remainingUses) || 0,
+              kind: 'linked_device' as const,
+              signerSlot: normalizePositiveInteger(ed25519Payload.signerSlot) || 0,
+              remainingUses: normalizePositiveInteger(ed25519Payload.remainingUses) || 0,
+            };
+          }
+          case 'owner_authority': {
+            rejectUnknownEmailOtpYaoFields(
+              ed25519Payload,
+              ['kind', 'signerSlot', 'remainingUses', 'recovery'],
+              `${type}.ed25519`,
+            );
+            const recovery = workerPayloadObject(ed25519Payload.recovery);
+            if (!recovery) throw new Error(`${type}.ed25519.recovery is required`);
+            rejectUnknownEmailOtpYaoFields(
+              recovery,
+              [
+                'ed25519YaoRecovery',
+                'providerSubject',
+                'nearAccountId',
+                'expectedOperationalPublicKey',
+                'expectedThresholdSessionId',
+                'walletCustodyEd25519Material',
+              ],
+              `${type}.ed25519.recovery`,
+            );
+            return {
+              kind: 'owner_authority' as const,
+              signerSlot: normalizePositiveInteger(ed25519Payload.signerSlot) || 0,
+              remainingUses: normalizePositiveInteger(ed25519Payload.remainingUses) || 0,
+              recovery: {
+                ed25519YaoRecovery: parseEmailOtpEd25519YaoRecoveryAugmentation(
+                  recovery.ed25519YaoRecovery,
+                ),
+                providerSubject: readString(
+                  recovery.providerSubject,
+                  `${type}.ed25519.recovery.providerSubject`,
+                ),
+                nearAccountId: readString(
+                  recovery.nearAccountId,
+                  `${type}.ed25519.recovery.nearAccountId`,
+                ),
+                expectedOperationalPublicKey: readString(
+                  recovery.expectedOperationalPublicKey,
+                  `${type}.ed25519.recovery.expectedOperationalPublicKey`,
+                ),
+                expectedThresholdSessionId: readString(
+                  recovery.expectedThresholdSessionId,
+                  `${type}.ed25519.recovery.expectedThresholdSessionId`,
+                ),
+                walletCustodyEd25519Material: parseWalletCustodyEd25519MaterialRequest(
+                  recovery.walletCustodyEd25519Material,
+                ),
+              },
             };
           }
           default:
@@ -6150,11 +6236,11 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         }
       })();
       if (
-        !parsedCapabilities ||
-        (parsedCapabilities.kind === 'ed25519_yao' &&
-          (parsedCapabilities.signerSlot <= 0 || parsedCapabilities.remainingUses <= 0))
+        !parsedEd25519 ||
+        (parsedEd25519.kind !== 'no_ed25519' &&
+          (parsedEd25519.signerSlot <= 0 || parsedEd25519.remainingUses <= 0))
       ) {
-        throw new Error('unlockLinkedEmailOtpWallet.requestedCapabilities is invalid');
+        throw new Error(`${type}.ed25519 is invalid`);
       }
       return {
         id,
@@ -6165,7 +6251,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           walletAuthMethodId: readString(payload.walletAuthMethodId, 'walletAuthMethodId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
-          requestedCapabilities: parsedCapabilities,
+          ed25519: parsedEd25519,
         },
       };
     }
@@ -6898,8 +6984,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
             return assertNeverEmailOtpWorker(result);
         }
       }
-      case 'unlockLinkedEmailOtpWallet': {
-        const result = await unlockLinkedEmailOtpWallet(msg.payload);
+      case 'unlockEmailOtpAuthorityWallet': {
+        const result = await unlockEmailOtpAuthorityWallet(msg.payload);
         try {
           postToMainThread({ id: msg.id, ok: true, result }, [result.factorSecret32.buffer]);
         } catch (error: unknown) {

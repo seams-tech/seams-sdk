@@ -1288,10 +1288,10 @@ class IntendedPageController {
         challengeId: challenge.challengeId,
         walletId,
       });
-      /* `unlockAddedEmailOtpWallet` now resolves and selects this exact method,
-         but then asks for linked-device signer material an owner-side sibling
-         does not have. Until the added method has its own signer access, the
-         added method opens its ECDSA capability directly. */
+      /* `unlockAddedEmailOtpWallet` now builds the owner Ed25519 runtime inside
+         the unlock, but its activation still cannot resolve the wallet's active
+         Email OTP Wallet Session authority. Until that resolves, the added
+         method opens its ECDSA capability directly. */
       const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
       if (sdkTargets.kind !== 'explicit') {
         throw new Error('added email-code unlock requires a configured ECDSA target');
