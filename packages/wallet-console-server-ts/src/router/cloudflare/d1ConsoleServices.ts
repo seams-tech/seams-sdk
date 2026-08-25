@@ -25,9 +25,11 @@ import type { ConsoleBillingPrepaidReservationService } from '@seams-internal/wa
 import { createD1ConsoleKeyExportService } from '@seams-internal/wallet-console-server/keyExports/d1';
 import type { ConsoleKeyExportService } from '@seams-internal/wallet-console-server/keyExports/service';
 import {
+  createAesGcmConsoleWebhookSecretCipher,
   createD1ConsoleWebhookService,
   type ConsoleWebhookSecretCipher,
 } from '@seams-internal/console-server/webhooks/d1';
+import { base64UrlDecode } from '@seams/wallet-server/cloud-host';
 import type {
   ConsoleWebhookService,
   WebhookDispatchAdapter,
@@ -807,6 +809,53 @@ async function createCloudflareD1ObservabilityIngestion(
     maxBatchSize: options.observabilityMaxBatchSize,
     maxEventsPerMinute: options.observabilityMaxEventsPerMinute,
   });
+}
+
+const CONSOLE_WEBHOOK_SECRET_KEY_BYTES = 32;
+
+/**
+ * Build the webhook signing-secret cipher from worker env.
+ *
+ * `createCloudflareD1Webhooks` silently returns null without a cipher, which
+ * makes every /console/webhooks route answer 501 webhooks_not_configured. A
+ * hosted console must therefore fail loudly at construction rather than boot
+ * into a permanently disabled feature, so both keys are required here.
+ */
+export function createConsoleWebhookSecretCipherFromEnv(
+  env: Readonly<Record<string, unknown>>,
+): ConsoleWebhookSecretCipher {
+  const keyId = requireConsoleWebhookEnv(env, 'CONSOLE_WEBHOOK_SECRET_KEY_ID');
+  const keyBytes = decodeConsoleWebhookSecretKey(
+    requireConsoleWebhookEnv(env, 'CONSOLE_WEBHOOK_SECRET_KEY_B64U'),
+  );
+  try {
+    return createAesGcmConsoleWebhookSecretCipher({ keyId, keyBytes });
+  } finally {
+    // The cipher copies the key, so the decoded buffer must not outlive this.
+    keyBytes.fill(0);
+  }
+}
+
+function requireConsoleWebhookEnv(env: Readonly<Record<string, unknown>>, name: string): string {
+  const value = typeof env[name] === 'string' ? (env[name] as string).trim() : '';
+  if (!value) throw new Error(`${name} is required to enable console webhooks`);
+  return value;
+}
+
+function decodeConsoleWebhookSecretKey(value: string): Uint8Array {
+  let decoded: Uint8Array;
+  try {
+    decoded = base64UrlDecode(value);
+  } catch {
+    throw new Error('CONSOLE_WEBHOOK_SECRET_KEY_B64U must be valid base64url');
+  }
+  if (decoded.byteLength !== CONSOLE_WEBHOOK_SECRET_KEY_BYTES) {
+    decoded.fill(0);
+    throw new Error(
+      `CONSOLE_WEBHOOK_SECRET_KEY_B64U must decode to ${CONSOLE_WEBHOOK_SECRET_KEY_BYTES} bytes`,
+    );
+  }
+  return decoded;
 }
 
 async function createCloudflareD1Webhooks(input: {
