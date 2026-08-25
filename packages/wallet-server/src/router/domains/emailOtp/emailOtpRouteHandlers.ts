@@ -202,16 +202,33 @@ export async function handleEmailOtpDevOutboxRoute(input: {
   const idToken = toOptionalTrimmedString(input.body.idToken);
   const walletId = toOptionalTrimmedString(input.body.walletId);
   const challengeId = toOptionalTrimmedString(input.body.challengeId);
-  /* Dev-only, and still behind the verified Google token above. A challenge's
-     subject is not always a Google identity: an Email OTP method added by
-     address alone is enrolled under that address, so a reader that could only
-     ask for the token's own subject could never see its code. The token proves
-     who is asking; this says which challenge to read. */
+  /* An intended-test affordance, and nothing more. A challenge's subject is not
+     always a Google identity — an Email OTP method added by address alone is
+     enrolled under that address — so a reader restricted to the token's own
+     subject could never see its code.
+
+     Three things keep it from becoming permission to read arbitrary OTPs. The
+     store refuses entirely unless the dev outbox is enabled, which requires the
+     dev delivery mode and a non-production runtime. The lookup admits only a
+     live challenge whose wallet is the one named here and whose subject is the
+     one asked for. And an override must name the exact challenge, below: a
+     caller can only have that id from the wallet's own flow, so the token says
+     which harness is asking rather than whose code it may read. */
   const challengeSubjectId = toOptionalTrimmedString(input.body.challengeSubjectId);
   if (!idToken || !walletId) {
     return {
       status: 400,
       body: { ok: false, code: 'invalid_body', message: 'Missing idToken or walletId' },
+    };
+  }
+  if (challengeSubjectId && !challengeId) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'challengeSubjectId requires the exact challengeId it belongs to',
+      },
     };
   }
   const verified = await input.service.verifyGoogleLogin({ idToken });

@@ -184,9 +184,15 @@ async function renderModal(
             controller.devices = controller.devices.filter(
               (device) => String(device.credential.walletAuthMethodId) !== walletAuthMethodId,
             );
+            controller.ownerDevices = controller.ownerDevices.filter(
+              (device) => String(device.credential.walletAuthMethodId) !== walletAuthMethodId,
+            );
             return { kind: 'revoked' as const };
           }
           controller.devices = controller.devices.filter(
+            (device) => String(device.credential.walletAuthMethodId) !== walletAuthMethodId,
+          );
+          controller.ownerDevices = controller.ownerDevices.filter(
             (device) => String(device.credential.walletAuthMethodId) !== walletAuthMethodId,
           );
           return { kind: 'not_found' as const };
@@ -266,7 +272,7 @@ test.describe('linked devices modal lifecycle', () => {
     ).toBeVisible();
   });
 
-  test('lists the founding owner device first without a remove action', async ({ page }) => {
+  test('lists the founding owner first and exposes exact sibling removal', async ({ page }) => {
     await renderModal(page, {
       ownerDevices: [ownerDeviceFixture('Original passkey')],
       devices: [deviceFixture('device-linked', 'Linked passkey', 'active')],
@@ -282,10 +288,22 @@ test.describe('linked devices modal lifecycle', () => {
     await expect(dialog.getByText(/manage it from that device/)).toHaveCount(0);
     await expect(
       dialog.getByRole('button', { name: /Remove Device 1, Original passkey/ }),
-    ).toHaveCount(0);
+    ).toBeVisible();
     await expect(
       dialog.getByRole('button', { name: /Remove Device 2, Linked passkey/ }),
     ).toBeVisible();
+  });
+
+  test('does not offer removal for the final wallet method', async ({ page }) => {
+    await renderModal(page, {
+      ownerDevices: [ownerDeviceFixture('Only passkey')],
+      devices: [],
+      revokeOutcomes: [],
+    });
+
+    const dialog = page.getByRole('dialog', { name: 'Your devices' });
+    await expect(dialog.getByText('Device 1 · Only passkey')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Remove Device 1/ })).toHaveCount(0);
   });
 
   test('surfaces linked-device loading failures in the dialog', async ({ page }) => {
