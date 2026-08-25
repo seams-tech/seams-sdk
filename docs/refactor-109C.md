@@ -646,31 +646,41 @@ missing-family action for a Passkey-only authority; the paired case lists both
 active methods on that same authority and proves the whole addition section is
 absent. `linkedDevicesModal.unit.test.ts`: 7 passing.
 
-The signer-profile matrix has one cell of six, and that cell earned its place
-immediately. Both transition contracts run on combined wallets, where every
-addition has an ECDSA capability to carry forward and an Ed25519 signer to
-inherit; a wallet owning one family is where the addition can assume the other
-exists. The first such cell - an Ed25519-only wallet gaining Email OTP - failed
-on contact, because the ECDSA continuity copy refused to copy nothing. That
-guard is right when a wallet holds capabilities but none for the source method,
-and wrong when it never had ECDSA at all.
+The signer-profile matrix is two directions across three signer profiles. An
+earlier note said five cells remained and then listed six, by counting profile
+cells and direction cells separately; the six unique cells are:
 
-The other five cells need work that is not the addition itself:
+| Wallet       | Direction            | State                       |
+| ------------ | -------------------- | --------------------------- |
+| Ed25519-only | Passkey -> Email OTP | green                       |
+| ECDSA-only   | Passkey -> Email OTP | green                       |
+| Combined     | Passkey -> Email OTP | green, ECDSA operating only |
+| Ed25519-only | Email OTP -> Passkey | green                       |
+| ECDSA-only   | Email OTP -> Passkey | written, never yet run      |
+| Combined     | Email OTP -> Passkey | green, both families        |
 
-- The two ECDSA-only cells are blocked before the addition is reached: a passkey
-  registration with an ECDSA-only signer set fails with "Registration owner
-  proof context is unavailable", because that ceremony never stores the context
-  `registrationOwnerProof` then demands. No browser test has ever registered
-  such a wallet - ECDSA-only signer sets appear only in unit fixtures - so this
-  is an unexercised registration path rather than anything the addition does.
-  Modelling the wallet in the harness is the smaller half of that work and was
-  built far enough to prove the blocker is upstream of it, then reverted rather
-  than left as scaffolding for a path that cannot run.
-- The two Email-OTP-registered cells need a signer selection threaded through
-  the Google registration flow, which today registers with the configured
-  default and takes no selection.
-- The two Email-OTP + Ed25519 cells additionally wait on explicit method
-  selection, as above.
+The first cell earned its place immediately. Both transition contracts run on
+combined wallets, where every addition has an ECDSA capability to carry forward
+and an Ed25519 signer to inherit; a wallet owning one family is where the
+addition can assume the other exists. The Ed25519-only cell failed on contact,
+because the ECDSA continuity copy refused to copy nothing - right when a wallet
+holds capabilities but none for the source method, wrong when it never had
+ECDSA at all.
+
+Two shapes had to be modelled before their cells could run, and both were
+missing for the same reason: registration readiness was a two-state question,
+identity resolved or provisioning under way, so a wallet whose signer set never
+included Ed25519 had nowhere to sit. Both summaries now carry an explicit
+`nearReadiness` with a third state that forbids the identity and provisioning
+fields rather than leaving them optional. Registering such a wallet then failed
+at its last step on a path no browser test had taken: the ECDSA activation asked
+for the owner proof after finalize had tombstoned the ceremony it reads from.
+
+The last cell is written and unrun. The local D1 reached
+`SQLITE_TOOBIG` during NEAR provisioning partway through the matrix - a
+contract green minutes earlier failed identically - so it is held out of the
+suite rather than committed red. It needs a local database reset, not a code
+change.
 
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,
