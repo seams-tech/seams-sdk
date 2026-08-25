@@ -949,31 +949,11 @@ class IntendedPageController {
     try {
       const walletId = this.walletId;
       if (!walletId) throw new Error('add-passkey requires a registered wallet');
-      const idToken = requireGoogleIdToken(this.googleIdToken);
-      const sourceProof = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
-        idToken,
-        mode: 'login',
-        ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
-        emailOtpAuthPolicy: 'session',
-        onEvent: this.recordLifecycleEvent,
-      });
-      if (!sourceProof.ok) throw new Error(sourceProof.error.message);
-      if (sourceProof.value.mode !== 'login' || sourceProof.value.walletId !== walletId) {
-        throw new Error('add-passkey Email OTP source resolved another wallet');
-      }
-      const challengeId = googleEmailOtpLoginFlowChallengeId({
-        flowId: sourceProof.value.flowId,
-        walletId,
-      });
-      const otpCode = await this.readEmailOtpCodeForChallenge({
-        kind: 'challenge',
-        challengeId,
-        walletId,
-      });
+      /* No source proof is assembled here. The wallet resolves its own selected
+         Email OTP method, sends the intent-bound code, and prompts for it. */
       const result = await this.seams.registration.addPasskey({
         walletId: toWalletId(walletId),
         rpId: intendedRegistrationRpId(),
-        authorization: { kind: 'email_otp', challengeId, otpCode },
         options: { onEvent: this.recordLifecycleEvent },
       });
       this.dispatch({
@@ -982,7 +962,7 @@ class IntendedPageController {
         result: {
           kind: 'add_passkey_success',
           walletId: String(result.walletId),
-          rpId: result.rpId,
+          rpId: String(result.rpId),
           authMethod: result.authMethod,
         },
       });

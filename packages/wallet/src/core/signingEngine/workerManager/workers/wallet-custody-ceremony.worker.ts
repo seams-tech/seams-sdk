@@ -116,10 +116,7 @@ const ed25519YaoLaneSessions = new Map<
  * worth surfacing rather than absorbing, so the map is bounded.
  */
 const MAX_ACTIVE_TRANSFER_RECIPIENTS = 2;
-const ed25519ExportRootRecipients = new Map<
-  string,
-  WasmEd25519YaoClientRootTransferRecipientV1
->();
+const ed25519ExportRootRecipients = new Map<string, WasmEd25519YaoClientRootTransferRecipientV1>();
 
 /**
  * Device 1's unlocked export-root capabilities.
@@ -170,20 +167,22 @@ type CompleteRequest = WorkerRequest<'completeWalletCustodyKeySetRun'>;
 type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
 type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
-type CreateTransferRecipientRequest =
-  WorkerRequest<'createLinkedDeviceEd25519ExportRootRecipient'>;
+type CreateTransferRecipientRequest = WorkerRequest<'createLinkedDeviceEd25519ExportRootRecipient'>;
 type EstablishUnlockedCustodyCapabilityRequest =
   WorkerRequest<'establishUnlockedWalletEd25519ExportRootCapability'>;
 type DestroyUnlockedCustodyCapabilitiesRequest =
   WorkerRequest<'destroyUnlockedWalletEd25519ExportRootCapabilities'>;
 type SealForLinkedDeviceRequest = WorkerRequest<'sealEd25519ExportRootForLinkedDevice'>;
+type ResealFromUnlockedCapabilityRequest =
+  WorkerRequest<'resealWalletCustodyFromUnlockedCapability'>;
 type AcceptTransferRequest = WorkerRequest<'acceptLinkedDeviceEd25519ExportRoot'>;
 type DiscardTransferRecipientRequest =
   WorkerRequest<'discardLinkedDeviceEd25519ExportRootRecipient'>;
 type RotateRecoverySetRequest = WorkerRequest<'rotateWalletRecoverySet'>;
 type OpenEd25519YaoLaneSourceRequest = WorkerRequest<'openEd25519YaoLaneSource'>;
 type PrepareEd25519YaoLaneRequest = WorkerRequest<'prepareEd25519YaoLane'>;
-type PrepareEd25519YaoSourcePreservingRegistrationRequest = WorkerRequest<'prepareEd25519YaoSourcePreservingRegistration'>;
+type PrepareEd25519YaoSourcePreservingRegistrationRequest =
+  WorkerRequest<'prepareEd25519YaoSourcePreservingRegistration'>;
 type CompleteEd25519YaoLaneRequest = WorkerRequest<'completeEd25519YaoLane'>;
 type DiscardEd25519YaoLaneSourceRequest = WorkerRequest<'discardEd25519YaoLaneSource'>;
 
@@ -197,6 +196,7 @@ type WalletCustodyCeremonyWorkerRequest =
   | EstablishUnlockedCustodyCapabilityRequest
   | DestroyUnlockedCustodyCapabilitiesRequest
   | SealForLinkedDeviceRequest
+  | ResealFromUnlockedCapabilityRequest
   | AcceptTransferRequest
   | DiscardTransferRecipientRequest
   | RotateRecoverySetRequest
@@ -329,7 +329,9 @@ function requireUnlockedExportRootCapabilityRecord(
     String(capability.walletSessionId) !== record.walletSessionId ||
     capability.expiresAtMs !== record.expiresAtMs
   ) {
-    throw new Error('unlocked Ed25519 export-root capability reference does not match the held handle');
+    throw new Error(
+      'unlocked Ed25519 export-root capability reference does not match the held handle',
+    );
   }
   if (record.expiresAtMs <= Date.now()) {
     destroyUnlockedExportRootCapabilityEntry(capabilityHandleId);
@@ -366,12 +368,13 @@ async function openEd25519YaoLaneSource(
     throw new Error('Too many Ed25519 Yao lane sources are active');
   }
   const payload = request.payload;
-  const opened = payload.kind === 'factor'
-    ? {
-        envelope: parsePasskeyCustodyEnvelopeRecord(payload.envelope),
-        factorSecret: toBytes(payload.factorSecret),
-      }
-    : openedCustodyCapabilityLaneSourceInput(payload.capability);
+  const opened =
+    payload.kind === 'factor'
+      ? {
+          envelope: parsePasskeyCustodyEnvelopeRecord(payload.envelope),
+          factorSecret: toBytes(payload.factorSecret),
+        }
+      : openedCustodyCapabilityLaneSourceInput(payload.capability);
   const factorSecret = opened.factorSecret;
   try {
     const envelopeArgs = [
@@ -382,16 +385,17 @@ async function openEd25519YaoLaneSource(
       base64UrlDecode(opened.envelope.aadHashB64u),
       base64UrlDecode(opened.envelope.ciphertextDigestB64u),
     ] as const;
-    const source = payload.kind === 'factor'
-      ? new WasmEd25519YaoLaneSourceV1(...envelopeArgs)
-      : ed25519_yao_lane_source_from_wallet_seed_v1(
-          ...envelopeArgs,
-          base64UrlDecode(payload.applicationBindingDigestB64u),
-          payload.walletKeyId,
-          payload.enrollmentId,
-          BigInt(payload.revocationEpoch),
-          base64UrlDecode(payload.registeredPublicKeyB64u),
-        );
+    const source =
+      payload.kind === 'factor'
+        ? new WasmEd25519YaoLaneSourceV1(...envelopeArgs)
+        : ed25519_yao_lane_source_from_wallet_seed_v1(
+            ...envelopeArgs,
+            base64UrlDecode(payload.applicationBindingDigestB64u),
+            payload.walletKeyId,
+            payload.enrollmentId,
+            BigInt(payload.revocationEpoch),
+            base64UrlDecode(payload.registeredPublicKeyB64u),
+          );
     const sourceHandle = secureOpaqueHandle('ed25519-yao-lane-source-v1');
     ed25519YaoLaneSources.set(sourceHandle, source);
     return { sourceHandle };
@@ -444,7 +448,9 @@ async function prepareEd25519YaoLane(
 
 async function prepareEd25519YaoSourcePreservingRegistration(
   request: PrepareEd25519YaoSourcePreservingRegistrationRequest,
-): Promise<WalletCustodyCeremonyWorkerOperationMap['prepareEd25519YaoSourcePreservingRegistration']['result']> {
+): Promise<
+  WalletCustodyCeremonyWorkerOperationMap['prepareEd25519YaoSourcePreservingRegistration']['result']
+> {
   await initializeEd25519YaoClientWasm();
   const sourceHandle = requireOpaqueHandle(request.payload.sourceHandle, 'sourceHandle');
   const source = ed25519YaoLaneSources.get(sourceHandle);
@@ -1026,6 +1032,42 @@ async function sealEd25519ExportRootForLinkedDevice(
   };
 }
 
+/**
+ * Refactor 109C: reseals the wallet seed under a new factor from the unlocked
+ * capability, for an addition whose source is Email OTP.
+ *
+ * The source factor secret is already parked here — an Email unlock left it
+ * with the opened handle — so the addition needs no factor release and no
+ * second one-time code. The user proves the source freshly to authorize the
+ * ceremony; the seed itself comes from the handle that unlock already opened.
+ *
+ * The same reseal every other path uses. Nothing new is derived: the handle
+ * carries the seed's proof that it reproduces this wallet's key set, and the
+ * reseal carries that claim forward under the new factor.
+ */
+async function resealWalletCustodyFromUnlockedCapability(
+  request: ResealFromUnlockedCapabilityRequest,
+): Promise<unknown> {
+  await initializeNearSignerWasm();
+  const record = requireUnlockedExportRootCapabilityRecord(request.payload.capability);
+  const replacementFactorSecret = toBytes(request.payload.replacementFactorSecret);
+  try {
+    const resealed = passkey_custody_reseal_wallet_seed_v1(
+      record.handle,
+      replacementFactorSecret,
+      request.payload.replacementEnvelopeBindingJson,
+    ) as Record<string, unknown>;
+    return {
+      nonceB64u: String(resealed.nonceB64u || ''),
+      sealedCustodySecretB64u: String(resealed.sealedCustodySecretB64u || ''),
+      aadHashB64u: String(resealed.aadHashB64u || ''),
+      ciphertextDigestB64u: String(resealed.ciphertextDigestB64u || ''),
+    };
+  } finally {
+    replacementFactorSecret.fill(0);
+  }
+}
+
 function requireCapabilityFact(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value || value.trim() !== value) {
     throw new Error(`unlocked Ed25519 export-root capability ${label} is invalid`);
@@ -1131,10 +1173,7 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
       postSucceeded(request.id, await prepareEd25519YaoLane(request));
       return;
     case 'prepareEd25519YaoSourcePreservingRegistration':
-      postSucceeded(
-        request.id,
-        await prepareEd25519YaoSourcePreservingRegistration(request),
-      );
+      postSucceeded(request.id, await prepareEd25519YaoSourcePreservingRegistration(request));
       return;
     case 'completeEd25519YaoLane':
       postSucceeded(request.id, await completeEd25519YaoLane(request));
@@ -1161,16 +1200,13 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
       postSucceeded(request.id, await createLinkedDeviceEd25519ExportRootRecipient(request));
       return;
     case 'establishUnlockedWalletEd25519ExportRootCapability':
-      postSucceeded(
-        request.id,
-        await establishUnlockedWalletEd25519ExportRootCapability(request),
-      );
+      postSucceeded(request.id, await establishUnlockedWalletEd25519ExportRootCapability(request));
       return;
     case 'destroyUnlockedWalletEd25519ExportRootCapabilities':
-      postSucceeded(
-        request.id,
-        destroyUnlockedWalletEd25519ExportRootCapabilities(request),
-      );
+      postSucceeded(request.id, destroyUnlockedWalletEd25519ExportRootCapabilities(request));
+      return;
+    case 'resealWalletCustodyFromUnlockedCapability':
+      postSucceeded(request.id, await resealWalletCustodyFromUnlockedCapability(request));
       return;
     case 'sealEd25519ExportRootForLinkedDevice':
       postSucceeded(request.id, await sealEd25519ExportRootForLinkedDevice(request));

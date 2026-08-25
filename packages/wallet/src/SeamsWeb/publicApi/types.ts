@@ -830,7 +830,6 @@ export interface RegistrationCapability {
   addPasskey(args: {
     walletId: WalletId | string;
     rpId: string;
-    authorization: AddPasskeyAuthorization;
     options?: AddPasskeyHooksOptions;
   }): Promise<AddPasskeyResult>;
   /**

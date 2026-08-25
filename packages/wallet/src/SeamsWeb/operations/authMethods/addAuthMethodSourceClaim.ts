@@ -17,9 +17,18 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { AddAuthMethodIntentSourceV1 } from '@shared/utils/registrationIntent';
 import type { WalletId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 
 export type AddAuthMethodSourceClaimResultV1 =
-  | { readonly kind: 'resolved'; readonly source: AddAuthMethodIntentSourceV1 }
+  | {
+      readonly kind: 'resolved';
+      readonly source: AddAuthMethodIntentSourceV1;
+      /* Alongside the claim, never inside it: the claim is hashed into the
+         intent digest, and the family is already implied by the method id the
+         server resolves. It rides here so the operation can pick its source
+         proof without reading the method record twice. */
+      readonly sourceFamily: WalletAuthMethodRecordV2['kind'];
+    }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
 export async function resolveAddAuthMethodSourceClaimV1(
@@ -54,6 +63,7 @@ export async function resolveAddAuthMethodSourceClaimV1(
   }
   return {
     kind: 'resolved',
+    sourceFamily: selected.authMethod.kind,
     source: {
       walletAuthorityId: selected.authMethod.walletAuthorityId,
       walletAuthMethodId: selected.authMethod.walletAuthMethodId,

@@ -31,6 +31,7 @@ import { serializeRegistrationCredentialWithPRF } from '../webauthnAuth/credenti
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { getPrfFirstB64uFromCredential } from '../webauthnAuth/credentials/credentialExtensions';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
+import type { UnlockedWalletEd25519ExportRootCapabilityV1 } from '../workerManager/workerTypes';
 
 type PasskeyRegistrationCredential = ReturnType<typeof serializeRegistrationCredentialWithPRF>;
 
@@ -98,12 +99,37 @@ function requireResealedEnvelope(value: unknown): {
   };
 }
 
+function requireUnlockedCapabilitySource(
+  source: WalletCustodySealSourceV1,
+): UnlockedWalletEd25519ExportRootCapabilityV1 {
+  if (source.kind !== 'unlocked_capability') {
+    throw new Error('wallet custody reseal source is not an unlocked capability');
+  }
+  return source.capability;
+}
+
 function requireCredentialId(value: string): WebAuthnCredentialIdB64u {
   const parsed = parseWebAuthnCredentialIdB64u(value);
   if (!parsed.ok)
     throw new Error(`Passkey registration credential id is invalid: ${parsed.error.message}`);
   return parsed.value;
 }
+
+/**
+ * Where the seed being resealed comes from.
+ *
+ * A Passkey source hands over the PRF it just collected. An Email OTP source
+ * hands over nothing: its factor secret is already parked in the worker by the
+ * unlock that opened this session, so the addition costs no factor release and
+ * no second one-time code. Either way the worker opens the seed and reseals it;
+ * only the door differs.
+ */
+export type WalletCustodySealSourceV1 =
+  | { readonly kind: 'factor_secret'; readonly existingFactorSecret: Uint8Array }
+  | {
+      readonly kind: 'unlocked_capability';
+      readonly capability: UnlockedWalletEd25519ExportRootCapabilityV1;
+    };
 
 /**
  * Creates a new PRF-backed passkey, opens the existing wallet seed in the
@@ -117,7 +143,7 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly registrationCredential?: WebAuthnRegistrationCredential;
   readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
-  readonly existingFactorSecret: Uint8Array;
+  readonly sealSource: WalletCustodySealSourceV1;
   readonly worker: WalletCustodyCeremonyTransportPort;
   readonly nowMs?: () => number;
 }): Promise<{
@@ -155,27 +181,45 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
     binding: input.existingEnvelope.binding,
     ownership,
   });
-  const existingFactorSecret = input.existingFactorSecret.slice();
   const replacementFactorSecret = base64UrlDecode(prfFirstB64u);
+  const existingFactorSecret =
+    input.sealSource.kind === 'factor_secret'
+      ? input.sealSource.existingFactorSecret.slice()
+      : null;
   let resealed: ReturnType<typeof requireResealedEnvelope>;
   try {
-    const result = await input.worker.requestOperation({
-      kind: 'walletCustodyCeremony',
-      request: {
-        type: 'linkWalletCustodyPasskey',
-        payload: {
-          existingEnvelope: input.existingEnvelope,
-          existingFactorSecret: existingFactorSecret.buffer,
-          replacementEnvelopeBindingJson: replacementBindingJson,
-          replacementFactorSecret: replacementFactorSecret.buffer,
-        },
-        transfer: [existingFactorSecret.buffer, replacementFactorSecret.buffer],
-      },
-    });
+    const result =
+      existingFactorSecret === null
+        ? await input.worker.requestOperation({
+            kind: 'walletCustodyCeremony',
+            request: {
+              type: 'resealWalletCustodyFromUnlockedCapability',
+              payload: {
+                capability: requireUnlockedCapabilitySource(input.sealSource),
+                replacementEnvelopeBindingJson: replacementBindingJson,
+                replacementFactorSecret: replacementFactorSecret.buffer,
+              },
+              transfer: [replacementFactorSecret.buffer],
+            },
+          })
+        : await input.worker.requestOperation({
+            kind: 'walletCustodyCeremony',
+            request: {
+              type: 'linkWalletCustodyPasskey',
+              payload: {
+                existingEnvelope: input.existingEnvelope,
+                existingFactorSecret: existingFactorSecret.buffer,
+                replacementEnvelopeBindingJson: replacementBindingJson,
+                replacementFactorSecret: replacementFactorSecret.buffer,
+              },
+              transfer: [existingFactorSecret.buffer, replacementFactorSecret.buffer],
+            },
+          });
     resealed = requireResealedEnvelope(result);
   } finally {
-    existingFactorSecret.fill(0);
-    replacementFactorSecret.fill(0);
+    /* Transferred buffers are detached; zeroing one throws. */
+    if (existingFactorSecret && existingFactorSecret.byteLength > 0) existingFactorSecret.fill(0);
+    if (replacementFactorSecret.byteLength > 0) replacementFactorSecret.fill(0);
   }
   const nowMs = (input.nowMs ?? Date.now)();
   return {
@@ -269,7 +313,7 @@ export async function linkWalletPasskeyCustody(input: {
   readonly addAuthMethodIntentDigestB64u: string;
   readonly intent: Parameters<typeof startWalletAddAuthMethod>[0]['intent'];
   readonly auth: AddAuthMethodAuth;
-  readonly existingFactorSecret: Uint8Array;
+  readonly sealSource: WalletCustodySealSourceV1;
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly worker: WalletCustodyCeremonyTransportPort;
   readonly createRegistrationCredential?: (
@@ -298,7 +342,7 @@ export async function linkWalletPasskeyCustody(input: {
     registration: started.registration,
     walletAuthMethodId: input.walletAuthMethodId,
     existingEnvelope: started.custodyEnvelope,
-    existingFactorSecret: input.existingFactorSecret,
+    sealSource: input.sealSource,
     worker: input.worker,
     ...(input.createRegistrationCredential
       ? { registrationCredential: await input.createRegistrationCredential(started.registration) }

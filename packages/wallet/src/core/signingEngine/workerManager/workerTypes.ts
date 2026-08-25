@@ -2064,6 +2064,28 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
    * Session, or expiry mismatch fails before any ciphertext exists. Each call
    * draws a fresh X25519 ephemeral key and nonce.
    */
+  /**
+   * Refactor 109C: reseals this wallet's seed under a new factor, from the
+   * capability an unlock already opened.
+   *
+   * For an addition whose source is Email OTP. The source factor secret is
+   * already in the worker, so the addition costs no factor release and no
+   * second one-time code — the fresh code the user typed authorized the
+   * ceremony, and the seed comes from the handle unlock opened.
+   */
+  resealWalletCustodyFromUnlockedCapability: {
+    payload: {
+      capability: UnlockedWalletEd25519ExportRootCapabilityV1;
+      replacementEnvelopeBindingJson: string;
+      replacementFactorSecret: ArrayBuffer;
+    };
+    result: {
+      nonceB64u: string;
+      sealedCustodySecretB64u: string;
+      aadHashB64u: string;
+      ciphertextDigestB64u: string;
+    };
+  };
   sealEd25519ExportRootForLinkedDevice: {
     payload: {
       capability: UnlockedWalletEd25519ExportRootCapabilityV1;

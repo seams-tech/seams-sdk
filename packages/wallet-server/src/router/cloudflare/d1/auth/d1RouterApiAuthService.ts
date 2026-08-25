@@ -1694,6 +1694,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpChallengeVerifier,
     emailOtpEnrollmentChallengeIssuer: (challengeInput) =>
       emailOtpChallengeService.createEmailOtpEnrollmentChallenge(challengeInput),
+    emailOtpSourceChallengeIssuer: (challengeInput) =>
+      emailOtpChallengeService.createEmailOtpChallenge(challengeInput),
     emailOtpEnrollmentFinalizer: emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
@@ -2043,6 +2045,10 @@ function createD1WalletAuthMethodRouteService(
     ),
     createAddAuthMethodEmailOtpChallenge:
       assembly.walletAuthMethods.createAddAuthMethodEmailOtpChallenge.bind(
+        assembly.walletAuthMethods,
+      ),
+    verifyAddAuthMethodEmailOtpSourceProof:
+      assembly.walletAuthMethods.verifyAddAuthMethodEmailOtpSourceProof.bind(
         assembly.walletAuthMethods,
       ),
     startWalletAddAuthMethod: assembly.walletAuthMethods.startWalletAddAuthMethod.bind(
