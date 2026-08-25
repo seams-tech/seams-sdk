@@ -483,6 +483,9 @@ than chosen by the caller.
   and it carries forward whatever signer access the authority already has. A
   wallet owning one signer family gains a method that correctly claims only that
   family.
+  - Normative, and not yet fully met: an added Email OTP method reaches its
+    authority's ECDSA family today. Reaching Ed25519 needs the owner signing
+    path rather than linked-device material, which is unfinished.
 - The source method and its Wallet Session stay selected. The added method comes
   into use only through explicit selection, or through lock and unlock naming
   it; an unlock that names it moves the selection to it, and that move is
@@ -556,31 +559,32 @@ Each row needs either an automated test or an explicit manual verification note
 when a change touches registration, unlock, signing, step-up, export, session
 restore, lane selection, or budget handling.
 
-| Behaviour                                                                  | Evidence                                                                     |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Email OTP registration with zero rerolls uses one OTP code                 | Relayer route/auth-service test                                              |
-| Email OTP registration with one reroll uses the original OTP code          | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
-| Email OTP registration with multiple rerolls uses the original OTP code    | Relayer route test or manual registration reroll note                        |
-| Wrong Email OTP provider subject is rejected                               | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
-| Wrong Email OTP challenged email is rejected                               | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
-| Registration and unlock produce equivalent runtime lanes                   | Client runtime-postcondition test                                            |
-| Passkey registration signs Tempo/Arc immediately and NEAR at readiness     | Intended-behaviour registration contract                                     |
-| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                                     |
-| Passkey step-up signs NEAR, Tempo, and Arc/EVM                             | Client signing test or manual browser note                                   |
-| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                                   |
-| Passkey Ed25519 and ECDSA export require fresh export auth                 | Client export test or manual browser note                                    |
-| Email OTP Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                                    |
-| Page refresh restores only exact valid lanes                               | Page-refresh session test or manual browser note                             |
-| Adding a method reuses the authority and creates no new signer material    | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
-| Both addition directions unlock, sign, and export through the added method | `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`       |
-| Addition works on wallets owning one signer family                         | `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts` |
-| Repeating an addition answers already_configured before sending a code     | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
-| Either sibling revokes the other; the last method cannot be revoked        | `tests/unit/r109cSiblingRevocation.unit.test.ts`                             |
-| The Add action disappears once both families are active                    | `tests/unit/linkedDevicesModal.unit.test.ts`                                 |
-| Code recovery replaces one Passkey and preserves all public identities     | Intended-behaviour recovery contract                                         |
-| Code recovery revokes source sessions and consumes exactly one code        | Intended-behaviour recovery contract                                         |
-| Email OTP paths never call passkey credential lookup or PRF restore        | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
-| ECDSA budget checks are exact to chain target                              | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
+| Behaviour                                                                | Evidence                                                                     |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Email OTP registration with zero rerolls uses one OTP code               | Relayer route/auth-service test                                              |
+| Email OTP registration with one reroll uses the original OTP code        | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Email OTP registration with multiple rerolls uses the original OTP code  | Relayer route test or manual registration reroll note                        |
+| Wrong Email OTP provider subject is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Wrong Email OTP challenged email is rejected                             | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts`                   |
+| Registration and unlock produce equivalent runtime lanes                 | Client runtime-postcondition test                                            |
+| Passkey registration signs Tempo/Arc immediately and NEAR at readiness   | Intended-behaviour registration contract                                     |
+| Email OTP registration signs Tempo/Arc immediately and NEAR at readiness | Intended-behaviour registration contract                                     |
+| Passkey step-up signs NEAR, Tempo, and Arc/EVM                           | Client signing test or manual browser note                                   |
+| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                         | Client signing test or manual browser note                                   |
+| Passkey Ed25519 and ECDSA export require fresh export auth               | Client export test or manual browser note                                    |
+| Email OTP Ed25519 and ECDSA export require fresh export auth             | Client export test or manual browser note                                    |
+| Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note                             |
+| Adding a method reuses the authority and creates no new signer material  | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
+| An added Passkey unlocks, signs, and exports both families               | `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`       |
+| An added Email OTP method reaches every family its authority owns        | Pending: ECDSA proven; Ed25519 awaits owner-path signer access               |
+| Addition works on wallets owning one signer family                       | `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts` |
+| Repeating an addition answers already_configured before sending a code   | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
+| Either sibling revokes the other; the last method cannot be revoked      | `tests/unit/r109cSiblingRevocation.unit.test.ts`                             |
+| The Add action disappears once both families are active                  | `tests/unit/linkedDevicesModal.unit.test.ts`                                 |
+| Code recovery replaces one Passkey and preserves all public identities   | Intended-behaviour recovery contract                                         |
+| Code recovery revokes source sessions and consumes exactly one code      | Intended-behaviour recovery contract                                         |
+| Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
+| ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
 
 ## Non-Goals
 
