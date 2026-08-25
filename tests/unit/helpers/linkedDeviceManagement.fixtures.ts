@@ -66,6 +66,24 @@ function required<T>(
   return result.value;
 }
 
+/**
+ * The identity a founding authority is built under.
+ *
+ * One coherent value rather than four independent overrides: a fixture whose
+ * wallet came from the caller but whose authority id came from the label would
+ * be an authority for a wallet it does not belong to, and every test using it
+ * would be asserting against a state the production stores cannot hold.
+ *
+ * Canonical encodings stay inside the factory. A caller supplies names; the
+ * factory decides what a valid credential id looks like.
+ */
+export type LinkedDeviceManagementAuthorityIdentityV1 = {
+  readonly walletId: string;
+  readonly authorityId: string;
+  readonly walletAuthMethodId: string;
+  readonly rpId: string;
+};
+
 export type LinkedDeviceManagementAuthorityFixture = {
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: ActivePasskeyWalletAuthMethodRecordV2;
@@ -78,9 +96,12 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly provenance: 'wallet_registration' | 'device_link';
   readonly keyFamily?: 'ed25519' | 'ecdsa_secp256k1';
   readonly sourceAuthorityId?: ActiveWalletAuthorityV1['authorityId'];
+  readonly identity?: LinkedDeviceManagementAuthorityIdentityV1;
 }): Promise<LinkedDeviceManagementAuthorityFixture> {
-  const walletId = required(parseWalletId('wallet:management'));
-  const authorityId = required(parseWalletAuthorityId(`authority:management-${input.label}`));
+  const walletId = required(parseWalletId(input.identity?.walletId ?? 'wallet:management'));
+  const authorityId = required(
+    parseWalletAuthorityId(input.identity?.authorityId ?? `authority:management-${input.label}`),
+  );
   const deviceId = required(parseDeviceId(`device:management-${input.label}`));
   const keyFamily = input.keyFamily ?? 'ed25519';
   const manifest =
@@ -139,7 +160,8 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
             parseLinkedDeviceEnrollmentId(`enrollment:management-${input.label}`),
           ),
           sourceAuthorityId:
-            input.sourceAuthorityId ?? required(parseWalletAuthorityId('authority:management-owner')),
+            input.sourceAuthorityId ??
+            required(parseWalletAuthorityId('authority:management-owner')),
           linkSessionId: required(
             parseLinkDeviceSessionId(`link-session:management-${input.label}`),
           ),
@@ -160,13 +182,17 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
     state: 'active',
     activatedAtMs: 200,
   });
-  const rpId = required(parseWebAuthnRpId('management.example.test'));
+  const rpId = required(parseWebAuthnRpId(input.identity?.rpId ?? 'management.example.test'));
   const credentialIdB64u = required(
     parseWebAuthnCredentialIdB64u(
       base64UrlEncode(new Uint8Array(32).fill(input.label === 'owner' ? 35 : 36)),
     ),
   );
-  const authMethodId = required(parseWalletAuthMethodId(`auth-method:management-${input.label}`));
+  const authMethodId = required(
+    parseWalletAuthMethodId(
+      input.identity?.walletAuthMethodId ?? `auth-method:management-${input.label}`,
+    ),
+  );
   const authMethod = buildActivePasskeyWalletAuthMethodRecord({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId: authMethodId,
@@ -184,12 +210,16 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   });
   const tenantId = required(parseTenantId('tenant:management'));
   const principalId = required(parsePrincipalId(`principal:management-${input.label}`));
-  const walletSessionId = required(parseWalletSessionId(`wallet-session:management-${input.label}`));
+  const walletSessionId = required(
+    parseWalletSessionId(`wallet-session:management-${input.label}`),
+  );
   const authorizationId = required(
     parseWalletSessionAuthorizationId(`authorization:management-${input.label}`),
   );
   const quotaId = required(parseMpcWalletSigningQuotaId(`wallet-quota:management-${input.label}`));
-  const mintId = required(parseReusableWalletSessionMintId(`wallet-mint:management-${input.label}`));
+  const mintId = required(
+    parseReusableWalletSessionMintId(`wallet-mint:management-${input.label}`),
+  );
   const session = buildWalletSessionAuthorizationV2({
     tenantId,
     principalId,
