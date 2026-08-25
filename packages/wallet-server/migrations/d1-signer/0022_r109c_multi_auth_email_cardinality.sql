@@ -99,3 +99,19 @@ CREATE INDEX wallet_auth_methods_v2_email_provider_idx
     namespace, org_id, project_id, env_id, provider, provider_user_id
   )
   WHERE kind = 'email_otp' AND provider_user_id IS NOT NULL;
+
+-- Existing custody envelopes predate ownership. They are marked `unbound`, not
+-- upgraded: their ciphertext and AAD were sealed without a method, so calling
+-- them V3 here would make every one of them fail verification. Only a
+-- successful open followed by a reseal can produce V3 ciphertext, and that
+-- happens where the factor secret is — never in a migration.
+--
+-- This adds no ownership *claim*. The owner is resolved at open time from live
+-- records (a Passkey factor names its credential; an Email factor is resolvable
+-- only when exactly one active or pending method references its enrollment), so
+-- a row cannot carry a stale or fabricated binding written months earlier.
+UPDATE router_ab_yao_versioned_json_records
+   SET record_json = json_set(record_json, '$.ownership', json_object('kind', 'unbound'))
+ WHERE record_key LIKE 'passkey-envelope:%'
+   AND json_extract(record_json, '$.kind') = 'wallet_custody_envelope_v2'
+   AND json_extract(record_json, '$.ownership') IS NULL;
