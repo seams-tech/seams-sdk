@@ -1,6 +1,7 @@
 import React from 'react';
 import { dashboardCreateIntentHref } from '../utils/routeCreateIntent';
 import { PlusIcon } from '../icons/SidebarIcons';
+import DashboardSidebarToggleIcon from '../icons/DashboardSidebarToggleIcon';
 import SeamsWordmark from '@core/components/SeamsWordmark';
 import type {
   DashboardProduct,
@@ -45,6 +46,7 @@ type DashboardSidebarProps = {
   activeRoute: DashboardRoute;
   disableNavigationItems?: boolean;
   enabledWhenLockedPaths?: ReadonlySet<DashboardRoute>;
+  onToggleSidebar: () => void;
   onToggleGroup: (group: SidebarGroupKey) => void;
   linkProps: LinkPropsFactory;
   product?: SidebarProductProps;
@@ -448,9 +450,11 @@ function SidebarProductSwitcher({
 
 export function DashboardSidebar({
   groups,
+  isSidebarExpanded,
   activeRoute,
   disableNavigationItems = false,
   enabledWhenLockedPaths,
+  onToggleSidebar,
   linkProps,
   product,
   workspace,
@@ -462,16 +466,29 @@ export function DashboardSidebar({
           top (reference-app style) while the nav list scrolls beneath them. */}
       {homeProps || product || workspace ? (
         <div className="dashboard-sidebar__head">
-          {homeProps ? (
-            <a
-              className="dashboard-home-link dashboard-sidebar__brand"
-              href={homeProps.href}
-              onClick={homeProps.onClick}
-              aria-label="Seams home"
-            >
-              <SeamsWordmark height={24} />
-            </a>
-          ) : null}
+          <div className="dashboard-sidebar__brand-row">
+            {homeProps ? (
+              <a
+                className="dashboard-home-link dashboard-sidebar__brand"
+                href={homeProps.href}
+                onClick={homeProps.onClick}
+                aria-label="Seams home"
+              >
+                <SeamsWordmark height={24} />
+              </a>
+            ) : null}
+            {isSidebarExpanded ? (
+              <button
+                type="button"
+                className="dashboard-sidebar-toggle dashboard-sidebar-toggle--rail"
+                aria-label="Collapse sidebar"
+                aria-expanded="true"
+                onClick={onToggleSidebar}
+              >
+                <DashboardSidebarToggleIcon expanded />
+              </button>
+            ) : null}
+          </div>
           {product ? <SidebarProductSwitcher {...product} /> : null}
           {workspace ? <SidebarWorkspaceSwitcher {...workspace} /> : null}
         </div>
