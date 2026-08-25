@@ -220,6 +220,42 @@ the host handler — because every one of them enumerates request kinds
 explicitly. That is a planned Phase 1/2 surface change, not one localized
 defect, so the "more than five files" stop condition does not apply to it.
 
+### Open P1: the source-proof protocol does not yet meet the spec
+
+This is the largest correctness gap and nothing on this branch has closed it.
+R109C requires a fresh source assertion bound to the wallet, authority, source
+method, source session, target method ID, operation purpose, authority state,
+and intent digest. What exists binds far less:
+
+- `AddAuthMethodIntentV1` carries only wallet, target description, policy
+  scope, and nonce, so the digest a proof signs cannot name the authority, the
+  source method, the source session, or the target method.
+- The target `WalletAuthMethodId` is allocated *after* the source is
+  authenticated, so no source proof can be bound to it. Binding it requires
+  allocating the target id in the intent rather than in start.
+- The route still admits `auth.kind: 'wallet_session'` — a reusable bearer
+  credential — in place of a fresh assertion.
+
+The last one is not simply a bug. That branch is R103E's deliberate zero-prompt
+handoff for the *linked-device* ceremony start, where Device 1 holds owner
+authority and Device 2 holds the PRF, and the two paths share one endpoint. So
+R109C cannot just delete it; the endpoint has to distinguish a same-device
+addition from a linked-device ceremony start, and today nothing in the request
+does.
+
+A related symptom is not a separate defect: that branch resolves an Ed25519
+owner session only, which an ECDSA-only wallet never has. Making it curve-
+agnostic does not work — the ECDSA binding has no `authority` field at all, so
+it cannot name a source method. An attempt to widen it was reverted for that
+reason. The real answer is that an R109C addition must present a fresh proof,
+which is curve-independent, and then the ECDSA-only cell needs nothing special.
+
+Consequence for the shared contract: production currently consumes only
+`admitAddWalletAuthMethod` from `addWalletAuthMethod.ts`. Nothing builds
+`VerifiedAddWalletAuthMethodInputV1`, so the branded two-branch input is not
+yet load-bearing. It becomes load-bearing exactly when this protocol is fixed —
+the builders are what force the proof, the target, and the identities to agree.
+
 ### Reversed: the `0013` provider-identity migration is in scope
 
 An earlier revision of this ledger deferred
