@@ -193,7 +193,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         walletId: payload.walletId,
         emailAddress: payload.emailAddress,
         otpCode: payload.otpCode,
-        ...(payload.challengeId ? { challengeId: payload.challengeId } : {}),
+        challengeId: payload.challengeId,
         options: hooksOptions,
       });
       if (deps.respondIfCancelled(req.requestId)) return;
