@@ -157,6 +157,44 @@ export function parseWalletCustodyEnvelopeOwnership(
   }
 }
 
+/**
+ * The exact JSON `signer_core::PasskeyCustodyEnvelopeBindingV1` deserialises.
+ *
+ * Every caller that hands a binding to wasm must build it here. The Rust struct
+ * uses `deny_unknown_fields` and now requires `ownership`, so a hand-rolled
+ * object that omits it fails to deserialise — and that failure surfaces as an
+ * unopenable envelope, not a type error.
+ */
+export function custodyEnvelopeBindingJsonV1(
+  envelope: Pick<
+    PasskeyCustodyEnvelopeRecord,
+    'walletId' | 'envelopeId' | 'factor' | 'envelopeRevision' | 'binding' | 'ownership'
+  >,
+): string {
+  return JSON.stringify({
+    walletId: envelope.walletId,
+    envelopeId: envelope.envelopeId,
+    factor: envelope.factor,
+    envelopeRevision: envelope.envelopeRevision,
+    binding: envelope.binding,
+    ownership: custodyEnvelopeOwnershipWireV1(envelope.ownership),
+  });
+}
+
+/** Serde's shape for the ownership enum: a bare string, or a one-key object. */
+export function custodyEnvelopeOwnershipWireV1(
+  ownership: WalletCustodyEnvelopeOwnership,
+): unknown {
+  switch (ownership.kind) {
+    case 'unbound':
+      return 'unbound';
+    case 'method_bound':
+      return { methodBound: { walletAuthMethodId: String(ownership.walletAuthMethodId) } };
+    default:
+      throw new Error(`Unhandled custody envelope ownership: ${String(ownership)}`);
+  }
+}
+
 export function buildMethodBoundEnvelopeOwnership(
   walletAuthMethodId: WalletAuthMethodId,
 ): WalletCustodyEnvelopeOwnership {

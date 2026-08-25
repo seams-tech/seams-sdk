@@ -33,6 +33,8 @@ import type {
 } from '@shared/passkey-custody';
 import {
   buildMethodBoundEnvelopeOwnership,
+  custodyEnvelopeBindingJsonV1,
+  custodyEnvelopeOwnershipWireV1,
   parseEnvelopeRevision,
   parsePasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
@@ -743,29 +745,7 @@ function discardCeremony(request: DiscardRequest): unknown {
  * sealed under.
  */
 function custodyEnvelopeBindingJson(envelope: PasskeyCustodyEnvelopeRecord): string {
-  return JSON.stringify({
-    walletId: envelope.walletId,
-    envelopeId: envelope.envelopeId,
-    factor: envelope.factor,
-    envelopeRevision: envelope.envelopeRevision,
-    binding: envelope.binding,
-    ownership: custodyEnvelopeOwnershipWire(envelope.ownership),
-  });
-}
-
-function custodyEnvelopeOwnershipWire(ownership: PasskeyCustodyEnvelopeRecord['ownership']): unknown {
-  switch (ownership.kind) {
-    case 'unbound':
-      return 'unbound';
-    case 'method_bound':
-      return { methodBound: { walletAuthMethodId: String(ownership.walletAuthMethodId) } };
-    default:
-      return unreachableCustodyEnvelopeOwnership(ownership);
-  }
-}
-
-function unreachableCustodyEnvelopeOwnership(value: never): never {
-  throw new Error(`Unhandled custody envelope ownership: ${String(value)}`);
+  return custodyEnvelopeBindingJsonV1(envelope);
 }
 
 async function linkWalletCustodyPasskey(request: LinkPasskeyRequest): Promise<unknown> {
@@ -927,9 +907,10 @@ async function establishUnlockedWalletEd25519ExportRootCapability(
  * Reseals an opened pre-109C envelope under the method that just authenticated.
  *
  * The factor secret is unchanged — this is not a factor change — so the only
- * thing that moves is ownership, from `unbound` to the exact method, and with
- * it the AAD generation. A fresh envelope id is allocated because the envelope
- * stores are insert-only.
+ * things that move are ownership, from `unbound` to the exact method, and the
+ * revision that carries it into the AAD. The envelope keeps its identity, so
+ * the upgrade replaces one row through the store's existing next-revision
+ * rewrap rather than creating a second envelope for the same seed.
  */
 function resealUnboundEnvelopeAsMethodBound(input: {
   readonly handle: ReturnType<typeof passkey_custody_open_wallet_seed_v1>;
@@ -954,7 +935,7 @@ function resealUnboundEnvelopeAsMethodBound(input: {
     factor: input.envelope.factor,
     envelopeRevision: upgradedRevision,
     binding: input.envelope.binding,
-    ownership: custodyEnvelopeOwnershipWire(ownership),
+    ownership: custodyEnvelopeOwnershipWireV1(ownership),
   });
   const factorSecret = input.factorSecret.slice();
   let resealed: ReturnType<typeof requireResealedEnvelopeResult>;
