@@ -6281,6 +6281,49 @@ export class BrowserSigningSurface {
     };
   }
 
+  /**
+   * R109C: activate the runtime an owner authority's unlock built.
+   *
+   * The identity it is checked against comes from the same authority projection
+   * that produced the unlock request, not from the bootstrap being checked -
+   * comparing a value against itself proves nothing, and the projection is what
+   * says which signer this authority owns.
+   */
+  async activateOwnerAuthorityEd25519RuntimeInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubjectId: string;
+    walletAuthMethodId: string;
+    emailHashHex: string;
+    activeClientHandle: string;
+    metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    /** Built by the caller from the authority it verified this unlock against. */
+    authority: WalletAuthAuthorityRef;
+  }): Promise<void> {
+    const projection = await this.resolveEmailOtpEd25519CustodyProjectionInternal({
+      walletSession: args.walletSession,
+      providerSubjectId: args.providerSubjectId,
+      walletAuthMethodId: args.walletAuthMethodId,
+    });
+    if (!projection) {
+      throw new Error('Owner Email OTP Ed25519 activation has no signer projection');
+    }
+    await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+      walletSession: args.walletSession,
+      providerSubject: projection.providerSubject,
+      emailHashHex: args.emailHashHex,
+      signerSlot: projection.user.signerSlot,
+      expectedOperationalPublicKey: projection.user.operationalPublicKey,
+      expectedThresholdSessionId: String(projection.identity.thresholdSessionId),
+      bootstrap: args.bootstrap,
+      activeClientHandle: args.activeClientHandle,
+      metadata: args.metadata,
+      authority: args.authority,
+      /* This unlock owns the commit queue for its own activation. */
+      commitQueue: 'acquire',
+    });
+  }
+
   async activateEmailOtpEd25519RegistrationMaterialInternal(args: {
     walletSession: WalletSessionRef;
     providerSubject: string;
@@ -6358,8 +6401,16 @@ export class BrowserSigningSurface {
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-    /** A cold unlock creates the session this activation would otherwise read. */
-    authoritySource?: 'cold_unlock';
+    /**
+     * The exact authority the caller already verified.
+     *
+     * An unlock must supply it. That activation is part of installing the
+     * Wallet Session, and `writeExactWithOperationCredential` stores an exact
+     * row that `readActiveForWallet` filters out, so looking the authority up
+     * there would wait on the projection the activation itself creates. Callers
+     * that already run against an installed session leave it out.
+     */
+    authority?: WalletAuthAuthorityRef;
   }): Promise<NearEd25519SignerBinding> {
     return await withThresholdEd25519CommitQueue({
       queueByKey: this.thresholdEd25519CommitQueueByKey,
@@ -6370,16 +6421,11 @@ export class BrowserSigningSurface {
       enabled: args.commitQueue === 'acquire',
       task: async () => {
         const authority =
-          args.authoritySource === 'cold_unlock'
-            ? await resolveColdUnlockEmailOtpWalletSessionAuthority({
-                walletId: args.walletSession.walletId,
-                emailHashHex: args.emailHashHex,
-                providerSubject: args.providerSubject,
-              })
-            : await readActiveEmailOtpWalletSessionAuthority({
-                walletId: args.walletSession.walletId,
-                emailHashHex: args.emailHashHex,
-              });
+          args.authority ??
+          (await readActiveEmailOtpWalletSessionAuthority({
+            walletId: args.walletSession.walletId,
+            emailHashHex: args.emailHashHex,
+          }));
         const activated = await activateWalletCustodyEd25519CapabilityV1({
           walletSession: args.walletSession,
           nearAccountId: args.bootstrap.session.nearAccountId,
@@ -6490,7 +6536,6 @@ export class BrowserSigningSurface {
       bootstrap: unlock.ed25519YaoCapability,
       activeClientHandle: unlock.activeClientHandle,
       metadata: unlock.metadata,
-      authoritySource: 'cold_unlock',
     });
     /* The unlock derived this wallet's Yao Client export root, so the runtime
        holds the scoped export capability an owner needs to export and to grant

@@ -2920,19 +2920,24 @@ async function unlockOwnerAuthorityEmailOtpEd25519(input: {
   if (ready.bootstrap.session.walletSessionId !== unlocked.operationCredential.walletSessionId) {
     throw new Error('[login] owner Email OTP Ed25519 session credential mismatch');
   }
-  await input.context.signingEngine.activateEmailOtpEd25519CustodyCapabilityInternal({
+  await input.context.signingEngine.activateOwnerAuthorityEd25519RuntimeInternal({
     walletSession: {
       walletId: selection.walletId,
       walletSessionUserId: String(selection.walletId),
     },
-    providerSubject: input.providerIdentity.providerSubjectId,
+    providerSubjectId: input.providerIdentity.providerSubjectId,
+    walletAuthMethodId: String(selection.authMethod.walletAuthMethodId),
     emailHashHex: input.emailHashHex,
-    signerSlot: ready.bootstrap.capability.applicationBinding.key_creation_signer_slot,
-    expectedOperationalPublicKey: String(ready.bootstrap.capability.registeredPublicKey),
-    expectedThresholdSessionId: String(ready.bootstrap.session.thresholdSessionId),
-    bootstrap: ready.bootstrap,
+    /* From the selection this unlock already verified against the returned
+       session, not from a lookup: activation is part of installing that
+       session, so reading it back would be waiting on itself. */
+    authority: await walletAuthAuthorityRefForLinkedDeviceMethod({
+      selection,
+      providerIdentity: input.providerIdentity,
+    }),
     activeClientHandle: ready.activeClientHandle,
     metadata: ready.metadata,
+    bootstrap: ready.bootstrap,
   });
 }
 
@@ -3003,13 +3008,6 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         record: unlocked.walletSession,
         operationCredential: unlocked.operationCredential,
       });
-      /* The selection moves to this method before activation, because the
-         activation resolves the wallet's active session and a wallet still
-         marked locked has none to resolve. */
-      await args.context.signingEngine.markWalletSelectionUnlocked({
-        walletId: selection.walletId,
-        walletAuthMethodId: selection.authMethod.walletAuthMethodId,
-      });
       await unlockOwnerAuthorityEmailOtpEd25519({
         context: args.context,
         selection,
@@ -3018,6 +3016,10 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         emailHashHex: args.emailHashHex,
       });
       ownedActiveClientHandle = null;
+      await args.context.signingEngine.markWalletSelectionUnlocked({
+        walletId: selection.walletId,
+        walletAuthMethodId: selection.authMethod.walletAuthMethodId,
+      });
       args.context.signingEngine.setWalletAuthenticated({
         kind: 'authenticated',
         walletId: selection.walletId,
