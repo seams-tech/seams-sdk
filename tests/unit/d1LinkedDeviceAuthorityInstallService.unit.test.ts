@@ -433,10 +433,12 @@ test('reads installed Ed25519 authority projections by identity and material act
     expect(ecdsaByIdentity?.activationReceipt.binding.target.targetDeviceId).toBe(
       harness.input.targetDeviceId,
     );
-    const ecdsaByMaterial = await harness.install.readInstalledEcdsaAuthorityByMaterialActivationV1({
-      walletId: harness.input.walletId,
-      materialActivation: committed.packages.signerPackages.ecdsa!.materialActivation,
-    });
+    const ecdsaByMaterial = await harness.install.readInstalledEcdsaAuthorityByMaterialActivationV1(
+      {
+        walletId: harness.input.walletId,
+        materialActivation: committed.packages.signerPackages.ecdsa!.materialActivation,
+      },
+    );
     expect(ecdsaByMaterial?.authorityId).toBe(committed.packages.authority.authorityId);
     expect(ecdsaByMaterial?.walletAuthMethodId).toBe(
       committed.packages.authMethod.walletAuthMethodId,
@@ -992,6 +994,7 @@ function ownerAuthorization(
     }),
     authorizeOwnerApprovalV1: async () => ({
       kind: 'authorized' as const,
+      sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     }),
   };

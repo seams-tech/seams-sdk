@@ -12,19 +12,14 @@ import type {
   DeviceLinkingOwnerAuthorizationPortV1,
   LinkSessionAuthenticationV1,
 } from './deviceLinkingPorts';
-import type {
-  LinkedDeviceOwnerAuthorizationRequestV1,
-  LinkedDeviceOwnerSourceLaneV1,
-} from '@shared/device-linking';
+import type { LinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking';
 import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedAuthority';
 import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
 import type { LinkSessionOwnerAuthenticatedRequestPortV1 } from './deviceLinkingOwnerTransport';
-import {
-  parseLinkedDeviceOwnerAuthorizationSourceV1,
-  parseLinkedDeviceOwnerSourceLaneV1,
-} from '@shared/device-linking/parsers';
+import { parseLinkedDeviceOwnerAuthorizationSourceV1 } from '@shared/device-linking/parsers';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 
 const OWNER_AUTHORIZATION_PATH = '/wallet/device-linking/v1/owner-authorization';
 
@@ -36,10 +31,6 @@ export type WalletHostManagementRequestV1 = {
     readonly body?: unknown;
   }): Promise<{ readonly status: number; readonly body: unknown }>;
 };
-
-export type WalletHostOwnerSourceLaneHintsReaderV1 = (input: {
-  readonly projection: ActiveWalletSessionAuthorizationProjection;
-}) => Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]>;
 
 export type WalletHostOwnerAuthoritiesV1 = {
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
@@ -55,7 +46,6 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
-  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   /**
    * R103 zero-prompt handoff: reads the worker-held unlocked Ed25519 export-root
    * capability for a wallet, or undefined when none exists. Reading never
@@ -88,7 +78,6 @@ type WalletHostOwnerAuthorityContextV1 = {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
-  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
   ) => UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
@@ -102,7 +91,6 @@ function normalizeContext(input: {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
-  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
   ) => UnlockedWalletEd25519ExportRootCapabilityV1 | undefined;
@@ -141,12 +129,23 @@ async function authorizeOwnerForLinkingV1(
     throw walletUnlockRequiredV1();
   }
   const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
-  const orderedOwnerSourceLaneHints = await context.readOwnerSourceLaneHintsV1({
-    projection,
+  const body: LinkedDeviceOwnerAuthorizationRequestV1 =
+    parseLinkedDeviceOwnerAuthorizationRequestV1({
+      payload: input.payload,
+      requestedAtMs: input.requestedAtMs,
+    });
+  const response = await requestWithProjectionV1(context, projection, {
+    method: 'POST',
+    canonicalPath: OWNER_AUTHORIZATION_PATH,
+    body,
   });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(ownerRequestFailureMessage(response));
+  }
+  const parsed = parseOwnerAuthorizationResponseV1(response.body, projection);
   const exportRootRequired =
     hasDelegatedWalletPermissionV1(input.payload.requestedPermission, 'export_keys') &&
-    orderedOwnerSourceLaneHints.some((hint) => hint.keyFamily === 'ed25519');
+    parsed.sourceSignerManifest.keyFamilies.some((family) => family === 'ed25519');
   const ed25519ExportRootCapability = exportRootRequired
     ? context.readUnlockedEd25519ExportRootCapabilityV1(state.walletId)
     : undefined;
@@ -159,21 +158,6 @@ async function authorizeOwnerForLinkingV1(
   ) {
     throw walletUnlockRequiredV1();
   }
-  const body: LinkedDeviceOwnerAuthorizationRequestV1 =
-    parseLinkedDeviceOwnerAuthorizationRequestV1({
-      payload: input.payload,
-      requestedAtMs: input.requestedAtMs,
-      orderedOwnerSourceLaneHints,
-    });
-  const response = await requestWithProjectionV1(context, projection, {
-    method: 'POST',
-    canonicalPath: OWNER_AUTHORIZATION_PATH,
-    body,
-  });
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(ownerRequestFailureMessage(response));
-  }
-  const parsed = parseOwnerAuthorizationResponseV1(response.body, projection);
   if (exportRootRequired) {
     if (!ed25519ExportRootCapability) throw walletUnlockRequiredV1();
     return {
@@ -294,7 +278,7 @@ function parseOwnerAuthorizationResponseV1(
     'authentication',
     'walletId',
     'ownerAuthorization',
-    'orderedOwnerSourceLaneHints',
+    'sourceSignerManifest',
     'expiresAtMs',
   ]);
   const authenticationRecord = exactRecord(record.authentication, [
@@ -318,30 +302,13 @@ function parseOwnerAuthorizationResponseV1(
   if (!walletId.ok || walletId.value !== projection.walletId) {
     throw new Error('Owner authorization wallet identity changed');
   }
-  const orderedOwnerSourceLaneHints = parseNonEmptyArray(
-    record.orderedOwnerSourceLaneHints,
-    parseLinkedDeviceOwnerSourceLaneV1,
-    'orderedOwnerSourceLaneHints',
-  );
   return {
     authentication,
     walletId: walletId.value,
     ownerAuthorization,
-    orderedOwnerSourceLaneHints,
+    sourceSignerManifest: parseExactAdministeredSignerManifestV1(record.sourceSignerManifest),
     expiresAtMs: positiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
   };
-}
-
-function parseNonEmptyArray<T>(
-  raw: unknown,
-  parse: (entry: unknown, label: string) => T,
-  label: string,
-): readonly [T, ...T[]] {
-  if (!Array.isArray(raw) || raw.length === 0) throw new Error(`${label} must be non-empty`);
-  const values = raw.map((entry, index) => parse(entry, `${label}[${index}]`));
-  const first = values[0];
-  if (first === undefined) throw new Error(`${label} must be non-empty`);
-  return [first, ...values.slice(1)];
 }
 
 function assertWalletSessionSourceMatchesProjection(

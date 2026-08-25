@@ -15,9 +15,7 @@ import {
   buildDelegatedWalletAuthorityV1,
   validateDelegatedWalletAuthorityAttenuationV1,
 } from '@shared/authorization/delegatedAuthority';
-import {
-  walletAuthorityDigestsMatchV1,
-} from '@shared/authorization/walletAuthority';
+import { walletAuthorityDigestsMatchV1 } from '@shared/authorization/walletAuthority';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -60,7 +58,7 @@ export type VerifiedLinkSourceReaderV1 = {
     readonly walletId: VerifiedLinkInputV1['walletId'];
     readonly walletSessionId: string;
     readonly authorizationId: string;
-    readonly keyFamily: LinkedDeviceApprovalV1['orderedOwnerSourceLaneHints'][number]['keyFamily'];
+    readonly keyFamily: ExactAdministeredSignerManifestV1['keyFamilies'][number];
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkSourceReadV1>;
 };
@@ -86,24 +84,30 @@ export async function buildVerifiedLinkInputV1(
   if (input.approval.ownerAuthorization.kind !== 'wallet_session') {
     throw new Error('verified device linking requires an ordinary Wallet Session');
   }
-  const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[0];
-  if (!sourceLaneHint) throw new Error('verified device linking source lane hints are missing');
+  const sourceSignerManifest = input.session.approvalTranscript?.sourceSignerManifest;
+  const sourceKeyFamily = sourceSignerManifest?.keyFamilies[0];
+  if (!sourceSignerManifest || !sourceKeyFamily) {
+    throw new Error('verified device linking source signer manifest is missing');
+  }
   const source = await input.source.readVerifiedSourceV1({
     walletId: input.registration.walletId,
     walletSessionId: String(input.approval.ownerAuthorization.walletSessionId),
     authorizationId: String(input.approval.ownerAuthorization.authorizationId),
-    keyFamily: sourceLaneHint.keyFamily,
+    keyFamily: sourceKeyFamily,
     requestedAtMs: input.requestedAtMs,
   });
   await assertSourceRead(source, input.registration.walletId, input.requestedAtMs);
   const approvedSourceDigest = input.session.approvalTranscript
     ? sourceKeyManifestDigestForFamilyV1(
         input.session.approvalTranscript.sourceKeyManifestDigestsB64u,
-        sourceLaneHint.keyFamily,
+        sourceKeyFamily,
       )
     : null;
   if (!approvedSourceDigest || approvedSourceDigest !== source.keyManifestDigestB64u) {
     throw new Error('source custody manifest digest does not match the approved Wallet Session');
+  }
+  if (alphabetizeStringify(source.signerManifest) !== alphabetizeStringify(sourceSignerManifest)) {
+    throw new Error('source signer manifest changed after owner approval');
   }
   const targetFactor = await buildVerifiedTargetFactorV1({
     ...input,
@@ -138,20 +142,21 @@ export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
   readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
   readonly verifiedAtMs: number;
 }): Promise<DigestB64u> {
-  const evidence = input.evidence.kind === 'passkey_prf'
-    ? {
-        kind: input.evidence.kind,
-        credentialIdB64u: input.evidence.credential.credentialIdB64u,
-        credentialPublicKeyB64u: input.evidence.credential.credentialPublicKeyB64u,
-        counter: input.evidence.credential.counter,
-      }
-    : {
-        kind: input.evidence.kind,
-        grantId: input.evidence.grant.grantId,
-        baseWalletAuthMethodId: input.evidence.grant.baseWalletAuthMethodId,
-        authorityDigestB64u: input.evidence.grant.authorityDigestB64u,
-        descriptorCredentialIdB64u: input.evidence.grant.descriptorCredentialIdB64u,
-      };
+  const evidence =
+    input.evidence.kind === 'passkey_prf'
+      ? {
+          kind: input.evidence.kind,
+          credentialIdB64u: input.evidence.credential.credentialIdB64u,
+          credentialPublicKeyB64u: input.evidence.credential.credentialPublicKeyB64u,
+          counter: input.evidence.credential.counter,
+        }
+      : {
+          kind: input.evidence.kind,
+          grantId: input.evidence.grant.grantId,
+          baseWalletAuthMethodId: input.evidence.grant.baseWalletAuthMethodId,
+          authorityDigestB64u: input.evidence.grant.authorityDigestB64u,
+          descriptorCredentialIdB64u: input.evidence.grant.descriptorCredentialIdB64u,
+        };
   return parseDigestB64u(
     base64UrlEncode(
       await sha256BytesUtf8(
@@ -181,7 +186,11 @@ export async function buildVerifiedTargetFactorV1(
   input: BuildVerifiedTargetFactorV1Input,
 ): Promise<VerifiedTargetFactorV1> {
   const verifiedAtMs = input.registration.registeredAtMs;
-  if (!Number.isSafeInteger(verifiedAtMs) || verifiedAtMs < 0 || verifiedAtMs > input.requestedAtMs) {
+  if (
+    !Number.isSafeInteger(verifiedAtMs) ||
+    verifiedAtMs < 0 ||
+    verifiedAtMs > input.requestedAtMs
+  ) {
     throw new Error('target factor verification time is invalid');
   }
   const verificationDigestB64u = await computeVerifiedTargetFactorVerificationDigestV1({
@@ -293,10 +302,7 @@ function assertRegistrationIdentity(input: BuildVerifiedLinkInputV1): void {
   ) {
     throw new Error('verified link identities do not match the approved session');
   }
-  if (
-    session.state.state !== 'awaiting_target_factor' &&
-    session.state.state !== 'provisioning'
-  ) {
+  if (session.state.state !== 'awaiting_target_factor' && session.state.state !== 'provisioning') {
     throw new Error(`verified link cannot commit from ${session.state.state}`);
   }
   if (
@@ -305,7 +311,11 @@ function assertRegistrationIdentity(input: BuildVerifiedLinkInputV1): void {
   ) {
     throw new Error('verified link recipient requests do not match target preparation');
   }
-  for (let index = 0; index < preparation.ordinarySignerMaterialRecipientRequirements.length; index += 1) {
+  for (
+    let index = 0;
+    index < preparation.ordinarySignerMaterialRecipientRequirements.length;
+    index += 1
+  ) {
     const requirement = preparation.ordinarySignerMaterialRecipientRequirements[index];
     const request = registration.ordinarySignerMaterialRecipientRequests[index];
     if (
@@ -361,10 +371,13 @@ function assertSourceManifestMatchesAuthority(
   }
 }
 
-function manifestFromAuthority(authority: ActiveWalletAuthorityV1): ExactAdministeredSignerManifestV1 {
+function manifestFromAuthority(
+  authority: ActiveWalletAuthorityV1,
+): ExactAdministeredSignerManifestV1 {
   const signers = authority.signerActivations.keyFamilies.map((family) => {
     if (family === 'ed25519') {
-      if (!authority.signerActivations.ed25519) throw new Error('source Ed25519 activation is missing');
+      if (!authority.signerActivations.ed25519)
+        throw new Error('source Ed25519 activation is missing');
       return authority.signerActivations.ed25519.signer;
     }
     if (!authority.signerActivations.ecdsa) throw new Error('source ECDSA activation is missing');
@@ -376,7 +389,8 @@ function manifestFromAuthority(authority: ActiveWalletAuthorityV1): ExactAdminis
 function canonicalBase64Url(value: string, label: string): string {
   try {
     const bytes = base64UrlDecode(value);
-    if (bytes.length === 0 || base64UrlEncode(bytes) !== value) throw new Error('is not canonical base64url');
+    if (bytes.length === 0 || base64UrlEncode(bytes) !== value)
+      throw new Error('is not canonical base64url');
     return value;
   } catch (error: unknown) {
     throw new Error(`${label} ${error instanceof Error ? error.message : 'is invalid'}`);

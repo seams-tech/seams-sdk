@@ -12,11 +12,9 @@ import type {
   LinkedDeviceSessionClaimV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
-  LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceTargetFactorV1,
-  LinkedDeviceOwnerSourceLaneV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import { assertNeverLinkSessionStateV1 } from '@shared/device-linking/contracts';
@@ -56,6 +54,11 @@ import {
 } from '@shared/signing-lanes/ids';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
+import {
+  parseExactAdministeredSignerManifestV1,
+  type ExactAdministeredSignerV1,
+  type ExactAdministeredSignerManifestV1,
+} from '@shared/device-linking/delegatedActivationPlan';
 
 type LinkedDeviceClaimV1 = LinkedDeviceSessionClaimV1;
 
@@ -96,12 +99,13 @@ export type LinkedDeviceSourceKeyManifestDigestsV1 =
 export type LinkedDeviceApprovalTranscriptV1 = {
   readonly digestB64u: DigestB64u;
   readonly value: LinkedDeviceApprovalV1;
+  readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
   readonly sourceKeyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
 };
 
 export function sourceKeyManifestDigestForFamilyV1(
   digests: LinkedDeviceSourceKeyManifestDigestsV1,
-  keyFamily: LinkedDeviceOwnerSourceLaneV1['keyFamily'],
+  keyFamily: ExactAdministeredSignerV1['keyFamily'],
 ): DigestB64u | null {
   switch (keyFamily) {
     case 'ed25519':
@@ -175,10 +179,7 @@ type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
 
 type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 &
   LinkedDeviceTargetFactorRecordV1 & {
-    readonly state: Extract<
-      LinkSessionStateV1,
-      { readonly state: 'awaiting_target_factor' }
-    >;
+    readonly state: Extract<LinkSessionStateV1, { readonly state: 'awaiting_target_factor' }>;
     readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
     readonly authorityId?: never;
@@ -189,10 +190,7 @@ type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 &
 
 type LinkedDeviceSessionSourceContributionRecordV1 = LinkedDeviceSessionRecordBaseV1 &
   LinkedDeviceTargetFactorRecordV1 & {
-    readonly state: Extract<
-      LinkSessionStateV1,
-      { readonly state: 'awaiting_source_contribution' }
-    >;
+    readonly state: Extract<LinkSessionStateV1, { readonly state: 'awaiting_source_contribution' }>;
     readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
     readonly sourceContributionPreparation: LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1;
@@ -308,6 +306,7 @@ export type LinkedDeviceOwnerAuthorizationPortV1 = {
   }): Promise<
     | {
         readonly kind: 'authorized';
+        readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
         readonly sourceKeyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
       }
     | LinkedDeviceOwnerAuthorizationDeniedV1
@@ -645,6 +644,7 @@ export class LinkedDeviceSessionServiceV1 {
         approvalTranscript: {
           digestB64u: approvalDigestB64u,
           value: approval,
+          sourceSignerManifest: authorization.sourceSignerManifest,
           sourceKeyManifestDigestsB64u: authorization.sourceKeyManifestDigestsB64u,
         },
         revision: existing.revision + 1,
@@ -747,6 +747,7 @@ export class LinkedDeviceSessionServiceV1 {
         sourceContributionTranscript: {
           digestB64u: approvalDigestB64u,
           value: approval,
+          sourceSignerManifest: authorization.sourceSignerManifest,
           sourceKeyManifestDigestsB64u: authorization.sourceKeyManifestDigestsB64u,
         },
         revision: existing.revision + 1,
@@ -1121,8 +1122,9 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     approvalTranscript: parseOptionalApprovalTranscript(record.approvalTranscript),
     targetFactor: parseOptionalTargetFactor(record.targetFactor),
     emailOtpChallenge: parseOptionalEmailOtpChallenge(record.emailOtpChallenge),
-    sourceContributionPreparation:
-      parseOptionalSourceContributionPreparation(record.sourceContributionPreparation),
+    sourceContributionPreparation: parseOptionalSourceContributionPreparation(
+      record.sourceContributionPreparation,
+    ),
     sourceContributionTranscript: parseOptionalSourceContributionTranscript(
       record.sourceContributionTranscript,
     ),
@@ -1659,15 +1661,11 @@ function validateApprovalMatchesSession(
     throw new Error('approval identity does not match the claimed session');
   if (!sameDelegatedWalletAuthorityV1(approval.permission, record.qrPayload.requestedPermission))
     throw new Error('approval permission does not match QR payload');
-  if (
-    approval.targetFactor.kind !== record.qrPayload.targetFactor.kind
-  )
+  if (approval.targetFactor.kind !== record.qrPayload.targetFactor.kind)
     throw new Error('approval target factor does not match the QR session');
   if (approval.expiresAtMs <= nowMs || approval.expiresAtMs > claim.claimExpiresAtMs)
     throw new Error('approval expiry is outside the claim lifetime');
   if (approval.approvedAtMs > nowMs) throw new Error('approval is from the future');
-  if (approval.orderedOwnerSourceLaneHints.length === 0)
-    throw new Error('approval owner source projection is empty');
 }
 
 function validateSourceContributionApprovalMatchesSession(
@@ -1694,9 +1692,7 @@ function validateSourceContributionApprovalMatchesSession(
     approval.expiresAtMs !== initial.expiresAtMs ||
     alphabetizeStringify(approval.permission) !== alphabetizeStringify(initial.permission) ||
     alphabetizeStringify(approval.ownerAuthorization) !==
-      alphabetizeStringify(initial.ownerAuthorization) ||
-    alphabetizeStringify(approval.orderedOwnerSourceLaneHints) !==
-      alphabetizeStringify(initial.orderedOwnerSourceLaneHints)
+      alphabetizeStringify(initial.ownerAuthorization)
   ) {
     throw new Error('source contribution approval changes the owner approval transcript');
   }
@@ -1810,14 +1806,20 @@ function assertEcdsaContributionMatchesPreparation(
   });
   if (
     contribution.targetDeviceId !== parseDeviceIdValue(approval.deviceId) ||
-    !mpcMaterialActivationRefsEqual(contribution.target.activation, preparation.target.activation) ||
+    !mpcMaterialActivationRefsEqual(
+      contribution.target.activation,
+      preparation.target.activation,
+    ) ||
     contribution.target.targetFactorVerificationDigestB64u !==
       preparation.target.targetFactorVerificationDigestB64u ||
     contribution.target.clientRecipientPublicKeyB64u !==
       preparation.target.clientRecipientPublicKeyB64u ||
     contribution.target.signingWorkerRecipientPublicKeyB64u !==
       preparation.target.signingWorkerRecipientPublicKeyB64u ||
-    !mpcMaterialActivationRefsEqual(contribution.sourceSigner.activation, preparation.source.activation)
+    !mpcMaterialActivationRefsEqual(
+      contribution.sourceSigner.activation,
+      preparation.source.activation,
+    )
   ) {
     throw new Error('ECDSA source contribution does not match target preparation');
   }
@@ -1870,9 +1872,7 @@ function activeRetryResult(
   return { outcome: 'replayed', record };
 }
 
-function isPrecommitState(
-  state: LinkSessionStateV1,
-): state is Extract<
+function isPrecommitState(state: LinkSessionStateV1): state is Extract<
   LinkSessionStateV1,
   {
     readonly state:
@@ -2001,16 +2001,26 @@ function parseOptionalApprovalTranscript(
 ): LinkedDeviceApprovalTranscriptV1 | undefined {
   if (raw === undefined) return undefined;
   const record = requireRecord(raw, 'approvalTranscript');
-  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestsB64u']);
+  requireExactKeys(record, [
+    'digestB64u',
+    'value',
+    'sourceSignerManifest',
+    'sourceKeyManifestDigestsB64u',
+  ]);
   const value = parseLinkedDeviceApprovalV1(record.value);
   const sourceKeyManifestDigestsB64u = parseSourceKeyManifestDigestsV1(
     record.sourceKeyManifestDigestsB64u,
     'approvalTranscript.sourceKeyManifestDigestsB64u',
   );
-  assertSourceKeyManifestDigestFamiliesMatchApprovalV1(value, sourceKeyManifestDigestsB64u);
+  const sourceSignerManifest = parseExactAdministeredSignerManifestV1(record.sourceSignerManifest);
+  assertSourceKeyManifestDigestFamiliesMatchManifestV1(
+    sourceSignerManifest,
+    sourceKeyManifestDigestsB64u,
+  );
   return {
     digestB64u: requireDigest(record.digestB64u, 'approvalTranscript.digestB64u'),
     value,
+    sourceSignerManifest,
     sourceKeyManifestDigestsB64u,
   };
 }
@@ -2050,7 +2060,12 @@ function parseOptionalSourceContributionTranscript(
 ): LinkedDeviceSourceContributionTranscriptV1 | undefined {
   if (raw === undefined) return undefined;
   const record = requireRecord(raw, 'sourceContributionTranscript');
-  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestsB64u']);
+  requireExactKeys(record, [
+    'digestB64u',
+    'value',
+    'sourceSignerManifest',
+    'sourceKeyManifestDigestsB64u',
+  ]);
   const value = parseLinkedDeviceApprovalV1(record.value);
   if (!value.sourceContribution) {
     throw new Error('sourceContributionTranscript.value has no source contribution');
@@ -2059,31 +2074,31 @@ function parseOptionalSourceContributionTranscript(
     record.sourceKeyManifestDigestsB64u,
     'sourceContributionTranscript.sourceKeyManifestDigestsB64u',
   );
-  assertSourceKeyManifestDigestFamiliesMatchApprovalV1(value, sourceKeyManifestDigestsB64u);
+  const sourceSignerManifest = parseExactAdministeredSignerManifestV1(record.sourceSignerManifest);
+  assertSourceKeyManifestDigestFamiliesMatchManifestV1(
+    sourceSignerManifest,
+    sourceKeyManifestDigestsB64u,
+  );
   return {
     digestB64u: requireDigest(record.digestB64u, 'sourceContributionTranscript.digestB64u'),
     value,
+    sourceSignerManifest,
     sourceKeyManifestDigestsB64u,
   };
 }
 
-function assertSourceKeyManifestDigestFamiliesMatchApprovalV1(
-  approval: LinkedDeviceApprovalV1,
+function assertSourceKeyManifestDigestFamiliesMatchManifestV1(
+  manifest: ExactAdministeredSignerManifestV1,
   digests: LinkedDeviceSourceKeyManifestDigestsV1,
 ): void {
-  const approvalHasEd25519 = approval.orderedOwnerSourceLaneHints.some(
-    (hint) => hint.keyFamily === 'ed25519',
-  );
-  const approvalHasEcdsa = approval.orderedOwnerSourceLaneHints.some(
-    (hint) => hint.keyFamily === 'ecdsa_secp256k1',
-  );
+  const manifestHasEd25519 = manifest.keyFamilies.some((family) => family === 'ed25519');
+  const manifestHasEcdsa = manifest.keyFamilies.some((family) => family === 'ecdsa_secp256k1');
   const digestHasEd25519 = digests.ed25519 !== undefined;
   const digestHasEcdsa = digests.ecdsa_secp256k1 !== undefined;
-  if (
-    approvalHasEd25519 !== digestHasEd25519 ||
-    approvalHasEcdsa !== digestHasEcdsa
-  ) {
-    throw new Error('source key manifest digest families do not match approved source lanes');
+  if (manifestHasEd25519 !== digestHasEd25519 || manifestHasEcdsa !== digestHasEcdsa) {
+    throw new Error(
+      'source key manifest digest families do not match the verified signer manifest',
+    );
   }
 }
 
@@ -2376,16 +2391,10 @@ function requireTerminalRecordFacts(
   if (!input.approvalTranscript && input.emailOtpChallenge) {
     throw new Error(`${state} session email challenge has no approval`);
   }
-  if (
-    input.sourceContributionTranscript &&
-    !input.sourceContributionPreparation
-  ) {
+  if (input.sourceContributionTranscript && !input.sourceContributionPreparation) {
     throw new Error(`${state} source contribution transcript has no preparation`);
   }
-  if (
-    input.sourceContributionPreparation &&
-    (!input.approvalTranscript || !input.targetFactor)
-  ) {
+  if (input.sourceContributionPreparation && (!input.approvalTranscript || !input.targetFactor)) {
     throw new Error(`${state} source contribution preparation has no approval`);
   }
   if (input.approvalTranscript && !input.targetFactor) {
@@ -2438,20 +2447,6 @@ function parseOptionalId<T>(
   field: string,
 ): T | undefined {
   return raw === undefined ? undefined : parseId(raw, parser, field);
-}
-
-function parseAuthorizationId<T>(
-  raw: unknown,
-  parser: (
-    value: unknown,
-  ) =>
-    | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly error: { readonly message: string } },
-  field: string,
-): T {
-  const parsed = parser(raw);
-  if (!parsed.ok) throw new Error(`${field}: ${parsed.error.message}`);
-  return parsed.value;
 }
 
 function parseIdentityString(raw: unknown, field: string): string {

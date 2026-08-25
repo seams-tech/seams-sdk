@@ -8,9 +8,7 @@ import type {
   OrdinarySignerMaterialRecipientRequestV1,
   VerifiedTargetFactorV1,
 } from '@shared/device-linking/contracts';
-import {
-  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
-} from '@shared/device-linking/sourceContribution';
+import { parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 } from '@shared/device-linking/sourceContribution';
 import type {
   ExactAdministeredEcdsaSignerV1,
   ExactAdministeredEd25519SignerV1,
@@ -28,9 +26,7 @@ import type {
   RouterAbEd25519YaoActivationBindingV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import {
-  parseSecp256k1CompressedPublicKeyB64u,
-} from '@shared/passkey-custody/primitives';
+import { parseSecp256k1CompressedPublicKeyB64u } from '@shared/passkey-custody/primitives';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type {
   LinkedDeviceOwnerSourceChildResolutionV1,
@@ -56,9 +52,7 @@ export type D1LinkedDeviceSourceContributionPreparationPlannerOptionsV1 = {
  * Activation identities are fresh, while every other activation field is
  * copied from the verified owner lane.
  */
-export class D1LinkedDeviceSourceContributionPreparationPlannerV1
-  implements LinkedDeviceSourceContributionPreparationPlannerV1
-{
+export class D1LinkedDeviceSourceContributionPreparationPlannerV1 implements LinkedDeviceSourceContributionPreparationPlannerV1 {
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
   private readonly deriverAInputPublicKeyB64u: string;
   private readonly deriverBInputPublicKeyB64u: string;
@@ -96,20 +90,19 @@ export class D1LinkedDeviceSourceContributionPreparationPlannerV1
     >;
     for (let index = 0; index < input.source.signerManifest.signers.length; index += 1) {
       const signer = input.source.signerManifest.signers[index];
-      const sourceLaneHint = input.approval.orderedOwnerSourceLaneHints[index];
       const recipientRequest = input.registration.ordinarySignerMaterialRecipientRequests[index];
-      if (!signer || !sourceLaneHint || !recipientRequest) {
+      if (!signer || !recipientRequest) {
         throw new Error(`linked-device source preparation ${index} is incomplete`);
       }
-      assertSignerInputMatchesApproval(signer, sourceLaneHint, recipientRequest, index);
+      assertSignerMatchesRecipient(signer, recipientRequest, index);
       const resolution = await this.resolveOwnerSourceChildV1({
         kind: 'preparation',
         session: input.session,
         approval: input.approval,
-        sourceLaneHint,
+        sourceSigner: signer,
         childIndex: index,
       });
-      assertResolutionMatchesSigner(resolution, signer, sourceLaneHint, index);
+      assertResolutionMatchesSigner(resolution, signer, index);
       const targetActivation = freshTargetActivation(
         resolution.source.materialActivation,
         input,
@@ -164,7 +157,10 @@ function buildEd25519Preparation(input: {
   };
   readonly source: VerifiedLinkSourceReadV1;
   readonly signer: ExactAdministeredEd25519SignerV1;
-  readonly resolution: Extract<LinkedDeviceOwnerSourceChildResolutionV1, { readonly keyFamily: 'ed25519' }>;
+  readonly resolution: Extract<
+    LinkedDeviceOwnerSourceChildResolutionV1,
+    { readonly keyFamily: 'ed25519' }
+  >;
   readonly targetActivation: MpcMaterialActivationRef;
   readonly recipientRequest: OrdinarySignerMaterialRecipientRequestV1;
   readonly deriverAInputPublicKeyB64u: string;
@@ -220,7 +216,10 @@ function buildEcdsaPreparation(input: {
     readonly source: VerifiedLinkSourceReadV1;
   };
   readonly signer: ExactAdministeredEcdsaSignerV1;
-  readonly resolution: Extract<LinkedDeviceOwnerSourceChildResolutionV1, { readonly keyFamily: 'ecdsa_secp256k1' }>;
+  readonly resolution: Extract<
+    LinkedDeviceOwnerSourceChildResolutionV1,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >;
   readonly targetActivation: MpcMaterialActivationRef;
   readonly recipientRequest: OrdinarySignerMaterialRecipientRequestV1;
   readonly signingWorkerRecipientPublicKeyB64u: string;
@@ -263,15 +262,12 @@ function buildEcdsaPreparation(input: {
   };
 }
 
-function assertSignerInputMatchesApproval(
+function assertSignerMatchesRecipient(
   signer: ExactAdministeredEd25519SignerV1 | ExactAdministeredEcdsaSignerV1,
-  sourceLaneHint: LinkedDeviceApprovalV1['orderedOwnerSourceLaneHints'][number],
   recipientRequest: OrdinarySignerMaterialRecipientRequestV1,
   index: number,
 ): void {
   if (
-    signer.keyFamily !== sourceLaneHint.keyFamily ||
-    signer.walletKeyId !== sourceLaneHint.walletKey.walletKeyId ||
     signer.keyFamily !== recipientRequest.keyFamily ||
     signer.walletKeyId !== recipientRequest.walletKeyId
   ) {
@@ -282,18 +278,10 @@ function assertSignerInputMatchesApproval(
 function assertResolutionMatchesSigner(
   resolution: LinkedDeviceOwnerSourceChildResolutionV1,
   signer: ExactAdministeredEd25519SignerV1 | ExactAdministeredEcdsaSignerV1,
-  sourceLaneHint: LinkedDeviceApprovalV1['orderedOwnerSourceLaneHints'][number],
   index: number,
 ): void {
-  if (
-    resolution.walletKeyId !== signer.walletKeyId ||
-    resolution.keyFamily !== signer.keyFamily ||
-    resolution.source.laneId !== sourceLaneHint.lane.laneId ||
-    resolution.source.laneShareEpoch !== sourceLaneHint.lane.laneShareEpoch ||
-    resolution.source.revocationEpoch !== sourceLaneHint.lane.lifecycle.revocationEpoch ||
-    resolution.source.participantBindingDigestB64u !== sourceLaneHint.lane.participantBindingDigestB64u
-  ) {
-    throw new Error(`linked-device source resolution ${index} differs from the approved lane`);
+  if (resolution.walletKeyId !== signer.walletKeyId || resolution.keyFamily !== signer.keyFamily) {
+    throw new Error(`linked-device source resolution ${index} differs from the verified signer`);
   }
 }
 

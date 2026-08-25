@@ -9,7 +9,6 @@ import {
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceEd25519ExportRootPreparationV1,
@@ -124,10 +123,6 @@ function lengthPrefixedPermission(permission: Uint8Array): Uint8Array {
   return lp32(permission, 'permission.permissions.item');
 }
 
-function encodeOwnerSourceLane(value: LinkedDeviceOwnerSourceLaneV1): Uint8Array {
-  return text(alphabetizeStringify(value), 'ownerSourceLane');
-}
-
 function encodeTargetFactor(value: LinkedDeviceTargetFactorV1): Uint8Array {
   return text(value.kind, 'targetFactor.kind');
 }
@@ -136,7 +131,10 @@ function encodeLinkedDevicePasskeyCreationOptionsV1(
   value: LinkedDevicePasskeyCreationOptionsV1,
 ): Uint8Array {
   const algorithms = value.pubKeyCredParams.map((entry) =>
-    concat([text(entry.type, 'passkeyCreationOptions.pubKeyCredParams.type'), text(String(entry.alg), 'passkeyCreationOptions.pubKeyCredParams.alg')]),
+    concat([
+      text(entry.type, 'passkeyCreationOptions.pubKeyCredParams.type'),
+      text(String(entry.alg), 'passkeyCreationOptions.pubKeyCredParams.alg'),
+    ]),
   );
   const excludeCredentials = value.excludeCredentials.map((entry) =>
     concat([
@@ -165,8 +163,14 @@ function encodeLinkedDevicePasskeyCreationOptionsV1(
     ),
     u64(value.timeoutMs, 'passkeyCreationOptions.timeoutMs'),
     text(value.attestation, 'passkeyCreationOptions.attestation'),
-    text(value.extensions.prf.eval.firstB64u, 'passkeyCreationOptions.extensions.prf.eval.firstB64u'),
-    text(value.extensions.prf.eval.secondB64u, 'passkeyCreationOptions.extensions.prf.eval.secondB64u'),
+    text(
+      value.extensions.prf.eval.firstB64u,
+      'passkeyCreationOptions.extensions.prf.eval.firstB64u',
+    ),
+    text(
+      value.extensions.prf.eval.secondB64u,
+      'passkeyCreationOptions.extensions.prf.eval.secondB64u',
+    ),
     u32(excludeCredentials.length, 'passkeyCreationOptions.excludeCredentials'),
     ...excludeCredentials.map((entry) =>
       lp32(entry, 'passkeyCreationOptions.excludeCredentials.item'),
@@ -174,7 +178,9 @@ function encodeLinkedDevicePasskeyCreationOptionsV1(
   ]);
 }
 
-function encodeRecipientRequirement(value: OrdinarySignerMaterialRecipientRequirementV1): Uint8Array {
+function encodeRecipientRequirement(
+  value: OrdinarySignerMaterialRecipientRequirementV1,
+): Uint8Array {
   return concat([
     text(value.kind, 'recipientRequirement.kind'),
     text(value.keyFamily, 'recipientRequirement.keyFamily'),
@@ -219,7 +225,6 @@ export async function computeLinkedDeviceSessionClaimDigestV1(
 }
 
 export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uint8Array {
-  const orderedOwnerSourceLaneHints = value.orderedOwnerSourceLaneHints.map(encodeOwnerSourceLane);
   return concat([
     text(APPROVAL_DOMAIN, 'domain'),
     text(value.kind, 'kind'),
@@ -240,10 +245,6 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
         ]
       : []),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
-    u32(orderedOwnerSourceLaneHints.length, 'orderedOwnerSourceLaneHints'),
-    ...orderedOwnerSourceLaneHints.map((entry) =>
-      lp32(entry, 'orderedOwnerSourceLaneHints.item'),
-    ),
     u64(value.approvedAtMs, 'approvedAtMs'),
     u64(value.expiresAtMs, 'expiresAtMs'),
   ]);
@@ -258,7 +259,9 @@ export async function computeLinkedDeviceApprovalDigestV1(
 export function encodeLinkedDeviceTargetPreparationV1(
   value: LinkedDeviceTargetPreparationV1,
 ): Uint8Array {
-  const requirements = value.ordinarySignerMaterialRecipientRequirements.map(encodeRecipientRequirement);
+  const requirements = value.ordinarySignerMaterialRecipientRequirements.map(
+    encodeRecipientRequirement,
+  );
   const passkeyCreationOptions =
     value.targetFactor.kind === 'passkey_prf' ? value.passkeyCreationOptions : undefined;
   if (value.targetFactor.kind === 'passkey_prf' && !passkeyCreationOptions) {
@@ -275,12 +278,15 @@ export function encodeLinkedDeviceTargetPreparationV1(
     lp32(encodeEd25519ExportRootPreparation(value.ed25519ExportRoot), 'ed25519ExportRoot'),
     lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     ...(passkeyCreationOptions
-      ? [lp32(encodeLinkedDevicePasskeyCreationOptionsV1(passkeyCreationOptions), 'passkeyCreationOptions')]
+      ? [
+          lp32(
+            encodeLinkedDevicePasskeyCreationOptionsV1(passkeyCreationOptions),
+            'passkeyCreationOptions',
+          ),
+        ]
       : []),
     u32(requirements.length, 'ordinarySignerMaterialRecipientRequirements'),
-    ...requirements.map((entry) =>
-      lp32(entry, 'ordinarySignerMaterialRecipientRequirements.item'),
-    ),
+    ...requirements.map((entry) => lp32(entry, 'ordinarySignerMaterialRecipientRequirements.item')),
     u64(value.issuedAtMs, 'issuedAtMs'),
     u64(value.expiresAtMs, 'expiresAtMs'),
   ]);

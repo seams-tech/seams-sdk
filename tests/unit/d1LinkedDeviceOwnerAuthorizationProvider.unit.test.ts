@@ -10,7 +10,10 @@ import {
   parseWalletSessionId,
   parseDeviceId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
-import { parseWalletAuthMethodId, parseWalletAuthorityId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import {
   buildActiveWalletAuthorityV1,
   buildWalletSignerActivationSetV1,
@@ -18,7 +21,6 @@ import {
   computeWalletSignerActivationSetDigestB64u,
 } from '../../packages/shared-ts/src/authorization/walletAuthority';
 import { buildFullOwnerPermissionsV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
-import { buildExactAdministeredSignerManifestV1 } from '../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
@@ -60,22 +62,12 @@ test('rebuilds owner context from the approved Wallet Session V2 projection', as
   });
   const authorityId = required(parseWalletAuthorityId('authority:owner-metadata'));
   const deviceId = required(parseDeviceId('device:owner-metadata'));
-  const sourceHint = fixture.approval.orderedOwnerSourceLaneHints[0];
-  if (!sourceHint) throw new Error('owner metadata fixture is missing a source hint');
-  const sourceManifest = buildExactAdministeredSignerManifestV1([
-    {
-      kind: 'exact_administered_ed25519_signer_v1',
-      keyFamily: 'ed25519',
-      walletId: String(fixture.approval.walletId),
-      walletKeyId: String(sourceHint.walletKey.walletKeyId),
-      registeredPublicKeyB64u: String(sourceHint.walletKey.registeredPublicKeyB64u),
-    },
-  ]);
+  const sourceManifest = fixture.sourceSignerManifest;
   const signerActivations = buildWalletSignerActivationSetV1({
     manifest: sourceManifest,
     materialActivations: {
       keyFamilies: ['ed25519'],
-      ed25519: sourceHint.materialActivation,
+      ed25519: fixture.sourceMaterialActivation,
     },
   });
   const signerActivationSetDigestB64u = parseDigestB64u(
@@ -285,13 +277,12 @@ test('resolves the approved Ed25519 source child from the wallet signer projecti
   });
   if (projected.kind !== 'projected')
     throw new Error(`fixture projection refused: ${projected.reason}`);
-  const sourceLaneHint = {
-    kind: 'linked_device_owner_source_lane_v1' as const,
+  const sourceSigner = {
+    kind: 'exact_administered_ed25519_signer_v1' as const,
     keyFamily: 'ed25519' as const,
-    walletKey: projected.projection.walletKey,
-    lane: projected.projection.lane,
-    materialActivation: projected.projection.materialActivation,
-    verifiedActivationReceiptDigestB64u: projected.projection.verifiedActivationReceiptDigestB64u,
+    walletId: projected.projection.walletKey.walletId,
+    walletKeyId: projected.projection.walletKey.walletKeyId,
+    registeredPublicKeyB64u: projected.projection.walletKey.registeredPublicKeyB64u,
   };
   const owner = {
     walletId,
@@ -321,7 +312,7 @@ test('resolves the approved Ed25519 source child from the wallet signer projecti
       kind: 'preparation',
       session,
       approval: fixture.approval,
-      sourceLaneHint,
+      sourceSigner,
       childIndex: 0,
     },
   });
@@ -344,8 +335,10 @@ test('selects distinct custody digests by approved source key family', () => {
   expect(sourceKeyManifestDigestForFamilyV1(digests, 'ecdsa_secp256k1')).toBe(ecdsa);
 });
 
-test('rejects transcript digest families absent from approved source lanes', async () => {
-  const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:digest-family-boundary' });
+test('rejects transcript digest families absent from the verified signer manifest', async () => {
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:digest-family-boundary',
+  });
   const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
   if (!session.approvalTranscript) throw new Error('fixture approval transcript is missing');
   const ed25519 = fixture.packageSetDigestB64u;
@@ -359,5 +352,5 @@ test('rejects transcript digest families absent from approved source lanes', asy
         sourceKeyManifestDigestsB64u: { ed25519, ecdsa_secp256k1: ecdsa },
       },
     }),
-  ).toThrow(/digest families do not match approved source lanes/);
+  ).toThrow(/digest families do not match the verified signer manifest/);
 });

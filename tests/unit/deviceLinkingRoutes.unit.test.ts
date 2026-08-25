@@ -32,12 +32,8 @@ import {
   buildSourcePreservingEd25519ReservationRequestFixture,
   buildSourcePreservingEcdsaReservationRequestFixture,
 } from './helpers/ordinarySourcePreservingReservation.fixtures';
-import {
-  parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
-} from '@shared/device-linking/sourceContribution';
-import {
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
-} from '@shared/utils/routerAbEd25519Yao';
+import { parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1 } from '@shared/device-linking/sourceContribution';
+import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   applyD1MigrationFiles,
@@ -259,8 +255,7 @@ test('target credential registration does not trust the request Origin', async (
   const sessionService = buildSessionService(fixture);
   const baseRouteService = routeServiceFor(sessionService, fixture, 3_000);
   const digest = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
-  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
-  if (!walletKeyId) throw new Error('fixture signer binding is missing');
+  const walletKeyId = fixture.sourceWalletKeyId;
   const registration = parseLinkedDeviceTargetCredentialRegistrationV1({
     kind: 'linked_device_target_credential_registration_v1',
     linkSessionId: fixture.payload.linkSessionId,
@@ -336,8 +331,7 @@ test('preserves an Ed25519 source-contribution Router error in the exact 500 bod
   const boundary = await prepareEd25519SourceContributionExecuteBoundary(
     'route-execute-upstream-error',
   );
-  const upstreamMessage =
-    'Ed25519 source-preserving Router execution failed with HTTP 502';
+  const upstreamMessage = 'Ed25519 source-preserving Router execution failed with HTTP 502';
   const routeService = routeServiceFor(boundary.sessionService, boundary.fixture, 3_000, {
     sourceContributionRouter: new SourceContributionRouterStub(new Error(upstreamMessage)),
   });
@@ -375,8 +369,7 @@ async function prepareEd25519SourceContributionExecuteBoundary(label: string) {
   const sessionService = buildSessionService(fixture);
   const reservationRequest = buildSourcePreservingEd25519ReservationRequestFixture(label);
   const sourceContribution = reservationRequest.preparation.sourceContribution;
-  const walletKeyId = fixture.approval.orderedOwnerSourceLaneHints[0]?.walletKey.walletKeyId;
-  if (!walletKeyId) throw new Error('fixture source wallet key is missing');
+  const walletKeyId = fixture.sourceWalletKeyId;
   const sourceContributionPreparation =
     parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1([
       {
@@ -400,8 +393,7 @@ async function prepareEd25519SourceContributionExecuteBoundary(label: string) {
         sourceRevocationEpoch: 0,
         participantIds: sourceContribution.participantIds,
         targetMaterialActivation: sourceContribution.targetMaterialActivation,
-        targetClientRecipientPublicKeyB64u:
-          sourceContribution.targetClientRecipientPublicKeyB64u,
+        targetClientRecipientPublicKeyB64u: sourceContribution.targetClientRecipientPublicKeyB64u,
         targetSigningWorkerRecipientPublicKeyB64u:
           sourceContribution.targetSigningWorkerRecipientPublicKeyB64u,
         sourceRegisteredPublicKeyB64u: sourceContribution.sourceRegisteredPublicKeyB64u,
@@ -566,6 +558,7 @@ function ownerAuthorization(
     }),
     authorizeOwnerApprovalV1: async () => ({
       kind: 'authorized' as const,
+      sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     }),
   };

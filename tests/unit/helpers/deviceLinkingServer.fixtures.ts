@@ -1,6 +1,4 @@
-import {
-  buildLinkedDeviceSessionClaimV1,
-} from '../../../packages/shared-ts/src/device-linking/parsers';
+import { buildLinkedDeviceSessionClaimV1 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import {
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
@@ -53,6 +51,7 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     approvalTranscript: {
       digestB64u: approvalDigest,
       value: approval,
+      sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     },
     targetFactor: fixture.approval.targetFactor,
@@ -62,6 +61,7 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     sourceContributionTranscript: {
       digestB64u: approvalDigest,
       value: approval,
+      sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     },
     createdAtMs: fixture.payload.issuedAtMs,
@@ -75,7 +75,10 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
 
 function isActiveSessionRecord(
   record: LinkedDeviceSessionRecordV1,
-): record is Extract<LinkedDeviceSessionRecordV1, { readonly state: { readonly state: 'active' } }> {
+): record is Extract<
+  LinkedDeviceSessionRecordV1,
+  { readonly state: { readonly state: 'active' } }
+> {
   return record.state.state === 'active';
 }
 
@@ -119,12 +122,10 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
     version: 'linked_device_session_v1',
     linkSessionId: fixture.payload.linkSessionId,
     qrPayload: fixture.payload,
-    state:
-      overrides.state ??
-      {
-        state: 'awaiting_target_factor',
-        deviceId: fixture.approval.deviceId,
-      },
+    state: overrides.state ?? {
+      state: 'awaiting_target_factor',
+      deviceId: fixture.approval.deviceId,
+    },
     revision: overrides.revision ?? 3,
     claimTranscript: {
       digestB64u: await computeLinkedDeviceSessionClaimDigestV1(claim),
@@ -133,6 +134,7 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
     approvalTranscript: {
       digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
       value: fixture.approval,
+      sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
     },
     targetFactor: fixture.approval.targetFactor,

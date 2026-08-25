@@ -4,7 +4,6 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceApprovalResultV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceSessionClaimRequestV1,
   LinkedDeviceSessionClaimV1,
   LinkSessionProjectionV1,
@@ -41,6 +40,7 @@ import type {
   LinkedDeviceEd25519ExportRootSubmissionV1,
 } from '@shared/device-linking/ed25519ExportRoot';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { ExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import type {
   LinkedDeviceId,
   LinkedDeviceEnrollmentId,
@@ -285,10 +285,7 @@ export type LinkedDeviceOwnerAuthorizationResultBaseV1 = {
   readonly authentication: LinkSessionAuthenticationV1;
   readonly walletId: WalletId;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  readonly orderedOwnerSourceLaneHints: readonly [
-    LinkedDeviceOwnerSourceLaneV1,
-    ...LinkedDeviceOwnerSourceLaneV1[],
-  ];
+  readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
   readonly expiresAtMs: number;
 };
 

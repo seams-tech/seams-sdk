@@ -10,7 +10,6 @@ import type {
   LinkDeviceSessionId,
   WalletKeyId,
 } from '../signing-lanes/ids';
-import type { WalletKeyRecord } from '../signing-lanes/records';
 import type {
   MpcMaterialActivationRef,
   WalletAuthorityId,
@@ -22,19 +21,12 @@ import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInf
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import type { Ed25519PublicKeyB64u } from '../passkey-custody/primitives';
-import type { SigningLaneRecord } from '../signing-lanes/records';
-import type {
-  EcdsaCapabilityManifestId,
-  EcdsaCapabilityManifestRevision,
-} from '../utils/ecdsaCapabilityActivation';
 import type {
   ActiveWalletAuthorityV1,
   WalletAuthorityV1,
   WalletSignerActivationSetV1,
 } from '../authorization/walletAuthority';
-import type {
-  CanonicalDelegatedWalletPermissionSetV1,
-} from '../authorization/delegatedAuthority';
+import type { CanonicalDelegatedWalletPermissionSetV1 } from '../authorization/delegatedAuthority';
 import type { ExactAdministeredSignerManifestV1 } from './delegatedActivationPlan';
 import type {
   EmailOtpWalletAuthMethodDraftV1,
@@ -43,7 +35,6 @@ import type {
 } from '../utils/registrationIntent';
 import type {
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
-  LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
   LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
 } from './sourceContribution';
 
@@ -94,47 +85,10 @@ export type QrLinkedDeviceSessionPayloadV5 = {
   readonly expiresAtMs: number;
 };
 
-type LinkedDeviceOwnerSourceLaneBaseV1<TWalletKey extends WalletKeyRecord> = {
-  readonly kind: 'linked_device_owner_source_lane_v1';
-  readonly walletKey: TWalletKey;
-  readonly lane: Extract<
-    SigningLaneRecord,
-    { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
-  >;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly verifiedActivationReceiptDigestB64u: DigestB64u;
-};
-
-/** Public owner-lane identity authenticated by the wallet-host Wallet Session. */
-export type LinkedDeviceOwnerSourceLaneV1 =
-  | (LinkedDeviceOwnerSourceLaneBaseV1<
-      Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>
-    > & {
-      readonly keyFamily: 'ed25519';
-      readonly ecdsaSourceManifest?: never;
-    })
-  | (LinkedDeviceOwnerSourceLaneBaseV1<
-      Extract<WalletKeyRecord, { readonly keyFamily: 'ecdsa_secp256k1' }>
-    > & {
-      readonly keyFamily: 'ecdsa_secp256k1';
-      readonly ecdsaSourceManifest: {
-        readonly manifestId: EcdsaCapabilityManifestId;
-        readonly manifestRevision: EcdsaCapabilityManifestRevision;
-      };
-    });
-
-/**
- * Authenticated Device 1 owner-authorization request. Source-lane hints carry
- * public wallet/lane identity and activation receipts only; Router re-resolves
- * every hint against its durable wallet projection.
- */
+/** Authenticated Device 1 owner-authorization request. */
 export type LinkedDeviceOwnerAuthorizationRequestV1 = {
   readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly requestedAtMs: number;
-  readonly orderedOwnerSourceLaneHints: readonly [
-    LinkedDeviceOwnerSourceLaneV1,
-    ...LinkedDeviceOwnerSourceLaneV1[],
-  ];
 };
 
 export type LinkedDeviceSessionClaimRequestV1 = {
@@ -171,14 +125,6 @@ type LinkedDeviceApprovalBaseV1 = {
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly permission: DelegatedWalletAuthorityV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-  /**
-   * Source projections authenticated by the owner Wallet Session. The server
-   * re-resolves each lane against the active authority before preparation.
-   */
-  readonly orderedOwnerSourceLaneHints: readonly [
-    LinkedDeviceOwnerSourceLaneV1,
-    ...LinkedDeviceOwnerSourceLaneV1[],
-  ];
   readonly approvedAtMs: number;
   readonly expiresAtMs: number;
 };

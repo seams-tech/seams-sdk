@@ -3,7 +3,6 @@ import type {
   LinkedDeviceRevokeResultV1,
   LinkedDeviceSummaryV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
-  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
@@ -16,11 +15,6 @@ import type {
   OrdinarySignerMaterialRecipientRequestV1,
   LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
 } from './contracts';
-import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
-import type {
-  EcdsaCapabilityManifestId,
-  EcdsaCapabilityManifestRevision,
-} from '../utils/ecdsaCapabilityActivation';
 import type {
   DeviceId,
   WalletSessionAuthorizationId,
@@ -34,7 +28,6 @@ import type {
 } from '../signing-lanes/ids';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type {
-  MpcMaterialActivationRef,
   WalletAuthorityId,
   WalletAuthMethodId,
   WalletId,
@@ -69,15 +62,6 @@ declare const credentialIdB64u: WebAuthnCredentialIdB64u;
 declare const rpId: WebAuthnRpId;
 declare const walletAuthMethodId: WalletAuthMethodId;
 declare const authenticatorDevice: WebAuthnAuthenticatorDeviceInfo;
-declare const ed25519WalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>;
-declare const ecdsaWalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ecdsa_secp256k1' }>;
-declare const ownerLane: Extract<
-  SigningLaneRecord,
-  { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
->;
-declare const materialActivation: MpcMaterialActivationRef;
-declare const manifestId: EcdsaCapabilityManifestId;
-declare const manifestRevision: EcdsaCapabilityManifestRevision;
 declare const targetDeviceId: DeviceId;
 declare const walletAuthorityId: WalletAuthorityId;
 declare const activeAuthority: ActiveWalletAuthorityV1;
@@ -106,47 +90,6 @@ acceptsWalletAuthorityId(walletAuthMethodId);
 
 declare const payload: QrLinkedDeviceSessionPayloadV5;
 declare const ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
-
-const ed25519OwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
-  kind: 'linked_device_owner_source_lane_v1',
-  keyFamily: 'ed25519',
-  walletKey: ed25519WalletKey,
-  lane: ownerLane,
-  materialActivation,
-  verifiedActivationReceiptDigestB64u: digest,
-};
-
-const ecdsaOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
-  kind: 'linked_device_owner_source_lane_v1',
-  keyFamily: 'ecdsa_secp256k1',
-  walletKey: ecdsaWalletKey,
-  lane: ownerLane,
-  materialActivation,
-  verifiedActivationReceiptDigestB64u: digest,
-  ecdsaSourceManifest: { manifestId, manifestRevision },
-};
-
-// @ts-expect-error Ed25519 source projections cannot carry ECDSA manifest identity.
-const invalidEd25519OwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
-  ...ed25519OwnerSource,
-  ecdsaSourceManifest: { manifestId, manifestRevision },
-};
-
-// @ts-expect-error ECDSA source projections require exact active manifest identity.
-const invalidEcdsaOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
-  kind: 'linked_device_owner_source_lane_v1',
-  keyFamily: 'ecdsa_secp256k1',
-  walletKey: ecdsaWalletKey,
-  lane: ownerLane,
-  materialActivation,
-  verifiedActivationReceiptDigestB64u: digest,
-};
-
-// @ts-expect-error curve discriminator and wallet-key family must agree.
-const invalidCrossCurveOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
-  ...ed25519OwnerSource,
-  walletKey: ecdsaWalletKey,
-};
 
 // Persisted permissions are delegated authorities with an opaque canonical set.
 const invalidPermissionPayload: QrLinkedDeviceSessionPayloadV5 = {
@@ -192,7 +135,6 @@ const approval: LinkedDeviceApprovalV1 = {
   permission: payload.requestedPermission,
   targetFactor: { kind: 'passkey_prf' },
   ownerAuthorization,
-  orderedOwnerSourceLaneHints: [ed25519OwnerSource],
   approvedAtMs: 1,
   expiresAtMs: 2,
 };
@@ -244,13 +186,6 @@ const invalidSummaryState: LinkedDeviceSummaryV1 = {
 // @ts-expect-error successful revocation results require enrollment receipt identity
 const invalidRevokeResult: LinkedDeviceRevokeResultV1 = {
   kind: 'revoked',
-};
-
-// Approval always contains a non-empty ordered owner-source projection.
-const invalidEmptyApprovalManifest: LinkedDeviceApprovalV1 = {
-  ...approval,
-  // @ts-expect-error empty source projections cannot activate an enrollment
-  orderedOwnerSourceLaneHints: [],
 };
 
 const targetPreparation: LinkedDeviceTargetPreparationV1 = {
@@ -361,7 +296,6 @@ const invalidClaimedCancel: LinkedDeviceSessionTransportRequestV1 = {
 void invalidPermissionPayload;
 void invalidPermissionPresence;
 void invalidOwnerAuthorization;
-void invalidEmptyApprovalManifest;
 void invalidEmptyTargetPreparation;
 
 // @ts-expect-error Email OTP preparation cannot carry passkey creation options.
@@ -378,11 +312,6 @@ void invalidSummaryState;
 void invalidRevokeResult;
 void invalidUnclaimedCancel;
 void invalidClaimedCancel;
-void ed25519OwnerSource;
-void ecdsaOwnerSource;
-void invalidEd25519OwnerSource;
-void invalidEcdsaOwnerSource;
-void invalidCrossCurveOwnerSource;
 
 const ed25519OnlyAuthorityActivations: Extract<
   WalletSignerActivationSetV1,
