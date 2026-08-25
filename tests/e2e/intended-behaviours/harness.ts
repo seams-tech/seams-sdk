@@ -1140,6 +1140,43 @@ export class IntendedBehaviourHarness {
   }
 
   /**
+   * Refactor 109C: adding a family the authority already has is refused at
+   * admission, before anything is verified or written.
+   *
+   * The counters matter as much as the refusal. A repeat that costs the user
+   * another code, or writes a second enrollment before noticing, is a
+   * different behaviour from one that answers off the existing inventory.
+   */
+  async assertRepeatAdditionIsAlreadyConfigured(
+    action: 'addPasskeyAuthMethod' | 'addEmailOtpAuthMethod',
+  ): Promise<void> {
+    this.recordStage('repeat_addition_already_configured');
+    const passkeyPromptsBefore = this.passkeyPromptCount;
+    const emailVerificationsBefore = this.emailOtpVerificationCount;
+    const snapshot = await this.runIntendedPageAction(
+      action,
+      action === 'addPasskeyAuthMethod'
+        ? 'intended-add-passkey-auth-method'
+        : 'intended-add-email-otp-auth-method',
+      { expectedOutcome: 'error' },
+    );
+    if (snapshot.action.status === 'success') {
+      throw new Error('repeating an addition succeeded; it must be already_configured');
+    }
+    const detail = String(snapshot.action.status === 'error' ? snapshot.action.error : '');
+    if (!/already[\s_]?(has|configured)/i.test(detail)) {
+      throw new Error(`repeat addition failed for the wrong reason: ${detail}`);
+    }
+    if (
+      this.passkeyPromptCount !== passkeyPromptsBefore ||
+      this.emailOtpVerificationCount !== emailVerificationsBefore
+    ) {
+      throw new Error('repeat addition verified a factor before answering already_configured');
+    }
+    this.recordService('repeat addition refused as already configured');
+  }
+
+  /**
    * Refactor 109C: the last way into a wallet cannot be removed.
    *
    * A wallet with one method has no sibling to authorize the removal, and a
