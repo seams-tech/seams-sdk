@@ -3025,6 +3025,18 @@ export async function copyWalletCustodyEcdsaContinuityToAuthMethod(input: {
   const sources = listed.subjects.filter(
     (subject) => subject.authority.walletAuthMethodId === input.sourceWalletAuthMethodId,
   );
+  // Copying nothing has to be loud. If the source method holds no capability,
+  // the added method silently ends up with no access and only surfaces later as
+  // a missing lane at unlock, with nothing pointing back to here.
+  if (sources.length === 0) {
+    throw new Error(
+      `ECDSA custody continuity found no active capability for source method ${String(
+        input.sourceWalletAuthMethodId,
+      )} among [${listed.subjects
+        .map((subject) => String(subject.authority.walletAuthMethodId))
+        .join(', ')}]`,
+    );
+  }
   for (const source of sources) {
     const sourceLookup = await store.lookup(source);
     if (sourceLookup.kind !== 'active') {
@@ -3276,9 +3288,16 @@ async function lookupWithoutPointer(
     };
   }
   if (hasDifferentAuthority) {
+    // R109C: a sibling method on the same wallet authority holding its own
+    // projection is the ordinary state, not a mismatch. The question asked was
+    // whether THIS authority has one, and it does not. Reporting a mismatch
+    // here would make installing the second method's access look like
+    // corruption; whether the two methods may share custody at all is settled
+    // by the membership check at the copy boundary, not by this scan.
     return {
-      kind: 'exact_binding_mismatch',
-      detail: 'ECDSA capability exists under a different exact authority',
+      kind: 'missing',
+      subject: 'capability',
+      detail: 'no ECDSA capability manifest exists for this exact authority',
     };
   }
   return {
