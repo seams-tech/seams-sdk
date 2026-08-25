@@ -646,6 +646,26 @@ missing-family action for a Passkey-only authority; the paired case lists both
 active methods on that same authority and proves the whole addition section is
 absent. `linkedDevicesModal.unit.test.ts`: 7 passing.
 
+The signer-profile matrix has one cell of six, and that cell earned its place
+immediately. Both transition contracts run on combined wallets, where every
+addition has an ECDSA capability to carry forward and an Ed25519 signer to
+inherit; a wallet owning one family is where the addition can assume the other
+exists. The first such cell - an Ed25519-only wallet gaining Email OTP - failed
+on contact, because the ECDSA continuity copy refused to copy nothing. That
+guard is right when a wallet holds capabilities but none for the source method,
+and wrong when it never had ECDSA at all.
+
+The other five cells need work that is not the addition itself:
+
+- The two ECDSA-only cells need a registered wallet with no NEAR identity, and
+  the intended harness has no such shape - every `passkey_registration_success`
+  arm carries either a NEAR identity or a NEAR provisioning status.
+- The two Email-OTP-registered cells need a signer selection threaded through
+  the Google registration flow, which today registers with the configured
+  default and takes no selection.
+- The two Email-OTP + Ed25519 cells additionally wait on explicit method
+  selection, as above.
+
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,
 a credential binding, or an identity could be addressed without saying which
