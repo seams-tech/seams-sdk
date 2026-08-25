@@ -1,4 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { emailOtpDeviceEnrollmentId } from '@shared/utils/emailOtpDomain';
+import {
+  buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
+  CIPHERTEXT_B64U,
+  VALID_SECP256K1_PUBLIC_KEY_B64U,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
+
+const EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION = 'enrollment-seal-v1';
 import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   D1WalletStore,
@@ -581,15 +589,20 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       addAuthMethodIntentGrant: intent.addAuthMethodIntentGrant,
       addAuthMethodIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
       intent: intent.intent,
+      /* The route verifies the assertion and hands the service the credential
+         it proved; at this layer the credential is resolved by id. `app_session`
+         was a retired auth kind — `AddAuthMethodExistingAuth` has three, and it
+         is not among them. */
       auth: {
-        kind: 'app_session',
-        policy: {
-          permission: 'wallet_auth_method_provision',
-          walletId,
-          authMethod: intent.intent.authMethod,
-          runtimePolicyScope,
-          expiresAtMs: Date.now() + 60_000,
+        kind: 'webauthn_assertion',
+        rpId,
+        credential: {
+          id: String(founding.authMethod.credentialIdB64u),
+          rawId: String(founding.authMethod.credentialIdB64u),
+          type: 'public-key',
+          response: {},
         },
+        expectedChallengeDigestB64u: intent.addAuthMethodIntentDigestB64u,
       },
       authority: {
         kind: 'email_otp',
@@ -624,6 +637,16 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       code: 'invalid_body',
       message: 'add-auth-method ceremony subject mismatch',
     });
+    /* R109C: the browser opens the source envelope and reseals the same seed
+       under the verified Email factor, and this wallet has no shared enrollment
+       yet, so the addition creates one in the same batch. */
+    const resealedEnvelope = buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture({
+      walletId: String(walletId),
+      envelopeId: 'email-envelope:add-auth-resealed',
+      enrollmentId: emailOtpDeviceEnrollmentId(String(walletId), providerSubject),
+      enrollmentSealKeyVersion: EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION,
+      walletAuthMethodId: String(intent.intent.targetWalletAuthMethodId),
+    });
     const finalized = await service.walletAuthMethods.finalizeWalletAddAuthMethod({
       authorization: { kind: 'owner' as const },
       subject: {
@@ -631,6 +654,16 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
         walletId,
       },
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+      custodyEnvelope: resealedEnvelope,
+      emailOtpTarget: {
+        kind: 'new_enrollment',
+        enrollment: {
+          enrollmentSealKeyVersion: EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION,
+          clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
+          unlockKeyVersion: 'unlock-v1',
+          serverSealedFactorCiphertextB64u: CIPHERTEXT_B64U,
+        },
+      },
     });
     if (!finalized.ok) throw new Error(`Expected add-auth finalization: ${finalized.message}`);
     const addedWalletAuthMethodId = String(finalized.authority.bindingId);
@@ -672,6 +705,12 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       emailHashHex,
       registrationAuthorityId: challenge.challenge.challengeId,
     });
+    /* Inverted on purpose. This used to expect `not_found`: the ceremony was
+       consumed and the Email branch wrote no replay record, so an exact retry
+       after a lost response answered as though the addition had never
+       happened. R109C requires the retry to return the same active method, so
+       the identical request now replays it. A different request against the
+       same ceremony is still refused as a conflict. */
     await expect(
       service.walletAuthMethods.finalizeWalletAddAuthMethod({
         authorization: { kind: 'owner' as const },
@@ -680,11 +719,18 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           walletId,
         },
         addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+        custodyEnvelope: resealedEnvelope,
+        emailOtpTarget: {
+          kind: 'new_enrollment',
+          enrollment: {
+            enrollmentSealKeyVersion: EMAIL_OTP_ENROLLMENT_SEAL_KEY_VERSION,
+            clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_B64U,
+            unlockKeyVersion: 'unlock-v1',
+            serverSealedFactorCiphertextB64u: CIPHERTEXT_B64U,
+          },
+        },
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'not_found',
-    });
+    ).resolves.toEqual(finalized);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

@@ -33,6 +33,8 @@ import {
   walletIdFromString,
 } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import { D1WalletAuthMethodStore } from '../../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './passkeyCustodyEnvelope.fixtures';
 import { prepareD1WalletAuthorityPutStatement } from '../../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
@@ -1212,6 +1214,23 @@ export async function seedFoundingPasskeyAuthority(input: {
     ensureSchema: false,
   });
   await store.putV2(fixture.authMethod);
+  /* A founding method always owns live custody in production, and an addition
+     refuses without it — it has to open the source envelope to reseal the seed.
+     Seeding the authority without one describes a wallet nothing can be added
+     to. */
+  const envelopes = new CloudflareD1PasskeyCustodyEnvelopeStore({
+    database: input.database,
+    scope,
+  });
+  await envelopes.createEnvelope(
+    buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+      walletId: String(fixture.authority.walletId),
+      envelopeId: `passkey-envelope:${input.identity.walletAuthMethodId}`,
+      rpId: String(fixture.authMethod.rpId),
+      credentialIdB64u: String(fixture.authMethod.credentialIdB64u),
+      walletAuthMethodId: String(fixture.authMethod.walletAuthMethodId),
+    }),
+  );
   return fixture;
 }
 

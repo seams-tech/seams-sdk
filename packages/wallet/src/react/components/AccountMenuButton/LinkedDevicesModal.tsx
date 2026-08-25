@@ -62,6 +62,15 @@ type RevokeState =
     }
   | { kind: 'error'; message: string };
 
+type AddAuthMethodState =
+  | { readonly kind: 'idle'; readonly emailAddress: string }
+  | {
+      readonly kind: 'working';
+      readonly method: 'passkey' | 'email_otp';
+      readonly emailAddress: string;
+    }
+  | { readonly kind: 'error'; readonly emailAddress: string; readonly message: string };
+
 type PasskeyWalletAuthMethodBinding = Extract<
   WalletAuthMethodBinding,
   { readonly kind: 'passkey' }
@@ -238,6 +247,22 @@ function canRemoveWalletMethod(
   return isActiveWalletMethod(target) ? activeMethodCount > 1 : activeMethodCount > 0;
 }
 
+function missingAuthMethod(
+  bindings: readonly WalletAuthMethodBinding[],
+): 'passkey' | 'email_otp' | null {
+  const hasPasskey = bindings.some((binding) => binding.kind === 'passkey');
+  const hasEmailOtp = bindings.some((binding) => binding.kind === 'email_otp');
+  if (hasPasskey === hasEmailOtp) return null;
+  return hasPasskey ? 'email_otp' : 'passkey';
+}
+
+function configuredWalletRpId(seams: ReturnType<typeof useSeams>['seams']): string {
+  const configured = String(seams.configs.wallet.iframe?.rpIdOverride || '').trim();
+  if (configured) return configured;
+  if (typeof window !== 'undefined' && window.location.hostname) return window.location.hostname;
+  throw new Error('Passkey addition requires a configured relying-party ID.');
+}
+
 /**
  * Plain-language state for one device. The wire model carries five states and a
  * revocation epoch; a person only needs to know whether the device can still
@@ -336,9 +361,13 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { seams, loginState } = useSeams();
+  const { seams, loginState, refreshLoginState } = useSeams();
   const [loadState, setLoadState] = React.useState<LinkedDevicesLoadState>({ kind: 'idle' });
   const [revokeState, setRevokeState] = React.useState<RevokeState>({ kind: 'idle' });
+  const [addMethodState, setAddMethodState] = React.useState<AddAuthMethodState>({
+    kind: 'idle',
+    emailAddress: '',
+  });
   const [announcement, setAnnouncement] = React.useState('');
   /** Device IDs are identifiers, not secrets, but printing one in full by
    * default buries the rest of the card. One card at a time may expand. */
@@ -420,6 +449,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       loadSeq.current += 1;
       setLoadState({ kind: 'idle' });
       setRevokeState({ kind: 'idle' });
+      setAddMethodState({ kind: 'idle', emailAddress: '' });
       setAnnouncement('');
       setExpandedDeviceId(null);
       return;
@@ -545,10 +575,55 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     }
   }, [finishRevocation, revokeState, seams, walletId]);
 
+  const addMissingMethod = React.useCallback(async () => {
+    if (!walletId || !loginState.isLoggedIn || addMethodState.kind === 'working') return;
+    const missing = missingAuthMethod(loginState.authMethods);
+    if (!missing) return;
+    const emailAddress = addMethodState.emailAddress.trim();
+    if (missing === 'email_otp' && !emailAddress) {
+      setAddMethodState({
+        kind: 'error',
+        emailAddress,
+        message: 'Enter the email address to verify.',
+      });
+      return;
+    }
+    setAddMethodState({ kind: 'working', method: missing, emailAddress });
+    setAnnouncement(
+      missing === 'passkey' ? 'Adding a passkey…' : 'Adding Email OTP authentication…',
+    );
+    try {
+      if (missing === 'passkey') {
+        await seams.registration.addPasskey({
+          walletId,
+          rpId: configuredWalletRpId(seams),
+        });
+      } else {
+        await seams.registration.addEmailOtp({ walletId, emailAddress });
+      }
+      await refreshLoginState(walletId);
+      await loadDevices();
+      setAddMethodState({ kind: 'idle', emailAddress: '' });
+      setAnnouncement(
+        missing === 'passkey'
+          ? 'Passkey authentication was added.'
+          : 'Email OTP authentication was added.',
+      );
+    } catch (error: unknown) {
+      setAddMethodState({
+        kind: 'error',
+        emailAddress,
+        message: linkedDevicesLoadErrorMessage(error),
+      });
+    }
+  }, [addMethodState, loadDevices, loginState, refreshLoginState, seams, walletId]);
+
   if (!isOpen) return null;
 
   const devices = loadState.kind === 'loaded' ? loadState.devices : [];
   const showEmpty = loadState.kind === 'loaded' && devices.length === 0;
+  const missingMethod = loginState.isLoggedIn ? missingAuthMethod(loginState.authMethods) : null;
+  const addingMethod = addMethodState.kind === 'working';
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
@@ -581,6 +656,72 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           </h2>
 
           <div className="w3a-linked-devices-modal-body">
+            {missingMethod ? (
+              <section
+                className="w3a-linked-devices-modal-add-method"
+                aria-labelledby="w3a-linked-devices-add-method-title"
+              >
+                <h3 id="w3a-linked-devices-add-method-title">Add an authentication method</h3>
+                {missingMethod === 'email_otp' ? (
+                  <form
+                    className="w3a-linked-devices-modal-otp-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void addMissingMethod();
+                    }}
+                  >
+                    <label htmlFor={`${otpInputId}-add-email`}>Email address</label>
+                    <input
+                      id={`${otpInputId}-add-email`}
+                      className="w3a-linked-devices-modal-otp-input"
+                      type="email"
+                      name="email"
+                      autoComplete="email"
+                      value={addMethodState.emailAddress}
+                      disabled={addingMethod}
+                      aria-invalid={addMethodState.kind === 'error' ? 'true' : undefined}
+                      aria-describedby={
+                        addMethodState.kind === 'error'
+                          ? `${otpInputId}-add-method-error`
+                          : undefined
+                      }
+                      onChange={(event) =>
+                        setAddMethodState({
+                          kind: 'idle',
+                          emailAddress: event.currentTarget.value,
+                        })
+                      }
+                    />
+                    <button
+                      type="submit"
+                      className="w3a-linked-devices-modal-secondary"
+                      disabled={addingMethod}
+                    >
+                      {addingMethod ? 'Adding…' : 'Add Email OTP'}
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className="w3a-linked-devices-modal-secondary"
+                    disabled={addingMethod}
+                    onClick={() => void addMissingMethod()}
+                  >
+                    {addingMethod ? 'Adding…' : 'Add passkey'}
+                  </button>
+                )}
+                {addMethodState.kind === 'error' ? (
+                  <div
+                    id={`${otpInputId}-add-method-error`}
+                    className="w3a-linked-devices-modal-error"
+                    role="alert"
+                  >
+                    {addMethodState.message}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
             {loadState.kind === 'loading' || loadState.kind === 'idle' ? (
               <div className="w3a-linked-devices-modal-placeholder">Checking your devices…</div>
             ) : null}
