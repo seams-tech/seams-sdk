@@ -489,7 +489,6 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     const rpId = 'example.com';
     const providerSubject = 'google:add-auth-user';
     const email = 'add.auth@example.test';
-    const appSessionVersion = 'add-auth-session-v1';
     const durableObjects = new RecordingDurableObjectNamespace();
     await insertSignerWallet({ database, ...scope, walletId });
     /* R109C adds to an authority that already exists, so the founding one is
@@ -558,8 +557,11 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
       orgId: scope.orgId,
       email,
       otpChannel: 'email_otp',
-      sessionHash: intent.addAuthMethodIntentDigestB64u,
-      appSessionVersion,
+      /* The value the ceremony's own verification checks the code against, and
+         what the enrollment-code route now computes server-side. `sessionHash`
+         and `appSessionVersion` were this field's retired names; neither
+         appears in production. */
+      ownerProofBindingDigest: intent.addAuthMethodIntentDigestB64u,
     });
     expect(challenge.ok, JSON.stringify(challenge)).toBe(true);
     if (!challenge.ok) throw new Error(challenge.message);
@@ -600,11 +602,10 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
           otpCode: outbox.otpCode,
           otpChannel: 'email_otp',
           registrationIntentDigestB64u: intent.addAuthMethodIntentDigestB64u,
-          appSessionVersion,
         },
       },
     });
-    expect(started.ok).toBe(true);
+    expect(started.ok, JSON.stringify(started)).toBe(true);
     if (!started.ok) throw new Error(started.message);
     expect(started.intent).toEqual(intent.intent);
 
