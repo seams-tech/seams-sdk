@@ -29,6 +29,7 @@ type IntendedActionName =
   | 'registerPasskeyEd25519YaoWallet'
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'addEmailOtpAuthMethod'
+  | 'unlockWithAddedEmailOtp'
   | 'addPasskeyAuthMethod'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
@@ -283,6 +284,22 @@ type EmailOtpUnlockCoreSummary = {
 
 type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSummary;
 
+/**
+ * Refactor 109C: the Email OTP method just added opened its wallet.
+ *
+ * Leaner than the registered-wallet unlock summary on purpose. That one comes
+ * from the Google flow, which discovers the wallet and reports its NEAR
+ * identity on the way. An added method is enrolled under the address itself, so
+ * the wallet is named directly and what this proves is narrower: this wallet
+ * opened, under an active session, through the added method.
+ */
+type AddedEmailOtpUnlockResultSummary = {
+  kind: 'added_email_otp_unlock_success';
+  walletId: string;
+  signingSessionStatus: string;
+  remainingUses: number | null;
+};
+
 type TempoSigningResultSummary = {
   kind: 'tempo_sign_success';
   walletId: string;
@@ -337,6 +354,7 @@ type IntendedActionResult =
   | PasskeySyncResultSummary
   | PasskeyUnlockResultSummary
   | EmailOtpUnlockResultSummary
+  | AddedEmailOtpUnlockResultSummary
   | TempoSigningResultSummary
   | ArcEvmSigningResultSummary
   | Ed25519ExportResultSummary
@@ -566,6 +584,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-unlock-added-email-otp"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runUnlockWithAddedEmailOtp}
+            style={buttonStyle}
+          >
+            Unlock With Added Email Code
+          </button>
+          <button
+            type="button"
             data-testid="intended-add-passkey-auth-method"
             disabled={state.action.status === 'running'}
             onClick={controller.runAddPasskeyAuthMethod}
@@ -746,6 +773,10 @@ class IntendedPageController {
 
   runAddEmailOtpAuthMethod = (): void => {
     void this.addEmailOtpAuthMethod();
+  };
+
+  runUnlockWithAddedEmailOtp = (): void => {
+    void this.unlockWithAddedEmailOtp();
   };
 
   runAddPasskeyAuthMethod = (): void => {
@@ -946,6 +977,62 @@ class IntendedPageController {
           walletId: String(result.walletId),
           emailAddress: result.emailAddress,
           authMethod: result.authMethod,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
+  /**
+   * Refactor 109C: unlock through the Email OTP method the wallet just added.
+   *
+   * Deliberately not `unlockEmailOtpWallet`, which resolves the wallet from a
+   * Google subject. An added method carries the verified address as its own
+   * provider identity, so there is no subject to discover from - the wallet is
+   * named, the address is the identity, and the code proves control of it.
+   */
+  private async unlockWithAddedEmailOtp(): Promise<void> {
+    const action: IntendedActionName = 'unlockWithAddedEmailOtp';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const walletId = this.walletId;
+      if (!walletId) throw new Error('added email-code unlock requires a registered wallet');
+      const emailAddress = intendedAddEmailOtpAddress(walletId);
+      intendedEmailOtpChallengeSubjectOverride = emailAddress;
+      await this.seams.auth.lock();
+      const challenge = await this.seams.auth.requestEmailOtpChallenge({
+        walletId,
+        onEvent: this.recordLifecycleEvent,
+      });
+      const otpCode = await this.readEmailOtpCodeForChallenge({
+        kind: 'challenge',
+        challengeId: challenge.challengeId,
+        walletId,
+      });
+      const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
+      if (sdkTargets.kind !== 'explicit') {
+        throw new Error('added email-code unlock requires a configured ECDSA target');
+      }
+      const [chainTarget] = sdkTargets.targets;
+      const capability = await this.seams.auth.loginWithEmailOtpEcdsaCapability({
+        walletSession: { walletId: toWalletId(walletId), walletSessionUserId: walletId },
+        chainTarget,
+        providerIdentity: { provider: 'email', providerSubjectId: emailAddress },
+        emailOtpAuthorityEmail: emailAddress,
+        challengeId: challenge.challengeId,
+        otpCode,
+        onEvent: this.recordLifecycleEvent,
+      });
+      await this.refreshLoginState(walletId);
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'added_email_otp_unlock_success',
+          walletId,
+          signingSessionStatus: String(capability.authorization.status),
+          remainingUses: null,
         },
       });
     } catch (error) {
@@ -1685,6 +1772,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'passkey_sync_success':
     case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
+    case 'added_email_otp_unlock_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ed25519_export_success':
@@ -1712,6 +1800,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
        account it signs for. */
     case 'add_email_otp_success':
     case 'add_passkey_success':
+    case 'added_email_otp_unlock_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
@@ -1739,6 +1828,7 @@ function intendedActionResultNearSignerSlot(
     case 'passkey_sync_success':
     case 'passkey_recovery_success':
     case 'email_otp_unlock_success':
+    case 'added_email_otp_unlock_success':
     case 'add_email_otp_success':
     case 'add_passkey_success':
     case 'tempo_sign_success':

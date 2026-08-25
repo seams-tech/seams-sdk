@@ -86,6 +86,7 @@ type IntendedHarnessAction =
   | 'recoverPasskeyWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
+  | 'unlockWithAddedEmailOtp'
   | 'signNearTransaction'
   | 'signTempoTransaction'
   | 'signArcEvmTransaction'
@@ -446,10 +447,18 @@ type AddPasskeyAuthMethodResultSnapshot = {
   authMethod: { kind: 'passkey'; status: 'active' };
 };
 
+type AddedEmailOtpUnlockResultSnapshot = {
+  kind: 'added_email_otp_unlock_success';
+  walletId: string;
+  signingSessionStatus: string;
+  remainingUses: number | null;
+};
+
 type IntendedActionResultSnapshot =
   | PasskeyRegistrationResultSnapshot
   | Ed25519AddSignerResultSnapshot
   | AddEmailOtpAuthMethodResultSnapshot
+  | AddedEmailOtpUnlockResultSnapshot
   | AddPasskeyAuthMethodResultSnapshot
   | EmailOtpRegistrationResultSnapshot
   | NearProvisioningReadySnapshot
@@ -1170,6 +1179,46 @@ export class IntendedBehaviourHarness {
     this.recordService(
       `NEAR provisioning ready wallet=${ready.walletId} near=${ready.nearAccountId}`,
     );
+  }
+
+  /**
+   * Refactor 109C: the Email OTP method just added actually opens the wallet.
+   *
+   * Mirrors `unlockWithAddedPasskey`, and deliberately not
+   * `unlockEmailOtpWallet`, which requires an Email-OTP-REGISTERED wallet and
+   * finds it from a Google subject. This wallet was registered with a passkey,
+   * and the added method's identity is the verified address itself.
+   */
+  async unlockWithAddedEmailOtp(): Promise<void> {
+    this.recordStage('unlock_with_added_email_otp');
+    const registration = this.requireRegisteredWalletForSigning();
+    await this.resetRuntimeOnlyState();
+    const snapshot = await this.runIntendedPageAction(
+      'unlockWithAddedEmailOtp',
+      'intended-unlock-added-email-otp',
+    );
+    if (snapshot.action.status !== 'success') {
+      throw new Error(
+        `unlock with the added email code ended with ${snapshot.action.status}: ${
+          snapshot.action.status === 'error' ? snapshot.action.error : ''
+        }`,
+      );
+    }
+    const result = snapshot.action.result;
+    if (result.kind !== 'added_email_otp_unlock_success') {
+      throw new Error(`unlock with the added email code returned ${result.kind}`);
+    }
+    if (result.walletId !== registration.walletId) {
+      throw new Error('unlock with the added email code opened a different wallet');
+    }
+    if (result.signingSessionStatus !== 'active') {
+      throw new Error(
+        `unlock with the added email code did not activate its Wallet Session: ${result.signingSessionStatus}`,
+      );
+    }
+    this.currentWarmSigningStage = 'post_unlock';
+    this.emailOtpVerificationCount += 1;
+    this.recordService(`added email code unlocked wallet=${String(registration.walletId)}`);
   }
 
   async unlockPasskeyWallet(): Promise<void> {
@@ -3953,6 +4002,18 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         authMethod: { kind: 'passkey', status: 'active' },
       };
     }
+    case 'added_email_otp_unlock_success': {
+      const remainingUses = record.remainingUses;
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'added email-code unlock walletId'),
+        signingSessionStatus: requireString(
+          record.signingSessionStatus,
+          'added email-code unlock signing session status',
+        ),
+        remainingUses: typeof remainingUses === 'number' ? remainingUses : null,
+      };
+    }
     case 'near_sign_success':
       return {
         kind,
@@ -4218,6 +4279,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'recoverPasskeyWallet':
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
+    case 'unlockWithAddedEmailOtp':
     case 'signNearTransaction':
     case 'signTempoTransaction':
     case 'signArcEvmTransaction':

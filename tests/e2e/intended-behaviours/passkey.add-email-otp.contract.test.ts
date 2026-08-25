@@ -8,5 +8,7 @@ import { intendedTest as test } from './harness';
  */
 test('a passkey wallet can add an email code as a second way in', async ({ harness }) => {
   await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
   await harness.addEmailOtpAuthMethod();
+  await harness.unlockWithAddedEmailOtp();
 });
