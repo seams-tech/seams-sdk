@@ -796,6 +796,24 @@ export interface AuthCapability {
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
+  /**
+   * Unlock through an Email OTP method added to an existing authority.
+   *
+   * Distinct from `loginWithEmailOtpEcdsaCapability`, which establishes one
+   * curve's capability. A method added to an authority that already has signer
+   * activations wants all of them, so this asks the authority what it has and
+   * unlocks against that - one code, every family the wallet owns. The address
+   * is the identity; no Google token is involved.
+   */
+  unlockAddedEmailOtpWallet(args: {
+    walletId: string;
+    walletAuthMethodId: string;
+    email: string;
+    providerSubjectId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl: string;
+  }): Promise<void>;
   beginGoogleEmailOtpWalletAuth(
     args: GoogleEmailOtpWalletAuthStartInput,
   ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>>;

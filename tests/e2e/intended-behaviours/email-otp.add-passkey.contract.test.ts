@@ -15,6 +15,8 @@ test('an Email OTP wallet can add a passkey as a second way in', async ({ harnes
      it. That is the direction whose proof comes from the Email OTP sibling. */
   await harness.revokeSourceAuthMethod('added');
   await harness.addPasskeyAuthMethod();
+  await harness.assertRepeatAdditionIsAlreadyConfigured('addPasskeyAuthMethod');
+  await harness.assertLockedPageReloadStaysLocked();
   await harness.unlockWithAddedPasskey();
   /* Every signer family the wallet has, then every key family it can export.
      An added method that can only reach one of them is not a second way in. */

@@ -2973,6 +2973,22 @@ export class WalletIframeRouter {
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
+  async unlockAddedEmailOtpWallet(payload: {
+    walletId: string;
+    walletAuthMethodId: string;
+    email: string;
+    providerSubjectId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl: string;
+  }): Promise<void> {
+    await this.post<{ ok: true }>({
+      type: 'PM_UNLOCK_ADDED_EMAIL_OTP_WALLET',
+      payload,
+    });
+    await this.refreshExactSessionAndEmitLoginStatus('current', { kind: 'current' });
+  }
+
   async loginWithEmailOtpEcdsaCapability(
     payload: EmailOtpEcdsaCapabilityArgs & {
       publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];

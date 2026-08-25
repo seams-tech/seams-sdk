@@ -208,6 +208,10 @@ declare global {
       input: IntendedEmailOtpCodeRequestForPage,
     ) => Promise<string>;
     __seamsIntendedConcurrentActionObserver?: IntendedConcurrentActionObserver;
+    __seamsIntendedE2ELockWallet?: () => Promise<void>;
+    __seamsIntendedE2EReadWalletLockState?: () => Promise<{
+      reusableWalletSessionKind: string;
+    }>;
   }
 }
 
@@ -1646,6 +1650,45 @@ export class IntendedBehaviourHarness {
     this.intendedPageReady = true;
     this.reloadIntendedPageBeforeNextAction = false;
     this.recordService('page refreshed preserving wallet storage');
+  }
+
+  async assertLockedPageReloadStaysLocked(): Promise<void> {
+    this.recordStage('locked_page_reload_stays_locked');
+    await this.ensureIntendedPageOpen();
+    await this.page.evaluate(async () => {
+      const lockWallet = window.__seamsIntendedE2ELockWallet;
+      if (!lockWallet) throw new Error('Intended wallet lock helper is unavailable');
+      await lockWallet();
+    });
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_out',
+    );
+
+    this.latestPageSnapshot = null;
+    await this.page.goto(this.intendedPageUrl().href, { waitUntil: 'domcontentloaded' });
+    const pageRoot = this.page.getByTestId('intended-e2e-page');
+    await pageRoot.waitFor({ state: 'visible', timeout: 15_000 });
+    await this.page.waitForFunction(
+      () => typeof window.__seamsIntendedE2EReadWalletLockState === 'function',
+      undefined,
+      { timeout: 15_000 },
+    );
+    const lockState = await this.page.evaluate(async () => {
+      const readLockState = window.__seamsIntendedE2EReadWalletLockState;
+      if (!readLockState) throw new Error('Intended wallet lock-state helper is unavailable');
+      return await readLockState();
+    });
+    if (lockState.reusableWalletSessionKind === 'active') {
+      throw new Error('A locked Wallet Session became active after page reload');
+    }
+    await expect(pageRoot).toHaveAttribute('data-login-state', 'logged_out');
+    await expect(pageRoot).toHaveAttribute('data-login-wallet-id', '');
+    this.intendedPageReady = true;
+    this.reloadIntendedPageBeforeNextAction = false;
+    this.recordService(
+      `locked page reload remained locked session=${lockState.reusableWalletSessionKind}`,
+    );
   }
 
   async assertNearDemoSigningActionable(): Promise<void> {

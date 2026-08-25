@@ -18,10 +18,10 @@ test('a passkey wallet can add an email code as a second way in', async ({ harne
      An added method that can only reach one of them is not a second way in. */
   await harness.signTempoTransaction('post_unlock');
   await harness.exportEcdsaKey();
-  /* ECDSA only, pending one entry point. The Ed25519 request is made by
-     `unlockLinkedDeviceEmailOtpWallet`, which today is reachable only as a
-     dependency of the Google-backed flow; the address-based path this contract
-     uses goes through `loginWithEmailOtpEcdsaCapability`, which never asks for
-     Ed25519. The authority-scoped request now exists on the first function and
-     starts working the moment an address-based caller can reach it. */
+  /* ECDSA only, pending one step that is not ours. Unlocking the added method
+     through the authority - which is what yields every family from one code -
+     needs the wallet's selection to name that method, and the selection store
+     holds exactly one per wallet. Choosing a method is a product action in the
+     account UI; there is no public API for it, and inventing one here would be
+     guessing at that surface. Everything behind it is in place. */
 });

@@ -197,6 +197,15 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_UNLOCK_ADDED_EMAIL_OTP_WALLET: async (req: Req<'PM_UNLOCK_ADDED_EMAIL_OTP_WALLET'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload!;
+      if (deps.respondIfCancelled(req.requestId)) return;
+      await pm.auth.unlockAddedEmailOtpWallet(payload);
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, { ok: true });
+    },
+
     PM_REVOKE_AUTH_METHOD: async (req: Req<'PM_REVOKE_AUTH_METHOD'>) => {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;

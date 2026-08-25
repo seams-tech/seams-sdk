@@ -1292,6 +1292,8 @@ export class SeamsWeb {
           await this.refreshEmailOtpSigningSessionDomain(args),
         loginWithEmailOtpEcdsaCapability: async (args) =>
           await this.loginWithEmailOtpEcdsaCapabilityDomain(args),
+        unlockAddedEmailOtpWallet: async (args) =>
+          await this.loginWithLinkedEmailOtpWalletDomain({ ...args, provider: 'email' }),
         beginGoogleEmailOtpWalletAuth: async (args) =>
           await this.beginGoogleEmailOtpWalletAuthDomain(args),
       },
@@ -2434,7 +2436,27 @@ export class SeamsWeb {
     challengeId: string;
     otpCode: string;
     relayUrl: string;
+    /* Google is the default because this began as that flow's dependency. An
+       Email method added to an existing authority is verified by address, and
+       the unlock underneath has always taken either. */
+    provider?: 'google' | 'email';
   }): Promise<void> {
+    /* The wallet's stores live in the iframe when one is in use, so this has to
+       cross the boundary like every other domain call rather than open a
+       database the parent origin does not have. */
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
+      await router.unlockAddedEmailOtpWallet({
+        walletId: args.walletId,
+        walletAuthMethodId: args.walletAuthMethodId,
+        email: args.email,
+        providerSubjectId: args.providerSubjectId,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        relayUrl: args.relayUrl,
+      });
+      return;
+    }
     const emailHashHex = await this.emailOtpEmailHashHex(args.email);
     await unlockLinkedDeviceEmailOtpWallet({
       context: this.getContext(),
@@ -2442,7 +2464,7 @@ export class SeamsWeb {
       emailHashHex,
       walletAuthMethodId: args.walletAuthMethodId,
       providerSubjectId: args.providerSubjectId,
-      provider: 'google',
+      provider: args.provider || 'google',
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       relayUrl: args.relayUrl,
