@@ -2785,6 +2785,52 @@ async function ownerAuthorityEd25519UnlockRequest(
   return { signerSlot, remainingUses: DEFAULT_UNLOCK_REMAINING_USES };
 }
 
+/**
+ * R109C: where an Email OTP unlock's signer material comes from.
+ *
+ * A linked device carries sealed material of its own and must have it. An Email
+ * method added to an existing authority has none and must not be given any -
+ * its access is the authority's, reached through the owner path. Both name an
+ * exact authority and an exact method; only the material differs, so the two
+ * are separate shapes rather than one shape with an optional field. Inferring
+ * provenance from whether material happened to be present is what let an owner
+ * sibling fall into the linked-device path and fail there.
+ */
+type EmailOtpUnlockSourceV1 =
+  | {
+      readonly kind: 'owner_authority';
+      readonly selection: LinkedDeviceEmailOtpAuthoritySelection;
+      readonly signerMaterials?: never;
+    }
+  | {
+      readonly kind: 'linked_device';
+      readonly selection: LinkedDeviceEmailOtpAuthoritySelection;
+      readonly signerMaterials: readonly [
+        WalletAuthoritySignerMaterialRecordV1,
+        ...WalletAuthoritySignerMaterialRecordV1[],
+      ];
+    };
+
+function emailOtpUnlockSource(
+  selection: LinkedDeviceEmailOtpAuthoritySelection,
+): EmailOtpUnlockSourceV1 {
+  const [first, ...rest] = selection.signerMaterials;
+  /* Provenance decides this, not the material: a device-linked authority always
+     has material, so its absence there is corruption rather than an owner
+     sibling. The selection resolver already refuses a device_link authority
+     with no material. */
+  if (selection.authority.provenance.kind === 'device_link') {
+    if (!first) {
+      throw new Error('[login] linked Email OTP authority has no signer material');
+    }
+    return { kind: 'linked_device', selection, signerMaterials: [first, ...rest] };
+  }
+  if (first) {
+    throw new Error('[login] owner Email OTP authority must not carry linked signer material');
+  }
+  return { kind: 'owner_authority', selection };
+}
+
 export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly context: LoginWebContext;
   readonly walletIdInput: string;
