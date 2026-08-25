@@ -1231,14 +1231,10 @@ export class CloudflareD1WalletAuthMethodService {
   /**
    * The factor whose envelope a revoked method owned.
    *
-   * A Passkey method names its own factor exactly — RP and credential — so its
-   * envelope is addressable from the record. An Email OTP method does not: the
-   * envelope factor is keyed by enrollment, the enrollment table holds one row
-   * per wallet, and every Email method on that wallet therefore resolves to the
-   * same factor. Revoking one sibling's envelope would revoke the other's, so
-   * this returns no statements for the Email branch rather than guessing a
-   * binding the schema does not express. That gap is recorded in
-   * docs/refactor-109C.md and needs a method-to-envelope binding to close.
+   * Selected by the owning method the envelope itself records, so an Email
+   * method's envelope is removable without touching its sibling's even though
+   * both share one provider enrollment. Legacy unbound envelopes match nothing
+   * and survive until an open has upgraded them.
    */
   private async prepareRevokedMethodEnvelopeStatements(input: {
     readonly walletId: WalletId;
@@ -1249,22 +1245,14 @@ export class CloudflareD1WalletAuthMethodService {
     | { readonly kind: 'refused'; readonly reason: string }
     | { readonly kind: 'version_mismatch' }
   > {
-    switch (input.method.kind) {
-      case 'passkey':
-        return await this.passkeyCustodyEnvelopes.prepareFactorEnvelopeRevocationStatements({
-          walletId: input.walletId,
-          factor: {
-            kind: 'passkey',
-            rpId: requireStoredRpId(String(input.method.rpId)),
-            credentialIdB64u: requireStoredCredentialId(String(input.method.credentialIdB64u)),
-          },
-          revokedAtMs: input.revokedAtMs,
-        });
-      case 'email_otp':
-        return { kind: 'prepared', statements: [] };
-      default:
-        return unreachableRevokedMethodKind(input.method);
-    }
+    /* One rule for both families now that an envelope names its owner. The
+       Passkey branch used to select by credential and the Email branch could
+       not select at all, because Email siblings share a factor address. */
+    return await this.passkeyCustodyEnvelopes.prepareMethodEnvelopeRevocationStatements({
+      walletId: input.walletId,
+      walletAuthMethodId: input.method.walletAuthMethodId,
+      revokedAtMs: input.revokedAtMs,
+    });
   }
 
   private prepareAddAuthMethodSourceGuard(input: {
@@ -2145,6 +2133,14 @@ export class CloudflareD1WalletAuthMethodService {
             requestedAtMs: input.requestedAtMs,
           }),
           ...envelopeRevocation.statements,
+          /* Last, so the reference count it tests already excludes the method
+             this batch just revoked. The shared provider enrollment survives
+             every revocation but the one that removes its final reference. */
+          ...(targetMethod.kind === 'email_otp'
+            ? [this.emailOtpChallengeVerifier.prepareDeleteEnrollmentIfUnreferencedStatement(
+                String(walletId),
+              )]
+            : []),
         ],
       });
       if (revoked.kind === 'would_remove_last_wallet_auth_method') {

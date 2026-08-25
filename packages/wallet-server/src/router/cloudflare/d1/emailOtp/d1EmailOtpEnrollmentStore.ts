@@ -86,6 +86,42 @@ export class CloudflareD1EmailOtpEnrollmentStore {
     await this.prepareDeleteEnrollmentStatement(walletId).run();
   }
 
+  /**
+   * Deletes the shared provider enrollment only once nothing references it.
+   *
+   * The enrollment is deliberately shared: every Email method on a wallet
+   * unwraps through it, and R109D keeps active and pending methods pointing at
+   * one row. So revoking a method must not remove it — only the disappearance
+   * of its last reference may.
+   *
+   * The count is a predicate inside the statement rather than a read taken
+   * beforehand, so a method activating concurrently cannot lose its enrollment
+   * between the check and the delete. Sequenced after the method revocation in
+   * the same batch, the revoked method already reads as revoked here.
+   */
+  prepareDeleteEnrollmentIfUnreferencedStatement(walletId: string): D1PreparedStatementLike {
+    return this.prepare(
+      `DELETE FROM email_otp_wallet_enrollments
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND wallet_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+              FROM wallet_auth_methods
+             WHERE wallet_auth_methods.namespace = email_otp_wallet_enrollments.namespace
+               AND wallet_auth_methods.org_id = email_otp_wallet_enrollments.org_id
+               AND wallet_auth_methods.project_id = email_otp_wallet_enrollments.project_id
+               AND wallet_auth_methods.env_id = email_otp_wallet_enrollments.env_id
+               AND wallet_auth_methods.wallet_id = email_otp_wallet_enrollments.wallet_id
+               AND wallet_auth_methods.kind = 'email_otp'
+               AND wallet_auth_methods.status <> 'revoked'
+          )`,
+      [walletId],
+    );
+  }
+
   prepareDeleteEnrollmentStatement(walletId: string): D1PreparedStatementLike {
     return this.prepare(
       `DELETE FROM email_otp_wallet_enrollments
