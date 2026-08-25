@@ -873,6 +873,7 @@ export type ParentToChildType =
   | 'PM_ADD_PASSKEY'
   | 'PM_ADD_EMAIL_OTP'
   | 'PM_REVOKE_AUTH_METHOD'
+  | 'PM_UNLOCK_ADDED_EMAIL_OTP_WALLET'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -1026,6 +1027,16 @@ export interface PMAddEmailOtpPayload {
   walletId: WalletId | string;
   emailAddress: string;
   options?: Record<string, unknown>;
+}
+
+export interface PMUnlockAddedEmailOtpWalletPayload {
+  walletId: string;
+  walletAuthMethodId: string;
+  email: string;
+  providerSubjectId: string;
+  challengeId: string;
+  otpCode: string;
+  relayUrl: string;
 }
 
 export interface PMRevokeAuthMethodPayload {
@@ -1554,6 +1565,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ADD_PASSKEY', PMAddPasskeyPayload>
   | RpcEnvelope<'PM_ADD_EMAIL_OTP', PMAddEmailOtpPayload>
   | RpcEnvelope<'PM_REVOKE_AUTH_METHOD', PMRevokeAuthMethodPayload>
+  | RpcEnvelope<'PM_UNLOCK_ADDED_EMAIL_OTP_WALLET', PMUnlockAddedEmailOtpWalletPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>

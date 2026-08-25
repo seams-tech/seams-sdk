@@ -459,6 +459,10 @@ type IntendedEmailOtpOutboxSuccess = {
 declare global {
   interface Window {
     __seamsIntendedE2EReadEmailOtpCode?: (input: IntendedEmailOtpCodeRequest) => Promise<string>;
+    __seamsIntendedE2ELockWallet?: () => Promise<void>;
+    __seamsIntendedE2EReadWalletLockState?: () => Promise<{
+      reusableWalletSessionKind: WalletSession['reusableWalletSession']['kind'];
+    }>;
   }
 }
 
@@ -856,6 +860,18 @@ class IntendedPageController {
     void this.exportEd25519Key();
   };
 
+  lockWalletForIntendedTest = async (): Promise<void> => {
+    await this.seams.auth.lock();
+    await this.refreshLoginState(this.walletId);
+  };
+
+  readWalletLockStateForIntendedTest = async (): Promise<{
+    reusableWalletSessionKind: WalletSession['reusableWalletSession']['kind'];
+  }> => {
+    const session = await this.seams.auth.getWalletSession(this.walletId);
+    return { reusableWalletSessionKind: session.reusableWalletSession.kind };
+  };
+
   private async registerPasskeyWallet(): Promise<void> {
     const action: IntendedActionName = 'registerPasskeyWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -1089,6 +1105,22 @@ class IntendedPageController {
       if (!walletId) throw new Error('added email-code unlock requires a registered wallet');
       const emailAddress = intendedAddEmailOtpAddress(walletId);
       intendedEmailOtpChallengeSubjectOverride = emailAddress;
+      /* Read before locking: the unlock names the exact method it opens, and
+         once the wallet is locked there is no session left to ask. */
+      const openSession = await this.seams.auth.getWalletSession(walletId);
+      if (openSession.appIdentity.kind !== 'resolved') {
+        throw new Error(`added email-code unlock identity is ${openSession.appIdentity.kind}`);
+      }
+      const emailBindings = openSession.appIdentity.authMethods.filter(
+        (binding) => binding.kind === 'email_otp',
+      );
+      const [addedBinding, ...extraBindings] = emailBindings;
+      if (!addedBinding || extraBindings.length > 0) {
+        throw new Error(
+          `added email-code unlock needs one email method, found ${emailBindings.length}`,
+        );
+      }
+      const addedMethodId = String(addedBinding.walletAuthMethodId);
       await this.seams.auth.lock();
       const challenge = await this.seams.auth.requestEmailOtpChallenge({
         walletId,
@@ -1099,12 +1131,17 @@ class IntendedPageController {
         challengeId: challenge.challengeId,
         walletId,
       });
+      /* `unlockAddedEmailOtpWallet` is the call that yields every family from
+         one code, but it unlocks the wallet's SELECTED method, and choosing a
+         method is a product action that does not exist yet. Until it does, the
+         added method opens its ECDSA capability directly. */
       const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
       if (sdkTargets.kind !== 'explicit') {
         throw new Error('added email-code unlock requires a configured ECDSA target');
       }
       const [chainTarget] = sdkTargets.targets;
-      const capability = await this.seams.auth.loginWithEmailOtpEcdsaCapability({
+      void addedMethodId;
+      await this.seams.auth.loginWithEmailOtpEcdsaCapability({
         walletSession: { walletId: toWalletId(walletId), walletSessionUserId: walletId },
         chainTarget,
         providerIdentity: { provider: 'email', providerSubjectId: emailAddress },
@@ -1114,14 +1151,17 @@ class IntendedPageController {
         onEvent: this.recordLifecycleEvent,
       });
       await this.refreshLoginState(walletId);
+      const unlockedSession = await this.seams.auth.getWalletSession(walletId);
+      const reusable = unlockedSession.reusableWalletSession;
       this.dispatch({
         kind: 'action_succeeded',
         action,
         result: {
           kind: 'added_email_otp_unlock_success',
           walletId,
-          sessionWalletAuthMethodId: String(capability.authorization.authority.walletAuthMethodId),
-          signingSessionStatus: String(capability.authorization.status),
+          sessionWalletAuthMethodId:
+            reusable.kind === 'active' ? String(reusable.walletAuthMethodId) : null,
+          signingSessionStatus: reusable.kind,
           remainingUses: null,
         },
       });
@@ -2803,6 +2843,8 @@ function parseEmailOtpOutboxSuccess(raw: unknown): IntendedEmailOtpOutboxSuccess
 function installIntendedE2EHelpers(controller: IntendedPageController): void {
   if (typeof window === 'undefined') return;
   window.__seamsIntendedE2EReadEmailOtpCode = controller.readEmailOtpCodeForChallenge;
+  window.__seamsIntendedE2ELockWallet = controller.lockWalletForIntendedTest;
+  window.__seamsIntendedE2EReadWalletLockState = controller.readWalletLockStateForIntendedTest;
 }
 
 function requireHex(value: unknown, label: string): `0x${string}` {

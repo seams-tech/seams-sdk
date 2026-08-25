@@ -355,6 +355,7 @@ export class SeamsWebIframe {
         await this.router.refreshEmailOtpSigningSession(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
         await this.router.loginWithEmailOtpEcdsaCapability(args),
+      unlockAddedEmailOtpWallet: async (args) => await this.router.unlockAddedEmailOtpWallet(args),
       beginGoogleEmailOtpWalletAuth: async (args) =>
         await this.router.beginGoogleEmailOtpWalletAuth(args),
     };

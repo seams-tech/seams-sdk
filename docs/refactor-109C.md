@@ -66,12 +66,22 @@ therefore enforces.
 - [x] The addition action is derived from active methods on the authority that
       contains the exact selected `walletAuthMethodId`. It offers only the
       missing family and disappears when both Passkey and Email OTP are active.
+      The logged-in component proof first shows the missing-family action and
+      then removes it for a two-method authority —
+      `linkedDevicesModal.unit.test.ts`, 7 passing.
 - [x] The Passkey-to-Email-OTP form renders the required security note and uses
       a labelled email input. The Email-OTP-to-Passkey branch uses the configured
       wallet RP ID.
 - [x] Removal targets one exact `walletAuthMethodId`, requires a different
       selected sibling as its proof source, exposes both owner methods, and
       preserves the server's atomic final-method guard.
+- [x] Repeating either target-family addition returns `already_configured`
+      without increasing the Email OTP verification or Passkey prompt count.
+      Both narrow intended-browser contracts pass.
+- [x] A public wallet lock survives a storage-preserving page reload. The
+      post-reload UI remains logged out and the freshly read reusable Wallet
+      Session remains non-active. The Email-OTP-to-Passkey intended contract
+      passes with this check before unlocking through the added Passkey.
 - [ ] Run both browser transitions, explicitly lock and unlock with each method,
       then prove step-up and Wallet Session issuance remain bound to the exact
       method selected by the user.
@@ -605,33 +615,41 @@ anticipates - the challenge boundary takes an operation fingerprint, so the
 proof is a bound challenge plus its code rather than an assertion. Until it
 exists, `passkey_to_email_otp` proves addition and unlock but not removal.
 
-Two items are specified and unstarted, and both sit in code another agent is
-actively changing.
+The remaining Email OTP Ed25519 gap sits in authority projection code another
+agent is actively changing.
 
-An added Email OTP method reaches Ed25519 only through one entry point it
-cannot currently use. The request is made in `unlockLinkedDeviceEmailOtpWallet`,
-which asked for Ed25519 only when the selection carried linked signer material -
-material an added sibling never has, because it is not a linked device. That
-gate now falls back to the authority's own Ed25519 signer activation, which is
-the right question: the Ed25519 signer belongs to the authority, not to
-whichever credential authenticates it. Nothing is copied, no activation is
-created, and the unlock mints a capability bound to the method that opened it.
+The previous explanation for added-Email-OTP Ed25519 was stale. The unlock
+protocol already supports the required composition: an `ed25519_yao` request
+issues the exact reusable Wallet Session and the Ed25519 capability, then
+provisions ECDSA when that authority also has an ECDSA activation. It needs no
+new capability-union branch and no new public login entry point.
 
-What remains is reachability. That function is a dependency of the Google-backed
-flow and has no address-based caller; the supported address-based path runs
-through `loginWithEmailOtpEcdsaCapability`, which never asks for Ed25519. The
-underlying function already accepts `provider: 'email'` - only the wrapper
-around it is Google-shaped. Exposing an address-based caller is a public-API
-decision, and the fix behind it is already in place.
+The remaining defect is earlier in the flow. Selection of the added Email OTP
+method must project the selected authority's existing Ed25519 signer activation
+before the unlock request is built. The signer belongs to the authority; the
+new method authenticates access to that signer. Registered Email OTP Ed25519
+unlock is already green after `fdf67168b`, so the added-method repair belongs in
+the exact authority projection rather than a second unlock protocol or a
+linked-device-material fallback. No signer material is copied and no activation
+is created.
 
-The Add action's disappearance when both families are active is implemented but
-unproven. `missingAuthMethodForSelectedAuthority` returns null when a wallet has
-both, which is the behaviour wanted. Asserting it needs the modal's test harness
-to render logged in: the component reads `loginState.currentAuthMethod` from the
-`useSeams` context, and the harness supplies only `seams`, so the add section
-never renders there at all. A test written against the harness as it stands
-would pass without exercising anything - confirmed by writing the positive case
-first and watching it fail.
+Half of that has landed. `unlockLinkedDeviceEmailOtpWallet` asked for Ed25519
+only when the selection carried linked signer material, which a sibling never
+has; it now falls back to the authority's own Ed25519 signer activation, and
+`auth.unlockAddedEmailOtpWallet` exposes that unlock by address rather than only
+as the Google flow's dependency. What is left is the selection itself: that call
+opens the wallet's SELECTED method, the selection store holds exactly one per
+wallet, and an addition deliberately leaves the source selected. Choosing the
+sibling is an account-UI action with no API behind it yet, so until it exists the
+added method opens its ECDSA capability directly - which is why the forward
+contract asserts ECDSA and the reverse one asserts both families.
+
+The Add action's disappearance when both families are active is now proven by a
+logged-in component test. Its session comes from the shared Wallet Session
+factory and the production React projection. The positive case first shows the
+missing-family action for a Passkey-only authority; the paired case lists both
+active methods on that same authority and proves the whole addition section is
+absent. `linkedDevicesModal.unit.test.ts`: 7 passing.
 
 Eleven distinct assumptions had to go, and they were all the same assumption:
 that a wallet has exactly one auth method, so a capability, a lane, a selection,

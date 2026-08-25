@@ -14,6 +14,7 @@ export type AuthCapabilityDomainMethods = {
   requestEmailOtpSigningSessionChallenge: AuthCapability['requestEmailOtpSigningSessionChallenge'];
   refreshEmailOtpSigningSession: AuthCapability['refreshEmailOtpSigningSession'];
   loginWithEmailOtpEcdsaCapability: AuthCapability['loginWithEmailOtpEcdsaCapability'];
+  unlockAddedEmailOtpWallet: AuthCapability['unlockAddedEmailOtpWallet'];
   beginGoogleEmailOtpWalletAuth: AuthCapability['beginGoogleEmailOtpWalletAuth'];
 };
 
@@ -36,6 +37,7 @@ export function createAuthCapability(deps: {
     requestEmailOtpSigningSessionChallenge: deps.domain.requestEmailOtpSigningSessionChallenge,
     refreshEmailOtpSigningSession: deps.domain.refreshEmailOtpSigningSession,
     loginWithEmailOtpEcdsaCapability: deps.domain.loginWithEmailOtpEcdsaCapability,
+    unlockAddedEmailOtpWallet: deps.domain.unlockAddedEmailOtpWallet,
     beginGoogleEmailOtpWalletAuth: deps.domain.beginGoogleEmailOtpWalletAuth,
   } satisfies AuthCapability;
 }

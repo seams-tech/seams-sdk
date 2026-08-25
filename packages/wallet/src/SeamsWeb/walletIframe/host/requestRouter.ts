@@ -15,6 +15,7 @@ export type NearWalletRequestType =
   | 'PM_ADD_PASSKEY'
   | 'PM_ADD_EMAIL_OTP'
   | 'PM_REVOKE_AUTH_METHOD'
+  | 'PM_UNLOCK_ADDED_EMAIL_OTP_WALLET'
   | 'PM_GET_NEAR_PROVISIONING_STATE'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_SIGN_TX_WITH_ACTIONS'
@@ -153,6 +154,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_ADD_PASSKEY':
     case 'PM_ADD_EMAIL_OTP':
     case 'PM_REVOKE_AUTH_METHOD':
+    case 'PM_UNLOCK_ADDED_EMAIL_OTP_WALLET':
     case 'PM_GET_NEAR_PROVISIONING_STATE':
     case 'PM_PREFETCH_BLOCKHEIGHT':
     case 'PM_SIGN_TX_WITH_ACTIONS':
