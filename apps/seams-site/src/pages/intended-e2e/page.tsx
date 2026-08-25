@@ -245,14 +245,25 @@ type NearSigningResultSummary = {
   signedTransactionByteLength: number;
 };
 
-type PasskeyUnlockResultSummary = {
-  kind: 'passkey_unlock_success';
-  walletId: string;
-  nearAccountId: string;
-  operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
-};
+type PasskeyUnlockResultSummary =
+  | {
+      kind: 'passkey_unlock_success';
+      walletId: string;
+      nearIdentity: 'ready';
+      nearAccountId: string;
+      operationalPublicKey: string;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    }
+  | {
+      kind: 'passkey_unlock_success';
+      walletId: string;
+      nearIdentity: 'absent';
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    };
 
 type PasskeySyncResultSummary = {
   kind: 'passkey_sync_success';
@@ -1691,11 +1702,12 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
-    case 'passkey_unlock_success':
     case 'passkey_sync_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
       return result.nearAccountId ?? null;
+    case 'passkey_unlock_success':
+      return result.nearIdentity === 'ready' ? result.nearAccountId : null;
     /* An added auth method changes who can unlock the wallet, not which NEAR
        account it signs for. */
     case 'add_email_otp_success':
@@ -2437,27 +2449,34 @@ function assertPasskeyUnlockSucceeded(
     throw new Error(result.error || 'Passkey unlock failed');
   }
   const nearAccountId = String(result.nearAccountId || '').trim();
-  if (!nearAccountId) {
-    throw new Error('Passkey unlock did not return a NEAR account id');
-  }
   const operationalPublicKey = String(result.operationalPublicKey || '').trim();
-  if (!operationalPublicKey) {
-    throw new Error('Passkey unlock did not return an operational public key');
-  }
   const signingSessionStatus = String(result.signingSession?.status || '').trim();
   if (signingSessionStatus !== 'active') {
     throw new Error(
       `Passkey unlock did not return an active signing session: ${signingSessionStatus}`,
     );
   }
-  return {
-    kind: 'passkey_unlock_success',
+  const common = {
+    kind: 'passkey_unlock_success' as const,
     walletId: expectedWalletId,
-    nearAccountId,
-    operationalPublicKey,
     signingSessionStatus,
     remainingUses: normalizeOptionalNumber(result.signingSession?.remainingUses),
   };
+  if (nearAccountId && operationalPublicKey) {
+    return {
+      ...common,
+      nearIdentity: 'ready',
+      nearAccountId,
+      operationalPublicKey,
+    };
+  }
+  if (!nearAccountId && !operationalPublicKey) {
+    return {
+      ...common,
+      nearIdentity: 'absent',
+    };
+  }
+  throw new Error('Passkey unlock returned an incomplete NEAR identity');
 }
 
 function requireNearAccountId(nearAccountId: string | null): string {

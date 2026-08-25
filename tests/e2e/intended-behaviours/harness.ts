@@ -352,14 +352,25 @@ type NearSigningResultSnapshot = {
   signedTransactionByteLength: number;
 };
 
-type PasskeyUnlockResultSnapshot = {
-  kind: 'passkey_unlock_success';
-  walletId: string;
-  nearAccountId: string;
-  operationalPublicKey: string;
-  signingSessionStatus: string;
-  remainingUses: number | null;
-};
+type PasskeyUnlockResultSnapshot =
+  | {
+      kind: 'passkey_unlock_success';
+      walletId: string;
+      nearIdentity: 'ready';
+      nearAccountId: string;
+      operationalPublicKey: string;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    }
+  | {
+      kind: 'passkey_unlock_success';
+      walletId: string;
+      nearIdentity: 'absent';
+      nearAccountId?: never;
+      operationalPublicKey?: never;
+      signingSessionStatus: string;
+      remainingUses: number | null;
+    };
 
 type PasskeySyncResultSnapshot = {
   kind: 'passkey_sync_success';
@@ -1064,13 +1075,24 @@ export class IntendedBehaviourHarness {
     if (snapshot.action.status !== 'success') {
       throw new Error(
         `unlock with the added passkey ended with ${snapshot.action.status}: ${
-          snapshot.action.status === 'failed' ? snapshot.action.error : ''
+          snapshot.action.status === 'error' ? snapshot.action.error : ''
         }`,
       );
     }
     const result = snapshot.action.result;
-    if (String((result as { walletId?: unknown }).walletId) !== String(registration.walletId)) {
+    if (result.kind !== 'passkey_unlock_success') {
+      throw new Error(`unlock with the added passkey returned ${result.kind}`);
+    }
+    if (result.walletId !== registration.walletId) {
       throw new Error('unlock with the added passkey opened a different wallet');
+    }
+    if (result.nearIdentity !== 'absent') {
+      throw new Error('ECDSA-only added-passkey unlock unexpectedly returned a NEAR identity');
+    }
+    if (result.signingSessionStatus !== 'active') {
+      throw new Error(
+        `unlock with the added passkey did not activate its Wallet Session: ${result.signingSessionStatus}`,
+      );
     }
     this.passkeyPromptCount += 1;
     this.recordService(`added passkey unlocked wallet=${String(registration.walletId)}`);
@@ -3105,6 +3127,9 @@ function requirePasskeyUnlockResult(
   if (result.walletId !== expected.walletId) {
     throw new Error(`Passkey unlock wallet mismatch: ${result.walletId}`);
   }
+  if (result.nearIdentity !== 'ready') {
+    throw new Error('Passkey unlock did not return its expected NEAR identity');
+  }
   if (result.nearAccountId !== expected.nearAccountId) {
     throw new Error(`Passkey unlock NEAR account mismatch: ${result.nearAccountId}`);
   }
@@ -3837,6 +3862,40 @@ function parseIntendedPageActionSnapshot(raw: unknown): IntendedPageActionSnapsh
   }
 }
 
+function parsePasskeyUnlockResultSnapshot(
+  record: Record<string, unknown>,
+): PasskeyUnlockResultSnapshot {
+  const nearIdentity = requireString(record.nearIdentity, 'passkey unlock NEAR identity');
+  const common = {
+    kind: 'passkey_unlock_success' as const,
+    walletId: requireString(record.walletId, 'passkey unlock walletId'),
+    signingSessionStatus: requireString(
+      record.signingSessionStatus,
+      'passkey unlock signingSessionStatus',
+    ),
+    remainingUses: nullableNumber(record.remainingUses, 'passkey unlock remainingUses'),
+  };
+  switch (nearIdentity) {
+    case 'ready':
+      return {
+        ...common,
+        nearIdentity,
+        nearAccountId: requireString(record.nearAccountId, 'passkey unlock nearAccountId'),
+        operationalPublicKey: requireString(
+          record.operationalPublicKey,
+          'passkey unlock operationalPublicKey',
+        ),
+      };
+    case 'absent':
+      return {
+        ...common,
+        nearIdentity,
+      };
+    default:
+      throw new Error(`Unknown passkey unlock NEAR identity: ${nearIdentity}`);
+  }
+}
+
 function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSnapshot {
   const record = requireRecord(raw, 'intended action result');
   const kind = requireString(record.kind, 'intended action result kind');
@@ -3927,20 +3986,7 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         ),
       };
     case 'passkey_unlock_success':
-      return {
-        kind,
-        walletId: requireString(record.walletId, 'passkey unlock walletId'),
-        nearAccountId: requireString(record.nearAccountId, 'passkey unlock nearAccountId'),
-        operationalPublicKey: requireString(
-          record.operationalPublicKey,
-          'passkey unlock operationalPublicKey',
-        ),
-        signingSessionStatus: requireString(
-          record.signingSessionStatus,
-          'passkey unlock signingSessionStatus',
-        ),
-        remainingUses: nullableNumber(record.remainingUses, 'passkey unlock remainingUses'),
-      };
+      return parsePasskeyUnlockResultSnapshot(record);
     case 'passkey_sync_success':
       return {
         kind,
