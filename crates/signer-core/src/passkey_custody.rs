@@ -22,6 +22,8 @@ use crate::error::{CoreResult, SignerCoreError};
 
 pub const PASSKEY_CUSTODY_WRAP_ALG_V1: &str = "chacha20poly1305-hkdf-sha256-v1";
 pub const WALLET_CUSTODY_ENVELOPE_VERSION_V2: &str = "wallet_custody_envelope_v2";
+/// Refactor 109C: an envelope whose owning auth method is part of its AAD.
+pub const WALLET_CUSTODY_ENVELOPE_VERSION_V3: &str = "wallet_custody_envelope_v3";
 pub const PASSKEY_CUSTODY_KEK_VERSION_V1: &str = "passkey_prf_kek_hkdf_sha256_v1";
 pub const EMAIL_OTP_FACTOR_KEK_VERSION_V1: &str = "email_otp_factor_kek_hkdf_sha256_v1";
 pub const WALLET_SEED_DERIVATION_SCHEME_V1: &str = "wallet_seed_parallel_hkdf_sha256_v1";
@@ -242,6 +244,34 @@ fn target_factor_matches_envelope(
 /// Every public fact one envelope is bound to. This carries no authorization
 /// identity and no material-activation reference: those are resolved per
 /// operation at the Refactor 90 boundary, never sealed into custody.
+/// Which envelope generation a binding describes, and therefore whether the
+/// owning auth method is authenticated.
+///
+/// Envelopes used to be addressed by factor alone. That holds while a factor
+/// identifies a method, and Email OTP breaks it: the provider enrollment is
+/// deliberately shared across a wallet's Email methods, so two siblings share
+/// one factor address. Binding the method into the AAD is what stops a stored
+/// envelope from being relabelled to its sibling.
+///
+/// `Unbound` exists only to open envelopes sealed before that binding existed.
+/// It is never written: a successful open is followed by a reseal as
+/// `MethodBound` once the exact method has been authenticated.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum PasskeyCustodyEnvelopeOwnershipV1 {
+    Unbound,
+    MethodBound { wallet_auth_method_id: String },
+}
+
+impl PasskeyCustodyEnvelopeOwnershipV1 {
+    pub fn envelope_version(&self) -> &'static str {
+        match self {
+            Self::Unbound => WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+            Self::MethodBound { .. } => WALLET_CUSTODY_ENVELOPE_VERSION_V3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PasskeyCustodyEnvelopeBindingV1 {
@@ -252,6 +282,7 @@ pub struct PasskeyCustodyEnvelopeBindingV1 {
     /// ciphertext cannot be replayed into a newer envelope revision.
     pub envelope_revision: u32,
     pub binding: PasskeyCustodySecretBindingV1,
+    pub ownership: PasskeyCustodyEnvelopeOwnershipV1,
 }
 
 /// A sealed envelope's ciphertext plus the digests the server store and the
@@ -388,11 +419,24 @@ pub fn encode_passkey_custody_aad_v1(
 
     let mut out = Vec::new();
     labeled_field(&mut out, b"context", PASSKEY_CUSTODY_AAD_CONTEXT_V1);
+    // The version label is what keeps a V2 envelope's AAD byte-identical to
+    // what it was sealed under. Adding an unconditional field here would make
+    // every already-sealed envelope fail verification, which is
+    // indistinguishable from custody loss.
     labeled_str(
         &mut out,
         b"envelopeVersion",
-        WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+        binding.ownership.envelope_version(),
     );
+    match &binding.ownership {
+        PasskeyCustodyEnvelopeOwnershipV1::Unbound => {}
+        PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+            wallet_auth_method_id,
+        } => {
+            require_field("walletAuthMethodId", wallet_auth_method_id)?;
+            labeled_str(&mut out, b"walletAuthMethodId", wallet_auth_method_id);
+        }
+    }
     labeled_str(&mut out, b"wrapAlg", PASSKEY_CUSTODY_WRAP_ALG_V1);
     encode_factor(&mut out, &binding.factor)?;
     labeled_str(&mut out, b"walletId", &binding.wallet_id);
@@ -798,4 +842,80 @@ fn require_nonce(nonce: &[u8]) -> CoreResult<[u8; PASSKEY_CUSTODY_NONCE_LEN]> {
             "passkey custody nonce must be {PASSKEY_CUSTODY_NONCE_LEN} bytes"
         ))
     })
+}
+
+#[cfg(test)]
+mod r109c_method_bound_envelope_tests {
+    use super::*;
+
+    fn passkey_factor() -> WalletCustodyEnvelopeFactorV1 {
+        WalletCustodyEnvelopeFactorV1::Passkey {
+            rp_id: "wallet.example.test".to_string(),
+            credential_id_b64u: "Y3JlZGVudGlhbA".to_string(),
+            kek_version: PASSKEY_CUSTODY_KEK_VERSION_V1.to_string(),
+        }
+    }
+
+    fn binding(ownership: PasskeyCustodyEnvelopeOwnershipV1) -> PasskeyCustodyEnvelopeBindingV1 {
+        PasskeyCustodyEnvelopeBindingV1 {
+            wallet_id: "wallet:r109c".to_string(),
+            envelope_id: "wallet-custody-envelope:r109c".to_string(),
+            factor: passkey_factor(),
+            envelope_revision: 1,
+            binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
+                derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
+            },
+            ownership,
+        }
+    }
+
+    fn method_bound(id: &str) -> PasskeyCustodyEnvelopeOwnershipV1 {
+        PasskeyCustodyEnvelopeOwnershipV1::MethodBound {
+            wallet_auth_method_id: id.to_string(),
+        }
+    }
+
+    /// A V2 envelope was sealed before ownership existed. If its AAD changed,
+    /// every already-sealed envelope would fail verification — indistinguishable
+    /// from custody loss — so the unbound encoding must stay byte-identical to
+    /// what it was before ownership was introduced.
+    #[test]
+    fn unbound_aad_carries_no_ownership_and_stays_v2() {
+        let aad = encode_passkey_custody_aad_v1(&binding(
+            PasskeyCustodyEnvelopeOwnershipV1::Unbound,
+        ))
+        .expect("unbound aad");
+        let haystack = String::from_utf8_lossy(&aad).to_string();
+        assert!(haystack.contains(WALLET_CUSTODY_ENVELOPE_VERSION_V2));
+        assert!(!haystack.contains(WALLET_CUSTODY_ENVELOPE_VERSION_V3));
+        assert!(!haystack.contains("walletAuthMethodId"));
+    }
+
+    /// Relabelling a stored envelope to a sibling method has to change the AAD,
+    /// otherwise the row could be pointed at another method and still open. This
+    /// is the whole reason ownership is authenticated rather than indexed.
+    #[test]
+    fn relabelling_a_method_bound_envelope_changes_its_aad() {
+        let owner = encode_passkey_custody_aad_v1(&binding(method_bound(
+            "wallet-auth-method:owner",
+        )))
+        .expect("owner aad");
+        let sibling = encode_passkey_custody_aad_v1(&binding(method_bound(
+            "wallet-auth-method:sibling",
+        )))
+        .expect("sibling aad");
+        assert_ne!(owner, sibling);
+
+        let unbound =
+            encode_passkey_custody_aad_v1(&binding(PasskeyCustodyEnvelopeOwnershipV1::Unbound))
+                .expect("unbound aad");
+        assert_ne!(owner, unbound);
+    }
+
+    /// A method-bound envelope must name a method. An empty id would make the
+    /// binding decorative.
+    #[test]
+    fn method_bound_requires_a_method_id() {
+        assert!(encode_passkey_custody_aad_v1(&binding(method_bound(""))).is_err());
+    }
 }
