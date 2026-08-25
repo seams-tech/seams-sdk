@@ -657,9 +657,15 @@ and wrong when it never had ECDSA at all.
 
 The other five cells need work that is not the addition itself:
 
-- The two ECDSA-only cells need a registered wallet with no NEAR identity, and
-  the intended harness has no such shape - every `passkey_registration_success`
-  arm carries either a NEAR identity or a NEAR provisioning status.
+- The two ECDSA-only cells are blocked before the addition is reached: a passkey
+  registration with an ECDSA-only signer set fails with "Registration owner
+  proof context is unavailable", because that ceremony never stores the context
+  `registrationOwnerProof` then demands. No browser test has ever registered
+  such a wallet - ECDSA-only signer sets appear only in unit fixtures - so this
+  is an unexercised registration path rather than anything the addition does.
+  Modelling the wallet in the harness is the smaller half of that work and was
+  built far enough to prove the blocker is upstream of it, then reverted rather
+  than left as scaffolding for a path that cannot run.
 - The two Email-OTP-registered cells need a signer selection threaded through
   the Google registration flow, which today registers with the configured
   default and takes no selection.
