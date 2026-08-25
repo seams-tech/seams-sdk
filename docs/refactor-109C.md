@@ -423,14 +423,37 @@ The second is unresolved and deeper:
     {"source":"wallet_unlock","authMethod":"passkey","curve":"ecdsa",
      "targetKey":"tempo:42431","state":"missing","candidateCount":0}
 
-The added passkey reaches unlock and finds no ECDSA lane material. This is the
-interesting case rather than a defect to patch: R109C states that factor
-addition creates no signer material and that both methods reference the
-original authority and signer activations. So the added method must reach the
-lane material the wallet already has, and today unlock resolves candidates in a
-way that finds none for it. Whether the fix belongs in lane resolution or in
-what the addition records is the open question — inventing per-method lane
-material would contradict the refactor's own scope.
+The added passkey reaches unlock and finds no ECDSA lane material. The cause is
+exact, in `availableSigningLanes.ts`:
+
+    for (const lane of canonicalEcdsaLanes) {
+      const authMethod = signingLaneAuthMethod(lane.auth);
+      if (input.authMethod && authMethod !== input.authMethod) continue;
+
+Unlocking with the added passkey sets `input.authMethod` to `passkey`, and every
+existing lane was created under `email_otp`, so all are skipped.
+
+A first reading says the filter should key on authority rather than family,
+since R109C's siblings share one authority. That reading is wrong, and the
+correction is the point. `SigningLaneAuthBinding` names a specific method — rpId
+plus credential id for a passkey, provider identity for Email OTP — not an
+authority. A lane is bound to the method that provisioned it by construction,
+and Refactor 102 lane holder shares are per-lane material that is not
+seed-derived. Matching on authority would widen what an existing lane
+authorizes, which is a signing-material decision and not a resolution tweak.
+
+So the real question is which of these R109C intends, and it is not answerable
+from this ledger alone:
+
+- the added method provisions its own lane at first unlock through the existing
+  Refactor 102 path, which is signer material and so needs reconciling with
+  "factor addition creates no signer material" — provisioning at unlock rather
+  than at addition may satisfy both;
+- or lane bindings gain an authority scope, so siblings share a lane
+  deliberately rather than incidentally.
+
+Nothing here should be patched to make the contract green: both options change
+what signing material a factor can reach.
 
 Until that is answered, `email-otp.add-passkey.contract.test.ts` proves the
 addition only. `harness.unlockWithAddedPasskey()` exists and is the step that
