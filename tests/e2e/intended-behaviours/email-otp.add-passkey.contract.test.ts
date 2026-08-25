@@ -11,4 +11,5 @@ test('an Email OTP wallet can add a passkey as a second way in', async ({ harnes
   await harness.registerEmailOtpWallet();
   await harness.awaitNearReady();
   await harness.addPasskeyAuthMethod();
+  await harness.unlockWithAddedPasskey();
 });
