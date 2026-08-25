@@ -921,6 +921,7 @@ class IntendedPageController {
       const walletId = this.walletId;
       if (!walletId) throw new Error('add-email-code requires a registered wallet');
       const emailAddress = intendedAddEmailOtpAddress(walletId);
+      intendedEmailOtpChallengeSubjectOverride = emailAddress;
       const result = await this.seams.registration.addEmailOtp({
         walletId: toWalletId(walletId),
         emailAddress,
@@ -1466,10 +1467,9 @@ class IntendedPageController {
         idToken,
         walletId,
         ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
-        /* Derived, not remembered. The controller is rebuilt on every render,
-           so an instance field set by the action would be gone from the
-           instance the page installed on `window`. */
-        challengeSubjectId: intendedAddEmailOtpAddress(walletId),
+        ...(intendedEmailOtpChallengeSubjectOverride
+          ? { challengeSubjectId: intendedEmailOtpChallengeSubjectOverride }
+          : {}),
       }),
     });
     const json = await response.json();
@@ -2539,6 +2539,17 @@ type EmailOtpCodeLookup =
 function emailOtpDevOutboxUrl(input: { relayerUrl: string }): string {
   return new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl).href;
 }
+
+/**
+ * The subject the dev outbox should read, when it is not the Google identity.
+ *
+ * Module scope, not controller state: the controller is rebuilt on every
+ * render, so the instance the page installed on `window` is not necessarily
+ * the one an action mutated. Only an addition by address sets this; every
+ * other flow's challenges belong to the Google subject the id token carries,
+ * and overriding them would make those unreadable.
+ */
+let intendedEmailOtpChallengeSubjectOverride: string | null = null;
 
 /**
  * The address an added Email OTP method enrols under in this harness.
