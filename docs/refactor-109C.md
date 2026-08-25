@@ -220,30 +220,40 @@ the host handler — because every one of them enumerates request kinds
 explicitly. That is a planned Phase 1/2 surface change, not one localized
 defect, so the "more than five files" stop condition does not apply to it.
 
-### Deferred: the `0013` provider-identity migration
+### Reversed: the `0013` provider-identity migration is in scope
 
-`docs/refactor-109D-multi-auth-linking.md` specifies
-`0013_r109c_multi_auth_email_cardinality.sql` — a migration named for R109C but
-documented in the R109D plan — which would replace the Email V2 branch's
-`registrationAuthorityId` with a canonical `provider` / `providerUserId` pair
-and add a per-authority Email cardinality index. R103E's
-"Relationship to R109C" assigns the canonical provider-identity branches to
-R109C; this plan's own text does not mention a schema change at all.
+An earlier revision of this ledger deferred
+`0013_r109c_multi_auth_email_cardinality.sql`, arguing it was really R109D's
+because R109D's document specifies it. That reading was wrong in both
+directions.
 
-It is deferred, deliberately. R103E's migration `0011` dropped
-`wallet_auth_methods_v2_email_uidx` so linked devices could each hold an Email
-method for one address, and R103E worked around the missing provider identity
-by reading the verified provider subject from the installation's own Ed25519
-lanes, requiring exactly one such subject per wallet. On a single device with
-one Email method that assumption still holds, which is the only configuration
-R109C creates — the assumption breaks for R109D's linked devices, not here.
-R109C's activation guard is NOT yet a conditional insert — see the open defect
-below — so the race is not closed transactionally and the index question cannot
-be settled by pointing at the transaction.
+`docs/refactor-109D-multi-auth-linking.md` assigns ownership explicitly —
+"R109C owns multi-method inventory, same-device factor addition, Email OTP
+cardinality, and verification of the R103E revocation prerequisite" — and its
+Phase 0 refuses to start until "the R109C schema change becomes
+`0013_r109c_multi_auth_email_cardinality.sql`, after the R103E `0012` repair."
+R109D specifies the migration because it is blocked on it, not because it owns
+it. `docs/refactor-103E.md` agrees: it assigns the canonical Passkey and Email
+OTP provider-identity branches to R109C and forbids implementing them in R103E.
 
-If a real browser flow shows the missing provider identity blocking R109C, this
-decision is wrong and the migration comes back into scope; that is a schema
-change worth pausing for rather than absorbing.
+The deferral's supporting argument was also unsound. It claimed the addition
+race was "closed transactionally" by a conditional insert, so the cardinality
+index could wait. There was no conditional insert. There is one now, and it is
+tested, but a guard in one code path is not the schema-level cardinality
+constraint the migration is for.
+
+What `0013` must do, from R109D's specification: join the canonical wallet
+Email enrollment, copy `provider_user_id`, infer `provider` (a `google:`
+subject is `google`, otherwise `email`), retain the normalized
+`email_hash_hex`, rewrite columns and JSON to the final provider identity
+shape, drop `registrationAuthorityId`, and apply the cardinality index. It
+aborts if an active or pending Email method cannot resolve its enrollment, and
+drops unresolvable revoked history. No nullable compatibility fields.
+
+This ripples into `EmailOtpWalletAuthMethodDraftV1`, the V2 store and its
+parsers, and this refactor's own `addWalletAuthMethod.ts` contract, because
+`registrationAuthorityId` disappears from the Email branch. It is not started
+yet and is the largest single remaining server item.
 
 ## Goal
 
