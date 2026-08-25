@@ -3306,12 +3306,17 @@ async function unlockInternal(
 
       // Resolve local ECDSA key facts before planning; authenticated inventory can repair gaps.
       const storedCanonicalEcdsaContext = warmupInput.wantsEcdsaWarmup
-        ? await resolveCanonicalThresholdEcdsaWarmSessionContext(context, walletIdentity.walletId, {
-            keyFactsInventoryAuthority: warmupInput.keyFactsInventoryAuthority,
-            keyFactsInventoryRequested: Boolean(options?.ecdsaKeyFactsInventory),
-            relayerUrl: warmupInput.relayerUrl,
-            rpId: warmupInput.rpId,
-          })
+        ? await resolveCanonicalThresholdEcdsaWarmSessionContext(
+            context,
+            walletIdentity.walletId,
+            {
+              keyFactsInventoryAuthority: warmupInput.keyFactsInventoryAuthority,
+              keyFactsInventoryRequested: Boolean(options?.ecdsaKeyFactsInventory),
+              relayerUrl: warmupInput.relayerUrl,
+              rpId: warmupInput.rpId,
+            },
+            localUnlockAuthMethod,
+          )
         : { ecdsaKeys: [] };
       const thresholdKeyMaterial = await thresholdKeyMaterialPrefetch;
       const participantIds =
