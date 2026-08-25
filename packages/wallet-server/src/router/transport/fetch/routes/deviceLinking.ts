@@ -237,6 +237,7 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'recordTargetCredentialV1'
     | 'recordSourceContributionV1'
     | 'recordEmailOtpChallengeStateV1'
+    | 'failBeforeCommitV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
   > & {
@@ -814,6 +815,21 @@ async function handleEmailOtpBaseFactor(
   const provider = service.emailOtpTargetFactor;
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const resolution = await provider.resolveBaseFactorSelectionV1({ walletId, request });
+  if (resolution.kind === 'unavailable') {
+    const failed = await service.sessionService.failBeforeCommitV1({
+      linkSessionId,
+      expectedRevision: request.expectedRevision,
+      error: {
+        kind: 'target_factor_failed',
+        reason: 'no_active_email_otp_base_factor',
+      },
+      nowMs,
+    });
+    if (failed.outcome !== 'applied' && failed.outcome !== 'replayed') {
+      return sessionResultResponse(failed);
+    }
+    return json({ revision: failed.record.revision, resolution }, { status: 200 });
+  }
   return json({ revision: session.revision, resolution }, { status: 200 });
 }
 

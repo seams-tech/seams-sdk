@@ -182,6 +182,70 @@ test('authenticates the owner before parsing a malformed claim body', async () =
   expect(ownerAuthCalls).toBe(1);
 });
 
+test('terminally fails the claimed session when no Email OTP base method is eligible', async () => {
+  temporary = await openDatabase();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:route-email-base-unavailable',
+    targetFactor: { kind: 'email_otp' },
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const sessionService = buildSessionService(fixture);
+  const created = await sessionService.createUnclaimedSessionV1({
+    payload: fixture.payload,
+    nowMs: 1_000,
+  });
+  if (created.outcome !== 'applied') throw new Error('fixture session creation failed');
+  const claimed = await sessionService.claimSessionV1({
+    payload: fixture.payload,
+    owner: buildR103OwnerApprovalContextV1(fixture.approval),
+    nowMs: 1_500,
+  });
+  if (claimed.outcome !== 'applied') throw new Error('fixture session claim failed');
+  const routeService = routeServiceFor(sessionService, fixture, 2_000, {
+    emailOtpTargetFactor: {
+      resolveBaseFactorSelectionV1: async () => ({
+        kind: 'unavailable',
+        reason: 'no_active_email_otp_base_factor',
+      }),
+      startChallengeV1: async () => {
+        throw new Error('challenge start is outside this test');
+      },
+      verifyChallengeV1: async () => {
+        throw new Error('challenge verification is outside this test');
+      },
+    },
+  });
+
+  const response = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/email-otp-base-factor`,
+    body: { kind: 'resolve', expectedRevision: claimed.record.revision },
+  });
+
+  const responseBody = await response.json();
+  expect({ status: response.status, body: responseBody }).toEqual({
+    status: 200,
+    body: {
+      revision: claimed.record.revision + 1,
+      resolution: {
+        kind: 'unavailable',
+        reason: 'no_active_email_otp_base_factor',
+      },
+    },
+  });
+  const terminal = await sessionService.getSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    nowMs: 2_000,
+  });
+  expect(terminal?.state).toEqual({
+    state: 'failed_before_commit',
+    error: {
+      kind: 'target_factor_failed',
+      reason: 'no_active_email_otp_base_factor',
+    },
+  });
+});
+
 test('serializes the browser ECDSA recipient in the target credential response', async () => {
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:route-result' });
   const digest = parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE');
@@ -516,6 +580,7 @@ function routeServiceFor(
       recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
       recordEmailOtpChallengeStateV1:
         sessionService.recordEmailOtpChallengeStateV1.bind(sessionService),
+      failBeforeCommitV1: sessionService.failBeforeCommitV1.bind(sessionService),
       cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
       getSessionV1: sessionService.getSessionV1.bind(sessionService),
       listSessionsForWalletV1: sessionService.listSessionsForWalletV1.bind(sessionService),
