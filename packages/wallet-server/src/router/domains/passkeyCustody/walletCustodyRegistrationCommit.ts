@@ -1,7 +1,5 @@
-import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import {
   buildActiveEnvelopeLifecycle,
-  buildMethodBoundEnvelopeOwnership,
   buildPasskeyCustodyEnvelopeRecord,
   type WalletCustodyEnvelopeOwnership,
   parseDigestField,
@@ -10,6 +8,7 @@ import {
   parseEnvelopeRevision,
   parsePasskeyCustodySecretBinding,
   parseWalletCustodyEnvelopeFactor,
+  parseWalletCustodyEnvelopeOwnershipWireV1,
   type PasskeyCustodyEnvelopeRecord,
   type WalletCustodyCeremonyCommitPayload,
 } from '@shared/passkey-custody';
@@ -103,19 +102,11 @@ function requirePasskeyEnvelopeId(value: unknown) {
  * from a live ceremony is a downgrade attempt rather than legacy data.
  */
 function ownershipFromSealedBinding(raw: unknown, label: string): WalletCustodyEnvelopeOwnership {
-  if (raw === 'unbound') {
+  const ownership = parseWalletCustodyEnvelopeOwnershipWireV1(raw, label);
+  if (ownership.kind !== 'method_bound') {
     throw new Error(`${label} must be method-bound; every sealed envelope names its auth method`);
   }
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error(`${label} is missing`);
-  }
-  const methodBound = (raw as { methodBound?: unknown }).methodBound;
-  if (typeof methodBound !== 'object' || methodBound === null) {
-    throw new Error(`${label} must carry a methodBound branch`);
-  }
-  const parsed = parseWalletAuthMethodId((methodBound as { walletAuthMethodId?: unknown }).walletAuthMethodId);
-  if (!parsed.ok) throw new Error(`${label}.walletAuthMethodId ${parsed.error.message}`);
-  return buildMethodBoundEnvelopeOwnership(parsed.value);
+  return ownership;
 }
 
 export function buildWalletCustodyRegistrationRecords(args: {

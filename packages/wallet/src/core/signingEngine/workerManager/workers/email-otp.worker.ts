@@ -33,6 +33,7 @@ import {
   type PasskeyCustodyEnvelopeRecord,
   type WalletCustodyEvmFamilyActivationCompletion,
   type WalletCustodyEvmFamilyPublicFacts,
+  custodyEnvelopeBindingJsonV1,
 } from '@shared/passkey-custody';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import {
@@ -664,13 +665,7 @@ function emailOtpEd25519ExportRootEnvelopeWireV1(
   }
   return {
     kind: 'ed25519_yao_client_root_v1',
-    bindingJson: JSON.stringify({
-      walletId: envelope.walletId,
-      envelopeId: envelope.envelopeId,
-      factor: envelope.factor,
-      envelopeRevision: envelope.envelopeRevision,
-      binding: envelope.binding,
-    }),
+    bindingJson: custodyEnvelopeBindingJsonV1(envelope),
     nonce: base64UrlDecode(envelope.nonceB64u),
     ciphertext: base64UrlDecode(envelope.sealedCustodySecretB64u),
     aadHash: base64UrlDecode(envelope.aadHashB64u),
@@ -935,9 +930,9 @@ function readEmailOtpAuthoritySelector(value: unknown): EmailOtpAuthoritySelecto
   throw new Error('Email OTP authority selector kind is invalid');
 }
 
-function emailOtpAuthoritySelectorBody(
-  selector: EmailOtpAuthoritySelector,
-): { readonly walletAuthMethodId?: string } {
+function emailOtpAuthoritySelectorBody(selector: EmailOtpAuthoritySelector): {
+  readonly walletAuthMethodId?: string;
+} {
   return selector.kind === 'wallet_auth_method'
     ? { walletAuthMethodId: selector.walletAuthMethodId }
     : {};
@@ -2186,10 +2181,7 @@ async function unlockLinkedEmailOtpWallet(
       },
     });
     const unlockChallengeId = readString(unlockChallenge.challengeId, 'challengeId');
-    const unlockChallengeB64u = readString(
-      unlockChallenge.challengeB64u,
-      'challengeB64u',
-    );
+    const unlockChallengeB64u = readString(unlockChallenge.challengeB64u, 'challengeB64u');
     challengeDigest32 = base64UrlDecode(unlockChallengeB64u);
     if (challengeDigest32.length !== 32) {
       throw new Error('wallet/unlock/challenge challengeB64u must decode to 32 bytes');
@@ -2201,9 +2193,7 @@ async function unlockLinkedEmailOtpWallet(
       clientSecret32: factorSecret32,
       walletId,
     });
-    unlockPublicKey33 = secp256k1_private_key_32_to_public_key_33(
-      unlockPrivateKey32,
-    ) as Uint8Array;
+    unlockPublicKey33 = secp256k1_private_key_32_to_public_key_33(unlockPrivateKey32) as Uint8Array;
     unlockSignature65 = sign_secp256k1_recoverable(
       challengeDigest32,
       unlockPrivateKey32,
@@ -6904,10 +6894,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'unlockLinkedEmailOtpWallet': {
         const result = await unlockLinkedEmailOtpWallet(msg.payload);
         try {
-          postToMainThread(
-            { id: msg.id, ok: true, result },
-            [result.factorSecret32.buffer],
-          );
+          postToMainThread({ id: msg.id, ok: true, result }, [result.factorSecret32.buffer]);
         } catch (error: unknown) {
           result.factorSecret32.fill(0);
           throw error;
