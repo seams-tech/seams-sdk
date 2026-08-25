@@ -24,6 +24,7 @@ import {
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
 import {
   parsePasskeyEnvelopeId,
+  parseWalletAuthMethodId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
@@ -328,6 +329,7 @@ export type WalletRecoveryRegistrationOptions = {
   readonly challengeId: string;
   readonly challengeB64u: string;
   readonly replacementId: string;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly rpId: string;
   readonly user: {
     readonly idB64u: string;
@@ -808,6 +810,12 @@ export async function createWalletRecoveryRegistrationOptions(input: {
     18,
     'wallet recovery replacement id',
   )}`;
+  const replacementWalletAuthMethodId = parseWalletAuthMethodId(
+    `wallet-auth-method:${secureRandomBase64Url(32, 'recovery wallet auth method id')}`,
+  );
+  if (!replacementWalletAuthMethodId.ok) {
+    return { kind: 'unavailable', reason: 'the replacement auth method id is invalid' };
+  }
   const sourceCredentialIdB64u = parseWebAuthnCredentialIdB64u(input.sourceMethod.credentialIdB64u);
   if (!sourceCredentialIdB64u.ok) {
     return { kind: 'unavailable', reason: 'the source passkey credential id is invalid' };
@@ -820,6 +828,7 @@ export async function createWalletRecoveryRegistrationOptions(input: {
     origin: input.origin,
     rpId: input.rpId,
     replacementId,
+    replacementWalletAuthMethodId: replacementWalletAuthMethodId.value,
     challengeB64u,
     sourceWalletAuthMethodId: input.sourceMethod.walletAuthMethodId,
     sourceCredentialIdB64u: sourceCredentialIdB64u.value,
@@ -852,6 +861,7 @@ export async function createWalletRecoveryRegistrationOptions(input: {
       challengeId,
       challengeB64u,
       replacementId,
+      walletAuthMethodId: replacementWalletAuthMethodId.value,
       rpId: input.rpId,
       user: {
         idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),

@@ -114,6 +114,7 @@ export type WebAuthnRecoveryRegistrationChallengeRecord = {
   readonly origin: string;
   readonly rpId: WebAuthnRpId;
   readonly replacementId: string;
+  readonly replacementWalletAuthMethodId: WalletAuthMethodId;
   readonly challengeB64u: string;
   readonly sourceWalletAuthMethodId: WalletAuthMethodId;
   readonly sourceCredentialIdB64u: WebAuthnCredentialIdB64u;
@@ -189,6 +190,7 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
     'origin',
     'rpId',
     'replacementId',
+    'replacementWalletAuthMethodId',
     'challengeB64u',
     'sourceWalletAuthMethodId',
     'sourceCredentialIdB64u',
@@ -215,6 +217,9 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
   const origin = toOptionalTrimmedString(record.origin);
   const rpId = parseWebAuthnRpId(record.rpId);
   const replacementId = toOptionalTrimmedString(record.replacementId);
+  const replacementWalletAuthMethodId = parseWalletAuthMethodId(
+    record.replacementWalletAuthMethodId,
+  );
   const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
   const sourceWalletAuthMethodId = parseWalletAuthMethodId(record.sourceWalletAuthMethodId);
   const sourceCredentialIdB64u = parseWebAuthnCredentialIdB64u(record.sourceCredentialIdB64u);
@@ -232,6 +237,7 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
     !origin ||
     !rpId.ok ||
     !replacementId ||
+    !replacementWalletAuthMethodId.ok ||
     !challengeB64u ||
     !sourceWalletAuthMethodId.ok ||
     !sourceCredentialIdB64u.ok ||
@@ -254,6 +260,7 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
     origin,
     rpId: rpId.value,
     replacementId,
+    replacementWalletAuthMethodId: replacementWalletAuthMethodId.value,
     challengeB64u,
     sourceWalletAuthMethodId: sourceWalletAuthMethodId.value,
     sourceCredentialIdB64u: sourceCredentialIdB64u.value,

@@ -3,7 +3,6 @@ import {
   parseWalletId,
   parseWebAuthnRpId,
   parseWebAuthnCredentialIdB64u,
-  parseWalletAuthMethodId,
   type WalletId,
   type WalletAuthMethodId,
   type WalletAuthorityId,
@@ -20,7 +19,6 @@ import {
   buildWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
-import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
@@ -115,14 +113,6 @@ function passkeyWalletAuthAuthorityForMethod(
   };
 }
 
-function freshRecoveryWalletAuthMethodId() {
-  const parsed = parseWalletAuthMethodId(
-    `wallet-auth-method:${secureRandomBase64Url(32, 'recovery wallet auth method id')}`,
-  );
-  if (!parsed.ok) throw new Error('recovery wallet auth method id generation failed');
-  return parsed.value;
-}
-
 export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
@@ -192,6 +182,16 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     return {
       kind: 'registration_rejected',
       reason: 'the replacement registration challenge is bound to another recovery',
+    };
+  }
+  if (
+    input.replacementEnvelope.ownership.kind !== 'method_bound' ||
+    input.replacementEnvelope.ownership.walletAuthMethodId !==
+      challenge.replacementWalletAuthMethodId
+  ) {
+    return {
+      kind: 'envelope_rejected',
+      reason: 'the replacement envelope is bound to another auth method',
     };
   }
   const sourceAuthMethod = await sourceAuthMethodForChallenge({
@@ -346,7 +346,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   const walletAuthMethod = requireActivePasskeyWalletAuthMethodRecordV2(
     buildWalletAuthMethodRecordV2({
       version: 'wallet_auth_method_v2',
-      walletAuthMethodId: freshRecoveryWalletAuthMethodId(),
+      walletAuthMethodId: challenge.replacementWalletAuthMethodId,
       walletId,
       walletAuthorityId: sourceAuthMethod.walletAuthorityId,
       kind: 'passkey',
@@ -570,6 +570,12 @@ export async function resolveCommittedRecoveryReplayV1(
       reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
     };
   }
+  if (input.replacementEnvelope.ownership.kind !== 'method_bound') {
+    return {
+      kind: 'rejected',
+      reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
+    };
+  }
 
   const storedEnvelope = await input.envelopeStore.lookupEnvelope({
     walletId,
@@ -637,7 +643,8 @@ export async function resolveCommittedRecoveryReplayV1(
     replacementMethod.rpId !== rpId ||
     replacementMethod.credentialIdB64u !== credentialIdB64u ||
     replacementMethod.credentialPublicKeyB64u !== authenticator.credentialPublicKeyB64u ||
-    replacementMethod.counter !== authenticator.counter
+    replacementMethod.counter !== authenticator.counter ||
+    replacementMethod.walletAuthMethodId !== input.replacementEnvelope.ownership.walletAuthMethodId
   ) {
     return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
   }

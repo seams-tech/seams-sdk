@@ -9,6 +9,8 @@ import {
   parseWebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { resolveCommittedRecoveryReplayV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryFinalization';
+import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
+import { PASSKEY_PRF_KEK_VERSION_V1 } from '../../packages/shared-ts/src/passkey-custody';
 
 const WALLET_ID = 'alice.testnet';
 const RESERVATION_ID = parseRecoveryCodeReservationId('recovery-operation-1');
@@ -88,31 +90,29 @@ function activeEmailOtpMethod() {
 function envelope(input: {
   readonly envelopeId: string;
   readonly credentialIdB64u: string;
+  readonly walletAuthMethodId: string;
   readonly state: 'active' | 'retired';
 }) {
-  return {
-    kind: 'wallet_custody_envelope_v2',
+  return passkeyCustodyEnvelope({
     envelopeId: input.envelopeId,
     walletId: WALLET_ID,
-    binding: { kind: 'wallet_custody_seed_v1' },
+    ownership: {
+      kind: 'method_bound',
+      walletAuthMethodId: input.walletAuthMethodId,
+    },
     factor: {
       kind: 'passkey',
       rpId: 'example.localhost',
       credentialIdB64u: input.credentialIdB64u,
+      kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
     },
-    envelopeVersion: 'v2',
-    envelopeRevision: 1,
-    nonceB64u: 'B'.repeat(16),
-    sealedCustodySecretB64u: 'C'.repeat(64),
-    ciphertextDigestB64u: 'A'.repeat(43),
-    aadHashB64u: 'A'.repeat(43),
     lifecycle:
       input.state === 'active'
         ? { state: 'active', activatedAtMs: 1 }
         : { state: 'retired', activatedAtMs: 1, retiredAtMs: 5 },
     createdAtMs: 1,
     updatedAtMs: 5,
-  } as never;
+  });
 }
 
 function consumedRecoverySet() {
@@ -143,11 +143,13 @@ function replayStores(input: { readonly sourceState: 'active' | 'retired' }) {
   const replacement = envelope({
     envelopeId: 'replacement-1',
     credentialIdB64u: 'replacement-credential',
+    walletAuthMethodId: 'wallet-auth-method:replacement',
     state: 'active',
   });
   const source = envelope({
     envelopeId: 'source-1',
     credentialIdB64u: 'source-credential',
+    walletAuthMethodId: 'wallet-auth-method:source',
     state: input.sourceState,
   });
   const activeMethod = passkeyMethod({

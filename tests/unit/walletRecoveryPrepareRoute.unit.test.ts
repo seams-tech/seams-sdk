@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  createWalletRecoveryRegistrationOptions,
-} from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import { createWalletRecoveryRegistrationOptions } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
@@ -28,17 +26,14 @@ const RP_ID = parseWebAuthnRpId('example.localhost');
 const CREDENTIAL_ID = parseWebAuthnCredentialIdB64u('source-credential');
 const SOURCE_AUTHORITY_DIGEST = parseDigestB64u('A'.repeat(43));
 
-if (
-  !WALLET_ID.ok ||
-  !AUTH_METHOD_ID.ok ||
-  !AUTHORITY_ID.ok ||
-  !RP_ID.ok ||
-  !CREDENTIAL_ID.ok
-) {
+if (!WALLET_ID.ok || !AUTH_METHOD_ID.ok || !AUTHORITY_ID.ok || !RP_ID.ok || !CREDENTIAL_ID.ok) {
   throw new Error('recovery challenge expiry test ids are invalid');
 }
 
-function activeSourceMethod(): Extract<WalletAuthMethodRecordV2, { readonly kind: 'passkey'; readonly status: 'active' }> {
+function activeSourceMethod(): Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'passkey'; readonly status: 'active' }
+> {
   return buildWalletAuthMethodRecordV2({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId: AUTH_METHOD_ID.value,
@@ -67,13 +62,12 @@ test('persists the prepared reservation expiry on the registration challenge', a
   const preparedReservationExpiresAtMs = 1_900_000_300_000;
   let persistedRecordExpiresAtMs: number | undefined;
   let persistedExpiresAtMs: number | undefined;
-  const webAuthnStore: Pick<
-    CloudflareD1WebAuthnStore,
-    'writeChallenge' | 'readBindingRows'
-  > = {
+  let persistedWalletAuthMethodId: string | undefined;
+  const webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'writeChallenge' | 'readBindingRows'> = {
     writeChallenge: async (input) => {
       persistedRecordExpiresAtMs = input.record.expiresAtMs;
       persistedExpiresAtMs = input.expiresAtMs;
+      persistedWalletAuthMethodId = input.record.replacementWalletAuthMethodId;
     },
     readBindingRows: async () => [],
   };
@@ -91,6 +85,8 @@ test('persists the prepared reservation expiry on the registration challenge', a
   });
 
   expect(result.kind).toBe('ready');
+  if (result.kind !== 'ready') throw new Error('recovery registration was unavailable');
   expect(persistedRecordExpiresAtMs).toBe(preparedReservationExpiresAtMs);
   expect(persistedExpiresAtMs).toBe(preparedReservationExpiresAtMs);
+  expect(result.options.walletAuthMethodId).toBe(persistedWalletAuthMethodId);
 });
