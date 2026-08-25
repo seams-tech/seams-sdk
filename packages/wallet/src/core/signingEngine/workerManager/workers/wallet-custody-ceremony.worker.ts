@@ -1,3 +1,5 @@
+import { parsePasskeyEnvelopeId, parseWalletAuthMethodId } from '@shared/utils/domainIds';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import init, {
   wallet_custody_ceremony_establish_v1,
   wallet_custody_ceremony_join_v1,
@@ -30,7 +32,10 @@ import type {
   WalletCustodyCeremonyCommitPayload,
   WalletCustodyEvmFamilyActivationCompletion,
 } from '@shared/passkey-custody';
-import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  buildMethodBoundEnvelopeOwnership,
+  parsePasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { assertEd25519YaoLaneCeremonyBindingParityV1 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
 import type {
@@ -852,6 +857,16 @@ async function establishUnlockedWalletEd25519ExportRootCapability(
     if (String(envelope.walletId) !== walletId) {
       throw new Error('unlocked Ed25519 export-root capability envelope names another wallet');
     }
+    /* A method-bound envelope belongs to exactly one method. Refusing a
+       mismatch here is belt to the AAD's braces: the binding is built from the
+       envelope's own owner, so a relabelled row already fails to open — but a
+       sibling session must not reach a decrypt attempt at all. */
+    if (
+      envelope.ownership.kind === 'method_bound' &&
+      String(envelope.ownership.walletAuthMethodId) !== walletAuthMethodId
+    ) {
+      throw new Error('wallet custody envelope belongs to another auth method');
+    }
     // One capability per wallet: a replacement (new unlock, new session)
     // destroys the previous handle before the new one is admitted.
     for (const [existingId, record] of [...unlockedExportRootCapabilities]) {
@@ -879,6 +894,21 @@ async function establishUnlockedWalletEd25519ExportRootCapability(
       expiresAtMs,
     });
     factorSecretStored = true;
+    /* R109C: a V2 envelope opened under its original AAD is immediately
+       resealed as V3 under the method that just authenticated. This is the only
+       place the upgrade can happen — it needs the factor secret and the exact
+       selected method at the same instant, which is precisely what an unlock
+       has and a migration never does. The caller persists what comes back;
+       until it does, the V2 row stands and the next unlock retries. */
+    const upgradedEnvelope =
+      envelope.ownership.kind === 'unbound'
+        ? resealUnboundEnvelopeAsMethodBound({
+            handle,
+            envelope,
+            factorSecret: existingFactorSecret,
+            walletAuthMethodId,
+          })
+        : null;
     return {
       kind: 'unlocked_wallet_ed25519_export_root_capability_v1',
       capabilityHandleId,
@@ -886,10 +916,82 @@ async function establishUnlockedWalletEd25519ExportRootCapability(
       walletAuthMethodId,
       walletSessionId,
       expiresAtMs,
+      ...(upgradedEnvelope ? { upgradedEnvelope } : {}),
     };
   } finally {
     if (!factorSecretStored) existingFactorSecret.fill(0);
   }
+}
+
+/**
+ * Reseals an opened pre-109C envelope under the method that just authenticated.
+ *
+ * The factor secret is unchanged — this is not a factor change — so the only
+ * thing that moves is ownership, from `unbound` to the exact method, and with
+ * it the AAD generation. A fresh envelope id is allocated because the envelope
+ * stores are insert-only.
+ */
+function resealUnboundEnvelopeAsMethodBound(input: {
+  readonly handle: ReturnType<typeof passkey_custody_open_wallet_seed_v1>;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly factorSecret: Uint8Array;
+  readonly walletAuthMethodId: string;
+}): PasskeyCustodyEnvelopeRecord {
+  const parsedMethodId = parseWalletAuthMethodId(input.walletAuthMethodId);
+  if (!parsedMethodId.ok) {
+    throw new Error(`custody envelope upgrade ${parsedMethodId.error.message}`);
+  }
+  const envelopeIdResult = parsePasskeyEnvelopeId(
+    secureRandomId('wallet-custody-envelope', 24, 'wallet custody envelope ids'),
+  );
+  if (!envelopeIdResult.ok) throw new Error(envelopeIdResult.error.message);
+  const ownership = buildMethodBoundEnvelopeOwnership(parsedMethodId.value);
+  const upgradedBindingJson = JSON.stringify({
+    walletId: input.envelope.walletId,
+    envelopeId: envelopeIdResult.value,
+    factor: input.envelope.factor,
+    envelopeRevision: input.envelope.envelopeRevision,
+    binding: input.envelope.binding,
+    ownership: custodyEnvelopeOwnershipWire(ownership),
+  });
+  const factorSecret = input.factorSecret.slice();
+  let resealed: ReturnType<typeof requireResealedEnvelopeResult>;
+  try {
+    resealed = requireResealedEnvelopeResult(
+      passkey_custody_reseal_wallet_seed_v1(input.handle, factorSecret, upgradedBindingJson),
+    );
+  } finally {
+    factorSecret.fill(0);
+  }
+  const nowMs = Date.now();
+  return parsePasskeyCustodyEnvelopeRecord({
+    ...input.envelope,
+    envelopeId: envelopeIdResult.value,
+    ownership,
+    nonceB64u: resealed.nonceB64u,
+    sealedCustodySecretB64u: resealed.sealedCustodySecretB64u,
+    aadHashB64u: resealed.aadHashB64u,
+    ciphertextDigestB64u: resealed.ciphertextDigestB64u,
+    updatedAtMs: nowMs,
+  });
+}
+
+function requireResealedEnvelopeResult(value: unknown): {
+  readonly nonceB64u: string;
+  readonly sealedCustodySecretB64u: string;
+  readonly aadHashB64u: string;
+  readonly ciphertextDigestB64u: string;
+} {
+  if (!value || typeof value !== 'object') {
+    throw new Error('custody envelope upgrade returned no resealed envelope');
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    nonceB64u: String(record.nonceB64u || ''),
+    sealedCustodySecretB64u: String(record.sealedCustodySecretB64u || ''),
+    aadHashB64u: String(record.aadHashB64u || ''),
+    ciphertextDigestB64u: String(record.ciphertextDigestB64u || ''),
+  };
 }
 
 /** Lock, logout, session retirement, expiry, failed activation, teardown. */
