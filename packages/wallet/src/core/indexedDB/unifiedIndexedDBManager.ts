@@ -485,6 +485,13 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.resolveSelectedWalletAuthority(walletId);
   }
 
+  async resolveWalletAuthorityForMethod(walletId: string, walletAuthMethodId: string) {
+    return this.seamsWalletRepositories.resolveWalletAuthorityForMethod(
+      walletId,
+      walletAuthMethodId,
+    );
+  }
+
   async persistWalletRegistrationFinalize(
     input: StoreWalletRegistrationFinalizeBatchInput,
   ): Promise<StoreWalletRegistrationFinalizeBatchResult> {

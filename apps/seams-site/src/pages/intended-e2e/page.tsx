@@ -1288,9 +1288,9 @@ class IntendedPageController {
         challengeId: challenge.challengeId,
         walletId,
       });
-      /* `unlockAddedEmailOtpWallet` is the call that yields every family from
-         one code, but it unlocks the wallet's SELECTED method, and choosing a
-         method is a product action that does not exist yet. Until it does, the
+      /* `unlockAddedEmailOtpWallet` now resolves and selects this exact method,
+         but then asks for linked-device signer material an owner-side sibling
+         does not have. Until the added method has its own signer access, the
          added method opens its ECDSA capability directly. */
       const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
       if (sdkTargets.kind !== 'explicit') {

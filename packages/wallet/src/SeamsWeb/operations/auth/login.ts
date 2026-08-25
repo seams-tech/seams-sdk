@@ -769,10 +769,23 @@ function linkedDeviceUnlockIdentityMismatchLabels(input: {
   authMethod: WalletAuthMethodRecordV2;
   authority: WalletAuthorityV1;
   expectedKind?: WalletAuthMethodRecordV2['kind'];
+  /**
+   * R109C: the caller named the method rather than taking the selected one.
+   *
+   * The selection still names the sibling that was in use, which is the
+   * expected state for an added method rather than corruption - invariant 9
+   * keeps the source selected until a lock and unlock moves it. Everything else
+   * is still checked, and the move itself remains guarded to members of one
+   * authority.
+   */
+  allowUnselectedSibling?: boolean;
 }): readonly string[] {
   const failures: string[] = [];
   if (input.selection.walletId !== input.walletId) failures.push('selection_wallet_id');
-  if (input.selection.walletAuthMethodId !== input.authMethod.walletAuthMethodId) {
+  if (
+    !input.allowUnselectedSibling &&
+    input.selection.walletAuthMethodId !== input.authMethod.walletAuthMethodId
+  ) {
     failures.push('selection_auth_method_id');
   }
   if (input.authMethod.walletId !== input.walletId) failures.push('auth_method_wallet_id');
@@ -870,6 +883,15 @@ export async function resolveLinkedDeviceEmailOtpAuthoritySelection(args: {
   readonly emailHashHex: string;
   readonly provider: EmailOtpProvider;
   readonly providerSubjectId: string;
+  /**
+   * R109C: resolve as this method rather than as the selected one.
+   *
+   * An added sibling is not selected yet - invariant 9 leaves the source
+   * selected until a lock and unlock - so resolving through the selection would
+   * refuse the very method being unlocked. The unlock moves the selection
+   * afterwards, and that move is still guarded to members of one authority.
+   */
+  readonly walletAuthMethodId?: string;
 }): Promise<LinkedDeviceEmailOtpAuthorityResolution> {
   const parsedWalletId = parseWalletId(args.walletIdInput);
   const emailHashHex = String(args.emailHashHex || '')
@@ -880,7 +902,12 @@ export async function resolveLinkedDeviceEmailOtpAuthoritySelection(args: {
   const walletId = parsedWalletId.value;
   let resolved: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
   try {
-    resolved = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+    resolved = args.walletAuthMethodId
+      ? await IndexedDBManager.resolveWalletAuthorityForMethod(
+          String(walletId),
+          args.walletAuthMethodId,
+        )
+      : await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
   } catch (error: unknown) {
     return {
       kind: 'rejected',
@@ -900,6 +927,7 @@ export async function resolveLinkedDeviceEmailOtpAuthoritySelection(args: {
     authMethod,
     authority,
     expectedKind: 'email_otp',
+    allowUnselectedSibling: Boolean(args.walletAuthMethodId),
   });
   if (mismatchLabels.length > 0 || authMethod.emailHashHex.toLowerCase() !== emailHashHex) {
     return {
@@ -2777,6 +2805,7 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
     emailHashHex: args.emailHashHex,
     provider: providerIdentity.provider,
     providerSubjectId: providerIdentity.providerSubjectId,
+    walletAuthMethodId: args.walletAuthMethodId,
   });
   if (resolution.kind === 'none') {
     throw new Error('[login] linked Email OTP authority is unavailable');
