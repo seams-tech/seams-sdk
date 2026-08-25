@@ -670,6 +670,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                       void addMissingMethod();
                     }}
                   >
+                    <p className="w3a-linked-devices-modal-security-note">
+                      <strong>Security note:</strong> Adding email code lowers this wallet&apos;s
+                      security because your inbox becomes another way to unlock it.
+                    </p>
                     <label htmlFor={`${otpInputId}-add-email`}>Email address</label>
                     <input
                       id={`${otpInputId}-add-email`}
