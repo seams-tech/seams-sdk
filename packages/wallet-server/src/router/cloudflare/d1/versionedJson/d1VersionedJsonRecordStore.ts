@@ -293,6 +293,26 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
     }
   }
 
+  /**
+   * The same mutation + CAS-guard statements `putManyWithAdditionalStatements`
+   * would run, returned instead of executed, so a caller whose transaction is
+   * owned elsewhere can fold them into that batch.
+   *
+   * Auth-method revocation needs exactly this: the method, its sessions, and
+   * its sealed envelope have to commit together, and the authority store owns
+   * that batch.
+   */
+  prepareMutationStatements(
+    mutations: readonly CloudflareD1VersionedJsonRecordMutationV1<T>[],
+  ): readonly D1PreparedStatementLike[] {
+    const statements: D1PreparedStatementLike[] = [];
+    for (const mutation of this.prepareBatchMutations(mutations)) {
+      statements.push(this.prepareMutationStatement(mutation));
+      statements.push(this.database.prepare(CAS_GUARD_SQL));
+    }
+    return statements;
+  }
+
   async patchAtomically(
     input: CloudflareD1VersionedJsonRecordAtomicPatchV1,
   ): Promise<VersionedJsonRecordPutResult & { readonly value?: T }> {

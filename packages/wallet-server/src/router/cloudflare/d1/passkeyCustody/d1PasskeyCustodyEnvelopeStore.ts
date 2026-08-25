@@ -421,36 +421,38 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
   }
 
   /**
-   * Revokes every active or retired envelope for one passkey factor while
-   * applying the caller's guarded auth-method mutation in the same D1 batch.
-   * The final active-envelope guard closes the concurrent last-factor race.
+   * Revocation statements for every live envelope sealed under one factor,
+   * for a caller whose transaction is owned elsewhere.
+   *
+   * Auth-method revocation is that caller: the method, its sessions, and its
+   * sealed envelope have to become unusable together, and the authority store
+   * owns that batch. Returning statements rather than running them is what
+   * keeps this from becoming a second, non-atomic revocation path.
+   *
+   * The last-active-envelope guard rides along, so revoking the final factor
+   * that can open the wallet custody seed still aborts.
    */
-  async revokePasskeyFactorAtomically(input: {
+  async prepareFactorEnvelopeRevocationStatements(input: {
     readonly walletId: WalletId;
-    readonly factor: Extract<WalletCustodyFactorRef, { readonly kind: 'passkey' }>;
+    readonly factor: WalletCustodyFactorRef;
     readonly revokedAtMs: number;
-    readonly additionalStatements: readonly D1PreparedStatementLike[];
-  }): Promise<PasskeyCustodyEnvelopeRevocationResult> {
-    if (input.additionalStatements.length === 0) {
-      throw new Error('Passkey custody revocation requires an auth-method mutation');
-    }
+  }): Promise<
+    | { readonly kind: 'prepared'; readonly statements: readonly D1PreparedStatementLike[] }
+    | { readonly kind: 'refused'; readonly reason: string }
+    | { readonly kind: 'version_mismatch' }
+  > {
     const envelopes = await this.listWalletEnvelopes(input.walletId, { limit: 1000 });
-    const matching = envelopes.filter(
-      (envelope) =>
-        envelope.factor.kind === 'passkey' &&
-        factorRefsMatch(envelopeFactorRef(envelope), input.factor),
+    const matching = envelopes.filter((envelope) =>
+      factorRefsMatch(envelopeFactorRef(envelope), input.factor),
     );
     const revocable = matching.filter(
       (envelope) => envelope.lifecycle.state === 'active' || envelope.lifecycle.state === 'retired',
     );
+    if (revocable.length === 0) return { kind: 'prepared', statements: [] };
     const targetIds = new Set(revocable.map((envelope) => String(envelope.envelopeId)));
     const activeTargets = revocable.filter((envelope) => envelope.lifecycle.state === 'active');
-
     for (const target of activeTargets) {
-      const admission = admitEnvelopeRevocation({
-        envelopes,
-        envelopeId: target.envelopeId,
-      });
+      const admission = admitEnvelopeRevocation({ envelopes, envelopeId: target.envelopeId });
       if (admission.kind === 'refused') return admission;
     }
     if (
@@ -466,16 +468,6 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
           'revoking the last active envelope would leave the wallet custody seed with no factor that can open it',
       };
     }
-
-    const additionalStatements =
-      activeTargets.length > 0
-        ? [...input.additionalStatements, this.prepareRemainingActiveEnvelopeGuard(input.walletId)]
-        : input.additionalStatements;
-    if (revocable.length === 0) {
-      await this.database.batch(additionalStatements);
-      return { kind: 'stored', revokedEnvelopeIds: [] };
-    }
-
     const mutations: CloudflareD1VersionedJsonRecordMutationV1<PasskeyCustodyEnvelopeRecord>[] = [];
     for (const target of revocable) {
       const current = await this.records.read(this.recordKey(envelopeLocator(target)));
@@ -500,15 +492,11 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
         },
       });
     }
-    const stored = await this.records.putManyWithAdditionalStatements(
-      mutations,
-      additionalStatements,
-    );
-    if (stored.kind === 'version_mismatch') return stored;
-    return {
-      kind: 'stored',
-      revokedEnvelopeIds: revocable.map((envelope) => envelope.envelopeId),
-    };
+    const statements = [...this.records.prepareMutationStatements(mutations)];
+    if (activeTargets.length > 0) {
+      statements.push(this.prepareRemainingActiveEnvelopeGuard(input.walletId));
+    }
+    return { kind: 'prepared', statements };
   }
 
   /** Returns the public credential-management view; activity never enters envelope AAD. */

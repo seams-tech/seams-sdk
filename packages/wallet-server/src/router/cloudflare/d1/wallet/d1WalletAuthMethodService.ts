@@ -314,6 +314,10 @@ function runtimePolicyScopeKeyForRegistrationIntent(input: unknown): string {
   }
 }
 
+function unreachableRevokedMethodKind(value: never): never {
+  throw new Error(`Unhandled revoked wallet auth-method kind: ${String(value)}`);
+}
+
 function unreachableRegistrationStartAuthority(value: never): never {
   throw new Error(`Unhandled registration start authority kind: ${String(value)}`);
 }
@@ -1224,6 +1228,45 @@ export class CloudflareD1WalletAuthMethodService {
     return null;
   }
 
+  /**
+   * The factor whose envelope a revoked method owned.
+   *
+   * A Passkey method names its own factor exactly — RP and credential — so its
+   * envelope is addressable from the record. An Email OTP method does not: the
+   * envelope factor is keyed by enrollment, the enrollment table holds one row
+   * per wallet, and every Email method on that wallet therefore resolves to the
+   * same factor. Revoking one sibling's envelope would revoke the other's, so
+   * this returns no statements for the Email branch rather than guessing a
+   * binding the schema does not express. That gap is recorded in
+   * docs/refactor-109C.md and needs a method-to-envelope binding to close.
+   */
+  private async prepareRevokedMethodEnvelopeStatements(input: {
+    readonly walletId: WalletId;
+    readonly method: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+    readonly revokedAtMs: number;
+  }): Promise<
+    | { readonly kind: 'prepared'; readonly statements: readonly D1PreparedStatementLike[] }
+    | { readonly kind: 'refused'; readonly reason: string }
+    | { readonly kind: 'version_mismatch' }
+  > {
+    switch (input.method.kind) {
+      case 'passkey':
+        return await this.passkeyCustodyEnvelopes.prepareFactorEnvelopeRevocationStatements({
+          walletId: input.walletId,
+          factor: {
+            kind: 'passkey',
+            rpId: requireStoredRpId(String(input.method.rpId)),
+            credentialIdB64u: requireStoredCredentialId(String(input.method.credentialIdB64u)),
+          },
+          revokedAtMs: input.revokedAtMs,
+        });
+      case 'email_otp':
+        return { kind: 'prepared', statements: [] };
+      default:
+        return unreachableRevokedMethodKind(input.method);
+    }
+  }
+
   private prepareAddAuthMethodSourceGuard(input: {
     readonly ceremony: StoredWalletAddAuthMethodCeremony;
     readonly walletId: WalletId;
@@ -2068,17 +2111,41 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'wallet auth method authority is not active',
         };
       }
+      /* The method's sealed envelope becomes unusable in the same transaction
+         as the method and its sessions. Revocation used to leave it active in
+         D1 — the function written for it had no callers — so a revoked factor's
+         ciphertext stayed fetchable by the factor that could still open it.
+         The statements ride in the authority store's batch rather than running
+         on their own, because a second batch is a second outcome. */
+      const envelopeRevocation = await this.prepareRevokedMethodEnvelopeStatements({
+        walletId,
+        method: targetMethod,
+        revokedAtMs: input.requestedAtMs,
+      });
+      if (envelopeRevocation.kind === 'refused') {
+        return { ok: false, code: 'invalid_state', message: envelopeRevocation.reason };
+      }
+      if (envelopeRevocation.kind === 'version_mismatch') {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'wallet custody envelope changed; retry revocation',
+        };
+      }
       const revoked = await this.walletAuthorityStore.revokeWalletAuthMethod({
         walletId,
         authorityId: targetAuthority.authorityId,
         walletAuthMethodId: input.walletAuthMethodId,
         expectedAuthorityRevocationEpoch: targetAuthority.revocationEpoch,
         requestedAtMs: input.requestedAtMs,
-        sessionRevocationStatements: this.prepareOwnerWalletSessionRevocation({
-          walletId,
-          walletAuthMethodId: input.walletAuthMethodId,
-          requestedAtMs: input.requestedAtMs,
-        }),
+        sessionRevocationStatements: [
+          ...this.prepareOwnerWalletSessionRevocation({
+            walletId,
+            walletAuthMethodId: input.walletAuthMethodId,
+            requestedAtMs: input.requestedAtMs,
+          }),
+          ...envelopeRevocation.statements,
+        ],
       });
       if (revoked.kind === 'would_remove_last_wallet_auth_method') {
         return {
