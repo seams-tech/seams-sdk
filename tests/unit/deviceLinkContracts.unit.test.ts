@@ -10,7 +10,6 @@ import {
   computeLinkedDeviceSessionClaimDigestV1,
 } from '@shared/device-linking/digests';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { parseLinkedDeviceSessionStateV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -181,9 +180,9 @@ test.describe('R103E link-session contracts', () => {
       { state: 'expired', expiredAtMs: 3_000 },
     ];
 
-    for (const state of states) expect(parseLinkedDeviceSessionStateV1(state)).toEqual(state);
+    for (const state of states) expect(parseLinkSessionStateV1(state)).toEqual(state);
     expect(() =>
-      parseLinkedDeviceSessionStateV1({
+      parseLinkSessionStateV1({
         state: 'authority_pending_local_install',
         deviceId: String(fixture.approval.deviceId),
         authorityId,
