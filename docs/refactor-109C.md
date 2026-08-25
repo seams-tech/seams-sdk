@@ -615,34 +615,28 @@ anticipates - the challenge boundary takes an operation fingerprint, so the
 proof is a bound challenge plus its code rather than an assertion. Until it
 exists, `passkey_to_email_otp` proves addition and unlock but not removal.
 
-The remaining Email OTP Ed25519 gap sits in authority projection code another
-agent is actively changing.
+The previous explanation for added-Email-OTP Ed25519 conflated capability
+composition, address-based reachability, and exact method selection. The unlock
+protocol already supports the required capability composition: an
+`ed25519_yao` request issues the exact reusable Wallet Session and Ed25519
+capability, then provisions ECDSA when that authority also has an ECDSA
+activation. No capability-union extension is required.
 
-The previous explanation for added-Email-OTP Ed25519 was stale. The unlock
-protocol already supports the required composition: an `ed25519_yao` request
-issues the exact reusable Wallet Session and the Ed25519 capability, then
-provisions ECDSA when that authority also has an ECDSA activation. It needs no
-new capability-union branch and no new public login entry point.
+Two narrower changes remain relevant. `unlockLinkedDeviceEmailOtpWallet` now
+falls back from linked-device material to the selected authority's existing
+Ed25519 signer activation, and `auth.unlockAddedEmailOtpWallet` exposes that
+unlock for an address-based Email method. Neither change selects the added
+method. The selection store still holds one selected method per wallet, and an
+addition deliberately preserves the source selection.
 
-The remaining defect is earlier in the flow. Selection of the added Email OTP
-method must project the selected authority's existing Ed25519 signer activation
-before the unlock request is built. The signer belongs to the authority; the
-new method authenticates access to that signer. Registered Email OTP Ed25519
-unlock is already green after `fdf67168b`, so the added-method repair belongs in
-the exact authority projection rather than a second unlock protocol or a
-linked-device-material fallback. No signer material is copied and no activation
-is created.
-
-Half of that has landed. `unlockLinkedDeviceEmailOtpWallet` asked for Ed25519
-only when the selection carried linked signer material, which a sibling never
-has; it now falls back to the authority's own Ed25519 signer activation, and
-`auth.unlockAddedEmailOtpWallet` exposes that unlock by address rather than only
-as the Google flow's dependency. What is left is the selection itself: that call
-opens the wallet's SELECTED method, the selection store holds exactly one per
-wallet, and an addition deliberately leaves the source selected. Choosing the
-sibling is an account-UI action with no API behind it yet, so until it exists the
-added method opens its ECDSA capability directly - which is why the forward
-contract asserts ECDSA and the reverse one asserts both families.
+The remaining defect is therefore exact selection and projection. Before the
+unlock request is built, the user-selected added method must project its
+authority's existing Ed25519 activation. The signer belongs to the authority;
+the method authenticates access to it. Registered Email OTP Ed25519 unlock is
+already green after `fdf67168b`. The added-method repair must preserve that same
+authority-native path without copying signer material, creating an activation,
+or adding a linked-device-only fallback. Until explicit selection is wired, the
+forward contract proves ECDSA and the reverse contract proves both families.
 
 The Add action's disappearance when both families are active is now proven by a
 logged-in component test. Its session comes from the shared Wallet Session

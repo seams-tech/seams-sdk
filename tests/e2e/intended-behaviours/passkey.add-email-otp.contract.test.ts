@@ -24,4 +24,5 @@ test('a passkey wallet can add an email code as a second way in', async ({ harne
      holds exactly one per wallet. Choosing a method is a product action in the
      account UI; there is no public API for it, and inventing one here would be
      guessing at that surface. Everything behind it is in place. */
+  await harness.assertLockedPageReloadStaysLocked();
 });

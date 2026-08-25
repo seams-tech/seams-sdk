@@ -30,4 +30,7 @@ test('an Email OTP wallet can add a passkey as a second way in', async ({ harnes
   await harness.revokeSourceAuthMethod();
   await harness.signTempoTransaction('post_unlock');
   await harness.assertFinalAuthMethodCannotBeRevoked();
+  /* A method added after registration is still a method: locking must strand it
+     across a reload exactly as it strands the one the wallet was created with. */
+  await harness.assertLockedPageReloadStaysLocked();
 });
