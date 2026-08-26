@@ -51,7 +51,6 @@ const SESSION_SCOPED_TABLES = [
   TRANSCRIPT_TABLE,
   'linked_device_target_commit_reservations',
   'linked_device_target_credentials',
-  'linked_device_authority_installations',
 ] as const;
 const SESSION_CAS_GUARD_SQL = `INSERT INTO linked_device_session_cas_guard (guard_id)
 SELECT 1 WHERE changes() = 0`;
