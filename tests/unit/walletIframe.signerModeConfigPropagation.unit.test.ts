@@ -241,7 +241,7 @@ test.describe('Wallet iframe config propagation', () => {
         const { SeamsWeb } = mod as any;
 
         const pm = new SeamsWeb({
-          relayer: { url: 'https://localhost:9444' },
+          relayer: { url: 'https://localhost:4004' },
           registration: {
             mode: 'managed',
             projectEnvironmentId: 'proj_demo:dev',

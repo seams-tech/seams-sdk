@@ -353,7 +353,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const selectedContext = useDashboardSelectedContext();
   const selectedEnvironmentId = String(selectedContext.environment || '').trim();
   const walletOriginHint = React.useMemo(
-    () => String(getActiveFrontendDeployment().walletOrigin || 'https://localhost:8443').trim(),
+    () => String(getActiveFrontendDeployment().walletOrigin || 'https://localhost:4002').trim(),
     [],
   );
   const defaultPublishableOrigins = React.useMemo(

@@ -284,14 +284,14 @@ test('local Console sign-out clears the session and refresh stays unauthorized',
   const ctx = createFakeExecutionContext();
 
   const missingSession = await localD1DevWorker.fetch(
-    new Request('https://localhost:9444/console/session'),
+    new Request('https://localhost:4004/console/session'),
     env,
     ctx,
   );
   expect(missingSession.status).toBe(401);
 
   const invalidGoogleLogin = await localD1DevWorker.fetch(
-    new Request('https://localhost:9444/console/auth/google', {
+    new Request('https://localhost:4004/console/auth/google', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
@@ -306,7 +306,7 @@ test('local Console sign-out clears the session and refresh stays unauthorized',
   });
 
   const revoke = await localD1DevWorker.fetch(
-    new Request('https://localhost:9444/console/auth/revoke', { method: 'POST' }),
+    new Request('https://localhost:4004/console/auth/revoke', { method: 'POST' }),
     env,
     ctx,
   );
@@ -315,7 +315,7 @@ test('local Console sign-out clears the session and refresh stays unauthorized',
   expect(revoke.headers.get('set-cookie')).toContain('Max-Age=0');
 
   const refreshed = await localD1DevWorker.fetch(
-    new Request('https://localhost:9444/console/session'),
+    new Request('https://localhost:4004/console/session'),
     env,
     ctx,
   );
@@ -613,8 +613,8 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     cors: {
       allowedOrigins: [
         'https://localhost',
-        'https://localhost:8443',
-        'https://localhost:9444',
+        'https://localhost:4002',
+        'https://localhost:4004',
         'http://127.0.0.1:9090',
         'http://localhost:9090',
         'http://127.0.0.1:8787',
@@ -1009,7 +1009,7 @@ test('local D1 publishable key creation publishes Tempo sponsorship runtime snap
         kind: 'publishable_key',
         name: 'tempo-snapshot-browser',
         environmentId,
-        allowedOrigins: ['https://localhost:8443'],
+        allowedOrigins: ['https://localhost:4002'],
         rateLimitBucket: 'default_web_v1',
         quotaBucket: 'free_registrations_v1',
       },

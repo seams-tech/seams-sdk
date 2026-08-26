@@ -31,9 +31,9 @@ test.describe('plugin ROR origin resolution', () => {
       resolveRorOrigins({
         configuredOrigins: parseConfiguredRorOrigins('https://docs.localhost'),
         docsOrigin: 'https://docs.localhost',
-        walletOrigin: 'https://localhost:8443',
+        walletOrigin: 'https://localhost:4002',
       }),
-    ).toEqual(['https://docs.localhost', 'https://localhost:8443']);
+    ).toEqual(['https://docs.localhost', 'https://localhost:4002']);
   });
 
   test('normalizes and rejects invalid related origins', () => {
@@ -45,7 +45,7 @@ test.describe('plugin ROR origin resolution', () => {
         docsOrigin: '',
         walletOrigin: '',
       }),
-    ).toEqual(['https://localhost:8443', 'http://localhost:3600']);
+    ).toEqual(['https://localhost:4002', 'http://localhost:3600']);
   });
 
   test('Vite well-known route includes the configured wallet origin', () => {
@@ -55,7 +55,7 @@ test.describe('plugin ROR origin resolution', () => {
     process.env.VITE_DOCS_ORIGIN = '';
 
     try {
-      const plugin = seamsHeaders({ walletOrigin: 'https://localhost:8443' });
+      const plugin = seamsHeaders({ walletOrigin: 'https://localhost:4002' });
       const middlewares = collectPluginMiddlewares(plugin);
       let body = '';
       const headers: Record<string, string> = {};
@@ -73,7 +73,7 @@ test.describe('plugin ROR origin resolution', () => {
 
       expect(res.statusCode).toBe(200);
       expect(headers['content-type']).toBe('application/json; charset=utf-8');
-      expect(JSON.parse(body)).toEqual({ origins: ['https://localhost:8443'] });
+      expect(JSON.parse(body)).toEqual({ origins: ['https://localhost:4002'] });
     } finally {
       if (previousAllowedOrigins === undefined) delete process.env.VITE_ROR_ALLOWED_ORIGINS;
       else process.env.VITE_ROR_ALLOWED_ORIGINS = previousAllowedOrigins;
