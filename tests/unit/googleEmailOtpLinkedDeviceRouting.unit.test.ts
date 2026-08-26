@@ -33,10 +33,12 @@ function linkedEmailOtpDeps(args: {
     requestEmailOtpChallenge: async (challengeArgs) => {
       args.challengeMethods.push(String(challengeArgs.walletAuthMethodId || 'canonical'));
       return {
-      challengeId: 'linked-challenge',
-      otpChannel: 'email_otp',
-      delivery: { kind: 'provider', status: 'sent', emailHint: 'linked@example.com' },
-      emailHint: 'linked@example.com',
+        challengeId: 'linked-challenge',
+        otpChannel: 'email_otp',
+        delivery: { kind: 'provider', status: 'sent', emailHint: 'linked@example.com' },
+        emailHint: 'linked@example.com',
+        ownerProofBindingDigest: 'linked-owner-proof-binding',
+        walletAuthMethodId: challengeArgs.walletAuthMethodId ?? 'email-otp:founding-method',
       };
     },
     prewarmEmailOtpYao: async () => undefined,
@@ -137,4 +139,36 @@ test('revoked selected Email OTP method rejects without falling back to a siblin
   expect(started.ok).toBe(false);
   expect(challengeMethods).toEqual([]);
   expect(calls).toEqual([]);
+});
+
+test('wallet-level discovery carries the server-selected founding method into ECDSA unlock', async () => {
+  const challengeMethods: string[] = [];
+  const ecdsaMethods: string[] = [];
+  const deps = linkedEmailOtpDeps({
+    selection: { kind: 'none' },
+    calls: [],
+    challengeMethods,
+  });
+  deps.loginWithEmailOtpEcdsaCapability = async (args) => {
+    ecdsaMethods.push(String(args.walletAuthMethodId));
+    throw new Error('stop after exact-method assertion');
+  };
+
+  const started = await beginGoogleEmailOtpWalletAuth(deps, {
+    idToken: 'google-id-token',
+    mode: 'login',
+    relayUrl: 'https://relay.example',
+    ecdsaTargets: {
+      kind: 'explicit',
+      targets: [{ kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' }],
+    },
+  });
+  expect(started.ok).toBe(true);
+  if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+
+  const completed = await started.value.submit({ otpCode: '123456' });
+
+  expect(completed.ok).toBe(false);
+  expect(challengeMethods).toEqual(['canonical']);
+  expect(ecdsaMethods).toEqual(['email-otp:founding-method']);
 });

@@ -660,6 +660,7 @@ export interface EmailOtpWorkerOperationMap {
       emailHint?: string;
       expiresAtMs?: number;
       ownerProofBindingDigest: string;
+      walletAuthMethodId: string;
     };
   };
   requestEmailOtpEnrollmentChallenge: {

@@ -17,9 +17,9 @@ import {
 } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import type {
-  EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
+  EmailOtpOperationChallengeResult,
   GoogleEmailOtpRegistrationCandidate,
   GoogleEmailOtpRegistrationOffer,
   GoogleEmailOtpWalletAuthEcdsaTargets,
@@ -53,6 +53,7 @@ type ActiveChallenge = {
   challengeId: string;
   emailHint: string;
   delivery: EmailOtpChallengeDelivery;
+  walletAuthMethodId: string;
 };
 
 type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
@@ -116,7 +117,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     walletAuthMethodId?: string;
     relayUrl?: string;
     onEvent?: (event: UnlockFlowEvent) => void;
-  }): Promise<EmailOtpChallengeResult>;
+  }): Promise<EmailOtpOperationChallengeResult>;
   prewarmEmailOtpYao(): Promise<void>;
   registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
   loginWithEmailOtpEcdsaCapability(
@@ -437,6 +438,7 @@ async function requestLoginChallenge(args: {
     challengeId: result.challengeId,
     emailHint: result.delivery.emailHint,
     delivery: result.delivery,
+    walletAuthMethodId: result.walletAuthMethodId,
   };
 }
 
@@ -504,12 +506,10 @@ async function loginWithConfiguredTargets(args: {
   // The session ref stays wallet-scoped; the Google provider subject travels in
   // its own field on both the Ed25519 and the ECDSA call.
   const walletSession = walletSessionRefFromSession({ walletId: args.state.walletId });
-  const authoritySelector: EmailOtpAuthoritySelector = args.state.linkedEmailOtpSelection
-    ? {
-        kind: 'wallet_auth_method',
-        walletAuthMethodId: args.state.linkedEmailOtpSelection.walletAuthMethodId,
-      }
-    : { kind: 'wallet' };
+  const authoritySelector: EmailOtpAuthoritySelector = {
+    kind: 'wallet_auth_method',
+    walletAuthMethodId: args.challenge.walletAuthMethodId,
+  };
   const [primaryTarget] = args.targets;
   if (!primaryTarget) {
     await args.deps.loginWithEmailOtpEd25519YaoCapability({
@@ -525,9 +525,7 @@ async function loginWithConfiguredTargets(args: {
   }
   const common = {
     walletSession,
-    ...(authoritySelector.kind === 'wallet_auth_method'
-      ? { walletAuthMethodId: authoritySelector.walletAuthMethodId }
-      : {}),
+    walletAuthMethodId: authoritySelector.walletAuthMethodId,
     providerIdentity: {
       provider: 'google' as const,
       providerSubjectId: args.state.providerSubject,

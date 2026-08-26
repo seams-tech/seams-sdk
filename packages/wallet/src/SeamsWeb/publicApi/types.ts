@@ -540,6 +540,7 @@ export type EmailOtpChallengeResult = {
 
 export type EmailOtpOperationChallengeResult = EmailOtpChallengeResult & {
   ownerProofBindingDigest: string;
+  walletAuthMethodId: string;
 };
 
 export type { EmailOtpEnrollmentResult };

@@ -303,6 +303,7 @@ export async function requestEmailOtpChallenge(args: {
   emailHint?: string;
   expiresAtMs?: number;
   ownerProofBindingDigest: string;
+  walletAuthMethodId: string;
 }> {
   const operation = args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (!args.fetchImpl && args.workerCtx) {
@@ -361,6 +362,7 @@ export async function requestEmailOtpChallenge(args: {
     emailHint?: string;
     expiresAtMs?: number;
     ownerProofBindingDigest: string;
+    walletAuthMethodId: string;
   } = {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
@@ -369,6 +371,10 @@ export async function requestEmailOtpChallenge(args: {
     ownerProofBindingDigest: readString(
       challenge.ownerProofBindingDigest,
       'wallet/email-otp/challenge ownerProofBindingDigest',
+    ),
+    walletAuthMethodId: readString(
+      response.walletAuthMethodId,
+      'wallet/email-otp/challenge walletAuthMethodId',
     ),
   };
   if (Number.isFinite(expiresAtMs)) {
