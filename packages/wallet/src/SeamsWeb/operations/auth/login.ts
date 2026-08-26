@@ -150,7 +150,6 @@ import {
   type OpenWalletAuthorityLinkedSignerMaterialResultV1,
 } from '@/core/indexedDB/linkedAuthoritySignerMaterial';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
-import { readLinkedWalletDiscoveryIds } from '@/SeamsWeb/operations/devices/linkedWalletDiscovery';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { OpaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
@@ -7481,9 +7480,9 @@ export async function getRecentUnlocks(
   };
 }
 
-export async function listLocalPasskeyWalletIds(): Promise<string[]> {
+export async function listLocalPasskeyWalletIds(): Promise<WalletId[]> {
   const walletIds = await IndexedDBManager.listWalletSelectionWalletIds();
-  return [...new Set([...walletIds, ...readLinkedWalletDiscoveryIds()])].map(String);
+  return [...new Set(walletIds)];
 }
 
 /** Lock clears authentication and volatile signing material. */

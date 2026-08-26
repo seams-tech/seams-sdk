@@ -14,10 +14,6 @@ import {
   type HostedAuthMenuSessionId,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import type { SeamsWeb } from '@/SeamsWeb';
-import {
-  readLinkedWalletDiscoveryIds,
-  rememberLinkedWalletDiscoveryId,
-} from '@/SeamsWeb/operations/devices/linkedWalletDiscovery';
 import type { HostedAuthMenuExternalAuthBroker, HostedSeamsAuthMenuProps } from './types';
 
 type SeamsAuthMenuBridge = Pick<
@@ -266,13 +262,10 @@ class HostedAuthMenuSessionController {
 
     let request;
     try {
-      const [localWalletId] = readLinkedWalletDiscoveryIds();
       request = buildHostedAuthMenuOpenRequest({
         authMenuSessionId: this.authMenuSessionId,
         initialMode: this.initialMode,
-        loginTarget: localWalletId
-          ? { kind: 'wallet', walletId: localWalletId }
-          : { kind: 'discoverable' },
+        loginTarget: { kind: 'discoverable' },
         registrationAccountInput: this.registrationAccountInput,
         showRegistrationInput: this.showRegistrationInput,
         showProgress: this.showProgress,
@@ -294,9 +287,6 @@ class HostedAuthMenuSessionController {
           'Hosted auth-menu returned a mismatched session identity',
         );
         return;
-      }
-      if (outcome.kind === 'authenticated') {
-        rememberLinkedWalletDiscoveryId(outcome.walletId);
       }
       if (!this.isActive) return;
       this.emitOutcome(outcome);
