@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { parseLinkedDeviceRevokeRequestV1 } from '../../packages/shared-ts/src/device-linking/parsers';
-import {
-  unknownWebAuthnAuthenticatorDeviceInfo,
-} from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import {
   LinkedDeviceManagementServiceV1,
   type LinkedDeviceManagementRevocationSourceV1,
@@ -35,12 +33,7 @@ test('rejects a fresh proof from the target auth method itself', async () => {
   let authorityRevocationCalls = 0;
   const service = new LinkedDeviceManagementServiceV1({
     tenantId: owner.issuedSession.session.tenantId,
-    authenticator: {
-      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
-        authorizationId === owner.issuedSession.session.authorizationId
-          ? owner.issuedSession
-          : null,
-    },
+    authenticator: ownerSessionAuthenticator(owner),
     authority: {
       listActiveForWalletV1: async () => ({ records: [], nextCursor: null }),
       readByIdV1: async (authorityId) =>
@@ -96,12 +89,7 @@ test('lists active wallet authorities and hides non-linked owner records after s
   const authMethods = [owner.authMethod, target.authMethod];
   const service = new LinkedDeviceManagementServiceV1({
     tenantId: owner.issuedSession.session.tenantId,
-    authenticator: {
-      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
-        authorizationId === owner.issuedSession.session.authorizationId
-          ? owner.issuedSession
-          : null,
-    },
+    authenticator: ownerSessionAuthenticator(owner),
     authority: {
       listActiveForWalletV1: async () => ({ records: authorities, nextCursor: null }),
       readByIdV1: async (authorityId) =>
@@ -177,12 +165,7 @@ test('revokes one exact linked auth method, fences sessions, and disables its or
   const deactivatedRefs: Array<{ readonly keyFamily: string; readonly activationId: string }> = [];
   const service = new LinkedDeviceManagementServiceV1({
     tenantId: owner.issuedSession.session.tenantId,
-    authenticator: {
-      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
-        authorizationId === owner.issuedSession.session.authorizationId
-          ? owner.issuedSession
-          : null,
-    },
+    authenticator: ownerSessionAuthenticator(owner),
     authority: {
       listActiveForWalletV1: async () => ({ records: [], nextCursor: null }),
       readByIdV1: async (authorityId) =>
@@ -257,7 +240,9 @@ test('revokes one exact linked auth method, fences sessions, and disables its or
   expect(deactivatedRefs).toEqual([
     {
       keyFamily: 'ecdsa_secp256k1',
-      activationId: String(target.authority.signerActivations.ecdsa.materialActivation.activationId),
+      activationId: String(
+        target.authority.signerActivations.ecdsa.materialActivation.activationId,
+      ),
     },
   ]);
 });
@@ -280,12 +265,7 @@ test('replays a durable revocation and retries terminal material deactivation', 
   let deactivationCalls = 0;
   const service = new LinkedDeviceManagementServiceV1({
     tenantId: owner.issuedSession.session.tenantId,
-    authenticator: {
-      readWalletSessionAuthorizationV2ByIdentity: async ({ authorizationId }) =>
-        authorizationId === owner.issuedSession.session.authorizationId
-          ? owner.issuedSession
-          : null,
-    },
+    authenticator: ownerSessionAuthenticator(owner),
     authority: {
       listActiveForWalletV1: async () => ({ records: [], nextCursor: null }),
       readByIdV1: async (authorityId) =>
@@ -354,5 +334,23 @@ function sourceFor(
       walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
       verifiedAtMs: 4_000,
     },
+  };
+}
+
+function ownerSessionAuthenticator(
+  fixture: Awaited<ReturnType<typeof buildLinkedDeviceManagementAuthorityFixture>>,
+): ConstructorParameters<typeof LinkedDeviceManagementServiceV1>[0]['authenticator'] {
+  return {
+    readActiveOwnerWalletSessionV1: async ({ authorizationId }) =>
+      authorizationId === fixture.issuedSession.session.authorizationId
+        ? {
+            walletId: fixture.issuedSession.session.walletId,
+            walletSessionId: fixture.issuedSession.session.walletSessionId,
+            authorizationId: fixture.issuedSession.session.authorizationId,
+            walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+            authorityDigestB64u: fixture.authority.authorityDigestB64u,
+            expiresAtMs: fixture.issuedSession.session.expiresAtMs,
+          }
+        : null,
   };
 }

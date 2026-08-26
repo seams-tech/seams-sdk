@@ -17,10 +17,6 @@ import type {
   ActiveWalletAuthorityV1,
   WalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
-import type {
-  IssuedWalletSessionAuthorizationV2,
-  WalletSessionAuthorizationV2,
-} from '../../authorization/domain';
 import type { AuthorizationService } from '../../authorization/service';
 import type { OrdinaryInactiveSignerMaterialDeactivationPortV1 } from '../signingMaterial/ordinaryInactiveSignerMaterialReservation';
 import {
@@ -72,7 +68,7 @@ export type LinkedDeviceManagementRevocationSourceV1 = LinkedDeviceManagementSou
 };
 
 export type LinkedDeviceManagementSourceResolutionV1 = {
-  readonly session: WalletSessionAuthorizationV2;
+  readonly session: LinkedDeviceManagementOwnerSessionV1;
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly permission: DelegatedWalletAuthorityV1;
@@ -112,13 +108,29 @@ export type LinkedDeviceManagementAuthMethodPortV1 = {
     readonly walletId: WalletId;
     readonly authorityId: WalletAuthorityId;
   }): Promise<readonly WalletAuthMethodRecordV2[]>;
-  readByIdV1(input: { readonly walletAuthMethodId: WalletAuthMethodId }): Promise<WalletAuthMethodRecordV2 | null>;
+  readByIdV1(input: {
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<WalletAuthMethodRecordV2 | null>;
 };
 
-export type LinkedDeviceManagementAuthenticatorPortV1 = Pick<
-  AuthorizationService,
-  'readWalletSessionAuthorizationV2ByIdentity'
->;
+export type LinkedDeviceManagementOwnerSessionV1 = {
+  readonly walletId: WalletId;
+  readonly walletSessionId: WalletSessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly authorityDigestB64u: import('@shared/utils/canonicalPrimitives').DigestB64u;
+  readonly expiresAtMs: number;
+};
+
+export type LinkedDeviceManagementAuthenticatorPortV1 = {
+  readActiveOwnerWalletSessionV1(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: WalletId;
+    readonly walletSessionId: WalletSessionId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceManagementOwnerSessionV1 | null>;
+};
 
 export type LinkedDeviceManagementSessionRevocationPortV1 = Pick<
   AuthorizationService,
@@ -306,29 +318,26 @@ export class LinkedDeviceManagementServiceV1 {
     requestedAtMs: number,
   ): Promise<LinkedDeviceManagementSourceResolutionV1 | null> {
     if (source.expiresAtMs <= requestedAtMs) return null;
-    const issued: IssuedWalletSessionAuthorizationV2 | null =
-      await this.options.authenticator.readWalletSessionAuthorizationV2ByIdentity({
-        tenantId: this.options.tenantId,
-        walletId: source.walletId,
-        walletSessionId: source.walletSessionId,
-        authorizationId: source.authorizationId,
-        nowMs: requestedAtMs,
-      });
-    if (!issued || issued.session.expiresAtMs <= requestedAtMs) return null;
-    const session = issued.session;
-    const authority = await this.options.authority.readByIdV1(session.authorityId);
+    const session = await this.options.authenticator.readActiveOwnerWalletSessionV1({
+      tenantId: this.options.tenantId,
+      walletId: source.walletId,
+      walletSessionId: source.walletSessionId,
+      authorizationId: source.authorizationId,
+      nowMs: requestedAtMs,
+    });
+    if (!session || session.expiresAtMs <= requestedAtMs) return null;
     const authMethod = await this.options.authMethod.readByIdV1({
       walletAuthMethodId: session.walletAuthMethodId,
     });
+    if (!authMethod || authMethod.status !== 'active' || authMethod.walletId !== session.walletId) {
+      return null;
+    }
+    const authority = await this.options.authority.readByIdV1(authMethod.walletAuthorityId);
     if (
       !authority ||
       authority.state !== 'active' ||
       authority.walletId !== session.walletId ||
       authority.authorityDigestB64u !== session.authorityDigestB64u ||
-      authority.revocationEpoch !== session.authorityRevocationEpoch ||
-      !authMethod ||
-      authMethod.status !== 'active' ||
-      authMethod.walletId !== session.walletId ||
       authMethod.walletAuthorityId !== authority.authorityId
     ) {
       return null;
@@ -545,7 +554,11 @@ export function decodeLinkedDeviceListCursorV1(
 
 function isCursorRecordV1(
   value: unknown,
-): value is { readonly kind: unknown; readonly updatedAtMs: unknown; readonly authorityId: unknown } {
+): value is {
+  readonly kind: unknown;
+  readonly updatedAtMs: unknown;
+  readonly authorityId: unknown;
+} {
   return (
     typeof value === 'object' &&
     value !== null &&

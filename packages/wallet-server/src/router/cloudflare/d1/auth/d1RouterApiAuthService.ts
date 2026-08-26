@@ -414,6 +414,7 @@ function createD1LinkedDeviceComposition(input: {
     authorityStore,
     authMethodStore: input.walletAuthMethodStore,
     authorizationService: input.authorizationService,
+    ordinaryWalletSessions: input.authorizationStore,
     webAuthnStore: input.webAuthnStore,
     materialDeactivation: createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1({
       endpoint: deactivationEndpoint,
