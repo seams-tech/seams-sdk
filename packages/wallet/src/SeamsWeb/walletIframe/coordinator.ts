@@ -58,6 +58,7 @@ export class WalletIframeCoordinator {
   private readonly getAppearance: () => AppearanceConfig;
 
   private iframeRouter: WalletIframeRouter | null = null;
+  private walletIframeRouterCreationInFlight: Promise<WalletIframeRouter> | null = null;
   private walletIframeInitInFlight: Promise<void> | null = null;
   private walletIframeDisposed = false;
   private walletIframePrefsUnsubscribe: (() => void) | null = null;
@@ -188,19 +189,11 @@ export class WalletIframeCoordinator {
     if (!this.iframeRouter) {
       if (!this.walletIframeInitInFlight) {
         this.walletIframeInitInFlight = (async () => {
-          this.iframeRouter = await createWalletIframeRouter({
-            configs: this.configs,
-            walletOrigin,
-            getAppearance: this.getAppearance,
-          });
-
-          this.ensureWalletIframePreferencesMirror(this.iframeRouter);
-          this.ensureWalletIframeLifecycleMirror(this.iframeRouter);
-          this.ensureWalletIframeAuthMenuMirror(this.iframeRouter);
-          await this.iframeRouter.init();
+          const router = await this.getOrCreateRouter(walletOrigin);
+          await router.init();
           // Opportunistically warm remote nonce context.
           try {
-            await this.iframeRouter.prefetchBlockheight();
+            await router.prefetchBlockheight();
           } catch {}
         })();
       }
@@ -250,7 +243,7 @@ export class WalletIframeCoordinator {
     request: HostedAuthMenuOpenRequest,
     anchorElement?: HTMLElement,
   ): Promise<HostedAuthMenuOutcome> {
-    const router = await this.requireRouter();
+    const router = await this.requireAuthMenuRouter();
     return await router.openHostedAuthMenu(request, anchorElement);
   }
 
@@ -300,6 +293,36 @@ export class WalletIframeCoordinator {
       throw new Error('[SeamsWeb] Wallet iframe is configured but unavailable.');
     }
     return this.iframeRouter;
+  }
+
+  private async requireAuthMenuRouter(): Promise<WalletIframeRouter> {
+    if (!this.shouldUseWalletIframe()) {
+      throw new Error('[SeamsWeb] Wallet iframe is not configured.');
+    }
+    const walletOrigin = this.configs.wallet.iframe?.origin;
+    if (!walletOrigin) {
+      throw new Error('[SeamsWeb] Wallet iframe is configured but unavailable.');
+    }
+    return await this.getOrCreateRouter(walletOrigin);
+  }
+
+  private async getOrCreateRouter(walletOrigin: string): Promise<WalletIframeRouter> {
+    if (this.iframeRouter) return this.iframeRouter;
+    this.walletIframeRouterCreationInFlight ??= createWalletIframeRouter({
+      configs: this.configs,
+      walletOrigin,
+      getAppearance: this.getAppearance,
+    });
+    try {
+      const router = await this.walletIframeRouterCreationInFlight;
+      this.iframeRouter = router;
+      this.ensureWalletIframePreferencesMirror(router);
+      this.ensureWalletIframeLifecycleMirror(router);
+      this.ensureWalletIframeAuthMenuMirror(router);
+      return router;
+    } finally {
+      this.walletIframeRouterCreationInFlight = null;
+    }
   }
 
   private ensureWalletIframePreferencesMirror(router: WalletIframeRouter): void {

@@ -38,8 +38,62 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
-import { createHostedRecoveryPort } from '../recovery-entrypoint';
 import { listLocalPasskeyWalletIds } from '@/SeamsWeb/operations/auth/login';
+import { preloadWalletHostRegistrationSurface } from '../runtimeLoader';
+import type {
+  HostedRecoveryCredentialCreated,
+  HostedRecoveryFailure,
+  HostedRecoveryPort,
+  HostedRecoveryPrepared,
+} from '../recovery-port';
+
+type GetSeamsWeb = () => SeamsWeb;
+
+async function loadHostedRecoveryPort(getSeamsWeb: GetSeamsWeb): Promise<HostedRecoveryPort> {
+  const recoveryEntrypoint = await import('../recovery-entrypoint');
+  const seamsWeb = getSeamsWeb();
+  return recoveryEntrypoint.createHostedRecoveryPort({
+    context: seamsWeb.getContext(),
+    relayUrl: String(seamsWeb.configs.network.relayer.url),
+  });
+}
+
+class LazyHostedRecoveryPort implements HostedRecoveryPort {
+  private portPromise: Promise<HostedRecoveryPort> | null = null;
+
+  constructor(private readonly getSeamsWeb: GetSeamsWeb) {}
+
+  async prepare(input: {
+    readonly recoveryCode: string;
+    readonly signal: AbortSignal;
+  }): Promise<HostedRecoveryPrepared | HostedRecoveryFailure> {
+    return await (await this.port()).prepare(input);
+  }
+
+  async createPasskey(
+    operation: HostedRecoveryPrepared,
+  ): Promise<HostedRecoveryCredentialCreated | HostedRecoveryFailure> {
+    return await (await this.port()).createPasskey(operation);
+  }
+
+  async finalize(operation: HostedRecoveryCredentialCreated): Promise<
+    | { readonly kind: 'ready_for_sign_in'; readonly walletId: HostedRecoveryCredentialCreated['walletId'] }
+    | HostedRecoveryFailure
+  > {
+    return await (await this.port()).finalize(operation);
+  }
+
+  async cancel(
+    operation: HostedRecoveryPrepared | HostedRecoveryCredentialCreated,
+  ): Promise<void> {
+    await (await this.port()).cancel(operation);
+  }
+
+  private port(): Promise<HostedRecoveryPort> {
+    this.portPromise ??= loadHostedRecoveryPort(this.getSeamsWeb);
+    return this.portPromise;
+  }
+}
 
 export type AuthMenuControllerDeps = {
   readonly getSeamsWeb: () => SeamsWeb;
@@ -68,6 +122,16 @@ function requestedWalletIdForLoginTarget(target: HostedAuthMenuLoginTarget): str
   }
 }
 
+function ignoreRegistrationPreloadFailure(): void {}
+
+function resolveOnNextTask(resolve: () => void): void {
+  window.setTimeout(resolve, 0);
+}
+
+function yieldAfterAuthMenuMount(): Promise<void> {
+  return new Promise(resolveOnNextTask);
+}
+
 export class AuthMenuController {
   private readonly sessions = new Map<
     HostedAuthMenuOpenRequest['authMenuSessionId'],
@@ -89,7 +153,6 @@ export class AuthMenuController {
     if (this.sessions.has(args.request.authMenuSessionId)) {
       throw new Error('Hosted auth-menu session is already active');
     }
-    const seamsWeb = this.deps.getSeamsWeb();
     const session = new AuthMenuSession({
       request: args.request,
       requestId,
@@ -99,10 +162,7 @@ export class AuthMenuController {
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
       cancelDeviceLinking: this.cancelDeviceLinking,
-      recoveryPort: createHostedRecoveryPort({
-        context: seamsWeb.getContext(),
-        relayUrl: String(seamsWeb.configs.network.relayer.url),
-      }),
+      recoveryPort: new LazyHostedRecoveryPort(this.deps.getSeamsWeb),
       prepareRecoveredLogin: this.prepareRecoveredLogin.bind(
         this,
         requestId,
@@ -115,6 +175,10 @@ export class AuthMenuController {
     this.sessions.set(args.request.authMenuSessionId, session);
     try {
       session.mount();
+      await yieldAfterAuthMenuMount();
+      if (args.request.initialMode === 'register') {
+        void preloadWalletHostRegistrationSurface().catch(ignoreRegistrationPreloadFailure);
+      }
       session.setRegistrationPreparation((registrationValue, cancellation) =>
         this.prepareRegistration(
           args.request,
