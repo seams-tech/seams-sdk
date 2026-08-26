@@ -9,6 +9,7 @@ import {
   type FrameLocator,
   type Locator,
   type Page,
+  type Request,
   type Response,
   type Route,
 } from '@playwright/test';
@@ -1325,6 +1326,29 @@ async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
   const menu = await openProfileMenu(page);
   await menu.getByRole('button', { name: /^Scan and Link Device/ }).click();
   await page.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
+}
+
+async function assertOwnerScannerClosedAfterScan(page: Page): Promise<void> {
+  await expect(page.locator('.qr-scanner-modal')).toBeHidden({ timeout: 5_000 });
+}
+
+function recordRequestPath(paths: string[], request: Request): void {
+  paths.push(new URL(request.url()).pathname);
+}
+
+function trackRequestPaths(page: Page, paths: string[]): void {
+  page.on('request', recordRequestPath.bind(null, paths));
+}
+
+function assertNoUnlockOrNearFundingAfterLink(paths: readonly string[]): void {
+  expect(
+    paths.filter(
+      (pathname) =>
+        pathname === '/wallet/unlock/challenge' ||
+        pathname === '/wallet/unlock/verify' ||
+        pathname.endsWith('/near/implicit-account/fund'),
+    ),
+  ).toEqual([]);
 }
 
 async function lockActiveWallet(page: Page): Promise<void> {
@@ -3384,6 +3408,8 @@ async function setupEmailLinkedOwnerPair(
   await device2Context.addInitScript(installGoogleIdentityStub, requireGoogleIdToken());
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
+  const device2RequestPaths: string[] = [];
+  trackRequestPaths(device2Page, device2RequestPaths);
   device2Page.on('framenavigated', (frame) => {
     if (frame === device2Page.mainFrame()) {
       console.log(`[email-linked-device] Device 2 navigated to ${frame.url()}`);
@@ -3570,6 +3596,7 @@ async function setupEmailLinkedOwnerPair(
       { timeout: linkedDeviceTransitionTimeoutMs },
     );
     await linkedDeviceFailureMonitor.race(openOwnerScanner(ownerPage, qrDataUrl));
+    await linkedDeviceFailureMonitor.race(assertOwnerScannerClosedAfterScan(ownerPage));
     emailLinkedDeviceStage('owner scanned Device 2 QR');
     const claimResponse = await linkedDeviceFailureMonitor
       .race(
@@ -3781,6 +3808,7 @@ async function setupEmailLinkedOwnerPair(
         },
       }),
     );
+    assertNoUnlockOrNearFundingAfterLink(device2RequestPaths);
     emailLinkedDeviceStage('Device 2 immediate signing and export complete');
     linkedDeviceFailureMonitor.stop();
     const inventoryBeforeReload = await readActiveLinkedDeviceInventory(ownerPage);
@@ -3910,6 +3938,8 @@ async function setupLinkedOwnerPair(
   }
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
+  const device2RequestPaths: string[] = [];
+  trackRequestPaths(device2Page, device2RequestPaths);
   const ownerAuthenticator = await addVirtualAuthenticator(ownerPage);
   const device2Authenticator = await addVirtualAuthenticator(device2Page);
   const ownerCredentialAddedEvents: unknown[] = [];
@@ -4030,6 +4060,7 @@ async function setupLinkedOwnerPair(
     const ownerCredentialAssertionsBeforeLinking = ownerCredentialAssertedEvents.length;
     const ownerCredentialCreationsBeforeLinking = ownerCredentialAddedEvents.length;
     await linkedDeviceFailureMonitor.race(openOwnerScanner(ownerPage, qrDataUrl));
+    await linkedDeviceFailureMonitor.race(assertOwnerScannerClosedAfterScan(ownerPage));
     passkeyLinkedDeviceStage('Device 1 scanned Device 2 QR');
     const claimResult = await linkedDeviceFailureMonitor.race(claimed);
     if (claimResult.kind === 'timeout') {
@@ -4171,6 +4202,7 @@ async function setupLinkedOwnerPair(
         profile,
       }),
     );
+    assertNoUnlockOrNearFundingAfterLink(device2RequestPaths);
     passkeyLinkedDeviceStage('Device 2 immediate signing and export complete');
     const activation: LinkedActivationSnapshot = {
       authMethodId: String(committed.authMethod.walletAuthMethodId),
