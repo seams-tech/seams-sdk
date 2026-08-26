@@ -19,7 +19,6 @@ import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
 import {
   DEMO_THEME_PRESETS,
   demoIframeAppearance,
@@ -136,7 +135,6 @@ export function H2DemoHero({
   ),
   authDefaultModeWhenNoDetectedAccount,
 }: H2DemoHeroProps = {}): React.JSX.Element {
-  const show = useRevealOnIdle();
   const { linkProps } = useSiteRouter();
   const { seams, loginState } = useSeams();
   const [demoPage, setDemoPage] = React.useState(0);
@@ -210,17 +208,13 @@ export function H2DemoHero({
             {/* SDK card renders in its own px; scoped scaling keeps the designed
                 hero proportion now that the page-level zoom is gone */}
             <div className="h2-sdk-zoom">
-              {show ? (
-                <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
-                  <DemoPasskeyColumnLazy
-                    currentPage={demoPage}
-                    onCurrentPageChange={setDemoPage}
-                    defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
-                  />
-                </React.Suspense>
-              ) : (
-                <div className="h2-demo__placeholder" />
-              )}
+              <React.Suspense fallback={<div className="h2-demo__placeholder" />}>
+                <DemoPasskeyColumnLazy
+                  currentPage={demoPage}
+                  onCurrentPageChange={setDemoPage}
+                  defaultModeWhenNoDetectedAccount={authDefaultModeWhenNoDetectedAccount}
+                />
+              </React.Suspense>
             </div>
           </Theme>
           <div className="h2-themeswitch">

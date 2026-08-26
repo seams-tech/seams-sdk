@@ -1,12 +1,12 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import type { AccountInputState, LoginState, RegistrationResult, SeamsContextType } from '../types';
 import type { ThemeMode } from '@/core/types/seams';
 import type { DevicesCapability } from '@/SeamsWeb';
-import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
+import { buildReactLoggedOutLoginState } from './reactLoginStateBuilders';
 
 export function useSeamsContextValue(args: {
   seams: SeamsContextType['seams'];
@@ -32,6 +32,9 @@ export function useSeamsContextValue(args: {
   } = args;
 
   const { sdkFlow, beginSdkFlow, appendSdkEventMessage, endSdkFlow } = useSDKFlowRuntime();
+  const [walletLockState, setWalletLockState] = useState<SeamsContextType['walletLockState']>({
+    kind: 'idle',
+  });
   const seamsWithSdkFlow = useSeamsWithSdkFlow({
     seams,
     beginSdkFlow,
@@ -41,21 +44,14 @@ export function useSeamsContextValue(args: {
   });
 
   const lock: SeamsContextType['lock'] = useCallback(async () => {
+    setWalletLockState({ kind: 'cleaning_up' });
+    setLoginState(buildReactLoggedOutLoginState());
     try {
       await seams.auth.lock();
-      setLoginState((prevState) => ({
-        ...prevState,
-        isLoggedIn: false,
-        walletId: null,
-        nearAccountId: null,
-        nearPublicKey: null,
-        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
-        authMethods: [],
-        thresholdEcdsaEthereumAddress: null,
-        thresholdEcdsaPublicKeyB64u: null,
-      }));
     } catch (error) {
       console.warn('Wallet lock warning:', error);
+    } finally {
+      setWalletLockState({ kind: 'idle' });
     }
   }, [setLoginState, seams]);
 
@@ -189,6 +185,7 @@ export function useSeamsContextValue(args: {
     () => ({
       seams: seamsWithSdkFlow,
       sdkFlow,
+      walletLockState,
       addWalletSigner,
       registerWallet,
       registerPasskey,
@@ -216,6 +213,7 @@ export function useSeamsContextValue(args: {
     [
       seamsWithSdkFlow,
       sdkFlow,
+      walletLockState,
       addWalletSigner,
       registerWallet,
       registerPasskey,

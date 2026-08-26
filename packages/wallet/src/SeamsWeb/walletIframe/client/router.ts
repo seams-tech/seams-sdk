@@ -1269,6 +1269,8 @@ export class WalletIframeRouter {
     port: null as MessagePort | null,
     connectionId: null as WalletIframeConnectionId | null,
     ready: false,
+    configured: false,
+    configurationInFlight: null as Promise<void> | null,
     // Deduplicate concurrent init() calls and avoid race conditions
     initInFlight: null as Promise<void> | null,
     hostedWalletSessionInFlight: null as Promise<void> | null,
@@ -2003,6 +2005,7 @@ export class WalletIframeRouter {
       this.state.connectionId = null;
       this.state.port = null;
       this.state.ready = false;
+      this.state.configured = false;
     }
   }
 
@@ -2089,58 +2092,7 @@ export class WalletIframeRouter {
     }
     if (this.state.ready && this.exactSessionState !== null) return;
     this.state.initInFlight = (async () => {
-      // Respect autoMount=false by deferring connect until first use
-      if (this.opts.testOptions.autoMount !== false) {
-        // A connected iframe cannot move between parents without reloading and losing its MessagePort.
-        this.overlayState.controller.prepare();
-        this.state.port = await this.transport.connect();
-        const connectionId = walletIframeConnectionIdFromBoundary(
-          `wallet-iframe-connection-${secureRandomBase36(16, 'wallet iframe connection IDs')}`,
-        );
-        this.state.connectionId = connectionId;
-        this.state.port.onmessage = (ev) => this.onPortMessage(ev, connectionId);
-        this.state.port.start?.();
-        this.state.ready = true;
-        // Seed the confirmation-config mirror. The host only pushes
-        // PREFERENCES_CHANGED once its SeamsWeb has booted (lazily, on the
-        // first real request), so on a fresh page the mirror can still be
-        // empty when the first surface is dressed — which made an export
-        // resolve to the modal fallback instead of the wallet's persisted
-        // drawer preference. Fire-and-forget: readiness must not wait on it.
-        void this.getConfirmationConfig().catch(() => {});
-      }
-      const signingSessionPersistenceMode = this.opts.signingSessionPersistenceMode;
-      await this.post({
-        type: 'PM_SET_CONFIG',
-        payload: {
-          chains: this.opts.chains,
-          relayerAccount: this.opts.relayerAccount,
-          relayer: this.opts.relayer,
-          registration: this.opts.registration,
-          signingSessionDefaults: this.opts.signingSessionDefaults,
-          signingSessionPersistenceMode,
-          routerAb: this.opts.routerAb,
-          routerAbEcdsaDerivationPresignaturePool:
-            this.opts.routerAbEcdsaDerivationPresignaturePool,
-          provisioningDefaults: this.opts.provisioningDefaults,
-          iframeWallet: this.opts.rpIdOverride
-            ? { rpIdOverride: this.opts.rpIdOverride }
-            : undefined,
-          authenticatorOptions: this.opts.authenticatorOptions,
-          appearance: this.getCurrentAppearance(),
-          uiRegistry: this.opts.uiRegistry,
-          // for embedded Lit components
-          assetsBaseUrl: (() => {
-            try {
-              const base = new URL(this.opts.sdkBasePath, this.walletOriginUrl).toString();
-              return base.endsWith('/') ? base : `${base}/`;
-            } catch {
-              const fallback = new URL('/sdk/', this.walletOriginUrl).toString();
-              return fallback.endsWith('/') ? fallback : `${fallback}/`;
-            }
-          })(),
-        },
-      });
+      await this.ensureConfigured();
       if (hostedWalletSession) {
         await this.ensureHostedWalletSeamsSession(hostedWalletSession);
       }
@@ -2155,6 +2107,68 @@ export class WalletIframeRouter {
       await this.state.initInFlight;
     } finally {
       this.state.initInFlight = null;
+    }
+  }
+
+  private async ensureConfigured(): Promise<void> {
+    if (this.state.configurationInFlight) {
+      await this.state.configurationInFlight;
+      return;
+    }
+    if (this.state.configured) return;
+    this.state.configurationInFlight = this.connectAndConfigure();
+    try {
+      await this.state.configurationInFlight;
+    } finally {
+      this.state.configurationInFlight = null;
+    }
+  }
+
+  private async connectAndConfigure(): Promise<void> {
+    if (
+      this.opts.testOptions.autoMount !== false &&
+      (!this.state.ready || !this.state.port)
+    ) {
+      this.overlayState.controller.prepare();
+      this.state.port = await this.transport.connect();
+      const connectionId = walletIframeConnectionIdFromBoundary(
+        `wallet-iframe-connection-${secureRandomBase36(16, 'wallet iframe connection IDs')}`,
+      );
+      this.state.connectionId = connectionId;
+      this.state.port.onmessage = (event) => this.onPortMessage(event, connectionId);
+      this.state.port.start?.();
+      this.state.ready = true;
+    }
+    await this.post({
+      type: 'PM_SET_CONFIG',
+      payload: {
+        chains: this.opts.chains,
+        relayerAccount: this.opts.relayerAccount,
+        relayer: this.opts.relayer,
+        registration: this.opts.registration,
+        signingSessionDefaults: this.opts.signingSessionDefaults,
+        signingSessionPersistenceMode: this.opts.signingSessionPersistenceMode,
+        routerAb: this.opts.routerAb,
+        routerAbEcdsaDerivationPresignaturePool:
+          this.opts.routerAbEcdsaDerivationPresignaturePool,
+        provisioningDefaults: this.opts.provisioningDefaults,
+        iframeWallet: this.opts.rpIdOverride ? { rpIdOverride: this.opts.rpIdOverride } : undefined,
+        authenticatorOptions: this.opts.authenticatorOptions,
+        appearance: this.getCurrentAppearance(),
+        uiRegistry: this.opts.uiRegistry,
+        assetsBaseUrl: this.walletAssetBaseUrl(),
+      },
+    });
+    this.state.configured = true;
+  }
+
+  private walletAssetBaseUrl(): string {
+    try {
+      const base = new URL(this.opts.sdkBasePath, this.walletOriginUrl).toString();
+      return base.endsWith('/') ? base : `${base}/`;
+    } catch {
+      const fallback = new URL('/sdk/', this.walletOriginUrl).toString();
+      return fallback.endsWith('/') ? fallback : `${fallback}/`;
     }
   }
 
@@ -3759,6 +3773,7 @@ export class WalletIframeRouter {
     request: HostedAuthMenuOpenRequest,
     anchorElement?: HTMLElement,
   ): Promise<HostedAuthMenuOutcome> {
+    await this.ensureConfigured();
     const normalized = parseHostedAuthMenuOpenRequest(request);
     if (!normalized) throw new Error('Hosted auth-menu open request is invalid');
     if (this.hostedAuthMenuRequestIds.has(normalized.authMenuSessionId)) {

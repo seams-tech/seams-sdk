@@ -177,6 +177,10 @@ export type SDKFlowRuntime = SDKFlowState & {
   ) => Promise<void>;
 };
 
+export type WalletLockState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'cleaning_up' };
+
 export interface SeamsContextType {
   // Core SeamsWeb instance - provides all user-facing functionality
   seams: SeamsWeb;
@@ -187,6 +191,7 @@ export interface SeamsContextType {
    * even when integrators do not return a Promise from their handlers.
    */
   sdkFlow: SDKFlowRuntime;
+  walletLockState: WalletLockState;
 
   ////////////////////////////
   // SeamsWeb functions

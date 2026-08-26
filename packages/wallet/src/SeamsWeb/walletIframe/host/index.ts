@@ -10,7 +10,7 @@ import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletHostRuntimeState } from './runtimeContext';
-import { loadWalletHostRuntime, preloadWalletHostRegistrationSurface } from './runtimeLoader';
+import { loadWalletHostRuntime } from './runtimeLoader';
 import {
   type RuntimeWalletHostRoute,
   routeRequiresRuntime,
@@ -40,12 +40,6 @@ function routeIsSupported(
   supported: ReadonlySet<WalletHostRuntimeKind> | undefined,
 ): boolean {
   return !supported || supported.has(route.kind);
-}
-
-function registrationRuntimeIsSupported(
-  supported: ReadonlySet<WalletHostRuntimeKind> | undefined,
-): boolean {
-  return !supported || supported.has('near');
 }
 
 export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
@@ -149,9 +143,6 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
             if (CONFIRM_UI_SELECTORS.some((selector) => document.querySelector(selector))) {
               const runtimeContext = await import('./runtimeContext');
               runtimeContext.syncActiveWalletHostRuntimeConfig(state);
-            }
-            if (registrationRuntimeIsSupported(options.supportedRuntimeRouteKinds)) {
-              await preloadWalletHostRegistrationSurface();
             }
             post({ type: 'PONG', requestId });
             return;

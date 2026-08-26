@@ -45,16 +45,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function recentUnlocksContainExistingAccount(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  return (
-    (Array.isArray(value.walletIds) && value.walletIds.length > 0) ||
-    (Array.isArray(value.accountIds) && value.accountIds.length > 0) ||
-    (Array.isArray(value.accounts) && value.accounts.length > 0) ||
-    isRecord(value.lastUsedAccount)
-  );
-}
-
 function normalizeBaseUrl(input: unknown): string {
   return String(input || '')
     .trim()
@@ -198,6 +188,14 @@ function registerGoogleIdTokenRequestCancellation(): () => void {
   return cancelGoogleIdTokenRequest;
 }
 
+function syncAuthMenuContainerLock(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  lockState: 'idle' | 'cleaning_up',
+): void {
+  const container = containerRef.current;
+  if (container) container.inert = lockState === 'cleaning_up';
+}
+
 export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   const authMenuContainerRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(subscribeToHostedAuthMenuErrors.bind(null, authMenuContainerRef), []);
@@ -206,9 +204,10 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
     [],
   );
-  const { seams, refreshLoginState } = useSeams();
-  const [existingAccountDetected, setExistingAccountDetected] = React.useState<boolean | null>(
-    props.defaultModeWhenNoDetectedAccount === undefined ? true : null,
+  const { refreshLoginState, walletLockState } = useSeams();
+  React.useEffect(
+    syncAuthMenuContainerLock.bind(null, authMenuContainerRef, walletLockState.kind),
+    [walletLockState.kind],
   );
   const [googleSsoReadiness, setGoogleSsoReadiness] = React.useState<GoogleSsoReadiness>({
     kind: 'checking',
@@ -228,27 +227,6 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
       cancelled = true;
     };
   }, [relayerBaseUrl]);
-
-  React.useEffect(() => {
-    if (props.defaultModeWhenNoDetectedAccount === undefined) {
-      setExistingAccountDetected(true);
-      return;
-    }
-    let cancelled = false;
-    setExistingAccountDetected(null);
-    seams.auth
-      .getRecentUnlocks()
-      .then((recentUnlocks: unknown) => {
-        if (!cancelled)
-          setExistingAccountDetected(recentUnlocksContainExistingAccount(recentUnlocks));
-      })
-      .catch(() => {
-        if (!cancelled) setExistingAccountDetected(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.defaultModeWhenNoDetectedAccount, seams]);
 
   const externalAuthBroker = React.useCallback(
     async (
@@ -272,20 +250,15 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
     [googleSsoReadiness],
   );
 
-  if (existingAccountDetected === null) {
-    return (
-      <div ref={authMenuContainerRef} className="passkey-login-container-root">
-        <div className="passkey-login-menu-placeholder" aria-hidden="true" />
-      </div>
-    );
-  }
-
-  const resolvedInitialMode = hostedModeFromReactMode(
-    existingAccountDetected ? undefined : props.defaultModeWhenNoDetectedAccount,
-  );
+  const resolvedInitialMode = hostedModeFromReactMode(props.defaultModeWhenNoDetectedAccount);
 
   return (
-    <div ref={authMenuContainerRef} className="passkey-login-container-root">
+    <div
+      ref={authMenuContainerRef}
+      className="passkey-login-container-root"
+      aria-busy={walletLockState.kind === 'cleaning_up'}
+      data-wallet-lock-state={walletLockState.kind}
+    >
       <HostedSeamsAuthMenu
         initialMode={resolvedInitialMode}
         registrationAccountInput="implicit_wallet"
