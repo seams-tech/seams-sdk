@@ -102,6 +102,8 @@ export type LinkedDeviceApprovalTranscriptV1 = {
   readonly value: LinkedDeviceApprovalV1;
   readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
   readonly sourceKeyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
+  /** Authority digest at approval time; rotation advances it, so use must re-approve. */
+  readonly sourceAuthorityDigestB64u: DigestB64u;
 };
 
 export function sourceKeyManifestDigestForFamilyV1(
@@ -306,6 +308,7 @@ export type LinkedDeviceOwnerAuthorizationPortV1 = {
         readonly kind: 'authorized';
         readonly sourceSignerManifest: ExactAdministeredSignerManifestV1;
         readonly sourceKeyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
+        readonly sourceAuthorityDigestB64u: DigestB64u;
       }
     | LinkedDeviceOwnerAuthorizationDeniedV1
   >;
@@ -642,6 +645,7 @@ export class LinkedDeviceSessionServiceV1 {
           value: approval,
           sourceSignerManifest: authorization.sourceSignerManifest,
           sourceKeyManifestDigestsB64u: authorization.sourceKeyManifestDigestsB64u,
+          sourceAuthorityDigestB64u: authorization.sourceAuthorityDigestB64u,
         },
         revision: existing.revision + 1,
         updatedAtMs: nowMs,
@@ -745,6 +749,7 @@ export class LinkedDeviceSessionServiceV1 {
           value: approval,
           sourceSignerManifest: authorization.sourceSignerManifest,
           sourceKeyManifestDigestsB64u: authorization.sourceKeyManifestDigestsB64u,
+          sourceAuthorityDigestB64u: authorization.sourceAuthorityDigestB64u,
         },
         revision: existing.revision + 1,
         updatedAtMs: nowMs,
@@ -1114,15 +1119,19 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     qrPayload,
     state,
     revision,
-    claimTranscript: parseOptionalClaimTranscript(record.claimTranscript),
-    approvalTranscript: parseOptionalApprovalTranscript(record.approvalTranscript),
+    claimTranscript: retiredShapeGuard('claimTranscript', () =>
+      parseOptionalClaimTranscript(record.claimTranscript),
+    ),
+    approvalTranscript: retiredShapeGuard('approvalTranscript', () =>
+      parseOptionalApprovalTranscript(record.approvalTranscript),
+    ),
     targetFactor: parseOptionalApprovedTargetFactor(record.targetFactor),
     emailOtpChallenge: parseOptionalEmailOtpChallenge(record.emailOtpChallenge),
     sourceContributionPreparation: parseOptionalSourceContributionPreparation(
       record.sourceContributionPreparation,
     ),
-    sourceContributionTranscript: parseOptionalSourceContributionTranscript(
-      record.sourceContributionTranscript,
+    sourceContributionTranscript: retiredShapeGuard('sourceContributionTranscript', () =>
+      parseOptionalSourceContributionTranscript(record.sourceContributionTranscript),
     ),
     authorityId: parseOptionalId(record.authorityId, parseWalletAuthorityId, 'authorityId'),
     packageSetDigestB64u: parseOptionalDigest(record.packageSetDigestB64u, 'packageSetDigestB64u'),
@@ -1992,6 +2001,30 @@ function parseOptionalClaimTranscript(raw: unknown): LinkedDeviceClaimTranscript
   };
 }
 
+/**
+ * A stored transcript no longer parses under the current schema. This class
+ * marks exactly the failures a deployment boundary produces - transcript
+ * shapes are what refactors move - so a store can delete-and-recover them
+ * while every value-consistency failure (tampering) keeps throwing raw.
+ */
+export class LinkedDeviceRetiredSessionShapeErrorV1 extends Error {
+  constructor(transcript: string, cause: unknown) {
+    super(
+      `linked-device ${transcript} shape is retired: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = 'LinkedDeviceRetiredSessionShapeErrorV1';
+  }
+}
+
+function retiredShapeGuard<T>(transcript: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error: unknown) {
+    if (error instanceof LinkedDeviceRetiredSessionShapeErrorV1) throw error;
+    throw new LinkedDeviceRetiredSessionShapeErrorV1(transcript, error);
+  }
+}
+
 function parseOptionalApprovalTranscript(
   raw: unknown,
 ): LinkedDeviceApprovalTranscriptV1 | undefined {
@@ -2002,6 +2035,7 @@ function parseOptionalApprovalTranscript(
     'value',
     'sourceSignerManifest',
     'sourceKeyManifestDigestsB64u',
+    'sourceAuthorityDigestB64u',
   ]);
   const value = parseLinkedDeviceApprovalV1(record.value);
   const sourceKeyManifestDigestsB64u = parseSourceKeyManifestDigestsV1(
@@ -2018,6 +2052,10 @@ function parseOptionalApprovalTranscript(
     value,
     sourceSignerManifest,
     sourceKeyManifestDigestsB64u,
+    sourceAuthorityDigestB64u: requireDigest(
+      record.sourceAuthorityDigestB64u,
+      'approvalTranscript.sourceAuthorityDigestB64u',
+    ),
   };
 }
 
@@ -2061,6 +2099,7 @@ function parseOptionalSourceContributionTranscript(
     'value',
     'sourceSignerManifest',
     'sourceKeyManifestDigestsB64u',
+    'sourceAuthorityDigestB64u',
   ]);
   const value = parseLinkedDeviceApprovalV1(record.value);
   if (!value.sourceContribution) {
@@ -2080,6 +2119,10 @@ function parseOptionalSourceContributionTranscript(
     value,
     sourceSignerManifest,
     sourceKeyManifestDigestsB64u,
+    sourceAuthorityDigestB64u: requireDigest(
+      record.sourceAuthorityDigestB64u,
+      'sourceContributionTranscript.sourceAuthorityDigestB64u',
+    ),
   };
 }
 

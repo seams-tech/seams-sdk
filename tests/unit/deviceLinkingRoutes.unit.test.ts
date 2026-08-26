@@ -189,7 +189,6 @@ test('owner cancellation is idempotent only while a claimed session is pre-appro
     outcome: 'replayed',
     session: { state: { state: 'cancelled' } },
   });
-
 });
 
 test('authenticates the owner before parsing a malformed claim body', async () => {
@@ -665,6 +664,7 @@ function ownerAuthorization(
       kind: 'authorized' as const,
       sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
+      sourceAuthorityDigestB64u: fixture.sourceAuthorityDigestB64u,
     }),
   };
 }

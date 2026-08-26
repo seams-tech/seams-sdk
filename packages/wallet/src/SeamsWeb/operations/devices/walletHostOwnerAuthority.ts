@@ -20,6 +20,7 @@ import { parseLinkedDeviceOwnerAuthorizationSourceV1 } from '@shared/device-link
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
+import { awaitNearProvisioningInFlight } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 
 const OWNER_AUTHORIZATION_PATH = '/wallet/device-linking/v1/owner-authorization';
 
@@ -105,12 +106,13 @@ function normalizeContext(input: {
 /**
  * The R103 fail-closed preflight, exact result `wallet_unlock_required`.
  *
- * Runs before the owner-authorization request, the QR claim, and everything
- * after them: a Device 1 that is locked, whose owner Wallet Session is gone,
- * or whose worker no longer holds the unlocked export-root capability gets this
- * one result, and the flow creates no claim, approval, credential, recipient
- * package, or authenticator prompt. Unlocking is the user's explicit act on
- * the wallet surface — never a side effect of scanning a QR.
+ * The locked and missing-session arms run before any network I/O. The
+ * export-root arm runs after the stateless owner-authorization read, because
+ * whether Ed25519 export access is needed comes from the server-derived
+ * source signer manifest - but still before the QR claim and everything after
+ * it: the flow creates no claim, approval, credential, recipient package, or
+ * authenticator prompt. Unlocking is the user's explicit act on the wallet
+ * surface — never a side effect of scanning a QR.
  */
 function walletUnlockRequiredV1(): DeviceLinkingError {
   return new DeviceLinkingError(
@@ -128,6 +130,13 @@ async function authorizeOwnerForLinkingV1(
   if (state.kind !== 'authenticated') {
     throw walletUnlockRequiredV1();
   }
+  /* The server derives the source signer manifest from the authority's current
+     activations and the approval pins it. A registration whose deferred NEAR
+     leg is still in flight would pin an ECDSA-only manifest - and either fail
+     later with "manifest changed after owner approval" or link a device with
+     no Ed25519 lane - so an in-flight provisioning is awaited first. Best
+     effort by design: the registry is page-local. */
+  await awaitNearProvisioningInFlight(state.walletId);
   const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
   const body: LinkedDeviceOwnerAuthorizationRequestV1 =
     parseLinkedDeviceOwnerAuthorizationRequestV1({

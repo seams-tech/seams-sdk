@@ -53,6 +53,7 @@ import {
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { walletAuthorityDigestsMatchV1 } from '@shared/authorization/walletAuthority';
+import { LinkedDeviceSourceFamilyUnavailableErrorV1 } from './d1LinkedDeviceVerifiedLinkSourceReader';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../../core/ThresholdService/validation';
 import type {
   WalletEcdsaSignerRecord,
@@ -100,6 +101,8 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataV1 = {
 export type D1LinkedDeviceVerifiedOwnerSourceFactsV1 = {
   readonly signerManifest: ExactAdministeredSignerManifestV1;
   readonly keyManifestDigestsB64u: LinkedDeviceSourceKeyManifestDigestsV1;
+  /** The authority digest at read time - rotation advances it, identity does not. */
+  readonly sourceAuthorityDigestB64u: DigestB64u;
 };
 
 /**
@@ -435,11 +438,16 @@ async function readVerifiedOwnerSourceFactsV1(
   try {
     first = await readFamily('ed25519');
     firstFamily = 'ed25519';
-  } catch {
+  } catch (error: unknown) {
+    /* Only "this authority owns no Ed25519 signer" selects the ECDSA-only
+       shape. Any other failure - session, identity, storage - would produce a
+       falsely narrowed manifest that the approval then pins, so it surfaces. */
+    if (!(error instanceof LinkedDeviceSourceFamilyUnavailableErrorV1)) throw error;
     first = await readFamily('ecdsa_secp256k1');
     firstFamily = 'ecdsa_secp256k1';
   }
   const manifest = first.signerManifest;
+  const sourceAuthorityDigestB64u = parseDigestB64u(first.authority.authorityDigestB64u);
   const digests: Partial<Record<ExactAdministeredSignerV1['keyFamily'], DigestB64u>> = {
     [firstFamily]: first.keyManifestDigestB64u,
   };
@@ -448,6 +456,7 @@ async function readVerifiedOwnerSourceFactsV1(
     const source = await readFamily(keyFamily);
     if (
       source.authority.authorityId !== first.authority.authorityId ||
+      source.authority.authorityDigestB64u !== first.authority.authorityDigestB64u ||
       source.authMethod.walletAuthMethodId !== first.authMethod.walletAuthMethodId ||
       alphabetizeStringify(source.signerManifest) !== alphabetizeStringify(manifest)
     ) {
@@ -457,13 +466,18 @@ async function readVerifiedOwnerSourceFactsV1(
   }
   if (manifest.keyFamilies.length === 1 && manifest.keyFamilies[0] === 'ed25519') {
     if (!digests.ed25519) throw new Error('verified Ed25519 source digest is missing');
-    return { signerManifest: manifest, keyManifestDigestsB64u: { ed25519: digests.ed25519 } };
+    return {
+      signerManifest: manifest,
+      keyManifestDigestsB64u: { ed25519: digests.ed25519 },
+      sourceAuthorityDigestB64u,
+    };
   }
   if (manifest.keyFamilies.length === 1 && manifest.keyFamilies[0] === 'ecdsa_secp256k1') {
     if (!digests.ecdsa_secp256k1) throw new Error('verified ECDSA source digest is missing');
     return {
       signerManifest: manifest,
       keyManifestDigestsB64u: { ecdsa_secp256k1: digests.ecdsa_secp256k1 },
+      sourceAuthorityDigestB64u,
     };
   }
   if (!digests.ed25519 || !digests.ecdsa_secp256k1) {
@@ -475,6 +489,7 @@ async function readVerifiedOwnerSourceFactsV1(
       ed25519: digests.ed25519,
       ecdsa_secp256k1: digests.ecdsa_secp256k1,
     },
+    sourceAuthorityDigestB64u,
   };
 }
 
@@ -526,6 +541,16 @@ export function createD1LinkedDeviceOwnerAuthorizationMetadataSourceV1(
         input.keyFamily,
       );
       if (!approvedSourceDigest || approvedSourceDigest !== source.keyManifestDigestB64u) {
+        return null;
+      }
+      /* The custody manifest digest above survives a material rotation; the
+         authority digest does not. Pinning it holds the approval to the exact
+         activation state the owner saw - rotated material needs a fresh
+         approval, not a silently carried one. */
+      if (
+        session.approvalTranscript.sourceAuthorityDigestB64u !==
+        source.authority.authorityDigestB64u
+      ) {
         return null;
       }
       return await ownerContextFromVerifiedSourceV1({
@@ -793,6 +818,7 @@ function createOwnerAuthorizationPortV1(
         kind: 'authorized',
         sourceSignerManifest: sourceFacts.signerManifest,
         sourceKeyManifestDigestsB64u: sourceFacts.keyManifestDigestsB64u,
+        sourceAuthorityDigestB64u: sourceFacts.sourceAuthorityDigestB64u,
       };
     },
   };
