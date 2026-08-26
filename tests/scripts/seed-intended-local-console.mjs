@@ -77,14 +77,14 @@ function resolveSeedConfig(localEnv) {
     firstNonEmptyString([
       process.env.SEAMS_INTENDED_WALLET_ORIGIN,
       localEnv.SEAMS_INTENDED_WALLET_ORIGIN,
-      'https://localhost:8443',
+      'https://localhost:4002',
     ]),
   );
   const docsOrigin = originFromUrl(
     firstNonEmptyString([
       process.env.SEAMS_INTENDED_DOCS_ORIGIN,
       localEnv.SEAMS_INTENDED_DOCS_ORIGIN,
-      'https://docs.localhost:9447',
+      'https://docs.localhost:4003',
     ]),
   );
   const publishableKey = firstNonEmptyString([
@@ -132,7 +132,7 @@ function resolveSeedConfig(localEnv) {
       walletOrigin,
       docsOrigin,
       'http://localhost:4001',
-      'https://localhost:8443',
+      'https://localhost:4002',
     ]),
     keyPrefix: publishableKey.trim().slice(0, 24),
     secretHash: hashApiKeySecret(publishableKey),

@@ -11,7 +11,7 @@ const siteLinkColor = '1;38;5;214';
 const localSites = [
   { label: 'Seams', url: 'http://localhost:4001/wallet' },
   { label: 'Dashboard', url: 'http://localhost:4001/dashboard' },
-  { label: 'Docs', url: 'https://docs.localhost:9447' },
+  { label: 'Docs', url: 'https://docs.localhost:4003' },
 ];
 
 // The root local env is the sole authority shared by the site and console seed.
@@ -50,22 +50,22 @@ function localSiteEnvironment(environment) {
   ]);
   return {
     ...environment,
-    VITE_RELAYER_URL: firstNonEmptyString([environment.VITE_RELAYER_URL, 'https://localhost:9444']),
+    VITE_RELAYER_URL: firstNonEmptyString([environment.VITE_RELAYER_URL, 'https://localhost:4004']),
     VITE_SEAMS_BROKER_URL: firstNonEmptyString([
       environment.VITE_SEAMS_BROKER_URL,
-      'https://localhost:9444',
+      'https://localhost:4004',
     ]),
     VITE_CONSOLE_BASE_URL: firstNonEmptyString([
       environment.VITE_CONSOLE_BASE_URL,
-      'https://localhost:9444',
+      'https://localhost:4004',
     ]),
     VITE_WALLET_ORIGIN: firstNonEmptyString([
       environment.VITE_WALLET_ORIGIN,
-      'https://localhost:8443',
+      'https://localhost:4002',
     ]),
     VITE_DOCS_ORIGIN: firstNonEmptyString([
       environment.VITE_DOCS_ORIGIN,
-      'https://docs.localhost:9447',
+      'https://docs.localhost:4003',
     ]),
     VITE_RP_ID_BASE: firstNonEmptyString([environment.VITE_RP_ID_BASE, 'localhost']),
     VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: firstNonEmptyString([

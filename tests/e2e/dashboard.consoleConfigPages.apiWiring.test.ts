@@ -8202,7 +8202,7 @@ test.describe('dashboard console config page api wiring', () => {
     const context = buildMockDashboardContext();
     const seededAllowedOrigins = [
       'https://app.example.com',
-      'https://localhost:8443',
+      'https://localhost:4002',
       'https://wallet.example.localhost',
     ];
     let lastCreateBody: Record<string, unknown> | null = null;
@@ -8508,7 +8508,7 @@ test.describe('dashboard console config page api wiring', () => {
           .filter({ hasText: 'In this local dev setup, include' })
           .locator('code')
           .textContent()) || '',
-      ).trim() || 'https://localhost:8443';
+      ).trim() || 'https://localhost:4002';
     const createAllowedOrigins = Array.from(
       new Set(['https://app.example.com', walletOriginHint, 'https://admin.example.com']),
     );

@@ -14,12 +14,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 dotenv.config({ path: path.join(repoRoot, '.env.local'), override: true });
 const checkOnly = process.argv.includes('--check');
 const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
-const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:9444';
-const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:8443';
+const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4004';
+const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002';
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
-const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost';
+const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost:4003';
 const routerAbLocalRoot =
   process.env.SEAMS_INTENDED_ROUTER_AB_ROOT ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-router-ab`);
@@ -127,14 +127,15 @@ async function main() {
 
 function assertLocalIntendedUrls() {
   assertUrlOrigin('SEAMS_INTENDED_APP_URL', appUrl, [
+    'http://localhost:4001',
     'https://localhost',
     'https://localhost:9443',
   ]);
-  assertUrlOrigin('SEAMS_INTENDED_ROUTER_URL', routerUrl, 'https://localhost:9444');
-  assertUrlOrigin('SEAMS_INTENDED_WALLET_ORIGIN', walletOrigin, 'https://localhost:8443');
+  assertUrlOrigin('SEAMS_INTENDED_ROUTER_URL', routerUrl, 'https://localhost:4004');
+  assertUrlOrigin('SEAMS_INTENDED_WALLET_ORIGIN', walletOrigin, 'https://localhost:4002');
   assertUrlOrigin('SEAMS_INTENDED_DOCS_ORIGIN', docsOrigin, [
     'https://docs.localhost',
-    'https://docs.localhost:9447',
+    'https://docs.localhost:4003',
   ]);
 }
 

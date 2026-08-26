@@ -65,7 +65,7 @@ test(
 );
 
 function acceptManagedLocalRouterOrigin(): void {
-  requireLocalIntendedYaoFaultRouterOrigin('https://localhost:9444');
+  requireLocalIntendedYaoFaultRouterOrigin('https://localhost:4004');
 }
 
 function rejectStagingRouterOrigin(): void {
@@ -78,8 +78,8 @@ function rejectProductionRouterOrigin(): void {
 
 function verifyLocalRouterOriginGuard(): void {
   expect(acceptManagedLocalRouterOrigin).not.toThrow();
-  expect(rejectStagingRouterOrigin).toThrow('requires https://localhost:9444');
-  expect(rejectProductionRouterOrigin).toThrow('requires https://localhost:9444');
+  expect(rejectStagingRouterOrigin).toThrow('requires https://localhost:4004');
+  expect(rejectProductionRouterOrigin).toThrow('requires https://localhost:4004');
 }
 
 test(

@@ -204,7 +204,7 @@ const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
 const DEFAULT_LOCAL_CONSOLE_SESSION_HMAC_SECRET =
   'seams-local-console-session-secret-change-before-shared-dev';
 const DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
-const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:9444/console';
+const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:4004/console';
 const DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
 const DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY_ID = 'local-console-webhook-k1';
 // AES-256-GCM key material for sealing webhook signing secrets at rest.
@@ -570,8 +570,8 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
 const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
   'http://localhost:4001',
   'https://localhost',
-  'https://localhost:8443',
-  'https://localhost:9444',
+  'https://localhost:4002',
+  'https://localhost:4004',
   'http://127.0.0.1:9090',
   'http://localhost:9090',
   'http://127.0.0.1:8787',
