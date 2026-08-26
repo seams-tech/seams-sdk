@@ -9,6 +9,7 @@ import {
   parseD1LinkedDeviceSessionTranscriptRowV1,
   parseD1LinkedDeviceSessionRowV1,
   type D1LinkedDeviceSessionRowV1,
+  type ParsedD1LinkedDeviceSessionRowV1,
 } from './d1LinkedDeviceSessionRecords';
 import type {
   LinkSessionStateV1,
@@ -17,6 +18,7 @@ import type {
 } from '@shared/device-linking/contracts';
 import { assertNeverLinkSessionStateV1 } from '@shared/device-linking/contracts';
 import {
+  LinkedDeviceRetiredSessionShapeErrorV1,
   parseLinkedDeviceSessionRecordV1,
   type LinkedDeviceSessionListCursorV1,
   type LinkedDeviceSessionListPageV1,
@@ -117,9 +119,39 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       .bind(...scopeValues(this.scope), String(linkSessionId))
       .first<D1LinkedDeviceSessionRowV1>();
     if (!row) return null;
-    const parsed = parseD1LinkedDeviceSessionRowV1(row);
+    let parsed: ParsedD1LinkedDeviceSessionRowV1;
+    try {
+      parsed = parseD1LinkedDeviceSessionRowV1(row);
+    } catch (error: unknown) {
+      /* Only the retired-shape class recovers: a record this deployment's
+         schema can no longer parse would otherwise be unexpirable and
+         undeletable, since every mutation reads it first. It is removed with
+         its scoped rows and the caller sees an absent session, mirroring the
+         target-credential store. A well-formed record whose columns disagree
+         (tampering) keeps throwing. */
+      if (!(error instanceof LinkedDeviceRetiredSessionShapeErrorV1)) throw error;
+      await this.deleteRetiredShapeSessionRowV1(linkSessionId);
+      return null;
+    }
     await this.verifyImmutableTranscripts(parsed.record);
     return parsed.record;
+  }
+
+  private async deleteRetiredShapeSessionRowV1(linkSessionId: LinkDeviceSessionId): Promise<void> {
+    await this.database.batch([
+      ...buildSessionScopedDeleteStatements({
+        database: this.database,
+        scope: this.scope,
+        linkSessionId,
+      }),
+      this.database
+        .prepare(
+          `DELETE FROM ${SESSION_TABLE}
+             WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+               AND link_session_id = ?`,
+        )
+        .bind(...scopeValues(this.scope), String(linkSessionId)),
+    ]);
   }
 
   async listSessionsForWalletV1(input: {
@@ -181,7 +213,14 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     }
     const records: LinkedDeviceSessionRecordV1[] = [];
     for (const row of rows) {
-      const parsed = parseD1LinkedDeviceSessionRowV1(row);
+      let parsed: ParsedD1LinkedDeviceSessionRowV1;
+      try {
+        parsed = parseD1LinkedDeviceSessionRowV1(row);
+      } catch (error: unknown) {
+        // A retired-shape row must not take the whole listing down with it.
+        if (!(error instanceof LinkedDeviceRetiredSessionShapeErrorV1)) throw error;
+        continue;
+      }
       await this.verifyImmutableTranscriptsForRows(
         parsed.record,
         transcriptBySession.get(String(parsed.record.linkSessionId)) ?? [],
@@ -636,24 +675,58 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       record: LinkedDeviceSessionRecordV1,
       nextRecord: LinkedDeviceSessionRecordV1,
     ) => boolean;
+    /** Terminal transitions shrink the record and drop session-scoped rows. */
+    readonly terminal?: boolean;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
     const current = await this.getSessionV1(input.linkSessionId);
     if (!current) return conflictResult(input.expectedRevision, null);
-    const nextRecord = normalizeMutationRecordV1(input);
+    const normalized = normalizeMutationRecordV1(input);
+    const nextRecord = input.terminal ? minimalTerminalRecordV1(normalized) : normalized;
     if (nextRecord.revision !== current.revision + 1) {
       throw new Error('linked-device mutation revision is invalid');
     }
     if (!input.nextStates.includes(nextRecord.state.state)) {
-      throw new Error('linked-device state transition is invalid');
+      throw new Error(
+        input.terminal
+          ? 'linked-device terminal transition is invalid'
+          : 'linked-device state transition is invalid',
+      );
     }
     if (input.replay(current, nextRecord)) return { outcome: 'replayed', record: current };
     if (!input.expectedStates.includes(current.state.state)) return invalidStateResult(current);
-    await this.updateStatement({
-      linkSessionId: input.linkSessionId,
-      expectedRevision: input.expectedRevision,
-      nextRecord,
-      nowMs: input.nowMs,
-    }).run();
+    if (input.terminal) {
+      /* The scoped-row cleanup must land with the state flip or not at all,
+         and a batch failure is read back as either a replayed race or a
+         conflict rather than surfacing as a raw storage error. */
+      try {
+        await this.database.batch([
+          this.updateStatement({
+            linkSessionId: input.linkSessionId,
+            expectedRevision: input.expectedRevision,
+            nextRecord,
+            nowMs: input.nowMs,
+          }),
+          this.database.prepare(SESSION_CAS_GUARD_SQL),
+          ...buildSessionScopedDeleteStatements({
+            database: this.database,
+            scope: this.scope,
+            linkSessionId: input.linkSessionId,
+          }),
+        ]);
+      } catch {
+        const raced = await this.getSessionV1(input.linkSessionId);
+        if (!raced) throw new Error('linked-device session disappeared after terminal CAS');
+        if (input.replay(raced, nextRecord)) return { outcome: 'replayed', record: raced };
+        return conflictResult(input.expectedRevision, raced);
+      }
+    } else {
+      await this.updateStatement({
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
+        nextRecord,
+        nowMs: input.nowMs,
+      }).run();
+    }
     const persisted = await this.getSessionV1(input.linkSessionId);
     if (!persisted) throw new Error('linked-device session disappeared after state CAS');
     return persisted.revision === nextRecord.revision &&
@@ -674,45 +747,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       nextRecord: LinkedDeviceSessionRecordV1,
     ) => boolean;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
-    const current = await this.getSessionV1(input.linkSessionId);
-    if (!current) return conflictResult(input.expectedRevision, null);
-    const normalized = normalizeMutationRecordV1(input);
-    const nextRecord = minimalTerminalRecordV1(normalized);
-    if (nextRecord.revision !== current.revision + 1) {
-      throw new Error('linked-device mutation revision is invalid');
-    }
-    if (!input.nextStates.includes(nextRecord.state.state)) {
-      throw new Error('linked-device terminal transition is invalid');
-    }
-    if (input.replay(current, nextRecord)) return { outcome: 'replayed', record: current };
-    if (!input.expectedStates.includes(current.state.state)) return invalidStateResult(current);
-    try {
-      await this.database.batch([
-        this.updateStatement({
-          linkSessionId: input.linkSessionId,
-          expectedRevision: input.expectedRevision,
-          nextRecord,
-          nowMs: input.nowMs,
-        }),
-        this.database.prepare(SESSION_CAS_GUARD_SQL),
-        ...buildSessionScopedDeleteStatements({
-          database: this.database,
-          scope: this.scope,
-          linkSessionId: input.linkSessionId,
-        }),
-      ]);
-    } catch {
-      const raced = await this.getSessionV1(input.linkSessionId);
-      if (!raced) throw new Error('linked-device session disappeared after terminal CAS');
-      if (input.replay(raced, nextRecord)) return { outcome: 'replayed', record: raced };
-      return conflictResult(input.expectedRevision, raced);
-    }
-    const persisted = await this.getSessionV1(input.linkSessionId);
-    if (!persisted) throw new Error('linked-device session disappeared after terminal CAS');
-    return persisted.revision === nextRecord.revision &&
-      alphabetizeStringify(persisted) === alphabetizeStringify(nextRecord)
-      ? { outcome: 'applied', record: persisted }
-      : resolveMutationRace(input.expectedRevision, persisted);
+    return await this.applyStateCas({ ...input, terminal: true });
   }
 
   private updateStatement(input: {
