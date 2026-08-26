@@ -2156,15 +2156,30 @@ export class CloudflareD1WalletAuthMethodService {
         records.push(record);
       }
     }
-    if (records.length !== 1) {
+    let record: WalletAuthMethodRecordV2 | undefined = records[0];
+    if (records.length > 1) {
+      const foundingMethods: WalletAuthMethodRecordV2[] = [];
+      for (const candidate of records) {
+        const authority = await this.walletAuthorityStore.readById(candidate.walletAuthorityId);
+        if (
+          authority?.state === 'active' &&
+          authority.walletId === candidate.walletId &&
+          authority.authorityId === candidate.walletAuthorityId &&
+          authority.provenance.kind === 'wallet_registration'
+        ) {
+          foundingMethods.push(candidate);
+        }
+      }
+      record = foundingMethods.length === 1 ? foundingMethods[0] : undefined;
+    }
+    if (!record) {
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'Wallet requires one exact active Email OTP authority',
+        message: 'Wallet Email OTP authority cannot be selected from the verified subject',
       };
     }
-    const record = records[0];
-    if (!record || record.kind !== 'email_otp') {
+    if (record.kind !== 'email_otp') {
       return {
         ok: false,
         code: 'unauthorized',
