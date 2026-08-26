@@ -159,8 +159,13 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       setIsVideoReady(false);
       scannedPayloadRef.current = null;
       completionReportedRef.current = false;
-      rejectPendingEmailOtpSelection(new Error('Device linking was cancelled'));
     }
+    /* Both transitions settle the pending chooser. Open: a stale selection
+       must not answer the new scan. Closed: a parent driving `isOpen` false
+       while the component stays mounted is the exit the unmount cleanup never
+       sees - left unrejected, the host coroutine stays parked on the chooser
+       and the claimed session is held until it expires. */
+    rejectPendingEmailOtpSelection(new Error('Device linking was cancelled'));
   }, [isOpen, rejectPendingEmailOtpSelection]);
 
   // Camera Cleanup Point 1: User-initiated close

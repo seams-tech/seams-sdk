@@ -42,6 +42,9 @@ type PendingEmailOtpBaseFactorSelectionV1 = {
 
 type PendingEmailOtpBaseFactorSelectionStoreV1 = Map<string, PendingEmailOtpBaseFactorSelectionV1>;
 
+/** The QR payload's own lifetime; a selection older than this blocks nothing. */
+const EMAIL_OTP_BASE_FACTOR_SELECTION_DEADLINE_MS = 15 * 60 * 1000;
+
 function waitForEmailOtpBaseFactorSelectionV1(
   store: PendingEmailOtpBaseFactorSelectionStoreV1,
   deps: Pick<HandlerDeps, 'postProgress'>,
@@ -55,7 +58,31 @@ function waitForEmailOtpBaseFactorSelectionV1(
   const previous = store.get(requestId);
   previous?.reject(new Error('A newer Email OTP method selection is required'));
   return new Promise((resolve, reject) => {
-    store.set(requestId, { choices, resolve, reject });
+    /* Backstop for exits that bypass the selector - overlay dismissal reaches
+       only the client side, and a parent can drop the chooser UI without
+       answering. The deadline matches the QR lifetime: past it the claim this
+       selection was blocking has expired anyway, and an unbounded wait parks
+       the scan coroutine forever. */
+    const deadline = setTimeout(
+      () =>
+        cancelPendingEmailOtpBaseFactorSelectionV1(
+          store,
+          requestId,
+          new Error('Email OTP method selection timed out'),
+        ),
+      EMAIL_OTP_BASE_FACTOR_SELECTION_DEADLINE_MS,
+    );
+    store.set(requestId, {
+      choices,
+      resolve: (value) => {
+        clearTimeout(deadline);
+        resolve(value);
+      },
+      reject: (reason) => {
+        clearTimeout(deadline);
+        reject(reason instanceof Error ? reason : new Error(String(reason)));
+      },
+    });
     deps.postProgress(requestId, {
       event: 'wallet_device_link_email_otp_base_factor_selection_required_v1',
       choices,
@@ -253,6 +280,17 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       if (deps.respondIfCancelled(req.requestId)) return;
       await pm.devices.cancelDeviceLinking();
       activeTargetFactor.current = null;
+      /* A scan parked on the Email OTP method chooser is part of what this
+         cancels: rejecting the pending selection is what unparks that
+         coroutine so its catch can owner-cancel the claimed session. Without
+         it the claim stays held until expiry. */
+      for (const requestId of [...pendingEmailOtpBaseFactorSelections.keys()]) {
+        cancelPendingEmailOtpBaseFactorSelectionV1(
+          pendingEmailOtpBaseFactorSelections,
+          requestId,
+          new Error('Device linking was cancelled'),
+        );
+      }
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOk(deps, req.requestId);
     },
