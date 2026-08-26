@@ -200,9 +200,11 @@ function recoveryIcon(): TemplateResult {
       stroke-linejoin="round"
       aria-hidden="true"
     >
-      <circle cx="7.5" cy="15.5" r="5.5" />
-      <path d="m21 2-9.6 9.6" />
-      <path d="m15.5 7.5 2 2L21 6l-2-2" />
+      <path d="M20 11v6" />
+      <path d="M20 13h2" />
+      <path d="M3 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 2.072.578" />
+      <circle cx="10" cy="7" r="4" />
+      <circle cx="20" cy="19" r="2" />
     </svg>
   `;
 }
@@ -1028,18 +1030,14 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           <button class="w3a-link-device-btn" type="button" @click=${this.onLinkDeviceOpen}>
             ${linkDeviceIcon()} Scan and Link Device
           </button>
-          ${viewModel.mode === 'login'
-            ? html`
-                <button
-                  class="w3a-link-device-btn"
-                  type="button"
-                  data-recovery-action
-                  @click=${this.onRecoveryOpen}
-                >
-                  ${recoveryIcon()} Recover account
-                </button>
-              `
-            : null}
+          <button
+            class="w3a-link-device-btn"
+            type="button"
+            data-recovery-action
+            @click=${this.onRecoveryOpen}
+          >
+            ${recoveryIcon()} Recover account
+          </button>
         </div>
       </div>
     `;
