@@ -28,6 +28,32 @@ export default defineConfig(({ mode }) => {
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
   const workspaceNodeModules = fileURLToPath(new URL('../../node_modules', import.meta.url));
   const cacheDir = env.VITE_CACHE_DIR || undefined;
+  const walletDistRoot = String(env.VITE_SEAMS_WALLET_DIST_ROOT || '').trim();
+  const walletAliases = walletDistRoot
+    ? [
+        {
+          find: /^@seams\/wallet\/react\/styles$/,
+          replacement: `${walletDistRoot}/esm/react/styles/styles.css`,
+        },
+        {
+          find: /^@seams\/wallet\/react\/profile$/,
+          replacement: `${walletDistRoot}/esm/react/components/AccountMenuButton/index.js`,
+        },
+        {
+          find: /^@seams\/wallet\/react\/provider$/,
+          replacement: `${walletDistRoot}/esm/react/context/SeamsWebProvider.js`,
+        },
+        {
+          find: /^@seams\/wallet\/react$/,
+          replacement: `${walletDistRoot}/esm/react/index.js`,
+        },
+        {
+          find: /^@seams\/wallet\/advanced$/,
+          replacement: `${walletDistRoot}/esm/advanced.js`,
+        },
+        { find: /^@seams\/wallet$/, replacement: `${walletDistRoot}/esm/index.js` },
+      ]
+    : [];
 
   return {
     envDir: workspaceRoot,
@@ -51,9 +77,21 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [react()],
+    optimizeDeps: walletDistRoot
+      ? {
+          include: [
+            '@seams/wallet',
+            '@seams/wallet/advanced',
+            '@seams/wallet/react',
+            '@seams/wallet/react/profile',
+            '@seams/wallet/react/provider',
+          ],
+        }
+      : undefined,
     resolve: {
       alias: [
         { find: '@', replacement: appSrc },
+        ...walletAliases,
         { find: /^react$/, replacement: `${workspaceNodeModules}/react/index.js` },
         {
           find: /^react\/jsx-runtime$/,
