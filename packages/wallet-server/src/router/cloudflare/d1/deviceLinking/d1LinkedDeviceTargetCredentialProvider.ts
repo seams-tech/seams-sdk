@@ -764,9 +764,9 @@ SELECT 1
       requestedAtMs: input.requestedAtMs,
     });
     const targetFactor = await buildVerifiedTargetFactorV1({
+      preparation: input.preparation,
       registration: input.registration,
       evidence: input.evidence,
-      sourceAuthMethod: source.authMethod,
       requestedAtMs: input.requestedAtMs,
     });
     const preparations = parseLinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1(
