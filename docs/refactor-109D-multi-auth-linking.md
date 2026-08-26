@@ -89,6 +89,8 @@ R109D product implementation may proceed.
 - [ ] Render the masked multi-choice selector in the first-party Device 1 UI.
 - [x] Build Passkey targets from managed RP configuration with no dependency on
       the source credential.
+- [x] Add the owner-authenticated cancel path for the claimed, pre-approval
+      state and make terminal cancellation replay idempotent.
 - [ ] Complete the four source/target factor operating paths and their focused
       intended-browser contracts.
 

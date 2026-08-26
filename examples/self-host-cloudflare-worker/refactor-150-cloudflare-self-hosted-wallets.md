@@ -1,4 +1,4 @@
-# Refactor 130: Cloudflare Self-Hosted Wallets
+# Refactor 150: Cloudflare Self-Hosted Wallets
 
 Date created: August 5, 2026
 Cloudflare API feasibility checked: August 9, 2026
@@ -115,7 +115,7 @@ surface by importing internal code.
 examples/self-host-cloudflare-worker/
   README.md
   package.json
-  refactor-130-cloudflare-self-hosted-wallets.md
+  refactor-150-cloudflare-self-hosted-wallets.md
   onboarding/
     oauth.ts
     session.ts

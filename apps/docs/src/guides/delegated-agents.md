@@ -6,7 +6,7 @@ description: Issue revocable, policy-bound authority to agents without sharing a
 # Delegated agents
 
 Use the [policies and mandates guide](/guides/policies-and-mandates) for the
-operation shape, then review [ecommerce agents](/use-cases/ecommerce-agents) for
+operation shape, then review [shopping agents](/use-cases/ecommerce-agents) for
 a product example. Give each agent an independent subject and signing lane.
 
 ## Grant narrow authority

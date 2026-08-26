@@ -3,6 +3,17 @@
 Monorepo for `@seams/wallet`: an embedded passkey wallet SDK and
 self-hostable signing infrastructure.
 
+## Product direction
+
+Seams is for applications that need a persistent wallet for each user or
+shopping agent. The three primary use cases are platform wallets, shopping
+wallet applications, and shopping agents purchasing from unrelated ecommerce
+stores. Ordinary one-off merchant checkout is outside the primary customer
+profile.
+
+Read [the wallet vision](docs/vision.md) for customer fit, product boundaries,
+and priorities.
+
 ## Getting Started
 
 ```bash

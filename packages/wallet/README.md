@@ -1,8 +1,13 @@
-# Web3Authn SDK
+# Seams wallet SDK
 
-Passkey wallet SDK for NEAR Protocol. An embedded wallet powered by
-SecureConfirm WebAuthn, cross-origin iframe isolation, and WASM-based
-cryptography.
+Embedded passkey wallet SDK for platforms that provision persistent wallets for
+their users. It supports NEAR and EVM-family signing through SecureConfirm
+WebAuthn, cross-origin iframe isolation, and WASM-based cryptography.
+
+Strong fits include marketplaces, trading platforms, games, payout and
+remittance products, stablecoin accounts, rewards networks, and applications
+that sponsor or automate onchain operations. Read the
+[wallet vision](../../docs/vision.md) for the complete use-case boundary.
 
 Featuring:
 

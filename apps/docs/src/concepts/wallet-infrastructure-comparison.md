@@ -17,7 +17,7 @@ user experience while keeping the wallet infrastructure self-hostable.
 | ---------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | Hosted wallet SaaS           | Teams that want provider-operated wallet infrastructure and accept provider dependency.                  | The wallet stack, pricing model, and roadmap stay tied to the vendor.                               |
 | Self-hosted TEE wallet stack | Teams that can operate confidential-compute infrastructure correctly.                                    | Security depends on enclave image, attestation, KMS, rollout, and regional availability operations. |
-| Seams SDK                    | Teams that want self-hostable threshold embedded wallets with a low-friction Cloudflare deployment path. | Normal signing uses MPC/threshold flows, so latency is higher than single-runtime signing.          |
+| Seams SDK                    | Platforms that provision persistent user or agent wallets and want a self-hostable Cloudflare deployment path. | Normal signing uses MPC/threshold flows, so latency is higher than single-runtime signing.          |
 
 ## Hosted wallet clouds
 
@@ -59,6 +59,12 @@ claim true after deployment.
 Seams uses threshold signing and hidden-share derivation. Normal signing
 produces signature shares; no single runtime needs to assemble the canonical
 private key.
+
+Strong fits include marketplaces, trading platforms, games, payout and
+remittance products, stablecoin accounts, rewards networks, shopping wallet
+apps, and agentic-commerce platforms. A one-time merchant checkout generally
+uses the shopper's existing wallet and does not require a newly provisioned
+wallet.
 
 Seams is self-hostable and serverless-friendly:
 
