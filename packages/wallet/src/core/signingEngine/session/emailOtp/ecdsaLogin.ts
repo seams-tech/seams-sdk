@@ -399,12 +399,51 @@ async function resolveEmailOtpAuthContextAuthorityFromActiveMethods(args: {
   return { kind: 'selected_v2', authority };
 }
 
-async function resolveEmailOtpAuthContextAuthoritySource(args: {
+async function resolveEmailOtpAuthContextAuthorityForExactMethod(args: {
   walletId: WalletSessionRef['walletId'];
+  walletAuthMethodId: string;
   emailHashHex: string;
   provider: EmailOtpProvider;
   providerUserId: string;
 }): Promise<EmailOtpAuthContextAuthoritySource> {
+  const stores = emailOtpOwnerLaneScopeStores();
+  const authMethod = await stores.getWalletAuthMethodV2(args.walletAuthMethodId);
+  if (
+    !authMethod ||
+    authMethod.kind !== 'email_otp' ||
+    authMethod.status !== 'active' ||
+    String(authMethod.walletId) !== String(args.walletId)
+  ) {
+    throw new Error('Selected Email OTP wallet auth method is unavailable');
+  }
+  const authority = await resolveExactWalletAuthAuthority({ authMethod, stores });
+  if (
+    !isEmailOtpWalletAuthAuthority(authority) ||
+    authority.factor.provider !== args.provider ||
+    String(authority.factor.providerUserId) !== String(args.providerUserId) ||
+    String(authority.verifier.emailHashHex) !== String(args.emailHashHex)
+  ) {
+    throw new Error('Selected Email OTP wallet auth method does not match the request');
+  }
+  return { kind: 'selected_v2', authority };
+}
+
+async function resolveEmailOtpAuthContextAuthoritySource(args: {
+  walletId: WalletSessionRef['walletId'];
+  authoritySelector: EmailOtpAuthoritySelector;
+  emailHashHex: string;
+  provider: EmailOtpProvider;
+  providerUserId: string;
+}): Promise<EmailOtpAuthContextAuthoritySource> {
+  if (args.authoritySelector.kind === 'wallet_auth_method') {
+    return await resolveEmailOtpAuthContextAuthorityForExactMethod({
+      walletId: args.walletId,
+      walletAuthMethodId: args.authoritySelector.walletAuthMethodId,
+      emailHashHex: args.emailHashHex,
+      provider: args.provider,
+      providerUserId: args.providerUserId,
+    });
+  }
   const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
   if (selected.kind === 'missing_selection') return { kind: 'canonical_boundary' };
   if (selected.kind !== 'resolved') {
@@ -1395,6 +1434,7 @@ async function runEmailOtpEcdsaCapability(
   });
   const emailOtpAuthoritySource = await resolveEmailOtpAuthContextAuthoritySource({
     walletId: args.walletSession.walletId,
+    authoritySelector: args.authoritySelector,
     emailHashHex: args.emailHashHex,
     provider: emailOtpProviderIdentity.provider,
     providerUserId: emailOtpProviderIdentity.providerUserId,
