@@ -835,6 +835,11 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     if (walletSession.session.authorizationId !== acknowledgement.authorizationId) {
       throw new Error('active authority acknowledgement authorization does not match the session');
     }
+    /* The allocation goes first: a crash after this delete leaves the session
+       active and the acknowledgement retryable, whereas the old order - session
+       first, allocation last - stranded the allocation row forever, since no
+       later path reads or removes it once the session is gone. */
+    await this.deleteAuthorityAllocation(session.linkSessionId);
     const deleted = await this.options.sessionService.deleteActiveSessionV1({
       linkSessionId: session.linkSessionId,
       expectedRevision: session.revision,
@@ -850,7 +855,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       const detail = 'message' in deleted && deleted.message ? `: ${deleted.message}` : '';
       throw new Error(`active authority cleanup failed: ${deleted.outcome}${detail}`);
     }
-    await this.deleteAuthorityAllocation(session.linkSessionId);
   }
 
   private async deleteAuthorityAllocation(linkSessionId: LinkDeviceSessionId): Promise<void> {
