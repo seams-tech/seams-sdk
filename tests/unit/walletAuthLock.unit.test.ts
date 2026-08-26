@@ -164,7 +164,7 @@ test.describe('wallet lock lifecycle', () => {
     expect(fixture.calls.clearWarmMaterial).toBe(1);
   });
 
-  test('propagates wallet-host lock failure while local cleanup continues', async () => {
+  test('propagates wallet-host lock failure after local cleanup completes', async () => {
     const fixture = createLockFixture({
       useWalletIframe: true,
       hostLock: async () => {
@@ -175,12 +175,12 @@ test.describe('wallet lock lifecycle', () => {
     await expect(lockDomain(fixture.deps)).rejects.toThrow('wallet host lock failed');
     expect(fixture.calls.clearAuthentication).toBe(1);
     expect(fixture.calls.hostLock).toBe(1);
-    await expect.poll(() => fixture.calls.clearNonce).toBe(1);
-    await expect.poll(() => fixture.calls.clearEcdsaQueue).toBe(1);
-    await expect.poll(() => fixture.calls.clearWarmMaterial).toBe(1);
+    expect(fixture.calls.clearNonce).toBe(1);
+    expect(fixture.calls.clearEcdsaQueue).toBe(1);
+    expect(fixture.calls.clearWarmMaterial).toBe(1);
   });
 
-  test('acknowledges wallet-host lock before slow linked-device cleanup completes', async () => {
+  test('waits for local signer cleanup before acknowledging wallet-host lock', async () => {
     let releaseWarmMaterial!: () => void;
     let warmMaterialCompleted = false;
     const warmMaterialCleanup = new Promise<void>((resolve) => {
@@ -199,11 +199,18 @@ test.describe('wallet lock lifecycle', () => {
     await expect.poll(() => fixture.calls.hostLock).toBe(1);
     expect(fixture.calls.clearAuthentication).toBe(1);
 
-    await lockPromise;
+    let lockCompleted = false;
+    void lockPromise.then(() => {
+      lockCompleted = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fixture.calls.clearWarmMaterial).toBe(1);
     expect(warmMaterialCompleted).toBe(false);
+    expect(lockCompleted).toBe(false);
 
     releaseWarmMaterial();
-    await expect.poll(() => warmMaterialCompleted).toBe(true);
+    await lockPromise;
+    expect(warmMaterialCompleted).toBe(true);
+    expect(lockCompleted).toBe(true);
   });
 });
