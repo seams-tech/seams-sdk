@@ -617,6 +617,7 @@ export class SeamsWebIframe {
           qrData,
           options: {
             onEvent: options.onEvent,
+            onEmailOtpBaseFactorRequired: options.onEmailOtpBaseFactorRequired,
             ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
             ...(options.confirmationConfig
               ? { confirmationConfig: options.confirmationConfig }

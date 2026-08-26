@@ -4,6 +4,7 @@ import type { BootstrapThresholdEcdsaSessionArgs } from '@/SeamsWeb/signingSurfa
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
 import type {
+  LinkedDeviceEmailOtpBaseFactorChoiceV1,
   LinkedDeviceTargetFactorV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
@@ -55,7 +56,7 @@ import type {
   WalletId,
   WalletAuthMethodRevocationProof,
 } from '@shared/utils/registrationIntent';
-import { parseWalletId } from '@shared/utils/domainIds';
+import { parseWalletAuthMethodId, parseWalletId } from '@shared/utils/domainIds';
 import type { PMUnlockPayload } from '@/core/types/login.types';
 import {
   walletIframeRequestIdFromBoundary,
@@ -924,6 +925,7 @@ export type ParentToChildType =
   | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
   | 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION'
+  | 'PM_DEVICE_LINK_EMAIL_OTP_BASE_FACTOR_ACTION'
   | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 
@@ -1391,6 +1393,87 @@ export interface PMRevokeLinkedDevicePayload {
   sourceProof: WalletAuthMethodRevocationProof;
 }
 
+export type DeviceLinkEmailOtpBaseFactorSelectionProgressV1 = {
+  readonly event: 'wallet_device_link_email_otp_base_factor_selection_required_v1';
+  readonly choices: readonly [
+    LinkedDeviceEmailOtpBaseFactorChoiceV1,
+    ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+  ];
+};
+
+export type DeviceLinkEmailOtpBaseFactorActionV1 =
+  | {
+      readonly kind: 'select';
+      readonly baseWalletAuthMethodId: LinkedDeviceEmailOtpBaseFactorChoiceV1['baseWalletAuthMethodId'];
+    }
+  | { readonly kind: 'cancel' };
+
+export type DeviceLinkEmailOtpBaseFactorActionPayloadV1 = {
+  readonly scanRequestId: string;
+  readonly action: DeviceLinkEmailOtpBaseFactorActionV1;
+};
+
+function parseDeviceLinkEmailOtpBaseFactorChoiceV1(
+  value: unknown,
+): LinkedDeviceEmailOtpBaseFactorChoiceV1 | null {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['baseWalletAuthMethodId', 'maskedEmailHint'])) {
+    return null;
+  }
+  const baseWalletAuthMethodId = parseWalletAuthMethodId(value.baseWalletAuthMethodId);
+  if (!baseWalletAuthMethodId.ok || typeof value.maskedEmailHint !== 'string') return null;
+  const maskedEmailHint = value.maskedEmailHint.trim();
+  if (!maskedEmailHint) return null;
+  return { baseWalletAuthMethodId: baseWalletAuthMethodId.value, maskedEmailHint };
+}
+
+export function isDeviceLinkEmailOtpBaseFactorSelectionProgressV1(
+  value: ProgressPayload,
+): value is DeviceLinkEmailOtpBaseFactorSelectionProgressV1 {
+  if (
+    !isPlainObject(value) ||
+    value.event !== 'wallet_device_link_email_otp_base_factor_selection_required_v1' ||
+    !hasOnlyKeys(value, ['event', 'choices']) ||
+    !Array.isArray(value.choices) ||
+    value.choices.length === 0
+  ) {
+    return false;
+  }
+  const choices = value.choices.map(parseDeviceLinkEmailOtpBaseFactorChoiceV1);
+  return choices.every(
+    (choice): choice is LinkedDeviceEmailOtpBaseFactorChoiceV1 => choice !== null,
+  );
+}
+
+export function parseDeviceLinkEmailOtpBaseFactorActionPayloadV1(
+  value: unknown,
+): DeviceLinkEmailOtpBaseFactorActionPayloadV1 | null {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, ['scanRequestId', 'action']) ||
+    typeof value.scanRequestId !== 'string' ||
+    value.scanRequestId.length === 0 ||
+    !isPlainObject(value.action)
+  ) {
+    return null;
+  }
+  const action = value.action;
+  if (action.kind === 'cancel') {
+    return hasOnlyKeys(action, ['kind'])
+      ? { scanRequestId: value.scanRequestId, action: { kind: action.kind } }
+      : null;
+  }
+  if (action.kind !== 'select' || !hasOnlyKeys(action, ['kind', 'baseWalletAuthMethodId'])) {
+    return null;
+  }
+  const baseWalletAuthMethodId = parseWalletAuthMethodId(action.baseWalletAuthMethodId);
+  return baseWalletAuthMethodId.ok
+    ? {
+        scanRequestId: value.scanRequestId,
+        action: { kind: action.kind, baseWalletAuthMethodId: baseWalletAuthMethodId.value },
+      }
+    : null;
+}
+
 export type DeviceLinkTargetFactorActivationProgressV1 =
   | {
       readonly event: 'wallet_device_link_target_factor_activation_v1';
@@ -1450,7 +1533,8 @@ export function parseDeviceLinkTargetFactorActionPayloadV1(value: unknown): {
 export type ProgressPayload =
   | WalletFlowEvent
   | RegistrationTimingSpanV1
-  | DeviceLinkTargetFactorActivationProgressV1;
+  | DeviceLinkTargetFactorActivationProgressV1
+  | DeviceLinkEmailOtpBaseFactorSelectionProgressV1;
 
 export function isDeviceLinkTargetFactorActivationProgressV1(
   value: ProgressPayload,
@@ -1638,7 +1722,6 @@ export type ParentToChildEnvelope =
       {
         qrData: QrLinkedDeviceSessionPayloadV5;
         options?: {
-          emailOtpBaseWalletAuthMethodId?: string;
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
         };
@@ -1662,6 +1745,10 @@ export type ParentToChildEnvelope =
         activationId: string;
         action: DeviceLinkTargetFactorActionV1;
       }
+    >
+  | RpcEnvelope<
+      'PM_DEVICE_LINK_EMAIL_OTP_BASE_FACTOR_ACTION',
+      DeviceLinkEmailOtpBaseFactorActionPayloadV1
     >
   | RpcEnvelope<'PM_CANCEL_DEVICE_LINKING'>
   | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>;
