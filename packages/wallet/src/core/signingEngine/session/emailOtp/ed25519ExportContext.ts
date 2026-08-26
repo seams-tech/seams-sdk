@@ -37,7 +37,10 @@ import {
 } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/base64';
-import type { PasskeyCustodyEnvelopeRecord, PasskeyCustodySecretBinding } from '@shared/passkey-custody';
+import type {
+  PasskeyCustodyEnvelopeRecord,
+  PasskeyCustodySecretBinding,
+} from '@shared/passkey-custody';
 
 type EmailOtpEd25519LaneAuth = Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
 
@@ -74,7 +77,7 @@ export type ResolvedWalletCustodyEd25519ExportV1 = {
         readonly materialActivation: MpcMaterialActivationRef;
         readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
       }
-      | {
+    | {
         readonly kind: 'sealed_custody';
         readonly materialActivation: MpcMaterialActivationRef;
         readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
@@ -166,8 +169,14 @@ async function readColdExportBootstrap(input: {
   readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   readonly emailHashHex: string;
 }> {
+  /* An exhausted session is an ordinary state here, not a missing one: this
+     export authorizes itself with a fresh OTP step-up right after the context
+     resolves, and the session's job is only to identify the wallet for the
+     bootstrap read. Spending the signing budget must route to that step-up,
+     not throw before the prompt - the same conflation the NEAR signing path
+     fixed for budget exhaustion. */
   if (
-    input.reusableSession.kind !== 'active' ||
+    (input.reusableSession.kind !== 'active' && input.reusableSession.kind !== 'exhausted') ||
     input.reusableSession.walletSessionId !== input.authorization.walletSessionId ||
     input.reusableSession.authMethod !== 'email_otp'
   ) {
@@ -205,7 +214,10 @@ async function readColdExportBootstrap(input: {
     `${new URL(input.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${walletSessionToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${walletSessionToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(request.value),
     },
   );
@@ -360,7 +372,10 @@ async function readLinkedExportCapability(input: {
     `${new URL(input.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${walletSessionToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${walletSessionToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(request.value),
     },
   );
@@ -415,7 +430,8 @@ async function readLinkedExportCapability(input: {
     !quotaId.ok ||
     !runtimePolicyScope ||
     !routerAbNormalSigning ||
-    requireString(record.walletId, 'bootstrap.walletId') !== String(signer.account.wallet.walletId) ||
+    requireString(record.walletId, 'bootstrap.walletId') !==
+      String(signer.account.wallet.walletId) ||
     requireString(record.nearAccountId, 'bootstrap.nearAccountId') !==
       String(signer.account.nearAccountId) ||
     requireString(record.nearEd25519SigningKeyId, 'bootstrap.nearEd25519SigningKeyId') !==
@@ -602,9 +618,7 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
   }
   if (material) {
     if (!activeCapability) {
-      throw new Error(
-        '[SigningEngine][ed25519-export] active Email OTP capability is unavailable',
-      );
+      throw new Error('[SigningEngine][ed25519-export] active Email OTP capability is unavailable');
     }
     return {
       kind: 'wallet_custody_ed25519_export_context_v1',
