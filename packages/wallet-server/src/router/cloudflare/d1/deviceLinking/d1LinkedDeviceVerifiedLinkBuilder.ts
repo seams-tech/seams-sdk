@@ -110,8 +110,10 @@ export async function buildVerifiedLinkInputV1(
     throw new Error('source signer manifest changed after owner approval');
   }
   const targetFactor = await buildVerifiedTargetFactorV1({
-    ...input,
-    sourceAuthMethod: source.authMethod,
+    preparation: input.preparation,
+    registration: input.registration,
+    evidence: input.evidence,
+    requestedAtMs: input.requestedAtMs,
   });
   assertPermissionAttenuation(source.authority, input.approval.permission);
   assertSourceManifestMatchesAuthority(source.authority, source.signerManifest);
@@ -177,10 +179,8 @@ export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
 
 export type BuildVerifiedTargetFactorV1Input = Pick<
   BuildVerifiedLinkInputV1,
-  'registration' | 'evidence' | 'requestedAtMs'
-> & {
-  readonly sourceAuthMethod: VerifiedLinkSourceReadV1['authMethod'];
-};
+  'preparation' | 'registration' | 'evidence' | 'requestedAtMs'
+>;
 
 export async function buildVerifiedTargetFactorV1(
   input: BuildVerifiedTargetFactorV1Input,
@@ -213,7 +213,7 @@ export async function buildVerifiedTargetFactorV1(
       walletId: input.registration.walletId,
       createdAtMs: verifiedAtMs,
       kind: 'passkey',
-      rpId: requirePasskeyRpId(input.sourceAuthMethod),
+      rpId: requirePasskeyRpId(input.preparation),
       credentialIdB64u: requireCredentialId(input.evidence.credential.credentialIdB64u),
       credentialPublicKeyB64u: canonicalBase64Url(
         input.evidence.credential.credentialPublicKeyB64u,
@@ -349,12 +349,13 @@ function requireCredentialId(value: string): PasskeyWalletAuthMethodDraftV1['cre
 }
 
 function requirePasskeyRpId(
-  sourceAuthMethod: VerifiedLinkSourceReadV1['authMethod'],
+  preparation: LinkedDeviceTargetPreparationV1,
 ): PasskeyWalletAuthMethodDraftV1['rpId'] {
-  if (sourceAuthMethod.kind !== 'passkey') {
-    throw new Error('Passkey target factor requires a Passkey source auth method');
+  const options = preparation.passkeyCreationOptions;
+  if (preparation.targetFactor.kind !== 'passkey_prf' || !options) {
+    throw new Error('Passkey target factor requires Passkey target preparation');
   }
-  return sourceAuthMethod.rpId;
+  return options.rpId;
 }
 
 function assertPermissionAttenuation(
