@@ -146,6 +146,9 @@ test('rebuilds owner context from the approved Wallet Session V2 projection', as
     ...fixture,
     approval,
     packageSetDigestB64u: fixture.packageSetDigestB64u,
+    /* The use-time freshness pin compares the transcript against the authority
+       this test's reader serves, so the fixture pins that exact digest. */
+    sourceAuthorityDigestB64u: authority.authorityDigestB64u,
   };
   const session = await buildR103AwaitingTargetPasskeySessionRecordV1(linkedFixture);
   let sourceRequest: {

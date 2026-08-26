@@ -234,6 +234,18 @@ function assertSourceSessionAuthorityV1(
   }
 }
 
+/**
+ * The authority genuinely owns no signer of this family. Distinct from every
+ * infrastructure or identity failure so a caller probing families can fall
+ * back on this alone and let real errors surface.
+ */
+export class LinkedDeviceSourceFamilyUnavailableErrorV1 extends Error {
+  constructor(keyFamily: ExactAdministeredSignerV1['keyFamily']) {
+    super(`source ${keyFamily} activation is missing`);
+    this.name = 'LinkedDeviceSourceFamilyUnavailableErrorV1';
+  }
+}
+
 function sourceSignerForFamilyV1(input: {
   readonly authority: ActiveWalletAuthorityV1;
   readonly keyFamily: ExactAdministeredSignerV1['keyFamily'];
@@ -243,7 +255,7 @@ function sourceSignerForFamilyV1(input: {
     input.keyFamily === 'ed25519'
       ? input.authority.signerActivations.ed25519
       : input.authority.signerActivations.ecdsa;
-  if (!activation) throw new Error(`source ${input.keyFamily} activation is missing`);
+  if (!activation) throw new LinkedDeviceSourceFamilyUnavailableErrorV1(input.keyFamily);
   const matches = input.signers.filter((signer) => {
     if (signer.walletId !== input.authority.walletId) return false;
     if (

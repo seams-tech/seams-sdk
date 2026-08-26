@@ -436,6 +436,7 @@ function ownerAuthorization(
       kind: 'authorized' as const,
       sourceSignerManifest: fixture.sourceSignerManifest,
       sourceKeyManifestDigestsB64u: { ed25519: fixture.packageSetDigestB64u },
+      sourceAuthorityDigestB64u: fixture.sourceAuthorityDigestB64u,
     }),
   };
 }

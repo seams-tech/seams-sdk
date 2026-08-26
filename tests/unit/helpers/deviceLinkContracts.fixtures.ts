@@ -93,6 +93,8 @@ export type R103DeviceLinkFixture = {
   readonly sourceMaterialActivation: MpcMaterialActivationRef;
   readonly sourceWalletAuthMethodId: WalletAuthMethodId;
   readonly packageSetDigestB64u: DigestB64u;
+  /** Approval-time authority digest pinned into the transcript. */
+  readonly sourceAuthorityDigestB64u: DigestB64u;
 };
 
 export function buildR103DeviceLinkFixture(
@@ -180,6 +182,7 @@ export function buildR103DeviceLinkFixture(
     sourceMaterialActivation,
     sourceWalletAuthMethodId,
     packageSetDigestB64u: FIXTURE_DIGEST,
+    sourceAuthorityDigestB64u: FIXTURE_DIGEST,
   };
 }
 
