@@ -272,16 +272,10 @@ function buildPrompt(input: {
   };
 }
 
-function resolveGoogleEmailOtpAuthMode(input: {
-  requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
-  resolutionMode: 'existing_wallet' | 'register_started' | undefined;
-}): GoogleEmailOtpWalletAuthResolvedMode {
-  if (input.requestedMode === 'register') {
-    if (input.resolutionMode === 'register_started') return 'register';
-    throw new Error('Google Email OTP registration did not return a registration offer');
-  }
-  if (input.resolutionMode === 'register_started') return 'register';
-  return 'login';
+function resolveGoogleEmailOtpAuthMode(
+  resolutionMode: GoogleEmailOtpProviderResolution['mode'],
+): GoogleEmailOtpWalletAuthResolvedMode {
+  return resolutionMode === 'register_started' ? 'register' : 'login';
 }
 
 function isMissingGoogleEmailOtpEnrollment(error: unknown): boolean {
@@ -344,10 +338,7 @@ function resolveSessionState(input: {
   const walletId = requireWalletId(input.resolution);
   const emailHint = requireEmail(input.resolution);
   const resolution = input.resolution;
-  const mode = resolveGoogleEmailOtpAuthMode({
-    requestedMode: input.requestedMode,
-    resolutionMode: resolution?.mode,
-  });
+  const mode = resolveGoogleEmailOtpAuthMode(resolution.mode);
   const offer =
     resolution.mode === 'register_started'
       ? parseGoogleEmailOtpRegistrationOffer({

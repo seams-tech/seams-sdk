@@ -839,32 +839,17 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
   });
 
-  test('register request resolving to existing wallet fails closed', async () => {
+  test('register request resolving to existing wallet continues with login', async () => {
     const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
+      resolveGoogleEmailOtpProvider: async (args) => {
+        calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
         return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              mode: 'existing_wallet',
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              loginChallenge: {
-                delivery: {
-                  kind: 'provider',
-                  status: 'sent',
-                  emailHint: 'alice@example.com',
-                },
-                challengeId: 'login-challenge-1',
-                emailHint: 'alice@example.com',
-                expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              },
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+          mode: 'existing_wallet',
+          walletId: 'alice.testnet',
+          providerSubject: 'google-subject-1',
+          email: 'alice@example.com',
+          hasEmailOtpEnrollment: true,
+        };
       },
     });
 
@@ -874,13 +859,13 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
     });
 
-    expect(started.ok).toBe(false);
-    if (started.ok) throw new Error('expected registration exchange failure');
-    expect(started.error).toMatchObject({
-      code: 'google_exchange_failed',
-      message: 'Google Email OTP registration did not return a registration offer',
-    });
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error(started.error.message);
+    expect(started.value.mode).toBe('login');
+    expect(calls.map((call) => call.type)).toEqual([
+      'resolveGoogleEmailOtpProvider',
+      'requestEmailOtpChallenge',
+    ]);
   });
 
   test('registration explicit ECDSA targets are used for signer selection', async () => {
