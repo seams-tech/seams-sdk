@@ -1395,8 +1395,7 @@ export class AuthMenuSession {
     const state = this.stateValue;
     if (
       (state.kind !== 'preparing' && state.kind !== 'ready') ||
-      state.viewModel.kind !== 'passkey' ||
-      state.viewModel.mode !== 'login'
+      state.viewModel.kind !== 'passkey'
     ) {
       return;
     }
@@ -1426,7 +1425,7 @@ export class AuthMenuSession {
     this.recoveryReturnState = null;
     this.stateValue = returnState;
     this.updateElement();
-    this.preparePasskey = this.prepareSelectedLogin;
+    this.preparePasskey = returnState.viewModel.mode === 'login' ? this.prepareSelectedLogin : null;
     this.startPasskeyPreparation();
   }
 

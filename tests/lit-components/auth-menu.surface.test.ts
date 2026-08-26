@@ -167,6 +167,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
       input.value = 'Ledger passkey';
       input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).click();
+      (element.querySelector('[data-recovery-action]') as HTMLButtonElement).click();
       (element.querySelector('[data-auth-menu-close]') as HTMLButtonElement).click();
       return received;
     }, AUTH_MENU_TAG);
@@ -174,6 +175,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     expect(intents).toEqual([
       { kind: 'passkey_name_changed', passkeyName: 'Ledger passkey' },
       { kind: 'submit', mode: 'register', passkeyName: 'Ledger passkey' },
+      { kind: 'recovery_open' },
       { kind: 'back' },
     ]);
   });

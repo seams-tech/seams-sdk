@@ -94,13 +94,14 @@ class DeferredFinalizationRecoveryPort extends SuccessfulRecoveryPort {
 function sessionWithRecovery(args: {
   recoveryPort: HostedRecoveryPort;
   prepareRecoveredLogin: AuthMenuSessionArgs['prepareRecoveredLogin'];
+  initialMode?: 'login' | 'register';
 }): AuthMenuSession {
   const sessionId = hostedAuthMenuSessionIdFromBoundary('auth-menu-recovery-session');
   if (!sessionId) throw new Error('auth-menu recovery session fixture is invalid');
   return new AuthMenuSession({
     request: buildHostedAuthMenuOpenRequest({
       authMenuSessionId: sessionId,
-      initialMode: 'login',
+      initialMode: args.initialMode ?? 'login',
       enabledExternalProviders: [],
     }),
     requestId: walletIframeRequestIdFromBoundary('auth-menu-recovery-request'),
@@ -132,6 +133,28 @@ function invoke(session: AuthMenuSession, method: string, ...args: unknown[]): v
 }
 
 test.describe('hosted auth-menu recovery continuation', () => {
+  test('opens recovery on a cold device whose menu starts in registration mode', () => {
+    const session = sessionWithRecovery({
+      recoveryPort: new SuccessfulRecoveryPort(),
+      prepareRecoveredLogin: rejectRecoveredLogin,
+      initialMode: 'register',
+    });
+
+    invoke(session, 'openRecovery');
+
+    expect(session.state.kind).toBe('recovery');
+    if (session.state.kind !== 'recovery') throw new Error('recovery state was not opened');
+    expect(session.state.returnState.viewModel.mode).toBe('register');
+    invoke(session, 'back');
+    expect(session.state.kind).toBe('preparing');
+    if (session.state.kind !== 'preparing') throw new Error('registration state was not restored');
+    expect(session.state.viewModel.kind).toBe('passkey');
+    if (session.state.viewModel.kind !== 'passkey')
+      throw new Error('passkey state was not restored');
+    expect(session.state.viewModel.mode).toBe('register');
+    session.cleanup();
+  });
+
   test('prepares one code, creates one passkey, then targets normal login for that wallet', async () => {
     const recoveryPort = new SuccessfulRecoveryPort();
     const loginWalletIds: string[] = [];
