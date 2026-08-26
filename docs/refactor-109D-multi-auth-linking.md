@@ -86,13 +86,20 @@ R109D product implementation may proceed.
       challenge, verification, and target credential registration.
 - [x] Accept Device 1's explicit Email OTP base-method choice, validate it
       against the masked candidate set, and submit the selected method.
-- [ ] Render the masked multi-choice selector in the first-party Device 1 UI.
+- [x] Render the masked multi-choice selector in the first-party Device 1 UI,
+      including cancellation of a pending selection when the scanner closes.
 - [x] Build Passkey targets from managed RP configuration with no dependency on
       the source credential.
 - [x] Add the owner-authenticated cancel path for the claimed, pre-approval
       state and make terminal cancellation replay idempotent.
-- [ ] Complete the four source/target factor operating paths and their focused
+- [x] Complete the four source/target factor operating paths and their focused
       intended-browser contracts.
+
+The operating contract now enumerates all twelve factor/profile cases. The
+combined Passkey-to-Email and Email-to-Passkey paths have each passed their
+full browser lifecycle: link, activate, reload, unlock, sign, export, revoke,
+reject the revoked method, and preserve the surviving owner. Same-factor
+linking continues through the ordinary R103E paths.
 
 ## Successful result
 
