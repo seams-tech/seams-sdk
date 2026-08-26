@@ -68,6 +68,7 @@ import {
 } from '@shared/passkey-custody';
 import { parsePasskeyEnvelopeId, type PasskeyEnvelopeId } from '@shared/utils/domainIds';
 import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { activateLinkedEmailOtpEcdsaHolderAfterLink } from '../auth/login';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -321,6 +322,8 @@ type EmailOtpTargetActivationStateV1 =
   | {
       readonly kind: 'completed';
       readonly runEpoch: number;
+      readonly factorSecret: Uint8Array;
+      readonly providerUserId: string;
       readonly exportRootRequirement?: never;
       readonly verificationGrant?: never;
       readonly factorRelease?: never;
@@ -1066,6 +1069,7 @@ export class LinkDeviceFlow {
     this.assertCurrentRun(context.runEpoch);
     let recipient = context.exportRoot.kind === 'required' ? context.exportRoot.recipient : null;
     let factorSecret: ArrayBuffer | null = null;
+    let retainedFactorSecret: Uint8Array | null = null;
     try {
       const targetPreparationDigestB64u = await computeLinkedDeviceTargetPreparationDigestV1(
         context.preparation,
@@ -1114,9 +1118,7 @@ export class LinkDeviceFlow {
           recipient,
           replacementEnvelope: buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1({
             walletId: context.preparation.walletId,
-            ownership: buildMethodBoundEnvelopeOwnership(
-              context.preparation.walletAuthMethodId,
-            ),
+            ownership: buildMethodBoundEnvelopeOwnership(context.preparation.walletAuthMethodId),
             envelopeId,
             factor,
             binding,
@@ -1149,6 +1151,7 @@ export class LinkDeviceFlow {
         await this.requireAuthenticatedTransport().registerTargetCredentialV1({ registration });
       this.assertCurrentRun(context.runEpoch);
       this.targetCredentialRegistrationResult = registrationResult;
+      retainedFactorSecret = new Uint8Array(factorSecret).slice();
       await this.ports.keyMaterial.prepareOrdinarySignerMaterialV1({
         keyMaterial: this.requireKeyMaterialHandleV1(),
         targetFactor: registrationResult.targetFactor,
@@ -1167,7 +1170,10 @@ export class LinkDeviceFlow {
       this.emailOtpTargetActivationState = {
         kind: 'completed',
         runEpoch: context.runEpoch,
+        factorSecret: retainedFactorSecret,
+        providerUserId: verification.verificationGrant.providerUserId,
       };
+      retainedFactorSecret = null;
       this.notifyEmailOtpActivationV1({
         kind: 'completed',
         maskedEmailHint: context.challenge.maskedEmailHint,
@@ -1176,6 +1182,7 @@ export class LinkDeviceFlow {
       if (factorSecret && factorSecret.byteLength > 0) {
         new Uint8Array(factorSecret).fill(0);
       }
+      retainedFactorSecret?.fill(0);
       if (recipient) {
         await discardLinkedDeviceEd25519ExportRootRecipientV1(
           this.ports.ed25519ExportRoot,
@@ -1607,7 +1614,26 @@ export class LinkDeviceFlow {
     this.handledStates.add('provisioning');
     this.handledStates.add('authority_pending_local_install');
     this.handledStates.add('active');
-    this.getAuthenticationContext?.().signingEngine.setWalletAuthenticated(
+    const authenticationContext = this.getAuthenticationContext?.();
+    if (!authenticationContext) {
+      throw new Error('linked-device authentication context is unavailable');
+    }
+    if (registration.targetFactor.kind === 'verified_email_otp_target_v1') {
+      const activation = this.emailOtpTargetActivationState;
+      if (activation.kind !== 'completed' || activation.runEpoch !== runEpoch) {
+        throw new Error('linked-device Email OTP factor runtime is unavailable');
+      }
+      await activateLinkedEmailOtpEcdsaHolderAfterLink({
+        context: authenticationContext,
+        walletId: walletSession.walletId,
+        walletAuthMethodId: registration.walletAuthMethodId,
+        emailHashHex: registration.targetFactor.authMethod.emailHashHex,
+        providerUserId: activation.providerUserId,
+        walletSession,
+        factorSecret32: activation.factorSecret,
+      });
+    }
+    authenticationContext.signingEngine.setWalletAuthenticated(
       linkedDeviceWalletAuthenticationState(walletSession, registration),
     );
     this.emit({
@@ -1660,7 +1686,7 @@ export class LinkDeviceFlow {
 
   private startRun(): number {
     this.clearTargetCredentialActivationState();
-    this.emailOtpTargetActivationState = { kind: 'idle' };
+    this.clearEmailOtpTargetActivationState();
     this.resealedExportRoot = null;
     this.targetCredentialRegistrationResult = null;
     this.committedAuthorityPackages = null;
@@ -1803,7 +1829,7 @@ export class LinkDeviceFlow {
     const preserveCommittedState = force && this.hasCommittedDeliveryState();
     if (!preserveCommittedState) {
       this.clearTargetCredentialActivationState();
-      this.emailOtpTargetActivationState = { kind: 'idle' };
+      this.clearEmailOtpTargetActivationState();
       this.resealedExportRoot = null;
       this.targetCredentialRegistrationResult = null;
       this.ordinarySignerMaterialRecipientPreparation = null;
@@ -1828,7 +1854,7 @@ export class LinkDeviceFlow {
     if (failure) throw failure;
     if (preserveCommittedState) {
       this.clearTargetCredentialActivationState();
-      this.emailOtpTargetActivationState = { kind: 'idle' };
+      this.clearEmailOtpTargetActivationState();
       this.resealedExportRoot = null;
       this.targetCredentialRegistrationResult = null;
       this.ordinarySignerMaterialRecipientPreparation = null;
@@ -1838,6 +1864,12 @@ export class LinkDeviceFlow {
 
   private async cleanupCompletedLocalResources(): Promise<void> {
     await this.cleanupLocalResources(true);
+  }
+
+  private clearEmailOtpTargetActivationState(): void {
+    const state = this.emailOtpTargetActivationState;
+    if (state.kind === 'completed') state.factorSecret.fill(0);
+    this.emailOtpTargetActivationState = { kind: 'idle' };
   }
 
   private hasCommittedDeliveryState(): boolean {
