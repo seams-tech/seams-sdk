@@ -58,6 +58,7 @@ import {
   type MpcMaterialActivationRef,
   type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
+  type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
@@ -2466,8 +2467,12 @@ function linkedDeviceEcdsaMaterial(
   return matches[0] ?? null;
 }
 
+type LinkedEcdsaHolderActivationContext = {
+  readonly signingEngine: Pick<LoginWebContext['signingEngine'], 'getSignerWorkerContext'>;
+};
+
 async function activateLinkedDeviceEcdsaHolderRuntime(args: {
-  readonly context: LoginWebContext;
+  readonly context: LinkedEcdsaHolderActivationContext;
   readonly selection: LinkedDeviceAuthoritySelection;
   readonly factorAuthority: WalletAuthAuthority;
   readonly material: Extract<
@@ -2521,6 +2526,57 @@ async function activateLinkedDeviceEcdsaHolderRuntime(args: {
       workerCtx: args.context.signingEngine.getSignerWorkerContext(),
     }).catch(() => undefined);
     throw error;
+  }
+}
+
+export async function activateLinkedEmailOtpEcdsaHolderAfterLink(args: {
+  readonly context: LinkedEcdsaHolderActivationContext;
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly emailHashHex: string;
+  readonly providerUserId: string;
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly factorSecret32: Uint8Array;
+}): Promise<void> {
+  const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
+    walletIdInput: String(args.walletId),
+    walletAuthMethodId: String(args.walletAuthMethodId),
+    emailHashHex: args.emailHashHex,
+    provider: 'google',
+    providerSubjectId: args.providerUserId,
+  });
+  if (resolution.kind !== 'selected') {
+    throw new Error(
+      resolution.kind === 'rejected'
+        ? resolution.message
+        : '[login] linked Email OTP authority is unavailable after activation',
+    );
+  }
+  const selection = resolution.selection;
+  assertLinkedDeviceWalletSessionExact(selection, args.walletSession);
+  const openedMaterials = await openLinkedDeviceEmailOtpSignerMaterials({
+    selection,
+    factorSecret32: args.factorSecret32,
+  });
+  try {
+    const ecdsaMaterial = linkedDeviceEcdsaMaterial(openedMaterials);
+    if (!selection.authority.signerActivations.ecdsa) return;
+    if (!ecdsaMaterial) {
+      throw new Error(
+        '[login] linked Email OTP ECDSA runtime material is missing after activation',
+      );
+    }
+    await activateLinkedDeviceEcdsaHolderRuntime({
+      context: args.context,
+      selection,
+      factorAuthority: await walletAuthAuthorityForLinkedDeviceMethod({
+        selection,
+        providerIdentity: { provider: 'google', providerSubjectId: args.providerUserId },
+      }),
+      material: ecdsaMaterial,
+    });
+  } finally {
+    for (const openedMaterial of openedMaterials) openedMaterial.material.fill(0);
   }
 }
 
