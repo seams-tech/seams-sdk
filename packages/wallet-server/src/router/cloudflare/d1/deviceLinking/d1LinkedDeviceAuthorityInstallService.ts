@@ -62,7 +62,7 @@ import {
   buildWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
-import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkDeviceSessionId, parseWalletKeyId } from '@shared/signing-lanes/ids';
 import {
   OrdinaryInactiveSignerMaterialReservationServiceV1,
   type OrdinaryEcdsaSignerMaterialReservationPreparationV1,
@@ -92,6 +92,7 @@ import {
 } from '../wallet/d1WalletAuthorityStore';
 import type { D1LinkedDeviceSessionStoreV1 } from './d1LinkedDeviceSessionStore';
 import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
+import type { WalletEd25519SignerRecord } from '../../../../core/WalletStore';
 import type {
   AuthorizationService,
   IssueWalletSessionAuthorizationV2Input,
@@ -107,13 +108,15 @@ import { linkedDeviceX25519RecipientPublicKeyB64uV1 } from './d1LinkedDeviceSour
 import { prepareD1WebAuthnAuthenticatorInsertStatement } from '../webauthn/d1WebAuthnStore';
 import {
   prepareD1WebAuthnCredentialBindingInsertStatement,
-  type WebAuthnCredentialBindingEd25519Facts,
   type WebAuthnCredentialBindingRecord,
 } from '../../../../core/WebAuthnCredentialBindingStore';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
-import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 
 type ExactSigner = ExactAdministeredSignerV1;
+
+type ListWalletEd25519SignersV1 = (
+  walletId: WalletId,
+) => Promise<readonly WalletEd25519SignerRecord[]>;
 
 type WorkerOrdinarySignerMaterialReservationPreparationV1 =
   | {
@@ -141,7 +144,8 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
   readonly scope: D1WalletAuthorityStoreScope;
   readonly authorityStore: D1WalletAuthorityStore;
   readonly authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'>;
-  readonly webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'readBindingRows'>;
+  /** The wallet's ordinary Ed25519 signer rows are the source of NEAR identity facts. */
+  readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
   readonly sessionStore: Pick<
     D1LinkedDeviceSessionStoreV1,
     'buildAuthorityPendingLocalInstallCasStatementsV1' | 'buildAuthorityActivationCasStatementsV1'
@@ -565,7 +569,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       const passkeyCredentialStatements = await buildPasskeyCredentialPromotionStatements({
         database: this.options.database,
         scope: this.options.scope,
-        webAuthnStore: this.options.webAuthnStore,
+        listWalletEd25519Signers: this.options.listWalletEd25519Signers,
         authority: activeAuthority,
         authMethod: activeAuthMethod,
         activatedAtMs: receipt.installedAtMs,
@@ -1828,21 +1832,16 @@ function buildActiveAuthMethod(
 async function buildPasskeyCredentialPromotionStatements(input: {
   readonly database: D1DatabaseLike;
   readonly scope: D1WalletAuthorityStoreScope;
-  readonly webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'readBindingRows'>;
+  readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
   readonly authority: ActiveWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly activatedAtMs: number;
 }): Promise<readonly D1PreparedStatementLike[]> {
   if (input.authMethod.kind !== 'passkey') return [];
-  const sourceBinding = (
-    await input.webAuthnStore.readBindingRows({
-      userId: String(input.authMethod.walletId),
-      rpId: String(input.authMethod.rpId),
-    })
-  ).find(hasCompleteWebAuthnCredentialBindingIdentity);
-  if (input.authority.signerActivations.ed25519 && !sourceBinding) {
-    throw new Error('linked source passkey binding is missing wallet identity fields');
-  }
+  const signer = await resolveLinkedDeviceEd25519Signer({
+    authority: input.authority,
+    listWalletEd25519Signers: input.listWalletEd25519Signers,
+  });
   const bindingBase = {
     version: 'webauthn_credential_binding_v1',
     rpId: input.authMethod.rpId,
@@ -1851,30 +1850,20 @@ async function buildPasskeyCredentialPromotionStatements(input: {
     createdAtMs: input.authMethod.createdAtMs,
     updatedAtMs: input.activatedAtMs,
   } as const;
-  const binding: WebAuthnCredentialBindingRecord = sourceBinding
+  const binding: WebAuthnCredentialBindingRecord = signer
     ? {
         ...bindingBase,
-        nearAccountId: sourceBinding.nearAccountId,
-        nearEd25519SigningKeyId: sourceBinding.nearEd25519SigningKeyId,
-        signerSlot: sourceBinding.signerSlot,
-        publicKey: sourceBinding.publicKey,
-        ...(sourceBinding.relayerKeyId ? { relayerKeyId: sourceBinding.relayerKeyId } : {}),
-        ...(sourceBinding.keyVersion ? { keyVersion: sourceBinding.keyVersion } : {}),
-        ...(typeof sourceBinding.recoveryExportCapable === 'boolean'
-          ? { recoveryExportCapable: sourceBinding.recoveryExportCapable }
-          : {}),
-        ...(sourceBinding.clientParticipantId !== undefined
-          ? { clientParticipantId: sourceBinding.clientParticipantId }
-          : {}),
-        ...(sourceBinding.relayerParticipantId !== undefined
-          ? { relayerParticipantId: sourceBinding.relayerParticipantId }
-          : {}),
-        ...(sourceBinding.participantIds
-          ? { participantIds: [...sourceBinding.participantIds] }
-          : {}),
-        ...(sourceBinding.runtimePolicyScope
-          ? { runtimePolicyScope: sourceBinding.runtimePolicyScope }
-          : {}),
+        nearAccountId: signer.nearAccountId,
+        nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+        signerSlot: signer.signerSlot,
+        publicKey: signer.publicKey,
+        relayerKeyId: signer.signingWorkerId,
+        keyVersion: signer.keyVersion,
+        recoveryExportCapable: signer.recoveryExportCapable,
+        clientParticipantId: signer.participantIds[0],
+        relayerParticipantId: signer.participantIds[1],
+        participantIds: [...signer.participantIds],
+        runtimePolicyScope: signer.runtimePolicyScope,
       }
     : bindingBase;
   return [
@@ -1899,10 +1888,45 @@ async function buildPasskeyCredentialPromotionStatements(input: {
   ];
 }
 
-function hasCompleteWebAuthnCredentialBindingIdentity(
-  binding: WebAuthnCredentialBindingRecord,
-): binding is WebAuthnCredentialBindingRecord & WebAuthnCredentialBindingEd25519Facts {
-  return 'nearAccountId' in binding;
+async function resolveLinkedDeviceEd25519Signer(input: {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly listWalletEd25519Signers: ListWalletEd25519SignersV1;
+}): Promise<WalletEd25519SignerRecord | null> {
+  const activation = input.authority.signerActivations.ed25519;
+  if (!activation) return null;
+  const signers = await input.listWalletEd25519Signers(input.authority.walletId);
+  const matches = signers.filter((signer) =>
+    linkedDeviceEd25519SignerMatchesAuthority(signer, activation.signer),
+  );
+  if (matches.length === 0) {
+    throw new Error('linked authority Ed25519 signer record is missing');
+  }
+  if (matches.length > 1) {
+    throw new Error('linked authority Ed25519 signer record is ambiguous');
+  }
+  const signer = matches[0];
+  if (!signer) throw new Error('linked authority Ed25519 signer record is missing');
+  return signer;
+}
+
+function linkedDeviceEd25519SignerMatchesAuthority(
+  signer: WalletEd25519SignerRecord,
+  authoritySigner: Extract<ExactSigner, { readonly keyFamily: 'ed25519' }>,
+): boolean {
+  const walletKeyId = parseWalletKeyId(
+    `wallet-key:ed25519:${signer.walletId}:${signer.nearEd25519SigningKeyId}`,
+  );
+  if (!walletKeyId.ok) return false;
+  return (
+    signer.walletId === authoritySigner.walletId &&
+    walletKeyId.value === authoritySigner.walletKeyId &&
+    authoritySigner.registeredPublicKeyB64u ===
+      base64UrlEncode(
+        Uint8Array.from(
+          signer.activeYaoCapability.activationResult.public_receipt.registered_public_key,
+        ),
+      )
+  );
 }
 
 function projectInstalledEd25519Authority(
