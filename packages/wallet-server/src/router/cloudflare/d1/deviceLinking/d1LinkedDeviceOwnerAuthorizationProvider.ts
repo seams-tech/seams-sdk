@@ -658,7 +658,7 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
   readonly targetPlanner: Pick<
     D1LinkedDeviceTargetPlannerOptionsV1,
-    'preparationTtlMs' | 'targetPasskeyRpId'
+    'preparationTtlMs' | 'targetPasskeyConfiguration'
   >;
   readonly nowV1?: () => number;
 };
@@ -682,7 +682,7 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
   const ownerAuthorization = createOwnerAuthorizationPortV1(nowV1, options.metadata);
   const targetPlanner = new TargetPlanner({
     preparationTtlMs: options.targetPlanner.preparationTtlMs,
-    targetPasskeyRpId: options.targetPlanner.targetPasskeyRpId,
+    targetPasskeyConfiguration: options.targetPlanner.targetPasskeyConfiguration,
     resolveOwnerSourceChildV1: ownerSourceResolver.resolveOwnerSourceChildV1,
   });
   return {

@@ -1,4 +1,7 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import type { LinkedDevicePasskeyTargetConfigurationFieldsV1 } from '@shared/device-linking/contracts';
+import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type {
   EmailOtpChallengeAction,
@@ -88,6 +91,29 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly sourceContributionRouter?: DeviceLinkingRouteServiceV1['sourceContributionRouter'];
   readonly nowV1?: () => number;
 };
+
+export function normalizeLinkedDevicePasskeyTargetConfigurationV1(input: {
+  readonly targetPasskeyOrigin: string;
+  readonly targetPasskeyRpId: string;
+}): LinkedDevicePasskeyTargetConfigurationFieldsV1 {
+  const expectedOrigin = normalizeCorsOrigin(input.targetPasskeyOrigin);
+  if (!expectedOrigin || expectedOrigin !== input.targetPasskeyOrigin.trim()) {
+    throw new Error('linked-device target Passkey origin must be an exact origin');
+  }
+  const parsedRpId = parseWebAuthnRpId(input.targetPasskeyRpId);
+  if (!parsedRpId.ok) {
+    throw new Error(`linked-device target Passkey RP ID: ${parsedRpId.error.message}`);
+  }
+  const originHostname = new URL(expectedOrigin).hostname.toLowerCase();
+  const rpId = String(parsedRpId.value).toLowerCase();
+  if (originHostname !== rpId && !originHostname.endsWith(`.${rpId}`)) {
+    throw new Error('linked-device target Passkey origin is outside the configured RP ID');
+  }
+  return {
+    rpId: parsedRpId.value,
+    expectedOrigin,
+  };
+}
 
 type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
   readonly session: CloudflareD1LinkedDeviceSessionOptionsV1;

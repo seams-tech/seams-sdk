@@ -11,6 +11,7 @@ import {
   parseWalletId,
   parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
+import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 
 function required<T>(
   result:
@@ -27,6 +28,7 @@ const ENROLLMENT_ID = required(parseLinkedDeviceEnrollmentId('enrollment:target-
 const DEVICE_ID = required(parseLinkedDeviceId('device:target-preparation-test'));
 const WALLET_KEY_ID = required(parseWalletKeyId('wallet-key:target-preparation-test'));
 const RP_ID = required(parseWebAuthnRpId('wallet.example.test'));
+const PASSKEY_CONFIGURATION_DIGEST = parseDigestB64u('-_FGSvFbB5YyBu0DYdUOH-clwdy5pelU3m_l9jzbsZ0');
 
 function recipientRequirement(): {
   readonly kind: 'ordinary_signer_material_recipient_requirement_v1';
@@ -73,6 +75,7 @@ export function buildPasskeyTargetPreparationFixtureV1(): Extract<
     walletAuthMethodId,
     ed25519ExportRoot: null,
     targetFactor: { kind: 'passkey_prf' },
+    passkeyConfigurationDigestB64u: PASSKEY_CONFIGURATION_DIGEST,
     passkeyCreationOptions: {
       kind: 'webauthn_add_auth_method_registration_v1',
       walletAuthMethodId,

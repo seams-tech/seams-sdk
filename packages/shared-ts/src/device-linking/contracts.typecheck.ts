@@ -211,6 +211,7 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletAuthMethodId,
   ed25519ExportRoot: null,
   targetFactor: { kind: 'passkey_prf' },
+  passkeyConfigurationDigestB64u: digest,
   passkeyCreationOptions: {
     kind: 'webauthn_add_auth_method_registration_v1',
     walletAuthMethodId,

@@ -567,7 +567,13 @@ export class LinkedDeviceSessionServiceV1 {
       if (authorization.kind === 'denied') {
         return unauthorizedResult(authorization.code, authorization.message);
       }
-      const claim = buildClaimV1(payload, authorization.identity, existing.revision + 1, nowMs);
+      const priorClaim = existing.claimTranscript?.value;
+      const claim = buildClaimV1(
+        payload,
+        authorization.identity,
+        priorClaim?.sessionRevision ?? existing.revision + 1,
+        priorClaim?.claimedAtMs ?? nowMs,
+      );
       const claimDigestB64u = await digestTranscriptV1('claim', claim);
       if (sameClaim(existing, claimDigestB64u, claim))
         return { outcome: 'replayed', record: existing };

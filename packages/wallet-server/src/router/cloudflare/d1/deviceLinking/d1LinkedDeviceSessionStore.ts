@@ -51,6 +51,7 @@ const SESSION_SCOPED_TABLES = [
   TRANSCRIPT_TABLE,
   'linked_device_target_commit_reservations',
   'linked_device_target_credentials',
+  'linked_device_authority_installations',
 ] as const;
 const SESSION_CAS_GUARD_SQL = `INSERT INTO linked_device_session_cas_guard (guard_id)
 SELECT 1 WHERE changes() = 0`;
@@ -437,7 +438,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
-    return this.applyStateCas({
+    return this.applyTerminalStateCas({
       linkSessionId: input.linkSessionId,
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
@@ -460,7 +461,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
-    return this.applyStateCas({
+    return this.applyTerminalStateCas({
       linkSessionId: input.linkSessionId,
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
@@ -488,7 +489,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     if (current.state.state === 'expired') return { outcome: 'replayed', record: current };
     if (!isExpirableState(current.state)) return invalidStateResult(current);
     if (input.nowMs < expiryMs(current)) return invalidStateResult(current);
-    return this.applyStateCas({
+    return this.applyTerminalStateCas({
       linkSessionId: input.linkSessionId,
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
@@ -656,6 +657,59 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     }).run();
     const persisted = await this.getSessionV1(input.linkSessionId);
     if (!persisted) throw new Error('linked-device session disappeared after state CAS');
+    return persisted.revision === nextRecord.revision &&
+      alphabetizeStringify(persisted) === alphabetizeStringify(nextRecord)
+      ? { outcome: 'applied', record: persisted }
+      : resolveMutationRace(input.expectedRevision, persisted);
+  }
+
+  private async applyTerminalStateCas(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+    readonly expectedStates: readonly LinkSessionStateV1['state'][];
+    readonly nextStates: readonly LinkSessionStateV1['state'][];
+    readonly replay: (
+      record: LinkedDeviceSessionRecordV1,
+      nextRecord: LinkedDeviceSessionRecordV1,
+    ) => boolean;
+  }): Promise<LinkedDeviceSessionMutationResultV1> {
+    const current = await this.getSessionV1(input.linkSessionId);
+    if (!current) return conflictResult(input.expectedRevision, null);
+    const normalized = normalizeMutationRecordV1(input);
+    const nextRecord = minimalTerminalRecordV1(normalized);
+    if (nextRecord.revision !== current.revision + 1) {
+      throw new Error('linked-device mutation revision is invalid');
+    }
+    if (!input.nextStates.includes(nextRecord.state.state)) {
+      throw new Error('linked-device terminal transition is invalid');
+    }
+    if (input.replay(current, nextRecord)) return { outcome: 'replayed', record: current };
+    if (!input.expectedStates.includes(current.state.state)) return invalidStateResult(current);
+    try {
+      await this.database.batch([
+        this.updateStatement({
+          linkSessionId: input.linkSessionId,
+          expectedRevision: input.expectedRevision,
+          nextRecord,
+          nowMs: input.nowMs,
+        }),
+        this.database.prepare(SESSION_CAS_GUARD_SQL),
+        ...buildSessionScopedDeleteStatements({
+          database: this.database,
+          scope: this.scope,
+          linkSessionId: input.linkSessionId,
+        }),
+      ]);
+    } catch {
+      const raced = await this.getSessionV1(input.linkSessionId);
+      if (!raced) throw new Error('linked-device session disappeared after terminal CAS');
+      if (input.replay(raced, nextRecord)) return { outcome: 'replayed', record: raced };
+      return conflictResult(input.expectedRevision, raced);
+    }
+    const persisted = await this.getSessionV1(input.linkSessionId);
+    if (!persisted) throw new Error('linked-device session disappeared after terminal CAS');
     return persisted.revision === nextRecord.revision &&
       alphabetizeStringify(persisted) === alphabetizeStringify(nextRecord)
       ? { outcome: 'applied', record: persisted }
@@ -867,6 +921,33 @@ function normalizeMutationRecordV1(input: {
     throw new Error('linked-device mutation timestamp is invalid');
   }
   return record;
+}
+
+function minimalTerminalRecordV1(record: LinkedDeviceSessionRecordV1): LinkedDeviceSessionRecordV1 {
+  switch (record.state.state) {
+    case 'failed_before_commit':
+    case 'cancelled':
+    case 'expired':
+      return parseLinkedDeviceSessionRecordV1({
+        version: record.version,
+        linkSessionId: record.linkSessionId,
+        qrPayload: record.qrPayload,
+        state: record.state,
+        revision: record.revision,
+        createdAtMs: record.createdAtMs,
+        updatedAtMs: record.updatedAtMs,
+      });
+    case 'displaying_qr':
+    case 'claimed':
+    case 'awaiting_target_factor':
+    case 'awaiting_source_contribution':
+    case 'provisioning':
+    case 'authority_pending_local_install':
+    case 'active':
+      return record;
+    default:
+      return assertNeverLinkSessionStateV1(record.state);
+  }
 }
 
 function sameQrPayload(
