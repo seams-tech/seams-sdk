@@ -143,6 +143,10 @@ test('an exact Email OTP method selector reaches the exact unlock authority reso
     },
   ]);
   expect(routeState.challengeCalls).toHaveLength(1);
+  await expect(response?.json()).resolves.toMatchObject({
+    ok: true,
+    walletAuthMethodId: WALLET_AUTH_METHOD_ID,
+  });
 });
 
 test('wrong-wallet, wrong-kind, and revoked exact methods are rejected before challenge creation', async () => {
@@ -222,4 +226,8 @@ test('a wallet-level selector preserves the canonical current-authority behavior
     },
   ]);
   expect(routeState.challengeCalls).toHaveLength(1);
+  await expect(response?.json()).resolves.toMatchObject({
+    ok: true,
+    walletAuthMethodId: WALLET_AUTH_METHOD_ID,
+  });
 });

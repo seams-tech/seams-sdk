@@ -6638,6 +6638,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           emailHint?: string;
           expiresAtMs?: number;
           ownerProofBindingDigest: string;
+          walletAuthMethodId: string;
         } = {
           challengeId: readString(challenge?.challengeId, 'challengeId'),
           otpChannel: EMAIL_OTP_CHANNEL,
@@ -6647,6 +6648,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             challenge?.ownerProofBindingDigest,
             'ownerProofBindingDigest',
           ),
+          walletAuthMethodId: readString(response.walletAuthMethodId, 'walletAuthMethodId'),
         };
         if (Number.isFinite(expiresAtMs)) {
           result.expiresAtMs = expiresAtMs;

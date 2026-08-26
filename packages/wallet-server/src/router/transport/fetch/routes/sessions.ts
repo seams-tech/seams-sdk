@@ -860,7 +860,18 @@ export async function handleWalletEmailOtpChallenge(
     operation: request.operation,
     reuseActiveChallenge: true,
   });
-  return json(result, { status: result.ok ? 200 : emailOtpStatusCode(result.code) });
+  if (!result.ok) {
+    return json(result, { status: emailOtpStatusCode(result.code) });
+  }
+  return json(
+    {
+      ok: true,
+      challenge: result.challenge,
+      delivery: result.delivery,
+      walletAuthMethodId: authority.bindingId,
+    },
+    { status: 200 },
+  );
 }
 
 type WalletEmailOtpFactorReleaseRequest = {
