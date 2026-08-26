@@ -78,7 +78,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
-import type { WalletId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 
 const DEVICE_LINKING_BASE = '/wallet/device-linking/v1/sessions';
 export const DEVICE_LINKING_REQUEST_PROOF_HEADER_V1 = LINKED_DEVICE_REQUEST_PROOF_HEADER_V1;
@@ -470,39 +470,23 @@ async function handleApproval(
   if (approval.targetFactor.kind === 'email_otp') {
     const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
     if (!session) return notFoundResponse();
-    if (session.state.state !== 'claimed' || !session.claimTranscript) {
-      return invalidStateResponse(session);
-    }
-    if (
-      authentication.owner.walletId !== approval.walletId ||
-      session.claimTranscript.value.walletId !== approval.walletId
-    ) {
+    const ownerMismatch = requireOwnerMatchesClaimedWallet(authentication.owner, session);
+    if (ownerMismatch) return ownerMismatch;
+    if (authentication.owner.walletId !== approval.walletId) {
       return authDeniedResponse({
         kind: 'denied',
         code: 'unauthorized',
         message: 'owner session does not match link wallet',
       });
     }
-    const provider = service.emailOtpTargetFactor;
-    if (!provider) return notSupportedResponse('Email OTP linking is not configured');
-    const selection = await provider.resolveBaseFactorSelectionV1({
-      walletId: approval.walletId,
-      request: {
-        kind: 'select',
-        expectedRevision: session.revision,
-        baseWalletAuthMethodId: approval.targetFactor.baseWalletAuthMethodId,
-      },
-    });
-    if (
-      selection.kind !== 'selected' ||
-      selection.choice.baseWalletAuthMethodId !== approval.targetFactor.baseWalletAuthMethodId
-    ) {
-      return authDeniedResponse({
-        kind: 'denied',
-        code: 'unauthorized',
-        message: 'Email OTP base method is unavailable',
-      });
+    if (session.state.state !== 'claimed' || !session.claimTranscript) {
+      return invalidStateResponse(session);
     }
+    const selectionError = await requireSelectedEmailOtpBaseFactorV1(service, session, {
+      walletId: approval.walletId,
+      baseWalletAuthMethodId: approval.targetFactor.baseWalletAuthMethodId,
+    });
+    if (selectionError) return selectionError;
   }
   return approvalResultResponse(
     await service.sessionService.recordOwnerApprovalV1({
@@ -787,6 +771,8 @@ async function handleEmailOtpBaseFactor(
   const authenticated = await authenticateOwnerForSession(ctx, service, linkSessionId, nowMs);
   if (authenticated.kind !== 'authorized') return ownerSessionResponse(authenticated);
   const session = authenticated.session;
+  const ownerMismatch = requireOwnerMatchesClaimedWallet(authenticated.owner, session);
+  if (ownerMismatch) return ownerMismatch;
   if (
     session.state.state !== 'claimed' ||
     session.qrPayload.targetFactor.kind !== 'email_otp' ||
@@ -795,12 +781,6 @@ async function handleEmailOtpBaseFactor(
     return invalidStateResponse(session);
   }
   const walletId = session.claimTranscript.value.walletId;
-  if (authenticated.owner.walletId !== walletId) {
-    return json(
-      { ok: false, code: 'unauthorized', message: 'owner session does not match link wallet' },
-      { status: 401 },
-    );
-  }
   const request = parseBoundary(() =>
     parseLinkedDeviceEmailOtpBaseFactorRequestV1(authenticated.body),
   );
@@ -848,15 +828,10 @@ async function handleOwnerCancel(
   if (authenticated.kind !== 'authorized') return ownerSessionResponse(authenticated);
   const request = parseBoundary(() => parseOwnerCancelRequest(authenticated.body));
   const session = authenticated.session;
+  const ownerMismatch = requireOwnerMatchesClaimedWallet(authenticated.owner, session);
+  if (ownerMismatch) return ownerMismatch;
   if (session.state.state === 'cancelled') {
     return sessionProjectionResponse(session, 'replayed');
-  }
-  const claimWalletId = session.claimTranscript?.value.walletId;
-  if (!claimWalletId || authenticated.owner.walletId !== claimWalletId) {
-    return json(
-      { ok: false, code: 'unauthorized', message: 'owner session does not match link wallet' },
-      { status: 401 },
-    );
   }
   if (session.state.state !== 'claimed') return invalidStateResponse(session);
   return sessionResultResponse(
@@ -1525,6 +1500,63 @@ function ownerSessionResponse(
   context: Exclude<AuthenticatedOwnerForSession, { readonly kind: 'authorized' }>,
 ): Response {
   return context.kind === 'denied' ? authDeniedResponse(context) : notFoundResponse();
+}
+
+/**
+ * The one owner-to-session binding, shared by every owner route on a claimed
+ * session. It runs before any state is disclosed: an authenticated owner of a
+ * DIFFERENT wallet must get the same denial for every state, not a projection
+ * or an invalid-state body. An unclaimed session has no wallet to bind to yet,
+ * so the caller's state checks answer instead.
+ */
+function requireOwnerMatchesClaimedWallet(
+  owner: LinkedDeviceOwnerAuthorizationContextV1,
+  session: LinkedDeviceSessionRecordV1,
+): Response | null {
+  const claimWalletId = session.claimTranscript?.value.walletId;
+  if (claimWalletId === undefined) return null;
+  if (owner.walletId === claimWalletId) return null;
+  return authDeniedResponse({
+    kind: 'denied',
+    code: 'unauthorized',
+    message: 'owner session does not match link wallet',
+  });
+}
+
+/**
+ * Approval-time revalidation of the selected Email OTP base method. The same
+ * eligibility question the dedicated base-factor route answers, asked once
+ * more with the id the approval names, so the two paths cannot drift.
+ */
+async function requireSelectedEmailOtpBaseFactorV1(
+  service: DeviceLinkingRouteServiceV1,
+  session: LinkedDeviceSessionRecordV1,
+  input: {
+    readonly walletId: LinkedDeviceApprovalV1['walletId'];
+    readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  },
+): Promise<Response | null> {
+  const provider = service.emailOtpTargetFactor;
+  if (!provider) return notSupportedResponse('Email OTP linking is not configured');
+  const selection = await provider.resolveBaseFactorSelectionV1({
+    walletId: input.walletId,
+    request: {
+      kind: 'select',
+      expectedRevision: session.revision,
+      baseWalletAuthMethodId: input.baseWalletAuthMethodId,
+    },
+  });
+  if (
+    selection.kind !== 'selected' ||
+    selection.choice.baseWalletAuthMethodId !== input.baseWalletAuthMethodId
+  ) {
+    return authDeniedResponse({
+      kind: 'denied',
+      code: 'unauthorized',
+      message: 'Email OTP base method is unavailable',
+    });
+  }
+  return null;
 }
 
 function authDeniedResponse(result: DeviceLinkingAuthDeniedV1): Response {
