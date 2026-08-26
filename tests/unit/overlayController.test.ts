@@ -463,7 +463,14 @@ test.describe('OverlayController', () => {
             return iframe;
           },
         });
-        const geometry = {
+        const authMenuGeometry = {
+          kind: 'provisional_centered_modal' as const,
+          widthCssPx: 416,
+          heightCssPx: 450,
+          topCssPx: 159,
+          leftCssPx: 304,
+        };
+        const measuredGeometry = {
           kind: 'centered_modal' as const,
           widthCssPx: 360,
           heightCssPx: 320,
@@ -474,7 +481,7 @@ test.describe('OverlayController', () => {
         overlay.apply({
           kind: 'compact_auth_menu',
           presentation: { kind: 'modal', title: 'Choose account' },
-          geometry,
+          geometry: authMenuGeometry,
           focusTrap: true,
           identity: {
             kind: 'request_surface_identity_v1',
@@ -490,6 +497,8 @@ test.describe('OverlayController', () => {
           // Absolute (document-coordinate) positioning scrolls with the page;
           // fixed would float over it.
           position: getComputedStyle(dialog).position,
+          visibility: getComputedStyle(dialog).visibility,
+          provisional: dialog.classList.contains('is-provisional'),
           // A non-modal dialog never enters the top layer, so host chrome can
           // paint above it.
           topLayer: dialog.matches(':modal'),
@@ -498,7 +507,7 @@ test.describe('OverlayController', () => {
         overlay.apply({
           kind: 'compact_request_modal',
           presentation: { kind: 'modal', title: 'Confirm transaction' },
-          geometry,
+          geometry: measuredGeometry,
           focusTrap: true,
           identity: {
             kind: 'request_surface_identity_v1',
@@ -522,6 +531,8 @@ test.describe('OverlayController', () => {
     expect(result.authMenu.inlineClass).toBe(true);
     expect(result.authMenu.zIndex).toBe('auto');
     expect(result.authMenu.position).toBe('absolute');
+    expect(result.authMenu.visibility).toBe('visible');
+    expect(result.authMenu.provisional).toBe(true);
     expect(result.authMenu.topLayer).toBe(false);
     expect(result.modal.inlineClass).toBe(false);
     expect(result.modal.zIndex).toBe('2147483646');

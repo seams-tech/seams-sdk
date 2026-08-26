@@ -153,11 +153,12 @@ const BASE_CSS = `
   dialog.${CLASS_DIALOG}.${CLASS_INLINE_DIALOG}.${CLASS_RESIZE_ANIMATED} {
     transition: none;
   }
-  /* A provisional drawer already owns the full visual viewport. Keep it
-     visible so the iframe's inner sheet can play its slide-in transition;
-     provisional compact modals stay hidden until their measured bounds are
-     ready. */
-  dialog.${CLASS_DIALOG}.${CLASS_PROVISIONAL}.${CLASS_MODAL} {
+  /* A provisional drawer already owns the full visual viewport. The hosted
+     auth menu also renders provisionally: hiding its dialog prevents the
+     child ResizeObserver from producing the measurement that replaces those
+     provisional bounds, leaving the menu invisible until the 4s fallback.
+     Request modals remain hidden until their measured bounds are ready. */
+  dialog.${CLASS_DIALOG}.${CLASS_PROVISIONAL}.${CLASS_MODAL}:not(.${CLASS_AUTH_MENU}) {
     visibility: hidden;
   }
   iframe.${CLASS_IFRAME} {
