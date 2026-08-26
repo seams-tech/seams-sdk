@@ -131,8 +131,10 @@ import {
   mpcMaterialActivationRefsEqual,
   parseProviderSubject,
   parseThresholdEcdsaSessionId,
+  parseWalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import {
+  buildEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
   type EmailOtpProvider,
   type EmailOtpWalletAuthAuthority,
@@ -399,32 +401,31 @@ async function resolveEmailOtpAuthContextAuthorityFromActiveMethods(args: {
   return { kind: 'selected_v2', authority };
 }
 
-async function resolveEmailOtpAuthContextAuthorityForExactMethod(args: {
+function resolveEmailOtpAuthContextAuthorityForExactMethod(args: {
   walletId: WalletSessionRef['walletId'];
   walletAuthMethodId: string;
   emailHashHex: string;
   provider: EmailOtpProvider;
   providerUserId: string;
-}): Promise<EmailOtpAuthContextAuthoritySource> {
-  const stores = emailOtpOwnerLaneScopeStores();
-  const authMethod = await stores.getWalletAuthMethodV2(args.walletAuthMethodId);
-  if (
-    !authMethod ||
-    authMethod.kind !== 'email_otp' ||
-    authMethod.status !== 'active' ||
-    String(authMethod.walletId) !== String(args.walletId)
-  ) {
-    throw new Error('Selected Email OTP wallet auth method is unavailable');
+}): EmailOtpAuthContextAuthoritySource {
+  const parsedWalletAuthMethodId = parseWalletAuthMethodId(args.walletAuthMethodId);
+  if (!parsedWalletAuthMethodId.ok) {
+    throw new Error('Selected Email OTP wallet auth method is invalid');
   }
-  const authority = await resolveExactWalletAuthAuthority({ authMethod, stores });
-  if (
-    !isEmailOtpWalletAuthAuthority(authority) ||
-    authority.factor.provider !== args.provider ||
-    String(authority.factor.providerUserId) !== String(args.providerUserId) ||
-    String(authority.verifier.emailHashHex) !== String(args.emailHashHex)
-  ) {
-    throw new Error('Selected Email OTP wallet auth method does not match the request');
-  }
+  // The challenge route already selected this active method and bound it into
+  // the OTP proof. Cold unlock must not require its local row before restore.
+  const baseAuthority = buildEmailOtpWalletAuthAuthority({
+    walletId: args.walletId,
+    provider: args.provider,
+    providerUserId: args.providerUserId,
+    emailHashHex: args.emailHashHex,
+  });
+  const authority: EmailOtpWalletAuthAuthority = {
+    walletId: baseAuthority.walletId,
+    factor: baseAuthority.factor,
+    verifier: baseAuthority.verifier,
+    bindingId: parsedWalletAuthMethodId.value,
+  };
   return { kind: 'selected_v2', authority };
 }
 
