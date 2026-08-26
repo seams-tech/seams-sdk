@@ -198,11 +198,10 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   // Camera Cleanup Point 2: Component unmount
   useEffect(() => {
     return () => {
-      if (qrCamera.isScanning) {
-        qrCamera.stopScanning();
-      }
+      rejectPendingEmailOtpSelection(new Error('Device linking was cancelled'));
+      qrCamera.stopScanning();
     };
-  }, []);
+  }, [qrCamera.stopScanning, rejectPendingEmailOtpSelection]);
 
   // Camera Cleanup Point 3: Modal state changes (isOpen prop)
   useEffect(() => {

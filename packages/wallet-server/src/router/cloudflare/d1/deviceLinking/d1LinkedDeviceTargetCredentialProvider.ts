@@ -1412,6 +1412,10 @@ async function parseTargetCredentialRow(
     JSON.parse(row.registration_json),
     keyManifestDigestB64u,
   );
+  await assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
+    preparation,
+    registration: payload.registration,
+  });
   if (
     payload.sourceContributionPreparationDigestB64u !==
       (await digestJsonV1(payload.sourceContributionPreparation)) ||

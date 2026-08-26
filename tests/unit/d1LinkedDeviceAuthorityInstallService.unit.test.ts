@@ -65,8 +65,6 @@ import {
 } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
-import type { WebAuthnCredentialBindingRecord } from '../../packages/wallet-server/src/core/WebAuthnCredentialBindingStore';
-import { testWebAuthnCredentialBindingRecord } from './helpers/webauthnAuthenticatorListing.fixtures';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -309,11 +307,12 @@ test('rolls back authority activation, converges on retry, and accepts the final
       credentialIdB64u: String(replay.authMethod.credentialIdB64u),
     });
     expect(binding).toMatchObject({
-      nearAccountId: harness.sourceBinding.nearAccountId,
-      nearEd25519SigningKeyId: harness.sourceBinding.nearEd25519SigningKeyId,
-      signerSlot: harness.sourceBinding.signerSlot,
-      publicKey: harness.sourceBinding.publicKey,
+      version: 'webauthn_credential_binding_v1',
+      rpId: String(replay.authMethod.rpId),
+      credentialIdB64u: String(replay.authMethod.credentialIdB64u),
+      userId: String(replay.authMethod.walletId),
     });
+    expect(binding).not.toHaveProperty('nearAccountId');
     const authenticator = await temporary.database
       .prepare(
         `SELECT credential_public_key_b64u, counter, device_info_json
@@ -359,6 +358,22 @@ test('rolls back authority activation, converges on retry, and accepts the final
     await expect(
       harness.sessionStore.getSessionV1(harness.input.linkSessionId),
     ).resolves.toBeNull();
+    const allocation = await temporary.database
+      .prepare(
+        `SELECT authority_id
+           FROM linked_device_authority_allocations
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(harness.input.linkSessionId),
+      )
+      .first();
+    expect(allocation).toBeNull();
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -507,7 +522,6 @@ async function buildHarness(
   readonly authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'>;
   readonly sessionStore: D1LinkedDeviceSessionStoreV1;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
-  readonly sourceBinding: WebAuthnCredentialBindingRecord;
 }> {
   const fixture = buildR103DeviceLinkFixture({
     linkSessionId: `link-session:${label}`,
@@ -575,22 +589,6 @@ async function buildHarness(
     database: temporary.database,
     ...scope,
   });
-  const sourceBinding = testWebAuthnCredentialBindingRecord({
-    credentialIdB64u: String(source.authMethod.credentialIdB64u),
-    userId: String(source.authMethod.walletId),
-    rpId: String(source.authMethod.rpId),
-    signerSlot: 7,
-    publicKey: 'ed25519:linked-source-public',
-    createdAtMs: source.authMethod.createdAtMs,
-    updatedAtMs: source.authMethod.updatedAtMs,
-  });
-  const existingSourceBinding = await webAuthnStore.readBindingByCredential({
-    rpId: String(sourceBinding.rpId),
-    credentialIdB64u: String(sourceBinding.credentialIdB64u),
-  });
-  if (!existingSourceBinding) {
-    await webAuthnStore.prepareCredentialBindingInsertStatement(sourceBinding).run();
-  }
   const authMethodStore: Pick<D1WalletAuthMethodStore, 'readByIdV2'> = {
     readByIdV2: async (input) =>
       (await walletAuthMethodStore.readByIdV2(input)) ??
@@ -606,7 +604,7 @@ async function buildHarness(
     scope,
     authorityStore,
     authMethodStore,
-    webAuthnStore,
+    listWalletEd25519Signers: async () => [],
     sessionStore,
     sessionService: {
       getSessionV1: async ({ linkSessionId, nowMs: requestedAtMs }) =>
@@ -635,7 +633,6 @@ async function buildHarness(
     authMethodStore,
     sessionStore,
     webAuthnStore,
-    sourceBinding,
   };
 }
 
