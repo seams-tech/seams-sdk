@@ -176,6 +176,11 @@ export type LinkSessionOwnerTransportPortV1 = {
     readonly request: LinkedDeviceEmailOtpBaseFactorRequestV1;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceEmailOtpBaseFactorResolutionResultV1>;
+  cancelClaimedSessionV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkSessionSnapshotV1>;
   recordOwnerApprovalV1(input: {
     readonly approval: LinkedDeviceApprovalV1;
     readonly authentication: LinkSessionAuthenticationV1;
