@@ -95,9 +95,7 @@ type RouterAbEcdsaDerivationSigningAuthorization =
     };
 
 function ecdsaPoolFillAuthorization(
-  input:
-    | RouterAbEcdsaDerivationPoolFillAuthorization
-    | RouterAbEcdsaDerivationSigningAuthorization,
+  input: RouterAbEcdsaDerivationPoolFillAuthorization | RouterAbEcdsaDerivationSigningAuthorization,
 ): RouterAbEcdsaDerivationPoolFillAuthorization {
   switch (input.authorization.kind) {
     case 'reusable_wallet_session':
@@ -736,7 +734,9 @@ type RouterAbEcdsaPresignHandshakeArgs = {
   workerCtx: WorkerOperationContext;
 } & RouterAbEcdsaDerivationPoolFillAuthorization;
 
-async function runPresignHandshake(args: RouterAbEcdsaPresignHandshakeArgs): Promise<
+async function runPresignHandshake(
+  args: RouterAbEcdsaPresignHandshakeArgs,
+): Promise<
   | { ok: true; presignature: RouterAbEcdsaDerivationClientPresignatureRef }
   | RouterAbEcdsaDerivationCoordinatorError
 > {
@@ -751,7 +751,9 @@ async function runPresignHandshake(args: RouterAbEcdsaPresignHandshakeArgs): Pro
   };
 }
 
-async function runPresignHandshakeAttempt(args: RouterAbEcdsaPresignHandshakeArgs): Promise<
+async function runPresignHandshakeAttempt(
+  args: RouterAbEcdsaPresignHandshakeArgs,
+): Promise<
   | { ok: true; presignature: RouterAbEcdsaDerivationClientPresignatureRef }
   | RouterAbEcdsaDerivationCoordinatorError
 > {
@@ -1074,18 +1076,20 @@ function resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args: {
   };
 }
 
-export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
-  relayerUrl: string;
-  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-  operationId: string;
-  operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
-  materialActivation: RouterAbMpcMaterialActivationRefWire;
-  credential: RouterAbOwnerNormalSigningCredential;
-  signingDigest32: Uint8Array;
-  clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
-  expiresAtMs?: number;
-  workerCtx: WorkerOperationContext;
-} & RouterAbEcdsaDerivationSigningAuthorization): Promise<RouterAbEcdsaDerivationCoordinatorResult> {
+export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
+  args: {
+    relayerUrl: string;
+    scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+    operationId: string;
+    operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+    credential: RouterAbOwnerNormalSigningCredential;
+    signingDigest32: Uint8Array;
+    clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
+    expiresAtMs?: number;
+    workerCtx: WorkerOperationContext;
+  } & RouterAbEcdsaDerivationSigningAuthorization,
+): Promise<RouterAbEcdsaDerivationCoordinatorResult> {
   let poolKey: string | null = null;
   let poolIdentity: EcdsaClientPresignPoolIdentity | null = null;
   let foregroundStarted = false;
@@ -1093,6 +1097,7 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
   let clientSignatureShare32: Uint8Array | null = null;
   let clientRerandomizationContribution32: Uint8Array | null = null;
   let clientMaterialConsumed = false;
+  let operationPrepared = false;
   try {
     const relayerUrl = String(args.relayerUrl || '')
       .trim()
@@ -1183,10 +1188,9 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
       };
     }
     clientRerandomizationContribution32 = secureRerandomizationContribution32();
-    const clientRerandomizationCommitment32 =
-      await routerAbEcdsaRerandomizationClientCommitmentV1(
-        clientRerandomizationContribution32,
-      );
+    const clientRerandomizationCommitment32 = await routerAbEcdsaRerandomizationClientCommitmentV1(
+      clientRerandomizationContribution32,
+    );
     const prepareRequest = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
       scope: args.scope,
       requestId: secureRandomId(
@@ -1222,6 +1226,7 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
       credential: args.credential,
       request: prepareRequest,
     });
+    operationPrepared = true;
     if (prepareResponse.server_big_r33_b64u !== presignature.bigRB64u) {
       return {
         ok: false,
@@ -1344,6 +1349,9 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
     }
     if (isUnavailableRouterAbEcdsaDerivationPresignatureError(msg)) {
       if (poolKey) invalidateClientPresignaturePool(poolKey);
+      if (operationPrepared) {
+        return { ok: false, code: 'router_ab_sign_failed', message: msg };
+      }
       return { ok: false, code: 'pool_entry_unavailable', message: msg };
     }
     return { ok: false, code: 'router_ab_sign_failed', message: msg };
@@ -1363,19 +1371,21 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
   }
 }
 
-export async function signRouterAbEcdsaDerivationDigestWithPool(args: {
-  relayerUrl: string;
-  scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
-  operationId: string;
-  operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
-  materialActivation: RouterAbMpcMaterialActivationRefWire;
-  credential: RouterAbOwnerNormalSigningCredential;
-  keyHandle?: EcdsaKeyHandle;
-  signingDigest32: Uint8Array;
-  clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
-  expiresAtMs: number;
-  workerCtx: WorkerOperationContext;
-} & RouterAbEcdsaDerivationSigningAuthorization): Promise<RouterAbEcdsaDerivationCoordinatorResult> {
+export async function signRouterAbEcdsaDerivationDigestWithPool(
+  args: {
+    relayerUrl: string;
+    scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
+    operationId: string;
+    operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+    credential: RouterAbOwnerNormalSigningCredential;
+    keyHandle?: EcdsaKeyHandle;
+    signingDigest32: Uint8Array;
+    clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
+    expiresAtMs: number;
+    workerCtx: WorkerOperationContext;
+  } & RouterAbEcdsaDerivationSigningAuthorization,
+): Promise<RouterAbEcdsaDerivationCoordinatorResult> {
   const signingIdentity = routerAbEcdsaDerivationSigningIdentityFromScope(args.scope);
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
   if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
@@ -1479,10 +1489,10 @@ export async function refillRouterAbEcdsaDerivationClientPresignaturePool(
 
     if (getClientPresignaturePoolGeneration(poolKey) !== startedGeneration) {
       const poolIdentity = makeClientPresignPoolIdentity({
-      relayerUrl: args.relayerUrl,
-      scope: args.routerAbEcdsaDerivationPoolFill.scope,
-      materialActivation: args.materialActivation,
-    });
+        relayerUrl: args.relayerUrl,
+        scope: args.routerAbEcdsaDerivationPoolFill.scope,
+        materialActivation: args.materialActivation,
+      });
       await args.clientSigningMaterial
         .destroyClientPresignature({
           materialHandle: generated.presignature.materialHandle,
