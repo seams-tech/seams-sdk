@@ -20,6 +20,7 @@ import { useDemoNearActions } from './hooks/useDemoNearActions';
 import { useDemoTempoFundingStatus } from './hooks/useDemoTempoFundingStatus';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
+import { useIntendedEmailOtpUnlockBridge } from './useIntendedEmailOtpUnlockBridge';
 
 export const DemoPage: React.FC = () => {
   const {
@@ -33,6 +34,7 @@ export const DemoPage: React.FC = () => {
     },
     seams,
   } = useSeams();
+  useIntendedEmailOtpUnlockBridge(seams);
 
   /* the section heading names the credential that will actually confirm the
      signature: passkey accounts prompt WebAuthn, email-OTP accounts prompt a
@@ -162,32 +164,32 @@ export const DemoPage: React.FC = () => {
       </div>
 
       <AnimatedHeight>
-      <ChainSigningSection
-        chains={chains}
-        heading={signingHeading}
-        selectedChainId={selectedChainId}
-        onSelectChain={setSelectedChainId}
-        onSignDelegate={nearActions.handleSignDelegateGreeting}
-        delegateLoading={nearActions.delegateLoading}
-        canSignDelegate={nearActions.canSignDelegate}
-        nearSignerAvailable={Boolean(nearPublicKey)}
-        thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
-        onCopyThresholdOwnerAddress={() => {
-          toast.success('Address copied');
-        }}
-        onPrepareTempoFeeToken={async () => {
-          /* re-probe after the funding attempt so the button hides itself
+        <ChainSigningSection
+          chains={chains}
+          heading={signingHeading}
+          selectedChainId={selectedChainId}
+          onSelectChain={setSelectedChainId}
+          onSignDelegate={nearActions.handleSignDelegateGreeting}
+          delegateLoading={nearActions.delegateLoading}
+          canSignDelegate={nearActions.canSignDelegate}
+          nearSignerAvailable={Boolean(nearPublicKey)}
+          thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
+          onCopyThresholdOwnerAddress={() => {
+            toast.success('Address copied');
+          }}
+          onPrepareTempoFeeToken={async () => {
+            /* re-probe after the funding attempt so the button hides itself
              once the fee token is set and funded */
-          try {
-            await thresholdSigners.handlePrepareTempoFeeToken();
-          } finally {
-            tempoFunding.refresh();
-          }
-        }}
-        tempoFeeTokenPrepareLoading={thresholdSigners.tempoFeeTokenPrepareLoading}
-        tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
-        tempoFundingStatus={tempoFunding.status}
-      />
+            try {
+              await thresholdSigners.handlePrepareTempoFeeToken();
+            } finally {
+              tempoFunding.refresh();
+            }
+          }}
+          tempoFeeTokenPrepareLoading={thresholdSigners.tempoFeeTokenPrepareLoading}
+          tempoPreparationUnavailableReason={thresholdSigners.tempoPreparationUnavailableReason}
+          tempoFundingStatus={tempoFunding.status}
+        />
       </AnimatedHeight>
     </div>
   );
