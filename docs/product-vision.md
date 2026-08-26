@@ -6,6 +6,7 @@ Status: draft product vision; use as positioning and product-direction context.
 
 Related docs:
 
+- [Seams wallet vision](vision.md)
 - [Router A/B spec](./router-ab/protocol.md)
 - [Router A/B deployment](./router-ab/deployment.md)
 - [Wallet key and execution lanes](refactor-96-wallet-execution-lanes.md)
@@ -15,6 +16,11 @@ Related docs:
 - [VoiceID engine specification](../voiceId/docs/voiceId-mvp-1.md)
 
 ## Thesis
+
+This document defines the policy and authorization direction for the shopping-
+agent use case in the broader [Seams wallet vision](vision.md). Platform wallets
+are the shared foundation. Shopping wallet applications and shopping agents are
+product experiences built on that foundation.
 
 The key product is a policy engine attached to cryptographic proofs.
 
@@ -208,10 +214,10 @@ Revoke mandates.
 Audit mandates.
 ```
 
-## First Wedge: Shopping And Ecommerce Agents
+## First agentic-commerce wedge: Shopping agents
 
-Shopping and ecommerce are the strongest first wedge because the failure modes
-are concrete:
+Shopping agents purchasing from unrelated ecommerce stores are the strongest
+first agentic-commerce wedge because the failure modes are concrete:
 
 - agent buys the wrong item
 - prompt injection changes the cart
@@ -273,7 +279,14 @@ Useful controls:
 The product prevents a web page, seller, tool result, or prompt injection from
 silently turning a narrow shopping instruction into broader spend authority.
 
-## Use Case: Robotics Fleets
+## Future adjacent applications
+
+The current product use cases are platform wallets, shopping wallet
+applications, and shopping agents. Robotics, merchant-side storefront agents,
+and marketplace bidding remain future applications of the policy primitives.
+They do not direct the current wallet roadmap.
+
+### Robotics fleets
 
 Robotics fleets need delegated physical authority.
 
@@ -309,7 +322,7 @@ Human approval
 
 Robotics should remain future scope until the commerce wedge is proven.
 
-## Use Case: AI Managed Storefronts
+### AI-managed storefronts
 
 AI storefronts make commercial commitments on behalf of a seller.
 
@@ -329,7 +342,7 @@ Useful controls:
 The model can suggest commercial actions. The policy harness decides which
 actions can become binding offers, refunds, promotions, orders, or payments.
 
-## Use Case: AI Managed Bidding And Marketplace Agents
+### AI-managed bidding and marketplace agents
 
 Bidding agents need strict spend, listing, and settlement controls.
 
@@ -406,7 +419,8 @@ Keep the policy model precise:
 
 Keep product scope concrete:
 
-- start with shopping and ecommerce agents
+- start the agentic-commerce product with shopping agents purchasing from
+  unrelated ecommerce stores
 - use robotics, storefronts, and bidding as expansion paths
 - treat identity vendors as proof providers where useful
 - treat wallet/key infrastructure as the execution layer

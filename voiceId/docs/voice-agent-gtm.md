@@ -242,8 +242,8 @@ Overseas proxy-shopping flow:
 4. User approves the exact purchase terms with passkey.
 5. User pays the company directly by card, Apple Pay, bank transfer, or a
    stablecoin route for supported users.
-6. Company issues a one-order internal purchasing credential, such as a
-   single-use virtual card, for the agent or operator.
+6. Company assigns a controlled internal purchasing credential, such as a
+   company virtual card, to the agent or operator.
 7. Agent, operator, or recruited human shopper buys the item from the Japanese
    merchant.
 8. Item is shipped to a warehouse, human shopper, or local receiving partner.
@@ -365,14 +365,14 @@ spend company funds.
 Virtual-card role:
 
 - use company-controlled virtual cards as internal purchasing credentials
-- create one card per approved order or merchant checkout
-- cap the card at the approved amount plus a small tolerance buffer
+- enforce the approved amount plus a small tolerance buffer at authorization
+  against the signed purchase mandate
 - restrict by merchant, merchant category, country, domain, or channel where the
   provider supports it
-- expire the card quickly
 - disable ATM, cash, and recurring payments
-- cancel after success, failure, or expiry
-- bind card metadata, merchant order id, receipt, and clearing/refund events
+- freeze or cancel a card when its assignment ends or its credentials may be
+  compromised
+- bind authorization, merchant order id, receipt, and clearing/refund events
   back to the signed purchase mandate
 
 Human shopper role:
@@ -589,8 +589,8 @@ Human shopper execution rules:
 - assign each operator one signed task
 - disclose item, merchant, budget, pickup location, required evidence, and
   deadline
-- fund the task with a single-use virtual card, controlled reimbursement flow,
-  or prepaid operator allowance tied to that task
+- fund the task with a controlled company card, reimbursement flow, or prepaid
+  operator allowance tied to that task
 - require receipt and item photos before closeout
 - block substitutions, used-condition changes, higher prices, and address
   changes until the customer re-approves
@@ -670,8 +670,8 @@ Todo:
 - [ ] add refund and cancellation flows
 - [ ] define the canonical `PaymentMandate` shape used by PSP, virtual-card,
       manual-review, refund, and cancellation flows
-- [ ] create one company-controlled virtual card per approved order where the
-      provider supports it
+- [ ] integrate company-controlled virtual-card execution where the provider
+      supports it
 - [ ] add human-shopper task assignment, evidence upload, and closeout
 
 Exit criteria:
@@ -893,13 +893,13 @@ Unit economics:
   requests?
 - What is the minimum signed receipt artifact merchants, users, and support
   need?
-- Which payment execution path should be tested first: PSP checkout, single-use
-  virtual card, manual concierge purchase, or direct merchant partnership?
+- Which payment execution path should be tested first: PSP checkout, controlled
+  company card, manual concierge purchase, or direct merchant partnership?
 - Which warehouse, forwarding, or human-shopper partner can support the first
   proxy-shopping orders?
 - What prohibited-goods, customs, inspection, and insurance policy is required
   before overseas forwarding?
-- Which virtual-card provider supports single-order cards, merchant controls,
+- Which virtual-card provider supports mandate-bound authorization controls,
   3DS, Japan acceptance, refunds, and stablecoin-funded treasury?
 
 ## Source References

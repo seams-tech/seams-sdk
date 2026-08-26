@@ -2,23 +2,25 @@
 
 Date created: August 22, 2026
 
-Status: draft product and implementation plan.
+Status: deferred reference design; outside the active wallet-product roadmap.
 
 Related docs:
 
+- [Seams wallet vision](vision.md)
 - [Product vision](product-vision.md)
 - [Stablecoin-linked virtual card](stablecoin-linked-virtual-card.md)
 
 ## Purpose
 
-This plan defines the first card-payment use case for the Seams embedded wallet:
+This document records a possible card-on-file checkout product for participating
+merchants:
 
 ```text
 A customer adds a credit, debit, or externally issued virtual card once, then
 uses the Seams wallet for fast checkout at participating ecommerce sites.
 ```
 
-The target experience resembles Stripe Link:
+The proposed experience resembles Stripe Link:
 
 ```text
 Pay with Seams
@@ -36,9 +38,22 @@ Virtual-card issuance is outside the first operating path. A virtual card issued
 by another company can be saved to Seams in the same way as any other supported
 card.
 
-## Product Decision
+## Product decision
 
-Build a tokenized, card-on-file checkout wallet first.
+Defer tokenized, card-on-file checkout. It does not serve the primary customer
+profile defined in the [wallet vision](vision.md).
+
+A conventional store that only needs to collect payment is a weak fit for
+per-shopper wallet provisioning. A shopper with an existing wallet can pay the
+store directly when the store accepts stablecoin. Platforms become strong fits
+when users retain balances, assets, payouts, rewards, or repeated transaction
+authority inside the product.
+
+Revisit this design only after demand exists for one portable checkout identity
+across multiple participating merchants and a provider supports the required
+cross-merchant credential model.
+
+The deferred design is:
 
 ```text
 Participating merchant embeds Seams
@@ -57,10 +72,10 @@ product, order, tax, fulfilment, refund, and customer-support obligations. Seams
 provides checkout software and authorization evidence without taking custody of
 the merchant's sale proceeds.
 
-For the MVP, participating merchants must use connected accounts under one PSP
-platform. This gives Seams one supported way to save a card once and use a
-provider-approved merchant-scoped credential at multiple participating
-merchants.
+Under this deferred design, participating merchants use connected accounts
+under one PSP platform. This gives Seams one supported way to save a card once
+and use a provider-approved merchant-scoped credential at multiple
+participating merchants.
 
 ## User Value
 
@@ -84,15 +99,15 @@ For merchants:
 
 For Seams:
 
-- make the embedded wallet useful in ordinary ecommerce
+- test whether a portable wallet identity improves multi-merchant checkout
 - connect the existing wallet authorization system to card checkout
 - establish a shared checkout identity across merchants
 - create a direct path from signed commerce intent to payment evidence
 - preserve a future path to agents and delegated spending
 
-## Scope
+## Contingent scope
 
-### MVP
+### If reactivated
 
 - one PSP platform
 - connected merchant accounts
@@ -538,7 +553,7 @@ product.
   webhook latency
 - run the intended-behaviour contracts for new and returning customers
 
-## MVP Acceptance Criteria
+## Contingent acceptance criteria
 
 The first operating path is complete when:
 
@@ -623,20 +638,19 @@ Add issuance only when all of these are true:
 
 ## Recommended Near-Term Position
 
-For customers and merchants:
+For the product portfolio:
 
 ```text
-Embed Seams to let customers save a card once and approve checkout with their
-wallet across participating ecommerce sites.
+Prioritize platforms that provision persistent wallets for their users. Support
+shopping wallet applications and shopping agents as products built on that
+wallet foundation.
 ```
 
 For the technical roadmap:
 
 ```text
-Build one PSP-backed, merchant-of-record checkout path. Prove one saved card at
-two connected merchants. Bind every payment to a Seams wallet authorization and
-durable provider evidence. Develop stablecoin-linked card issuance as the
-separate path for spending wallet balances at external merchants.
+Do not build the PSP-backed card-on-file checkout path without validated demand
+from a multi-merchant wallet product. Keep the design as a deferred reference.
 ```
 
 ## References

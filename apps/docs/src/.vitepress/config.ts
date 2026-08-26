@@ -180,7 +180,9 @@ const useCasesSection: DefaultTheme.SidebarItem = {
   text: 'Use cases',
   items: [
     { text: 'Overview', link: '/use-cases/' },
-    { text: 'Ecommerce agents', link: '/use-cases/ecommerce-agents' },
+    { text: 'Platform wallets', link: '/use-cases/platform-wallets' },
+    { text: 'Shopping wallet apps', link: '/use-cases/shopping-wallet-apps' },
+    { text: 'Shopping agents', link: '/use-cases/ecommerce-agents' },
   ],
 };
 

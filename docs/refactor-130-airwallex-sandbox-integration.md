@@ -1,15 +1,21 @@
-# Airwallex Sandbox Integration Plan
+# Refactor 130 — Airwallex Sandbox Integration Plan
 
 Date created: August 22, 2026
 
-Status: planned; sandbox credentials and environment placeholders exist, and no
-runtime integration has been implemented.
+Status: conditional plan; begin only after a shopping wallet or shopping-agent
+product validates the need for external card-merchant reach. No runtime
+integration has been implemented.
 
 Parent plan:
 
+- [Seams wallet vision](vision.md)
 - [Stablecoin-linked virtual card](stablecoin-linked-virtual-card.md)
 
 ## Outcome
+
+This adaptor serves outbound spending by a shopping wallet or shopping agent.
+It is outside the ordinary merchant-checkout path and should not be implemented
+as a general feature for ecommerce stores provisioning shopper wallets.
 
 Build one server-side Airwallex sandbox adaptor that proves the card-provider
 side of the stablecoin-linked virtual card flow:

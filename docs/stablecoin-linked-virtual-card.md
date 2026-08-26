@@ -2,18 +2,20 @@
 
 Date created: August 22, 2026
 
-Status: production deferred pending regulatory authorization; testnet technical
-readiness is active.
+Status: conditional product plan; validate a shopping-wallet or shopping-agent
+customer first. Production remains deferred pending regulatory authorization.
 
 Related docs:
 
+- [Seams wallet vision](vision.md)
 - [Embedded wallet card checkout](embedded-wallet-card-checkout.md)
-- [Airwallex sandbox integration](airwallex-sandbox-integration.md)
+- [Airwallex sandbox integration](refactor-130-airwallex-sandbox-integration.md)
 - [Product vision](product-vision.md)
 
 ## Purpose
 
-This plan defines a second payment use case for the Seams wallet:
+This plan defines an optional outbound-spending rail for shopping wallet
+applications and shopping agents:
 
 ```text
 A customer locks stablecoin in an onchain Seams card-reserve escrow, then spends
@@ -30,18 +32,22 @@ disputes, and fiat settlement.
 Airwallex does not need to custody customer stablecoin, maintain the onchain
 reserve ledger, or perform Seams' stablecoin conversion.
 
-## Relationship To Embedded Checkout
+## Product fit
 
-| Product                        | Merchant relationship             | Customer funding source                                  |
-| ------------------------------ | --------------------------------- | -------------------------------------------------------- |
-| Embedded wallet card checkout  | Merchant embeds Seams             | Customer's existing saved credit, debit, or virtual card |
-| Stablecoin-linked virtual card | Merchant accepts the card network | Stablecoin locked in Seams onchain escrow                |
+| Use case | Relationship | Payment path |
+| --- | --- | --- |
+| Platform wallet pays an integrated merchant or platform participant | The platform has a direct Seams or onchain integration | Direct wallet transfer or platform ledger movement |
+| Shopping wallet pays an unrelated card-only merchant | The merchant has no Seams integration | Stablecoin-linked virtual card |
+| Shopping agent purchases from an unrelated card-only store | The agent carries a constrained mandate | Policy-bound virtual card |
+| Ordinary store collects a one-time payment | The shopper brings an existing wallet | Direct wallet payment when supported |
 
-Use embedded checkout where Seams is integrated. Use a stablecoin-linked card
-to extend wallet spending to external card merchants.
+Use a stablecoin-linked card to extend a wallet or shopping agent to unrelated
+external merchants. The card is unnecessary when the merchant can accept a
+direct wallet payment.
 
-The virtual card should not be inserted into an embedded checkout that already
-has a direct PSP payment path.
+Qualified operators include consumer shopping wallets and balance-holding
+platforms whose users need to spend outside the platform. A conventional store
+should not provision a card solely so a shopper can pay that same store.
 
 ## Product Decision
 
@@ -212,28 +218,31 @@ Future shopping-agent value:
 - revoke delegated authority independently of wallet ownership
 - preserve a verifiable chain from mandate to card transaction
 
-## Target Customer Experience
+## Target customer experience
 
-### Where The Experience Appears
+### Where the experience appears
 
-The stablecoin card is a wallet-owned product surface. A customer can open it
-from a Seams wallet embedded in a partner site or from a future Seams-owned
-wallet application. The embedding site may open or close the wallet surface but
-cannot read cardholder onboarding data, sensitive card details, or reserve
-authorization state.
+The stablecoin card is a wallet-owned product surface. A customer opens it from
+a shopping wallet application or from the embedded wallet of a qualified
+balance-holding platform. That platform already maintains a persistent user
+wallet and has a demonstrated reason to support spending at unrelated
+merchants.
+
+The host application may open or close the wallet surface. It cannot read
+cardholder onboarding data, sensitive card details, or reserve authorization
+state.
 
 ```text
-Partner site
-  -> opens embedded Seams wallet
+Shopping wallet or balance-holding platform
+  -> opens the user's Seams wallet
   -> customer selects Cards
   -> Seams-controlled wallet surface owns setup, reserve, card, and activity UI
   -> Airwallex-hosted surfaces own regulated onboarding and sensitive card data
 ```
 
 The card is designed for purchases at external merchants that do not integrate
-Seams. When a merchant already offers the direct `Pay with Seams` checkout path,
-the wallet should present that path and omit the stablecoin card as a redundant
-payment option.
+Seams. When a merchant accepts a direct wallet payment, the wallet should
+present that path and omit the stablecoin card as a redundant payment option.
 
 An ordinary card purchase does not open Seams or request an MPC or passkey
 confirmation. The customer enters or selects the virtual card in the merchant's
@@ -1550,17 +1559,19 @@ tests rather than widening the testnet runtime with permissive flags.
 For the product portfolio:
 
 ```text
-Embedded checkout lets customers pay participating merchants with existing
-cards. Stablecoin-linked virtual cards remain a deferred production product
-while Seams proves the target experience and simulated operating path on testnet.
+Platform wallets are the core product. Shopping wallet applications and
+shopping agents may add stablecoin-linked virtual cards when users need to pay
+unrelated card-only merchants. Ordinary ecommerce stores should accept direct
+wallet payments instead of provisioning cards for shoppers.
 ```
 
 For the active technical roadmap:
 
 ```text
-Prove the complete wallet experience against deterministic fake boundaries.
-Replace the card boundary with the supported Airwallex sandbox subset, then add
-testnet escrow, delegated authorization, and simulated batched treasury. Keep
+Validate one shopping-wallet or shopping-agent customer before implementing the
+card program. Then prove the complete experience against deterministic fake
+boundaries, replace the card boundary with the supported Airwallex sandbox
+subset, and add testnet escrow only as demonstrated demand requires. Keep
 mainnet and live payment paths structurally unavailable until the production
 regulatory gate is satisfied.
 ```
