@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)
       // Needed to avoid Vite's DNS‑rebinding protection blocking mDNS hosts
-      allowedHosts: ['localhost', 'seams.localhost', 'pta-m4.local'],
+      allowedHosts: ['localhost', 'pta-m4.local'],
       open: false,
       fs: {
         allow: [

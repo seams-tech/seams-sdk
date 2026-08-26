@@ -3,7 +3,7 @@
 This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from the installed `@seams/wallet` package.
 
 - Dev server: `http://localhost:3600`
-- App origin (via Caddy): `http://seams.localhost:9401`
+- App origin (via Caddy): `http://localhost:4001`
 - Docs origin (via Caddy): `https://docs.localhost:9447`
 - Wallet origin (via Caddy): `https://localhost:8443`
 - Router API origin (via Caddy): `https://localhost:9444`
@@ -22,7 +22,7 @@ pnpm -C apps/seams-site dev
 
 Open:
 
-- `http://seams.localhost:9401/wallet` – the Seams wallet page
+- `http://localhost:4001/wallet` – the Seams wallet page
 - `https://localhost:8443/wallet-service` – the iframe service page
 - `https://localhost:9444` – Router API origin
 - `https://docs.localhost:9447` – docs site

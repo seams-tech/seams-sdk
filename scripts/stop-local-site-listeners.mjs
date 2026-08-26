@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const LOCAL_SITE_PORTS = Object.freeze([3600, 3601, 5222, 8443, 9401, 9444, 9447]);
+const LOCAL_SITE_PORTS = Object.freeze([3600, 3601, 4001, 5222, 8443, 9444, 9447]);
 const TERMINATION_TIMEOUT_MS = 2_000;
 const POLL_INTERVAL_MS = 50;
 const SLEEP_STATE = new Int32Array(new SharedArrayBuffer(4));

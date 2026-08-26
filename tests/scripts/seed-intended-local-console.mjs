@@ -70,7 +70,7 @@ function resolveSeedConfig(localEnv) {
     firstNonEmptyString([
       process.env.SEAMS_INTENDED_APP_URL,
       localEnv.SEAMS_INTENDED_APP_URL,
-      'http://seams.localhost:9401',
+      'http://localhost:4001',
     ]),
   );
   const walletOrigin = originFromUrl(
@@ -131,7 +131,7 @@ function resolveSeedConfig(localEnv) {
       appOrigin,
       walletOrigin,
       docsOrigin,
-      'http://seams.localhost:9401',
+      'http://localhost:4001',
       'https://localhost:8443',
     ]),
     keyPrefix: publishableKey.trim().slice(0, 24),

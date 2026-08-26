@@ -898,7 +898,7 @@ function gatewayD1HasCanonicalAuthorizedOperationsSchema() {
 function gatewayD1HasConfiguredPublishableKey() {
   const publishableKey = String(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local').trim();
   const appOrigin = new URL(
-    String(process.env.SEAMS_INTENDED_APP_URL || 'http://seams.localhost:9401').trim(),
+    String(process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001').trim(),
   ).origin;
   const secretHash = `sha256:${createHash('sha256').update(publishableKey).digest('hex')}`;
   for (const path of sqliteFilesIn(d1LocalPersistPath)) {

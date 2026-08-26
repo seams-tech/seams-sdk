@@ -27,7 +27,7 @@ service = "router-ab-signing-worker"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-local"
-CONSOLE_BASE_URL = "http://seams.localhost:9401"
+CONSOLE_BASE_URL = "http://localhost:4001"
 SEAMS_LOCAL_CONSOLE_ORG_ID = "generated-by-local-runtime-config"
 SEAMS_LOCAL_CONSOLE_PROJECT_ID = "local-smoke-project"
 SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID = "local"

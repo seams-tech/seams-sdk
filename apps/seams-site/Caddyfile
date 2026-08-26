@@ -8,7 +8,7 @@
 }
 
 # App (Vite dev server)
-{$SEAMS_APP_CADDY_ADDRESS:http://seams.localhost:9401} {
+{$SEAMS_APP_CADDY_ADDRESS:http://localhost:4001} {
 	encode gzip
 	header Permissions-Policy "publickey-credentials-get=(self \"https://localhost:8443\"), publickey-credentials-create=(self \"https://localhost:8443\"), clipboard-read=(self \"https://localhost:8443\"), clipboard-write=(self \"https://localhost:8443\")"
 	@app_wallet_assets {
@@ -56,7 +56,7 @@ localhost:8443 {
 		path /wallet-service /wallet-service/ /export-viewer /export-viewer/
 	}
 	header @wallet_documents Cache-Control "no-store, max-age=0"
-	header @wallet_documents Content-Security-Policy "frame-ancestors 'self' http://localhost:* http://seams.localhost:9401 https://localhost:*"
+	header @wallet_documents Content-Security-Policy "frame-ancestors 'self' http://localhost:* https://localhost:*"
 
 	@sdk_assets path /sdk/*
 	header @sdk_assets Cache-Control "no-store, max-age=0"
@@ -108,10 +108,10 @@ localhost:8443 {
 localhost:9444 {
 	tls internal
 	encode gzip
-	@router_allowed_origin header_regexp router_origin Origin ^(https://localhost(:8443|:9443)?|http://seams\.localhost:9401)$
+	@router_allowed_origin header_regexp router_origin Origin ^(https://localhost(:8443|:9443)?|http://localhost:4001)$
 	@router_preflight {
 		method OPTIONS
-		header_regexp Origin ^(https://localhost(:8443|:9443)?|http://seams\.localhost:9401)$
+		header_regexp Origin ^(https://localhost(:8443|:9443)?|http://localhost:4001)$
 	}
 	header @router_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
 	header @router_allowed_origin Access-Control-Allow-Credentials true
