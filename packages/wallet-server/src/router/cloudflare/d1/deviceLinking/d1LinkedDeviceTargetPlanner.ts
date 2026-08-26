@@ -228,7 +228,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       deviceId: input.approval.deviceId,
       walletAuthMethodId: walletAuthMethodId.value,
       ed25519ExportRoot,
-      targetFactor: input.approval.targetFactor,
+      targetFactor: { kind: 'email_otp' },
       baseWalletAuthMethodId: input.approval.targetFactor.baseWalletAuthMethodId,
       ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
         ordinarySignerMaterialRecipientRequirements,

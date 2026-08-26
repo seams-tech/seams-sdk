@@ -12,6 +12,7 @@ import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking/contract
 import {
   buildActiveEnvelopeLifecycle,
   buildPasskeyCustodyEnvelopeRecord,
+  custodyEnvelopeBindingJsonV1,
   parseDigestField,
   parseEnvelopeCiphertextB64u,
   parseEnvelopeNonceB64u,
@@ -241,12 +242,13 @@ export function createDeviceLinkingEd25519ExportRootPortV1(
       ) {
         throw new Error('Ed25519 export-root replacement envelope identity is invalid');
       }
-      const replacementEnvelopeBindingJson = JSON.stringify({
+      const replacementEnvelopeBindingJson = custodyEnvelopeBindingJsonV1({
         walletId: replacementEnvelope.walletId,
         envelopeId: replacementEnvelope.envelopeId,
         factor: replacementEnvelope.factor,
-        envelopeRevision: 1,
+        envelopeRevision: parseEnvelopeRevision(1),
         binding: replacementEnvelope.binding,
+        ownership: replacementEnvelope.ownership,
       });
       const replacementFactorSecret = input.replacementFactorSecret.slice();
       try {
