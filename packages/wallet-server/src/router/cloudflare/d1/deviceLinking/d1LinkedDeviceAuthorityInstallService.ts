@@ -850,6 +850,24 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       const detail = 'message' in deleted && deleted.message ? `: ${deleted.message}` : '';
       throw new Error(`active authority cleanup failed: ${deleted.outcome}${detail}`);
     }
+    await this.deleteAuthorityAllocation(session.linkSessionId);
+  }
+
+  private async deleteAuthorityAllocation(linkSessionId: LinkDeviceSessionId): Promise<void> {
+    await this.options.database
+      .prepare(
+        `DELETE FROM linked_device_authority_allocations
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        this.options.scope.namespace,
+        this.options.scope.orgId,
+        this.options.scope.projectId,
+        this.options.scope.envId,
+        String(linkSessionId),
+      )
+      .run();
   }
 
   private async reserveSignerMaterial(
