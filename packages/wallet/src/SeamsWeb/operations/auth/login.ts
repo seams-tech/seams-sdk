@@ -7482,7 +7482,16 @@ export async function getRecentUnlocks(
 
 export async function listLocalPasskeyWalletIds(): Promise<WalletId[]> {
   const walletIds = await IndexedDBManager.listWalletSelectionWalletIds();
-  return [...new Set(walletIds)];
+  const passkeyWalletIds = await Promise.all(
+    [...new Set(walletIds)].map(async (walletId) => {
+      const authMethods = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(walletId);
+      const hasActivePasskey = authMethods.some(
+        (authMethod) => authMethod.kind === 'passkey' && authMethod.status === 'active',
+      );
+      return hasActivePasskey ? walletId : null;
+    }),
+  );
+  return passkeyWalletIds.filter((walletId): walletId is WalletId => walletId !== null);
 }
 
 /** Lock clears authentication and volatile signing material. */
