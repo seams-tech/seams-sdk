@@ -568,7 +568,7 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
   });
 }
 const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
-  'http://seams.localhost:9401',
+  'http://localhost:4001',
   'https://localhost',
   'https://localhost:8443',
   'https://localhost:9444',
@@ -1031,7 +1031,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
       billingProviders,
       billingEmailConsoleBaseUrl:
-        String(env.CONSOLE_BASE_URL || '').trim() || 'http://seams.localhost:9401',
+        String(env.CONSOLE_BASE_URL || '').trim() || 'http://localhost:4001',
       webhookSecretCipher: localConsoleWebhookSecretCipher(env),
     },
   });

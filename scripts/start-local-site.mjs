@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const localEnvPath = path.join(repoRoot, '.env.local');
+const siteLinkColor = '1;38;5;214';
+const localSites = [
+  { label: 'Seams', url: 'http://localhost:4001/wallet' },
+  { label: 'Dashboard', url: 'http://localhost:4001/dashboard' },
+  { label: 'Docs', url: 'https://docs.localhost:9447' },
+];
 
 // The root local env is the sole authority shared by the site and console seed.
 dotenv.config({ path: localEnvPath, override: true });
@@ -77,17 +84,27 @@ function localSiteEnvironment(environment) {
 function forwardSiteOutput(chunk) {
   process.stdout.write(chunk);
   if (localLinksScheduled) return;
-  siteOutput = `${siteOutput}${chunk}`.slice(-4_096);
+  siteOutput = `${siteOutput}${stripVTControlCharacters(chunk)}`.slice(-4_096);
   if (!siteOutput.includes('Local:')) return;
   localLinksScheduled = true;
   setTimeout(printLocalSiteLinks, 1_000);
 }
 
 function printLocalSiteLinks() {
-  console.log('\nLocal sites');
-  console.log('  Seams      http://seams.localhost:9401/wallet');
-  console.log('  Dashboard  http://seams.localhost:9401/dashboard');
-  console.log('  Docs       https://docs.localhost:9447\n');
+  const colorsEnabled = process.env.NO_COLOR === undefined;
+  console.log(`\n${styleTerminalText('Local sites', siteLinkColor, colorsEnabled)}`);
+  for (const site of localSites) printLocalSiteLink(site, colorsEnabled);
+  console.log();
+}
+
+function printLocalSiteLink(site, colorsEnabled) {
+  const label = styleTerminalText(site.label.padEnd(10), siteLinkColor, colorsEnabled);
+  const url = styleTerminalText(site.url, `${siteLinkColor};4`, colorsEnabled);
+  console.log(`  ${label} ${url}`);
+}
+
+function styleTerminalText(text, color, colorsEnabled) {
+  return colorsEnabled ? `\u001b[${color}m${text}\u001b[0m` : text;
 }
 
 function firstNonEmptyString(values) {
