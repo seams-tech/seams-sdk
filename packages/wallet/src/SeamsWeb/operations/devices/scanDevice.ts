@@ -16,7 +16,11 @@ import type {
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type { LinkedDeviceEd25519ExportRootPackageV1 } from '@shared/device-linking/ed25519ExportRoot';
-import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
+import type {
+  LinkedDeviceEnrollmentId,
+  LinkedDeviceId,
+  LinkDeviceSessionId,
+} from '@shared/signing-lanes/ids';
 import {
   parseWalletAuthMethodId,
   type WalletAuthMethodId,
@@ -29,6 +33,7 @@ import {
 } from '@/core/types/sdkSentEvents';
 import type {
   Device1LinkingFlowPortsV1,
+  LinkSessionAuthenticationV1,
   LinkSessionOwnerTransportPortV1,
   DeviceLinkingSourceContributionPortV1,
 } from './deviceLinkingPorts';
@@ -127,6 +132,7 @@ export async function scanAndLinkDevice(
   ports: Device1LinkingFlowPortsV1,
 ): Promise<LinkDeviceResult> {
   let parsedQrData: QrLinkedDeviceSessionPayloadV5 | null = null;
+  let claimedSessionCancellation: ClaimedSessionCancellationV1 | null = null;
   emitScannerEvent(options.onEvent, parsedQrData, {
     phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
     status: 'started',
@@ -152,6 +158,11 @@ export async function scanAndLinkDevice(
     ) {
       throw new Error('linked-device claim does not match the scanned QR payload');
     }
+    claimedSessionCancellation = {
+      linkSessionId: claim.linkSessionId,
+      expectedRevision: claim.sessionRevision,
+      authentication: owner.authentication,
+    };
     const targetFactor = await resolveApprovedTargetFactorV1({
       targetFactor: parsedQrData.targetFactor,
       linkSessionId: claim.linkSessionId,
@@ -180,6 +191,7 @@ export async function scanAndLinkDevice(
       authentication: owner.authentication,
     });
     assertApprovalRecordedV1(recorded);
+    claimedSessionCancellation = null;
     await submitEd25519ExportRootIfRequiredV1({
       transport: ports.transport,
       linkSessionId: claim.linkSessionId,
@@ -220,6 +232,7 @@ export async function scanAndLinkDevice(
     await options.afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
+    await cancelClaimedSessionAfterOwnerAbortV1(ports.transport, claimedSessionCancellation);
     const failure = classifyFailure(error);
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.FAILED,
@@ -236,6 +249,20 @@ export async function scanAndLinkDevice(
     await options.afterCall?.(false, undefined, failure);
     throw failure;
   }
+}
+
+type ClaimedSessionCancellationV1 = {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly expectedRevision: number;
+  readonly authentication: LinkSessionAuthenticationV1;
+};
+
+async function cancelClaimedSessionAfterOwnerAbortV1(
+  transport: LinkSessionOwnerTransportPortV1,
+  cancellation: ClaimedSessionCancellationV1 | null,
+): Promise<void> {
+  if (!cancellation) return;
+  await transport.cancelClaimedSessionV1(cancellation).catch(() => undefined);
 }
 
 type ResolveApprovedTargetFactorInputV1 = {

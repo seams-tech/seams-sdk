@@ -295,6 +295,7 @@ type RouteAction =
         | 'email-otp-resend'
         | 'email-otp-verify'
         | 'email-otp-base-factor'
+        | 'owner-cancel'
         | 'ed25519-export-root'
         | 'ed25519-export-root-recipient'
         | 'receipt'
@@ -337,6 +338,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
         return await handleEmailOtpVerify(ctx, service, action.linkSessionId, nowMs);
       case 'email-otp-base-factor':
         return await handleEmailOtpBaseFactor(ctx, service, action.linkSessionId, nowMs);
+      case 'owner-cancel':
+        return await handleOwnerCancel(ctx, service, action.linkSessionId, nowMs);
       case 'ed25519-export-root-recipient':
         return await handleExportRootRecipient(ctx, service, action.linkSessionId, nowMs);
       case 'ed25519-export-root':
@@ -833,6 +836,38 @@ async function handleEmailOtpBaseFactor(
   return json({ revision: session.revision, resolution }, { status: 200 });
 }
 
+async function handleOwnerCancel(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const linkSessionId = parseSessionId(rawLinkSessionId);
+  const authenticated = await authenticateOwnerForSession(ctx, service, linkSessionId, nowMs);
+  if (authenticated.kind !== 'authorized') return ownerSessionResponse(authenticated);
+  const request = parseBoundary(() => parseOwnerCancelRequest(authenticated.body));
+  const session = authenticated.session;
+  const claimWalletId = session.claimTranscript?.value.walletId;
+  if (!claimWalletId || authenticated.owner.walletId !== claimWalletId) {
+    return json(
+      { ok: false, code: 'unauthorized', message: 'owner session does not match link wallet' },
+      { status: 401 },
+    );
+  }
+  if (session.state.state === 'cancelled') {
+    return sessionProjectionResponse(session, 'replayed');
+  }
+  if (session.state.state !== 'claimed') return invalidStateResponse(session);
+  return sessionResultResponse(
+    await service.sessionService.cancelSessionV1({
+      linkSessionId,
+      expectedRevision: request.expectedRevision,
+      nowMs,
+    }),
+  );
+}
+
 async function handleEmailOtpVerify(
   ctx: FetchRouterApiContext,
   service: DeviceLinkingRouteServiceV1,
@@ -1206,6 +1241,8 @@ function parseRoutePath(pathname: string): RouteAction | null {
     return { kind: 'email-otp-verify', linkSessionId };
   if (parts.length === 2 && parts[1] === 'email-otp-base-factor')
     return { kind: 'email-otp-base-factor', linkSessionId };
+  if (parts.length === 2 && parts[1] === 'owner-cancel')
+    return { kind: 'owner-cancel', linkSessionId };
   if (parts.length === 3 && parts[1] === 'source-contribution' && parts[2] === 'execute')
     return { kind: 'source-contribution-execute', linkSessionId };
   if (parts.length !== 2 || !parts[1]) return null;
@@ -1655,6 +1692,15 @@ function requireExactKeys(record: Record<string, unknown>, keys: readonly string
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index]))
     throw new Error('record contains invalid fields');
+}
+
+function parseOwnerCancelRequest(raw: unknown): { readonly expectedRevision: number } {
+  const record = requireRecord(raw, 'owner cancel request');
+  requireExactKeys(record, ['expectedRevision']);
+  if (!Number.isSafeInteger(record.expectedRevision) || Number(record.expectedRevision) < 0) {
+    throw new Error('owner cancel expectedRevision is invalid');
+  }
+  return { expectedRevision: Number(record.expectedRevision) };
 }
 
 function errorMessage(error: unknown): string {

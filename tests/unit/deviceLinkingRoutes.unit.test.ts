@@ -154,6 +154,44 @@ test('claims and records owner approval through the linear route surface', async
   ]);
 });
 
+test('owner cancellation is idempotent only while a claimed session is pre-approval', async () => {
+  temporary = await openDatabase();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:route-owner-cancel',
+    expiresAtMs: Date.now() + 60_000,
+  });
+  const sessionService = buildSessionService(fixture);
+  const routeService = routeServiceFor(sessionService, fixture, 3_000);
+  await invoke(routeService, {
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/sessions',
+    body: { kind: 'linked_device_session_create_request_v1', payload: fixture.payload },
+  });
+  const claimed = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/claim`,
+    body: fixture.claimRequest,
+  });
+  const claim = await claimed.json();
+  const request = { expectedRevision: claim.sessionRevision };
+  const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/owner-cancel`;
+
+  const cancelled = await invoke(routeService, { method: 'POST', pathname, body: request });
+  expect(await cancelled.json()).toMatchObject({
+    ok: true,
+    outcome: 'applied',
+    session: { state: { state: 'cancelled' } },
+  });
+
+  const replayed = await invoke(routeService, { method: 'POST', pathname, body: request });
+  expect(await replayed.json()).toMatchObject({
+    ok: true,
+    outcome: 'replayed',
+    session: { state: { state: 'cancelled' } },
+  });
+
+});
+
 test('authenticates the owner before parsing a malformed claim body', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({

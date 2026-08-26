@@ -69,6 +69,15 @@ export function createDeviceLinkingOwnerTransportV1(
       });
       return parseOwnerResponseV1(response, parseLinkedDeviceEmailOtpBaseFactorResolutionResultV1);
     },
+    cancelClaimedSessionV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `${sessionPath(input.linkSessionId)}/owner-cancel`,
+        body: { expectedRevision: input.expectedRevision },
+        authentication: input.authentication,
+      });
+      return parseOwnerResponseV1(response, parseSessionProjectionResponseV1);
+    },
     recordOwnerApprovalV1: async (input) => {
       const response = await options.request.requestOwnerV1({
         method: 'POST',
@@ -151,6 +160,13 @@ function parseOwnerFailureMessageV1(response: {
 function parseSourceContributionSessionResponseV1(raw: unknown): LinkSessionSnapshotV1 {
   if (!isRecord(raw) || !('session' in raw)) {
     throw new Error('linked-device source contribution response is invalid');
+  }
+  return parseLinkSessionProjectionV1(raw.session);
+}
+
+function parseSessionProjectionResponseV1(raw: unknown): LinkSessionSnapshotV1 {
+  if (!isRecord(raw) || raw.ok !== true || !('session' in raw)) {
+    throw new Error('linked-device session response is invalid');
   }
   return parseLinkSessionProjectionV1(raw.session);
 }
