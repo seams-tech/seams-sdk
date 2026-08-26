@@ -536,7 +536,8 @@ function createD1LinkedDeviceComposition(input: {
       scope,
       authorityStore,
       authMethodStore: input.walletAuthMethodStore,
-      webAuthnStore: input.webAuthnStore,
+      listWalletEd25519Signers: (walletId) =>
+        input.walletStore.listEd25519SignersForWallet({ walletId }),
       sessionStore: sessionComposition.sessionStore,
       sessionService: sessionComposition.sessionService,
       reservationService: createCloudflareOrdinaryInactiveSignerMaterialReservationServiceV1({
