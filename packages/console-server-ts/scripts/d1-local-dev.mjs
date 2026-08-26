@@ -15,6 +15,7 @@ import {
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+const defaultLocalAppCaddyAddress = 'localhost:9443';
 
 export function resolveD1LocalDevEnvFiles(input = {}) {
   const resolvedRepoRoot = input.repoRoot || repoRoot;
@@ -46,14 +47,48 @@ export function buildD1LocalDevWranglerArgs(input = {}) {
     '--var',
     `SEAMS_LOCAL_CONSOLE_ORG_ID:${localConsoleOrganizationId}`,
   ];
-  const linkedDeviceWebAuthnOrigin = String(env.LINKED_DEVICE_WEBAUTHN_ORIGIN || '').trim();
-  if (linkedDeviceWebAuthnOrigin) {
-    args.push('--var', `LINKED_DEVICE_WEBAUTHN_ORIGIN:${linkedDeviceWebAuthnOrigin}`);
-  }
+  const linkedDeviceWebAuthnOrigin = resolveLocalLinkedDeviceWebAuthnOrigin(env);
+  args.push('--var', `LINKED_DEVICE_WEBAUTHN_ORIGIN:${linkedDeviceWebAuthnOrigin}`);
   for (const envFile of envFiles) {
     args.push('--env-file', envFile);
   }
   return { args, envFiles, localConsoleOrganizationId };
+}
+
+export function resolveLocalLinkedDeviceWebAuthnOrigin(env = process.env) {
+  const explicitOrigin = firstNonEmptyString([
+    env.LINKED_DEVICE_WEBAUTHN_ORIGIN,
+    env.SEAMS_LOCAL_SITE_ORIGIN,
+    env.VITE_SITE_ORIGIN,
+  ]);
+  if (explicitOrigin) return requireUrlOrigin(explicitOrigin, 'linked-device WebAuthn origin');
+
+  const caddyAddress = firstNonEmptyString([
+    env.SEAMS_APP_CADDY_ADDRESS,
+    defaultLocalAppCaddyAddress,
+  ]);
+  return requireUrlOrigin(`https://${caddyAddress}`, 'local app Caddy address');
+}
+
+function firstNonEmptyString(values) {
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function requireUrlOrigin(value, label) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be an absolute URL origin`);
+  }
+  if (parsed.origin !== value || parsed.username || parsed.password) {
+    throw new Error(`${label} must contain only scheme, host, and optional port`);
+  }
+  return parsed.origin;
 }
 
 export function runD1LocalDev(input = {}) {

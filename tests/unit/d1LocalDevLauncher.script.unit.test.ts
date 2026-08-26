@@ -71,6 +71,8 @@ test('D1 local dev launcher omits env-file args when no real secret file exists'
     '9090',
     '--var',
     `SEAMS_LOCAL_CONSOLE_ORG_ID:${command.localConsoleOrganizationId}`,
+    '--var',
+    'LINKED_DEVICE_WEBAUTHN_ORIGIN:https://localhost:9443',
   ]);
 });
 
@@ -117,6 +119,38 @@ test('D1 local dev launcher overrides the linked-device WebAuthn origin', async 
   });
 
   expect(command.args).toContain('--var');
+  expect(command.args).toContain(
+    'LINKED_DEVICE_WEBAUTHN_ORIGIN:https://localhost:9443',
+  );
+});
+
+test('D1 local dev launcher derives the linked-device WebAuthn origin from the app ingress', async () => {
+  const module = await launcherModulePromise;
+  const tree = createTempLocalDevTree();
+
+  const command = module.buildD1LocalDevWranglerArgs({
+    repoRoot: tree.root,
+    packageRoot: tree.consolePackageRoot,
+    env: {
+      SEAMS_APP_CADDY_ADDRESS: 'wallet-app.localhost:9555',
+    },
+  });
+
+  expect(command.args).toContain(
+    'LINKED_DEVICE_WEBAUTHN_ORIGIN:https://wallet-app.localhost:9555',
+  );
+});
+
+test('D1 local dev launcher uses the canonical local app ingress by default', async () => {
+  const module = await launcherModulePromise;
+  const tree = createTempLocalDevTree();
+
+  const command = module.buildD1LocalDevWranglerArgs({
+    repoRoot: tree.root,
+    packageRoot: tree.consolePackageRoot,
+    env: {},
+  });
+
   expect(command.args).toContain(
     'LINKED_DEVICE_WEBAUTHN_ORIGIN:https://localhost:9443',
   );
