@@ -71,6 +71,7 @@ export type DeviceLinkWalletRequestType =
   | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
   | 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION'
+  | 'PM_DEVICE_LINK_EMAIL_OTP_BASE_FACTOR_ACTION'
   | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 export type PreferencesWalletRequestType =
@@ -261,6 +262,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_SCAN_AND_LINK_DEVICE':
     case 'PM_START_DEVICE2_LINKING_FLOW':
     case 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION':
+    case 'PM_DEVICE_LINK_EMAIL_OTP_BASE_FACTOR_ACTION':
     case 'PM_CANCEL_DEVICE_LINKING':
       return { kind: 'device_link', type: request.type, request };
 

@@ -9,6 +9,7 @@ import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceApprovedTargetFactorV1,
+  LinkedDeviceEmailOtpBaseFactorChoiceV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
@@ -21,11 +22,7 @@ import type {
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import {
-  parseWalletAuthMethodId,
-  type WalletAuthMethodId,
-  type WalletId,
-} from '@shared/utils/domainIds';
+import { type WalletAuthMethodId, type WalletId } from '@shared/utils/domainIds';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -169,9 +166,7 @@ export async function scanAndLinkDevice(
       sessionRevision: claim.sessionRevision,
       transport: ports.transport,
       authentication: owner.authentication,
-      selectedBaseWalletAuthMethodId: parseSelectedEmailOtpBaseMethodV1(
-        options.emailOtpBaseWalletAuthMethodId,
-      ),
+      onEmailOtpBaseFactorRequired: options.onEmailOtpBaseFactorRequired,
     });
     const approval = buildLinkedDeviceApprovalV1({
       linkSessionId: claim.linkSessionId,
@@ -273,7 +268,7 @@ type ResolveApprovedTargetFactorInputV1 = {
   readonly authentication: Parameters<
     LinkSessionOwnerTransportPortV1['resolveEmailOtpBaseFactorV1']
   >[0]['authentication'];
-  readonly selectedBaseWalletAuthMethodId: WalletAuthMethodId | null;
+  readonly onEmailOtpBaseFactorRequired: ScanAndLinkDeviceOptionsDevice1['onEmailOtpBaseFactorRequired'];
 };
 
 async function resolveApprovedTargetFactorV1(
@@ -287,12 +282,6 @@ async function resolveApprovedTargetFactorV1(
   });
   switch (result.resolution.kind) {
     case 'selected':
-      if (
-        input.selectedBaseWalletAuthMethodId !== null &&
-        input.selectedBaseWalletAuthMethodId !== result.resolution.choice.baseWalletAuthMethodId
-      ) {
-        throw new Error('The selected Email OTP method is unavailable for this linked device');
-      }
       return {
         kind: 'email_otp',
         baseWalletAuthMethodId: result.resolution.choice.baseWalletAuthMethodId,
@@ -304,26 +293,17 @@ async function resolveApprovedTargetFactorV1(
   }
 }
 
-function parseSelectedEmailOtpBaseMethodV1(raw: string | undefined): WalletAuthMethodId | null {
-  if (raw === undefined) return null;
-  const parsed = parseWalletAuthMethodId(raw);
-  if (!parsed.ok) throw new Error(`Selected Email OTP method: ${parsed.error.message}`);
-  return parsed.value;
-}
-
 async function selectRequiredEmailOtpBaseFactorV1(
   input: ResolveApprovedTargetFactorInputV1,
-  choices: Extract<
-    Awaited<
-      ReturnType<LinkSessionOwnerTransportPortV1['resolveEmailOtpBaseFactorV1']>
-    >['resolution'],
-    { readonly kind: 'selection_required' }
-  >['choices'],
+  choices: readonly [
+    LinkedDeviceEmailOtpBaseFactorChoiceV1,
+    ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+  ],
 ): Promise<LinkedDeviceApprovedTargetFactorV1> {
-  const selected = input.selectedBaseWalletAuthMethodId;
-  if (selected === null) {
+  if (!input.onEmailOtpBaseFactorRequired) {
     throw new Error('Choose the Email OTP method to use for the linked device');
   }
+  const selected = await input.onEmailOtpBaseFactorRequired(choices);
   if (!emailOtpBaseFactorChoicesIncludeV1(choices, selected)) {
     throw new Error('The selected Email OTP method is unavailable for this linked device');
   }
@@ -346,12 +326,10 @@ async function selectRequiredEmailOtpBaseFactorV1(
 }
 
 function emailOtpBaseFactorChoicesIncludeV1(
-  choices: Extract<
-    Awaited<
-      ReturnType<LinkSessionOwnerTransportPortV1['resolveEmailOtpBaseFactorV1']>
-    >['resolution'],
-    { readonly kind: 'selection_required' }
-  >['choices'],
+  choices: readonly [
+    LinkedDeviceEmailOtpBaseFactorChoiceV1,
+    ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+  ],
   selected: WalletAuthMethodId,
 ): boolean {
   for (const choice of choices) {

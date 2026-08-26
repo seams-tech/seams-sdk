@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
-import {
-  classifyLinkDeviceFlowEvent,
-  type LinkDeviceFlowEvent,
-} from '@/core/types/sdkSentEvents';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type {
+  LinkedDeviceEmailOtpBaseFactorChoiceV1,
+  QrLinkedDeviceSessionPayloadV5,
+} from '@shared/device-linking';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import { classifyLinkDeviceFlowEvent, type LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import { useQRCamera, QRScanMode } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { Theme, useTheme } from './theme';
@@ -22,6 +23,25 @@ export interface QRCodeScannerProps {
   style?: React.CSSProperties;
   showCamera?: boolean;
 }
+
+type EmailOtpBaseFactorSelectionState =
+  | {
+      readonly kind: 'required';
+      readonly choices: readonly [
+        LinkedDeviceEmailOtpBaseFactorChoiceV1,
+        ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+      ];
+      readonly selectedBaseWalletAuthMethodId: WalletAuthMethodId | null;
+    }
+  | {
+      readonly kind: 'submitting';
+      readonly choice: LinkedDeviceEmailOtpBaseFactorChoiceV1;
+    };
+
+type PendingEmailOtpBaseFactorSelection = {
+  readonly resolve: (baseWalletAuthMethodId: WalletAuthMethodId) => void;
+  readonly reject: (reason?: unknown) => void;
+};
 
 export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   onQRCodeScanned,
@@ -42,6 +62,58 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
 
   const scannedPayloadRef = React.useRef<QrLinkedDeviceSessionPayloadV5 | null>(null);
   const completionReportedRef = React.useRef(false);
+  const pendingEmailOtpSelectionRef = useRef<PendingEmailOtpBaseFactorSelection | null>(null);
+  const [emailOtpSelection, setEmailOtpSelection] =
+    useState<EmailOtpBaseFactorSelectionState | null>(null);
+
+  const rejectPendingEmailOtpSelection = useCallback((reason: Error) => {
+    const pending = pendingEmailOtpSelectionRef.current;
+    pendingEmailOtpSelectionRef.current = null;
+    setEmailOtpSelection(null);
+    pending?.reject(reason);
+  }, []);
+
+  const requestEmailOtpBaseFactor = useCallback(
+    (
+      choices: readonly [
+        LinkedDeviceEmailOtpBaseFactorChoiceV1,
+        ...LinkedDeviceEmailOtpBaseFactorChoiceV1[],
+      ],
+    ): Promise<WalletAuthMethodId> => {
+      rejectPendingEmailOtpSelection(new Error('A newer Email OTP method selection is required'));
+      setEmailOtpSelection({
+        kind: 'required',
+        choices,
+        selectedBaseWalletAuthMethodId: null,
+      });
+      return new Promise<WalletAuthMethodId>((resolve, reject) => {
+        pendingEmailOtpSelectionRef.current = { resolve, reject };
+      });
+    },
+    [rejectPendingEmailOtpSelection],
+  );
+
+  const selectEmailOtpBaseFactor = useCallback(() => {
+    if (emailOtpSelection?.kind !== 'required') return;
+    const selected = emailOtpSelection.selectedBaseWalletAuthMethodId;
+    if (selected === null) return;
+    const choice = emailOtpSelection.choices.find(
+      (candidate) => candidate.baseWalletAuthMethodId === selected,
+    );
+    const pending = pendingEmailOtpSelectionRef.current;
+    if (!choice || !pending) return;
+    pendingEmailOtpSelectionRef.current = null;
+    setEmailOtpSelection({ kind: 'submitting', choice });
+    pending.resolve(choice.baseWalletAuthMethodId);
+  }, [emailOtpSelection]);
+
+  const handleEmailOtpChoiceChange = useCallback((baseWalletAuthMethodId: WalletAuthMethodId) => {
+    setEmailOtpSelection((current) =>
+      current?.kind === 'required'
+        ? { ...current, selectedBaseWalletAuthMethodId: baseWalletAuthMethodId }
+        : current,
+    );
+  }, []);
 
   const handleLinkDeviceEvent = React.useCallback(
     (event: LinkDeviceFlowEvent) => {
@@ -52,22 +124,27 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       if (!scannedPayload) return;
       completionReportedRef.current = true;
       onQRCodeScanned?.(scannedPayload);
+      onClose?.();
     },
-    [onEvent, onQRCodeScanned],
+    [onClose, onEvent, onQRCodeScanned],
   );
+
+  const handleFlowClose = useCallback(() => {
+    rejectPendingEmailOtpSelection(new Error('Device linking was cancelled'));
+    onClose?.();
+  }, [onClose, rejectPendingEmailOtpSelection]);
 
   const { linkDevice } = useDeviceLinking({
     onError,
-    onClose,
+    onClose: handleFlowClose,
     onEvent: handleLinkDeviceEvent,
+    onEmailOtpBaseFactorRequired: requestEmailOtpBaseFactor,
   });
 
   const qrCamera = useQRCamera({
     onQRDetected: async (qrData: QrLinkedDeviceSessionPayloadV5) => {
       scannedPayloadRef.current = qrData;
-      const linkOperation = linkDevice(qrData, QRScanMode.CAMERA);
-      onClose?.();
-      await linkOperation;
+      await linkDevice(qrData, QRScanMode.CAMERA);
     },
     onError,
     isOpen: showCamera ? isOpen : false, // Only active when camera should be shown
@@ -82,14 +159,15 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       setIsVideoReady(false);
       scannedPayloadRef.current = null;
       completionReportedRef.current = false;
+      rejectPendingEmailOtpSelection(new Error('Device linking was cancelled'));
     }
-  }, [isOpen]);
+  }, [isOpen, rejectPendingEmailOtpSelection]);
 
   // Camera Cleanup Point 1: User-initiated close
   const handleClose = useCallback(() => {
     qrCamera.stopScanning();
-    onClose?.();
-  }, [qrCamera.stopScanning, qrCamera.isScanning, qrCamera.videoRef, onClose]);
+    handleFlowClose();
+  }, [handleFlowClose, qrCamera.stopScanning]);
 
   const stopPropagationNative = useCallback((event: React.SyntheticEvent<HTMLElement>) => {
     const nativeEvent = event.nativeEvent as Event & { stopImmediatePropagation?: () => void };
@@ -168,6 +246,71 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
               Close
             </button>
           </div>
+        </div>
+      </Theme>
+    );
+  }
+
+  if (emailOtpSelection) {
+    return (
+      <Theme theme={theme} tokens={scopedTokens}>
+        <div
+          className={`qr-scanner-modal ${className || ''}`}
+          style={style}
+          onClick={handleBackdropClick}
+          onPointerDown={stopEventPropagation}
+          onMouseDown={stopEventPropagation}
+        >
+          <section
+            className="qr-scanner-panel qr-scanner-email-selection"
+            aria-labelledby="qr-scanner-email-selection-title"
+            onClick={stopEventPropagation}
+            onPointerDown={stopEventPropagation}
+            onMouseDown={stopEventPropagation}
+          >
+            <h2 id="qr-scanner-email-selection-title">Choose an Email OTP method</h2>
+            <p>Select the masked address to authorize this linked device.</p>
+            {emailOtpSelection.kind === 'required' ? (
+              <fieldset className="qr-scanner-email-choice-list">
+                <legend className="qr-scanner-email-choice-legend">Available methods</legend>
+                {emailOtpSelection.choices.map((choice) => {
+                  const choiceId = `qr-email-method-${String(choice.baseWalletAuthMethodId)}`;
+                  return (
+                    <label key={choiceId} className="qr-scanner-email-choice" htmlFor={choiceId}>
+                      <input
+                        id={choiceId}
+                        type="radio"
+                        name="qr-email-base-method"
+                        value={String(choice.baseWalletAuthMethodId)}
+                        checked={
+                          emailOtpSelection.selectedBaseWalletAuthMethodId ===
+                          choice.baseWalletAuthMethodId
+                        }
+                        onChange={() => handleEmailOtpChoiceChange(choice.baseWalletAuthMethodId)}
+                      />
+                      <span>{choice.maskedEmailHint}</span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+            ) : (
+              <p role="status">Authorizing {emailOtpSelection.choice.maskedEmailHint}…</p>
+            )}
+            {emailOtpSelection.kind === 'required' && (
+              <button
+                type="button"
+                className="qr-scanner-email-continue"
+                disabled={emailOtpSelection.selectedBaseWalletAuthMethodId === null}
+                onClick={selectEmailOtpBaseFactor}
+              >
+                Continue
+              </button>
+            )}
+          </section>
+          <button type="button" onClick={handleClose} className="qr-scanner-close">
+            <span aria-hidden="true">✕</span>
+            <span className="qr-scanner-visually-hidden">Close</span>
+          </button>
         </div>
       </Theme>
     );

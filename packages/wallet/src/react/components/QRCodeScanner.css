@@ -32,6 +32,107 @@
   border-radius: 2rem;
 }
 
+.qr-scanner-email-selection {
+  width: min(100%, 420px);
+  box-sizing: border-box;
+  padding: 28px;
+  color: var(--w3a-colors-textPrimary);
+  background: var(--w3a-colors-surface);
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  box-shadow: 0 16px 48px oklch(0 0 0 / 0.24);
+}
+
+.qr-scanner-email-selection h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.qr-scanner-email-selection > p {
+  margin: 10px 0 0;
+  color: var(--w3a-colors-textSecondary);
+  line-height: 1.5;
+}
+
+.qr-scanner-email-choice-list {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.qr-scanner-email-choice-legend {
+  margin-bottom: 8px;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 13px;
+}
+
+.qr-scanner-email-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 12px;
+  color: var(--w3a-colors-textPrimary);
+  background: var(--w3a-colors-surface2);
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.qr-scanner-email-choice:has(input:checked) {
+  border-color: var(--w3a-colors-primary);
+}
+
+.qr-scanner-email-choice input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--w3a-colors-primary);
+}
+
+.qr-scanner-email-choice:focus-within {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 2px;
+}
+
+.qr-scanner-email-continue {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 22px;
+  padding: 10px 16px;
+  color: var(--w3a-colors-textButton);
+  background: var(--w3a-colors-primary);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.qr-scanner-email-continue:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.qr-scanner-email-continue:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 3px;
+}
+
+.qr-scanner-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .qr-scanner-modal {
     animation: none;

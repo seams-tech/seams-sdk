@@ -11,6 +11,7 @@
 
 import {
   isDeviceLinkTargetFactorActivationProgressV1,
+  isDeviceLinkEmailOtpBaseFactorSelectionProgressV1,
   type ProgressPayload as MessageProgressPayload,
 } from '../../shared/messages';
 import { isWalletFlowEvent } from '@/core/types/sdkSentEvents';
@@ -125,7 +126,9 @@ export class OnEventsProgressBus {
           }
         : isDeviceLinkTargetFactorActivationProgressV1(payload)
           ? { requestId, event: payload.event, activationKind: payload.activation.kind }
-          : { requestId, span: payload.span },
+          : isDeviceLinkEmailOtpBaseFactorSelectionProgressV1(payload)
+            ? { requestId, event: payload.event, choiceCount: payload.choices.length }
+            : { requestId, span: payload.span },
     );
     return false;
   }
