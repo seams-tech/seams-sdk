@@ -748,7 +748,7 @@ export type GoogleEmailOtpWalletAuthStartInput = {
    * Register-mode only: start a fresh wallet even when this Google account
    * already holds an Email OTP wallet. Completing the new registration retires
    * the previous wallet's email factor, so this is always an explicit choice —
-   * without it, register mode fails when the account already has a wallet.
+   * without it, register mode continues by unlocking the existing wallet.
    */
   replaceExistingWallet?: boolean;
   relayUrl?: string;
