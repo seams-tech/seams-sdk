@@ -348,7 +348,7 @@ function siteEnv() {
 function caddyEnv() {
   return {
     ...process.env,
-    SEAMS_APP_CADDY_ADDRESS: new URL(appUrl).host,
+    SEAMS_APP_CADDY_ADDRESS: new URL(appUrl).origin,
     SEAMS_DOCS_CADDY_ADDRESS: new URL(docsOrigin).host,
   };
 }

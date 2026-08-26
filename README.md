@@ -29,13 +29,15 @@ pnpm router
 ```
 
 - Run the commands above in separate terminals.
-- `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- `pnpm run site` is the canonical local UI entrypoint. It stops an existing
+  Caddy listener on the Seams development ports, then starts Caddy + site + docs
+  in the foreground. Ctrl+C releases the ports for another local project.
 - If SDK wallet assets or Router A/B Worker artifacts are missing or stale,
   refresh them explicitly with `pnpm build:sdk`. After browser WASM changes,
   run `pnpm build:sdk-full`.
 - `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:9090` is not already ready.
-- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Gateway base `https://localhost:9444`.
-- Docs default origin: `https://docs.localhost`.
+- Primary local endpoints: app `http://seams.localhost:9401`, wallet `https://localhost:8443`, Gateway base `https://localhost:9444`.
+- Docs default origin: `https://docs.localhost:9447`.
 - Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:9090`, and MPCRouter on `http://127.0.0.1:9100`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
@@ -85,7 +87,7 @@ the existing domain type.
 - Public HTTPS route probe: `pnpm router:public-route-smoke`
 
 These commands launch Router A/B protocol harnesses. Browser account creation at
-`https://localhost` still needs the local site; `pnpm router` and
+`http://seams.localhost:9401` still needs the local site; `pnpm router` and
 `pnpm router:multiplex` start Gateway at `127.0.0.1:9090` when it is
 not already running. Run `pnpm build:sdk` after SDK or Router A/B Rust changes.
 Run `pnpm build:sdk-full` after browser WASM changes. `pnpm router` validates

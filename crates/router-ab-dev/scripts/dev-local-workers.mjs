@@ -897,6 +897,9 @@ function gatewayD1HasCanonicalAuthorizedOperationsSchema() {
 
 function gatewayD1HasConfiguredPublishableKey() {
   const publishableKey = String(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local').trim();
+  const appOrigin = new URL(
+    String(process.env.SEAMS_INTENDED_APP_URL || 'http://seams.localhost:9401').trim(),
+  ).origin;
   const secretHash = `sha256:${createHash('sha256').update(publishableKey).digest('hex')}`;
   for (const path of sqliteFilesIn(d1LocalPersistPath)) {
     const database = new DatabaseSync(path, { readOnly: true });
@@ -913,9 +916,14 @@ function gatewayD1HasConfiguredPublishableKey() {
              FROM api_keys
             WHERE kind = 'publishable_key'
               AND status = 'ACTIVE'
-              AND secret_hash = ?`,
+              AND secret_hash = ?
+              AND EXISTS (
+                SELECT 1
+                  FROM json_each(allowed_origins_json)
+                 WHERE value = ?
+              )`,
         )
-        .get(secretHash);
+        .get(secretHash, appOrigin);
       if (Number(row?.present) === 1) return true;
     } finally {
       database.close();

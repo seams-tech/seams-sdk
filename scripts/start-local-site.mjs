@@ -16,9 +16,14 @@ const child = spawn(
   {
     cwd: repoRoot,
     env: localSiteEnvironment(process.env),
-    stdio: 'inherit',
+    stdio: ['inherit', 'pipe', 'inherit'],
   },
 );
+
+let siteOutput = '';
+let localLinksScheduled = false;
+child.stdout.setEncoding('utf8');
+child.stdout.on('data', forwardSiteOutput);
 
 forwardSignal('SIGINT', child);
 forwardSignal('SIGTERM', child);
@@ -38,10 +43,7 @@ function localSiteEnvironment(environment) {
   ]);
   return {
     ...environment,
-    VITE_RELAYER_URL: firstNonEmptyString([
-      environment.VITE_RELAYER_URL,
-      'https://localhost:9444',
-    ]),
+    VITE_RELAYER_URL: firstNonEmptyString([environment.VITE_RELAYER_URL, 'https://localhost:9444']),
     VITE_SEAMS_BROKER_URL: firstNonEmptyString([
       environment.VITE_SEAMS_BROKER_URL,
       'https://localhost:9444',
@@ -56,7 +58,7 @@ function localSiteEnvironment(environment) {
     ]),
     VITE_DOCS_ORIGIN: firstNonEmptyString([
       environment.VITE_DOCS_ORIGIN,
-      'https://docs.localhost',
+      'https://docs.localhost:9447',
     ]),
     VITE_RP_ID_BASE: firstNonEmptyString([environment.VITE_RP_ID_BASE, 'localhost']),
     VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: firstNonEmptyString([
@@ -70,6 +72,22 @@ function localSiteEnvironment(environment) {
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: publishableKey,
   };
+}
+
+function forwardSiteOutput(chunk) {
+  process.stdout.write(chunk);
+  if (localLinksScheduled) return;
+  siteOutput = `${siteOutput}${chunk}`.slice(-4_096);
+  if (!siteOutput.includes('Local:')) return;
+  localLinksScheduled = true;
+  setTimeout(printLocalSiteLinks, 1_000);
+}
+
+function printLocalSiteLinks() {
+  console.log('\nLocal sites');
+  console.log('  Seams      http://seams.localhost:9401/wallet');
+  console.log('  Dashboard  http://seams.localhost:9401/dashboard');
+  console.log('  Docs       https://docs.localhost:9447\n');
 }
 
 function firstNonEmptyString(values) {

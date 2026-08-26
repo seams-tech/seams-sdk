@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const LOCAL_SITE_PORTS = Object.freeze([3600, 3601, 5222, 8443, 9443, 9444, 9447]);
+const LOCAL_SITE_PORTS = Object.freeze([3600, 3601, 5222, 8443, 9401, 9444, 9447]);
 const TERMINATION_TIMEOUT_MS = 2_000;
 const POLL_INTERVAL_MS = 50;
 const SLEEP_STATE = new Int32Array(new SharedArrayBuffer(4));
@@ -25,6 +25,7 @@ function collectListeners() {
         continue;
       }
       listenersByPid.set(pid, {
+        command: processCommand(pid),
         pid,
         ports: [port],
         workingDirectory: processWorkingDirectory(pid),
@@ -32,6 +33,12 @@ function collectListeners() {
     }
   }
   return [...listenersByPid.values()];
+}
+
+function processCommand(pid) {
+  const result = run('ps', ['-p', String(pid), '-o', 'comm=']);
+  requireSuccessfulCommand(result, `inspect process ${pid}`);
+  return result.stdout.trim();
 }
 
 function listeningPidsForPort(port) {
@@ -59,10 +66,11 @@ function processWorkingDirectory(pid) {
 function assertRepositoryOwnership(listeners) {
   for (const listener of listeners) {
     if (isInsideRepository(listener.workingDirectory)) continue;
+    if (path.basename(listener.command) === 'caddy') continue;
     const ports = listener.ports.join(', ');
     const owner = listener.workingDirectory || 'unknown working directory';
     throw new Error(
-      `[local-site] ports ${ports} are used by process ${listener.pid} outside this repository (${owner})`,
+      `[local-site] ports ${ports} are used by non-Caddy process ${listener.pid} outside this repository (${owner})`,
     );
   }
 }
@@ -88,7 +96,7 @@ function stopListeners(listeners) {
   }
   for (const listener of listeners) {
     console.log(
-      `[local-site] stopped stale repository process ${listener.pid} on ports ${listener.ports.join(', ')}`,
+      `[local-site] stopped process ${listener.pid} on ports ${listener.ports.join(', ')}`,
     );
   }
 }
@@ -97,7 +105,8 @@ function signalProcess(pid, signal) {
   try {
     process.kill(pid, signal);
   } catch (error) {
-    if (error?.code !== 'ESRCH') throw error;
+    if (error?.code === 'ESRCH') return;
+    throw error;
   }
 }
 

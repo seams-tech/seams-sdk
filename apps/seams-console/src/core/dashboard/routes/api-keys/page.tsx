@@ -357,7 +357,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
     [],
   );
   const defaultPublishableOrigins = React.useMemo(
-    () => parseEditableList(['https://localhost', walletOriginHint]),
+    () => parseEditableList(['http://seams.localhost:9401', walletOriginHint]),
     [walletOriginHint],
   );
   const [apiKeys, setApiKeys] = React.useState<DashboardConsoleApiKey[]>([]);
