@@ -63,7 +63,22 @@ function createService(
   database: Parameters<typeof applyD1MigrationFiles>[0],
   namespace: string,
 ): AuthorizationService {
-  const store = new CloudflareD1AuthorizationStore({
+  const store = createAuthorizationStore(database, namespace);
+  return new AuthorizationService({
+    policy: capabilityPolicyPort,
+    sessions: store,
+    evidence: store,
+    grants: store,
+    authorizedOperations: store,
+    audit: store,
+  });
+}
+
+function createAuthorizationStore(
+  database: Parameters<typeof applyD1MigrationFiles>[0],
+  namespace: string,
+): CloudflareD1AuthorizationStore {
+  return new CloudflareD1AuthorizationStore({
     database,
     namespace,
     walletSignerScope: {
@@ -72,14 +87,6 @@ function createService(
       projectId: 'test-project',
       envId: 'test-env',
     },
-  });
-  return new AuthorizationService({
-    policy: capabilityPolicyPort,
-    sessions: store,
-    evidence: store,
-    grants: store,
-    authorizedOperations: store,
-    audit: store,
   });
 }
 
@@ -405,6 +412,59 @@ test('promotes a registration session into the exact V2 authority projection', a
         nowMs: 301,
       }),
     ).resolves.toEqual(promoted);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('keeps exact V2 session identity readable for device inventory after quota exhaustion', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'device-inventory-exhausted-session';
+    const fixture = await seedActiveAuthority(temporary.database, namespace, 'device-inventory');
+    const service = createService(temporary.database, namespace);
+    const issued = await service.issueWalletSessionAuthorizationV2({
+      tenantId: requiredParsed(parseTenantId('tenant:device-inventory')),
+      principalId: requiredParsed(parsePrincipalId('principal:device-inventory')),
+      walletId: fixture.authority.walletId,
+      authority: fixture.authority,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:device-inventory'),
+      remainingUses: 1,
+      issuedAtMs: 300,
+      expiresAtMs: 400,
+    });
+    await temporary.database
+      .prepare(
+        `UPDATE authorization_wallet_session_quotas
+            SET lifecycle_kind = 'exhausted', remaining_uses = 0
+          WHERE namespace = ? AND tenant_id = ? AND quota_id = ?`,
+      )
+      .bind(namespace, issued.session.tenantId, issued.session.quotaId)
+      .run();
+
+    await expect(
+      service.readWalletSessionAuthorizationV2ByIdentity({
+        tenantId: issued.session.tenantId,
+        walletId: issued.session.walletId,
+        walletSessionId: issued.session.walletSessionId,
+        authorizationId: issued.session.authorizationId,
+        nowMs: 301,
+      }),
+    ).rejects.toThrow('Stored V2 Wallet Session quota is no longer active');
+    await expect(
+      createAuthorizationStore(
+        temporary.database,
+        namespace,
+      ).readActiveWalletSessionAuthorizationV2ByIdentity({
+        tenantId: issued.session.tenantId,
+        walletId: issued.session.walletId,
+        walletSessionId: issued.session.walletSessionId,
+        authorizationId: issued.session.authorizationId,
+        nowMs: 301,
+      }),
+    ).resolves.toEqual(issued.session);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
