@@ -88,7 +88,9 @@ function walletKeyIdForActiveManifestV1(manifest: ActiveEcdsaCapabilityManifest)
     signingRootId: manifest.signer.signingRootId,
     signingRootVersion: manifest.signer.signingRootVersion,
   });
-  const parsed = parseWalletKeyId(signingKeySlotId);
+  const parsed = parseWalletKeyId(
+    `wallet-key:ecdsa:${manifest.signer.walletId}:${signingKeySlotId}`,
+  );
   if (!parsed.ok) throw new Error(`ECDSA source wallet key identity: ${parsed.error.message}`);
   return parsed.value;
 }
