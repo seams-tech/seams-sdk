@@ -5,10 +5,6 @@ import type {
 import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthorityId, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { AuthorizationService } from '../../../../authorization/service';
-import type {
-  OpaqueWalletSessionCurve,
-  ResolvedOpaqueWalletSessionToken,
-} from '../../../../authorization/service';
 import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import { LinkedDeviceManagementServiceV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { LinkedDeviceManagementAuthorityPageV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
@@ -26,16 +22,16 @@ export function createD1LinkedDeviceManagementServiceV1(input: {
   readonly authorityStore: D1WalletAuthorityStore;
   readonly authMethodStore: D1WalletAuthMethodStore;
   readonly authorizationService: AuthorizationService;
-  readonly ordinaryWalletSessions: Pick<
+  readonly walletSessionAuthorizations: Pick<
     CloudflareD1AuthorizationStore,
-    'readOpaqueWalletSessionTokenByIdentity'
+    'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly materialDeactivation?: OrdinaryInactiveSignerMaterialDeactivationPortV1;
 }): LinkedDeviceManagementServiceV1 {
   return new LinkedDeviceManagementServiceV1({
     tenantId: input.tenantId,
-    authenticator: ownerSessionPortV1(input.ordinaryWalletSessions),
+    authenticator: ownerSessionPortV1(input.walletSessionAuthorizations),
     authority: authorityPortV1(input.authorityStore),
     authMethod: authMethodPortV1(input.authMethodStore),
     sessions: input.authorizationService,
@@ -55,51 +51,21 @@ export function createD1LinkedDeviceManagementServiceV1(input: {
 }
 
 function ownerSessionPortV1(
-  store: Pick<CloudflareD1AuthorizationStore, 'readOpaqueWalletSessionTokenByIdentity'>,
+  store: Pick<CloudflareD1AuthorizationStore, 'readActiveWalletSessionAuthorizationV2ByIdentity'>,
 ): ConstructorParameters<typeof LinkedDeviceManagementServiceV1>[0]['authenticator'] {
   return {
     readActiveOwnerWalletSessionV1: async (identity) => {
-      for (const curve of ['ed25519', 'ecdsa'] as const) {
-        const resolved = await store.readOpaqueWalletSessionTokenByIdentity({
-          tenantId: identity.tenantId,
-          walletSessionId: identity.walletSessionId,
-          curve,
-          nowMs: identity.nowMs,
-        });
-        const session = normalizeOwnerSessionV1(resolved, identity, curve);
-        if (session) return session;
-      }
-      return null;
+      const session = await store.readActiveWalletSessionAuthorizationV2ByIdentity(identity);
+      if (!session) return null;
+      return {
+        walletId: session.walletId,
+        walletSessionId: session.walletSessionId,
+        authorizationId: session.authorizationId,
+        walletAuthMethodId: session.walletAuthMethodId,
+        authorityDigestB64u: session.authorityDigestB64u,
+        expiresAtMs: session.expiresAtMs,
+      };
     },
-  };
-}
-
-function normalizeOwnerSessionV1(
-  resolved: ResolvedOpaqueWalletSessionToken | null,
-  identity: {
-    readonly walletId: import('@shared/utils/domainIds').WalletId;
-    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
-    readonly authorizationId: import('@shared/authorization/capabilityKinds').WalletSessionAuthorizationId;
-  },
-  curve: OpaqueWalletSessionCurve,
-) {
-  if (
-    !resolved ||
-    resolved.curve !== curve ||
-    resolved.authorization.walletId !== identity.walletId ||
-    resolved.authorization.walletSessionId !== identity.walletSessionId ||
-    resolved.authorization.authorizationId !== identity.authorizationId ||
-    resolved.authorization.walletAuthMethodId === null
-  ) {
-    return null;
-  }
-  return {
-    walletId: resolved.authorization.walletId,
-    walletSessionId: resolved.authorization.walletSessionId,
-    authorizationId: resolved.authorization.authorizationId,
-    walletAuthMethodId: resolved.authorization.walletAuthMethodId,
-    authorityDigestB64u: resolved.authorization.authorityDigest,
-    expiresAtMs: resolved.authorization.expiresAtMs,
   };
 }
 

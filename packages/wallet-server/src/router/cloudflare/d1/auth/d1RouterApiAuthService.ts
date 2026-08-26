@@ -348,7 +348,9 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationService: AuthorizationService;
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
-    'prepareWalletSessionAuthorizationV2Statements' | 'readOpaqueWalletSessionTokenByIdentity'
+    | 'prepareWalletSessionAuthorizationV2Statements'
+    | 'readOpaqueWalletSessionTokenByIdentity'
+    | 'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;
   readonly walletRegistration: Pick<
     RouterApiServiceBag['walletRegistration'],
@@ -414,7 +416,7 @@ function createD1LinkedDeviceComposition(input: {
     authorityStore,
     authMethodStore: input.walletAuthMethodStore,
     authorizationService: input.authorizationService,
-    ordinaryWalletSessions: input.authorizationStore,
+    walletSessionAuthorizations: input.authorizationStore,
     webAuthnStore: input.webAuthnStore,
     materialDeactivation: createCloudflareOrdinaryInactiveSignerMaterialDeactivationPortV1({
       endpoint: deactivationEndpoint,

@@ -1399,6 +1399,53 @@ export class CloudflareD1AuthorizationStore
     );
   }
 
+  async readActiveWalletSessionAuthorizationV2ByIdentity(input: {
+    readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
+    readonly walletId: WalletSessionAuthorizationV2['walletId'];
+    readonly walletSessionId: WalletSessionAuthorizationV2['walletSessionId'];
+    readonly authorizationId: WalletSessionAuthorizationV2['authorizationId'];
+    readonly nowMs: number;
+  }): Promise<WalletSessionAuthorizationV2 | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT record_json, retired_at_ms
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND wallet_session_id = ?
+            AND authorization_id = ?
+          LIMIT 1`,
+      )
+      .bind(
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.walletId,
+        input.walletSessionId,
+        input.authorizationId,
+      )
+      .first<D1Row>();
+    if (!row) return null;
+    if (row.retired_at_ms !== null && row.retired_at_ms !== undefined) return null;
+    const session = parseWalletSessionAuthorizationV2(parseD1JsonColumn(row.record_json));
+    if (
+      session.tenantId !== input.tenantId ||
+      session.walletId !== input.walletId ||
+      session.walletSessionId !== input.walletSessionId ||
+      session.authorizationId !== input.authorizationId
+    ) {
+      throw new Error('Stored V2 Wallet Session identity does not match the request');
+    }
+    const nowMs = requirePositiveInteger(input.nowMs, 'V2 authorization read time');
+    return session.expiresAtMs > nowMs ? session : null;
+  }
+
   async readWalletSessionAuthorizationV2ByOperationCredential(input: {
     readonly tenantId: WalletSessionAuthorizationV2['tenantId'];
     readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
