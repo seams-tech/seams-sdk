@@ -14,6 +14,7 @@ import type {
   LinkedDeviceEd25519ExportRootPreparationV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDevicePasskeyCreationOptionsV1,
+  LinkedDevicePasskeyTargetConfigurationFieldsV1,
   LinkedDeviceTargetFactorV1,
   LinkedDeviceApprovedTargetFactorV1,
   OrdinarySignerMaterialRecipientRequirementV1,
@@ -27,6 +28,7 @@ export {
 const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
+const TARGET_PASSKEY_CONFIGURATION_DOMAIN = 'seams/linked-device/passkey-target-configuration/v1';
 const TEXT_ENCODER = new TextEncoder();
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
@@ -191,6 +193,25 @@ function encodeLinkedDevicePasskeyCreationOptionsV1(
   ]);
 }
 
+export function encodeLinkedDevicePasskeyTargetConfigurationV1(
+  value: LinkedDevicePasskeyTargetConfigurationFieldsV1,
+): Uint8Array {
+  return concat([
+    text(TARGET_PASSKEY_CONFIGURATION_DOMAIN, 'domain'),
+    text('linked_device_passkey_target_configuration_v1', 'kind'),
+    text(value.rpId, 'rpId'),
+    text(value.expectedOrigin, 'expectedOrigin'),
+  ]);
+}
+
+export async function computeLinkedDevicePasskeyTargetConfigurationDigestV1(
+  value: LinkedDevicePasskeyTargetConfigurationFieldsV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256Bytes(encodeLinkedDevicePasskeyTargetConfigurationV1(value))),
+  );
+}
+
 function encodeRecipientRequirement(
   value: OrdinarySignerMaterialRecipientRequirementV1,
 ): Uint8Array {
@@ -276,8 +297,8 @@ export function encodeLinkedDeviceTargetPreparationV1(
   const requirements = value.ordinarySignerMaterialRecipientRequirements.map(
     encodeRecipientRequirement,
   );
-  const passkeyCreationOptions =
-    value.targetFactor.kind === 'passkey_prf' ? value.passkeyCreationOptions : undefined;
+  const passkeyPreparation = isPasskeyTargetPreparationV1(value) ? value : undefined;
+  const passkeyCreationOptions = passkeyPreparation?.passkeyCreationOptions;
   if (value.targetFactor.kind === 'passkey_prf' && !passkeyCreationOptions) {
     throw new Error('passkey target preparation is missing creation options');
   }
@@ -296,6 +317,10 @@ export function encodeLinkedDeviceTargetPreparationV1(
           lp32(
             encodeLinkedDevicePasskeyCreationOptionsV1(passkeyCreationOptions),
             'passkeyCreationOptions',
+          ),
+          rawDigest(
+            passkeyPreparation.passkeyConfigurationDigestB64u,
+            'passkeyConfigurationDigestB64u',
           ),
         ]
       : []),

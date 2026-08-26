@@ -848,15 +848,15 @@ async function handleOwnerCancel(
   if (authenticated.kind !== 'authorized') return ownerSessionResponse(authenticated);
   const request = parseBoundary(() => parseOwnerCancelRequest(authenticated.body));
   const session = authenticated.session;
+  if (session.state.state === 'cancelled') {
+    return sessionProjectionResponse(session, 'replayed');
+  }
   const claimWalletId = session.claimTranscript?.value.walletId;
   if (!claimWalletId || authenticated.owner.walletId !== claimWalletId) {
     return json(
       { ok: false, code: 'unauthorized', message: 'owner session does not match link wallet' },
       { status: 401 },
     );
-  }
-  if (session.state.state === 'cancelled') {
-    return sessionProjectionResponse(session, 'replayed');
   }
   if (session.state.state !== 'claimed') return invalidStateResponse(session);
   return sessionResultResponse(

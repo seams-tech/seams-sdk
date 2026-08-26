@@ -198,6 +198,7 @@ const TARGET_PREPARATION_BASE_FIELDS = [
 const TARGET_PREPARATION_PASSKEY_FIELDS = [
   ...TARGET_PREPARATION_BASE_FIELDS,
   'passkeyCreationOptions',
+  'passkeyConfigurationDigestB64u',
 ] as const;
 const TARGET_PREPARATION_EMAIL_FIELDS = [
   ...TARGET_PREPARATION_BASE_FIELDS,
@@ -1264,7 +1265,15 @@ export function parseLinkedDeviceTargetPreparationV1(
       record.passkeyCreationOptions,
       walletAuthMethodId,
     );
-    return { ...base, targetFactor, passkeyCreationOptions };
+    return {
+      ...base,
+      targetFactor,
+      passkeyCreationOptions,
+      passkeyConfigurationDigestB64u: parseDigest(
+        record.passkeyConfigurationDigestB64u,
+        'LinkedDeviceTargetPreparationV1.passkeyConfigurationDigestB64u',
+      ),
+    };
   }
   return {
     ...base,
@@ -2443,8 +2452,24 @@ export function buildLinkedDeviceApprovalV1(
   return parseLinkedDeviceApprovalV1({ kind: 'linked_device_approval_v1', ...args, ...times });
 }
 
+type LinkedDeviceTargetPreparationBuildInputV1 =
+  | Omit<
+      Extract<
+        LinkedDeviceTargetPreparationV1,
+        { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+      >,
+      'kind'
+    >
+  | Omit<
+      Extract<
+        LinkedDeviceTargetPreparationV1,
+        { readonly targetFactor: { readonly kind: 'email_otp' } }
+      >,
+      'kind'
+    >;
+
 export function buildLinkedDeviceTargetPreparationV1(
-  args: Omit<LinkedDeviceTargetPreparationV1, 'kind'>,
+  args: LinkedDeviceTargetPreparationBuildInputV1,
 ): LinkedDeviceTargetPreparationV1 {
   return parseLinkedDeviceTargetPreparationV1({
     kind: 'linked_device_target_preparation_v1',

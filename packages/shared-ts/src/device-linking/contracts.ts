@@ -16,6 +16,7 @@ import type {
   WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
 } from '../utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
@@ -205,6 +206,17 @@ export type LinkedDeviceEd25519ExportRootPreparationV1 = {
   readonly revocationEpoch: number;
 };
 
+export type LinkedDevicePasskeyTargetConfigurationFieldsV1 = {
+  readonly rpId: WebAuthnRpId;
+  readonly expectedOrigin: string;
+};
+
+export type LinkedDevicePasskeyTargetConfigurationV1 =
+  LinkedDevicePasskeyTargetConfigurationFieldsV1 & {
+    readonly kind: 'linked_device_passkey_target_configuration_v1';
+    readonly configurationDigestB64u: DigestB64u;
+  };
+
 type LinkedDeviceTargetPreparationBaseV1 = {
   readonly kind: 'linked_device_target_preparation_v1';
   readonly linkSessionId: LinkDeviceSessionId;
@@ -237,6 +249,7 @@ export type LinkedDeviceTargetPreparationV1 =
   | (LinkedDeviceTargetPreparationBaseV1 & {
       readonly targetFactor: { readonly kind: 'passkey_prf' };
       readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
+      readonly passkeyConfigurationDigestB64u: DigestB64u;
       readonly baseWalletAuthMethodId?: never;
     })
   | (LinkedDeviceTargetPreparationBaseV1 & {

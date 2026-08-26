@@ -151,6 +151,7 @@ import { createCloudflareD1VersionedJsonRecordStore } from '../versionedJson/d1V
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import {
   normalizeD1RouterApiAuthOptions,
+  normalizeLinkedDevicePasskeyTargetConfigurationV1,
   type CloudflareD1RouterApiAuthServiceOptions,
   type NormalizedCloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
@@ -478,6 +479,10 @@ function createD1LinkedDeviceComposition(input: {
     return { deviceManagement };
   }
   if (sessionConfig) {
+    const targetPasskeyConfiguration = normalizeLinkedDevicePasskeyTargetConfigurationV1({
+      targetPasskeyOrigin: sessionConfig.targetPasskeyOrigin,
+      targetPasskeyRpId: sessionConfig.targetPasskeyRpId,
+    });
     let emailOtpTargetFactor: D1LinkedDeviceEmailOtpTargetFactorV1 | undefined;
     if (input.emailOtpLinkedDevice) {
       const linkedEmailOtpGrants = new D1LinkedDeviceEmailOtpGrantStoreV1({
@@ -515,7 +520,7 @@ function createD1LinkedDeviceComposition(input: {
         readOwnerSourceChildV1: sessionConfig.readOwnerSourceChildV1,
         nowV1,
       }),
-      targetPlanner: { targetPasskeyRpId: sessionConfig.targetPasskeyRpId },
+      targetPlanner: { targetPasskeyConfiguration },
       nowV1,
     });
     ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
@@ -577,8 +582,7 @@ function createD1LinkedDeviceComposition(input: {
       targetCredential: sessionConfig.targetCredential({
         verifiedLinkBuilder,
         targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(
-          sessionConfig.targetPasskeyOrigin,
-          sessionConfig.targetPasskeyRpId,
+          targetPasskeyConfiguration,
         ),
         targetPlanner: ownerAuthorizationProvider.targetPlanner,
         resolveOwnerSourceChildV1:
