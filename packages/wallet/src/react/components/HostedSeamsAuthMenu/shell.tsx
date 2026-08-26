@@ -497,7 +497,7 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
     });
     session.start();
     return session.cleanup.bind(session);
-  }, [seams, effectConfigKey]);
+  }, [seams, isLoggedIn, effectConfigKey]);
 
   return (
     <span
