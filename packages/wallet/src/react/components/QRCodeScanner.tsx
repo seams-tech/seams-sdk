@@ -63,6 +63,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   const scannedPayloadRef = React.useRef<QrLinkedDeviceSessionPayloadV5 | null>(null);
   const completionReportedRef = React.useRef(false);
   const pendingEmailOtpSelectionRef = useRef<PendingEmailOtpBaseFactorSelection | null>(null);
+  const [scanAccepted, setScanAccepted] = useState(false);
   const [emailOtpSelection, setEmailOtpSelection] =
     useState<EmailOtpBaseFactorSelectionState | null>(null);
 
@@ -144,6 +145,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   const qrCamera = useQRCamera({
     onQRDetected: async (qrData: QrLinkedDeviceSessionPayloadV5) => {
       scannedPayloadRef.current = qrData;
+      setScanAccepted(true);
       await linkDevice(qrData, QRScanMode.CAMERA);
     },
     onError,
@@ -157,6 +159,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   useEffect(() => {
     if (isOpen) {
       setIsVideoReady(false);
+      setScanAccepted(false);
       scannedPayloadRef.current = null;
       completionReportedRef.current = false;
     }
@@ -319,6 +322,8 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       </Theme>
     );
   }
+
+  if (scanAccepted) return null;
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
