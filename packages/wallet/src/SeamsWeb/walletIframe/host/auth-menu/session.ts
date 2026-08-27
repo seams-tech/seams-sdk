@@ -274,7 +274,7 @@ function createPreparingViewModel(args: {
             : '',
         passkeyNameLabel: args.request.copy.register.passkeyNameLabel,
       }
-    : { ...common, mode, accountOptions: [], selectedWalletId: null };
+    : { ...common, mode, accountOptions: [], selectedAccount: null };
 }
 
 async function settleAfterMinimumBusy<T>(work: Promise<T>): Promise<T> {
@@ -576,7 +576,7 @@ export class AuthMenuSession {
   private readonly cancelDeviceLinking: CancelDeviceLinking;
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
-  private selectedLoginWalletId: string | null = null;
+  private selectedLoginAccount: AuthMenuAccountOption | null = null;
   private readonly sendToParent: (message: ChildToParentEnvelope) => void;
   private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
   private preparationGeneration = 0;
@@ -654,7 +654,7 @@ export class AuthMenuSession {
   setLoginPreparation(args: {
     prepare: PrepareLoginPasskey;
     accountOptions: readonly AuthMenuAccountOption[];
-    selectedWalletId: string | null;
+    selectedAccount: AuthMenuAccountOption | null;
   }): void {
     const activeViewModel = this.stateValue.kind === 'complete' ? null : this.currentViewModel();
     if (
@@ -666,13 +666,13 @@ export class AuthMenuSession {
     }
     this.loginPreparation = args.prepare;
     this.loginAccountOptions = args.accountOptions;
-    this.selectedLoginWalletId = args.selectedWalletId;
+    this.selectedLoginAccount = args.selectedAccount;
     this.updateLoginSelectionViewModel();
     if (
       (this.stateValue.kind === 'preparing' || this.stateValue.kind === 'ready') &&
       this.currentViewModel().mode === 'login'
     ) {
-      this.setPasskeyPreparation(this.prepareSelectedLogin);
+      this.activateSelectedLoginMethod();
     }
   }
 
@@ -680,8 +680,35 @@ export class AuthMenuSession {
     cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
   ): Promise<HostedPasskeyMenuPrepared> => {
     if (!this.loginPreparation) throw new Error('Hosted login preparation is unavailable');
-    return this.loginPreparation(this.selectedLoginWalletId, cancellation);
+    if (this.selectedLoginAccount?.authMethod === 'email_otp') {
+      throw new Error('Email OTP accounts require Google sign-in');
+    }
+    return this.loginPreparation(this.selectedLoginAccount?.walletId ?? null, cancellation);
   };
+
+  private activateSelectedLoginMethod(): void {
+    if (this.selectedLoginAccount?.authMethod !== 'email_otp') {
+      this.setPasskeyPreparation(this.prepareSelectedLogin);
+      return;
+    }
+    this.preparePasskey = null;
+    const state = this.stateValue;
+    if (
+      (state.kind !== 'preparing' && state.kind !== 'ready') ||
+      state.viewModel.kind !== 'passkey' ||
+      state.viewModel.mode !== 'login'
+    ) {
+      return;
+    }
+    this.stateValue = {
+      kind: 'preparing',
+      viewModel: {
+        ...state.viewModel,
+        status: { kind: 'idle', interaction: 'actionable' },
+      },
+    };
+    this.updateElement();
+  }
 
   private updateLoginSelectionViewModel(): void {
     const state = this.stateValue;
@@ -697,7 +724,7 @@ export class AuthMenuSession {
       viewModel: {
         ...state.viewModel,
         accountOptions: this.loginAccountOptions,
-        selectedWalletId: this.selectedLoginWalletId,
+        selectedAccount: this.selectedLoginAccount,
       },
     };
   }
@@ -1281,7 +1308,7 @@ export class AuthMenuSession {
         return;
       }
       case 'login_account_selected':
-        this.selectLoginAccount(intent.walletId);
+        this.selectLoginAccount(intent.walletId, intent.authMethod);
         return;
       case 'submit':
         // A failed or expired preparation has no live credential to consume, so
@@ -1362,13 +1389,17 @@ export class AuthMenuSession {
           ? {
               ...nextViewModel,
               accountOptions: this.loginAccountOptions,
-              selectedWalletId: this.selectedLoginWalletId,
+              selectedAccount: this.selectedLoginAccount,
             }
           : nextViewModel,
     };
-    this.preparePasskey = mode === 'login' ? this.prepareSelectedLogin : null;
     this.updateElement();
-    this.startPasskeyPreparation();
+    if (mode === 'login') {
+      this.activateSelectedLoginMethod();
+    } else {
+      this.preparePasskey = null;
+      this.startPasskeyPreparation();
+    }
   }
 
   private back(): void {
@@ -2241,9 +2272,19 @@ export class AuthMenuSession {
     this.startPasskeyPreparation();
   }
 
-  private selectLoginAccount(walletId: string): void {
-    const selected = this.loginAccountOptions.find((account) => account.walletId === walletId);
-    if (!selected || selected.walletId === this.selectedLoginWalletId) return;
+  private selectLoginAccount(
+    walletId: string,
+    authMethod: AuthMenuAccountOption['authMethod'],
+  ): void {
+    const selected = this.loginAccountOptions.find(
+      (account) => account.walletId === walletId && account.authMethod === authMethod,
+    );
+    if (
+      !selected ||
+      (selected.walletId === this.selectedLoginAccount?.walletId &&
+        selected.authMethod === this.selectedLoginAccount.authMethod)
+    )
+      return;
     const state = this.stateValue;
     if (
       (state.kind !== 'preparing' && state.kind !== 'ready') ||
@@ -2252,18 +2293,18 @@ export class AuthMenuSession {
     ) {
       return;
     }
-    this.selectedLoginWalletId = selected.walletId;
+    this.selectedLoginAccount = selected;
     this.invalidatePreparation();
     this.stateValue = {
       kind: 'preparing',
       viewModel: {
         ...state.viewModel,
-        selectedWalletId: selected.walletId,
+        selectedAccount: selected,
         status: { kind: 'idle', interaction: 'arming' },
       },
     };
     this.updateElement();
-    this.startPasskeyPreparation();
+    this.activateSelectedLoginMethod();
   }
 
   private retryPreparation(): void {
