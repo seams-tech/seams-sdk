@@ -31,6 +31,7 @@ import type {
   WalletAuthorityId,
   WalletAuthMethodId,
   WalletId,
+  VerifiedEmailAddress,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
@@ -64,6 +65,7 @@ declare const walletAuthMethodId: WalletAuthMethodId;
 declare const authenticatorDevice: WebAuthnAuthenticatorDeviceInfo;
 declare const targetDeviceId: DeviceId;
 declare const walletAuthorityId: WalletAuthorityId;
+declare const targetEmail: VerifiedEmailAddress;
 declare const activeAuthority: ActiveWalletAuthorityV1;
 declare const revokedAuthority: RevokedWalletAuthorityV1;
 declare const ed25519Activation: WalletEd25519SignerActivationV1;
@@ -446,7 +448,10 @@ const verifiedPasskeyTarget = {
 const verifiedEmailOtpTarget = {
   kind: 'verified_email_otp_target_v1',
   authMethod: emailOtpAuthMethod,
+  targetEmail,
+  enrollment: { kind: 'existing_enrollment' },
   baseWalletAuthMethodId: walletAuthMethodId,
+  providerUserId: 'provider-user-id',
   verificationDigestB64u: digest,
   verifiedAtMs: 9,
 } satisfies VerifiedTargetFactorV1;
@@ -461,6 +466,7 @@ const verifiedLinkInput = {
   permissions: permissionSet,
   signerManifest,
   sourceContribution,
+  emailOtpEnrollment: null,
   ordinarySignerMaterialRecipientRequests,
 } satisfies VerifiedLinkInputV1;
 void verifiedLinkInput;

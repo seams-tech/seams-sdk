@@ -63,7 +63,7 @@ test('iframe device-link transport forwards Email OTP activation and exact actio
   await handlers.PM_START_DEVICE2_LINKING_FLOW?.({
     type: 'PM_START_DEVICE2_LINKING_FLOW',
     requestId: 'link-request-1',
-    payload: { targetFactor: { kind: 'email_otp' } },
+    payload: { targetFactor: { kind: 'email_otp' }, targetEmail: 'owner@example.test' },
   });
   if (!callbacks) throw new Error('device-link callbacks were not installed');
   callbacks.onTargetFactorRequired(buildEmailOtpActivationV1(calls));

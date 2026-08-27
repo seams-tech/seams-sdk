@@ -64,11 +64,17 @@ export function createEvmFamilySigningDeps(args: {
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authority }) =>
+    requestEmailOtpTransactionSigningChallenge: ({
+      walletSession,
+      chain,
+      authority,
+      operationFingerprintDigest,
+    }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
         chain,
         authority,
+        operationFingerprintDigest,
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) =>
       await resolveDurableEmailOtpEcdsaAuthority({ lane, createArgs }),

@@ -20,7 +20,10 @@ import type {
   UnlockedWalletEd25519ExportRootCapabilityV1,
 } from '../workerManager/workerTypes';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
-import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  isWalletCustodySeedBinding,
+  parsePasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { WorkerOperationContext } from '../workerManager/executeWorkerOperation';
 
@@ -151,10 +154,12 @@ function isCapabilityReference(
 }
 
 /**
- * Opens the custody envelope inside the worker with the factor secret already
- * present in the calling operation, and records the returned reference as the
- * current capability. The caller still owns `existingFactorSecret` and zeroes
- * it; the worker zeroes its own copy.
+ * Opens a wallet-custody-seed envelope inside the worker with the factor secret
+ * already present in the calling operation, and records the returned reference
+ * as the current capability. Client-root envelopes belong to the exact sealed
+ * export-root path and do not establish this seed-backed capability.
+ * The caller still owns `existingFactorSecret` and zeroes it; the worker zeroes
+ * its own copy.
  *
  * Call only after the owner Wallet Session named here is active. Establishing
  * adds no authenticator or OTP interaction.
@@ -169,7 +174,8 @@ export async function establishUnlockedWalletEd25519ExportRootCapabilityV1(
     readonly walletSessionId: string;
     readonly expiresAtMs: number;
   },
-): Promise<UnlockedWalletEd25519ExportRootCapabilityV1> {
+): Promise<UnlockedWalletEd25519ExportRootCapabilityV1 | undefined> {
+  if (!isWalletCustodySeedBinding(input.existingEnvelope.binding)) return undefined;
   // The worker transfers this buffer, so it gets a copy and we wipe it.
   const workerFactorSecret = input.existingFactorSecret.slice();
   let established: unknown;

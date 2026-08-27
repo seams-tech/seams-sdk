@@ -33,7 +33,9 @@ import type {
   EmailOtpWalletAuthMethodDraftV1,
   PasskeyWalletAuthMethodDraftV1,
   WalletAuthMethodRecordV2,
+  WalletEmailOtpEnrollmentMaterialV1,
 } from '../utils/registrationIntent';
+import type { VerifiedEmailAddress } from '../utils/domainIds';
 import type {
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionTupleV1,
@@ -74,15 +76,33 @@ export type LinkedDeviceTargetFactorV1 =
   | { readonly kind: 'passkey_prf' }
   | { readonly kind: 'email_otp' };
 
+export type LinkedDeviceEmailOtpEnrollmentSelectionV1 =
+  | { readonly kind: 'existing_enrollment' }
+  | { readonly kind: 'new_enrollment' };
+
 export type LinkedDeviceApprovedTargetFactorV1 =
   | {
       readonly kind: 'passkey_prf';
       readonly baseWalletAuthMethodId?: never;
     }
-  | {
+  | ({
       readonly kind: 'email_otp';
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
       readonly baseWalletAuthMethodId: WalletAuthMethodId;
-    };
+    })
+  | ({
+      readonly kind: 'email_otp';
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId?: never;
+    });
 
 export type LinkedDeviceEmailOtpBaseFactorChoiceV1 = {
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
@@ -123,17 +143,26 @@ export type LinkedDeviceEmailOtpBaseFactorResolutionResultV1 = {
   readonly resolution: LinkedDeviceEmailOtpBaseFactorResolutionV1;
 };
 
-export type QrLinkedDeviceSessionPayloadV5 = {
+type QrLinkedDeviceSessionPayloadBaseV5 = {
   readonly version: 'v5';
   readonly purpose: 'linked_device_lane_creation';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly requestedPermission: DelegatedWalletAuthorityV1;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type QrLinkedDeviceSessionPayloadV5 =
+  | (QrLinkedDeviceSessionPayloadBaseV5 & {
+      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly targetEmail?: never;
+    })
+  | (QrLinkedDeviceSessionPayloadBaseV5 & {
+  readonly targetFactor: { readonly kind: 'email_otp' };
+  readonly targetEmail: VerifiedEmailAddress;
+});
 
 /** Authenticated Device 1 owner-authorization request. */
 export type LinkedDeviceOwnerAuthorizationRequestV1 = {
@@ -251,11 +280,30 @@ export type LinkedDeviceTargetPreparationV1 =
       readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
       readonly passkeyConfigurationDigestB64u: DigestB64u;
       readonly baseWalletAuthMethodId?: never;
+      readonly targetEmail?: never;
+      readonly enrollment?: never;
     })
   | (LinkedDeviceTargetPreparationBaseV1 & {
       readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
       readonly passkeyCreationOptions?: never;
+      readonly passkeyConfigurationDigestB64u?: never;
       readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    })
+  | (LinkedDeviceTargetPreparationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly passkeyCreationOptions?: never;
+      readonly passkeyConfigurationDigestB64u?: never;
+      readonly baseWalletAuthMethodId?: never;
     });
 
 /** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
@@ -324,7 +372,7 @@ type LinkedDeviceTargetCredentialRegistrationBaseV1 = {
   readonly registeredAtMs: number;
 };
 
-export type LinkedDeviceEmailOtpVerificationGrantV1 = {
+type LinkedDeviceEmailOtpVerificationGrantBaseV1 = {
   readonly kind: 'linked_device_email_otp_verification_grant_v1';
   readonly grantId: string;
   readonly grantToken: string;
@@ -334,7 +382,7 @@ export type LinkedDeviceEmailOtpVerificationGrantV1 = {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly targetEmail: VerifiedEmailAddress;
   readonly emailHashHex: string;
   readonly registrationAuthorityId: string;
   readonly providerUserId: string;
@@ -342,6 +390,22 @@ export type LinkedDeviceEmailOtpVerificationGrantV1 = {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type LinkedDeviceEmailOtpVerificationGrantV1 =
+  | (LinkedDeviceEmailOtpVerificationGrantBaseV1 & {
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    })
+  | (LinkedDeviceEmailOtpVerificationGrantBaseV1 & {
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId?: never;
+    });
 
 export type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1 = {
   readonly kind: 'email_otp_factor_release_v1';
@@ -380,21 +444,44 @@ export type LinkedDeviceEmailOtpChallengeResultV1 = {
   readonly resendAvailableAtMs: number;
 };
 
-export type LinkedDeviceEmailOtpVerificationResultV1 = {
-  readonly kind: 'linked_device_email_otp_verification_result_v1';
-  readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
-  readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
-};
+export type LinkedDeviceEmailOtpVerificationResultV1 =
+  | {
+      readonly kind: 'linked_device_email_otp_verification_result_v1';
+      readonly verificationGrant: Extract<
+        LinkedDeviceEmailOtpVerificationGrantV1,
+        { readonly enrollment: { readonly kind: 'existing_enrollment' } }
+      >;
+      readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+    }
+  | {
+      readonly kind: 'linked_device_email_otp_verification_result_v1';
+      readonly verificationGrant: Extract<
+        LinkedDeviceEmailOtpVerificationGrantV1,
+        { readonly enrollment: { readonly kind: 'new_enrollment' } }
+      >;
+      readonly factorRelease: null;
+    };
 
 export type LinkedDeviceTargetCredentialRegistrationV1 =
   | (LinkedDeviceTargetCredentialRegistrationBaseV1 & {
       readonly targetFactor: { readonly kind: 'passkey_prf' };
       readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
       readonly emailOtpVerificationGrant?: never;
+      readonly targetEmail?: never;
+      readonly emailOtpEnrollment?: never;
     })
   | (LinkedDeviceTargetCredentialRegistrationBaseV1 & {
       readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
       readonly emailOtpVerificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+      readonly emailOtpEnrollment?: never;
+      readonly webauthnRegistration?: never;
+    })
+  | (LinkedDeviceTargetCredentialRegistrationBaseV1 & {
+      readonly targetFactor: { readonly kind: 'email_otp' };
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly emailOtpVerificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+      readonly emailOtpEnrollment: WalletEmailOtpEnrollmentMaterialV1;
       readonly webauthnRegistration?: never;
     });
 
@@ -667,13 +754,32 @@ export type VerifiedTargetFactorV1 =
       readonly verificationDigestB64u: DigestB64u;
       readonly verifiedAtMs: number;
     }
-  | {
+  | ({
       readonly kind: 'verified_email_otp_target_v1';
       readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'existing_enrollment' }
+      >;
       readonly baseWalletAuthMethodId: WalletAuthMethodId;
+      readonly providerUserId: string;
       readonly verificationDigestB64u: DigestB64u;
       readonly verifiedAtMs: number;
-    };
+    })
+  | ({
+      readonly kind: 'verified_email_otp_target_v1';
+      readonly authMethod: EmailOtpWalletAuthMethodDraftV1;
+      readonly targetEmail: VerifiedEmailAddress;
+      readonly enrollment: Extract<
+        LinkedDeviceEmailOtpEnrollmentSelectionV1,
+        { readonly kind: 'new_enrollment' }
+      >;
+      readonly baseWalletAuthMethodId?: never;
+      readonly providerUserId: string;
+      readonly verificationDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+    });
 
 export type VerifiedLinkInputV1 = {
   readonly walletId: WalletId;
@@ -686,6 +792,8 @@ export type VerifiedLinkInputV1 = {
   readonly signerManifest: ExactAdministeredSignerManifestV1;
   /** One encrypted/publicly-bound contribution per source signer family. */
   readonly sourceContribution: LinkedDeviceOrdinaryMaterialSourceContributionTupleV1;
+  /** New Email OTP links carry the freshly sealed enrollment into the same D1 batch. */
+  readonly emailOtpEnrollment: WalletEmailOtpEnrollmentMaterialV1 | null;
   readonly ordinarySignerMaterialRecipientRequests: readonly [
     OrdinarySignerMaterialRecipientRequestV1,
     ...OrdinarySignerMaterialRecipientRequestV1[],
@@ -817,7 +925,11 @@ export type ActivateInstalledAuthorityResultV1 =
   | { readonly kind: 'integrity_error'; readonly reason: LinkIntegrityFailureV1 };
 
 export type LinkedAuthorityActivationResultV1 =
-  | { readonly kind: 'active'; readonly session: ActiveWalletSessionV1 }
+  | {
+      readonly kind: 'active';
+      readonly session: ActiveWalletSessionV1;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
   | {
       readonly kind: 'pending_local_install';
       readonly authorityId: WalletAuthorityId;

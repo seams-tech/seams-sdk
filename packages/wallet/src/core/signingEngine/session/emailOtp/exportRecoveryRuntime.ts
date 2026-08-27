@@ -25,6 +25,7 @@ import type {
 import type { EmailOtpTransactionSigningChallenge } from './publicTypes';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
@@ -35,6 +36,7 @@ export type RequestEmailOtpChallengeArgs =
       kind: 'wallet_login_challenge';
       walletSession: WalletSessionRef;
       chain: EmailOtpRouteChain;
+      operationFingerprintDigest?: DigestB64u;
       authLane?: never;
       routeAuth?: never;
     }
@@ -43,6 +45,7 @@ export type RequestEmailOtpChallengeArgs =
       walletSession: WalletSessionRef;
       chain: EmailOtpRouteChain;
       authLane: EmailOtpSigningSessionAuthLane;
+      operationFingerprintDigest?: DigestB64u;
       routeAuth?: never;
     }
   | {
@@ -51,6 +54,7 @@ export type RequestEmailOtpChallengeArgs =
       nearAccountId: AccountId;
       chain: 'near';
       authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }>;
+      operationFingerprintDigest?: DigestB64u;
       routeAuth?: never;
     }
   | {
@@ -59,6 +63,7 @@ export type RequestEmailOtpChallengeArgs =
       chain: 'near';
       walletSession?: never;
       authLane?: never;
+      operationFingerprintDigest?: never;
       routeAuth?: never;
     }
   ;

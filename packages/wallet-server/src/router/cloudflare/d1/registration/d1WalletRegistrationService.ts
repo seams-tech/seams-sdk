@@ -3883,6 +3883,12 @@ export class CloudflareD1WalletRegistrationService {
           ),
           now,
         });
+        const completedIdentity =
+          await this.emailOtpRegistrationEnrollmentFinalizer.completeRegistrationIdentity({
+            authority,
+            walletId: ceremony.intent.walletId,
+          });
+        if (!completedIdentity.ok) return completedIdentity;
         break;
       }
     }
@@ -5347,6 +5353,12 @@ export class CloudflareD1WalletRegistrationService {
       } finally {
         finishD1RegistrationRouteTiming(finalizeTiming, persistenceTiming);
       }
+      const completedRegistrationIdentity =
+        await this.emailOtpRegistrationEnrollmentFinalizer.completeRegistrationIdentity({
+          authority: ceremonyAuthority,
+          walletId: ceremony.intent.walletId,
+        });
+      if (!completedRegistrationIdentity.ok) return completedRegistrationIdentity;
       const persistedFoundingRecords =
         foundingAuthorityRecords ??
         (await this.walletAuthMethods.readActiveRegistrationIdentity(ceremonyAuthority));

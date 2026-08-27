@@ -249,6 +249,10 @@ import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import {
+  persistVerifiedEmailOtpAuthorityAfterUnlock,
+  walletAuthAuthorityRefForVerifiedEmailOtpUnlock,
+} from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
   parseReusableWalletSessionAuthorizationId,
@@ -452,9 +456,10 @@ import {
   deriveEvmFamilySigningKeySlotId,
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import type {
-  PasskeyCustodyEnvelopeRecord,
-  WalletCustodyEvmFamilyPublicFacts,
+import {
+  isWalletCustodySeedBinding,
+  type PasskeyCustodyEnvelopeRecord,
+  type WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import type { UnlockedWalletEd25519ExportRootCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -587,48 +592,6 @@ async function persistRehydratedEmailOtpEcdsaWalletSession(args: {
     walletSessionToken: session.wallet_session_token,
     thresholdSessionId: session.threshold_session_id,
     curve: 'ecdsa',
-  });
-}
-
-/**
- * A cold unlock mints the Wallet Session it would otherwise read, so its
- * authority comes from the exact selected local Email OTP method. This is the
- * same construction the server performs when it resolves an Email OTP
- * authority for unlock, and it stays exact where several linked methods can
- * share one verified email.
- */
-async function resolveColdUnlockEmailOtpWalletSessionAuthority(args: {
-  readonly walletId: WalletId;
-  readonly emailHashHex: string;
-  readonly providerSubject: string;
-}): Promise<WalletAuthAuthorityRef> {
-  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
-  if (selected.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][near] selected Email OTP Wallet Authority is ${selected.kind}`,
-    );
-  }
-  const { authMethod, authority } = selected;
-  if (
-    authMethod.kind !== WALLET_AUTH_METHODS.emailOtp ||
-    authMethod.status !== 'active' ||
-    authority.state !== 'active' ||
-    String(authMethod.walletId) !== String(args.walletId) ||
-    authMethod.walletAuthorityId !== authority.authorityId ||
-    authMethod.emailHashHex !== args.emailHashHex
-  ) {
-    throw new Error('[SigningEngine][near] selected Email OTP unlock method is invalid');
-  }
-  return await walletAuthAuthorityRef({
-    authority: {
-      ...buildEmailOtpWalletAuthAuthority({
-        walletId: String(args.walletId),
-        provider: args.providerSubject.startsWith('google:') ? 'google' : 'email',
-        providerUserId: args.providerSubject,
-        emailHashHex: authMethod.emailHashHex,
-      }),
-      bindingId: authMethod.walletAuthMethodId,
-    },
   });
 }
 
@@ -1123,21 +1086,9 @@ function resolveSelectedEmailOtpEd25519ExportRootV1(args: {
 async function resolveLinkedPasskeyOwnerSignerSlot(args: {
   walletId: WalletId;
   authMethod: Extract<ActiveWalletAuthMethodV2, { kind: 'passkey' }>;
-  authorization: ActiveWalletSessionAuthorizationProjection;
   signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   publicLaneStore: Ed25519YaoPublicCapabilityReferenceStorePort;
 }): Promise<SignerSlot> {
-  if (
-    args.authorization.authMethod !== WALLET_AUTH_METHODS.passkey ||
-    String(args.authorization.walletId) !== String(args.walletId) ||
-    args.authorization.authority.walletAuthMethodId !== args.authMethod.walletAuthMethodId
-  ) {
-    throw new Error('[SigningEngine] linked Passkey Wallet Session authority does not match V2');
-  }
-  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(args.authorization, 'ed25519');
-  if (!thresholdSessionId) {
-    throw new Error('[SigningEngine] linked Passkey Wallet Session has no Ed25519 session');
-  }
   let material: Extract<
     WalletAuthoritySignerMaterialRecordV1,
     { kind: 'wallet_authority_linked_signer_material_v1'; keyFamily: 'ed25519' }
@@ -1182,7 +1133,6 @@ async function resolveLinkedPasskeyOwnerSignerSlot(args: {
       String(reference.nearEd25519SigningKeyId) !==
         String(application.near_ed25519_signing_key_id) ||
       reference.signerSlot !== signerSlot ||
-      String(reference.thresholdSessionId) !== String(thresholdSessionId) ||
       !mpcMaterialActivationRefsEqual(reference.materialActivation, material.materialActivation)
     ) {
       continue;
@@ -2963,34 +2913,9 @@ export class BrowserSigningSurface {
         authMethod.kind === 'passkey' &&
         authority.signerActivations.ed25519
       ) {
-        const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
-          parsedWalletId.value,
-        );
-        if (authorizationRead.kind !== 'found') {
-          throw new Error(
-            `[SigningEngine] active Wallet Session authorization is ${authorizationRead.kind}`,
-          );
-        }
-        const authorization = authorizationRead.projection;
-        if (
-          authorization.authority.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-          authorization.walletSessionId !== exactSession.operationCredential.walletSessionId ||
-          authorization.expiresAtMs <= Date.now()
-        ) {
-          const correlationFailure =
-            authorization.authority.walletAuthMethodId !== authMethod.walletAuthMethodId
-              ? 'legacy_auth_method_mismatch'
-              : authorization.walletSessionId !== exactSession.operationCredential.walletSessionId
-                ? 'wallet_session_id_mismatch'
-                : 'expired_curve_session';
-          throw new Error(
-            `[SigningEngine] selected Wallet Authority session is unavailable: ${correlationFailure}`,
-          );
-        }
         const signerSlot = await resolveLinkedPasskeyOwnerSignerSlot({
           walletId: parsedWalletId.value,
           authMethod,
-          authorization,
           signerMaterials: selected.signerMaterials,
           publicLaneStore: this.ed25519YaoPublicCapabilityReferences,
         });
@@ -3282,45 +3207,11 @@ export class BrowserSigningSurface {
     });
   }
 
-  async markSelectedEmailOtpWalletAuthorityUnlocked(walletId: WalletId): Promise<void> {
-    const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
-    if (selected.kind !== 'resolved') {
-      throw new Error('[SigningEngine] selected Email OTP Wallet Authority is unavailable');
-    }
-    if (selected.authority.state !== 'active') {
-      throw new Error('[SigningEngine] selected Email OTP Wallet Authority is inactive');
-    }
-    if (
-      selected.authMethod.kind === WALLET_AUTH_METHODS.emailOtp &&
-      selected.authMethod.status === 'active'
-    ) {
-      await this.markWalletSelectionUnlocked({
-        walletId,
-        walletAuthMethodId: selected.authMethod.walletAuthMethodId,
-      });
-      return;
-    }
-    /* R109C: an Email OTP unlock does not imply Email OTP was already selected.
-       Invariant 9 keeps the source method selected after an addition, so a
-       Passkey wallet that has added Email OTP still selects the Passkey until
-       something unlocks with the new method - which is exactly what is
-       happening here. Mark the method that just unlocked, not the one that was
-       already selected. */
-    const localMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(String(walletId));
-    const active = localMethods.filter(
-      (method) =>
-        method.kind === WALLET_AUTH_METHODS.emailOtp &&
-        method.status === 'active' &&
-        String(method.walletId) === String(walletId),
-    );
-    const [method, ...remaining] = active;
-    if (!method || remaining.length > 0 || method.kind !== WALLET_AUTH_METHODS.emailOtp) {
-      throw new Error('[SigningEngine] selected Email OTP Wallet Authority is inactive');
-    }
-    await this.markWalletSelectionUnlocked({
-      walletId,
-      walletAuthMethodId: method.authority.bindingId,
-    });
+  async markSelectedEmailOtpWalletAuthorityUnlocked(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<void> {
+    await this.markWalletSelectionUnlocked(input);
   }
 
   /**
@@ -3399,6 +3290,7 @@ export class BrowserSigningSurface {
     readonly expiresAtMs: number;
   }): Promise<void> {
     try {
+      if (!isWalletCustodySeedBinding(input.existingEnvelope.binding)) return;
       const factor = input.existingEnvelope.factor;
       if (factor.kind !== 'passkey') {
         throw new Error('unlocked export-root capability requires a passkey envelope factor');
@@ -3653,12 +3545,13 @@ export class BrowserSigningSurface {
           ) {
             throw new Error('[SigningEngine][near] active Wallet Session is unavailable');
           }
-          const signingAuthorization =
-            await resolveNearEd25519WalletSessionAuthorizationForSigning({
+          const signingAuthorization = await resolveNearEd25519WalletSessionAuthorizationForSigning(
+            {
               walletId: args.walletId,
               authorization: authorizationRead.projection,
               materialActivation: publicCapabilityMaterialActivation,
-            });
+            },
+          );
           return buildAuthorizedNearEd25519YaoSigningPreparation({
             hydration: buildUseLiveRuntimeHydrationPlan({
               authority: signingAuthorization.authority,
@@ -6212,18 +6105,39 @@ export class BrowserSigningSurface {
   async resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
     providerSubjectId: string;
-    /** Resolve as this method's authority; omitted, the selected one. */
-    walletAuthMethodId?: string;
+    selector:
+      | { kind: 'selected_wallet_authority' }
+      | { kind: 'wallet_auth_method'; walletAuthMethodId: string }
+      | { kind: 'material_activation'; materialActivation: MpcMaterialActivationRef };
   }): Promise<WalletCustodyEd25519Projection | null> {
     const walletId = String(args.walletSession.walletId);
-    const selected = args.walletAuthMethodId
-      ? await IndexedDBManager.resolveWalletAuthorityForMethod(walletId, args.walletAuthMethodId)
-      : await IndexedDBManager.resolveSelectedWalletAuthority(walletId);
-    if (selected.kind !== 'resolved') return null;
-    const activation =
-      selected.authority.state === 'active'
-        ? selected.authority.signerActivations.ed25519?.materialActivation
-        : undefined;
+    let activation: MpcMaterialActivationRef | undefined;
+    switch (args.selector.kind) {
+      case 'material_activation':
+        activation = args.selector.materialActivation;
+        break;
+      case 'wallet_auth_method': {
+        const selected = await IndexedDBManager.resolveWalletAuthorityForMethod(
+          walletId,
+          args.selector.walletAuthMethodId,
+        );
+        activation =
+          selected.kind === 'resolved' && selected.authority.state === 'active'
+            ? selected.authority.signerActivations.ed25519?.materialActivation
+            : undefined;
+        break;
+      }
+      case 'selected_wallet_authority': {
+        const selected = await IndexedDBManager.resolveSelectedWalletAuthority(walletId);
+        activation =
+          selected.kind === 'resolved' && selected.authority.state === 'active'
+            ? selected.authority.signerActivations.ed25519?.materialActivation
+            : undefined;
+        break;
+      }
+      default:
+        args.selector satisfies never;
+    }
     /* No Ed25519 activation on this authority is an answer, not a failure: an
        ECDSA-only wallet has no Ed25519 signer to project. */
     if (!activation) return null;
@@ -6259,7 +6173,10 @@ export class BrowserSigningSurface {
     const projection = await this.resolveEmailOtpEd25519CustodyProjectionInternal({
       walletSession: args.walletSession,
       providerSubjectId: args.providerSubjectId,
-      walletAuthMethodId: args.walletAuthMethodId,
+      selector: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: args.walletAuthMethodId,
+      },
     });
     if (!projection) return null;
     const signerSlot = projection.user.signerSlot;
@@ -6308,7 +6225,10 @@ export class BrowserSigningSurface {
     const projection = await this.resolveEmailOtpEd25519CustodyProjectionInternal({
       walletSession: args.walletSession,
       providerSubjectId: args.providerSubjectId,
-      walletAuthMethodId: args.walletAuthMethodId,
+      selector: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: args.walletAuthMethodId,
+      },
     });
     if (!projection) {
       throw new Error('Owner Email OTP Ed25519 activation has no signer projection');
@@ -6483,13 +6403,11 @@ export class BrowserSigningSurface {
   async loginWithEmailOtpWalletCustodyEd25519Internal(
     args: LoginWithEmailOtpWalletCustodyEd25519Args,
   ): Promise<NearEd25519SignerBinding> {
-    const projection = await this.resolveEmailOtpEd25519CustodyProjectionInternal({
-      walletSession: args.walletSession,
-      providerSubjectId: args.providerSubjectId,
-    });
-    if (!projection) {
-      throw new Error('Email OTP wallet custody Ed25519 signer projection is unavailable');
+    if (args.authoritySelector.kind !== 'wallet_auth_method') {
+      throw new Error('Email OTP Ed25519 unlock requires an exact wallet auth method');
     }
+    const walletAuthMethodId = args.authoritySelector.walletAuthMethodId;
+    const selection = args.ed25519Selection;
     /* This is a cold unlock: the OTP verification below is the factor proof
        and the route plan authenticates with it, so no prior Wallet Session
        may be required here. */
@@ -6504,74 +6422,78 @@ export class BrowserSigningSurface {
         operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
       }),
       workerCtx: this.signerWorkerManager.getContext(),
-      providerSubject: projection.providerSubject,
-      signerSlot: projection.user.signerSlot,
+      providerSubject: args.providerSubjectId,
+      signerSlot: selection.signerSlot,
       remainingUses: args.remainingUses,
-      orgId: projection.identity.runtimePolicyScope.orgId,
-      nearAccountId: String(projection.identity.nearAccountId),
-      expectedOperationalPublicKey: projection.user.operationalPublicKey,
-      expectedThresholdSessionId: String(projection.identity.thresholdSessionId),
+      orgId: selection.runtimePolicyScope.orgId,
+      nearAccountId: selection.nearAccountId,
+      expectedOperationalPublicKey: selection.operationalPublicKey,
+      expectedThresholdSessionId: selection.thresholdSessionId,
       walletCustodyEd25519Material: await this.loadEmailOtpWalletCustodyEd25519Material({
-        nearAccountId: String(projection.identity.nearAccountId),
-        signerSlot: projection.user.signerSlot,
+        nearAccountId: selection.nearAccountId,
+        signerSlot: selection.signerSlot,
       }),
     });
     if (unlock.kind === 'wallet_custody_cache_absent') {
       throw new Error('Email OTP wallet custody rejoin produced no active capability');
     }
-    if (unlock.walletCustodyEd25519Material) {
-      try {
-        await this.persistWalletCustodyEd25519Material(unlock.walletCustodyEd25519Material);
-      } catch (error) {
-        await disposeWalletCustodyEd25519ActiveClientV1({
-          workerContext: this.signerWorkerManager.getContext(),
-          activeClientHandle: unlock.activeClientHandle,
-        }).catch(() => undefined);
-        throw error;
-      }
-    }
-    const signer = await this.activateEmailOtpEd25519CustodyCapabilityInternal({
-      commitQueue: 'acquire',
-      walletSession: args.walletSession,
-      providerSubject: projection.providerSubject,
-      emailHashHex: args.emailHashHex,
-      signerSlot: projection.user.signerSlot,
-      expectedOperationalPublicKey: projection.user.operationalPublicKey,
-      expectedThresholdSessionId: String(projection.identity.thresholdSessionId),
-      bootstrap: unlock.ed25519YaoCapability,
-      activeClientHandle: unlock.activeClientHandle,
-      metadata: unlock.metadata,
-    });
-    /* The unlock derived this wallet's Yao Client export root, so the runtime
-       holds the scoped export capability an owner needs to export and to grant
-       `export_keys` when linking. It binds to the session the activation above
-       just persisted. */
     try {
-      const authorization = await walletSessionAuthorizations.readActiveForWallet(
-        args.walletSession.walletId,
-      );
-      if (authorization.kind === 'found') {
+      await persistVerifiedEmailOtpAuthorityAfterUnlock({
+        walletId: String(args.walletSession.walletId),
+        walletAuthMethodId,
+        projection: unlock.recovery.verifiedAuthorityProjection,
+      });
+      const authority = await walletAuthAuthorityRefForVerifiedEmailOtpUnlock({
+        walletId: String(args.walletSession.walletId),
+        walletAuthMethodId,
+        providerSubject: args.providerSubjectId,
+        emailHashHex: args.emailHashHex,
+        projection: unlock.recovery.verifiedAuthorityProjection,
+      });
+      if (unlock.walletCustodyEd25519Material) {
+        await this.persistWalletCustodyEd25519Material(unlock.walletCustodyEd25519Material);
+      }
+      const signer = await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+        commitQueue: 'acquire',
+        walletSession: args.walletSession,
+        providerSubject: args.providerSubjectId,
+        emailHashHex: args.emailHashHex,
+        signerSlot: selection.signerSlot,
+        expectedOperationalPublicKey: selection.operationalPublicKey,
+        expectedThresholdSessionId: selection.thresholdSessionId,
+        bootstrap: unlock.ed25519YaoCapability,
+        activeClientHandle: unlock.activeClientHandle,
+        metadata: unlock.metadata,
+        authority,
+      });
+      const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
+        walletId: args.walletSession.walletId,
+        authorityId: unlock.recovery.verifiedAuthorityProjection.authority.authorityId,
+        authMethodId: unlock.recovery.verifiedAuthorityProjection.authMethod.walletAuthMethodId,
+      });
+      if (exactSession) {
         await establishUnlockedExportRootCapabilityWithWorkerV1(
           this.walletCustodyCeremonyTransportV1(),
           {
             existingEnvelope: unlock.ed25519ExportRootCustody.existingEnvelope,
             existingFactorSecret: unlock.ed25519ExportRootCustody.factorSecret32,
             walletId: String(args.walletSession.walletId),
-            walletAuthMethodId: String(authorization.projection.authority.walletAuthMethodId),
-            walletSessionId: String(authorization.projection.walletSessionId),
-            expiresAtMs: authorization.projection.expiresAtMs,
+            walletAuthMethodId: String(exactSession.record.authMethodId),
+            walletSessionId: String(exactSession.operationCredential.walletSessionId),
+            expiresAtMs: exactSession.record.expiresAtMs,
           },
         );
       }
-    } catch (error: unknown) {
-      console.warn(
-        '[SigningEngine][email-otp] unlocked Ed25519 export-root capability was not established:',
-        error instanceof Error ? error.message : String(error || 'unknown error'),
-      );
+      return signer;
+    } catch (error) {
+      await disposeWalletCustodyEd25519ActiveClientV1({
+        workerContext: this.signerWorkerManager.getContext(),
+        activeClientHandle: unlock.activeClientHandle,
+      }).catch(() => undefined);
+      throw error;
     } finally {
       unlock.ed25519ExportRootCustody.factorSecret32.fill(0);
     }
-    return signer;
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {

@@ -85,6 +85,8 @@ import {
 } from './normalSigningRouterProxy';
 import {
   parseEmailOtpChallengeId,
+  parseOrgId,
+  parseProviderSubject,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
@@ -1520,6 +1522,9 @@ async function issueEd25519OperationStepUpGrant(input: {
   const capabilityId = requireAuthorizationValue(
     parseCapabilityId(scope.material_activation.capability),
   );
+  const operationFingerprintDigest = parseSigningOperationFingerprintDigest(
+    intent.operation_fingerprint,
+  );
   const envelope = buildCapabilityOperationEnvelope({
     tenantId: authenticated.session.tenantId,
     principalId: authenticated.session.principalId,
@@ -1527,7 +1532,7 @@ async function issueEd25519OperationStepUpGrant(input: {
     operationId: operation.operationId,
     operation: operation.operation,
     digests: {
-      laneDigest: parseSigningOperationFingerprintDigest(intent.operation_fingerprint),
+      laneDigest: operationFingerprintDigest,
       intentDigest: parseDigestB64u(
         base64UrlEncode(Uint8Array.from(privateBody.admission_candidate.intent_digest.bytes)),
       ),
@@ -1622,9 +1627,10 @@ async function issueEd25519OperationStepUpGrant(input: {
         requestOrigin,
         audience: requestOrigin,
         authorityRef: authenticated.authorityRef,
+        operationFingerprintDigest,
       });
       const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
-        userId: authenticated.session.principalId,
+        userId: proof.providerSubjectId,
         walletId: authenticated.session.walletId,
         orgId: authenticated.session.tenantId,
         challengeId: proof.challengeId,
@@ -1658,9 +1664,11 @@ async function issueEd25519OperationStepUpGrant(input: {
       }
       const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
         subject: {
-          kind: 'authorization_session',
-          tenantId: authenticated.session.tenantId,
-          principalId: authenticated.session.principalId,
+          kind: 'provider_identity',
+          orgId: requireAuthorizationValue(parseOrgId(authenticated.session.tenantId)),
+          providerSubject: requireAuthorizationValue(
+            parseProviderSubject(proof.providerSubjectId),
+          ),
           walletId: walletIdFromString(authenticated.session.walletId),
         },
         loginGrant: verified.loginGrant,

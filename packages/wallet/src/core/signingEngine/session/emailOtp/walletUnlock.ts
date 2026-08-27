@@ -18,6 +18,7 @@ import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/e
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import type { EmailOtpVerifiedAuthorityProjection } from './publicTypes';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 import type {
@@ -32,6 +33,7 @@ export type EmailOtpWalletUnlockRecovery = {
   unlockChallengeB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockSignatureB64u: string;
+  verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
 };
 
 export type EmailOtpWalletUnlockResult = {

@@ -29,6 +29,8 @@ export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
   readonly authenticator: AuthenticatorPort;
   readonly http: HttpTransport;
   readonly relayerUrl: string;
+  readonly publishableKey: string;
+  readonly projectEnvironmentId: string;
   readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
@@ -61,6 +63,8 @@ export function createDeviceLinkingFlowPortsV1(
     owner: ownerTransport,
     http: args.http,
     relayerUrl: args.relayerUrl,
+    publishableKey: args.publishableKey,
+    projectEnvironmentId: args.projectEnvironmentId,
     keyMaterial,
     nowMs: args.nowMs,
     pollIntervalMs: args.pollIntervalMs,

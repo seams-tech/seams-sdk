@@ -1,5 +1,6 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthoritySelector } from '@/core/signingEngine/workerManager/workerTypes';
+import type { EmailOtpUnlockSignerSelection } from '@/core/signingEngine/session/emailOtp/publicTypes';
 
 export type LoginWithEmailOtpWalletCustodyEd25519Args = {
   walletSession: WalletSessionRef;
@@ -15,4 +16,5 @@ export type LoginWithEmailOtpWalletCustodyEd25519Args = {
   remainingUses: number;
   emailOtpAuthorityEmail: string;
   emailHashHex: string;
+  ed25519Selection: Extract<EmailOtpUnlockSignerSelection, { readonly kind: 'ed25519_only' }>;
 };

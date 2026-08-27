@@ -2,6 +2,7 @@ import {
   parseQrLinkedDeviceSessionTextV5,
   type QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
+import jsQR from 'jsqr';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
 import { validateQrLinkedDeviceSessionPayloadV5 } from '../SeamsWeb/operations/devices/scanDevice';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
@@ -292,11 +293,7 @@ export class ScanQRCodeFlow {
   }
 
   private async scanQRFromImageData(imageData: ImageData): Promise<string | null> {
-    const { default: jsQR } = await import('jsqr');
-    const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'dontInvert',
-    });
-    return code ? code.data : null;
+    return scanQRFromImageData(imageData);
   }
 
   private parseAndValidateQRData(qrData: string): QrLinkedDeviceSessionPayloadV5 {
@@ -448,7 +445,6 @@ export function detectCameraFacingMode(stream: MediaStream): boolean {
 // ===========================
 
 async function scanQRFromImageData(imageData: ImageData): Promise<string | null> {
-  const { default: jsQR } = await import('jsqr');
   const code = jsQR(imageData.data, imageData.width, imageData.height, {
     inversionAttempts: 'dontInvert',
   });

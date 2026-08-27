@@ -20,7 +20,6 @@ import {
   hostedWalletSessionCurveFromBoundary,
 } from '../hostedWalletSeamsSession';
 import { createHostedAuthMenuHandlers } from './authMenu';
-import { listLocalPasskeyWalletIds } from '@/SeamsWeb/operations/auth/login';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
@@ -83,6 +82,20 @@ function walletSessionRequestWalletId(
   return currentWalletId || undefined;
 }
 
+async function resolvePersistedCurrentWalletId(
+  pm: ReturnType<HandlerDeps['getSeamsWeb']>,
+): Promise<string | undefined> {
+  const currentWalletId = String(pm.preferences.getCurrentWalletId() || '').trim();
+  if (currentWalletId) return currentWalletId;
+  const recentUnlocks = await pm.auth.getRecentUnlocks();
+  const lastUsedWalletId = String(recentUnlocks.lastUsedAccount?.walletId || '').trim();
+  if (lastUsedWalletId) return lastUsedWalletId;
+  const walletIds = recentUnlocks.walletIds
+    .map((walletId) => String(walletId).trim())
+    .filter(Boolean);
+  return walletIds.length === 1 ? walletIds[0] : undefined;
+}
+
 async function resolveExactWalletSessionState(
   pm: ReturnType<HandlerDeps['getSeamsWeb']>,
   payload: PMGetExactWalletSessionStatePayload,
@@ -90,13 +103,9 @@ async function resolveExactWalletSessionState(
   let walletId: string | undefined;
   switch (payload.wallet.kind) {
     case 'current': {
-      walletId = pm.preferences.getCurrentWalletId() ?? undefined;
-      if (!walletId) {
-        const localWalletIds = await listLocalPasskeyWalletIds();
-        if (localWalletIds.length === 1) {
-          walletId = localWalletIds[0]!;
-          pm.preferences.setCurrentWallet(toWalletId(walletId));
-        }
+      walletId = await resolvePersistedCurrentWalletId(pm);
+      if (walletId) {
+        pm.preferences.setCurrentWallet(toWalletId(walletId));
       }
       break;
     }

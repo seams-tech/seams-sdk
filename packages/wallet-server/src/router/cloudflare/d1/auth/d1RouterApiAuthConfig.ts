@@ -74,8 +74,6 @@ export type CloudflareD1EmailOtpServerSealConfig = {
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   /** Resolves authoritative source-lane facts after the owner context is rebuilt from D1. */
   readonly readOwnerSourceChildV1: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1['readOwnerSourceChildV1'];
-  /** Exact trusted origin where the target Passkey ceremony runs. */
-  readonly targetPasskeyOrigin: string;
   /** Managed RP ID for every linked-device target Passkey. */
   readonly targetPasskeyRpId: string;
   readonly targetCredential: (input: {
@@ -93,11 +91,11 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
 };
 
 export function normalizeLinkedDevicePasskeyTargetConfigurationV1(input: {
-  readonly targetPasskeyOrigin: string;
+  readonly expectedOrigin: string;
   readonly targetPasskeyRpId: string;
 }): LinkedDevicePasskeyTargetConfigurationFieldsV1 {
-  const expectedOrigin = normalizeCorsOrigin(input.targetPasskeyOrigin);
-  if (!expectedOrigin || expectedOrigin !== input.targetPasskeyOrigin.trim()) {
+  const expectedOrigin = normalizeCorsOrigin(input.expectedOrigin);
+  if (!expectedOrigin || expectedOrigin !== input.expectedOrigin.trim()) {
     throw new Error('linked-device target Passkey origin must be an exact origin');
   }
   const parsedRpId = parseWebAuthnRpId(input.targetPasskeyRpId);

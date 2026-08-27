@@ -154,6 +154,83 @@ async function signingResponse(
   };
 }
 
+type ClientPresignatureRefFixture = {
+  presignatureId: string;
+  materialHandle: string;
+  bigR33: Uint8Array;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
+type ClientSigningMaterialFixtureOverrides = {
+  listAvailableClientPresignatures?: () => Promise<ClientPresignatureRefFixture[]>;
+  reserveClientPresignature?: () => Promise<void>;
+  destroyClientPresignature?: (input: { materialHandle: string }) => Promise<void>;
+};
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolvePromise: (value: T) => void = () => {};
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
+
+function buildClientPresignatureRefFixture(): ClientPresignatureRefFixture {
+  return {
+    presignatureId: 'fixture-client-presignature',
+    materialHandle: 'fixture-client-material',
+    bigR33: Uint8Array.from(Buffer.from(ecdsaServerBigR33B64u, 'base64url')),
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 30_000,
+  };
+}
+
+function buildClientSigningMaterialFixture(
+  overrides: ClientSigningMaterialFixtureOverrides = {},
+): RouterAbEcdsaDerivationClientSigningMaterialSource {
+  const listAvailableClientPresignatures =
+    overrides.listAvailableClientPresignatures ??
+    (async () => [buildClientPresignatureRefFixture()]);
+  const reserveClientPresignature = overrides.reserveClientPresignature ?? (async () => {});
+  const destroyClientPresignature =
+    overrides.destroyClientPresignature ?? (async (_input: { materialHandle: string }) => {});
+  return {
+    kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
+    initClientPresignSession: async () => {
+      throw new Error('fixture must not initialize a client presignature session');
+    },
+    stepClientPresignSession: async () => {
+      throw new Error('fixture must not step a client presignature session');
+    },
+    abortClientPresignSession: async () => {},
+    admitClientPresignature: async () => {},
+    destroyClientPresignature,
+    reserveClientPresignature,
+    commitClientPresignature: async () => {},
+    listAvailableClientPresignatures,
+    retireClientPresignaturePool: async () => 0,
+    computeSignatureShareFromPresignatureHandle: async () => new Uint8Array(32),
+  };
+}
+
+function validationWorkerContext(): WorkerOperationContext {
+  return {
+    requestWorkerOperation: async (args: {
+      kind: string;
+      request: { type: string; payload?: Record<string, unknown> };
+    }) => {
+      if (args.kind !== 'evmCrypto' || args.request.type !== 'validateSecp256k1PublicKey33') {
+        throw new Error(`Unexpected worker request: ${args.kind}/${args.request.type}`);
+      }
+      return args.request.payload?.publicKey33 as ArrayBuffer;
+    },
+  } as WorkerOperationContext;
+}
+
 test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
   test.beforeAll(async () => {
     scope = await buildScope();
@@ -434,6 +511,89 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
 
       expect(result).toMatchObject({ ok: false, code: 'pool_entry_expired' });
       expect(destroyedHandles).toEqual(['stale-local-material']);
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearAllRouterAbEcdsaDerivationClientPresignatures();
+    }
+  });
+
+  test('does not hydrate a presignature returned after the worker pool was cleared', async () => {
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
+    const listStarted = createDeferred<void>();
+    const listResult = createDeferred<ClientPresignatureRefFixture[]>();
+    const clientSigningMaterial = buildClientSigningMaterialFixture({
+      listAvailableClientPresignatures: async () => {
+        listStarted.resolve();
+        return await listResult.promise;
+      },
+    });
+    let fetchCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('stale presignature must not reach server prepare');
+    };
+    try {
+      const signing = signRouterAbEcdsaDerivationDigestWithPoolHit({
+        relayerUrl: 'https://router.example',
+        scope,
+        operationId,
+        operationDigests,
+        materialActivation,
+        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        signingDigest32: new Uint8Array(32).fill(11),
+        clientSigningMaterial,
+        expiresAtMs: Date.now() + 30_000,
+        workerCtx: validationWorkerContext(),
+        authorization,
+      });
+      await listStarted.promise;
+      clearAllRouterAbEcdsaDerivationClientPresignatures();
+      listResult.resolve([buildClientPresignatureRefFixture()]);
+
+      await expect(signing).resolves.toMatchObject({ ok: false, code: 'pool_empty' });
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearAllRouterAbEcdsaDerivationClientPresignatures();
+    }
+  });
+
+  test('invalidates a selected handle before prepare when the worker pool resets', async () => {
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
+    const destroyedHandles: string[] = [];
+    const clientSigningMaterial = buildClientSigningMaterialFixture({
+      reserveClientPresignature: async () => {
+        clearAllRouterAbEcdsaDerivationClientPresignatures();
+      },
+      destroyClientPresignature: async ({ materialHandle }) => {
+        destroyedHandles.push(materialHandle);
+      },
+    });
+    let fetchCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('reset presignature must not reach server prepare');
+    };
+    try {
+      const result = await signRouterAbEcdsaDerivationDigestWithPoolHit({
+        relayerUrl: 'https://router.example',
+        scope,
+        operationId,
+        operationDigests,
+        materialActivation,
+        credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+        signingDigest32: new Uint8Array(32).fill(11),
+        clientSigningMaterial,
+        expiresAtMs: Date.now() + 30_000,
+        workerCtx: validationWorkerContext(),
+        authorization,
+      });
+
+      expect(result).toMatchObject({ ok: false, code: 'pool_entry_unavailable' });
+      expect(fetchCalls).toBe(0);
+      expect(destroyedHandles).toEqual(['fixture-client-material']);
     } finally {
       globalThis.fetch = originalFetch;
       clearAllRouterAbEcdsaDerivationClientPresignatures();

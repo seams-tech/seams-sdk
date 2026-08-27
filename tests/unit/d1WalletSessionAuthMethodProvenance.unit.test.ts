@@ -9,7 +9,16 @@ import {
   type ActiveWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
-import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import {
+  buildAuthorizationGrantRef,
+  buildNearEd25519MpcOperationRef,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+  parseAuthorizationAuditEventId,
+  parseAuthorizedOperationId,
+  parseCapabilityId,
+  parseCapabilityOperationId,
+  parseDeviceId,
+} from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import {
   parseMpcWalletSigningQuotaId,
@@ -33,11 +42,13 @@ import {
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import { buildAuthorizedOperation } from '../../packages/wallet-server/src/authorization/domain';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
@@ -807,6 +818,100 @@ test('refreshes an established V2 Wallet Session against an upgraded active auth
         nowMs: 301,
       }),
     ).resolves.toEqual(refreshed);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('admits a V2 Wallet Session operation and replays against its exact source', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'authorized-operation-v2-claim';
+    const fixture = await seedActiveAuthority(temporary.database, namespace, 'v2-claim');
+    const service = createService(temporary.database, namespace);
+    const session = await service.issueWalletSessionAuthorizationV2({
+      tenantId: requiredParsed(parseTenantId('tenant:v2-claim')),
+      principalId: requiredParsed(parsePrincipalId('principal:v2-claim')),
+      walletId: fixture.authority.walletId,
+      authority: fixture.authority,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:v2-claim'),
+      remainingUses: 2,
+      issuedAtMs: 300,
+      expiresAtMs: 400,
+    });
+    const operation = buildCapabilityOperationEnvelope({
+      tenantId: session.session.tenantId,
+      principalId: session.session.principalId,
+      capabilityId: requiredParsed(
+        parseCapabilityId(
+          String(fixture.authority.signerActivations.ed25519.materialActivation.capability),
+        ),
+      ),
+      operationId: requiredParsed(parseCapabilityOperationId('operation:v2-claim')),
+      operation: buildNearEd25519MpcOperationRef(NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction),
+      digests: {
+        laneDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(81))),
+        intentDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(82))),
+        displayDigest: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(83))),
+      },
+    });
+    const claimInput = await buildAuthorizedOperation({
+      tenantId: session.session.tenantId,
+      authorizedOperationId: requiredParsed(
+        parseAuthorizedOperationId('authorized-operation:v2-claim'),
+      ),
+      auditEventId: requiredParsed(parseAuthorizationAuditEventId('audit:v2-claim')),
+      operation,
+      authorization: {
+        kind: 'authorization_grant',
+        authorizationGrantRef: buildAuthorizationGrantRef(session.session.authorizationId),
+      },
+      quota: {
+        kind: 'consume_reusable_wallet_session',
+        quotaId: session.session.quotaId,
+      },
+      claimedAtMs: 301,
+    });
+
+    await expect(
+      service.admitAuthorizedOperation({ operation: claimInput }),
+    ).resolves.toMatchObject({
+      kind: 'claimed',
+    });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT remaining_uses, lifecycle_kind
+             FROM authorization_wallet_session_quotas
+            WHERE namespace = ? AND tenant_id = ? AND quota_id = ?`,
+        )
+        .bind(namespace, session.session.tenantId, session.session.quotaId)
+        .first(),
+    ).resolves.toEqual({ remaining_uses: 1, lifecycle_kind: 'active' });
+
+    const retry = await buildAuthorizedOperation({
+      ...claimInput,
+      authorizedOperationId: requiredParsed(
+        parseAuthorizedOperationId('authorized-operation:v2-claim-retry'),
+      ),
+      auditEventId: requiredParsed(parseAuthorizationAuditEventId('audit:v2-claim-retry')),
+      claimedAtMs: 302,
+    });
+    await expect(service.admitAuthorizedOperation({ operation: retry })).resolves.toMatchObject({
+      kind: 'operation_in_progress',
+    });
+    await expect(
+      temporary.database
+        .prepare(
+          `SELECT remaining_uses
+             FROM authorization_wallet_session_quotas
+            WHERE namespace = ? AND tenant_id = ? AND quota_id = ?`,
+        )
+        .bind(namespace, session.session.tenantId, session.session.quotaId)
+        .first(),
+    ).resolves.toEqual({ remaining_uses: 1 });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }

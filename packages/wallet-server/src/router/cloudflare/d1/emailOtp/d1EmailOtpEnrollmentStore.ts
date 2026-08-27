@@ -176,6 +176,37 @@ export class CloudflareD1EmailOtpEnrollmentStore {
     );
   }
 
+  /** Inserts the first enrollment without turning a concurrent winner into an update. */
+  prepareInsertEnrollmentStatement(
+    record: EmailOtpWalletEnrollmentRecord,
+  ): D1PreparedStatementLike {
+    return this.prepare(
+      `INSERT INTO email_otp_wallet_enrollments (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        provider_user_id,
+        record_org_id,
+        verified_email,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.walletId,
+        record.providerUserId,
+        record.orgId,
+        record.verifiedEmail,
+        JSON.stringify(record),
+        record.createdAtMs,
+        record.updatedAtMs,
+      ],
+    );
+  }
+
   async readAuthState(walletId: string): Promise<EmailOtpAuthStateRecord | null> {
     const row = await this.prepare(
       `SELECT record_json, updated_at_ms

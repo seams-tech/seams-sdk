@@ -151,7 +151,6 @@ import { createCloudflareD1VersionedJsonRecordStore } from '../versionedJson/d1V
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import {
   normalizeD1RouterApiAuthOptions,
-  normalizeLinkedDevicePasskeyTargetConfigurationV1,
   type CloudflareD1RouterApiAuthServiceOptions,
   type NormalizedCloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
@@ -367,12 +366,19 @@ function createD1LinkedDeviceComposition(input: {
    */
   readonly emailOtpLinkedDevice?: {
     readonly issuer: Pick<CloudflareD1EmailOtpChallengeIssuer, 'create'>;
-    readonly verifier: Pick<CloudflareD1EmailOtpChallengeVerifier, 'verifyExisting'>;
+    readonly verifier: Pick<
+      CloudflareD1EmailOtpChallengeVerifier,
+      'verifyExisting' | 'verifyRegistration'
+    >;
     readonly enrollments: Pick<CloudflareD1EmailOtpEnrollmentStore, 'readEnrollment'>;
     readonly walletAuthMethodStore: {
       listForWalletV2(input: { readonly walletId: string }): Promise<WalletAuthMethodRecordV2[]>;
     };
     readonly serverSeal: Pick<CloudflareD1EmailOtpServerSealRuntime, 'removeEmailOtpServerSeal'>;
+    readonly enrollmentFinalizer: Pick<
+      CloudflareD1EmailOtpRegistrationEnrollmentFinalizer,
+      'prepareLinkedDeviceEnrollment'
+    >;
   };
 }): D1LinkedDeviceCompositionAssembly {
   const config = input.options.linkedDevice;
@@ -482,10 +488,6 @@ function createD1LinkedDeviceComposition(input: {
     return { deviceManagement };
   }
   if (sessionConfig) {
-    const targetPasskeyConfiguration = normalizeLinkedDevicePasskeyTargetConfigurationV1({
-      targetPasskeyOrigin: sessionConfig.targetPasskeyOrigin,
-      targetPasskeyRpId: sessionConfig.targetPasskeyRpId,
-    });
     let emailOtpTargetFactor: D1LinkedDeviceEmailOtpTargetFactorV1 | undefined;
     if (input.emailOtpLinkedDevice) {
       const linkedEmailOtpGrants = new D1LinkedDeviceEmailOtpGrantStoreV1({
@@ -496,6 +498,7 @@ function createD1LinkedDeviceComposition(input: {
         issuer: input.emailOtpLinkedDevice.issuer,
         verifier: input.emailOtpLinkedDevice.verifier,
         enrollments: input.emailOtpLinkedDevice.enrollments,
+        orgId: input.options.orgId,
         walletAuthMethods: input.emailOtpLinkedDevice.walletAuthMethodStore,
         walletAuthorities: authorityStore,
         serverSeal: input.emailOtpLinkedDevice.serverSeal,
@@ -523,7 +526,7 @@ function createD1LinkedDeviceComposition(input: {
         readOwnerSourceChildV1: sessionConfig.readOwnerSourceChildV1,
         nowV1,
       }),
-      targetPlanner: { targetPasskeyConfiguration },
+      targetPlanner: { targetPasskeyRpId: sessionConfig.targetPasskeyRpId },
       nowV1,
     });
     ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
@@ -551,6 +554,9 @@ function createD1LinkedDeviceComposition(input: {
       }),
       authorizationService: input.authorizationService,
       authorizationStore: input.authorizationStore,
+      ...(input.emailOtpLinkedDevice === undefined
+        ? {}
+        : { emailOtpEnrollmentFinalizer: input.emailOtpLinkedDevice.enrollmentFinalizer }),
       tenantId: tenantId.value,
       nowV1,
     });
@@ -586,7 +592,7 @@ function createD1LinkedDeviceComposition(input: {
       targetCredential: sessionConfig.targetCredential({
         verifiedLinkBuilder,
         targetCredentialVerification: new LinkedDeviceWebAuthnRegistrationVerifierV1(
-          targetPasskeyConfiguration,
+          ownerAuthorizationProvider.targetPlanner.targetPasskeyRpId,
         ),
         targetPlanner: ownerAuthorizationProvider.targetPlanner,
         resolveOwnerSourceChildV1:
@@ -1830,6 +1836,7 @@ function createCloudflareD1RouterApiAuthAssembly(
       enrollments: emailOtpEnrollments,
       walletAuthMethodStore,
       serverSeal: emailOtpServerSeal,
+      enrollmentFinalizer: emailOtpRegistrationEnrollmentFinalizer,
     },
     options,
     authorizationService,

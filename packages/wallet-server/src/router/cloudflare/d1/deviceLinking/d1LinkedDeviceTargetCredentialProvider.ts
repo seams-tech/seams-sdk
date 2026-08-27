@@ -33,6 +33,7 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
+import { parseClientDataJsonBase64url } from '../../../../core/authService/webauthnOidcHelpers';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -60,12 +61,24 @@ export type VerifiedLinkedDeviceWebAuthnCredentialV1 = {
 };
 
 /** The consumed-grant projection an email OTP completion is committed under. */
-export type VerifiedLinkedDeviceEmailOtpGrantV1 = {
+type VerifiedLinkedDeviceEmailOtpGrantBaseV1 = {
   readonly grantId: string;
-  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly targetEmail: import('@shared/utils/domainIds').VerifiedEmailAddress;
+  readonly enrollment: import('@shared/device-linking/contracts').LinkedDeviceEmailOtpEnrollmentSelectionV1;
+  readonly providerUserId: string;
   readonly authorityDigestB64u: DigestB64u;
   readonly descriptorCredentialIdB64u: WebAuthnCredentialIdB64u;
 };
+
+export type VerifiedLinkedDeviceEmailOtpGrantV1 =
+  | (VerifiedLinkedDeviceEmailOtpGrantBaseV1 & {
+      readonly enrollment: { readonly kind: 'existing_enrollment' };
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
+    })
+  | (VerifiedLinkedDeviceEmailOtpGrantBaseV1 & {
+      readonly enrollment: { readonly kind: 'new_enrollment' };
+      readonly baseWalletAuthMethodId?: never;
+    });
 
 /**
  * The exact evidence a target registration was verified against, one branch
@@ -101,25 +114,25 @@ export type LinkedDeviceTargetCredentialVerificationPortV1 = {
   verifyRegistrationV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly expectedOrigin: string;
   }): Promise<
     | { readonly kind: 'verified'; readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1 }
     | { readonly kind: 'rejected'; readonly message: string }
   >;
 };
 
-/** Uses the canonical D1 WebAuthn registration verifier with the configured ceremony origin. */
+/** Verifies the browser-signed ceremony origin against the configured RP ID. */
 export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceTargetCredentialVerificationPortV1 {
-  private readonly expectedOrigin: string;
   private readonly expectedRpId: LinkedDevicePasskeyTargetConfigurationFieldsV1['rpId'];
 
-  constructor(configuration: LinkedDevicePasskeyTargetConfigurationFieldsV1) {
-    this.expectedOrigin = configuration.expectedOrigin;
-    this.expectedRpId = configuration.rpId;
+  constructor(expectedRpId: LinkedDevicePasskeyTargetConfigurationFieldsV1['rpId']) {
+    this.expectedRpId = expectedRpId;
   }
 
   async verifyRegistrationV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly expectedOrigin: string;
   }): Promise<
     | { readonly kind: 'verified'; readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1 }
     | { readonly kind: 'rejected'; readonly message: string }
@@ -142,7 +155,7 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
     const expectedConfigurationDigestB64u =
       await computeLinkedDevicePasskeyTargetConfigurationDigestV1({
         rpId: this.expectedRpId,
-        expectedOrigin: this.expectedOrigin,
+        expectedOrigin: input.expectedOrigin,
       });
     if (input.preparation.passkeyConfigurationDigestB64u !== expectedConfigurationDigestB64u) {
       return {
@@ -150,6 +163,7 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
         message: 'Passkey preparation configuration is no longer configured',
       };
     }
+    const ceremonyOrigin = parseClientDataJsonBase64url(registration.clientDataJsonB64u).origin;
     const verification = await verifyWebAuthnRegistrationCredentialForIntent({
       webauthnRegistration: {
         id: registration.credentialIdB64u,
@@ -164,7 +178,7 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
         clientExtensionResults: {},
       },
       expectedChallenge: options.challengeB64u,
-      expectedOrigin: this.expectedOrigin,
+      expectedOrigin: ceremonyOrigin,
       rpId: options.rpId,
     });
     return verification.ok
@@ -214,6 +228,7 @@ export type LinkedDeviceTargetPlannerV1 = {
   createTargetPreparationV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly expectedOrigin: string;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1>;
 };
@@ -385,11 +400,16 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     this.verifiedLinkBuilder = input.verifiedLinkBuilder;
   }
 
-  async getTargetPreparationV1(input: {
-    readonly session: LinkedDeviceSessionRecordV1;
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceTargetPreparationV1> {
+  async getTargetPreparationV1(
+    input: {
+      readonly session: LinkedDeviceSessionRecordV1;
+      readonly approval: LinkedDeviceApprovalV1;
+      readonly requestedAtMs: number;
+    } & (
+      | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
+      | { readonly access: 'replay_only'; readonly expectedOrigin?: never }
+    ),
+  ): Promise<LinkedDeviceTargetPreparationV1> {
     const persisted = await this.readV1(input.session.linkSessionId);
     if (persisted) {
       assertPreparationMatchesSession(persisted.preparation, input.session, input.approval);
@@ -397,6 +417,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     }
     if (input.session.state.state !== 'awaiting_target_factor') {
       throw new Error('linked-device target preparation is unavailable in this session state');
+    }
+    if (input.access === 'replay_only') {
+      throw new Error('linked-device target preparation has not been created');
     }
     const preparation = parseLinkedDeviceTargetPreparationV1(
       await this.planner.createTargetPreparationV1(input),
@@ -443,6 +466,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly expectedOrigin: string;
     readonly requestedAtMs: number;
   }): Promise<
     | TargetCredentialRegistrationSuccessV1
@@ -544,6 +568,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly input: {
       readonly session: LinkedDeviceSessionRecordV1;
       readonly approval: LinkedDeviceApprovalV1;
+      readonly expectedOrigin: string;
       readonly requestedAtMs: number;
     };
     readonly persisted: PersistedTargetCredentialV1;
@@ -557,6 +582,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       const evidence = await this.verifyTargetFactorEvidenceV1({
         preparation: input.persisted.preparation,
         registration: input.registration,
+        expectedOrigin: input.input.expectedOrigin,
         requestedAtMs: input.input.requestedAtMs,
       });
       const planned = await this.planSourceContributionPreparationV1({
@@ -609,6 +635,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private async verifyTargetFactorEvidenceV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly expectedOrigin: string;
     readonly requestedAtMs: number;
   }): Promise<VerifiedLinkedDeviceTargetFactorEvidenceV1> {
     switch (input.registration.targetFactor.kind) {
@@ -616,6 +643,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         const verification = await this.verifier.verifyRegistrationV1({
           preparation: input.preparation,
           registration: input.registration,
+          expectedOrigin: input.expectedOrigin,
         });
         if (verification.kind === 'rejected') throw new Error(verification.message);
         const credentialId = parseWebAuthnCredentialIdB64u(
@@ -1190,10 +1218,17 @@ function preparationBaseFactorMatchesApprovalV1(
 ): boolean {
   if (isEmailOtpPreparationV1(preparation)) {
     const approvalTargetFactor = approval.targetFactor;
-    return (
-      approvalTargetFactor.kind === 'email_otp' &&
-      preparation.baseWalletAuthMethodId === approvalTargetFactor.baseWalletAuthMethodId
-    );
+    if (
+      approvalTargetFactor.kind !== 'email_otp' ||
+      preparation.targetEmail !== approvalTargetFactor.targetEmail ||
+      preparation.enrollment.kind !== approvalTargetFactor.enrollment.kind
+    ) {
+      return false;
+    }
+    return preparation.enrollment.kind === 'existing_enrollment'
+      ? preparation.baseWalletAuthMethodId === approvalTargetFactor.baseWalletAuthMethodId
+      : preparation.baseWalletAuthMethodId === undefined &&
+          approvalTargetFactor.baseWalletAuthMethodId === undefined;
   }
   return (
     preparation.targetFactor.kind === 'passkey_prf' && approval.targetFactor.kind === 'passkey_prf'
@@ -1494,12 +1529,20 @@ async function parseTargetCredentialRow(
   const descriptorCredentialIdB64u = await linkedDeviceEmailOtpDescriptorCredentialIdV1(
     preparation.walletAuthMethodId,
   );
-  if (
-    descriptorCredentialIdB64u !== credentialId.value ||
-    targetFactor.baseWalletAuthMethodId !== wireGrant.baseWalletAuthMethodId
-  ) {
+  if (descriptorCredentialIdB64u !== credentialId.value) {
     throw new Error('linked-device email OTP descriptor binding differs from its durable payload');
   }
+  if (
+    targetFactor.targetEmail !== wireGrant.targetEmail ||
+    targetFactor.enrollment.kind !== wireGrant.enrollment.kind ||
+    targetFactor.providerUserId !== wireGrant.providerUserId
+  ) {
+    throw new Error('linked-device email OTP target identity differs from its durable payload');
+  }
+  const grant = buildVerifiedEmailOtpGrantProjectionV1({
+    grant: wireGrant,
+    descriptorCredentialIdB64u,
+  });
   return {
     state: 'registered',
     preparationDigestB64u,
@@ -1508,12 +1551,7 @@ async function parseTargetCredentialRow(
       value: payload.registration,
       evidence: {
         kind: 'email_otp',
-        grant: {
-          grantId: wireGrant.grantId,
-          baseWalletAuthMethodId: wireGrant.baseWalletAuthMethodId,
-          authorityDigestB64u: wireGrant.authorityDigestB64u,
-          descriptorCredentialIdB64u,
-        },
+        grant,
       },
       targetFactor: payload.verifiedTargetFactor,
       sourceContributionPreparation: payload.sourceContributionPreparation,
@@ -1521,6 +1559,36 @@ async function parseTargetCredentialRow(
       recipientRequestsDigestB64u: payload.recipientRequestsDigestB64u,
       keyManifestDigestB64u,
     },
+  };
+}
+
+function buildVerifiedEmailOtpGrantProjectionV1(input: {
+  readonly grant: NonNullable<LinkedDeviceTargetCredentialRegistrationV1['emailOtpVerificationGrant']>;
+  readonly descriptorCredentialIdB64u: WebAuthnCredentialIdB64u;
+}): VerifiedLinkedDeviceEmailOtpGrantV1 {
+  const grant = input.grant;
+  if (grant.enrollment.kind === 'existing_enrollment') {
+    const baseWalletAuthMethodId = grant.baseWalletAuthMethodId;
+    if (!baseWalletAuthMethodId) {
+      throw new Error('linked-device Email OTP existing grant is missing its base factor');
+    }
+    return {
+      grantId: grant.grantId,
+      targetEmail: grant.targetEmail,
+      enrollment: grant.enrollment,
+      providerUserId: grant.providerUserId,
+      baseWalletAuthMethodId,
+      authorityDigestB64u: grant.authorityDigestB64u,
+      descriptorCredentialIdB64u: input.descriptorCredentialIdB64u,
+    };
+  }
+  return {
+    grantId: grant.grantId,
+    targetEmail: grant.targetEmail,
+    enrollment: grant.enrollment,
+    providerUserId: grant.providerUserId,
+    authorityDigestB64u: grant.authorityDigestB64u,
+    descriptorCredentialIdB64u: input.descriptorCredentialIdB64u,
   };
 }
 

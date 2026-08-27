@@ -428,7 +428,7 @@ type GoogleEmailOtpResolutionResult =
       readonly mode: 'existing_wallet';
       readonly walletId: string;
       readonly providerSubject: string;
-      readonly email?: string;
+      readonly email: string;
       readonly hasEmailOtpEnrollment: true;
     }
   | {

@@ -1112,6 +1112,7 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
   nearAccountId: string;
   materialActivation: MpcMaterialActivationRef;
   operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
   txSigningRequest: TransactionPayload;
   transactionContext: TransactionContext;
   displayDigest: string;
@@ -1129,17 +1130,6 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
     args.txSigningRequest,
     'txSigningRequest',
   );
-  const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
-    await thresholdEd25519NearTransactionOperationFingerprint({
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-      signerPublicKey: args.thresholdKeyMaterial.publicKey,
-      transactions: [parsedTransaction],
-      unsignedTransactionBorshB64u: unsigned.unsignedTransactionBorshB64u,
-      signingDigestB64u: unsigned.signingDigestB64u,
-    }),
-  );
   const scope = buildRouterAbOperationStepUpScope({
     materialActivation: args.materialActivation,
     materialFacts: args.materialFacts,
@@ -1150,7 +1140,7 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
     scope,
     expiresAtMs: Date.now() + ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS,
     operationId: args.operationId,
-    operationFingerprint,
+    operationFingerprint: args.operationFingerprint,
     displayDigestB64u: args.displayDigest,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
@@ -1175,7 +1165,7 @@ export async function prepareRouterAbEd25519NearTransactionOperationStepUp(args:
       operationKind: 'near.sign_transaction',
     },
     digests: {
-      laneDigest: parseSigningOperationFingerprintDigest(operationFingerprint),
+      laneDigest: parseSigningOperationFingerprintDigest(args.operationFingerprint),
       intentDigest: parseDigestB64u(
         base64UrlEncode(Uint8Array.from(prepare.admissionMaterial.intentDigest.bytes)),
       ),

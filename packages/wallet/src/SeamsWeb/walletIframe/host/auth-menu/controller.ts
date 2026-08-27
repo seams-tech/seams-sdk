@@ -32,6 +32,7 @@ import { defaultLoginAccount, loginAccountOptions, passkeyRecentWalletId } from 
 import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
+  StartDevice2LinkingTargetV1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
@@ -331,7 +332,7 @@ export class AuthMenuController {
   }
 
   private startDeviceLinking = async (
-    targetFactor: StartDevice2LinkingFlowArgs['targetFactor'],
+    target: StartDevice2LinkingTargetV1,
     callbacks: {
       readonly onEvent: (event: LinkDeviceFlowEvent) => void;
       readonly onTargetFactorRequired: NonNullable<
@@ -340,7 +341,7 @@ export class AuthMenuController {
     },
   ): Promise<StartDevice2LinkingFlowResults> =>
     await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({
-      targetFactor,
+      ...target,
       options: callbacks,
     });
 

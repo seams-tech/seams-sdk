@@ -10,6 +10,7 @@ import {
   parseWalletAuthMethodId,
   parseWalletId,
   parseWebAuthnRpId,
+  parseVerifiedEmailAddress,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 
@@ -28,6 +29,7 @@ const ENROLLMENT_ID = required(parseLinkedDeviceEnrollmentId('enrollment:target-
 const DEVICE_ID = required(parseLinkedDeviceId('device:target-preparation-test'));
 const WALLET_KEY_ID = required(parseWalletKeyId('wallet-key:target-preparation-test'));
 const RP_ID = required(parseWebAuthnRpId('wallet.example.test'));
+const TARGET_EMAIL = required(parseVerifiedEmailAddress('owner@example.test'));
 const PASSKEY_CONFIGURATION_DIGEST = parseDigestB64u('-_FGSvFbB5YyBu0DYdUOH-clwdy5pelU3m_l9jzbsZ0');
 
 function recipientRequirement(): {
@@ -135,6 +137,8 @@ export function buildEmailOtpTargetPreparationFixtureV1(): Extract<
     walletAuthMethodId,
     ed25519ExportRoot: null,
     targetFactor: { kind: 'email_otp' },
+    targetEmail: TARGET_EMAIL,
+    enrollment: { kind: 'existing_enrollment' },
     baseWalletAuthMethodId,
     ordinarySignerMaterialRecipientRequirements: [recipientRequirement()],
     issuedAtMs: 1_000,

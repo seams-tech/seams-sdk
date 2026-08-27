@@ -8,7 +8,10 @@ import {
   parseLinkedDeviceRevokeResultV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
-import type { LinkedDeviceTargetFactorActivationV1 } from '@/core/types/linkDevice';
+import type {
+  LinkedDeviceTargetFactorActivationV1,
+  StartDevice2LinkingFlowArgs,
+} from '@/core/types/linkDevice';
 import { classifyLinkDeviceFlowEvent, type LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   DeviceLinkEmailOtpBaseFactorActionPayloadV1,
@@ -229,12 +232,24 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       const pm = deps.getSeamsWeb();
       const payload = req.payload;
       if (!payload) throw new Error('PM_START_DEVICE2_LINKING_FLOW requires a payload');
-      const { targetFactor, ui, cameraId, options } = payload;
+      const { ui, cameraId, options } = payload;
+      let target: StartDevice2LinkingFlowArgs;
+      if (payload.targetFactor.kind === 'email_otp') {
+        if (typeof payload.targetEmail !== 'string') {
+          throw new Error('PM_START_DEVICE2_LINKING_FLOW requires targetEmail for Email OTP');
+        }
+        target = {
+          targetFactor: payload.targetFactor,
+          targetEmail: payload.targetEmail,
+        };
+      } else {
+        target = { targetFactor: payload.targetFactor };
+      }
       if (deps.respondIfCancelled(req.requestId)) return;
       const activationId = String(req.requestId || '').trim();
       if (!activationId) throw new Error('Device-link target-factor activation id is required');
       const result = await pm.devices.startDevice2LinkingFlow({
-        targetFactor,
+        ...target,
         ...(ui ? { ui } : {}),
         ...(cameraId ? { cameraId } : {}),
         options: {

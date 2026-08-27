@@ -26,10 +26,12 @@ import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletId,
+  parseVerifiedEmailAddress,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   type WalletAuthMethodId,
   type WalletId,
+  type VerifiedEmailAddress,
   type WebAuthnCredentialIdB64u,
 } from '../utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
@@ -49,6 +51,7 @@ import { parseWalletAuthMethodRecordV2 } from '../utils/registrationIntent';
 import {
   type EmailOtpWalletAuthMethodDraftV1,
   type PasskeyWalletAuthMethodDraftV1,
+  type WalletEmailOtpEnrollmentMaterialV1,
 } from '../utils/registrationIntent';
 import { requireRouterAbX25519PublicKey } from '../utils/routerAbPublicKeyset';
 import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
@@ -94,6 +97,7 @@ import {
   type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceTargetFactorV1,
   type LinkedDeviceApprovedTargetFactorV1,
+  type LinkedDeviceEmailOtpEnrollmentSelectionV1,
   type LinkedDeviceEmailOtpBaseFactorRequestV1,
   type LinkedDeviceEmailOtpBaseFactorResolutionV1,
   type LinkedDeviceEmailOtpBaseFactorResolutionResultV1,
@@ -130,7 +134,9 @@ const QR_FIELDS = [
   'issuedAtMs',
   'expiresAtMs',
 ] as const;
+const QR_EMAIL_FIELDS = [...QR_FIELDS, 'targetEmail'] as const;
 const COMPACT_QR_FIELDS = ['v', 's', 'l', 'd', 'a', 'f', 'i', 'e'] as const;
+const COMPACT_QR_EMAIL_FIELDS = [...COMPACT_QR_FIELDS, 't'] as const;
 const OWNER_AUTHORIZATION_REQUEST_FIELDS = ['payload', 'requestedAtMs'] as const;
 const CLAIM_REQUEST_FIELDS = ['kind', 'payload'] as const;
 const CLAIM_FIELDS = [
@@ -180,7 +186,12 @@ const CREDENTIAL_BASE_FIELDS = [
 const PASSKEY_CREDENTIAL_FIELDS = [...CREDENTIAL_BASE_FIELDS, 'webauthnRegistration'] as const;
 const EMAIL_OTP_CREDENTIAL_FIELDS = [
   ...CREDENTIAL_BASE_FIELDS,
+  'targetEmail',
   'emailOtpVerificationGrant',
+] as const;
+const EMAIL_OTP_CREDENTIAL_NEW_FIELDS = [
+  ...EMAIL_OTP_CREDENTIAL_FIELDS,
+  'emailOtpEnrollment',
 ] as const;
 const TARGET_PREPARATION_BASE_FIELDS = [
   'kind',
@@ -202,9 +213,16 @@ const TARGET_PREPARATION_PASSKEY_FIELDS = [
 ] as const;
 const TARGET_PREPARATION_EMAIL_FIELDS = [
   ...TARGET_PREPARATION_BASE_FIELDS,
+  'targetEmail',
+  'enrollment',
   'baseWalletAuthMethodId',
 ] as const;
-const EMAIL_OTP_VERIFICATION_GRANT_FIELDS = [
+const TARGET_PREPARATION_EMAIL_NEW_FIELDS = [
+  ...TARGET_PREPARATION_BASE_FIELDS,
+  'targetEmail',
+  'enrollment',
+] as const;
+const EMAIL_OTP_VERIFICATION_GRANT_BASE_FIELDS = [
   'kind',
   'grantId',
   'grantToken',
@@ -214,13 +232,18 @@ const EMAIL_OTP_VERIFICATION_GRANT_FIELDS = [
   'enrollmentId',
   'deviceId',
   'targetPreparationDigestB64u',
-  'baseWalletAuthMethodId',
+  'targetEmail',
+  'enrollment',
   'emailHashHex',
   'registrationAuthorityId',
   'providerUserId',
   'authorityDigestB64u',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+const EMAIL_OTP_VERIFICATION_GRANT_FIELDS = [
+  ...EMAIL_OTP_VERIFICATION_GRANT_BASE_FIELDS,
+  'baseWalletAuthMethodId',
 ] as const;
 const EMAIL_OTP_FACTOR_RELEASE_FIELDS = [
   'kind',
@@ -465,7 +488,7 @@ function delegatedWalletAuthorityWireValue(value: DelegatedWalletAuthorityV1): {
 }
 
 function qrPayloadWireValue(payload: QrLinkedDeviceSessionPayloadV5): UnknownRecord {
-  return {
+  const base = {
     version: payload.version,
     purpose: payload.purpose,
     linkSessionId: payload.linkSessionId,
@@ -476,6 +499,9 @@ function qrPayloadWireValue(payload: QrLinkedDeviceSessionPayloadV5): UnknownRec
     issuedAtMs: payload.issuedAtMs,
     expiresAtMs: payload.expiresAtMs,
   };
+  return payload.targetFactor.kind === 'email_otp'
+    ? { ...base, targetEmail: payload.targetEmail }
+    : base;
 }
 
 function parseTargetFactor(raw: unknown, label: string): LinkedDeviceTargetFactorV1 {
@@ -490,6 +516,59 @@ function parseTargetFactor(raw: unknown, label: string): LinkedDeviceTargetFacto
   }
 }
 
+function parseTargetEmail(raw: unknown, label: string): VerifiedEmailAddress {
+  const parsed = parseVerifiedEmailAddress(raw);
+  if (!parsed.ok) throw new Error(`${label} ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function parseEmailOtpEnrollmentSelection(
+  raw: unknown,
+  label: string,
+): LinkedDeviceEmailOtpEnrollmentSelectionV1 {
+  const record = requireRecord(raw, label);
+  if (record.kind === 'existing_enrollment') {
+    exactRecord(record, ['kind'], label);
+    return { kind: 'existing_enrollment' };
+  }
+  if (record.kind === 'new_enrollment') {
+    exactRecord(record, ['kind'], label);
+    return { kind: 'new_enrollment' };
+  }
+  throw new Error(`${label}.kind is invalid`);
+}
+
+function parseEmailOtpEnrollmentMaterial(
+  raw: unknown,
+  label: string,
+): WalletEmailOtpEnrollmentMaterialV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'enrollmentSealKeyVersion',
+      'clientUnlockPublicKeyB64u',
+      'unlockKeyVersion',
+      'serverSealedFactorCiphertextB64u',
+    ],
+    label,
+  );
+  return {
+    enrollmentSealKeyVersion: parseNonEmptyToken(
+      record.enrollmentSealKeyVersion,
+      `${label}.enrollmentSealKeyVersion`,
+    ),
+    clientUnlockPublicKeyB64u: parseNonEmptyToken(
+      record.clientUnlockPublicKeyB64u,
+      `${label}.clientUnlockPublicKeyB64u`,
+    ),
+    unlockKeyVersion: parseNonEmptyToken(record.unlockKeyVersion, `${label}.unlockKeyVersion`),
+    serverSealedFactorCiphertextB64u: parseNonEmptyToken(
+      record.serverSealedFactorCiphertextB64u,
+      `${label}.serverSealedFactorCiphertextB64u`,
+    ),
+  };
+}
+
 function parseApprovedTargetFactor(
   raw: unknown,
   label: string,
@@ -500,15 +579,23 @@ function parseApprovedTargetFactor(
     return { kind: 'passkey_prf' };
   }
   if (record.kind === 'email_otp') {
-    const exact = exactRecord(record, ['kind', 'baseWalletAuthMethodId'], label);
-    return {
-      kind: 'email_otp',
-      baseWalletAuthMethodId: parseId(
-        parseWalletAuthMethodId,
-        exact.baseWalletAuthMethodId,
-        `${label}.baseWalletAuthMethodId`,
-      ),
-    };
+    const enrollment = parseEmailOtpEnrollmentSelection(record.enrollment, `${label}.enrollment`);
+    const targetEmail = parseTargetEmail(record.targetEmail, `${label}.targetEmail`);
+    if (enrollment.kind === 'existing_enrollment') {
+      const exact = exactRecord(record, ['kind', 'targetEmail', 'enrollment', 'baseWalletAuthMethodId'], label);
+      return {
+        kind: 'email_otp',
+        targetEmail,
+        enrollment,
+        baseWalletAuthMethodId: parseId(
+          parseWalletAuthMethodId,
+          exact.baseWalletAuthMethodId,
+          `${label}.baseWalletAuthMethodId`,
+        ),
+      };
+    }
+    exactRecord(record, ['kind', 'targetEmail', 'enrollment'], label);
+    return { kind: 'email_otp', targetEmail, enrollment };
   }
   throw new Error(`${label}.kind is unsupported`);
 }
@@ -797,7 +884,7 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
     'QrLinkedDeviceSessionPayloadV5.expiresAtMs',
   );
   assertExpiryAfterIssued(issuedAtMs, expiresAtMs, 'QrLinkedDeviceSessionPayloadV5');
-  return {
+  const base = {
     version: 'v5',
     purpose: 'linked_device_lane_creation',
     linkSessionId: parseSessionId(
@@ -822,18 +909,40 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
     ),
     issuedAtMs,
     expiresAtMs,
-  };
+  } as const;
+  if (base.targetFactor.kind === 'email_otp') {
+    return {
+      ...base,
+      targetFactor: { kind: 'email_otp' },
+      targetEmail: parseTargetEmail(
+        record.targetEmail,
+        'QrLinkedDeviceSessionPayloadV5.targetEmail',
+      ),
+    };
+  }
+  return { ...base, targetFactor: { kind: 'passkey_prf' } };
 }
 
 export function parseQrLinkedDeviceSessionPayloadV5(raw: unknown): QrLinkedDeviceSessionPayloadV5 {
-  return parseQrPayloadRecord(exactRecord(raw, QR_FIELDS, 'QrLinkedDeviceSessionPayloadV5'));
+  const candidate = requireRecord(raw, 'QrLinkedDeviceSessionPayloadV5');
+  const targetFactor = parseTargetFactor(
+    candidate.targetFactor,
+    'QrLinkedDeviceSessionPayloadV5.targetFactor',
+  );
+  return parseQrPayloadRecord(
+    exactRecord(
+      candidate,
+      targetFactor.kind === 'email_otp' ? QR_EMAIL_FIELDS : QR_FIELDS,
+      'QrLinkedDeviceSessionPayloadV5',
+    ),
+  );
 }
 
 export function serializeQrLinkedDeviceSessionPayloadV5(
   payload: QrLinkedDeviceSessionPayloadV5,
 ): string {
   const parsed = parseQrPayloadRecord(qrPayloadWireValue(payload));
-  return JSON.stringify({
+  const compact = {
     v: 5,
     s: parsed.linkSessionId,
     l: parsed.linkPublicKeyB64u,
@@ -842,7 +951,10 @@ export function serializeQrLinkedDeviceSessionPayloadV5(
     f: parsed.targetFactor.kind === 'passkey_prf' ? 'p' : 'e',
     i: parsed.issuedAtMs,
     e: parsed.expiresAtMs,
-  });
+  };
+  return parsed.targetFactor.kind === 'email_otp'
+    ? JSON.stringify({ ...compact, t: parsed.targetEmail })
+    : JSON.stringify(compact);
 }
 
 export function parseQrLinkedDeviceSessionTextV5(raw: string): QrLinkedDeviceSessionPayloadV5 {
@@ -852,22 +964,32 @@ export function parseQrLinkedDeviceSessionTextV5(raw: string): QrLinkedDeviceSes
   } catch {
     throw new Error('Linked-device QR payload is not valid JSON');
   }
-  const compact = exactRecord(decoded, COMPACT_QR_FIELDS, 'LinkedDeviceQrV5');
+  const candidate = requireRecord(decoded, 'LinkedDeviceQrV5');
+  const targetFactorKind = candidate.f === 'e' ? 'email_otp' : 'passkey_prf';
+  const compact = exactRecord(
+    candidate,
+    targetFactorKind === 'email_otp' ? COMPACT_QR_EMAIL_FIELDS : COMPACT_QR_FIELDS,
+    'LinkedDeviceQrV5',
+  );
   if (compact.v !== 5) throw new Error('LinkedDeviceQrV5.v is invalid');
   if (compact.f !== 'p' && compact.f !== 'e') {
     throw new Error('LinkedDeviceQrV5.f is invalid');
   }
-  return parseQrLinkedDeviceSessionPayloadV5({
+  const payload = {
     version: 'v5',
     purpose: 'linked_device_lane_creation',
     linkSessionId: compact.s,
     linkPublicKeyB64u: compact.l,
     devicePublicKeyB64u: compact.d,
     requestedPermission: compact.a,
-    targetFactor: { kind: compact.f === 'p' ? 'passkey_prf' : 'email_otp' },
     issuedAtMs: compact.i,
     expiresAtMs: compact.e,
-  });
+  };
+  return parseQrLinkedDeviceSessionPayloadV5(
+    compact.f === 'e'
+      ? { ...payload, targetFactor: { kind: 'email_otp' }, targetEmail: compact.t }
+      : { ...payload, targetFactor: { kind: 'passkey_prf' } },
+  );
 }
 
 export function parseLinkedDeviceOwnerAuthorizationRequestV1(
@@ -1166,7 +1288,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
     ),
     approvedAtMs,
     expiresAtMs,
-  };
+  } as const;
   if (record.sourceContribution === undefined) {
     return core;
   }
@@ -1212,11 +1334,20 @@ export function parseLinkedDeviceTargetPreparationV1(
     candidate.targetFactor,
     'LinkedDeviceTargetPreparationV1.targetFactor',
   );
+  const emailEnrollment =
+    targetFactor.kind === 'email_otp'
+      ? parseEmailOtpEnrollmentSelection(
+          candidate.enrollment,
+          'LinkedDeviceTargetPreparationV1.enrollment',
+        )
+      : null;
   const record = exactRecord(
     candidate,
     targetFactor.kind === 'passkey_prf'
       ? TARGET_PREPARATION_PASSKEY_FIELDS
-      : TARGET_PREPARATION_EMAIL_FIELDS,
+      : emailEnrollment?.kind === 'new_enrollment'
+        ? TARGET_PREPARATION_EMAIL_NEW_FIELDS
+        : TARGET_PREPARATION_EMAIL_FIELDS,
     'LinkedDeviceTargetPreparationV1',
   );
   if (record.kind !== 'linked_device_target_preparation_v1') {
@@ -1275,9 +1406,24 @@ export function parseLinkedDeviceTargetPreparationV1(
       ),
     };
   }
+  if (!emailEnrollment) throw new Error('Email OTP target preparation enrollment is missing');
+  const targetEmail = parseTargetEmail(
+    record.targetEmail,
+    'LinkedDeviceTargetPreparationV1.targetEmail',
+  );
+  if (emailEnrollment.kind === 'new_enrollment') {
+    return {
+      ...base,
+      targetFactor,
+      targetEmail,
+      enrollment: emailEnrollment,
+    };
+  }
   return {
     ...base,
     targetFactor,
+    targetEmail,
+    enrollment: emailEnrollment,
     baseWalletAuthMethodId: parseId(
       parseWalletAuthMethodId,
       record.baseWalletAuthMethodId,
@@ -1706,13 +1852,24 @@ export function parseLinkedDeviceTargetCredentialRegistrationV1(
     initial.targetFactor,
     'LinkedDeviceTargetCredentialRegistrationV1.targetFactor',
   );
+  const emailGrant =
+    targetFactor.kind === 'email_otp'
+      ? parseLinkedDeviceEmailOtpVerificationGrantV1(initial.emailOtpVerificationGrant)
+      : null;
   const record = exactRecord(
     initial,
-    targetFactor.kind === 'passkey_prf' ? PASSKEY_CREDENTIAL_FIELDS : EMAIL_OTP_CREDENTIAL_FIELDS,
+    targetFactor.kind === 'passkey_prf'
+      ? PASSKEY_CREDENTIAL_FIELDS
+      : emailGrant?.enrollment.kind === 'new_enrollment'
+        ? EMAIL_OTP_CREDENTIAL_NEW_FIELDS
+        : EMAIL_OTP_CREDENTIAL_FIELDS,
     'LinkedDeviceTargetCredentialRegistrationV1',
   );
   if (record.kind !== 'linked_device_target_credential_registration_v1') {
     throw new Error('LinkedDeviceTargetCredentialRegistrationV1.kind is invalid');
+  }
+  if (targetFactor.kind === 'email_otp' && !emailGrant) {
+    throw new Error('Email OTP target credential grant is missing');
   }
   const linkSessionId = parseSessionId(
     record.linkSessionId,
@@ -1762,6 +1919,31 @@ export function parseLinkedDeviceTargetCredentialRegistrationV1(
       registeredAtMs,
     };
   }
+  if (!emailGrant) throw new Error('Email OTP target credential grant is missing');
+  const targetEmail = parseTargetEmail(
+    record.targetEmail,
+    'LinkedDeviceTargetCredentialRegistrationV1.targetEmail',
+  );
+  if (emailGrant.enrollment.kind === 'new_enrollment') {
+    return {
+      kind: 'linked_device_target_credential_registration_v1',
+      linkSessionId,
+      walletId,
+      enrollmentId,
+      deviceId,
+      walletAuthMethodId: walletAuthMethodId.value,
+      targetFactor,
+      targetEmail,
+      targetPreparationDigestB64u,
+      ordinarySignerMaterialRecipientRequests,
+      emailOtpVerificationGrant: emailGrant,
+      emailOtpEnrollment: parseEmailOtpEnrollmentMaterial(
+        record.emailOtpEnrollment,
+        'LinkedDeviceTargetCredentialRegistrationV1.emailOtpEnrollment',
+      ),
+      registeredAtMs,
+    };
+  }
   return {
     kind: 'linked_device_target_credential_registration_v1',
     linkSessionId,
@@ -1770,11 +1952,10 @@ export function parseLinkedDeviceTargetCredentialRegistrationV1(
     deviceId,
     walletAuthMethodId: walletAuthMethodId.value,
     targetFactor,
+    targetEmail,
     targetPreparationDigestB64u,
     ordinarySignerMaterialRecipientRequests,
-    emailOtpVerificationGrant: parseLinkedDeviceEmailOtpVerificationGrantV1(
-      record.emailOtpVerificationGrant,
-    ),
+    emailOtpVerificationGrant: emailGrant,
     registeredAtMs,
   };
 }
@@ -1889,11 +2070,29 @@ function parseVerifiedTargetFactorV1(raw: unknown, label: string): VerifiedTarge
     };
   }
   if (record.kind === 'verified_email_otp_target_v1') {
-    exactRecord(
-      record,
-      ['kind', 'authMethod', 'baseWalletAuthMethodId', 'verificationDigestB64u', 'verifiedAtMs'],
-      label,
-    );
+    const enrollment = parseEmailOtpEnrollmentSelection(record.enrollment, `${label}.enrollment`);
+    const fields =
+      enrollment.kind === 'existing_enrollment'
+        ? [
+            'kind',
+            'authMethod',
+            'targetEmail',
+            'enrollment',
+            'baseWalletAuthMethodId',
+            'providerUserId',
+            'verificationDigestB64u',
+            'verifiedAtMs',
+          ]
+        : [
+            'kind',
+            'authMethod',
+            'targetEmail',
+            'enrollment',
+            'providerUserId',
+            'verificationDigestB64u',
+            'verifiedAtMs',
+          ];
+    const exact = exactRecord(record, fields, label);
     const authMethod = parseEmailOtpWalletAuthMethodDraftV1(
       record.authMethod,
       `${label}.authMethod`,
@@ -1902,18 +2101,35 @@ function parseVerifiedTargetFactorV1(raw: unknown, label: string): VerifiedTarge
     if (verifiedAtMs < authMethod.createdAtMs) {
       throw new Error(`${label}.verifiedAtMs precedes authMethod.createdAtMs`);
     }
+    const targetEmail = parseTargetEmail(record.targetEmail, `${label}.targetEmail`);
+    const providerUserId = parseNonEmptyToken(record.providerUserId, `${label}.providerUserId`);
+    const verificationDigestB64u = parseDigest(
+      record.verificationDigestB64u,
+      `${label}.verificationDigestB64u`,
+    );
+    if (enrollment.kind === 'existing_enrollment') {
+      return {
+        kind: 'verified_email_otp_target_v1',
+        authMethod,
+        targetEmail,
+        enrollment,
+        baseWalletAuthMethodId: parseId(
+          parseWalletAuthMethodId,
+          exact.baseWalletAuthMethodId,
+          `${label}.baseWalletAuthMethodId`,
+        ),
+        providerUserId,
+        verificationDigestB64u,
+        verifiedAtMs,
+      };
+    }
     return {
       kind: 'verified_email_otp_target_v1',
       authMethod,
-      baseWalletAuthMethodId: parseId(
-        parseWalletAuthMethodId,
-        record.baseWalletAuthMethodId,
-        `${label}.baseWalletAuthMethodId`,
-      ),
-      verificationDigestB64u: parseDigest(
-        record.verificationDigestB64u,
-        `${label}.verificationDigestB64u`,
-      ),
+      targetEmail,
+      enrollment,
+      providerUserId,
+      verificationDigestB64u,
       verifiedAtMs,
     };
   }
@@ -1999,9 +2215,16 @@ function parseEmailOtpWalletAuthMethodDraftV1(
 export function parseLinkedDeviceEmailOtpVerificationGrantV1(
   raw: unknown,
 ): LinkedDeviceEmailOtpVerificationGrantV1 {
+  const candidate = requireRecord(raw, 'LinkedDeviceEmailOtpVerificationGrantV1');
+  const enrollment = parseEmailOtpEnrollmentSelection(
+    candidate.enrollment,
+    'LinkedDeviceEmailOtpVerificationGrantV1.enrollment',
+  );
   const record = exactRecord(
-    raw,
-    EMAIL_OTP_VERIFICATION_GRANT_FIELDS,
+    candidate,
+    enrollment.kind === 'new_enrollment'
+      ? EMAIL_OTP_VERIFICATION_GRANT_BASE_FIELDS
+      : EMAIL_OTP_VERIFICATION_GRANT_FIELDS,
     'LinkedDeviceEmailOtpVerificationGrantV1',
   );
   if (record.kind !== 'linked_device_email_otp_verification_grant_v1') {
@@ -2016,7 +2239,7 @@ export function parseLinkedDeviceEmailOtpVerificationGrantV1(
     'LinkedDeviceEmailOtpVerificationGrantV1.expiresAtMs',
   );
   assertExpiryAfterIssued(issuedAtMs, expiresAtMs, 'LinkedDeviceEmailOtpVerificationGrantV1');
-  return {
+  const base = {
     kind: 'linked_device_email_otp_verification_grant_v1',
     grantId: parseNonEmptyToken(record.grantId, 'LinkedDeviceEmailOtpVerificationGrantV1.grantId'),
     grantToken: parseNonEmptyToken(
@@ -2051,11 +2274,11 @@ export function parseLinkedDeviceEmailOtpVerificationGrantV1(
       record.targetPreparationDigestB64u,
       'LinkedDeviceEmailOtpVerificationGrantV1.targetPreparationDigestB64u',
     ),
-    baseWalletAuthMethodId: parseId(
-      parseWalletAuthMethodId,
-      record.baseWalletAuthMethodId,
-      'LinkedDeviceEmailOtpVerificationGrantV1.baseWalletAuthMethodId',
+    targetEmail: parseTargetEmail(
+      record.targetEmail,
+      'LinkedDeviceEmailOtpVerificationGrantV1.targetEmail',
     ),
+    enrollment,
     emailHashHex: parseEmailHashHex(
       record.emailHashHex,
       'LinkedDeviceEmailOtpVerificationGrantV1.emailHashHex',
@@ -2074,6 +2297,18 @@ export function parseLinkedDeviceEmailOtpVerificationGrantV1(
     ),
     issuedAtMs,
     expiresAtMs,
+  } as const;
+  if (enrollment.kind === 'new_enrollment') {
+    return { ...base, enrollment: { kind: 'new_enrollment' } };
+  }
+  return {
+    ...base,
+    enrollment: { kind: 'existing_enrollment' },
+    baseWalletAuthMethodId: parseId(
+      parseWalletAuthMethodId,
+      record.baseWalletAuthMethodId,
+      'LinkedDeviceEmailOtpVerificationGrantV1.baseWalletAuthMethodId',
+    ),
   };
 }
 
@@ -2243,6 +2478,16 @@ export function parseLinkedDeviceEmailOtpVerificationResultV1(
     throw new Error('LinkedDeviceEmailOtpVerificationResultV1.kind is invalid');
   }
   const verificationGrant = parseLinkedDeviceEmailOtpVerificationGrantV1(record.verificationGrant);
+  if (isNewEnrollmentEmailOtpVerificationGrantV1(verificationGrant)) {
+    if (record.factorRelease !== null) {
+      throw new Error('new linked-device Email OTP enrollment cannot carry a factor release');
+    }
+    return {
+      kind: 'linked_device_email_otp_verification_result_v1',
+      verificationGrant,
+      factorRelease: null,
+    };
+  }
   const factorRelease = parseLinkedDeviceEmailOtpFactorReleaseEnvelopeV1(record.factorRelease);
   if (factorRelease.challengeId !== verificationGrant.challengeId) {
     throw new Error('LinkedDeviceEmailOtpVerificationResultV1 challenge binding changed');
@@ -2252,6 +2497,15 @@ export function parseLinkedDeviceEmailOtpVerificationResultV1(
     verificationGrant,
     factorRelease,
   };
+}
+
+function isNewEnrollmentEmailOtpVerificationGrantV1(
+  grant: LinkedDeviceEmailOtpVerificationGrantV1,
+): grant is Extract<
+  LinkedDeviceEmailOtpVerificationGrantV1,
+  { readonly enrollment: { readonly kind: 'new_enrollment' } }
+> {
+  return grant.enrollment.kind === 'new_enrollment';
 }
 
 function parseCancelUnclaimedRequest(raw: UnknownRecord): LinkedDeviceSessionTransportRequestV1 {
@@ -2367,18 +2621,55 @@ export function parseLinkedDeviceSessionTransportRequestV1(
   }
 }
 
-export function buildQrLinkedDeviceSessionPayloadV5(args: {
+type BuildQrLinkedDeviceSessionPayloadV5Args = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly requestedPermission: DelegatedWalletAuthorityV1;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
+} &
+  (
+    | {
+        readonly targetFactor: { readonly kind: 'passkey_prf' };
+        readonly targetEmail?: never;
+      }
+    | {
+        readonly targetFactor: { readonly kind: 'email_otp' };
+        readonly targetEmail: VerifiedEmailAddress;
+      }
+  ) & {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
-}): QrLinkedDeviceSessionPayloadV5 {
+  };
+
+export function buildQrLinkedDeviceSessionPayloadV5(
+  args: BuildQrLinkedDeviceSessionPayloadV5Args,
+): QrLinkedDeviceSessionPayloadV5 {
   const issuedAtMs = parseUnixTime(args.issuedAtMs, 'QrLinkedDeviceSessionPayloadV5.issuedAtMs');
   const expiresAtMs = parseUnixTime(args.expiresAtMs, 'QrLinkedDeviceSessionPayloadV5.expiresAtMs');
   assertExpiryAfterIssued(issuedAtMs, expiresAtMs, 'QrLinkedDeviceSessionPayloadV5');
+  const targetFactor = parseTargetFactor(
+    args.targetFactor,
+    'QrLinkedDeviceSessionPayloadV5.targetFactor',
+  );
+  if (targetFactor.kind === 'passkey_prf') {
+    return {
+      version: 'v5',
+      purpose: 'linked_device_lane_creation',
+      linkSessionId: args.linkSessionId,
+      linkPublicKeyB64u: args.linkPublicKeyB64u,
+      devicePublicKeyB64u: args.devicePublicKeyB64u,
+      requestedPermission: parseDelegatedWalletAuthority(
+        delegatedWalletAuthorityWireValue(args.requestedPermission),
+        'QrLinkedDeviceSessionPayloadV5.requestedPermission',
+      ),
+      targetFactor,
+      issuedAtMs,
+      expiresAtMs,
+    };
+  }
+  if (args.targetEmail === undefined) {
+    throw new Error('QrLinkedDeviceSessionPayloadV5.targetEmail is required for Email OTP');
+  }
   return {
     version: 'v5',
     purpose: 'linked_device_lane_creation',
@@ -2389,9 +2680,10 @@ export function buildQrLinkedDeviceSessionPayloadV5(args: {
       delegatedWalletAuthorityWireValue(args.requestedPermission),
       'QrLinkedDeviceSessionPayloadV5.requestedPermission',
     ),
-    targetFactor: parseTargetFactor(
-      args.targetFactor,
-      'QrLinkedDeviceSessionPayloadV5.targetFactor',
+    targetFactor,
+    targetEmail: parseTargetEmail(
+      args.targetEmail,
+      'QrLinkedDeviceSessionPayloadV5.targetEmail',
     ),
     issuedAtMs,
     expiresAtMs,

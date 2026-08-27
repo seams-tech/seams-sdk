@@ -4,19 +4,23 @@ import type {
 } from './walletActivation';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 
 declare const deps: EmailOtpWalletPostUnlockActivationDeps;
 declare const signer: NearEd25519SignerBinding;
 declare const walletId: WalletId;
+declare const walletAuthMethodId: WalletAuthMethodId;
 
 const nearActivation: EmailOtpWalletPostUnlockActivation = {
   kind: 'near_ed25519_wallet',
   signer,
+  walletAuthMethodId,
 };
 
 const ecdsaActivation: EmailOtpWalletPostUnlockActivation = {
   kind: 'evm_family_ecdsa_wallet',
   walletId,
+  walletAuthMethodId,
 };
 
 void deps;
@@ -30,6 +34,7 @@ const missingSigner: EmailOtpWalletPostUnlockActivation = { kind: 'near_ed25519_
 const mixedBranches: EmailOtpWalletPostUnlockActivation = {
   kind: 'evm_family_ecdsa_wallet',
   walletId,
+  walletAuthMethodId,
   signer,
 };
 

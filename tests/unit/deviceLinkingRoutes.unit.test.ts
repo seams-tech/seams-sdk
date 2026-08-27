@@ -46,6 +46,7 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
+import { createRouterApiRouteDefinitions } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -219,7 +220,7 @@ test('authenticates the owner before parsing a malformed claim body', async () =
   expect(ownerAuthCalls).toBe(1);
 });
 
-test('terminally fails the claimed session when no Email OTP base method is eligible', async () => {
+test('keeps the claimed session when no Email OTP base method is eligible', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({
     linkSessionId: 'link-session:route-email-base-unavailable',
@@ -263,24 +264,19 @@ test('terminally fails the claimed session when no Email OTP base method is elig
   expect({ status: response.status, body: responseBody }).toEqual({
     status: 200,
     body: {
-      revision: claimed.record.revision + 1,
+      revision: claimed.record.revision,
       resolution: {
         kind: 'unavailable',
         reason: 'no_active_email_otp_base_factor',
       },
     },
   });
-  const terminal = await sessionService.getSessionV1({
+  const current = await sessionService.getSessionV1({
     linkSessionId: fixture.payload.linkSessionId,
     nowMs: 2_000,
   });
-  expect(terminal?.state).toEqual({
-    state: 'failed_before_commit',
-    error: {
-      kind: 'target_factor_failed',
-      reason: 'no_active_email_otp_base_factor',
-    },
-  });
+  expect(current?.revision).toBe(claimed.record.revision);
+  expect(current?.state.state).toBe('claimed');
 });
 
 test('serializes the browser ECDSA recipient in the target credential response', async () => {
@@ -310,6 +306,9 @@ test('serializes the browser ECDSA recipient in the target credential response',
     targetFactor: {
       kind: 'verified_email_otp_target_v1',
       baseWalletAuthMethodId,
+      targetEmail: 'owner@example.test',
+      enrollment: { kind: 'existing_enrollment' },
+      providerUserId: 'provider:r103',
       authMethod: {
         walletAuthMethodId: targetWalletAuthMethodId,
         walletId: fixture.approval.walletId,
@@ -351,7 +350,7 @@ test('serializes the browser ECDSA recipient in the target credential response',
   });
 });
 
-test('target credential registration does not trust the request Origin', async () => {
+test('target credential registration consumes the registration-admitted request origin', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:route-origin' });
   const session = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
@@ -396,8 +395,9 @@ test('target credential registration does not trust the request Origin', async (
     targetCredential: {
       ...baseRouteService.targetCredential,
       getTargetPreparationV1: async () => buildPasskeyTargetPreparationFixtureV1(),
-      registerTargetCredentialV1: async () => {
+      registerTargetCredentialV1: async (input) => {
         registrationCalled = true;
+        expect(input.expectedOrigin).toBe('https://wallet.example.test');
         return { outcome: 'invalid_input', message: 'verification probe' };
       },
       buildVerifiedLinkInputV1: async () => {
@@ -408,6 +408,7 @@ test('target credential registration does not trust the request Origin', async (
   const response = await invoke(routeService, {
     method: 'POST',
     pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/credential`,
+    origin: 'https://wallet.example.test',
     body: registration,
   });
   expect(response.status).toBe(400);
@@ -695,6 +696,8 @@ async function invoke(
 ): Promise<Response> {
   const bodyText = input.body === undefined ? undefined : JSON.stringify(input.body);
   const headers = new Headers();
+  headers.set('authorization', 'Bearer pk_test_linked_device');
+  headers.set('x-seams-environment-id', 'project:dev');
   headers.set(
     DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
     await requestProofHeader(input.method, input.pathname, bodyText),
@@ -712,9 +715,23 @@ async function invoke(
     method: input.method,
     runtime: { kind: 'inline' as const },
     service: { deviceLinking: routeService },
-    opts: {},
+    opts: {
+      publishableKeyAuth: {
+        authenticate: async () => ({
+          ok: true,
+          principal: {
+            apiKeyId: 'pk_linked_device',
+            orgId: scope.orgId,
+            projectId: scope.projectId,
+            envId: scope.envId,
+            environmentId: 'project:dev',
+            scopes: [],
+          },
+        }),
+      },
+    },
     logger: {},
-    routeDefinitions: [],
+    routeDefinitions: createRouterApiRouteDefinitions(),
   } as unknown as FetchRouterApiContext;
   const response = await handleDeviceLinking(context);
   if (!response) throw new Error('device-linking route did not match');

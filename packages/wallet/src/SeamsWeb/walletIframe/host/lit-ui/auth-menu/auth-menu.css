@@ -1505,6 +1505,45 @@ seams-auth-menu-surface {
   outline-offset: 3px;
 }
 
+.w3a-link-device-target-email {
+  width: min(100%, 280px);
+  display: grid;
+  gap: 0.375rem;
+  text-align: start;
+}
+
+.w3a-link-device-target-email .w3a-field-label {
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.w3a-link-device-target-email input {
+  min-height: 44px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface, #ffffff);
+  border: 1px solid var(--w3a-colors-borderPrimary, #d7dde5);
+  border-radius: var(--w3a-shape-control, 10px);
+  font: inherit;
+}
+
+.w3a-link-device-target-email input:focus-visible {
+  outline: 2px solid var(--w3a-colors-focusRing, #2563eb);
+  outline-offset: 2px;
+}
+
+.w3a-link-device-inline-error {
+  width: min(100%, 280px);
+  margin: 0;
+  color: var(--w3a-colors-error, #ef4444);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-align: start;
+}
+
 .w3a-link-device-confirmation .sr-only {
   position: absolute;
   width: 1px;

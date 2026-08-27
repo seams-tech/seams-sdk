@@ -19,6 +19,10 @@ import type {
   LinkedDeviceTargetFactorV1,
   LinkedDeviceTargetPasskeyActivationV1,
 } from '../../core/types/linkDevice';
+import {
+  isLinkedDeviceTargetEmailAddressV1,
+  normalizeLinkedDeviceTargetEmailAddressV1,
+} from '../../core/types/linkDevice';
 import { toAccountId } from '../../core/types/accountIds';
 import './ShowQRCode.css';
 
@@ -29,22 +33,35 @@ export interface ShowQRCodeProps {
   onError: (error: Error) => void;
 }
 
+type Device2LinkingTargetV1 =
+  | {
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }>;
+      readonly targetEmail?: never;
+    }
+  | {
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'email_otp' }>;
+      readonly targetEmail: string;
+    };
+
+type Device2LinkingSelectFactorStateV1 =
+  | ({ readonly kind: 'select_factor' } & Extract<
+      Device2LinkingTargetV1,
+      { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+    >)
+  | ({ readonly kind: 'select_factor' } & Extract<
+      Device2LinkingTargetV1,
+      { readonly targetFactor: { readonly kind: 'email_otp' } }
+    >);
+
 type Device2LinkingState =
-  | {
-      readonly kind: 'select_factor';
-      readonly targetFactor: LinkedDeviceTargetFactorV1;
-    }
-  | {
-      readonly kind: 'starting';
-      readonly targetFactor: LinkedDeviceTargetFactorV1;
-    }
-  | {
+  | Device2LinkingSelectFactorStateV1
+  | ({ readonly kind: 'starting' } & Device2LinkingTargetV1)
+  | ({
       readonly kind: 'qr';
-      readonly targetFactor: LinkedDeviceTargetFactorV1;
       readonly qrCodeDataURL: string;
       readonly lastPhase?: string;
       readonly lastMessage?: string;
-    }
+    } & Device2LinkingTargetV1)
   | {
       readonly kind: 'passkey_activation';
       readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }>;
@@ -62,9 +79,9 @@ type Device2LinkingState =
 
 type ActiveDevice2Flow = {
   readonly sessionId: number;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
-  cancelled: boolean;
-};
+} & Device2LinkingTargetV1 & {
+    cancelled: boolean;
+  };
 
 type Device2LinkingRuntime = {
   readonly startDevice2LinkingFlow: ReturnType<typeof useSeams>['startDevice2LinkingFlow'];
@@ -78,7 +95,8 @@ type Device2LinkingRuntime = {
   readonly onError: ShowQRCodeProps['onError'];
 };
 
-const DEFAULT_TARGET_FACTOR: LinkedDeviceTargetFactorV1 = { kind: 'passkey_prf' };
+const DEFAULT_TARGET_FACTOR: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }> =
+  { kind: 'passkey_prf' };
 const FACTOR_FIELDSET_STYLE = {
   border: 0,
   margin: 0,
@@ -95,6 +113,12 @@ function targetFactorFromSelection(value: string): LinkedDeviceTargetFactorV1 | 
     default:
       return null;
   }
+}
+
+function targetSelectionFromFactor(
+  targetFactor: LinkedDeviceTargetFactorV1,
+): Device2LinkingTargetV1 {
+  return targetFactor.kind === 'email_otp' ? { targetFactor, targetEmail: '' } : { targetFactor };
 }
 
 function errorMessage(error: unknown): string {
@@ -214,27 +238,58 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
   const handleFactorChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const targetFactor = targetFactorFromSelection(event.target.value);
     if (!targetFactor) return;
-    setDeviceLinkingState({ kind: 'select_factor', targetFactor });
+    const target = targetSelectionFromFactor(targetFactor);
+    if (target.targetFactor.kind === 'email_otp') {
+      setDeviceLinkingState({ kind: 'select_factor', ...target });
+      return;
+    }
+    setDeviceLinkingState({ kind: 'select_factor', targetFactor: target.targetFactor });
+  }, []);
+
+  const handleTargetEmailAddressChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setDeviceLinkingState((previous) => {
+      if (previous.kind !== 'select_factor' || previous.targetFactor.kind !== 'email_otp') {
+        return previous;
+      }
+      return {
+        kind: 'select_factor',
+        targetFactor: previous.targetFactor,
+        targetEmail: event.target.value,
+      };
+    });
   }, []);
 
   const handleStart = useCallback(() => {
     if (!isOpen || deviceLinkingState.kind !== 'select_factor') return;
 
     const runtime = flowRuntimeRef.current;
+    let target: Device2LinkingTargetV1;
+    try {
+      target =
+        deviceLinkingState.targetFactor.kind === 'email_otp'
+          ? {
+              targetFactor: deviceLinkingState.targetFactor,
+              targetEmail: normalizeLinkedDeviceTargetEmailAddressV1(
+                deviceLinkingState.targetEmail,
+              ),
+            }
+          : { targetFactor: deviceLinkingState.targetFactor };
+    } catch {
+      return;
+    }
     const flow: ActiveDevice2Flow = {
       sessionId: flowSessionRef.current + 1,
-      targetFactor: deviceLinkingState.targetFactor,
+      ...target,
       cancelled: false,
     };
     flowSessionRef.current = flow.sessionId;
     activeFlowRef.current = flow;
-    const targetFactor = deviceLinkingState.targetFactor;
-    setDeviceLinkingState({ kind: 'starting', targetFactor });
+    setDeviceLinkingState({ kind: 'starting', ...target });
 
     void (async () => {
       try {
         const { qrCodeDataURL } = await runtime.startDevice2LinkingFlow({
-          targetFactor,
+          ...target,
           ...(runtime.accountIdRaw ? { accountId: toAccountId(runtime.accountIdRaw) } : {}),
           options: {
             onEvent: (event: LinkDeviceFlowEvent) => {
@@ -313,7 +368,7 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
           previous.kind === 'starting'
             ? {
                 kind: 'qr',
-                targetFactor,
+                ...target,
                 qrCodeDataURL,
               }
             : previous,
@@ -404,7 +459,9 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
       return (
         <FactorSelection
           targetFactor={deviceLinkingState.targetFactor}
+          targetEmail={deviceLinkingState.targetEmail ?? ''}
           onChange={handleFactorChange}
+          onEmailAddressChange={handleTargetEmailAddressChange}
           onStart={handleStart}
         />
       );
@@ -443,13 +500,19 @@ function assertNeverTargetFactorActivation(value: never): never {
 
 function FactorSelection({
   targetFactor,
+  targetEmail,
   onChange,
+  onEmailAddressChange,
   onStart,
 }: {
   readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly targetEmail: string;
   readonly onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onEmailAddressChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onStart: () => void;
 }) {
+  const emailTargetSelected = targetFactor.kind === 'email_otp';
+  const canStart = !emailTargetSelected || isLinkedDeviceTargetEmailAddressV1(targetEmail);
   return (
     <div className="qr-code-container" onClick={stopPropagation}>
       <div className="qr-body">
@@ -459,8 +522,8 @@ function FactorSelection({
               Match your other device
             </h2>
             <p className="w3a-otp-description">
-              Use the same unlock method as Device 1: Passkey for a passkey wallet, or Email code
-              for an Email OTP wallet.
+              Choose the unlock method for Device 2. Email code sends a one-time code to the address
+              you enter.
             </p>
           </div>
           <fieldset style={FACTOR_FIELDSET_STYLE}>
@@ -486,11 +549,30 @@ function FactorSelection({
               Email code
             </label>
           </fieldset>
+          {emailTargetSelected ? (
+            <label className="w3a-device-link-email-field">
+              <span className="w3a-field-label">Email address</span>
+              <input
+                type="email"
+                name="w3a-device-link-target-email"
+                autoComplete="email"
+                value={targetEmail}
+                onChange={onEmailAddressChange}
+                aria-invalid={targetEmail.length > 0 && !canStart ? 'true' : undefined}
+              />
+            </label>
+          ) : null}
           <p className="w3a-otp-helper">
-            The email destination comes from the wallet. It cannot be entered or changed on this
-            device.
+            {emailTargetSelected
+              ? 'The address is normalized before the QR code is created.'
+              : 'Device 2 will create a new passkey for this wallet.'}
           </p>
-          <button type="button" className="w3a-link-device-btn" onClick={onStart}>
+          <button
+            type="button"
+            className="w3a-link-device-btn"
+            onClick={onStart}
+            disabled={!canStart}
+          >
             Continue
           </button>
         </div>

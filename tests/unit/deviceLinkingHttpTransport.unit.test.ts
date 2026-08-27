@@ -40,6 +40,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     const calls: Array<{
       readonly method: 'GET' | 'POST';
       readonly url: string;
+      readonly authorization: string | undefined;
+      readonly environmentId: string | undefined;
       readonly proof: Record<string, unknown>;
       readonly body?: unknown;
     }> = [];
@@ -55,6 +57,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
         calls.push({
           method: input.method,
           url: input.url,
+          authorization: input.headers?.Authorization,
+          environmentId: input.headers?.['X-Seams-Environment-Id'],
           proof,
           ...(input.body === undefined ? {} : { body: input.body }),
         });
@@ -82,6 +86,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
       http,
       relayerUrl: 'https://relay.example.test/',
+      publishableKey: 'pk_test_registration_origin',
+      projectEnvironmentId: 'project:dev',
       keyMaterial,
       keyMaterialHandle: {
         kind: 'device_linking_key_material_handle_v1',
@@ -122,6 +128,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     });
     expect(calls[3]?.url).toBe(calls[2]?.url);
     expect(calls[3]?.body).toEqual(calls[2]?.body);
+    expect(calls[0]?.authorization).toBe('Bearer pk_test_registration_origin');
+    expect(calls[0]?.environmentId).toBe('project:dev');
     expect(calls[0]?.proof.requestNonceB64u).not.toBe(calls[1]?.proof.requestNonceB64u);
     for (const call of calls) {
       const proof = call.proof;
@@ -174,6 +182,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
       http,
       relayerUrl: 'https://relay.example.test',
+      publishableKey: 'pk_test_registration_origin',
+      projectEnvironmentId: 'project:dev',
       keyMaterial,
       keyMaterialHandle: {
         kind: 'device_linking_key_material_handle_v1',
@@ -236,6 +246,8 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
       http,
       relayerUrl: 'https://relay.example.test',
+      publishableKey: 'pk_test_registration_origin',
+      projectEnvironmentId: 'project:dev',
       keyMaterial,
       keyMaterialHandle: {
         kind: 'device_linking_key_material_handle_v1',

@@ -22,6 +22,11 @@ import {
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
   routerApiEmailOtpRouteService,
   type WalletUnlockEmailOtpAuthorityResolution,
 } from '../../../framework/authServicePort';
@@ -72,6 +77,8 @@ import type { OpaqueWalletSessionCurve } from '../../../../authorization/service
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import { base58Encode } from '@shared/utils/base58';
 
 const HOSTED_WALLET_EXCHANGE_TTL_MS = 5 * 60 * 1000;
 
@@ -194,6 +201,182 @@ function normalizeWalletEmailOtpUnlockAuthority(
     ok: false,
     code: 'internal',
     message: 'Email OTP authority resolution is invalid',
+  };
+}
+
+async function resolveWalletEmailOtpChallengeAuthority(args: {
+  readonly ctx: FetchRouterApiContext;
+  readonly walletId: WalletId;
+  readonly orgId: string;
+  readonly providerUserId: string;
+  readonly selector: ParsedWalletEmailOtpChallengeRequest['selector'];
+}): Promise<WalletUnlockEmailOtpAuthorityResolution> {
+  if (args.selector.kind === 'method') {
+    return await args.ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+      walletId: args.walletId,
+      orgId: args.orgId,
+      walletAuthMethodId: args.selector.walletAuthMethodId,
+      providerUserId: args.providerUserId,
+    });
+  }
+  const selected =
+    await args.ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+      walletId: args.walletId,
+      providerUserId: args.providerUserId,
+    });
+  if (!selected.ok) {
+    return { kind: 'rejected', code: selected.code, message: selected.message };
+  }
+  return await args.ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
+    walletId: args.walletId,
+    orgId: args.orgId,
+    walletAuthMethodId: selected.authority.bindingId,
+    providerUserId: args.providerUserId,
+  });
+}
+
+type WalletEmailOtpChallengeEd25519Identity = {
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly nearAccountId: string;
+  readonly signerSlot: number;
+  readonly operationalPublicKey: string;
+  readonly thresholdSessionId: string;
+  readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+};
+
+async function resolveWalletEmailOtpChallengeEd25519Identity(args: {
+  readonly ctx: FetchRouterApiContext;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+}): Promise<
+  | { readonly ok: true; readonly identity: WalletEmailOtpChallengeEd25519Identity }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  const resolved = await args.ctx.service.walletRegistration.resolveEd25519MaterialActivation({
+    walletId: String(args.authority.walletId),
+    materialActivation: routerAbMpcMaterialActivationRefToWire(args.materialActivation),
+  });
+  if (!resolved.ok) return resolved;
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      routerAbMpcMaterialActivationRefToWire(args.materialActivation),
+      resolved.materialActivation,
+    )
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_authority',
+      message: 'Ed25519 material does not belong to the selected wallet authority',
+    };
+  }
+  return {
+    ok: true,
+    identity: {
+      materialActivation: args.materialActivation,
+      nearAccountId: resolved.nearAccountId,
+      signerSlot: resolved.signerSlot,
+      operationalPublicKey: `ed25519:${base58Encode(
+        Uint8Array.from(resolved.exportIdentity.registered_public_key),
+      )}`,
+      thresholdSessionId: resolved.exportIdentity.scope.threshold_session_id,
+      runtimePolicyScope: normalizeRuntimePolicyScope(resolved.runtimePolicyScope),
+    },
+  };
+}
+
+async function resolveWalletEmailOtpChallengeSignerSelection(args: {
+  readonly ctx: FetchRouterApiContext;
+  readonly authority: ActiveWalletAuthorityV1;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly selection:
+        | {
+            readonly kind: 'ed25519_only';
+            readonly materialActivation: MpcMaterialActivationRef;
+            readonly nearAccountId: string;
+            readonly signerSlot: number;
+            readonly operationalPublicKey: string;
+            readonly thresholdSessionId: string;
+            readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+          }
+        | {
+            readonly kind: 'ecdsa';
+            readonly keyHandle: string;
+            readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+            readonly ed25519:
+              | {
+                  readonly kind: 'present';
+                  readonly materialActivation: MpcMaterialActivationRef;
+                  readonly nearAccountId: string;
+                  readonly signerSlot: number;
+                  readonly operationalPublicKey: string;
+                  readonly thresholdSessionId: string;
+                  readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+                }
+              | { readonly kind: 'absent' };
+          };
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  const ecdsaActivation = args.authority.signerActivations.ecdsa;
+  if (!ecdsaActivation) {
+    const ed25519Activation = args.authority.signerActivations.ed25519;
+    if (!ed25519Activation) {
+      return { ok: false, code: 'invalid_authority', message: 'Wallet authority has no signer' };
+    }
+    const resolvedEd25519 = await resolveWalletEmailOtpChallengeEd25519Identity({
+      ctx: args.ctx,
+      authority: args.authority,
+      materialActivation: ed25519Activation.materialActivation,
+    });
+    if (!resolvedEd25519.ok) return resolvedEd25519;
+    return {
+      ok: true,
+      selection: {
+        kind: 'ed25519_only',
+        ...resolvedEd25519.identity,
+      },
+    };
+  }
+  const resolved = await args.ctx.service.walletRegistration.resolveEcdsaMaterialActivation({
+    walletId: String(args.authority.walletId),
+    materialActivation: routerAbMpcMaterialActivationRefToWire(ecdsaActivation.materialActivation),
+  });
+  if (!resolved.ok) {
+    return { ok: false, code: resolved.code, message: resolved.message };
+  }
+  if (
+    !sameRouterAbMpcMaterialActivationRef(
+      routerAbMpcMaterialActivationRefToWire(ecdsaActivation.materialActivation),
+      resolved.materialActivation,
+    )
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_authority',
+      message: 'ECDSA material does not belong to the selected wallet authority',
+    };
+  }
+  const ed25519Activation = args.authority.signerActivations.ed25519;
+  const resolvedEd25519 = ed25519Activation
+    ? await resolveWalletEmailOtpChallengeEd25519Identity({
+        ctx: args.ctx,
+        authority: args.authority,
+        materialActivation: ed25519Activation.materialActivation,
+      })
+    : null;
+  if (resolvedEd25519 && !resolvedEd25519.ok) return resolvedEd25519;
+  return {
+    ok: true,
+    selection: {
+      kind: 'ecdsa',
+      keyHandle: resolved.keyHandle,
+      runtimePolicyScope: normalizeRuntimePolicyScope(resolved.runtimePolicyScope),
+      ed25519: resolvedEd25519?.ok
+        ? { kind: 'present', ...resolvedEd25519.identity }
+        : { kind: 'absent' },
+    },
   };
 }
 
@@ -601,12 +784,22 @@ function parseReusableWalletSessionStatusBody(body: unknown): {
   };
 }
 
-type WalletSessionStatusAuthorization = {
-  readonly walletId: string;
-  readonly principalId: PrincipalId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-};
+type WalletSessionStatusAuthorization =
+  | {
+      readonly kind: 'reusable';
+      readonly walletId: string;
+      readonly principalId: PrincipalId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+    }
+  | {
+      readonly kind: 'exact_v2';
+      readonly walletId: string;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+    };
 
 function walletSessionStatusInvalidResponse(body: {
   readonly walletSessionId: WalletSessionId;
@@ -651,6 +844,27 @@ async function readAndValidateWalletSessionStatusAuthorization(
   }
 
   const nowMs = Date.now();
+  const exactV2 =
+    await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential?.(
+      {
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        token: bearerToken,
+        nowMs,
+      },
+    );
+  if (exactV2) {
+    return {
+      ok: true,
+      authorization: {
+        kind: 'exact_v2',
+        walletId: String(exactV2.authorization.session.walletId),
+        walletSessionId: exactV2.authorization.session.walletSessionId,
+        quotaId: exactV2.authorization.session.quotaId,
+        remainingUses: exactV2.authorization.quota.remainingUses,
+        expiresAtMs: exactV2.authorization.quota.expiresAtMs,
+      },
+    };
+  }
   const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
     tenantId: ctx.service.authorizationSessions.tenantId,
     token: bearerToken,
@@ -669,6 +883,7 @@ async function readAndValidateWalletSessionStatusAuthorization(
   return {
     ok: true,
     authorization: {
+      kind: 'reusable',
       walletId: walletSession.authorization.walletId,
       principalId: walletSession.authorization.principalId,
       walletSessionId: walletSession.authorization.walletSessionId,
@@ -705,6 +920,19 @@ export async function handleReusableWalletSessionStatus(
         message: 'Wallet Session status does not match the verified Wallet Session',
       },
       { status: 403 },
+    );
+  }
+  if (validated.authorization.kind === 'exact_v2') {
+    return json(
+      {
+        ok: true,
+        status: validated.authorization.remainingUses === 0 ? 'exhausted' : 'active',
+        walletSessionId: validated.authorization.walletSessionId,
+        quotaId: validated.authorization.quotaId,
+        remainingUses: validated.authorization.remainingUses,
+        expiresAtMs: validated.authorization.expiresAtMs,
+      },
+      { status: 200 },
     );
   }
   const nowMs = Date.now();
@@ -806,22 +1034,34 @@ export async function handleWalletEmailOtpChallenge(
   if (!enrollment.ok) {
     return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
   }
-  const authorityResolution =
-    request.selector.kind === 'wallet'
-      ? await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-          walletId,
-          providerUserId: enrollment.enrollment.providerUserId,
-        })
-      : normalizeWalletEmailOtpUnlockAuthority(
-          await ctx.service.walletUnlock.resolveEmailOtpAuthorityForUnlock({
-            walletId,
-            orgId,
-            walletAuthMethodId: request.selector.walletAuthMethodId,
-            providerUserId: enrollment.enrollment.providerUserId,
-          }),
-        );
-  if (!authorityResolution.ok) return json(authorityResolution, { status: 403 });
-  const authority = authorityResolution.authority;
+  const authorityResolution = await resolveWalletEmailOtpChallengeAuthority({
+    ctx,
+    walletId,
+    orgId,
+    providerUserId: enrollment.enrollment.providerUserId,
+    selector: request.selector,
+  });
+  if (authorityResolution.kind === 'rejected') {
+    return json(
+      {
+        ok: false,
+        code: authorityResolution.code,
+        message: authorityResolution.message,
+      },
+      { status: 403 },
+    );
+  }
+  const authority = authorityResolution.walletAuthAuthority;
+  const signerSelection = await resolveWalletEmailOtpChallengeSignerSelection({
+    ctx,
+    authority: authorityResolution.authority,
+  });
+  if (!signerSelection.ok) {
+    return json(
+      { ok: false, code: signerSelection.code, message: signerSelection.message },
+      { status: 500 },
+    );
+  }
   const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
     walletId,
     providerUserId: enrollment.enrollment.providerUserId,
@@ -869,6 +1109,7 @@ export async function handleWalletEmailOtpChallenge(
       challenge: result.challenge,
       delivery: result.delivery,
       walletAuthMethodId: authority.bindingId,
+      signerSelection: signerSelection.selection,
     },
     { status: 200 },
   );

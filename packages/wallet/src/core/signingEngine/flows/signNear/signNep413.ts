@@ -31,6 +31,7 @@ import {
   type SigningOperationContext,
 } from '../../session/operationState/types';
 import { thresholdEd25519Nep413OperationFingerprint } from '@shared/threshold/ed25519OperationFingerprint';
+import { parseSigningOperationFingerprintDigest } from '../../session/planning/operationFingerprint';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommand,
@@ -319,6 +320,9 @@ export async function signNep413Message({
     signingAuthPlan,
     signingLaneAuth: selectionAuth,
     requiredSignatureUses,
+    operationFingerprintDigest: parseSigningOperationFingerprintDigest(
+      signingOperation.operationFingerprint,
+    ),
     passkeyEd25519OperationStepUp,
     emailOtpEd25519StepUp,
   });

@@ -77,6 +77,11 @@ function text(value: string, label: string): Uint8Array {
   return lp32(TEXT_ENCODER.encode(value), label);
 }
 
+function requirePresentString(value: string | undefined, label: string): string {
+  if (value === undefined) throw new Error(`${label} is required`);
+  return value;
+}
+
 function rawDigest(value: DigestB64u, label: string): Uint8Array {
   try {
     const decoded = base64UrlDecode(parseDigestB64u(value));
@@ -137,7 +142,19 @@ function encodeApprovedTargetFactor(value: LinkedDeviceApprovedTargetFactorV1): 
     case 'email_otp':
       return concat([
         text(value.kind, 'targetFactor.kind'),
-        text(value.baseWalletAuthMethodId, 'targetFactor.baseWalletAuthMethodId'),
+        text(value.targetEmail, 'targetFactor.targetEmail'),
+        text(value.enrollment.kind, 'targetFactor.enrollment.kind'),
+        ...(value.enrollment.kind === 'existing_enrollment'
+          ? [
+              text(
+                requirePresentString(
+                  value.baseWalletAuthMethodId,
+                  'targetFactor.baseWalletAuthMethodId',
+                ),
+                'targetFactor.baseWalletAuthMethodId',
+              ),
+            ]
+          : []),
       ]);
   }
 }
@@ -338,7 +355,18 @@ function encodeEmailTargetPreparationFactorBindingV1(
   if (isPasskeyTargetPreparationV1(value)) {
     return [];
   }
-  return [text(value.baseWalletAuthMethodId, 'baseWalletAuthMethodId')];
+  return [
+    text(value.targetEmail, 'targetEmail'),
+    text(value.enrollment.kind, 'enrollment.kind'),
+    ...(value.enrollment.kind === 'existing_enrollment'
+      ? [
+          text(
+            requirePresentString(value.baseWalletAuthMethodId, 'baseWalletAuthMethodId'),
+            'baseWalletAuthMethodId',
+          ),
+        ]
+      : []),
+  ];
 }
 
 function isPasskeyTargetPreparationV1(
@@ -376,6 +404,32 @@ export async function assertLinkedDeviceTargetCredentialRegistrationMatchesPrepa
       preparation.ordinarySignerMaterialRecipientRequirements.length
   ) {
     throw new Error('linked-device target registration differs from its preparation');
+  }
+  if (preparation.targetFactor.kind === 'email_otp') {
+    const emailPreparation = preparation;
+    const emailRegistration =
+      registration.targetFactor.kind === 'email_otp' ? registration : null;
+    const grant = emailRegistration?.emailOtpVerificationGrant;
+    if (
+      !emailRegistration ||
+      !grant ||
+      !emailPreparation.enrollment ||
+      emailRegistration.targetEmail !== emailPreparation.targetEmail ||
+      grant.enrollment.kind !== emailPreparation.enrollment.kind
+    ) {
+      throw new Error('linked-device Email OTP target registration differs from preparation');
+    }
+    if (emailPreparation.enrollment.kind === 'existing_enrollment') {
+      if (
+        !grant.baseWalletAuthMethodId ||
+        !emailPreparation.baseWalletAuthMethodId ||
+        grant.baseWalletAuthMethodId !== emailPreparation.baseWalletAuthMethodId
+      ) {
+        throw new Error('linked-device Email OTP base factor differs from preparation');
+      }
+    } else if (emailRegistration.emailOtpEnrollment === undefined) {
+      throw new Error('linked-device Email OTP enrollment material is missing');
+    }
   }
   for (
     let index = 0;

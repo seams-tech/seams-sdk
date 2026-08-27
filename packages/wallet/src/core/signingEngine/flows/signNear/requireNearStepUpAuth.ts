@@ -15,6 +15,7 @@ import type {
   NearPasskeyOperationStepUpPlan,
 } from '@/core/signingEngine/interfaces/near';
 import type { NearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   signingLaneAuthMethod,
   type SigningLaneAuthBinding,
@@ -56,6 +57,7 @@ export async function requireNearStepUpAuth(args: {
   signingAuthPlan: SigningAuthPlan;
   signingLaneAuth: SigningLaneAuthBinding;
   requiredSignatureUses: number;
+  operationFingerprintDigest: DigestB64u;
   passkeyEd25519OperationStepUp?: NearPasskeyEd25519OperationStepUpHook | null;
   emailOtpEd25519StepUp?: NearEmailOtpEd25519StepUpHook | null;
 }): Promise<NearPreparedStepUpAuth> {
@@ -79,11 +81,16 @@ export async function requireNearStepUpAuth(args: {
         ? {
             emailOtp: {
               method: 'email_otp' as const,
-              prepareChallenge: async () => await args.emailOtpEd25519StepUp!.prepare(),
+              prepareChallenge: async () =>
+                await args.emailOtpEd25519StepUp!.prepare({
+                  operationFingerprintDigest: args.operationFingerprintDigest,
+                }),
               ...(args.emailOtpEd25519StepUp.resend
                 ? {
                     resendChallenge: async () =>
-                      await args.emailOtpEd25519StepUp!.resend!(),
+                      await args.emailOtpEd25519StepUp!.resend!({
+                        operationFingerprintDigest: args.operationFingerprintDigest,
+                      }),
                   }
                 : {}),
               complete: completeNearEmailOtpPreparation,

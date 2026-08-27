@@ -145,7 +145,7 @@ const ROUTER_AB_ED25519_YAO_REGISTRATION_PATHS = [
 const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
 const LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1 = 'x-seams-intended-yao-fault-token-v1';
 const LOCAL_INTENDED_YAO_FAULT_PROOF_HEADER_V1 = 'x-seams-intended-yao-fault-proof-v1';
-const LOCAL_INTENDED_YAO_ROUTER_ORIGIN_V1 = 'https://localhost:4004';
+const LOCAL_INTENDED_YAO_ROUTER_ORIGIN_V1 = 'https://localhost:4101';
 
 type IntendedYaoFaultModeV1 = 'drop_router_response_once' | 'return_terminal_burned_once';
 
@@ -2786,7 +2786,7 @@ export const intendedTest = base.extend<{
 function intendedHarnessConfigFromEnv(): IntendedHarnessConfig {
   return {
     appUrl: process.env.SEAMS_INTENDED_APP_URL || 'https://localhost',
-    routerUrl: process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4004',
+    routerUrl: process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4101',
     walletOrigin: process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002',
     projectEnvironmentId: process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env',
     publishableKey: process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local',

@@ -41,6 +41,7 @@ import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocal
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
 import type { EmailOtpEd25519YaoExportMaterialV1 } from '../../workerManager/workerTypes';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -126,12 +127,14 @@ async function requestEmailOtpChallengeWithRoutePlan(
         kind: 'wallet_session';
         walletId: WalletId;
         routePlan: EmailOtpRoutePlan;
+        operationFingerprintDigest?: DigestB64u;
       }
     | {
         kind: 'near_account';
         walletSession: WalletSessionRef;
         nearAccountId: AccountId;
         routePlan: EmailOtpRoutePlan;
+        operationFingerprintDigest?: DigestB64u;
       },
 ): Promise<EmailOtpTransactionSigningChallenge> {
   const walletId = args.kind === 'wallet_session' ? args.walletId : args.walletSession.walletId;
@@ -154,6 +157,9 @@ async function requestEmailOtpChallengeWithRoutePlan(
           : {}),
         routePlan: args.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
+        ...(args.operationFingerprintDigest
+          ? { operationFingerprintDigest: args.operationFingerprintDigest }
+          : {}),
       },
     },
   });
@@ -181,6 +187,9 @@ export async function requestTransactionSigningChallenge(
           walletSession: args.walletSession,
           nearAccountId: args.nearAccountId,
           routePlan,
+          ...(args.operationFingerprintDigest
+            ? { operationFingerprintDigest: args.operationFingerprintDigest }
+            : {}),
         })
       : args.kind === 'wallet_export_challenge'
         ? await requestEmailOtpChallengeWithRoutePlan(ports, {
@@ -192,6 +201,9 @@ export async function requestTransactionSigningChallenge(
             kind: 'wallet_session',
             walletId: args.walletSession.walletId,
             routePlan,
+            ...(args.operationFingerprintDigest
+              ? { operationFingerprintDigest: args.operationFingerprintDigest }
+              : {}),
           });
   return challenge;
 }

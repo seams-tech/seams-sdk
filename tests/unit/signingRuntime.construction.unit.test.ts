@@ -176,7 +176,7 @@ test.describe('SigningRuntime construction', () => {
       config: toSigningRuntimeConfig(
         buildConfigsFromEnv({
           relayer: {
-            url: 'http://127.0.0.1:9090',
+            url: 'http://127.0.0.1:4100',
           },
           iframeWallet: { walletOrigin: 'https://wallet.example.test' },
         }),

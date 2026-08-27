@@ -186,6 +186,7 @@ export function buildLinkedDevicePasskeyEd25519ExportRootEnvelopeFixture(args: {
       credentialIdB64u: args.credentialIdB64u,
       kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
     },
+    ownership: { kind: 'method_bound', walletAuthMethodId: `wallet-auth-method:${args.tag}` },
     envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
     envelopeRevision: 1,
     nonceB64u: base64UrlEncode(new Uint8Array(12).fill(23)),

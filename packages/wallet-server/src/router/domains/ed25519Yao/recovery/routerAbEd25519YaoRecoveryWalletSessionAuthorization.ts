@@ -7,8 +7,12 @@ import { deriveWalletRecoveryKeyLifecycleId } from '@shared/wallet-recovery/reco
 import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
 import type { SessionAdapter } from '../../../framework/routerApi';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
-import { resolveOpaqueOwnerWalletSessionAdmission } from '../../../auth/commonRouterUtils';
+import {
+  resolveOpaqueOwnerWalletSessionAdmission,
+  resolveWalletSessionOperationCredentialAdmission,
+} from '../../../auth/commonRouterUtils';
 import { walletSessionFailureMessage } from '../../../auth/walletSessionFailure';
+import { NEAR_ED25519_MPC_OPERATION_KINDS } from '@shared/authorization/capabilityKinds';
 import type { PreparedEd25519RecoveryAdmissionV1 } from '../../passkeyCustody/walletRecoveryKeyManifest';
 import type {
   RouterAbEd25519YaoRecoveryAuthorizationAdapter,
@@ -197,6 +201,57 @@ async function authorizeOpaqueOwnerRecovery(input: {
   return { ok: true, authorization: { kind: 'wallet_session', binding } };
 }
 
+async function authorizeV2WarmBootstrap(input: {
+  readonly request: Extract<
+    RouterAbEd25519YaoRecoveryAuthorizationInput,
+    { readonly kind: 'bootstrap' }
+  >;
+  readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
+}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult | null> {
+  const token = extractBearerCredential(input.request.request.headers);
+  if (!token) return null;
+  let resolution: Awaited<ReturnType<typeof resolveWalletSessionOperationCredentialAdmission>>;
+  try {
+    resolution = await resolveWalletSessionOperationCredentialAdmission({
+      authorizationSessions: input.services.authorizationSessions,
+      token,
+      nowMs: Date.now(),
+      operation: {
+        keyFamily: 'ed25519',
+        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+      },
+    });
+  } catch {
+    return authorizationFailure({
+      status: 503,
+      code: 'wallet_session_unavailable',
+      message: walletSessionFailureMessage('wallet_session_unavailable'),
+    });
+  }
+  if (resolution.kind === 'not_v2') return null;
+  if (resolution.kind !== 'admitted' || resolution.admission.curve !== 'ed25519') {
+    return authorizationFailure({
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    });
+  }
+  if (String(resolution.admission.context.authorization.session.walletId) !== input.request.body.walletId) {
+    return authorizationFailure({
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    });
+  }
+  return {
+    ok: true,
+    authorization: {
+      kind: 'wallet_session_v2',
+      context: resolution.admission.context,
+    },
+  };
+}
+
 export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   constructor(
     private readonly resolveServices: () => Promise<RouterAbEd25519YaoRecoveryAuthorizationServicesV1>,
@@ -215,19 +270,27 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
         message: 'wallet recovery admission is unavailable',
       });
     }
-    const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
-    if (opaque) return opaque;
     switch (input.kind) {
-      case 'bootstrap':
+      case 'bootstrap': {
+        const v2 = await authorizeV2WarmBootstrap({ request: input, services });
+        if (v2) return v2;
+        const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
+        if (opaque) return opaque;
         return authorizationFailure({
           status: 401,
           code: 'wallet_session_missing',
           message: walletSessionFailureMessage('wallet_session_missing'),
         });
-      case 'admit':
+      }
+      case 'admit': {
+        const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
+        if (opaque) return opaque;
         return await authorizePreparedRecovery({ request: input, services });
+      }
       case 'execute':
-      case 'activate':
+      case 'activate': {
+        const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
+        if (opaque) return opaque;
         return {
           ok: true,
           authorization: {
@@ -235,6 +298,7 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
             walletId: input.body.binding.lifecycle.account_id,
           },
         };
+      }
     }
   }
 }

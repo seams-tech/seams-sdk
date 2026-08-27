@@ -63,6 +63,7 @@ import { findUnexpectedRouteKey } from '../../framework/routeRequestValidation';
 import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   resolveOpaqueOwnerWalletSessionAdmission,
+  resolveWalletSessionOperationCredentialAdmission,
 } from '../../auth/commonRouterUtils';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { enforceRoutePolicy } from '../../framework/enforceRoutePolicy';
@@ -71,6 +72,7 @@ import type {
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   SessionAdapter,
+  RouterApiWalletProjectionAdapter,
 } from '../../framework/routerApi';
 import type {
   HeaderRecord,
@@ -81,7 +83,8 @@ import type { RouteDefinition } from '../../framework/routeDefinitions';
 import type { RouteErrorBody } from '../../framework/routeResponses';
 import { routeError, routeJson } from '../../framework/routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
-import { base64UrlDecode } from '@shared/utils/encoders';
+import { base58Encode, base64UrlDecode } from '@shared/utils/encoders';
+import { NEAR_ED25519_MPC_OPERATION_KINDS } from '@shared/authorization/capabilityKinds';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   parseRouterAbEcdsaRegistrationActivationRequestV1,
@@ -91,6 +94,7 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { WalletRegistrationActivateInput } from './walletRegistrationInputs';
+import { verifyWalletRegistrationSetupClaims } from './walletRegistrationSetupPayload';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { ecdsaClientRootPublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
@@ -144,6 +148,7 @@ type RouterApiWalletRegistrationServices = {
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
   publishableKeyAuth?: RouterApiPublishableKeyAuthAdapter | null;
+  walletProjection?: RouterApiWalletProjectionAdapter | null;
 };
 
 type ParsedRegistrationSignerSet = {
@@ -852,6 +857,29 @@ type NearFundingWalletSessionAdmission = {
 async function resolveRouteNearFundingWalletSession(
   input: RouterApiWalletRegistrationInput,
 ): Promise<NearFundingWalletSessionAdmission | null> {
+  const token = extractBearerCredential(input.headers);
+  if (!token) return null;
+  const v2 = await resolveWalletSessionOperationCredentialAdmission({
+    authorizationSessions: input.services.authorizationSessions,
+    token,
+    nowMs: Date.now(),
+    operation: {
+      keyFamily: 'ed25519',
+      operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.signTransaction,
+    },
+  });
+  if (v2.kind === 'admitted' && v2.admission.curve === 'ed25519') {
+    const signer = v2.admission.admission.signer;
+    const nearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(
+      `ed25519:${base58Encode(base64UrlDecode(signer.registeredPublicKeyB64u))}`,
+    );
+    return {
+      kind: 'owner',
+      walletId: String(v2.admission.context.authorization.session.walletId),
+      nearAccountId,
+    };
+  }
+  if (v2.kind === 'rejected') return null;
   const owner = await resolveRouteOpaqueOwnerWalletSession(input, 'ed25519');
   if (owner?.curve === 'ed25519') {
     return {
@@ -2214,6 +2242,39 @@ function parseRegistrationRequestDigestB64u(raw: unknown): string | null {
   }
 }
 
+async function projectActivatedWallet(input: {
+  readonly registrationCeremonyId: string;
+  readonly services: RouterApiWalletRegistrationServices;
+  readonly signedSetup: unknown;
+}): Promise<string | null> {
+  const walletProjection = input.services.walletProjection || null;
+  if (!walletProjection) return null;
+  const verifier = input.services.session;
+  if (!verifier) return 'wallet projection requires setup verification';
+  const verified = await verifyWalletRegistrationSetupClaims(verifier, input.signedSetup, {
+    registrationCeremonyId: input.registrationCeremonyId,
+    nowMs: Date.now(),
+  });
+  if (!verified.ok) return verified.message;
+  if (verified.claims.policy.kind !== 'runtime_policy_scope') {
+    return 'wallet projection requires an exact runtime policy scope';
+  }
+  if (verified.claims.policy.scope.orgId !== verified.claims.orgId) {
+    return 'wallet projection scope does not match its organization';
+  }
+  try {
+    await walletProjection.recordCreatedWallet({
+      orgId: verified.claims.orgId,
+      runtimePolicyScope: verified.claims.policy.scope,
+      walletId: verified.claims.walletId,
+      occurredAt: new Date().toISOString(),
+    });
+    return null;
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 /**
  * Refactor 94C. `POST /wallets/register/activate` — activation and
  * finalization behind one Gateway operation row.
@@ -2322,6 +2383,18 @@ export async function handleRouterApiWalletRegistrationActivate(
       500,
       'internal',
       'Wallet registration activation returned an invalid authority',
+    );
+  }
+  const projectionError = await projectActivatedWallet({
+    registrationCeremonyId,
+    services: input.services,
+    signedSetup,
+  });
+  if (projectionError) {
+    return routeError(
+      500,
+      'internal',
+      `Wallet was created but its Console projection failed: ${projectionError}`,
     );
   }
   return routeJson(200, result);

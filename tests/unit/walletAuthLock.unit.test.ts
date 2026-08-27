@@ -164,7 +164,7 @@ test.describe('wallet lock lifecycle', () => {
     expect(fixture.calls.clearWarmMaterial).toBe(1);
   });
 
-  test('propagates wallet-host lock failure after local cleanup completes', async () => {
+  test('propagates wallet-host lock failure without creating an app-origin signer runtime', async () => {
     const fixture = createLockFixture({
       useWalletIframe: true,
       hostLock: async () => {
@@ -173,44 +173,24 @@ test.describe('wallet lock lifecycle', () => {
     });
 
     await expect(lockDomain(fixture.deps)).rejects.toThrow('wallet host lock failed');
-    expect(fixture.calls.clearAuthentication).toBe(1);
+    expect(fixture.calls.clearAuthentication).toBe(0);
     expect(fixture.calls.hostLock).toBe(1);
-    expect(fixture.calls.clearNonce).toBe(1);
-    expect(fixture.calls.clearEcdsaQueue).toBe(1);
-    expect(fixture.calls.clearWarmMaterial).toBe(1);
+    expect(fixture.calls.clearNonce).toBe(0);
+    expect(fixture.calls.clearEcdsaQueue).toBe(0);
+    expect(fixture.calls.clearWarmMaterial).toBe(0);
   });
 
-  test('waits for local signer cleanup before acknowledging wallet-host lock', async () => {
-    let releaseWarmMaterial!: () => void;
-    let warmMaterialCompleted = false;
-    const warmMaterialCleanup = new Promise<void>((resolve) => {
-      releaseWarmMaterial = resolve;
-    });
+  test('delegates iframe-mode lock to the wallet host only', async () => {
     const fixture = createLockFixture({
       useWalletIframe: true,
-      clearWarmMaterial: async () => {
-        await warmMaterialCleanup;
-        warmMaterialCompleted = true;
-      },
       hostLock: async () => undefined,
     });
 
-    const lockPromise = lockDomain(fixture.deps);
-    await expect.poll(() => fixture.calls.hostLock).toBe(1);
-    expect(fixture.calls.clearAuthentication).toBe(1);
-
-    let lockCompleted = false;
-    void lockPromise.then(() => {
-      lockCompleted = true;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fixture.calls.clearWarmMaterial).toBe(1);
-    expect(warmMaterialCompleted).toBe(false);
-    expect(lockCompleted).toBe(false);
-
-    releaseWarmMaterial();
-    await lockPromise;
-    expect(warmMaterialCompleted).toBe(true);
-    expect(lockCompleted).toBe(true);
+    await lockDomain(fixture.deps);
+    expect(fixture.calls.hostLock).toBe(1);
+    expect(fixture.calls.clearAuthentication).toBe(0);
+    expect(fixture.calls.clearNonce).toBe(0);
+    expect(fixture.calls.clearEcdsaQueue).toBe(0);
+    expect(fixture.calls.clearWarmMaterial).toBe(0);
   });
 });

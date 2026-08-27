@@ -49,7 +49,7 @@ type WalletAuthSigningSurface = Pick<
  * SeamsWeb wallet-auth domain call graph:
  * - unlockDomain -> wallet router unlock OR local unlock workflow (`@/SeamsWeb/operations/auth/login`)
  * - getWalletSessionDomain/getRecentUnlocksDomain -> wallet router read path OR local IndexedDB/session read path
- * - lockDomain -> local lock followed by acknowledged wallet-host lock
+ * - lockDomain -> local lock or acknowledged wallet-host lock
  */
 export type WalletAuthDomainDeps = {
   getContext: () => WalletAuthWebContext;
@@ -173,15 +173,12 @@ export async function unlockDomain(
 }
 
 export async function lockDomain(deps: WalletLockDomainDeps): Promise<void> {
-  const localLock = lockCore(deps.getContext());
-  if (!deps.walletIframe.shouldUseWalletIframe()) {
-    await localLock;
+  if (deps.walletIframe.shouldUseWalletIframe()) {
+    const router = await deps.walletIframe.requireRouter();
+    await router.lock();
     return;
   }
-  const router = await deps.walletIframe.requireRouter();
-  const [localResult, hostResult] = await Promise.allSettled([localLock, router.lock()]);
-  if (localResult.status === 'rejected') throw localResult.reason;
-  if (hostResult.status === 'rejected') throw hostResult.reason;
+  await lockCore(deps.getContext());
 }
 
 export async function getWalletSessionDomain(

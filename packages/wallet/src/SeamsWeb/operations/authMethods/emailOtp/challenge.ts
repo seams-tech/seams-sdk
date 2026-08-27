@@ -9,11 +9,16 @@ import {
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type {
-  EmailOtpChallengeDelivery,
-  EmailOtpEnrollmentResult,
-  GoogleEmailOtpProviderResolution,
+import {
+  parseEmailOtpUnlockEd25519Identity,
+  parseEmailOtpUnlockEd25519Selection,
+  type EmailOtpChallengeDelivery,
+  type EmailOtpEnrollmentResult,
+  type EmailOtpUnlockSignerSelection,
+  type GoogleEmailOtpProviderResolution,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 import {
   buildEmailOtpRoutePlan,
@@ -26,6 +31,22 @@ export type { EmailOtpEnrollmentResult, WalletEmailOtpChannel };
 export { EMAIL_OTP_CHANNEL };
 
 type JsonObject = Record<string, unknown>;
+
+function parseEmailOtpUnlockSignerSelection(value: unknown): EmailOtpUnlockSignerSelection {
+  const record = requireObjectJson(value, 'wallet/email-otp/challenge signerSelection');
+  if (record.kind === 'ed25519_only') {
+    return { kind: 'ed25519_only', ...parseEmailOtpUnlockEd25519Identity(record) };
+  }
+  if (record.kind !== 'ecdsa') {
+    throw new Error('wallet/email-otp/challenge signerSelection kind is invalid');
+  }
+  return {
+    kind: 'ecdsa',
+    keyHandle: readString(record.keyHandle, 'wallet/email-otp/challenge keyHandle'),
+    runtimePolicyScope: normalizeRuntimePolicyScope(record.runtimePolicyScope),
+    ed25519: parseEmailOtpUnlockEd25519Selection(record.ed25519),
+  };
+}
 
 export class EmailOtpRouteError extends Error {
   readonly code?: string;
@@ -230,11 +251,12 @@ export async function resolveGoogleEmailOtpProvider(args: {
     if (response.hasEmailOtpEnrollment !== true) {
       throw new Error('auth/google/verify existing wallet is missing Email OTP enrollment');
     }
+    if (!email) throw new Error('auth/google/verify existing wallet is missing email');
     return {
       mode,
       walletId,
       providerSubject,
-      ...(email ? { email } : {}),
+      email,
       hasEmailOtpEnrollment: true,
     };
   }
@@ -304,6 +326,7 @@ export async function requestEmailOtpChallenge(args: {
   expiresAtMs?: number;
   ownerProofBindingDigest: string;
   walletAuthMethodId: string;
+  signerSelection: EmailOtpUnlockSignerSelection;
 }> {
   const operation = args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (!args.fetchImpl && args.workerCtx) {
@@ -363,6 +386,7 @@ export async function requestEmailOtpChallenge(args: {
     expiresAtMs?: number;
     ownerProofBindingDigest: string;
     walletAuthMethodId: string;
+    signerSelection: EmailOtpUnlockSignerSelection;
   } = {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
@@ -376,6 +400,7 @@ export async function requestEmailOtpChallenge(args: {
       response.walletAuthMethodId,
       'wallet/email-otp/challenge walletAuthMethodId',
     ),
+    signerSelection: parseEmailOtpUnlockSignerSelection(response.signerSelection),
   };
   if (Number.isFinite(expiresAtMs)) {
     result.expiresAtMs = expiresAtMs;

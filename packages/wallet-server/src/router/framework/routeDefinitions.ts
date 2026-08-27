@@ -116,6 +116,9 @@ const ROUTER_API_PASSKEY_CUSTODY_SERVICES = [
   'webAuthn',
   'emailOtp',
 ] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_LINKED_DEVICE_PASSKEY_SERVICES = [
+  'publishableKeyAuth',
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_UNLOCK_SERVICES = [
   'walletUnlock',
 ] as const satisfies readonly CoreRouteServiceKey[];
@@ -515,6 +518,34 @@ export function createRouterApiRouteDefinitions(
       },
       { kind: 'none' },
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
+    ),
+    apiCredentialRoute(
+      'linked_device_target_preparation',
+      'GET',
+      '/wallet/device-linking/v1/sessions/:linkSessionId/target-preparation',
+      'Prepare a linked-device target Passkey ceremony',
+      {
+        plane: 'api_credentials',
+        credentials: ['publishable_key'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      { kind: 'none' },
+      ROUTER_API_LINKED_DEVICE_PASSKEY_SERVICES,
+    ),
+    apiCredentialRoute(
+      'linked_device_target_credential',
+      'POST',
+      '/wallet/device-linking/v1/sessions/:linkSessionId/credential',
+      'Verify a linked-device target Passkey credential',
+      {
+        plane: 'api_credentials',
+        credentials: ['publishable_key'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      { kind: 'none' },
+      ROUTER_API_LINKED_DEVICE_PASSKEY_SERVICES,
     ),
     publicRoute(
       'wallet_registration_respond',

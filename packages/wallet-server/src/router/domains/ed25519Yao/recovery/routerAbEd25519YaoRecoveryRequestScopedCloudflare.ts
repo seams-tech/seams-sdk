@@ -28,6 +28,7 @@ import {
 import { json, readJson } from '../../../framework/http';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
+  buildWarmRecoveryBootstrapResponse,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
   type RouterAbEd25519YaoRecoveryActivationClaimV1,
   type RouterAbEd25519YaoRecoveryAdmissionClaimV1,
@@ -476,9 +477,7 @@ async function runWarmRecoveryBootstrapRequest(
       { status: authorized.status },
     );
   }
-  if (
-    authorized.authorization.kind !== 'wallet_session'
-  ) {
+  if (authorized.authorization.kind === 'wallet_recovery') {
     return json(
       {
         ok: false,
@@ -502,14 +501,12 @@ async function runWarmRecoveryBootstrapRequest(
       { status: activeCapability.code === 'unknown_capability' ? 404 : 409 },
     );
   }
-  const binding = authorized.authorization.binding;
-  if (
-    !warmBootstrapCapabilityMatchesStableIdentity({
-      request,
-      binding,
-      capability: activeCapability.capability,
-    })
-  ) {
+  const response = await buildWarmRecoveryBootstrapResponse({
+    request,
+    authorization: authorized.authorization,
+    capability: activeCapability.capability,
+  });
+  if (!response) {
     return json(
       {
         ok: false,
@@ -519,50 +516,6 @@ async function runWarmRecoveryBootstrapRequest(
       { status: 409 },
     );
   }
-  const firstParticipantId = binding.participantIds[0];
-  const secondParticipantId = binding.participantIds[1];
-  if (firstParticipantId === undefined || secondParticipantId === undefined) {
-    return json(
-      {
-        ok: false,
-        code: 'wallet_session_claims_invalid',
-        message: 'Ed25519 Yao recovery requires exactly two Wallet Session participants',
-      },
-      { status: 401 },
-    );
-  }
-  const identity = parseWarmRecoveryWalletSessionIdentity({
-    thresholdSessionId: binding.thresholdSessionId,
-  });
-  if (!identity) {
-    return json(
-      {
-        ok: false,
-        code: 'wallet_session_claims_invalid',
-        message: 'Ed25519 Yao recovery received invalid Wallet Session identities',
-      },
-      { status: 401 },
-    );
-  }
-  const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
-    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
-    walletId: binding.walletId,
-    nearAccountId: binding.nearAccountId,
-    nearEd25519SigningKeyId: binding.nearEd25519SigningKeyId,
-    signerSlot: request.signerSlot,
-    thresholdSessionId: identity.thresholdSessionId,
-    walletSessionId: binding.walletSessionId,
-    quotaId: binding.quotaId,
-    signingWorkerId: binding.routerAbNormalSigning.signingWorkerId,
-    thresholdExpiresAtMs: binding.thresholdExpiresAtMs,
-    participantIds: [firstParticipantId, secondParticipantId],
-    authority: binding.authority,
-    authorityRef: await walletAuthAuthorityRef({ authority: binding.authority }),
-    authorityScope: binding.authorityScope,
-    runtimePolicyScope: binding.runtimePolicyScope,
-    routerAbNormalSigning: binding.routerAbNormalSigning,
-    capability: activeCapability.capability,
-  };
   return json(response, { status: 200 });
 }
 

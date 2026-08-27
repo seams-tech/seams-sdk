@@ -17,6 +17,7 @@ import {
   type AuthMenuRegisterViewModel,
   type AuthMenuViewModel,
 } from './auth-menu-domain';
+import { isLinkedDeviceTargetEmailAddressV1 } from '@/core/types/linkDevice';
 
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 const AUTH_MENU_CSS_MARKER = 'data-w3a-auth-menu-css';
@@ -773,6 +774,14 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     this.emitIntent({ kind: 'link_device_factor_selected', targetFactor });
   };
 
+  private onLinkDeviceTargetEmailInput = (event: Event): void => {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    this.emitIntent({
+      kind: 'link_device_target_email_changed',
+      emailAddress: event.currentTarget.value,
+    });
+  };
+
   private onLinkDeviceStart = (): void => {
     this.emitIntent({ kind: 'link_device_start' });
   };
@@ -1272,12 +1281,18 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private renderLinkDeviceFactorSelection(
     linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'select_factor' }>,
   ): TemplateResult {
+    const emailTargetSelected = linkDevice.targetFactor.kind === 'email_otp';
+    const emailAddress =
+      linkDevice.targetFactor.kind === 'email_otp' && typeof linkDevice.targetEmail === 'string'
+        ? linkDevice.targetEmail
+        : '';
+    const canStart = !emailTargetSelected || isLinkedDeviceTargetEmailAddressV1(emailAddress);
     return html`
       <div class="w3a-link-device-confirmation">
         <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Match your other device</h2>
         <p class="w3a-link-device-confirmation-copy">
-          Use the same unlock method as Device 1: Passkey for a passkey wallet, or Email code for an
-          Email OTP wallet.
+          Choose the unlock method for Device 2. Email code sends a one-time code to the address you
+          enter.
         </p>
         <fieldset class="w3a-link-device-factor-options">
           <legend class="sr-only">Wallet unlock method</legend>
@@ -1302,10 +1317,30 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             Email code
           </label>
         </fieldset>
+        ${emailTargetSelected
+          ? html`
+              <label class="w3a-link-device-target-email">
+                <span class="w3a-field-label">Email address</span>
+                <input
+                  type="email"
+                  name="linked-device-target-email"
+                  autocomplete="email"
+                  .value=${emailAddress}
+                  aria-label="Email address"
+                  aria-invalid=${emailAddress.length > 0 && !canStart ? 'true' : 'false'}
+                  @input=${this.onLinkDeviceTargetEmailInput}
+                />
+              </label>
+            `
+          : null}
+        ${linkDevice.error
+          ? html`<p class="w3a-link-device-inline-error" role="alert">${linkDevice.error}</p>`
+          : null}
         <button
           class="w3a-link-device-btn w3a-link-device-btn-primary"
           type="button"
           data-auth-menu-primary
+          ?disabled=${!canStart}
           @click=${this.onLinkDeviceStart}
         >
           Continue

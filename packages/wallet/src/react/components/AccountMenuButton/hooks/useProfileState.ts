@@ -46,8 +46,7 @@ export const useProfileState = (options?: UseProfileStateOptions) => {
       const pathEls = path.filter((n): n is HTMLElement => n instanceof HTMLElement);
       const inAccountMenuOverlay = pathEls.some((el) =>
         Array.from(el.classList ?? []).some(
-          (c) =>
-            c.startsWith('w3a-access-keys-modal') || c.startsWith('w3a-export-key-type-modal'),
+          (c) => c.startsWith('w3a-access-keys-modal') || c.startsWith('w3a-export-key-type-modal'),
         ),
       );
       if (inAccountMenuOverlay) return;
@@ -55,7 +54,9 @@ export const useProfileState = (options?: UseProfileStateOptions) => {
       // QR scanner overlay
       const inQRScanner = pathEls.some(
         (el) =>
-          el.classList?.contains('qr-scanner-modal') || el.classList?.contains('qr-scanner-panel'),
+          el.classList?.contains('qr-scanner-modal') ||
+          el.classList?.contains('qr-scanner-panel') ||
+          el.classList?.contains('qr-scanner-linking-toast'),
       );
       if (inQRScanner) return;
 

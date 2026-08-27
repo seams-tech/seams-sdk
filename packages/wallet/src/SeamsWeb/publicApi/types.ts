@@ -1,4 +1,5 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   WalletIframeRequestId,
   WalletIframeSurfaceId,
@@ -541,6 +542,7 @@ export type EmailOtpChallengeResult = {
 export type EmailOtpOperationChallengeResult = EmailOtpChallengeResult & {
   ownerProofBindingDigest: string;
   walletAuthMethodId: string;
+  signerSelection: import('@/core/signingEngine/session/emailOtp/publicTypes').EmailOtpUnlockSignerSelection;
 };
 
 export type { EmailOtpEnrollmentResult };
@@ -560,8 +562,11 @@ export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
   /** Exact Email OTP method selected during challenge resolution. */
-  walletAuthMethodId?: string;
+  walletAuthMethodId: string;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  ed25519Selection: import('@/core/signingEngine/session/emailOtp/publicTypes').EmailOtpUnlockEd25519Selection;
   providerIdentity: {
     provider: EmailOtpProvider;
     providerSubjectId: string;
@@ -572,7 +577,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   groupId?: string;
   registrationAttemptId?: string;
-  emailOtpAuthorityEmail?: string;
+  emailOtpAuthorityEmail: string;
   onEvent?: (event: UnlockFlowEvent) => void;
 };
 

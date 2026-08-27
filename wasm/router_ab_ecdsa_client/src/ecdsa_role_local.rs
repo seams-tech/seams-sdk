@@ -77,7 +77,22 @@ pub struct EcdsaLinkedHolderMaterialV1 {
     export_recipient: EcdsaClientEphemeralKeyPairV1,
     pending_export_request_digest: Option<[u8; 32]>,
     pending_export_transcript_digest: Option<[u8; 32]>,
-    export_consumed: bool,
+}
+
+fn generate_linked_holder_export_recipient() -> Result<EcdsaClientEphemeralKeyPairV1, JsValue> {
+    let mut export_recipient_seed = [0_u8; 32];
+    getrandom::getrandom(&mut export_recipient_seed).map_err(|error| {
+        js_error(format!(
+            "linked holder export recipient CSPRNG failed: {error}"
+        ))
+    })?;
+    let result = derive_ecdsa_client_ephemeral_keypair_v1(export_recipient_seed);
+    export_recipient_seed.zeroize();
+    result.map_err(|error| {
+        js_error(format!(
+            "linked holder export recipient key generation failed: {error:?}"
+        ))
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,20 +594,7 @@ impl EcdsaLinkedHolderMaterialV1 {
                 "linked holder signing share does not match its public key",
             ));
         }
-        let mut export_recipient_seed = [0_u8; 32];
-        getrandom::getrandom(&mut export_recipient_seed).map_err(|error| {
-            js_error(format!(
-                "linked holder export recipient CSPRNG failed: {error}"
-            ))
-        })?;
-        let export_recipient_result =
-            derive_ecdsa_client_ephemeral_keypair_v1(export_recipient_seed);
-        export_recipient_seed.zeroize();
-        let export_recipient = export_recipient_result.map_err(|error| {
-            js_error(format!(
-                "linked holder export recipient key generation failed: {error:?}"
-            ))
-        })?;
+        let export_recipient = generate_linked_holder_export_recipient()?;
         Ok(Self {
             signing_share32,
             threshold_public_key33,
@@ -603,21 +605,16 @@ impl EcdsaLinkedHolderMaterialV1 {
             export_recipient,
             pending_export_request_digest: None,
             pending_export_transcript_digest: None,
-            export_consumed: false,
         })
     }
 
     /// Builds the ordinary explicit-export request with this holder's
     /// recipient. The request digest and transcript stay private to WASM.
     pub fn build_ordinary_export_request(&mut self, input_json: &str) -> Result<String, JsValue> {
-        if self.export_consumed {
-            return Err(js_error(
-                "ECDSA holder export recipient was already consumed",
-            ));
-        }
         if self.pending_export_request_digest.is_some() {
             return Err(js_error("ECDSA holder export request was already built"));
         }
+        self.export_recipient = generate_linked_holder_export_recipient()?;
         let (serialized, request_digest, transcript_digest) =
             build_explicit_export_request_with_keypair(input_json, &self.export_recipient)?;
         self.pending_export_request_digest = Some(request_digest);
@@ -636,11 +633,6 @@ impl EcdsaLinkedHolderMaterialV1 {
     /// Verifies both ordinary export proof bundles, opens the standard
     /// SigningWorker envelope, and reconstructs the holder's additive key.
     pub fn finalize_ordinary_export(&mut self, input_json: &str) -> Result<String, JsValue> {
-        if self.export_consumed {
-            return Err(js_error(
-                "ECDSA holder export recipient was already consumed",
-            ));
-        }
         let request_digest = self
             .pending_export_request_digest
             .take()
@@ -649,7 +641,6 @@ impl EcdsaLinkedHolderMaterialV1 {
             .pending_export_transcript_digest
             .take()
             .ok_or_else(|| js_error("ECDSA holder export transcript was not prepared"))?;
-        self.export_consumed = true;
         let input: LinkedEcdsaOrdinaryExportFinalizationInputV1 = parse_json(input_json)?;
         let expected_request_digest = decode_base64_fixed::<32>(
             &input.expected_binding.export_request_digest_b64u,

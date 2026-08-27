@@ -45,7 +45,11 @@ import type {
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
-import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes';
+import type {
+  EmailOtpChallengeDelivery,
+  EmailOtpUnlockSignerSelection,
+  EmailOtpVerifiedAuthorityProjection,
+} from '../session/emailOtp/publicTypes';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
@@ -661,6 +665,7 @@ export interface EmailOtpWorkerOperationMap {
       expiresAtMs?: number;
       ownerProofBindingDigest: string;
       walletAuthMethodId: string;
+      signerSelection: EmailOtpUnlockSignerSelection;
     };
   };
   requestEmailOtpEnrollmentChallenge: {
@@ -829,6 +834,7 @@ export interface EmailOtpWorkerOperationMap {
         unlockChallengeB64u: string;
         clientUnlockPublicKeyB64u: string;
         unlockSignatureB64u: string;
+        verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
       };
     } & EmailOtpWalletUnlockMaterialResult;
   };
@@ -876,6 +882,7 @@ export interface EmailOtpWorkerOperationMap {
       readonly factorSecret32: Uint8Array;
       readonly walletSession: ActiveWalletSessionV1;
       readonly operationCredential: WalletSessionOperationCredentialV1;
+      readonly verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
       /**
        * Either the runtime is ready and every part of it is present, or there
        * is none. Three optional fields would let a caller hold a handle with no

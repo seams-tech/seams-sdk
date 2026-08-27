@@ -1268,16 +1268,6 @@ export async function handleWalletUnlockVerifyRoute(input: {
     };
   }
 
-  const emailOtpCustody = projectEmailOtpCustody(
-    result,
-    await input.resolveEmailOtpCustody({
-      walletId: result.walletId,
-      enrollmentId: result.enrollmentId,
-      enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
-    }),
-  );
-  if (!emailOtpCustody.ok) return emailOtpCustody.response;
-
   const requestedWalletAuthMethodId =
     body.walletAuthMethodId === undefined ? null : parseWalletAuthMethodId(body.walletAuthMethodId);
   if (requestedWalletAuthMethodId && !requestedWalletAuthMethodId.ok) {
@@ -1336,6 +1326,27 @@ export async function handleWalletUnlockVerifyRoute(input: {
     }
     exactEmailOtpAuthority = authorityResolution;
   }
+
+  const verifiedAuthorityProjection = exactEmailOtpAuthority
+    ? {
+        kind: 'email_otp_verified_authority_projection_v1' as const,
+        authority: exactEmailOtpAuthority.authority,
+        authMethod: exactEmailOtpAuthority.authMethod,
+      }
+    : null;
+
+  const emailOtpCustody =
+    exactEmailOtpAuthority?.authority.provenance.kind === 'device_link'
+      ? null
+      : projectEmailOtpCustody(
+          result,
+          await input.resolveEmailOtpCustody({
+            walletId: result.walletId,
+            enrollmentId: result.enrollmentId,
+            enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+          }),
+        );
+  if (emailOtpCustody && !emailOtpCustody.ok) return emailOtpCustody.response;
 
   const exactEmailOtpAuthorityForProof = exactEmailOtpAuthority;
   let authorization: WalletUnlockOwnerAuthorization;
@@ -1451,7 +1462,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
         unlocked: true,
         unlockBackend,
         userId: result.userId,
-        walletCustody: emailOtpCustody.projection,
+        ...(verifiedAuthorityProjection
+          ? { verifiedAuthorityProjection }
+          : {}),
+        ...(emailOtpCustody ? { walletCustody: emailOtpCustody.projection } : {}),
         ...(activeWalletSession
           ? {
               walletSession: projectActiveWalletSession(activeWalletSession),
@@ -1504,7 +1518,8 @@ export async function handleWalletUnlockVerifyRoute(input: {
       unlocked: true,
       unlockBackend,
       userId: result.userId,
-      walletCustody: emailOtpCustody.projection,
+      ...(verifiedAuthorityProjection ? { verifiedAuthorityProjection } : {}),
+      ...(emailOtpCustody ? { walletCustody: emailOtpCustody.projection } : {}),
       ed25519YaoCapability: capabilityResult.value,
       ...(activeWalletSession
         ? {

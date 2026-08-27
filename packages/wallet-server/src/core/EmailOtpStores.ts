@@ -526,7 +526,6 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_id),
-      UNIQUE (namespace, org_id, project_id, env_id, record_org_id, provider_user_id),
       CHECK (length(wallet_id) > 0),
       CHECK (length(provider_user_id) > 0),
       CHECK (length(record_org_id) > 0),
@@ -806,7 +805,14 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const attemptCount = Number(obj.attemptCount);
   const maxAttempts = Number(obj.maxAttempts);
   if (version !== 'email_otp_challenge_v1') return null;
-  if (!challengeId || !challengeSubjectId || !walletId || !email || !otpCode || !ownerProofBindingDigest)
+  if (
+    !challengeId ||
+    !challengeSubjectId ||
+    !walletId ||
+    !email ||
+    !otpCode ||
+    !ownerProofBindingDigest
+  )
     return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
@@ -876,8 +882,7 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   const issuedAtMs = Number(obj.issuedAtMs);
   const expiresAtMs = Number(obj.expiresAtMs);
   if (version !== 'email_otp_grant_v1') return null;
-  if (!grantToken || !userId || !walletId || !challengeId || !ownerProofBindingDigest)
-    return null;
+  if (!grantToken || !userId || !walletId || !challengeId || !ownerProofBindingDigest) return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&

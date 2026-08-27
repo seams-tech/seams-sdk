@@ -63,6 +63,7 @@ import {
   nearEd25519SignerBindingFromBoundaryFields,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
@@ -858,9 +859,12 @@ function buildNearEmailOtpEd25519StepUp(args: {
   ) {
     throw new Error('[SigningEngine][near] Email OTP step-up lane changed subject');
   }
-  const requestChallenge = async (): Promise<EmailOtpTransactionSigningChallenge> => {
+  const requestChallenge = async (challengeArgs: {
+    operationFingerprintDigest: DigestB64u;
+  }): Promise<EmailOtpTransactionSigningChallenge> => {
     const challenge = await args.deps.requestEmailOtpEd25519SigningChallenge!({
       walletSession: args.commandSubject.walletSession,
+      operationFingerprintDigest: challengeArgs.operationFingerprintDigest,
     });
     emitNearSigningEvent(args.onEvent, args.commandSubject.nearAccount.accountId, {
       phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,

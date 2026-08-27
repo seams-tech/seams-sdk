@@ -35,12 +35,14 @@ import type {
   EvmFamilyLifecycleEventCallback,
   EvmFamilySenderSignatureAlgorithm,
 } from './types';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authority: EmailOtpEcdsaChallengeAuthority;
+    operationFingerprintDigest: DigestB64u;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
@@ -68,6 +70,7 @@ type ResolveEvmFamilyTransactionStepUpBaseArgs = {
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   accountAuth: AccountAuthMetadata;
+  operationFingerprintDigest: DigestB64u;
   onEvent?: EvmFamilyLifecycleEventCallback;
 };
 
@@ -154,6 +157,7 @@ export async function resolveEvmFamilyTransactionStepUp(
         chain: args.chain,
         ...(preparedEcdsaLane ? { selectedLane: preparedEcdsaLane } : {}),
         authority: emailOtpAuthority,
+        operationFingerprintDigest: args.operationFingerprintDigest,
         onEvent: args.onEvent,
         requestEmailOtpTransactionSigningChallenge:
           confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,

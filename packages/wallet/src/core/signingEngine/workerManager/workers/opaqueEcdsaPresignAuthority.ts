@@ -67,7 +67,7 @@ export class OpaqueEcdsaPresignAuthorityV1 {
     input: OpaqueEcdsaPresignSessionInitV1,
   ): Promise<ThresholdEcdsaPresignProgressResult> {
     const generation = this.generation;
-    return await this.serialize(input.presignSessionId, async () => {
+    return await this.serialize(input.presignSessionId, () => {
       if (generation !== this.generation) {
         input.session.free();
         throw new Error('Opaque ECDSA presign authority was closed');
@@ -77,6 +77,10 @@ export class OpaqueEcdsaPresignAuthorityV1 {
         throw new Error('Opaque ECDSA presign session expired');
       }
       this.abortNow(input.presignSessionId);
+      if (generation !== this.generation) {
+        input.session.free();
+        throw new Error('Opaque ECDSA presign authority was closed');
+      }
       this.sessions.set(input.presignSessionId, {
         session: input.session,
         binding: {
@@ -86,7 +90,7 @@ export class OpaqueEcdsaPresignAuthorityV1 {
         },
       });
       try {
-        return await this.poll(input.presignSessionId);
+        return this.poll(input.presignSessionId, generation);
       } catch (error) {
         this.abortNow(input.presignSessionId);
         throw error;
@@ -95,16 +99,22 @@ export class OpaqueEcdsaPresignAuthorityV1 {
   }
 
   async step(input: OpaqueEcdsaPresignSessionStepV1): Promise<ThresholdEcdsaPresignProgressResult> {
-    return await this.serialize(input.presignSessionId, async () => {
+    return await this.serialize(input.presignSessionId, () => {
+      const generation = this.generation;
       const entry = this.requireSession(input.presignSessionId);
       try {
-        if (input.stage === 'presign' && entry.session.stage() === 'triples_done') {
-          entry.session.start_presign();
+        if (input.stage === 'presign') {
+          const currentStage = entry.session.stage();
+          this.requireCurrentGeneration(generation);
+          if (currentStage === 'triples_done') entry.session.start_presign();
+          this.requireCurrentGeneration(generation);
         }
         for (const incoming of input.incomingMessages) {
+          this.requireCurrentGeneration(generation);
           entry.session.message(new Uint8Array(incoming));
+          this.requireCurrentGeneration(generation);
         }
-        return await this.poll(input.presignSessionId);
+        return this.poll(input.presignSessionId, generation);
       } catch (error) {
         this.abortNow(input.presignSessionId);
         throw error;
@@ -161,6 +171,12 @@ export class OpaqueEcdsaPresignAuthorityV1 {
     return { kind: 'threshold_ecdsa_presign_session_aborted', sessionId };
   }
 
+  private requireCurrentGeneration(expectedGeneration: number): void {
+    if (expectedGeneration !== this.generation) {
+      throw new Error('Opaque ECDSA presign authority was closed');
+    }
+  }
+
   close(): void {
     this.generation += 1;
     for (const sessionId of this.sessions.keys()) this.abortNow(sessionId);
@@ -178,14 +194,16 @@ export class OpaqueEcdsaPresignAuthorityV1 {
     return entry;
   }
 
-  private async poll(sessionId: string): Promise<ThresholdEcdsaPresignProgressResult> {
+  private poll(sessionId: string, expectedGeneration: number): ThresholdEcdsaPresignProgressResult {
     const entry = this.requireSession(sessionId);
     const result = parsePollResult(entry.session.poll());
+    this.requireCurrentGeneration(expectedGeneration);
     const outgoingMessages = result.outgoing.map(copyToArrayBuffer);
     if (result.event !== 'presign_done') {
       return { stage: result.stage, event: result.event, outgoingMessages };
     }
     const bigR33 = entry.session.presignature_big_r_33();
+    this.requireCurrentGeneration(expectedGeneration);
     if (bigR33.length !== 33) throw new Error('Client presignature R must contain 33 bytes');
     const materialHandle = randomHandle(`ecdsa-presign-${sessionId}`);
     this.sessions.delete(sessionId);
