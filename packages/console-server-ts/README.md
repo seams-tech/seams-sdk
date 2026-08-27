@@ -57,7 +57,7 @@ Use `GET /readyz` on the local Worker to verify the D1 table set and the
 Durable Object normal-signing admission path:
 
 ```sh
-curl http://127.0.0.1:9090/readyz
+curl http://127.0.0.1:4100/readyz
 ```
 
 Open `sqlite/seams_console.sqlite` or `sqlite/seams_signer.sqlite` in TablePlus

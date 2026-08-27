@@ -259,18 +259,23 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
       aria-busy={walletLockState.kind === 'cleaning_up'}
       data-wallet-lock-state={walletLockState.kind}
     >
-      <HostedSeamsAuthMenu
-        initialMode={resolvedInitialMode}
-        registrationAccountInput="implicit_wallet"
-        showRegistrationInput={false}
-        copy={{
-          login: { subtitle: 'Continue with Passkey or Google SSO' },
-          register: { subtitle: 'Continue with Passkey or Google SSO' },
-        }}
-        externalAuthBroker={externalAuthBroker}
-        onDemoEmailOtp={showHostedDemoEmailOtp}
-        onOutcome={handleHostedAuthMenuOutcomeAndCancelGoogleRequest.bind(null, refreshLoginState)}
-      />
+      {walletLockState.kind === 'idle' ? (
+        <HostedSeamsAuthMenu
+          initialMode={resolvedInitialMode}
+          registrationAccountInput="implicit_wallet"
+          showRegistrationInput={false}
+          copy={{
+            login: { subtitle: 'Continue with Passkey or Google SSO' },
+            register: { subtitle: 'Continue with Passkey or Google SSO' },
+          }}
+          externalAuthBroker={externalAuthBroker}
+          onDemoEmailOtp={showHostedDemoEmailOtp}
+          onOutcome={handleHostedAuthMenuOutcomeAndCancelGoogleRequest.bind(
+            null,
+            refreshLoginState,
+          )}
+        />
+      ) : null}
     </div>
   );
 }

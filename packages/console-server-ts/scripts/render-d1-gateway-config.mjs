@@ -328,7 +328,6 @@ function buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: deployment.routerAb.ceremonyJwtAudience,
     ROUTER_AB_CEREMONY_JWT_KEY_ID: deployment.routerAb.ceremonyJwtKeyId,
     LINKED_DEVICE_WEBAUTHN_RP_ID: new URL(walletOrigin).hostname,
-    LINKED_DEVICE_WEBAUTHN_ORIGIN: siteOrigin,
     ROUTER_AB_PUBLIC_KEYSET_JSON: JSON.stringify(deployment.routerAb.publicKeyset),
     ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: JSON.stringify(
       deployment.routerAb.registrationTopology,

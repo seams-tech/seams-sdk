@@ -813,9 +813,9 @@ mod tests {
             .expect("write SigningWorker response");
         });
         let config = LocalRouterWorkerConfigV1 {
-            public_url: "http://127.0.0.1:9100".to_owned(),
-            deriver_a_url: "http://127.0.0.1:9101".to_owned(),
-            deriver_b_url: "http://127.0.0.1:9102".to_owned(),
+            public_url: "http://127.0.0.1:4102".to_owned(),
+            deriver_a_url: "http://127.0.0.1:4103".to_owned(),
+            deriver_b_url: "http://127.0.0.1:4104".to_owned(),
             signing_worker_url,
             deriver_a_ed25519_yao_input_public_key: "x25519:a".to_owned(),
             deriver_b_ed25519_yao_input_public_key: "x25519:b".to_owned(),

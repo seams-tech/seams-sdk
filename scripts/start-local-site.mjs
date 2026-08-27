@@ -50,14 +50,14 @@ function localSiteEnvironment(environment) {
   ]);
   return {
     ...environment,
-    VITE_RELAYER_URL: firstNonEmptyString([environment.VITE_RELAYER_URL, 'https://localhost:4004']),
+    VITE_RELAYER_URL: firstNonEmptyString([environment.VITE_RELAYER_URL, 'https://localhost:4101']),
     VITE_SEAMS_BROKER_URL: firstNonEmptyString([
       environment.VITE_SEAMS_BROKER_URL,
-      'https://localhost:4004',
+      'https://localhost:4101',
     ]),
     VITE_CONSOLE_BASE_URL: firstNonEmptyString([
       environment.VITE_CONSOLE_BASE_URL,
-      'https://localhost:4004',
+      'https://localhost:4101',
     ]),
     VITE_WALLET_ORIGIN: firstNonEmptyString([
       environment.VITE_WALLET_ORIGIN,

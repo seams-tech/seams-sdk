@@ -78,11 +78,11 @@ fn replace_default_urls(plan: &mut LocalEnvMaterializationPlanV1, urls: &LocalWo
     for file in &mut plan.files {
         file.contents = file
             .contents
-            .replace("http://127.0.0.1:9090", &urls.router)
-            .replace("http://127.0.0.1:9100", &urls.router)
-            .replace("http://127.0.0.1:9101", &urls.deriver_a)
-            .replace("http://127.0.0.1:9102", &urls.deriver_b)
-            .replace("http://127.0.0.1:9103", &urls.signing_worker);
+            .replace("http://127.0.0.1:4100", &urls.router)
+            .replace("http://127.0.0.1:4102", &urls.router)
+            .replace("http://127.0.0.1:4103", &urls.deriver_a)
+            .replace("http://127.0.0.1:4104", &urls.deriver_b)
+            .replace("http://127.0.0.1:4105", &urls.signing_worker);
     }
 }
 

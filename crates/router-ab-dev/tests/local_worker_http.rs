@@ -619,10 +619,10 @@ fn write_router_env(
         .ok_or("local env plan is missing Router file")?;
     let contents = file
         .contents
-        .replace("http://127.0.0.1:9090", router_url)
-        .replace("http://127.0.0.1:9101", deriver_a_url)
-        .replace("http://127.0.0.1:9102", deriver_b_url)
-        .replace("http://127.0.0.1:9103", signing_worker_url);
+        .replace("http://127.0.0.1:4100", router_url)
+        .replace("http://127.0.0.1:4103", deriver_a_url)
+        .replace("http://127.0.0.1:4104", deriver_b_url)
+        .replace("http://127.0.0.1:4105", signing_worker_url);
     fs::create_dir_all(root)?;
     fs::write(root.join(file.path), contents)?;
     Ok(())
@@ -644,10 +644,10 @@ fn write_product_worker_envs(
     for file in plan.files {
         let contents = file
             .contents
-            .replace("http://127.0.0.1:9090", router_url)
-            .replace("http://127.0.0.1:9101", deriver_a_url)
-            .replace("http://127.0.0.1:9102", deriver_b_url)
-            .replace("http://127.0.0.1:9103", signing_worker_url);
+            .replace("http://127.0.0.1:4100", router_url)
+            .replace("http://127.0.0.1:4103", deriver_a_url)
+            .replace("http://127.0.0.1:4104", deriver_b_url)
+            .replace("http://127.0.0.1:4105", signing_worker_url);
         if file.role == LocalServiceRoleV1::Router {
             router_env = Some(contents.clone());
         }
@@ -674,8 +674,8 @@ fn write_deriver_envs_to_roots(
         };
         let contents = file
             .contents
-            .replace("http://127.0.0.1:9101", deriver_a_url)
-            .replace("http://127.0.0.1:9102", deriver_b_url);
+            .replace("http://127.0.0.1:4103", deriver_a_url)
+            .replace("http://127.0.0.1:4104", deriver_b_url);
         fs::write(root.join(file.path), contents)?;
     }
     Ok(())

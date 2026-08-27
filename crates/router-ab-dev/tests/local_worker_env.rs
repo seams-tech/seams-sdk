@@ -194,11 +194,11 @@ fn local_worker_helpers_bind_to_role_urls_and_redact_health() {
 
     assert_eq!(
         local_worker_bind_addr_v1(&router).expect("router bind addr"),
-        "127.0.0.1:9090"
+        "127.0.0.1:4100"
     );
     assert_eq!(
         local_worker_bind_addr_v1(&deriver_a).expect("deriver A bind addr"),
-        "127.0.0.1:9101"
+        "127.0.0.1:4103"
     );
 
     let health = local_worker_health_response_json_v1(&deriver_a).expect("health JSON");
@@ -280,17 +280,17 @@ fn local_http_service_binding_maps_checked_paths_to_production_routes() {
     );
 
     let endpoint = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:9101",
+        "http://127.0.0.1:4103",
         LocalHttpPathV1::RouterToSignerA,
     )
     .expect("endpoint parses");
     assert_eq!(endpoint.owner, LocalServiceRoleV1::DeriverA);
-    assert_eq!(endpoint.bind_addr, "127.0.0.1:9101");
+    assert_eq!(endpoint.bind_addr, "127.0.0.1:4103");
     assert_eq!(endpoint.path, LOCAL_DERIVER_A_PRIVATE_PATH);
     assert_eq!(
         endpoint.url,
         local_http_service_binding_url_v1(
-            "http://127.0.0.1:9101/",
+            "http://127.0.0.1:4103/",
             LocalHttpPathV1::RouterToSignerA
         )
         .expect("url parses")

@@ -2126,23 +2126,23 @@ fn local_service_stack_v1() -> RouterAbProtocolResult<LocalServiceStackV1> {
 
 fn router_endpoint_v1() -> RouterAbProtocolResult<LocalRouterEndpointV1> {
     LocalRouterEndpointV1::new(
-        "http://127.0.0.1:9090",
-        "http://127.0.0.1:9101",
-        "http://127.0.0.1:9102",
-        "http://127.0.0.1:9103",
+        "http://127.0.0.1:4100",
+        "http://127.0.0.1:4103",
+        "http://127.0.0.1:4104",
+        "http://127.0.0.1:4105",
     )
 }
 
 fn deriver_a_endpoint_v1() -> RouterAbProtocolResult<LocalDeriverAEndpointV1> {
-    LocalDeriverAEndpointV1::new("http://127.0.0.1:9101", "http://127.0.0.1:9102")
+    LocalDeriverAEndpointV1::new("http://127.0.0.1:4103", "http://127.0.0.1:4104")
 }
 
 fn deriver_b_endpoint_v1() -> RouterAbProtocolResult<LocalDeriverBEndpointV1> {
-    LocalDeriverBEndpointV1::new("http://127.0.0.1:9102", "http://127.0.0.1:9101")
+    LocalDeriverBEndpointV1::new("http://127.0.0.1:4104", "http://127.0.0.1:4103")
 }
 
 fn signing_worker_endpoint_v1() -> RouterAbProtocolResult<LocalSigningWorkerEndpointV1> {
-    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:9103", "local-server-output")
+    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:4105", "local-server-output")
 }
 
 fn router_env_snapshot_v1() -> RouterAbProtocolResult<LocalEnvSnapshotV1> {
