@@ -1,32 +1,44 @@
 import { expect, test } from '@playwright/test';
-import { createWalletRecoveryRegistrationOptions } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import {
+  createWalletRecoveryRegistrationOptions,
+  selectWalletRecoveryContinuityAnchor,
+  type WalletRecoveryAuthoritySelection,
+} from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
 } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 import type { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import { parseRecoveryCodeReservationId } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeReservation';
-import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   buildWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   parseWalletAuthMethodId,
+  parseWalletAuthorityBindingDigest,
   parseWalletAuthorityId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
+import { buildActiveMethodBoundPasskeyCustodyEnvelopeFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const WALLET_ID = parseWalletId('recovery-expiry.testnet');
 const AUTH_METHOD_ID = parseWalletAuthMethodId('wallet-auth-method:source');
 const AUTHORITY_ID = parseWalletAuthorityId('wallet-authority:recovery-test');
 const RP_ID = parseWebAuthnRpId('example.localhost');
 const CREDENTIAL_ID = parseWebAuthnCredentialIdB64u('source-credential');
-const SOURCE_AUTHORITY_DIGEST = parseDigestB64u('A'.repeat(43));
+const SOURCE_AUTHORITY_DIGEST = parseWalletAuthorityBindingDigest('A'.repeat(43));
 
-if (!WALLET_ID.ok || !AUTH_METHOD_ID.ok || !AUTHORITY_ID.ok || !RP_ID.ok || !CREDENTIAL_ID.ok) {
+if (
+  !WALLET_ID.ok ||
+  !AUTH_METHOD_ID.ok ||
+  !AUTHORITY_ID.ok ||
+  !RP_ID.ok ||
+  !CREDENTIAL_ID.ok ||
+  !SOURCE_AUTHORITY_DIGEST.ok
+) {
   throw new Error('recovery challenge expiry test ids are invalid');
 }
 
@@ -49,6 +61,35 @@ function activeSourceMethod(): Extract<
     updatedAtMs: 1_000,
     activatedAtMs: 1_000,
   });
+}
+
+function activeSourceContinuityAnchor() {
+  const method = activeSourceMethod();
+  const authorities: WalletRecoveryAuthoritySelection[] = [
+    {
+      walletId: WALLET_ID.value,
+      authorityId: AUTHORITY_ID.value,
+      authorityDigestB64u: SOURCE_AUTHORITY_DIGEST.value,
+      state: 'active',
+      provenanceKind: 'wallet_registration',
+    },
+  ];
+  const envelope = buildActiveMethodBoundPasskeyCustodyEnvelopeFixture({
+    walletId: String(WALLET_ID.value),
+    envelopeId: 'passkey-envelope:source',
+    rpId: String(RP_ID.value),
+    credentialIdB64u: String(CREDENTIAL_ID.value),
+    walletAuthMethodId: String(AUTH_METHOD_ID.value),
+  });
+  const selected = selectWalletRecoveryContinuityAnchor({
+    walletId: WALLET_ID.value,
+    targetFamily: 'passkey',
+    methods: [method],
+    envelopes: [envelope],
+    authorities,
+  });
+  if (!selected) throw new Error('recovery continuity fixture did not select an anchor');
+  return selected;
 }
 
 test('the admitted prepare route is registered without a consume-first route', () => {
@@ -78,8 +119,7 @@ test('persists the prepared reservation expiry on the registration challenge', a
     reservationId: parseRecoveryCodeReservationId('recovery-operation-1'),
     origin: 'https://example.localhost',
     rpId: RP_ID.value,
-    sourceMethod: activeSourceMethod(),
-    sourceAuthorityDigestB64u: SOURCE_AUTHORITY_DIGEST,
+    continuityAnchor: activeSourceContinuityAnchor(),
     expiresAtMs: preparedReservationExpiresAtMs,
     nowMs: 1_900_000_000_000,
   });

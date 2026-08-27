@@ -768,6 +768,11 @@ export type GoogleEmailOtpWalletAuthStartInput = {
    * whatever the environment happens to configure.
    */
   signerSelection?: RegistrationSignerSetSelection;
+  /** Register-mode only: choose how the wallet's recovery codes are backed up. */
+  recoveryCodeBackup?: Extract<
+    RegistrationHooksOptions['recoveryCodeBackup'],
+    { readonly kind: 'defer_to_account_menu' | 'show_builtin_dialog' }
+  >;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   onDemoOtp?: (response: DemoEmailOtpCodeResponse) => void;
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;

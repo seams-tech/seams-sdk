@@ -487,11 +487,13 @@ function resolveLoginEcdsaTargets(args: {
   );
 }
 
-function eventOnlyRegistrationOptions(args: {
+function registrationOptionsFromInput(args: {
   onEvent?: GoogleEmailOtpWalletAuthStartInput['onEvent'];
+  recoveryCodeBackup?: GoogleEmailOtpWalletAuthStartInput['recoveryCodeBackup'];
 }): RegistrationHooksOptions {
   return {
     ...(args.onEvent ? { onEvent: args.onEvent as (event: RegistrationFlowEvent) => void } : {}),
+    ...(args.recoveryCodeBackup ? { recoveryCodeBackup: args.recoveryCodeBackup } : {}),
   };
 }
 
@@ -711,10 +713,13 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     configs: deps.configs,
     policy: args.input.ecdsaTargets,
   });
-  const eventOptions = eventOnlyRegistrationOptions({ onEvent: args.input.onEvent });
+  const hookOptions = registrationOptionsFromInput({
+    onEvent: args.input.onEvent,
+    recoveryCodeBackup: args.input.recoveryCodeBackup,
+  });
   const registrationOptions = requiredTargets.length
-    ? eventOptions
-    : registrationOptionsForNoEcdsa({ options: eventOptions });
+    ? hookOptions
+    : registrationOptionsForNoEcdsa({ options: hookOptions });
   const selectedWalletId = selectedGoogleEmailOtpRegistrationCandidate(offer).walletId;
   const registrationAuthMethod = {
     kind: 'email_otp',

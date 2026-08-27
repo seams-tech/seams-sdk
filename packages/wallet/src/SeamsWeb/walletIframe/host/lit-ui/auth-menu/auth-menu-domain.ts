@@ -6,6 +6,7 @@ import type {
 } from '@/SeamsWeb/publicApi/types';
 import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
 import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 import { isPlainObject } from '@shared/utils/validation';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 
@@ -195,21 +196,25 @@ export type AuthMenuRecoveryViewModel = AuthMenuViewModelCommon & {
       }
     | {
         readonly stage: 'preparing';
+        readonly target: WalletRecoveryTargetV1;
         readonly walletId?: never;
         readonly status: AuthMenuBusyStatus;
       }
     | {
         readonly stage: 'passkey_ready';
+        readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
         readonly walletId: string;
         readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
       }
     | {
         readonly stage: 'finalizing';
+        readonly target: WalletRecoveryTargetV1;
         readonly walletId: string;
         readonly status: AuthMenuBusyStatus | AuthMenuRecoverableStatus;
       }
     | {
         readonly stage: 'sign_in_ready';
+        readonly target: WalletRecoveryTargetV1;
         readonly walletId: string;
         readonly status: AuthMenuIdleStatus | AuthMenuBusyStatus | AuthMenuRecoverableStatus;
       }
@@ -248,7 +253,10 @@ export type AuthMenuIntent =
       readonly recoveryCode: string;
     }
   | {
-      readonly kind: 'recovery_submit';
+      readonly kind: 'recovery_passkey_selected';
+    }
+  | {
+      readonly kind: 'recovery_google_selected';
     }
   | {
       readonly kind: 'recovery_create_passkey';
@@ -340,7 +348,8 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
     case 'back':
     case 'link_device_open':
     case 'recovery_open':
-    case 'recovery_submit':
+    case 'recovery_passkey_selected':
+    case 'recovery_google_selected':
     case 'recovery_create_passkey':
     case 'recovery_sign_in':
     case 'link_device_create_passkey':
@@ -425,7 +434,6 @@ export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
       return false;
     case 'recovery':
       return (
-        viewModel.stage === 'enter_code' ||
         viewModel.stage === 'passkey_ready' ||
         viewModel.stage === 'sign_in_ready'
       );

@@ -9,7 +9,13 @@ import type {
   HostedRecoveryFailure,
   HostedRecoveryPort,
   HostedRecoveryPrepared,
+  HostedRecoveryTargetKind,
 } from './recovery-port';
+import {
+  parseWebAuthnRpId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
   readonly #coordinator = new WalletRecoveryCoordinator();
@@ -17,16 +23,33 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
   constructor(
     private readonly context: WalletRecoveryWebContext,
     private readonly relayUrl: string,
-  ) {}
+  ) {
+    const rpId = parseWebAuthnRpId(context.signingEngine.getRpId());
+    if (!rpId.ok) throw new Error(`wallet recovery RP ID ${rpId.error.message}`);
+    this.#passkeyRpId = rpId.value;
+  }
+
+  readonly #passkeyRpId: WebAuthnRpId;
+
+  targetFor(kind: HostedRecoveryTargetKind): WalletRecoveryTargetV1 {
+    switch (kind) {
+      case 'passkey':
+        return { kind, rpId: this.#passkeyRpId };
+      case 'google_email_otp':
+        return { kind, googleProvider: 'google' };
+    }
+  }
 
   async prepare(input: {
     readonly recoveryCode: string;
+    readonly target: WalletRecoveryTargetV1;
     readonly signal: AbortSignal;
   }): Promise<HostedRecoveryPrepared | HostedRecoveryFailure> {
     const result = await this.#coordinator.prepareWithCode({
       context: this.context,
       relayUrl: this.relayUrl,
       recoveryCode: input.recoveryCode,
+      target: input.target,
       signal: input.signal,
     });
     if (result.kind !== 'prepared') return result;
@@ -34,6 +57,7 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
       kind: 'hosted_recovery_prepared',
       recoveryOperationId: result.recoveryOperationId,
       walletId: result.walletId,
+      target: result.target,
     };
   }
 
@@ -44,6 +68,7 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
       kind: 'prepared',
       recoveryOperationId: operation.recoveryOperationId,
       walletId: operation.walletId,
+      target: operation.target,
     });
   }
 
@@ -60,6 +85,7 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
         kind: 'credential_created',
         recoveryOperationId: operation.recoveryOperationId,
         walletId: operation.walletId,
+        target: operation.target,
       },
     });
   }
@@ -86,6 +112,7 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
       kind: 'hosted_recovery_credential_created',
       recoveryOperationId: result.recoveryOperationId,
       walletId: result.walletId,
+      target: result.target,
     };
   }
 }

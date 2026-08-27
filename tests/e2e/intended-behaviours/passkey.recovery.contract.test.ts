@@ -1,15 +1,33 @@
-import { intendedTest as test } from './harness';
+import { intendedTest as test, type IntendedBehaviourHarness } from './harness';
 
-test('a fresh browser recovers a multi-auth Passkey wallet with one code and signs with unchanged identities', async ({
-  harness,
-}) => {
+type RecoveryOrigin = {
+  readonly name: string;
+  readonly register: (harness: IntendedBehaviourHarness) => Promise<void>;
+};
+
+async function registerPasskeyFoundedWallet(harness: IntendedBehaviourHarness): Promise<void> {
   await harness.registerPasskeyWallet();
-  await harness.awaitNearReady();
-  await harness.signTempoTransaction('post_registration');
-  await harness.addEmailOtpAuthMethod();
-  await harness.recoverPasskeyWalletFromFreshBrowser();
-  await harness.assertSourceWalletSessionRevoked();
-  await harness.signNearTransaction('post_unlock');
-  await harness.signTempoAndArcEvmConcurrently('post_unlock');
-  await harness.assertConsumedRecoveryCodeRefusedGenerically();
-});
+}
+
+async function registerEmailOnlyWallet(harness: IntendedBehaviourHarness): Promise<void> {
+  await harness.registerEmailOtpWallet();
+}
+
+const recoveryOrigins: readonly RecoveryOrigin[] = [
+  { name: 'Passkey-founded', register: registerPasskeyFoundedWallet },
+  { name: 'Email-only', register: registerEmailOnlyWallet },
+];
+
+for (const origin of recoveryOrigins) {
+  test(
+    `a fresh browser recovers a ${origin.name} wallet with one code, signs, and refuses reuse`,
+    async ({ harness }) => {
+      await origin.register(harness);
+      await harness.awaitNearReady();
+      await harness.recoverPasskeyWalletFromFreshBrowser();
+      await harness.signNearTransaction('post_unlock');
+      await harness.signTempoAndArcEvmConcurrently('post_unlock');
+      await harness.assertConsumedRecoveryCodeRefusedGenerically();
+    },
+  );
+}

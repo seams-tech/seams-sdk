@@ -5,6 +5,7 @@ import { prepareWalletRecoveryWithCode } from '../../packages/wallet/src/core/rp
 
 const RP_ID = webAuthnRpIdFromString('wallet.example.localhost');
 const RESERVATION_ID = parseRecoveryCodeReservationId('reservation-1');
+const PASSKEY_TARGET = { kind: 'passkey', rpId: RP_ID } as const;
 
 type CapturedRequest = {
   url: string;
@@ -40,11 +41,11 @@ function respondWith(status: number, body: unknown): typeof fetch {
     })) as unknown as typeof fetch;
 }
 
-test('prepare posts only the code-authorized R114 request', async () => {
+test('prepare posts the code-authorized R115 target request', async () => {
   const captured: CapturedRequest = { url: '', body: null };
   const result = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost/',
-    rpId: RP_ID,
+    target: PASSKEY_TARGET,
     recoveryCodeB64u: 'QUJDREVG',
     reservationId: RESERVATION_ID,
     fetchImpl: captureRequest(captured, 400, { ok: false }),
@@ -53,9 +54,9 @@ test('prepare posts only the code-authorized R114 request', async () => {
   expect(captured).toEqual({
     url: 'https://relay.localhost/wallets/recovery/prepare',
     body: {
-      rpId: RP_ID,
       recoveryCodeB64u: 'QUJDREVG',
       reservationId: RESERVATION_ID,
+      target: PASSKEY_TARGET,
     },
   });
   expect(result).toEqual({ kind: 'refused' });
@@ -64,21 +65,21 @@ test('prepare posts only the code-authorized R114 request', async () => {
 test('prepare preserves the three exact failure classifications', async () => {
   const refused = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
-    rpId: RP_ID,
+    target: PASSKEY_TARGET,
     recoveryCodeB64u: 'QUJDREVG',
     reservationId: RESERVATION_ID,
     fetchImpl: respondWith(401, { ok: false, code: 'recovery_code_rejected' }),
   });
   const conflict = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
-    rpId: RP_ID,
+    target: PASSKEY_TARGET,
     recoveryCodeB64u: 'QUJDREVG',
     reservationId: RESERVATION_ID,
     fetchImpl: respondWith(409, { ok: false, code: 'recovery_conflict' }),
   });
   const uncertain = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
-    rpId: RP_ID,
+    target: PASSKEY_TARGET,
     recoveryCodeB64u: 'QUJDREVG',
     reservationId: RESERVATION_ID,
     fetchImpl: respondWith(503, { ok: false }),
@@ -92,7 +93,7 @@ test('prepare preserves the three exact failure classifications', async () => {
 test('prepare classifies a network failure as transport uncertainty', async () => {
   const result = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
-    rpId: RP_ID,
+    target: PASSKEY_TARGET,
     recoveryCodeB64u: 'QUJDREVG',
     reservationId: RESERVATION_ID,
     fetchImpl: (async () => {
