@@ -223,7 +223,7 @@ Expected behaviour:
 
 ## Account Recovery
 
-### Single-Passkey Wallet
+### Passkey Recovery Target
 
 Expected behaviour:
 
@@ -232,12 +232,14 @@ Expected behaviour:
 - The recovery code is the sole recovery authorization. The flow does not ask
   for Email OTP, Google identity, an assertion from the source Passkey, or a
   client-selected source credential.
-- Recovery is available only when the wallet has exactly one active owner auth
-  method, that method is a Passkey, and it is bound to the requested RP.
+- Recovery selects the oldest active Passkey bound to the requested RP, with
+  auth-method ID as the stable tie-breaker. Active sibling methods do not block
+  recovery.
 - Finalization verifies the complete stored key manifest and preserves the
   registered NEAR, Tempo, and Arc/EVM public identities.
-- Replacement installation, recovery-code consumption, source auth-method and
-  envelope retirement, and source Wallet Session revocation occur atomically.
+- Replacement installation, recovery-code consumption, selected source
+  auth-method and envelope retirement, and selected source Wallet Session
+  revocation occur atomically. Sibling methods remain active.
 - Recovery completion proceeds through normal login with the replacement
   Passkey. That login creates the fresh Wallet Session.
 - A consumed code cannot authorize a second replacement.
@@ -434,8 +436,8 @@ Expected behaviour:
 
 ## Account Recovery
 
-Until Refactor 109C defines multi-auth recovery, code recovery accepts only a
-wallet with exactly one active Passkey owner method for the requested RP.
+Code recovery selects an exact active Passkey owner method for the requested
+RP. Other active methods do not block preparation.
 
 Expected behaviour:
 
@@ -446,8 +448,9 @@ Expected behaviour:
   options. A separate **Create new passkey** activation starts WebAuthn.
 - Finalization preserves every public wallet identity and atomically installs
   the replacement authenticator, auth method, binding, and custody envelope;
-  consumes one code; revokes the source method and its Wallet Sessions; and
-  retires the source envelope.
+  consumes one code; revokes the selected source method and its Wallet
+  Sessions; and retires the selected source envelope. Sibling methods remain
+  active.
 - Recovery restores local continuity against the replacement Passkey authority.
 - The menu reports `authenticated/passkey` only after normal login with the
   replacement Passkey creates a fresh Wallet Session.

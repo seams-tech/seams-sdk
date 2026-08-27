@@ -667,12 +667,7 @@ export async function resolveCommittedRecoveryReplayV1(
       envelope.factor.credentialIdB64u !== replacementMethod.credentialIdB64u,
   );
   const sourceRetired = sourceEnvelopes.some((envelope) => envelope.lifecycle.state === 'retired');
-  const otherActive = envelopes.some(
-    (envelope) =>
-      envelope.lifecycle.state === 'active' &&
-      String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
-  );
-  if (!sourceRetired || otherActive) {
+  if (!sourceRetired) {
     return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
   }
 
