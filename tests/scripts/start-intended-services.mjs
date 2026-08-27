@@ -869,7 +869,7 @@ function isSiteViteCommand(command) {
   return (
     command.includes(path.join(repoRoot, 'apps/seams-site')) &&
     command.includes('vite') &&
-    command.includes('--port 3600')
+    command.includes('--port 4004')
   );
 }
 
@@ -881,7 +881,7 @@ function isDocsVitepressCommand(command) {
   return (
     command.includes(path.join(repoRoot, 'apps/docs')) &&
     command.includes('vitepress') &&
-    command.includes('--port 5222')
+    command.includes('--port 4006')
   );
 }
 

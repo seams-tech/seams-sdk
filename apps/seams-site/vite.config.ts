@@ -62,7 +62,7 @@ export default defineConfig(({ mode }) => {
     cacheDir,
     publicDir: appPublic,
     server: {
-      port: 3600,
+      port: 4004,
       host: 'localhost',
       strictPort: true,
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)

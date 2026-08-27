@@ -24,7 +24,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
   if (existing) return existing;
 
   // Prefer a stable default port, but avoid reusing an unrelated dev server
-  // (common when another Vite app is running on 3600).
+  // (common when another Vite app is running on 4004).
   try {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
@@ -33,7 +33,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
     );
     const script = `
       const fs = require('node:fs');
-      const ports = [3600, 5180, 5175, 5181, 5190, 5191];
+      const ports = [4004, 4500, 4501, 4502, 4503, 4504];
       const expected = process.argv[2];
       const timeoutMs = 250;
 
@@ -83,7 +83,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
             return;
           }
         }
-        console.log(3600);
+        console.log(4004);
       })();
     `;
     const chosenPortRaw = execFileSync(process.execPath, ['-e', script, expectedSdkDistRoot], {
@@ -100,7 +100,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
     }
   } catch {}
 
-  const fallback = 'http://127.0.0.1:3600';
+  const fallback = 'http://127.0.0.1:4004';
   process.env.W3A_TEST_FRONTEND_URL = fallback;
   return fallback;
 }
@@ -121,7 +121,7 @@ const OVERRIDE_FRONTEND_URL = NO_CADDY
   ? resolveDefaultFrontendUrlNoCaddy()
   : String(process.env.W3A_TEST_FRONTEND_URL || '').trim();
 const BASE_URL =
-  OVERRIDE_FRONTEND_URL || (NO_CADDY ? 'http://127.0.0.1:3600' : 'https://example.localhost');
+  OVERRIDE_FRONTEND_URL || (NO_CADDY ? 'http://127.0.0.1:4004' : 'https://example.localhost');
 const DEV_SERVER_URL = (() => {
   if (OVERRIDE_FRONTEND_URL) {
     try {
@@ -134,16 +134,16 @@ const DEV_SERVER_URL = (() => {
       return OVERRIDE_FRONTEND_URL;
     }
   }
-  return 'http://127.0.0.1:3600';
+  return 'http://127.0.0.1:4004';
 })();
 const DEV_SERVER_PORT = (() => {
   try {
     const u = new URL(DEV_SERVER_URL);
     const raw = u.port || (u.protocol === 'https:' ? '443' : '80');
     const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 3600;
+    return Number.isFinite(n) && n > 0 ? n : 4004;
   } catch {
-    return 3600;
+    return 4004;
   }
 })();
 

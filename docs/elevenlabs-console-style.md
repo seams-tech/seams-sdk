@@ -225,7 +225,7 @@ These cost real debugging time. They are not obvious from the CSS.
 
 ## Verifying a change
 
-The Console is served by its own Vite server on `localhost:3601` under
+The Console is served by its own Vite server on `localhost:4005` under
 `/dashboard-static/`, proxied by Caddy at `https://localhost/dashboard/*`. It
 needs the API env the launcher provides, or it falls back to
 `window.location.origin` and every Console call lands on the marketing site:

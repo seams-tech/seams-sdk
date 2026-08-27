@@ -9,7 +9,7 @@ export default defineConfig(() => {
     plugins: [react()],
     server: {
       host: 'localhost',
-      port: 3601,
+      port: 4005,
       strictPort: true,
     },
     resolve: {
