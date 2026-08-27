@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import path from 'node:path';
 import { injectImportMap } from '../setup/bootstrap';
 
 const SCANNER_PATH = '/_test-sdk/esm/react/components/QRCodeScanner.js';
 const CONTEXT_PATH = '/_test-sdk/esm/react/context/index.js';
 const CAMERA_PATH = '/_test-sdk/esm/react/hooks/useQRCamera.js';
+const SCANNER_CSS_PATH = path.resolve(
+  process.cwd(),
+  '../packages/wallet/dist/esm/react/components/QRCodeScanner.css',
+);
 
 const MOCK_CONTEXT_MODULE = `
 export function useSeams() {
@@ -195,6 +200,7 @@ test.describe('QRCodeScanner progress state', () => {
     await injectImportMap(page);
     await installScannerMocks(page);
     await createHarness(page);
+    await page.addStyleTag({ path: SCANNER_CSS_PATH });
     await mountScanner(page);
     await expect(page.locator('.qr-scanner-modal')).toBeVisible();
   });
@@ -215,10 +221,32 @@ test.describe('QRCodeScanner progress state', () => {
   });
 
   test('cancel linking invokes owner abort and returns focus to the opener', async ({ page }) => {
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--w3a-wallet-overlay-z', '100');
+      const walletIframeOverlay = document.createElement('div');
+      walletIframeOverlay.id = 'wallet-iframe-overlay-test-double';
+      Object.assign(walletIframeOverlay.style, {
+        position: 'fixed',
+        inset: '0',
+        zIndex: '100',
+      });
+      document.body.appendChild(walletIframeOverlay);
+    });
     await detectValidQr(page);
-    await expect(page.getByRole('button', { name: 'Cancel linking' })).toBeVisible();
+    const cancelButton = page.getByRole('button', { name: 'Cancel linking' });
+    await expect(cancelButton).toBeVisible();
 
-    await page.getByRole('button', { name: 'Cancel linking' }).first().click();
+    const cancelButtonReceivesPointerInput = await cancelButton.evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        bounds.left + bounds.width / 2,
+        bounds.top + bounds.height / 2,
+      );
+      return hit === button || button.contains(hit);
+    });
+    expect(cancelButtonReceivesPointerInput).toBe(true);
+
+    await cancelButton.click();
     await expect(page.locator('.qr-scanner-modal')).toHaveCount(0);
     await expect(page.locator('#qr-scanner-opener')).toBeFocused();
 
