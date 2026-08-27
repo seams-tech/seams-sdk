@@ -1,11 +1,12 @@
 import { intendedTest as test } from './harness';
 
-test('a fresh browser recovers one Passkey wallet with one code and signs with unchanged identities', async ({
+test('a fresh browser recovers a multi-auth Passkey wallet with one code and signs with unchanged identities', async ({
   harness,
 }) => {
   await harness.registerPasskeyWallet();
   await harness.awaitNearReady();
   await harness.signTempoTransaction('post_registration');
+  await harness.addEmailOtpAuthMethod();
   await harness.recoverPasskeyWalletFromFreshBrowser();
   await harness.assertSourceWalletSessionRevoked();
   await harness.signNearTransaction('post_unlock');

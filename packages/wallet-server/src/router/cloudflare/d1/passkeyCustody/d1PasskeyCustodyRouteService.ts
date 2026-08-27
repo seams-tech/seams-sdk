@@ -298,6 +298,25 @@ type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
   { readonly kind: 'passkey'; readonly status: 'active' }
 >;
 
+export function selectWalletRecoverySourcePasskey(
+  methods: readonly WalletAuthMethodRecordV2[],
+  rpId: WebAuthnRpId,
+): ActivePasskeyWalletAuthMethodRecordV2 | undefined {
+  let selected: ActivePasskeyWalletAuthMethodRecordV2 | undefined;
+  for (const method of methods) {
+    if (method.kind !== 'passkey' || method.status !== 'active' || method.rpId !== rpId) continue;
+    if (
+      !selected ||
+      method.createdAtMs < selected.createdAtMs ||
+      (method.createdAtMs === selected.createdAtMs &&
+        String(method.walletAuthMethodId) < String(selected.walletAuthMethodId))
+    ) {
+      selected = method;
+    }
+  }
+  return selected;
+}
+
 function passkeyWalletAuthAuthorityForMethod(
   method: ActivePasskeyWalletAuthMethodRecordV2,
 ): PasskeyWalletAuthAuthority {
@@ -718,9 +737,8 @@ async function prepareRecoveryForRoute(
   if (!located) return { kind: 'refused', reason: 'that recovery code cannot be used' };
   const walletId = located.walletId;
   const methods = await assembly.walletCustodyCommits.listWalletAuthMethods(walletId);
-  const activeMethods = methods.filter((method) => method.status === 'active');
-  const sourceMethod = activeMethods.length === 1 ? activeMethods[0] : undefined;
-  if (!sourceMethod || sourceMethod.kind !== 'passkey' || sourceMethod.rpId !== parsedRpId.value) {
+  const sourceMethod = selectWalletRecoverySourcePasskey(methods, parsedRpId.value);
+  if (!sourceMethod) {
     return { kind: 'refused', reason: 'that recovery code cannot be used' };
   }
   const sourceBinding = await assembly.webAuthnStore.readBindingByCredential({

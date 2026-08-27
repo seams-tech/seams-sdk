@@ -9,7 +9,10 @@ import {
   parseWebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { resolveCommittedRecoveryReplayV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryFinalization';
-import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
+  passkeyCustodyEnvelope,
+} from './helpers/passkeyCustodyEnvelope.fixtures';
 import { PASSKEY_PRF_KEK_VERSION_V1 } from '../../packages/shared-ts/src/passkey-custody';
 
 const WALLET_ID = 'alice.testnet';
@@ -152,6 +155,13 @@ function replayStores(input: { readonly sourceState: 'active' | 'retired' }) {
     walletAuthMethodId: 'wallet-auth-method:source',
     state: input.sourceState,
   });
+  const emailSiblingEnvelope = buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture({
+    walletId: WALLET_ID,
+    envelopeId: 'email-sibling-envelope',
+    enrollmentId: 'email-sibling-enrollment',
+    enrollmentSealKeyVersion: 'email-sibling-seal-v1',
+    walletAuthMethodId: 'wallet-auth-method:email-sibling',
+  });
   const activeMethod = passkeyMethod({
     walletAuthMethodId: 'wallet-auth-method:replacement',
     credentialIdB64u: 'replacement-credential',
@@ -169,7 +179,7 @@ function replayStores(input: { readonly sourceState: 'active' | 'retired' }) {
     replacement,
     envelopeStore: {
       lookupEnvelope: async () => ({ kind: 'active', envelope: replacement, storeVersion: 'v2' }),
-      listWalletEnvelopes: async () => [replacement, source],
+      listWalletEnvelopes: async () => [replacement, source, emailSiblingEnvelope],
     },
     walletCustodyCommits: {
       readRecoveryEnvelopeSet: async () => ({ record: consumedRecoverySet(), storeVersion: 'v1' }),
