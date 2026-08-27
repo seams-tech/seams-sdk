@@ -37,6 +37,9 @@ test('serializes server preparations with the browser recipient request', async 
     targetFactor: {
       kind: 'verified_email_otp_target_v1',
       baseWalletAuthMethodId,
+      targetEmail: 'owner@example.test',
+      enrollment: { kind: 'existing_enrollment' },
+      providerUserId: 'provider:r103',
       authMethod: {
         walletAuthMethodId,
         walletId: fixture.approval.walletId,

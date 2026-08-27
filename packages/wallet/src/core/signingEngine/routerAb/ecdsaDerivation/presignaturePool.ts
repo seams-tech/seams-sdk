@@ -239,6 +239,10 @@ export type RouterAbEcdsaDerivationCoordinatorResult =
   | RouterAbEcdsaDerivationCoordinatorOk
   | RouterAbEcdsaDerivationCoordinatorError;
 
+type RouterAbEcdsaDerivationSigningPreparationState =
+  | { readonly kind: 'before_prepare' }
+  | { readonly kind: 'prepare_submitted' };
+
 function zeroizeBytes(bytes?: Uint8Array | null): void {
   if (!(bytes instanceof Uint8Array)) return;
   bytes.fill(0);
@@ -453,11 +457,16 @@ async function hydrateClientPresignaturePool(input: {
   poolIdentity: EcdsaClientPresignPoolIdentity;
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
   workerCtx: WorkerOperationContext;
+  generation: number;
 }): Promise<void> {
   const durableRefs = await input.clientSigningMaterial.listAvailableClientPresignatures({
     poolIdentity: input.poolIdentity,
     workerCtx: input.workerCtx,
   });
+  if (getClientPresignaturePoolGeneration(input.poolKey) !== input.generation) {
+    for (const ref of durableRefs) zeroizeBytes(ref.bigR33);
+    return;
+  }
   for (const ref of durableRefs) {
     pushClientPresignature(input.poolKey, {
       presignatureId: ref.presignatureId,
@@ -506,7 +515,10 @@ function pruneClientPresignaturePool(
 }
 
 function getClientPresignaturePoolGeneration(poolKey: string): number {
-  return clientPresignaturePoolGenerationByPoolKey.get(poolKey) || 0;
+  const generation = clientPresignaturePoolGenerationByPoolKey.get(poolKey);
+  if (generation !== undefined) return generation;
+  clientPresignaturePoolGenerationByPoolKey.set(poolKey, 0);
+  return 0;
 }
 
 function bumpClientPresignaturePoolGeneration(poolKey: string): number {
@@ -546,13 +558,19 @@ async function waitForInFlightRefill(poolKey: string): Promise<void> {
 }
 
 export function clearAllRouterAbEcdsaDerivationClientPresignatures(): void {
+  const invalidatedPoolKeys = new Set([
+    ...clientPresignaturePool.keys(),
+    ...clientPresignatureRefillInFlightByPoolKey.keys(),
+    ...foregroundSignInFlightByPoolKey.keys(),
+    ...clientPresignaturePoolGenerationByPoolKey.keys(),
+  ]);
+  for (const poolKey of invalidatedPoolKeys) bumpClientPresignaturePoolGeneration(poolKey);
   zeroizeRouterAbEcdsaDerivationClientPresignatureList(
     Array.from(clientPresignaturePool.values()).flat(),
   );
   clientPresignaturePool.clear();
   clientPresignatureRefillInFlightByPoolKey.clear();
   foregroundSignInFlightByPoolKey.clear();
-  clientPresignaturePoolGenerationByPoolKey.clear();
 }
 
 export function getRouterAbEcdsaDerivationClientPresignaturePoolDepth(args: {
@@ -1097,7 +1115,10 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
   let clientSignatureShare32: Uint8Array | null = null;
   let clientRerandomizationContribution32: Uint8Array | null = null;
   let clientMaterialConsumed = false;
-  let operationPrepared = false;
+  let poolGeneration: number | null = null;
+  let preparationState: RouterAbEcdsaDerivationSigningPreparationState = {
+    kind: 'before_prepare',
+  };
   try {
     const relayerUrl = String(args.relayerUrl || '')
       .trim()
@@ -1151,10 +1172,12 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
     });
     startForegroundSign(poolKey);
     foregroundStarted = true;
+    poolGeneration = getClientPresignaturePoolGeneration(poolKey);
 
     presignature = popClientPresignature(poolKey);
     if (!presignature) {
       await waitForInFlightRefill(poolKey);
+      poolGeneration = getClientPresignaturePoolGeneration(poolKey);
       presignature = popClientPresignature(poolKey);
     }
     if (!presignature) {
@@ -1163,7 +1186,9 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
         poolIdentity,
         clientSigningMaterial: args.clientSigningMaterial,
         workerCtx: args.workerCtx,
+        generation: poolGeneration,
       });
+      poolGeneration = getClientPresignaturePoolGeneration(poolKey);
       presignature = popClientPresignature(poolKey);
     }
     if (!presignature) {
@@ -1185,6 +1210,14 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
         ok: false,
         code: 'pool_entry_expired',
         message: 'Router A/B ECDSA derivation client presignature is expired',
+      };
+    }
+    if (poolGeneration !== getClientPresignaturePoolGeneration(poolKey)) {
+      return {
+        ok: false,
+        code: 'pool_entry_unavailable',
+        message:
+          'Router A/B ECDSA derivation client presignature pool was invalidated before prepare',
       };
     }
     clientRerandomizationContribution32 = secureRerandomizationContribution32();
@@ -1221,12 +1254,20 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
       leaseExpiresAtMs: prepareRequest.expires_at_ms,
       workerCtx: args.workerCtx,
     });
+    if (poolGeneration !== getClientPresignaturePoolGeneration(poolKey)) {
+      return {
+        ok: false,
+        code: 'pool_entry_unavailable',
+        message:
+          'Router A/B ECDSA derivation client presignature pool was invalidated before prepare',
+      };
+    }
+    preparationState = { kind: 'prepare_submitted' };
     const prepareResponse = await prepareRouterAbEcdsaDerivationEvmDigestSigningV1({
       relayServerUrl: relayerUrl,
       credential: args.credential,
       request: prepareRequest,
     });
-    operationPrepared = true;
     if (prepareResponse.server_big_r33_b64u !== presignature.bigRB64u) {
       return {
         ok: false,
@@ -1349,10 +1390,24 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(
     }
     if (isUnavailableRouterAbEcdsaDerivationPresignatureError(msg)) {
       if (poolKey) invalidateClientPresignaturePool(poolKey);
-      if (operationPrepared) {
+      if (preparationState.kind === 'prepare_submitted') {
         return { ok: false, code: 'router_ab_sign_failed', message: msg };
       }
       return { ok: false, code: 'pool_entry_unavailable', message: msg };
+    }
+    if (
+      poolKey &&
+      poolGeneration !== null &&
+      preparationState.kind === 'before_prepare' &&
+      getClientPresignaturePoolGeneration(poolKey) !== poolGeneration
+    ) {
+      invalidateClientPresignaturePool(poolKey);
+      return {
+        ok: false,
+        code: 'pool_entry_unavailable',
+        message:
+          'Router A/B ECDSA derivation client presignature pool was invalidated before prepare',
+      };
     }
     return { ok: false, code: 'router_ab_sign_failed', message: msg };
   } finally {

@@ -64,6 +64,7 @@ import type {
   LinkedDeviceTargetEmailOtpActivationV1,
   LinkedDeviceTargetFactorActivationV1,
   LinkedDeviceTargetPasskeyActivationV1,
+  StartDevice2LinkingTargetV1,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
@@ -74,6 +75,7 @@ import type {
   HostedRecoveryPort,
   HostedRecoveryPrepared,
 } from '../recovery-port';
+import { normalizeLinkedDeviceTargetEmailAddressV1 } from '@/core/types/linkDevice';
 
 type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPasskeyPrepared;
 
@@ -217,13 +219,26 @@ type PrepareRecoveredLogin = (
   cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
 ) => Promise<HostedPasskeyPrepared>;
 type StartDeviceLinking = (
-  targetFactor: LinkedDeviceTargetFactorV1,
+  target: StartDevice2LinkingTargetV1,
   callbacks: {
     readonly onEvent: (event: LinkDeviceFlowEvent) => void;
     readonly onTargetFactorRequired: (activation: LinkedDeviceTargetFactorActivationV1) => void;
   },
 ) => Promise<StartDevice2LinkingFlowResults>;
 type CancelDeviceLinking = () => Promise<void>;
+
+function buildStartDeviceLinkingTargetV1(
+  input: StartDevice2LinkingTargetV1,
+): StartDevice2LinkingTargetV1 {
+  if (input.targetFactor.kind === 'email_otp') {
+    return {
+      targetFactor: input.targetFactor,
+      targetEmail: normalizeLinkedDeviceTargetEmailAddressV1(input.targetEmail),
+    };
+  }
+  return { targetFactor: input.targetFactor };
+}
+
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS = 20_000;
 /* A resend that returns in a few dozen ms flashes the busy state and reads as a
@@ -588,6 +603,7 @@ export class AuthMenuSession {
   private targetEmailOtpActivation: LinkedDeviceTargetEmailOtpActivationV1 | null = null;
   private linkedDeviceEmailOtpSendStarted = false;
   private linkedDeviceTargetFactor: LinkedDeviceTargetFactorV1 = { kind: 'passkey_prf' };
+  private linkedDeviceTargetEmailAddress = '';
   private preparationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReportedError: string | null = null;
@@ -1263,6 +1279,9 @@ export class AuthMenuSession {
       case 'link_device_factor_selected':
         this.selectLinkedDeviceTargetFactor(intent.targetFactor);
         return;
+      case 'link_device_target_email_changed':
+        this.changeLinkedDeviceTargetEmailAddress(intent.emailAddress);
+        return;
       case 'link_device_start':
         this.startSelectedDeviceLinking();
         return;
@@ -1921,6 +1940,7 @@ export class AuthMenuSession {
     this.targetEmailOtpActivation = null;
     this.linkedDeviceEmailOtpSendStarted = false;
     this.linkedDeviceTargetFactor = { kind: 'passkey_prf' };
+    this.linkedDeviceTargetEmailAddress = '';
     this.stateValue = {
       kind: 'link_device',
       returnState,
@@ -1937,7 +1957,38 @@ export class AuthMenuSession {
       ...state,
       viewModel: {
         ...state.viewModel,
-        linkDevice: { kind: 'select_factor', targetFactor },
+        linkDevice:
+          targetFactor.kind === 'email_otp'
+            ? {
+                kind: 'select_factor',
+                targetFactor,
+                targetEmail: this.linkedDeviceTargetEmailAddress,
+              }
+            : { kind: 'select_factor', targetFactor },
+      },
+    };
+    this.updateElement();
+  }
+
+  private changeLinkedDeviceTargetEmailAddress(emailAddress: string): void {
+    const state = this.stateValue;
+    if (
+      state.kind !== 'link_device' ||
+      state.viewModel.linkDevice.kind !== 'select_factor' ||
+      state.viewModel.linkDevice.targetFactor.kind !== 'email_otp'
+    ) {
+      return;
+    }
+    this.linkedDeviceTargetEmailAddress = emailAddress;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: {
+          kind: 'select_factor',
+          targetFactor: state.viewModel.linkDevice.targetFactor,
+          targetEmail: emailAddress,
+        },
       },
     };
     this.updateElement();
@@ -1946,6 +1997,35 @@ export class AuthMenuSession {
   private startSelectedDeviceLinking(): void {
     const state = this.stateValue;
     if (state.kind !== 'link_device' || state.viewModel.linkDevice.kind !== 'select_factor') return;
+    const linkDevice = state.viewModel.linkDevice;
+    let target: StartDevice2LinkingTargetV1;
+    try {
+      if (linkDevice.targetFactor.kind === 'email_otp') {
+        const targetEmail = linkDevice.targetEmail;
+        if (typeof targetEmail !== 'string') {
+          throw new Error('linked-device target email address is unavailable');
+        }
+        target = buildStartDeviceLinkingTargetV1({
+          targetFactor: linkDevice.targetFactor,
+          targetEmail,
+        });
+      } else {
+        target = buildStartDeviceLinkingTargetV1({ targetFactor: linkDevice.targetFactor });
+      }
+    } catch (error: unknown) {
+      this.stateValue = {
+        ...state,
+        viewModel: {
+          ...state.viewModel,
+          linkDevice: {
+            ...state.viewModel.linkDevice,
+            error: errorMessage(error),
+          },
+        },
+      };
+      this.updateElement();
+      return;
+    }
     const generation = ++this.deviceLinkGeneration;
     this.stateValue = {
       ...state,
@@ -1955,7 +2035,7 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
-    void this.startDeviceLinking(this.linkedDeviceTargetFactor, {
+    void this.startDeviceLinking(target, {
       onEvent: this.onLinkDeviceEvent.bind(this, generation),
       onTargetFactorRequired: this.onTargetFactorRequired.bind(this, generation),
     })

@@ -5,10 +5,12 @@ import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
 import type {
   LinkedDeviceEmailOtpBaseFactorChoiceV1,
-  LinkedDeviceTargetFactorV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
-import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
+import type {
+  LinkedDeviceEmailOtpActivationStateV1,
+  StartDevice2LinkingTargetV1,
+} from '@/core/types/linkDevice';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
@@ -24,6 +26,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletCustodyAdminOperation } from '@shared/authorization/walletCustodyOperation';
@@ -1343,7 +1346,10 @@ export interface PMRotateWalletRecoveryCodesPayload extends PMWalletRecoverySess
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
+  walletAuthMethodId: EmailOtpEcdsaCapabilityArgs['walletAuthMethodId'];
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   providerIdentity: EmailOtpEcdsaCapabilityArgs['providerIdentity'];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -1729,8 +1735,7 @@ export type ParentToChildEnvelope =
     >
   | RpcEnvelope<
       'PM_START_DEVICE2_LINKING_FLOW',
-      {
-        targetFactor: LinkedDeviceTargetFactorV1;
+      StartDevice2LinkingTargetV1 & {
         ui?: 'modal' | 'inline';
         cameraId?: string;
         options?: {

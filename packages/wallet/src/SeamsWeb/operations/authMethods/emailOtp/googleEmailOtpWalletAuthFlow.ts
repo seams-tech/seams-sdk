@@ -54,6 +54,7 @@ type ActiveChallenge = {
   emailHint: string;
   delivery: EmailOtpChallengeDelivery;
   walletAuthMethodId: string;
+  signerSelection: EmailOtpOperationChallengeResult['signerSelection'];
 };
 
 type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
@@ -70,6 +71,10 @@ type GoogleLoginEmailOtpEd25519YaoCapabilityArgs = {
   challengeId: string;
   otpCode: string;
   remainingUses: number;
+  ed25519Selection: Extract<
+    EmailOtpOperationChallengeResult['signerSelection'],
+    { readonly kind: 'ed25519_only' }
+  >;
 };
 
 type GoogleEmailOtpProviderResolutionRequest<
@@ -439,6 +444,7 @@ async function requestLoginChallenge(args: {
     emailHint: result.delivery.emailHint,
     delivery: result.delivery,
     walletAuthMethodId: result.walletAuthMethodId,
+    signerSelection: result.signerSelection,
   };
 }
 
@@ -512,6 +518,9 @@ async function loginWithConfiguredTargets(args: {
   };
   const [primaryTarget] = args.targets;
   if (!primaryTarget) {
+    if (args.challenge.signerSelection.kind !== 'ed25519_only') {
+      throw new Error('Selected Email OTP authority requires an ECDSA chain target');
+    }
     await args.deps.loginWithEmailOtpEd25519YaoCapability({
       walletSession,
       authoritySelector,
@@ -520,6 +529,7 @@ async function loginWithConfiguredTargets(args: {
       challengeId: args.challenge.challengeId,
       otpCode: args.otpCode,
       remainingUses: resolveGoogleEmailOtpEd25519RemainingUses(args.deps.configs),
+      ed25519Selection: args.challenge.signerSelection,
     });
     return;
   }
@@ -539,10 +549,16 @@ async function loginWithConfiguredTargets(args: {
       ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
       : {}),
   };
+  if (args.challenge.signerSelection.kind !== 'ecdsa') {
+    throw new Error('Selected Email OTP authority has no ECDSA signer');
+  }
   await args.deps.loginWithEmailOtpEcdsaCapability({
     ...common,
     chainTarget: primaryTarget,
     publicationChainTargets: args.targets,
+    keyHandle: args.challenge.signerSelection.keyHandle,
+    runtimePolicyScope: args.challenge.signerSelection.runtimePolicyScope,
+    ed25519Selection: args.challenge.signerSelection.ed25519,
   });
 }
 
@@ -871,13 +887,8 @@ function createGoogleEmailOtpWalletLoginFlow(
         /* Configured chain targets describe the app, not the wallet. An
            authority without the ECDSA family must unlock through the Ed25519
            path even when the app configures ECDSA chains. */
-        const selectionFamilies = args.state.linkedEmailOtpSelection?.keyFamilies as
-          | readonly ('ed25519' | 'ecdsa_secp256k1')[]
-          | undefined;
         const requiredTargets =
-          selectionFamilies && !selectionFamilies.includes('ecdsa_secp256k1')
-            ? []
-            : configuredTargets;
+          args.challenge.signerSelection.kind === 'ed25519_only' ? [] : configuredTargets;
         if (args.state.linkedEmailOtpSelection?.execution === 'linked') {
           if (!deps.loginWithLinkedEmailOtpWallet) {
             throw new Error('Exact linked Email OTP wallet unlock is unavailable');

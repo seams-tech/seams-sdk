@@ -53,10 +53,10 @@ test('passkey target configuration digest binds both managed RP and origin', asy
   expect(digest).not.toBe(changedRpId);
 });
 
-test('server composition requires a canonical origin inside the managed RP', () => {
+test('admitted request origin must be canonical and inside the managed RP', () => {
   expect(
     normalizeLinkedDevicePasskeyTargetConfigurationV1({
-      targetPasskeyOrigin: 'https://wallet.example.test',
+      expectedOrigin: 'https://wallet.example.test',
       targetPasskeyRpId: 'wallet.example.test',
     }),
   ).toEqual({
@@ -65,7 +65,7 @@ test('server composition requires a canonical origin inside the managed RP', () 
   });
   expect(() =>
     normalizeLinkedDevicePasskeyTargetConfigurationV1({
-      targetPasskeyOrigin: 'https://attacker.example.test',
+      expectedOrigin: 'https://attacker.example.test',
       targetPasskeyRpId: 'wallet.example.test',
     }),
   ).toThrow(/outside the configured RP ID/);

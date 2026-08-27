@@ -49,7 +49,11 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import type { WalletAuthorityV1 } from '@shared/authorization/walletAuthority';
-import type { ActiveWalletSessionV1, WalletCapabilitySubjectV1 } from '@shared/device-linking';
+import type {
+  ActiveWalletSessionV1,
+  WalletCapabilitySubjectV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
 import {
   mpcMaterialActivationRefsEqual,
   parseThresholdEcdsaSessionId,
@@ -70,6 +74,12 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
+  parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
   buildPasskeyWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
@@ -273,6 +283,7 @@ import type {
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { base58Encode } from '@shared/utils/base58';
+import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import {
   openWalletCustodyEd25519ActiveClientV1,
   walletCustodyActivationFactsFromActiveClientMetadataV1,
@@ -1083,12 +1094,36 @@ async function openLinkedDevicePasskeySignerMaterials(args: {
     if (factorSecret.byteLength !== 32) {
       throw new Error('[login] linked passkey unlock requires a 32-byte PRF.first output');
     }
+    return await openLinkedDeviceSignerMaterialsWithFactorSecret({
+      selection: args.selection,
+      factorSecret32: factorSecret,
+    });
+  } finally {
+    factorSecret.fill(0);
+  }
+}
+
+async function openLinkedDeviceSignerMaterialsWithFactorSecret(args: {
+  readonly selection:
+    | LinkedDevicePasskeyAuthoritySelection
+    | LinkedDeviceEmailOtpAuthoritySelection;
+  readonly factorSecret32: Uint8Array;
+}): Promise<readonly [LinkedDevicePasskeyOpenedMaterial, ...LinkedDevicePasskeyOpenedMaterial[]]> {
+  if (args.factorSecret32.byteLength !== 32) {
+    throw new Error('[login] linked signer material requires a 32-byte factor secret');
+  }
+  const factorSecret = args.factorSecret32.slice();
+  try {
     const opened: LinkedDevicePasskeyOpenedMaterial[] = [];
     for (const material of args.selection.signerMaterials) {
       if (material.kind !== 'wallet_authority_linked_signer_material_v1') {
-        throw new Error('[login] linked passkey signer material is not a linked sealed record');
+        throw new Error('[login] linked signer material is not a linked sealed record');
       }
-      assertLinkedPasskeyMaterialTargetFactor(material, args.selection);
+      if (args.selection.kind === 'linked_device_passkey_authority_selection_v1') {
+        assertLinkedPasskeyMaterialTargetFactor(material, args.selection);
+      } else {
+        assertLinkedEmailOtpMaterialTargetFactor(material, args.selection);
+      }
       const result = await openWalletAuthorityLinkedSignerMaterialV1({
         record: material,
         factorSecret,
@@ -1103,12 +1138,12 @@ async function openLinkedDevicePasskeySignerMaterials(args: {
         },
       });
       if (result.kind !== 'opened_wallet_authority_linked_signer_material_v1') {
-        throw new Error(`[login] linked passkey signer material open failed: ${result.reason}`);
+        throw new Error(`[login] linked signer material open failed: ${result.reason}`);
       }
       opened.push(result);
     }
     const [first, ...rest] = opened;
-    if (!first) throw new Error('[login] linked passkey signer material set is empty');
+    if (!first) throw new Error('[login] linked signer material set is empty');
     return [first, ...rest];
   } finally {
     factorSecret.fill(0);
@@ -1142,38 +1177,10 @@ async function openLinkedDeviceEmailOtpSignerMaterials(args: {
   if (args.factorSecret32.byteLength !== 32) {
     throw new Error('[login] linked Email OTP unlock requires a 32-byte factor secret');
   }
-  const factorSecret = args.factorSecret32.slice();
-  try {
-    const opened: LinkedDevicePasskeyOpenedMaterial[] = [];
-    for (const material of args.selection.signerMaterials) {
-      if (material.kind !== 'wallet_authority_linked_signer_material_v1') {
-        throw new Error('[login] linked Email OTP signer material is not a linked sealed record');
-      }
-      assertLinkedEmailOtpMaterialTargetFactor(material, args.selection);
-      const result = await openWalletAuthorityLinkedSignerMaterialV1({
-        record: material,
-        factorSecret,
-        expected: {
-          authorityId: args.selection.authority.authorityId,
-          walletId: args.selection.walletId,
-          walletAuthMethodId: args.selection.authMethod.walletAuthMethodId,
-          packageSetDigestB64u: material.packageSetDigestB64u,
-          targetFactor: material.targetFactor,
-          materialActivation: material.materialActivation,
-          keyFamily: material.keyFamily,
-        },
-      });
-      if (result.kind !== 'opened_wallet_authority_linked_signer_material_v1') {
-        throw new Error(`[login] linked Email OTP signer material open failed: ${result.reason}`);
-      }
-      opened.push(result);
-    }
-    const [first, ...rest] = opened;
-    if (!first) throw new Error('[login] linked Email OTP signer material set is empty');
-    return [first, ...rest];
-  } finally {
-    factorSecret.fill(0);
-  }
+  return await openLinkedDeviceSignerMaterialsWithFactorSecret({
+    selection: args.selection,
+    factorSecret32: args.factorSecret32,
+  });
 }
 
 function recentUnlockAccountFromUser(user: ClientUserData): RecentUnlockAccount {
@@ -1190,6 +1197,56 @@ function recentUnlockAccountFromUser(user: ClientUserData): RecentUnlockAccount 
     ...(typeof user.lastLogin === 'number' ? { lastLogin: user.lastLogin } : {}),
     authMethod: user.authMethod || null,
   };
+}
+
+async function recentUnlockAccountFromLinkedDeviceSelection(
+  selection: WalletSelectionRecordV1,
+): Promise<RecentUnlockAccount | null> {
+  const resolved = await IndexedDBManager.resolveSelectedWalletAuthority(
+    String(selection.walletId),
+  ).catch(() => null);
+  if (
+    !resolved ||
+    resolved.kind !== 'resolved' ||
+    resolved.selection.walletAuthMethodId !== selection.walletAuthMethodId ||
+    resolved.authMethod.status !== 'active' ||
+    resolved.authority.state !== 'active' ||
+    resolved.authority.provenance.kind !== 'device_link'
+  ) {
+    return null;
+  }
+  const nearSubject = await resolveLinkedDeviceNearUnlockSubject({
+    walletId: selection.walletId,
+    authMethod: resolved.authMethod,
+    authority: resolved.authority,
+    signerMaterials: resolved.signerMaterials,
+  });
+  if (nearSubject.kind !== 'resolved') return null;
+  return {
+    walletId: String(selection.walletId),
+    nearAccountId: nearSubject.subject.nearAccountId,
+    displayName: String(selection.walletId),
+    signerSlot: nearSubject.subject.signerSlot,
+    lastLogin: selection.updatedAtMs,
+    authMethod:
+      resolved.authMethod.kind === SIGNER_AUTH_METHODS.passkey
+        ? SIGNER_AUTH_METHODS.passkey
+        : SIGNER_AUTH_METHODS.emailOtp,
+  };
+}
+
+function recentUnlockAccountKey(account: RecentUnlockAccount): string {
+  return `${account.walletId}:${account.authMethod ?? ''}`;
+}
+
+function latestRecentUnlockAccount(
+  accounts: readonly RecentUnlockAccount[],
+): RecentUnlockAccount | null {
+  let latest: RecentUnlockAccount | null = null;
+  for (const account of accounts) {
+    if (!latest || (account.lastLogin ?? 0) > (latest.lastLogin ?? 0)) latest = account;
+  }
+  return latest;
 }
 
 async function readWalletAuthMethodBindingsForSession(
@@ -2580,6 +2637,221 @@ export async function activateLinkedEmailOtpEcdsaHolderAfterLink(args: {
   }
 }
 
+type LinkedDevicePostLinkFactor =
+  | {
+      readonly kind: 'passkey';
+      readonly walletId: WalletId;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly walletId: WalletId;
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly emailHashHex: string;
+      readonly providerIdentity: LinkedDeviceEmailOtpProviderIdentity;
+    };
+
+async function resolveLinkedDevicePostLinkSelection(
+  factor: LinkedDevicePostLinkFactor,
+): Promise<LinkedDevicePasskeyAuthoritySelection | LinkedDeviceEmailOtpAuthoritySelection> {
+  if (factor.kind === 'passkey') {
+    const selection = await resolveLinkedDevicePasskeyAuthoritySelection(String(factor.walletId));
+    if (!selection) throw new Error('[login] linked Passkey authority is unavailable after link');
+    return selection;
+  }
+  const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
+    walletIdInput: String(factor.walletId),
+    walletAuthMethodId: String(factor.walletAuthMethodId),
+    emailHashHex: factor.emailHashHex,
+    provider: factor.providerIdentity.provider,
+    providerSubjectId: factor.providerIdentity.providerSubjectId,
+  });
+  if (resolution.kind !== 'selected') {
+    throw new Error(
+      resolution.kind === 'rejected'
+        ? resolution.message
+        : '[login] linked Email OTP authority is unavailable after link',
+    );
+  }
+  return resolution.selection;
+}
+
+async function linkedDeviceEd25519SessionAfterLink(args: {
+  readonly relayerUrl: string;
+  readonly selection: LinkedDeviceAuthoritySelection;
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly material: Extract<LinkedDevicePasskeyOpenedMaterial, { readonly keyFamily: 'ed25519' }>;
+}): Promise<PasskeyWalletUnlockEd25519Session> {
+  const metadata = linkedDeviceEd25519Metadata(args.material);
+  const nearAccountId = deriveImplicitNearAccountIdFromEd25519PublicKey(
+    `ed25519:${base58Encode(metadata.registeredPublicKey)}`,
+  );
+  const requestResult = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
+    kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
+    walletId: String(args.selection.walletId),
+    nearAccountId,
+    nearEd25519SigningKeyId: metadata.applicationBinding.near_ed25519_signing_key_id,
+    signerSlot: metadata.applicationBinding.key_creation_signer_slot,
+    thresholdSessionId: metadata.scope.threshold_session_id,
+    signingWorkerId: metadata.scope.signing_worker_id,
+    participantIds: metadata.participantIds,
+  });
+  if (!requestResult.ok) throw new Error(requestResult.message);
+  const response = await fetch(
+    `${new URL(args.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${args.operationCredential.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestResult.value),
+    },
+  );
+  const raw: unknown = await response.json().catch(() => null);
+  if (!response.ok || !isObject(raw)) {
+    const message = isObject(raw) ? String(raw.message || '').trim() : '';
+    throw new Error(
+      `[login] linked Ed25519 post-link bootstrap failed (HTTP ${response.status}): ${message || 'invalid response'}`,
+    );
+  }
+  const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+  const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
+  const participantIds = Array.isArray(raw.participantIds) ? raw.participantIds : [];
+  if (
+    (raw.kind !== 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1' &&
+      raw.kind !== 'router_ab_ed25519_yao_v2_session_bootstrap_v1') ||
+    String(raw.walletId) !== String(args.selection.walletId) ||
+    String(raw.nearAccountId) !== requestResult.value.nearAccountId ||
+    String(raw.nearEd25519SigningKeyId) !== requestResult.value.nearEd25519SigningKeyId ||
+    String(raw.signingWorkerId) !== requestResult.value.signingWorkerId ||
+    !thresholdSessionId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    !runtimePolicyScope ||
+    !routerAbNormalSigning ||
+    participantIds.length !== 2 ||
+    !Number.isSafeInteger(participantIds[0]) ||
+    !Number.isSafeInteger(participantIds[1]) ||
+    String(walletSessionId.value) !== String(args.operationCredential.walletSessionId) ||
+    String(thresholdSessionId.value) !== requestResult.value.thresholdSessionId
+  ) {
+    throw new Error('[login] linked Ed25519 post-link bootstrap identity is invalid');
+  }
+  const expiresAtMs = Number(raw.thresholdExpiresAtMs);
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error('[login] linked Ed25519 post-link bootstrap is expired');
+  }
+  return {
+    walletId: String(args.selection.walletId),
+    nearAccountId: requestResult.value.nearAccountId,
+    nearEd25519SigningKeyId: requestResult.value.nearEd25519SigningKeyId,
+    relayerKeyId: requestResult.value.signingWorkerId,
+    participantIds: [participantIds[0], participantIds[1]],
+    thresholdSessionId: thresholdSessionId.value,
+    authorizationId: args.walletSession.authorizationId,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    expiresAtMs,
+    remainingUses: DEFAULT_UNLOCK_REMAINING_USES,
+    runtimePolicyScope,
+    routerAbNormalSigning,
+    walletSessionToken: requireOpaqueWalletSessionToken(args.operationCredential.token),
+  };
+}
+
+export async function activateLinkedDeviceSignerRuntimesAfterLink(args: {
+  readonly context: LoginWebContext;
+  readonly factor: LinkedDevicePostLinkFactor;
+  readonly walletSession: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+  readonly factorSecret32: Uint8Array;
+}): Promise<void> {
+  const selection = await resolveLinkedDevicePostLinkSelection(args.factor);
+  assertLinkedDeviceWalletSessionExact(selection, args.walletSession);
+  const relayerUrl = String(args.context.configs.network.relayer?.url || '').trim();
+  if (!relayerUrl) throw new Error('[login] linked post-link activation requires relayer.url');
+  await walletSessionAuthorizations.writeExactWithOperationCredential({
+    record: args.walletSession,
+    operationCredential: args.operationCredential,
+  });
+  const openedMaterials = await openLinkedDeviceSignerMaterialsWithFactorSecret({
+    selection,
+    factorSecret32: args.factorSecret32,
+  });
+  try {
+    const providerIdentity =
+      args.factor.kind === 'email_otp' ? args.factor.providerIdentity : undefined;
+    const factorAuthority = await walletAuthAuthorityForLinkedDeviceMethod({
+      selection,
+      ...(providerIdentity ? { providerIdentity } : {}),
+    });
+    const ecdsaMaterial = linkedDeviceEcdsaMaterial(openedMaterials);
+    if (ecdsaMaterial) {
+      await activateLinkedDeviceEcdsaHolderRuntime({
+        context: args.context,
+        selection,
+        factorAuthority,
+        material: ecdsaMaterial,
+      });
+    }
+    const ed25519Material = linkedDeviceEd25519Material(openedMaterials);
+    if (ed25519Material) {
+      const session = await linkedDeviceEd25519SessionAfterLink({
+        relayerUrl,
+        selection,
+        walletSession: args.walletSession,
+        operationCredential: args.operationCredential,
+        material: ed25519Material,
+      });
+      await activateLinkedDeviceEd25519Runtime({
+        context: args.context,
+        selection,
+        walletSession: args.walletSession,
+        session,
+        material: ed25519Material,
+        relayerUrl,
+        ...(providerIdentity ? { providerIdentity } : {}),
+      });
+    }
+    if (selection.exportRoot) {
+      if (args.factor.kind === 'passkey') {
+        await args.context.signingEngine.establishUnlockedWalletEd25519ExportRootCapabilityV1({
+          existingEnvelope: selection.exportRoot.envelope,
+          passkeyPrfFirstB64u: base64UrlEncode(args.factorSecret32),
+          walletId: String(selection.walletId),
+          walletAuthMethodId: String(selection.authMethod.walletAuthMethodId),
+          walletSessionId: String(args.operationCredential.walletSessionId),
+          expiresAtMs: args.walletSession.expiresAtMs,
+        });
+      } else if (isWalletCustodySeedBinding(selection.exportRoot.envelope.binding)) {
+        await establishUnlockedExportRootCapabilityV1(
+          walletCustodyCeremonyTransportFromWorkerContextV1(
+            args.context.signingEngine.getSignerWorkerContext(),
+          ),
+          {
+            existingEnvelope: selection.exportRoot.envelope,
+            existingFactorSecret: args.factorSecret32,
+            walletId: String(selection.walletId),
+            walletAuthMethodId: String(selection.authMethod.walletAuthMethodId),
+            walletSessionId: String(args.operationCredential.walletSessionId),
+            expiresAtMs: args.walletSession.expiresAtMs,
+          },
+        );
+      }
+    }
+    await args.context.signingEngine.markWalletSelectionUnlocked({
+      walletId: selection.walletId,
+      walletAuthMethodId: selection.authMethod.walletAuthMethodId,
+    });
+  } finally {
+    for (const openedMaterial of openedMaterials) openedMaterial.material.fill(0);
+  }
+}
+
 function linkedDeviceEd25519Metadata(
   material: Extract<LinkedDevicePasskeyOpenedMaterial, { readonly keyFamily: 'ed25519' }>,
 ): RouterAbEd25519YaoActiveClientMetadataV1 {
@@ -2803,6 +3075,14 @@ async function activateLinkedDeviceEd25519Runtime(args: {
     curve: 'ed25519',
     thresholdSessionId: args.session.thresholdSessionId,
   });
+  const persistedAuthorization = await walletSessionAuthorizations.readActiveForWallet(
+    args.selection.walletId,
+  );
+  if (persistedAuthorization.kind !== 'found') {
+    throw new Error(
+      `[login] linked Ed25519 Wallet Session projection was not persisted (${persistedAuthorization.kind})`,
+    );
+  }
   const nearAccountId = toAccountId(args.session.nearAccountId);
   return {
     success: true,
@@ -7523,16 +7803,40 @@ async function resolveWalletSessionAppIdentity(
 export async function getRecentUnlocks(
   context: RecentUnlocksWebContext,
 ): Promise<GetRecentUnlocksResult> {
-  const allUsersData = await context.signingEngine.getAllUsers();
-  const accounts = allUsersData.map((user) => recentUnlockAccountFromUser(user));
-  const walletIds = [...new Set(accounts.map((account) => account.walletId))];
+  const [allUsersData, selections, lastUsedUser] = await Promise.all([
+    context.signingEngine.getAllUsers(),
+    IndexedDBManager.listWalletSelections(),
+    context.signingEngine.getLastUser(),
+  ]);
+  const linkedAccounts = (
+    await Promise.all(selections.map(recentUnlockAccountFromLinkedDeviceSelection))
+  ).filter((account): account is RecentUnlockAccount => account !== null);
+  const accountsByWalletAuthMethod = new Map<string, RecentUnlockAccount>();
+  for (const user of allUsersData) {
+    const account = recentUnlockAccountFromUser(user);
+    accountsByWalletAuthMethod.set(recentUnlockAccountKey(account), account);
+  }
+  for (const account of linkedAccounts) {
+    accountsByWalletAuthMethod.set(recentUnlockAccountKey(account), account);
+  }
+  const accounts = [...accountsByWalletAuthMethod.values()];
+  const walletIds = [
+    ...new Set([
+      ...accounts.map((account) => account.walletId),
+      ...selections.map((selection) => String(selection.walletId)),
+    ]),
+  ];
   const accountIds = [...new Set(accounts.map((account) => account.nearAccountId))];
-  const lastUsedUser = await context.signingEngine.getLastUser();
+  const legacyLastUsedAccount = lastUsedUser ? recentUnlockAccountFromUser(lastUsedUser) : null;
+  const lastUsedAccount = latestRecentUnlockAccount([
+    ...linkedAccounts,
+    ...(legacyLastUsedAccount ? [legacyLastUsedAccount] : []),
+  ]);
   return {
     walletIds,
     accountIds,
     accounts,
-    lastUsedAccount: lastUsedUser ? recentUnlockAccountFromUser(lastUsedUser) : null,
+    lastUsedAccount,
   };
 }
 

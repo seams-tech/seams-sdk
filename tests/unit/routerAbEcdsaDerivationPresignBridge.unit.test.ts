@@ -262,7 +262,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     };
 
     const started = await startRouterAbEcdsaPresignSession({
-      signingWorkerBaseUrl: 'http://127.0.0.1:9103',
+      signingWorkerBaseUrl: 'http://127.0.0.1:4105',
       scope,
       presignSessionId: 'presign-session-1',
       expiresAtMs: 1_800_000_060_000,
@@ -275,7 +275,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     });
 
     const stepped = await stepRouterAbEcdsaPresignSession({
-      signingWorkerBaseUrl: 'http://127.0.0.1:9103',
+      signingWorkerBaseUrl: 'http://127.0.0.1:4105',
       scope,
       presignSessionId: 'presign-session-1',
       requestedStage: 'presign',
@@ -480,7 +480,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
 
     await expect(
       putRouterAbEcdsaDerivationPresignaturePoolFill({
-        signingWorkerBaseUrl: 'http://127.0.0.1:9103',
+      signingWorkerBaseUrl: 'http://127.0.0.1:4105',
         request: poolFillRequest,
         auth: { kind: 'internal_service_auth_secret', secret: 'private-route-token' },
         fetchImpl,
@@ -489,7 +489,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
       ok: false,
       code: 'network_error',
       message:
-        'pool-fill request to http://127.0.0.1:9103/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put failed: fetch failed',
+        'pool-fill request to http://127.0.0.1:4105/router-ab/signing-worker/ecdsa-derivation/presignature-pool/put failed: fetch failed',
     });
   });
 

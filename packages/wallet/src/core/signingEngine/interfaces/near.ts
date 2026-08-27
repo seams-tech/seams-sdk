@@ -42,6 +42,7 @@ import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedD
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_opaque';
   walletSessionToken: string;
@@ -177,8 +178,12 @@ export type NearPasskeyEd25519OperationStepUpHook = {
 };
 
 export type NearEmailOtpEd25519StepUpHook = {
-  prepare: () => Promise<EmailOtpTransactionSigningChallenge>;
-  resend?: () => Promise<EmailOtpTransactionSigningChallenge>;
+  prepare: (args: {
+    operationFingerprintDigest: DigestB64u;
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
+  resend?: (args: {
+    operationFingerprintDigest: DigestB64u;
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
 export type NearEd25519TransactionAdmissionBoundary = {

@@ -32,6 +32,36 @@
   align-items: center;
 }
 
+.w3a-device-link-email-field {
+  display: grid;
+  width: min(100%, 320px);
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.w3a-device-link-email-field .w3a-field-label {
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.w3a-device-link-email-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface, #ffffff);
+  border: 1px solid var(--w3a-colors-borderPrimary, #cbd5e1);
+  border-radius: var(--w3a-shape-control, 10px);
+  font: inherit;
+}
+
+.w3a-device-link-email-field input:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
 .qr-code-section {
   width: 100%;
   display: flex;

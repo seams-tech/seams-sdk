@@ -4,9 +4,13 @@ import {
   type GoogleEmailOtpWalletAuthDeps,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import type {
+  DemoEmailOtpCodeResponse,
+  EmailOtpChallengeDelivery,
+  EmailOtpUnlockSignerSelection,
+  GoogleEmailOtpProviderResolution,
+} from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { RegistrationResult } from '@/core/types/seams';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
 
@@ -30,17 +34,15 @@ const TEST_RUNTIME_POLICY_SCOPE = {
   signingRootVersion: 'v1',
 } as const;
 
-const APP_SESSION_JWT = jwtWithPayload({
-  kind: 'app_session_v1',
-  sub: 'alice.testnet',
+const ECDSA_SIGNER_SELECTION = {
+  kind: 'ecdsa',
+  keyHandle: 'ecdsa-key-handle-1',
   runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
-});
+} as const satisfies EmailOtpUnlockSignerSelection;
 
-function jwtWithPayload(payload: Record<string, unknown>): string {
-  const header = base64UrlEncode(new TextEncoder().encode(JSON.stringify({ alg: 'none' })));
-  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${header}.${body}.fixture`;
-}
+const ED25519_SIGNER_SELECTION = {
+  kind: 'ed25519_only',
+} as const satisfies EmailOtpUnlockSignerSelection;
 
 function testConfigs(): GoogleEmailOtpWalletAuthDeps['configs'] {
   return {
@@ -80,22 +82,75 @@ function loggedInSession(walletId: string) {
   return activeWalletSessionFixture({ walletId, nearAccountId: walletId });
 }
 
-function makeRegisterResolution(input?: { walletId?: string; attemptId?: string }) {
-  const walletId = input?.walletId ?? 'alice.testnet';
+function makeRegisterResolution(
+  input: {
+    walletId?: string;
+    selectedWalletId?: string;
+    attemptId?: string;
+    expiresAtMs?: number;
+  } = {},
+): Extract<GoogleEmailOtpProviderResolution, { mode: 'register_started' }> {
+  const walletId = input.walletId ?? 'alice.testnet';
+  const selectedWalletId = input.selectedWalletId ?? input.walletId ?? 'alice.testnet';
   const candidates = [
     { candidateId: 'registration-candidate-1', walletId: 'alice.testnet' },
     { candidateId: 'registration-candidate-2', walletId: 'alice-2.testnet' },
   ] as const;
   return {
-    mode: 'register_started' as const,
-    registrationAttemptId: input?.attemptId ?? 'registration-attempt-1',
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    mode: 'register_started',
+    walletId,
+    providerSubject: 'google-subject-1',
+    email: 'alice@example.com',
+    registrationAttemptId: input.attemptId ?? 'registration-attempt-1',
+    expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
     offer: {
       offerId: 'registration-offer-1',
       selectedCandidateId:
-        walletId === 'alice-2.testnet' ? 'registration-candidate-2' : 'registration-candidate-1',
+        selectedWalletId === 'alice-2.testnet'
+          ? 'registration-candidate-2'
+          : 'registration-candidate-1',
       candidates,
     },
+  };
+}
+
+function makeExistingResolution(
+  input: {
+    walletId?: string;
+  } = {},
+): Extract<GoogleEmailOtpProviderResolution, { mode: 'existing_wallet' }> {
+  return {
+    mode: 'existing_wallet',
+    walletId: input.walletId ?? 'alice.testnet',
+    providerSubject: 'google-subject-1',
+    email: 'alice@example.com',
+    hasEmailOtpEnrollment: true,
+  };
+}
+
+function challengeResult(
+  input: {
+    challengeId?: string;
+    delivery?: EmailOtpChallengeDelivery;
+    walletAuthMethodId?: string;
+    signerSelection?: EmailOtpUnlockSignerSelection;
+  } = {},
+) {
+  const delivery =
+    input.delivery ??
+    ({
+      kind: 'provider',
+      status: 'sent',
+      emailHint: 'alice@example.com',
+    } as const);
+  return {
+    challengeId: input.challengeId ?? 'login-challenge-1',
+    otpChannel: 'email_otp' as const,
+    delivery,
+    emailHint: delivery.emailHint,
+    ownerProofBindingDigest: 'owner-proof-binding-1',
+    walletAuthMethodId: input.walletAuthMethodId ?? 'email-otp-method-1',
+    signerSelection: input.signerSelection ?? ECDSA_SIGNER_SELECTION,
   };
 }
 
@@ -114,84 +169,58 @@ function successfulEcdsaRegistrationResult(walletId: string): RegistrationResult
   };
 }
 
-function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
+function makeDeps(overrides: Partial<GoogleEmailOtpWalletAuthDeps> = {}): {
   deps: GoogleEmailOtpWalletAuthDeps;
   calls: Array<{ type: string; args: unknown }>;
 } {
   const calls: Array<{ type: string; args: unknown }> = [];
-  const registerWalletImpl =
-    overrides?.registerWallet ??
+  const resolveGoogleEmailOtpProvider =
+    overrides.resolveGoogleEmailOtpProvider ??
+    (async (args: Parameters<GoogleEmailOtpWalletAuthDeps['resolveGoogleEmailOtpProvider']>[0]) => {
+      calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
+      return args.accountMode === 'register' ? makeRegisterResolution() : makeExistingResolution();
+    });
+  const requestEmailOtpChallenge =
+    overrides.requestEmailOtpChallenge ??
+    (async (args: Parameters<GoogleEmailOtpWalletAuthDeps['requestEmailOtpChallenge']>[0]) => {
+      calls.push({ type: 'requestEmailOtpChallenge', args });
+      return challengeResult();
+    });
+  const registerWallet =
+    overrides.registerWallet ??
     (async (args: Parameters<GoogleEmailOtpWalletAuthDeps['registerWallet']>[0]) => {
       calls.push({ type: 'registerWallet', args });
       return successfulEcdsaRegistrationResult('alice.testnet');
     });
   const deps: GoogleEmailOtpWalletAuthDeps = {
-    configs: testConfigs(),
-    exchangeGoogleEmailOtpSession: async (args) => {
-      calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-      const walletId = 'alice.testnet';
-      return {
-        session: {
-          userId: 'google-subject-1',
-          walletId,
-          email: 'alice@example.com',
-          googleEmailOtpResolution:
-            args.accountMode === 'register'
-              ? makeRegisterResolution({
-                  walletId,
-                  attemptId: 'registration-attempt-1',
-                })
-              : {
-                  mode: 'existing_wallet',
-                  expiresAt: new Date(Date.now() + 60_000).toISOString(),
-                  loginChallenge: {
-                    delivery: {
-                      kind: 'provider',
-                      status: 'sent',
-                      emailHint: 'alice@example.com',
-                    },
-                    challengeId: 'login-challenge-1',
-                    emailHint: 'alice@example.com',
-                    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-                  },
-                },
-        },
-        jwt: APP_SESSION_JWT,
-      } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-    },
-    requestEmailOtpChallenge: async (args) => {
-      calls.push({ type: 'requestEmailOtpChallenge', args });
-      return {
-        challengeId: 'login-challenge-1',
-        otpChannel: 'email_otp',
-        delivery: {
-          kind: 'provider',
-          status: 'sent',
-          emailHint: 'alice@example.com',
-        },
-        emailHint: 'alice@example.com',
-      };
-    },
-    prewarmEmailOtpYao: async () => {
-      calls.push({ type: 'prewarmEmailOtpYao', args: undefined });
-    },
-    registerWallet: registerWalletImpl,
-    loginWithEmailOtpEcdsaCapability: async (args) => {
-      calls.push({ type: 'loginWithEmailOtpEcdsaCapability', args });
-      return { success: true } as unknown as Awaited<
-        ReturnType<GoogleEmailOtpWalletAuthDeps['loginWithEmailOtpEcdsaCapability']>
-      >;
-    },
-    loginWithEmailOtpEd25519YaoCapability: async (args) => {
-      calls.push({ type: 'loginWithEmailOtpEd25519YaoCapability', args });
-    },
-    rememberEmailOtpAppSessionJwt: (args) => {
-      calls.push({ type: 'rememberEmailOtpAppSessionJwt', args });
-    },
-    getWalletSession: async (walletId) => {
-      calls.push({ type: 'getWalletSession', args: { walletId } });
-      return loggedInSession(walletId);
-    },
+    configs: overrides.configs ?? testConfigs(),
+    resolveGoogleEmailOtpProvider,
+    requestEmailOtpChallenge,
+    prewarmEmailOtpYao:
+      overrides.prewarmEmailOtpYao ??
+      (async () => {
+        calls.push({ type: 'prewarmEmailOtpYao', args: undefined });
+      }),
+    registerWallet,
+    loginWithEmailOtpEcdsaCapability:
+      overrides.loginWithEmailOtpEcdsaCapability ??
+      (async (args) => {
+        calls.push({ type: 'loginWithEmailOtpEcdsaCapability', args });
+        return { success: true } as unknown as Awaited<
+          ReturnType<GoogleEmailOtpWalletAuthDeps['loginWithEmailOtpEcdsaCapability']>
+        >;
+      }),
+    loginWithEmailOtpEd25519YaoCapability:
+      overrides.loginWithEmailOtpEd25519YaoCapability ??
+      (async (args) => {
+        calls.push({ type: 'loginWithEmailOtpEd25519YaoCapability', args });
+      }),
+    getWalletSession:
+      overrides.getWalletSession ??
+      (async (walletId) => {
+        calls.push({ type: 'getWalletSession', args: { walletId } });
+        return loggedInSession(walletId);
+      }),
     ...overrides,
   };
   return { deps, calls };
@@ -204,7 +233,6 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       idToken: 'google-id-token',
       mode: 'register',
       relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
       ecdsaTargets: { kind: 'none' },
     });
 
@@ -214,7 +242,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     if (started.value.mode !== 'register') throw new Error('expected register flow');
     expect(started.value.state).toBe('registration_ready');
     expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
+      'resolveGoogleEmailOtpProvider',
       'prewarmEmailOtpYao',
     ]);
 
@@ -225,7 +253,6 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(completed.value.walletId).toBe('alice.testnet');
     expect(completed.value.mode).toBe('register');
     expect(JSON.stringify(completed.value)).not.toContain('recoveryKeys');
-    expect(JSON.stringify(completed.value)).not.toContain(APP_SESSION_JWT);
     const registerCall = calls.find((call) => call.type === 'registerWallet');
     expect(registerCall?.args).toMatchObject({
       wallet: { kind: 'provided', walletId: 'alice.testnet' },
@@ -233,7 +260,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
         kind: 'email_otp',
         proofKind: 'google_sso_registration',
         email: 'alice@example.com',
-        appSessionJwt: APP_SESSION_JWT,
+        providerSubject: 'google-subject-1',
         googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
         googleEmailOtpRegistrationOfferId: 'registration-offer-1',
         googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
@@ -255,92 +282,16 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(JSON.stringify(registerCall?.args)).not.toContain('code-1');
     expect(JSON.stringify(registerCall?.args)).not.toContain('recoveryKeys');
     expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
+      'resolveGoogleEmailOtpProvider',
       'prewarmEmailOtpYao',
       'registerWallet',
       'getWalletSession',
     ]);
   });
 
-  test('login without an Email OTP enrollment transitions to registration', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        if (args.accountMode === 'login') {
-          throw Object.assign(new Error('Email OTP enrollment not found'), {
-            code: 'not_found' as const,
-          });
-        }
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: makeRegisterResolution(),
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-      },
-    });
-
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
-      ecdsaTargets: { kind: 'none' },
-    });
-
-    expect(started.ok).toBe(true);
-    if (!started.ok) throw new Error(started.error.message);
-    expect(started.value).toMatchObject({
-      requestedMode: 'login',
-      mode: 'register',
-      state: 'registration_ready',
-      walletId: 'alice.testnet',
-    });
-    expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
-      'exchangeGoogleEmailOtpSession',
-      'prewarmEmailOtpYao',
-    ]);
-    expect(calls.map((call) => call.args)).toMatchObject([
-      { accountMode: 'login' },
-      { accountMode: 'register' },
-    ]);
-  });
-
-  test('generic session exchange 404 stays a login failure instead of starting registration', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        throw Object.assign(new Error('Route not found'), {
-          code: 'not_found' as const,
-        });
-      },
-    });
-
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
-      ecdsaTargets: { kind: 'none' },
-    });
-
-    expect(started).toEqual({
-      ok: false,
-      error: {
-        code: 'google_exchange_failed',
-        message: 'Route not found',
-      },
-    });
-    expect(calls.map((call) => call.args)).toMatchObject([{ accountMode: 'login' }]);
-  });
-
   test('stale Google identity requires registration at the public SDK boundary', async () => {
     const { deps } = makeDeps({
-      exchangeGoogleEmailOtpSession: async () => {
+      resolveGoogleEmailOtpProvider: async () => {
         throw Object.assign(new Error('No wallet is linked to this Google account yet.'), {
           code: 'stale_identity_mapping' as const,
         });
@@ -351,7 +302,6 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       idToken: 'google-id-token',
       mode: 'login',
       relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
       ecdsaTargets: { kind: 'none' },
     });
 
@@ -364,61 +314,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     });
   });
 
-  test('missing enrollment discovered while issuing the login challenge requires registration', async () => {
-    const { deps } = makeDeps({
-      exchangeGoogleEmailOtpSession: async () =>
-        ({
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'missing-wallet.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              mode: 'existing_wallet',
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        }) as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>,
-      requestEmailOtpChallenge: async () => {
-        throw Object.assign(new Error('Email OTP enrollment not found'), {
-          code: 'not_found' as const,
-        });
-      },
-    });
-
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
-      ecdsaTargets: { kind: 'none' },
-    });
-
-    expect(started).toEqual({
-      ok: false,
-      error: {
-        code: 'google_account_registration_required',
-        message: "Account doesn't exist. Create your account to continue.",
-      },
-    });
-  });
-
-  test('generic challenge 404 stays a login failure instead of requiring registration', async () => {
-    const { deps } = makeDeps({
-      exchangeGoogleEmailOtpSession: async () =>
-        ({
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'existing-wallet.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              mode: 'existing_wallet',
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        }) as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>,
-      requestEmailOtpChallenge: async () => {
+  test('explicit challenge failure stays a login failure', async () => {
+    const { deps, calls } = makeDeps({
+      requestEmailOtpChallenge: async (args) => {
+        calls.push({ type: 'requestEmailOtpChallenge', args });
         throw Object.assign(new Error('Route not found'), {
           code: 'not_found' as const,
         });
@@ -429,7 +328,6 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       idToken: 'google-id-token',
       mode: 'login',
       relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
       ecdsaTargets: { kind: 'none' },
     });
 
@@ -440,24 +338,20 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
         message: 'Route not found',
       },
     });
+    expect(calls.map((call) => call.type)).toEqual([
+      'resolveGoogleEmailOtpProvider',
+      'requestEmailOtpChallenge',
+    ]);
   });
 
-  test('register path uses the selected offer candidate instead of a stale exchange wallet id', async () => {
+  test('register path uses the selected offer candidate instead of the provider wallet id', async () => {
     const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'stale-wallet.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: makeRegisterResolution({
-              walletId: 'alice-2.testnet',
-              attemptId: 'registration-attempt-1',
-            }),
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+      resolveGoogleEmailOtpProvider: async (args) => {
+        calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
+        return makeRegisterResolution({
+          walletId: 'stale-wallet.testnet',
+          selectedWalletId: 'alice-2.testnet',
+        });
       },
     });
 
@@ -465,7 +359,6 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       idToken: 'google-id-token',
       mode: 'register',
       relayUrl: 'https://relay.example',
-      sessionKind: 'jwt',
       ecdsaTargets: { kind: 'none' },
     });
 
@@ -494,19 +387,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
 
   test('register path fails closed when the offer expiry is missing', async () => {
     const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        const resolution = makeRegisterResolution();
-        const { expiresAt: _expiresAt, ...withoutExpiry } = resolution;
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: withoutExpiry,
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+      resolveGoogleEmailOtpProvider: async (args) => {
+        calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
+        const { expiresAtMs: _expiresAtMs, ...withoutExpiry } = makeRegisterResolution();
+        return withoutExpiry as unknown as GoogleEmailOtpProviderResolution;
       },
     });
 
@@ -519,27 +403,19 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
 
     expect(started.ok).toBe(false);
     if (started.ok) throw new Error('expected missing-expiry failure');
-    expect(started.error.code).toBe('google_exchange_failed');
+    expect(started.error.code).toBe('google_verification_failed');
     expect(started.error.message).toContain('expired or missing expiry');
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(calls.map((call) => call.type)).toEqual(['resolveGoogleEmailOtpProvider']);
   });
 
   test('register path fails closed when the offer expiry is malformed', async () => {
     const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
+      resolveGoogleEmailOtpProvider: async (args) => {
+        calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
         return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              ...makeRegisterResolution(),
-              expiresAt: 'not-a-date',
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+          ...makeRegisterResolution(),
+          expiresAtMs: 'not-a-date',
+        } as unknown as GoogleEmailOtpProviderResolution;
       },
     });
 
@@ -552,9 +428,9 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
 
     expect(started.ok).toBe(false);
     if (started.ok) throw new Error('expected malformed-expiry failure');
-    expect(started.error.code).toBe('google_exchange_failed');
+    expect(started.error.code).toBe('google_verification_failed');
     expect(started.error.message).toContain('expired or missing expiry');
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(calls.map((call) => call.type)).toEqual(['resolveGoogleEmailOtpProvider']);
   });
 
   test('register path surfaces already-finalized replay as restore required', async () => {
@@ -584,13 +460,13 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     if (completed.ok) throw new Error('expected restore-required failure');
     expect(completed.error.code).toBe('registration_restore_required');
     expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
+      'resolveGoogleEmailOtpProvider',
       'prewarmEmailOtpYao',
       'registerWallet',
     ]);
   });
 
-  test('login path uses exchange-delivered login challenge and submits through Email OTP ECDSA capability', async () => {
+  test('login path requests a challenge and propagates the exact ECDSA signer selection', async () => {
     const { deps, calls } = makeDeps();
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
@@ -603,7 +479,10 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     if (!started.ok) throw new Error(started.error.message);
     expect(started.value.mode).toBe('login');
     if (started.value.mode !== 'login') throw new Error('expected login flow');
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+    expect(calls.map((call) => call.type)).toEqual([
+      'resolveGoogleEmailOtpProvider',
+      'requestEmailOtpChallenge',
+    ]);
 
     const submitted = await started.value.submit({ otpCode: '123456' });
 
@@ -612,8 +491,15 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(submitted.value.mode).toBe('login');
     const loginCall = calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability');
     expect(loginCall?.args).toMatchObject({
+      walletAuthMethodId: 'email-otp-method-1',
       chainTarget: TEMPO_TARGET,
       publicationChainTargets: [TEMPO_TARGET],
+      keyHandle: 'ecdsa-key-handle-1',
+      runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
+      providerIdentity: {
+        provider: 'google',
+        providerSubjectId: 'google-subject-1',
+      },
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
@@ -638,13 +524,21 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(loginCalls[0]?.args).toMatchObject({
       chainTarget: TEMPO_TARGET,
       publicationChainTargets: [TEMPO_TARGET, EVM_TARGET],
+      walletAuthMethodId: 'email-otp-method-1',
+      keyHandle: 'ecdsa-key-handle-1',
+      runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
   });
 
-  test('login path supports NEAR-only Email OTP wallets without ECDSA targets', async () => {
-    const { deps, calls } = makeDeps();
+  test('login path supports Ed25519-only Email OTP wallets without ECDSA targets', async () => {
+    const { deps, calls } = makeDeps({
+      requestEmailOtpChallenge: async (args) => {
+        calls.push({ type: 'requestEmailOtpChallenge', args });
+        return challengeResult({ signerSelection: ED25519_SIGNER_SELECTION });
+      },
+    });
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
@@ -662,31 +556,17 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       challengeId: 'login-challenge-1',
       otpCode: '123456',
       remainingUses: 3,
-      appSessionJwt: APP_SESSION_JWT,
       walletSession: {
         walletId: 'alice.testnet',
-        walletSessionUserId: 'google-subject-1',
+        walletSessionUserId: 'alice.testnet',
       },
+      authoritySelector: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: 'email-otp-method-1',
+      },
+      providerSubjectId: 'google-subject-1',
+      emailOtpAuthorityEmail: 'alice@example.com',
     });
-    expect(calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability')).toBeFalsy();
-  });
-
-  test('login path treats empty configured ECDSA targets as NEAR-only unlock', async () => {
-    const { deps, calls } = makeDeps();
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-    });
-
-    expect(started.ok).toBe(true);
-    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
-    const submitted = await started.value.submit({ otpCode: '123456' });
-
-    expect(submitted.ok).toBe(true);
-    expect(
-      calls.find((call) => call.type === 'loginWithEmailOtpEd25519YaoCapability'),
-    ).toBeTruthy();
     expect(calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability')).toBeFalsy();
   });
 
@@ -709,163 +589,44 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(loginCall?.args).toMatchObject({
       chainTarget: TEMPO_TARGET,
       publicationChainTargets: [TEMPO_TARGET, EVM_TARGET],
+      walletAuthMethodId: 'email-otp-method-1',
+      keyHandle: 'ecdsa-key-handle-1',
+      runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
     expect(calls.find((call) => call.type === 'loginWithEmailOtpEd25519YaoCapability')).toBeFalsy();
   });
 
-  test('login path accepts exchange-reused login challenge without requesting another OTP', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              mode: 'existing_wallet',
-              loginChallenge: {
-                delivery: {
-                  kind: 'provider',
-                  status: 'reused',
-                  emailHint: 'alice@example.com',
-                },
-                challengeId: 'login-challenge-reused-1',
-                emailHint: 'a***@example.com',
-              },
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-      },
-    });
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-      ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
-    });
-
-    expect(started.ok).toBe(true);
-    if (!started.ok) throw new Error(started.error.message);
-    expect(started.value.mode).toBe('login');
-    if (started.value.mode !== 'login') throw new Error('expected login flow');
-    const submitted = await started.value.submit({ otpCode: '123456' });
-    expect(submitted.ok).toBe(true);
-    expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
-      'loginWithEmailOtpEcdsaCapability',
-      'getWalletSession',
-    ]);
-    const loginCall = calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability');
-    expect(loginCall?.args).toMatchObject({
-      challengeId: 'login-challenge-reused-1',
-      otpCode: '123456',
-    });
-  });
-
-  test('login path falls back to explicit challenge request when exchange does not deliver one', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              mode: 'existing_wallet',
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-      },
-    });
-
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-      ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
-    });
-
-    expect(started.ok).toBe(true);
-    if (!started.ok) throw new Error(started.error.message);
-    expect(started.value.mode).toBe('login');
-    expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
-      'requestEmailOtpChallenge',
-    ]);
-  });
-
-  test('login path surfaces exchange challenge rate limits without requesting another challenge', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              mode: 'existing_wallet',
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              loginChallenge: {
-                delivery: 'rate_limited',
-                retryAfterMs: 30_000,
-              },
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-      },
-    });
-
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'login',
-      relayUrl: 'https://relay.example',
-    });
-
-    expect(started.ok).toBe(false);
-    if (started.ok) throw new Error('expected rate-limited result');
-    expect(started.error).toMatchObject({
-      code: 'email_otp_rate_limited',
-      retryAfterMs: 30_000,
-    });
-    expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
-  });
-
-  test('register request resolving to existing wallet continues with login', async () => {
+  test('register request resolving to an existing wallet continues with login', async () => {
     const { deps, calls } = makeDeps({
       resolveGoogleEmailOtpProvider: async (args) => {
         calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
-        return {
-          mode: 'existing_wallet',
-          walletId: 'alice.testnet',
-          providerSubject: 'google-subject-1',
-          email: 'alice@example.com',
-          hasEmailOtpEnrollment: true,
-        };
+        return makeExistingResolution();
       },
     });
 
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'register',
+      relayUrl: 'https://relay.example',
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
     });
 
     expect(started.ok).toBe(true);
     if (!started.ok) throw new Error(started.error.message);
+    expect(started.value.requestedMode).toBe('register');
     expect(started.value.mode).toBe('login');
     expect(calls.map((call) => call.type)).toEqual([
       'resolveGoogleEmailOtpProvider',
       'requestEmailOtpChallenge',
     ]);
+    expect(calls[0]?.args).toMatchObject({
+      idToken: 'google-id-token',
+      accountMode: 'register',
+      relayUrl: 'https://relay.example',
+      restartRegistrationOffer: false,
+    });
   });
 
   test('registration explicit ECDSA targets are used for signer selection', async () => {
@@ -916,71 +677,23 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(rerolled.value.mode).toBe('register');
     expect(rerolled.value.walletId).toBe('alice-2.testnet');
     expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
+      'resolveGoogleEmailOtpProvider',
       'prewarmEmailOtpYao',
     ]);
     const staleCompletion = await started.value.completeRegistration();
     expect(staleCompletion.ok).toBe(false);
   });
 
-  test('registration reroll is local and cannot pivot into a login OTP challenge', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: makeRegisterResolution(),
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-      },
-    });
-    const started = await beginGoogleEmailOtpWalletAuth(deps, {
-      idToken: 'google-id-token',
-      mode: 'register',
-      ecdsaTargets: { kind: 'none' },
-    });
-
-    expect(started.ok).toBe(true);
-    if (!started.ok || started.value.mode !== 'register') throw new Error('expected register flow');
-    const rerolled = await started.value.rerollWalletId();
-
-    expect(rerolled.ok).toBe(true);
-    expect(calls.map((call) => call.type)).toEqual([
-      'exchangeGoogleEmailOtpSession',
-      'prewarmEmailOtpYao',
-    ]);
-
-    const completed = await started.value.completeRegistration();
-    expect(completed.ok).toBe(false);
-  });
-
   test('reroll failure leaves the registration flow active when no alternate candidate exists', async () => {
-    const { deps, calls } = makeDeps({
-      exchangeGoogleEmailOtpSession: async (args) => {
-        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
-        return {
-          session: {
-            userId: 'google-subject-1',
-            walletId: 'alice.testnet',
-            email: 'alice@example.com',
-            googleEmailOtpResolution: {
-              ...makeRegisterResolution(),
-              offer: {
-                offerId: 'registration-offer-1',
-                selectedCandidateId: 'registration-candidate-1',
-                candidates: [
-                  { candidateId: 'registration-candidate-1', walletId: 'alice.testnet' },
-                ],
-              },
-            },
-          },
-          jwt: APP_SESSION_JWT,
-        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
-      },
+    const { deps } = makeDeps({
+      resolveGoogleEmailOtpProvider: async () => ({
+        ...makeRegisterResolution(),
+        offer: {
+          offerId: 'registration-offer-1',
+          selectedCandidateId: 'registration-candidate-1',
+          candidates: [{ candidateId: 'registration-candidate-1', walletId: 'alice.testnet' }],
+        },
+      }),
     });
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
@@ -998,10 +711,13 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
   });
 
   test('login resend failure leaves the flow active for submit', async () => {
+    let challengeRequests = 0;
     const { deps, calls } = makeDeps({
       requestEmailOtpChallenge: async (args) => {
         calls.push({ type: 'requestEmailOtpChallenge', args });
-        throw new Error('Email OTP rate limit exceeded');
+        challengeRequests += 1;
+        if (challengeRequests > 1) throw new Error('Email OTP rate limit exceeded');
+        return challengeResult();
       },
     });
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
@@ -1023,27 +739,15 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const demoResponses: DemoEmailOtpCodeResponse[] = [];
     const events: unknown[] = [];
     const { deps } = makeDeps({
-      exchangeGoogleEmailOtpSession: async () => ({
-        session: {
-          userId: 'google-subject-1',
-          walletId: 'alice.testnet',
-          email: 'alice@example.com',
-          googleEmailOtpResolution: {
-            mode: 'existing_wallet',
-            loginChallenge: {
-              delivery: {
-                kind: 'demo_code_response',
-                status: 'sent',
-                emailHint: 'a***@example.test',
-                otpCode: '123456',
-              },
-              challengeId: 'login-challenge-demo-1',
-              emailHint: 'a***@example.test',
-            },
+      requestEmailOtpChallenge: async () =>
+        challengeResult({
+          delivery: {
+            kind: 'demo_code_response',
+            status: 'sent',
+            emailHint: 'a***@example.test',
+            otpCode: '123456',
           },
-        },
-        jwt: APP_SESSION_JWT,
-      }),
+        }),
     });
 
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
@@ -1085,18 +789,28 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
 
   test('resend emits one replacement demo response through the same callback', async () => {
     const demoResponses: DemoEmailOtpCodeResponse[] = [];
+    let challengeRequests = 0;
     const { deps } = makeDeps({
-      requestEmailOtpChallenge: async () => ({
-        challengeId: 'login-challenge-demo-resend',
-        otpChannel: 'email_otp',
-        delivery: {
-          kind: 'provider_and_demo_code',
-          status: 'sent',
-          emailHint: 'a***@example.test',
-          otpCode: '654321',
-        },
-        emailHint: 'a***@example.test',
-      }),
+      requestEmailOtpChallenge: async () => {
+        challengeRequests += 1;
+        return challengeResult({
+          challengeId:
+            challengeRequests === 1 ? 'login-challenge-provider' : 'login-challenge-demo-resend',
+          delivery:
+            challengeRequests === 1
+              ? {
+                  kind: 'provider',
+                  status: 'sent',
+                  emailHint: 'alice@example.com',
+                }
+              : {
+                  kind: 'provider_and_demo_code',
+                  status: 'sent',
+                  emailHint: 'a***@example.test',
+                  otpCode: '654321',
+                },
+        });
+      },
     });
 
     const started = await beginGoogleEmailOtpWalletAuth(deps, {

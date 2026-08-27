@@ -37,7 +37,7 @@ const enabled = process.env.SEAMS_LINKED_DEVICE_E2E === '1';
 const appOrigin = String(
   process.env.SEAMS_LINKED_DEVICE_E2E_APP_URL ||
     process.env.SEAMS_INTENDED_APP_URL ||
-    'https://localhost',
+    'http://localhost:4001',
 )
   .trim()
   .replace(/\/+$/, '');
@@ -45,7 +45,7 @@ const nearStubBlockHash = '11111111111111111111111111111111';
 const arcStubBlockHash = `0x${'11'.repeat(32)}`;
 const arcStubTransactionHash = `0x${'22'.repeat(32)}`;
 const arcGreetingContract = '0xeB7aB5A6F761072C96147A54B8a15F012e836691';
-const localRouterOrigin = 'https://localhost:4004';
+const localRouterOrigin = 'https://localhost:4101';
 const linkedDeviceTransitionTimeoutMs = 60_000;
 const arcState = {
   greeting: 'Hello from local Arc',
@@ -136,6 +136,19 @@ function requireGoogleIdToken(): string {
   const token = String(process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN || '').trim();
   if (!token) throw new Error('SEAMS_INTENDED_GOOGLE_ID_TOKEN is required for Email OTP linking');
   return token;
+}
+
+function requireGoogleEmailAddress(): string {
+  const payloadSegment = requireGoogleIdToken().split('.')[1];
+  if (!payloadSegment) throw new Error('Google ID token payload is unavailable');
+  const payload: unknown = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8'));
+  return requireStringField(
+    requireRecord(payload, 'Google ID token payload'),
+    'email',
+    'Google ID token payload',
+  )
+    .trim()
+    .toLowerCase();
 }
 
 function installGoogleIdentityStub(idToken: string): void {
@@ -1325,7 +1338,6 @@ async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
   await installQrCamera(page, qrDataUrl);
   const menu = await openProfileMenu(page);
   await menu.getByRole('button', { name: /^Scan and Link Device/ }).click();
-  await page.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
 }
 
 async function assertOwnerScannerClosedAfterScan(page: Page): Promise<void> {
@@ -1354,16 +1366,27 @@ function assertNoUnlockOrNearFundingAfterLink(paths: readonly string[]): void {
 async function lockActiveWallet(page: Page): Promise<void> {
   const menu = await openProfileMenu(page);
   await menu.getByRole('button', { name: 'Lock Wallet', exact: true }).click();
+  await page.locator('.w3a-profile-button-morphable').waitFor({
+    state: 'hidden',
+    timeout: 30_000,
+  });
 }
 
 async function lockWallet(page: Page): Promise<void> {
-  await lockActiveWallet(page);
   const wallet = await walletFrame(page);
-  const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
+  const passkeyUnlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
+  const emailOtpUnlock = wallet.getByRole('button', { name: 'Sign in with Google', exact: true });
+  const lockedAuthSurface = passkeyUnlock.or(emailOtpUnlock);
   const switchToLogin = wallet.locator('button[data-auth-menu-mode="login"]');
-  await unlock.or(switchToLogin).first().waitFor({ state: 'visible', timeout: 30_000 });
+  const profile = page.locator('.w3a-profile-button-morphable');
+  const lockDeadline = Date.now() + 60_000;
+  while (!(await lockedAuthSurface.or(switchToLogin).first().isVisible().catch(() => false))) {
+    if (Date.now() >= lockDeadline) throw new Error('Wallet did not reach its locked auth surface');
+    if (await profile.isVisible().catch(() => false)) await lockActiveWallet(page);
+    await page.waitForTimeout(250);
+  }
   if (await switchToLogin.isVisible()) await switchToLogin.click();
-  await unlock.waitFor({
+  await lockedAuthSurface.first().waitFor({
     state: 'visible',
     timeout: 30_000,
   });
@@ -1559,6 +1582,9 @@ async function authenticateEmailOtpInHostedMenu(
     routerOrigin: input.routerOrigin,
     task: authenticated,
   });
+  await expect(input.page.locator('iframe.w3a-wallet-overlay')).toBeHidden({
+    timeout: 30_000,
+  });
 }
 
 async function unlockEmailOtpWallet(
@@ -1751,14 +1777,6 @@ async function registerEmailOwnerForProfile(
   if ((await readActiveWalletId(page)) !== identity.walletId) {
     throw new Error('Profile Email OTP registration activated a different wallet in the app');
   }
-  await lockActiveWallet(page);
-  await unlockEmailOtpWallet(
-    page,
-    context,
-    identity.walletId,
-    profile,
-    new URL(config.relayerUrl).origin,
-  );
   emailLinkedDeviceStage(`${profile} Email OTP owner registered`);
   return { ...identity, emailAddress: plan.authMethod.email.trim().toLowerCase() };
 }
@@ -1807,13 +1825,10 @@ async function waitForLinkedDeviceActive(
   const activeTab = profile === 'ed25519' ? 'NEAR' : 'Tempo';
   try {
     await expect
-      .poll(
-        () => diagnostics.some((entry) => entry.includes('post_link_runtime_ready')),
-        {
-          message: 'Linked-device signer runtimes did not become ready',
-          timeout: linkedDeviceTransitionTimeoutMs,
-        },
-      )
+      .poll(() => diagnostics.some((entry) => entry.includes('post_link_runtime_ready')), {
+        message: 'Linked-device signer runtimes did not become ready',
+        timeout: linkedDeviceTransitionTimeoutMs,
+      })
       .toBe(true);
     await page.getByRole('tab', { name: activeTab, exact: true }).waitFor({
       state: 'visible',
@@ -2624,7 +2639,11 @@ async function requireEmailOtpExportAuthorization(
     });
   }
   expect(challenge.ok(), 'Email OTP export challenge failed').toBe(true);
-  expect(stepUp.ok(), 'Email OTP export step-up failed').toBe(true);
+  if (!stepUp.ok()) {
+    throw new Error(
+      `Email OTP export step-up failed with HTTP ${stepUp.status()}: ${await stepUp.text()}`,
+    );
+  }
   if (chain === 'near') {
     const challengeBody = requireRecord(
       await challenge.json(),
@@ -2817,23 +2836,13 @@ async function assertImmediateLinkedWalletOperations(input: {
   if (input.profile !== 'ecdsa') {
     const near = requireNearIdentity(input.publicIdentity);
     await greetingSigning(input.page, 'NEAR', input.diagnostics, input.emailOtp);
-    const exported = await exportOwnerKey(
-      input.page,
-      'near',
-      input.diagnostics,
-      input.emailOtp,
-    );
+    const exported = await exportOwnerKey(input.page, 'near', input.diagnostics, input.emailOtp);
     expect(exported.accountId).toBe(near.accountId);
     expect(exported.entries.map((entry) => entry.publicKey)).toEqual([near.publicKey]);
   }
   if (input.profile !== 'ed25519') {
     await linkedSigning(input.page, input.diagnostics, input.emailOtp);
-    const exported = await exportOwnerKey(
-      input.page,
-      'evm',
-      input.diagnostics,
-      input.emailOtp,
-    );
+    const exported = await exportOwnerKey(input.page, 'evm', input.diagnostics, input.emailOtp);
     expect(
       exported.entries
         .map((entry) => `${entry.publicKey.toLowerCase()}:${entry.address.toLowerCase()}`)
@@ -3499,12 +3508,25 @@ async function setupEmailLinkedOwnerPair(
     let sourceEmailAddress: string | null = null;
     if (passkeyOwner) {
       publicIdentity = passkeyOwner.publicIdentity;
+    } else if (profile === 'combined') {
+      publicIdentity = await registerEmailOwner(ownerPage, ownerContext);
+      sourceEmailAddress = requireGoogleEmailAddress();
     } else {
       const emailOwner = await registerEmailOwnerForProfile(ownerPage, ownerContext, profile);
       publicIdentity = emailOwner;
       sourceEmailAddress = emailOwner.emailAddress;
     }
     await assertSignerProfileActions(ownerPage, profile);
+    if (sourceFactor === 'email_otp') {
+      await lockWallet(ownerPage);
+      await unlockEmailOtpWallet(
+        ownerPage,
+        ownerContext,
+        publicIdentity.walletId,
+        profile,
+        routerOrigin,
+      );
+    }
     if (passkeyOwner) {
       const ownerInventory = await readLinkedDeviceInventory(ownerPage);
       expect(ownerInventory.ownerDevices.map((device) => device.credential.kind)).toEqual([
@@ -3599,17 +3621,7 @@ async function setupEmailLinkedOwnerPair(
     await linkedDeviceFailureMonitor.race(assertOwnerScannerClosedAfterScan(ownerPage));
     emailLinkedDeviceStage('owner scanned Device 2 QR');
     const claimResponse = await linkedDeviceFailureMonitor
-      .race(
-        sourceFactor === 'email_otp'
-          ? completeEmailOtpPromptsUntil({
-              page: ownerPage,
-              context: ownerContext,
-              walletId: publicIdentity.walletId,
-              routerOrigin,
-              task: claimed,
-            })
-          : claimed,
-      )
+      .race(claimed)
       .catch((error: unknown) => {
         throw new Error(
           `Owner did not claim the email-factor link session.\n${ownerDiagnostics.join('\n')}\n${device2Diagnostics.join('\n')}`,
@@ -3804,7 +3816,7 @@ async function setupEmailLinkedOwnerPair(
           context: device2Context,
           walletId: publicIdentity.walletId,
           routerOrigin,
-          challengeSubjectId: targetEmail,
+          ...(passkeyOwner ? { challengeSubjectId: targetEmail } : {}),
         },
       }),
     );
@@ -3827,7 +3839,8 @@ async function setupEmailLinkedOwnerPair(
       await readSelectedWalletAuthorityResolution(ownerPage, publicIdentity.walletId),
       'Device 1 selected authority after reload',
     );
-    await lockActiveWallet(ownerPage);
+    await lockWallet(ownerPage);
+    await ownerPage.reload({ waitUntil: 'domcontentloaded' });
     if (sourceFactor === 'email_otp') {
       await unlockEmailOtpWallet(
         ownerPage,
@@ -3848,7 +3861,8 @@ async function setupEmailLinkedOwnerPair(
     await device2Page
       .locator('.w3a-profile-button-morphable')
       .waitFor({ state: 'visible', timeout: 120_000 });
-    await lockActiveWallet(device2Page);
+    await lockWallet(device2Page);
+    await device2Page.reload({ waitUntil: 'domcontentloaded' });
     emailLinkedDeviceStage('unlocking Device 2 after reload');
     if (passkeyOwner) {
       await unlockAddressEmailOtpWallet({

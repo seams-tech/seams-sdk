@@ -2,7 +2,6 @@ import { hasDelegatedWalletPermissionV1 } from '@shared/authorization/delegatedA
 import type {
   LinkedDeviceApprovalV1,
   LinkedDevicePasskeyCreationOptionsV1,
-  LinkedDevicePasskeyTargetConfigurationFieldsV1,
   LinkedDevicePasskeyTargetConfigurationV1,
   LinkedDeviceTargetPreparationV1,
   OrdinarySignerMaterialRecipientRequirementV1,
@@ -16,7 +15,8 @@ import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
-import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
+import { parseWalletAuthMethodId, parseWebAuthnRpId } from '@shared/utils/domainIds';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   ActiveLaneProtocolSourceV1,
   EcdsaTargetCapabilityBindingV1,
@@ -35,6 +35,7 @@ import type { WalletKeyId } from '@shared/signing-lanes/ids';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { ExactAdministeredSignerV1 } from '@shared/device-linking/delegatedActivationPlan';
 import type { LinkedDeviceTargetPlannerV1 } from './d1LinkedDeviceTargetCredentialProvider';
+import { normalizeLinkedDevicePasskeyTargetConfigurationV1 } from '../auth/d1RouterApiAuthConfig';
 
 const DEFAULT_TARGET_PREPARATION_TTL_MS = 5 * 60 * 1_000;
 
@@ -106,7 +107,7 @@ export type LinkedDeviceOwnerSourceChildResolverV1 = {
 
 export type D1LinkedDeviceTargetPlannerOptionsV1 = {
   readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
-  readonly targetPasskeyConfiguration: LinkedDevicePasskeyTargetConfigurationFieldsV1;
+  readonly targetPasskeyRpId: string;
   readonly preparationTtlMs?: number;
 };
 
@@ -116,12 +117,16 @@ export type D1LinkedDeviceTargetPlannerOptionsV1 = {
  */
 export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV1 {
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
-  private readonly targetPasskeyConfiguration: LinkedDevicePasskeyTargetConfigurationFieldsV1;
+  readonly targetPasskeyRpId: WebAuthnRpId;
   private readonly preparationTtlMs: number;
 
   constructor(input: D1LinkedDeviceTargetPlannerOptionsV1) {
     this.resolveOwnerSourceChildV1 = input.resolveOwnerSourceChildV1;
-    this.targetPasskeyConfiguration = input.targetPasskeyConfiguration;
+    const targetPasskeyRpId = parseWebAuthnRpId(input.targetPasskeyRpId);
+    if (!targetPasskeyRpId.ok) {
+      throw new Error(`linked-device target Passkey RP ID: ${targetPasskeyRpId.error.message}`);
+    }
+    this.targetPasskeyRpId = targetPasskeyRpId.value;
     const ttlMs = input.preparationTtlMs ?? DEFAULT_TARGET_PREPARATION_TTL_MS;
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
       throw new Error('linked-device target preparation TTL must be a positive safe integer');
@@ -132,6 +137,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
   async createTargetPreparationV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly expectedOrigin: string;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1> {
     assertPreparationInput(input.session, input.approval, input.requestedAtMs);
@@ -194,11 +200,15 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     }
 
     if (input.approval.targetFactor.kind === 'passkey_prf') {
+      const targetPasskeyConfiguration = normalizeLinkedDevicePasskeyTargetConfigurationV1({
+        expectedOrigin: input.expectedOrigin,
+        targetPasskeyRpId: this.targetPasskeyRpId,
+      });
       const passkeyTargetConfiguration: LinkedDevicePasskeyTargetConfigurationV1 = {
         kind: 'linked_device_passkey_target_configuration_v1',
-        ...this.targetPasskeyConfiguration,
+        ...targetPasskeyConfiguration,
         configurationDigestB64u: await computeLinkedDevicePasskeyTargetConfigurationDigestV1(
-          this.targetPasskeyConfiguration,
+          targetPasskeyConfiguration,
         ),
       };
       return buildLinkedDeviceTargetPreparationV1({
@@ -212,7 +222,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         passkeyCreationOptions: buildPasskeyCreationOptionsV1({
           walletAuthMethodId: walletAuthMethodId.value,
           walletId: input.approval.walletId,
-          rpId: this.targetPasskeyConfiguration.rpId,
+          rpId: targetPasskeyConfiguration.rpId,
         }),
         passkeyConfigurationDigestB64u: passkeyTargetConfiguration.configurationDigestB64u,
         ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
@@ -224,21 +234,36 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       });
     }
 
-    return buildLinkedDeviceTargetPreparationV1({
+    const target = input.approval.targetFactor;
+    const common = {
       linkSessionId: input.approval.linkSessionId,
       walletId: input.approval.walletId,
       enrollmentId: input.approval.enrollmentId,
       deviceId: input.approval.deviceId,
       walletAuthMethodId: walletAuthMethodId.value,
       ed25519ExportRoot,
-      targetFactor: { kind: 'email_otp' },
-      baseWalletAuthMethodId: input.approval.targetFactor.baseWalletAuthMethodId,
+      targetFactor: { kind: 'email_otp' } as const,
+      targetEmail: target.targetEmail,
       ordinarySignerMaterialRecipientRequirements: requireNonEmpty(
         ordinarySignerMaterialRecipientRequirements,
         'linked-device ordinary signer material recipient requirements',
       ),
       issuedAtMs: input.requestedAtMs,
       expiresAtMs,
+    };
+    if (target.enrollment.kind === 'existing_enrollment') {
+      if (!target.baseWalletAuthMethodId) {
+        throw new Error('existing Email OTP target is missing its base factor');
+      }
+      return buildLinkedDeviceTargetPreparationV1({
+        ...common,
+        enrollment: target.enrollment,
+        baseWalletAuthMethodId: target.baseWalletAuthMethodId,
+      });
+    }
+    return buildLinkedDeviceTargetPreparationV1({
+      ...common,
+      enrollment: target.enrollment,
     });
   }
 }
@@ -246,7 +271,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
 function buildPasskeyCreationOptionsV1(input: {
   readonly walletAuthMethodId: LinkedDevicePasskeyCreationOptionsV1['walletAuthMethodId'];
   readonly walletId: LinkedDeviceTargetPreparationV1['walletId'];
-  readonly rpId: LinkedDevicePasskeyTargetConfigurationFieldsV1['rpId'];
+  readonly rpId: WebAuthnRpId;
 }): LinkedDevicePasskeyCreationOptionsV1 {
   const challengeId = secureRandomBase64Url(16, 'linked-device target passkey challenge id');
   const challengeB64u = secureRandomBase64Url(32, 'linked-device target passkey challenge');

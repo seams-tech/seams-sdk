@@ -54,6 +54,7 @@ import {
   parseThresholdEd25519NearAction,
   thresholdEd25519DelegateActionOperationFingerprint,
 } from '@shared/threshold/ed25519OperationFingerprint';
+import { parseSigningOperationFingerprintDigest } from '../../session/planning/operationFingerprint';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommand,
@@ -394,6 +395,9 @@ export async function runNearDelegateActionSigning({
     signingAuthPlan,
     signingLaneAuth: selectionAuth,
     requiredSignatureUses,
+    operationFingerprintDigest: parseSigningOperationFingerprintDigest(
+      signingOperation.operationFingerprint,
+    ),
     passkeyEd25519OperationStepUp,
     emailOtpEd25519StepUp,
   });

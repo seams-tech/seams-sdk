@@ -61,11 +61,16 @@ import type {
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
-import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  parseWalletAuthMethodId,
+  type WalletAuthMethodId,
+} from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { EmailOtpVerifiedAuthorityProjection } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   isEmailOtpWalletAuthAuthority,
   walletAuthAuthoritiesMatch,
@@ -124,6 +129,7 @@ import {
   type DeviceLinkingEcdsaSourceContributionMetadataReaderV1,
   type DeviceLinkingEcdsaSourceContributionMetadataContextV1,
 } from '@/core/signingEngine/workerManager/deviceLinkingSourceContribution';
+
 import { parseLinkedDeviceApprovalResultV1 } from '@shared/device-linking';
 import type { DeviceLinkingSourceContributionPortV1 } from './operations/devices/deviceLinkingPorts';
 import type {
@@ -181,7 +187,6 @@ import {
   assertWalletRuntimePostconditions,
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
-import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEngine/walletCustody/ed25519Login';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import {
@@ -212,6 +217,7 @@ import {
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import {
   activateEmailOtpWalletAfterUnlock,
+  persistVerifiedEmailOtpAuthorityAfterUnlock,
   type EmailOtpWalletPostUnlockActivation,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
 import type {
@@ -247,6 +253,14 @@ type EmailOtpUnlockActiveRuntimeState = {
   kind: 'email_otp_unlock_active_runtime_state_v1';
   inventory: WalletRuntimeInventory;
 };
+
+function requireWalletAuthMethodId(value: string): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(value);
+  if (!parsed.ok) {
+    throw new Error('Email OTP unlock returned an invalid wallet auth method id');
+  }
+  return parsed.value;
+}
 
 type EmailOtpUnlockActivationPlan = {
   kind: 'email_otp_unlock_activation_plan_v1';
@@ -801,6 +815,8 @@ function createSeamsWebDeviceDomainV1(args: SeamsWebDeviceDomainArgsV1): SeamsWe
         authenticator: args.platform.authenticator,
         http: args.platform.http,
         relayerUrl: String(args.configs.network.relayer?.url || '').trim(),
+        publishableKey: args.configs.registration.publishableKey,
+        projectEnvironmentId: args.configs.registration.projectEnvironmentId,
         ownerRequest: args.ownerAuthorities.ownerRequest,
         ownerApprovalUpdates: createWalletHostOwnerApprovalUpdatesV1({
           request: args.ownerAuthorities.ownerRequest,
@@ -2340,6 +2356,9 @@ export class SeamsWeb {
   private async loginWithEmailOtpEd25519YaoCapabilityDomain(
     args: EmailOtpWalletCustodyEd25519LoginDomainArgs,
   ): Promise<void> {
+    if (args.authoritySelector.kind !== 'wallet_auth_method') {
+      throw new Error('Email OTP Ed25519 unlock requires an exact wallet auth method');
+    }
     const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail);
     const signer = await this.signingEngine.loginWithEmailOtpWalletCustodyEd25519Internal({
       ...args,
@@ -2350,6 +2369,7 @@ export class SeamsWeb {
       {
         kind: 'near_ed25519_wallet',
         signer,
+        walletAuthMethodId: requireWalletAuthMethodId(args.authoritySelector.walletAuthMethodId),
       },
     );
   }
@@ -2458,31 +2478,25 @@ export class SeamsWeb {
       const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail || '');
       recordEmailOtpUnlockTiming(unlockTiming.timings, 'emailHashLookupMs', timingStartedAtMs);
       timingStartedAtMs = nowMs();
-      const ed25519CustodyProjection =
-        await this.signingEngine.resolveEmailOtpEd25519CustodyProjectionInternal({
-          walletSession: args.walletSession,
-          providerSubjectId: args.providerIdentity.providerSubjectId,
-          ...(args.walletAuthMethodId ? { walletAuthMethodId: args.walletAuthMethodId } : {}),
-        });
+      const ed25519Selection =
+        args.ed25519Selection.kind === 'present' ? args.ed25519Selection : null;
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
-        authoritySelector: args.walletAuthMethodId
-          ? { kind: 'wallet_auth_method', walletAuthMethodId: args.walletAuthMethodId }
-          : { kind: 'wallet' },
+        authoritySelector: {
+          kind: 'wallet_auth_method',
+          walletAuthMethodId: args.walletAuthMethodId,
+        },
         chainTarget,
         emailHashHex,
-        ...(ed25519CustodyProjection
+        ...(ed25519Selection
           ? {
-              runtimePolicyScope: ed25519CustodyProjection.identity.runtimePolicyScope,
               ed25519YaoRecovery: {
                 kind: 'requested' as const,
-                providerSubject: ed25519CustodyProjection.providerSubject,
-                signerSlot: ed25519CustodyProjection.user.signerSlot,
-                nearAccountId: String(ed25519CustodyProjection.identity.nearAccountId),
-                expectedOperationalPublicKey: ed25519CustodyProjection.user.operationalPublicKey,
-                expectedThresholdSessionId: String(
-                  ed25519CustodyProjection.identity.thresholdSessionId,
-                ),
+                providerSubject: args.providerIdentity.providerSubjectId,
+                signerSlot: ed25519Selection.signerSlot,
+                nearAccountId: ed25519Selection.nearAccountId,
+                expectedOperationalPublicKey: ed25519Selection.operationalPublicKey,
+                expectedThresholdSessionId: ed25519Selection.thresholdSessionId,
               },
             }
           : { ed25519YaoRecovery: { kind: 'not_requested' as const } }),
@@ -2494,24 +2508,28 @@ export class SeamsWeb {
         },
         onProgress: markWorkerProgress,
       });
+      await persistVerifiedEmailOtpAuthorityAfterUnlock({
+        walletId: String(walletId),
+        walletAuthMethodId: String(args.walletAuthMethodId),
+        projection: result.recovery.verifiedAuthorityProjection,
+      });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
-      if (ed25519CustodyProjection) {
+      if (ed25519Selection) {
         let recoveredEd25519Signer: NearEd25519SignerBinding;
         switch (result.ed25519YaoRecovery.kind) {
           case 'capability':
             recoveredEd25519Signer =
               await this.signingEngine.activateEmailOtpEd25519CustodyCapabilityInternal({
                 walletSession: args.walletSession,
-                providerSubject: ed25519CustodyProjection.providerSubject,
+                providerSubject: args.providerIdentity.providerSubjectId,
                 emailHashHex,
-                signerSlot: ed25519CustodyProjection.user.signerSlot,
-                expectedOperationalPublicKey: ed25519CustodyProjection.user.operationalPublicKey,
-                expectedThresholdSessionId: String(
-                  ed25519CustodyProjection.identity.thresholdSessionId,
-                ),
+                signerSlot: ed25519Selection.signerSlot,
+                expectedOperationalPublicKey: ed25519Selection.operationalPublicKey,
+                expectedThresholdSessionId: ed25519Selection.thresholdSessionId,
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,
                 metadata: result.ed25519YaoRecovery.metadata,
+                authority: result.authorization.authority,
               });
             break;
           case 'cache_absent':
@@ -2524,6 +2542,7 @@ export class SeamsWeb {
         walletActivation = {
           kind: 'near_ed25519_wallet',
           signer: recoveredEd25519Signer,
+          walletAuthMethodId: requireWalletAuthMethodId(args.walletAuthMethodId),
         };
       } else {
         if (result.ed25519YaoRecovery.kind !== 'not_requested') {
@@ -2534,6 +2553,7 @@ export class SeamsWeb {
         walletActivation = {
           kind: 'evm_family_ecdsa_wallet',
           walletId,
+          walletAuthMethodId: requireWalletAuthMethodId(args.walletAuthMethodId),
         };
       }
       const workerUnlockMs = nowMs() - timingStartedAtMs;
@@ -2588,8 +2608,8 @@ export class SeamsWeb {
           },
         },
         requiredTargets: [
-          ...(ed25519CustodyProjection ? [{ curve: 'ed25519' as const }] : []),
-          ...configuredEmailOtpEcdsaSnapshotChainTargets(this.configs).map((target) => ({
+          ...(ed25519Selection ? [{ curve: 'ed25519' as const }] : []),
+          ...(args.publicationChainTargets ?? [chainTarget]).map((target) => ({
             curve: 'ecdsa' as const,
             chainTarget: target,
           })),

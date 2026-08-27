@@ -624,7 +624,10 @@ export interface WalletLockGenerationSurface {
     readonly walletId: WalletId;
     readonly walletAuthMethodId: WalletAuthMethodId;
   }): Promise<void>;
-  markSelectedEmailOtpWalletAuthorityUnlocked(walletId: WalletId): Promise<void>;
+  markSelectedEmailOtpWalletAuthorityUnlocked(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<void>;
 }
 
 export interface WarmSessionStatusSurface {
@@ -790,8 +793,10 @@ export interface EmailOtpSigningSessionSurface {
     walletSession: WalletSessionRef;
     /** Email OTP provider subject id, never derived from `walletSession`. */
     providerSubjectId: string;
-    /** Resolve as this method's authority; omitted, the selected one. */
-    walletAuthMethodId?: string;
+    selector:
+      | { kind: 'selected_wallet_authority' }
+      | { kind: 'wallet_auth_method'; walletAuthMethodId: string }
+      | { kind: 'material_activation'; materialActivation: MpcMaterialActivationRef };
   }): Promise<WalletCustodyEd25519Projection | null>;
   resolveOwnerAuthorityEd25519UnlockRequestInternal(args: {
     walletSession: WalletSessionRef;
@@ -820,6 +825,8 @@ export interface EmailOtpSigningSessionSurface {
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    /** The exact authority established by this unlock verification. */
+    authority?: WalletAuthAuthorityRef;
   }): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpWalletCustodyEd25519Internal(
     args: LoginWithEmailOtpWalletCustodyEd25519Args,
@@ -941,7 +948,9 @@ export type WalletRecoverySigningSurface = AccountSyncSigningSurface &
 export type WalletRecoveryWebContext = SeamsWebBaseContext<WalletRecoverySigningSurface>;
 
 export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
+  LoginUnlockSigningSurface &
   NearSigningSurface &
+  EmailOtpRegistrationEnrollmentSurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   RpIdSurface &
   WebAuthnRegistrationConfirmationSurface &

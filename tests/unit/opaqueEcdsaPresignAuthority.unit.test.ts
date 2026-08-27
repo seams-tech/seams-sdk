@@ -35,6 +35,24 @@ function completedSession(onFree: () => void): OpaqueEcdsaPresignSessionV1 {
   };
 }
 
+function completedSessionThatClosesAuthority(
+  authority: OpaqueEcdsaPresignAuthorityV1,
+  onFree: () => void,
+): OpaqueEcdsaPresignSessionV1 {
+  return {
+    stage: () => 'done',
+    poll: () => {
+      authority.close();
+      return { stage: 'done', event: 'presign_done', outgoing: [] };
+    },
+    message: () => undefined,
+    start_presign: () => undefined,
+    presignature_big_r_33: () => new Uint8Array(33).fill(7),
+    compute_signature_share: () => new Uint8Array(32).fill(9),
+    free: onFree,
+  };
+}
+
 test.describe('opaque ECDSA presign authority', () => {
   test('keeps completed shares opaque and rejects a mismatched group binding before use', async () => {
     let freeCount = 0;
@@ -167,6 +185,24 @@ test.describe('opaque ECDSA presign authority', () => {
     authority.close();
 
     await expect(initializing).rejects.toThrow('authority was closed');
+    expect(freeCount).toBe(1);
+  });
+
+  test('does not publish material when authority closes during poll', async () => {
+    let freeCount = 0;
+    const authority = new OpaqueEcdsaPresignAuthorityV1();
+
+    await expect(
+      authority.initialize({
+        sessionId: 'session-close-during-poll',
+        session: completedSessionThatClosesAuthority(authority, () => {
+          freeCount += 1;
+        }),
+        poolIdentity: poolIdentity(),
+        groupPublicKey33: new Uint8Array(33).fill(2),
+        expiresAtMs: Date.now() + 60_000,
+      }),
+    ).rejects.toThrow('authority was closed');
     expect(freeCount).toBe(1);
   });
 

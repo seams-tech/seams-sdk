@@ -5,6 +5,7 @@ import type {
 } from '@shared/device-linking';
 import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
 import type {
+  PrincipalId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -12,26 +13,42 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseWalletId } from '@shared/utils/domainIds';
+import { parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
 import type { WalletId } from '@shared/utils/domainIds';
-import type { ThresholdEd25519AuthorityScope } from '../../../../core/types';
-import type {
-  WalletAuthAuthority,
-  WalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
 import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import type { ThresholdEd25519AuthorityScope } from '../../../../core/types';
+import {
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
+} from '../../../../core/ThresholdService/validation';
+import {
+  buildDelegatedWalletAuthorityV1,
   buildFullOwnerDelegatedWalletAuthorityV1,
   type DelegatedWalletAuthorityV1,
 } from '@shared/authorization/delegatedAuthority';
+import {
+  buildWalletSessionCapabilitySubjectsV1,
+  walletSessionCapabilitySubjectsV1Equal,
+} from '../../../../authorization/domain';
+import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
+import type {
+  RouterApiAuthorizationSessionService,
+  RouterApiWalletSessionAuthorizationV2AdmissionContext,
+} from '../../../framework/authServicePort';
+import type { FetchRouterApiContext } from '../createFetchRouter';
+import type { DeviceLinkingAuthDeniedV1, DeviceLinkingOwnerRequestInputV1 } from './deviceLinking';
+import { json, readJson } from '../../../framework/http';
 import type { WalletExecutionLaneAuthSource } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { ExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
-import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
-import type { FetchRouterApiContext } from '../createFetchRouter';
-import type { DeviceLinkingAuthDeniedV1, DeviceLinkingOwnerRequestInputV1 } from './deviceLinking';
-import { json, readJson } from '../../../framework/http';
 import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
@@ -258,6 +275,41 @@ async function validateOwnerWalletSessionV1(input: {
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly nowV1: () => number;
 }): Promise<OwnerValidationResultV1> {
+  const bearerToken = extractBearerCredential(input.headers);
+  const readV2 = input.authorizationSessions?.readWalletSessionAuthorizationV2ByOperationCredential;
+  if (!bearerToken || !readV2 || !input.authorizationSessions) {
+    return denied('unauthorized', 'An active owner Wallet Session is required');
+  }
+
+  const nowMs = input.nowV1();
+  let context: RouterApiWalletSessionAuthorizationV2AdmissionContext | null;
+  try {
+    context = await readV2({
+      tenantId: input.authorizationSessions.tenantId,
+      token: bearerToken,
+      nowMs,
+    });
+  } catch {
+    return denied('unauthorized', 'An active owner Wallet Session is required');
+  }
+  if (!context) {
+    return await validateFoundingOwnerWalletSessionV1(input);
+  }
+
+  const owner = await ownerContextFromExactV2AuthorizationV1({
+    context,
+    nowMs,
+  });
+  if (!owner) return denied('invalid', 'Wallet Session identity or capability scope is invalid');
+  return { kind: 'authorized', owner };
+}
+
+async function validateFoundingOwnerWalletSessionV1(input: {
+  readonly body: unknown;
+  readonly headers: Record<string, string>;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
+  readonly nowV1: () => number;
+}): Promise<OwnerValidationResultV1> {
   const ed25519 = await validateRouterAbEd25519WalletSessionTokenInputs({
     body: input.body,
     headers: input.headers,
@@ -326,6 +378,141 @@ async function validateOwnerWalletSessionV1(input: {
         ? 'invalid'
         : 'unauthorized';
   return denied(code, 'An active owner Wallet Session is required');
+}
+
+async function ownerContextFromExactV2AuthorizationV1(input: {
+  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+  readonly nowMs: number;
+}): Promise<DeviceLinkingOwnerWalletSessionContextV1 | null> {
+  const { authorization, authority, authMethod } = input.context;
+  const session = authorization.session;
+  const quota = authorization.quota;
+  if (
+    input.context.retiredAtMs !== null ||
+    authority.state !== 'active' ||
+    authMethod.status !== 'active' ||
+    session.expiresAtMs <= input.nowMs ||
+    session.expiresAtMs !== quota.expiresAtMs ||
+    session.tenantId !== quota.tenantId ||
+    session.principalId !== quota.principalId ||
+    session.walletSessionId !== quota.walletSessionId ||
+    session.quotaId !== quota.quotaId ||
+    session.walletId !== authority.walletId ||
+    session.authorityId !== authority.authorityId ||
+    session.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletId !== session.walletId ||
+    authMethod.walletAuthorityId !== session.authorityId ||
+    session.authorityDigestB64u !== authority.authorityDigestB64u ||
+    session.authorityRevocationEpoch !== authority.revocationEpoch
+  ) {
+    return null;
+  }
+
+  let expectedSubjects;
+  try {
+    expectedSubjects = buildWalletSessionCapabilitySubjectsV1(authority);
+  } catch {
+    return null;
+  }
+  if (!walletSessionCapabilitySubjectsV1Equal(session.capabilitySubjects, expectedSubjects)) {
+    return null;
+  }
+
+  const authData = walletAuthAuthorityFromExactV2MethodV1({
+    walletId: session.walletId,
+    principalId: session.principalId,
+    authMethod,
+  });
+  if (!authData) return null;
+
+  const permission = buildDelegatedWalletAuthorityV1({ permissions: authority.permissions });
+  if (authority.signerActivations.keyFamilies[0] === 'ed25519') {
+    return {
+      walletId: session.walletId,
+      walletSessionId: session.walletSessionId,
+      authorizationId: session.authorizationId,
+      expiresAtMs: session.expiresAtMs,
+      permission,
+      keyManifestDigestB64u: authority.signerActivationSetDigestB64u,
+      curve: 'ed25519',
+      authority: authData.authority,
+      authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(
+        authData.authority,
+      ),
+    };
+  }
+  return {
+    walletId: session.walletId,
+    walletSessionId: session.walletSessionId,
+    authorizationId: session.authorizationId,
+    expiresAtMs: session.expiresAtMs,
+    permission,
+    keyManifestDigestB64u: authority.signerActivationSetDigestB64u,
+    curve: 'ecdsa',
+    walletAuthAuthorityRef: await walletAuthAuthorityRef({ authority: authData.authority }),
+    authSource: authData.authSource,
+  };
+}
+
+function walletAuthAuthorityFromExactV2MethodV1(input: {
+  readonly walletId: WalletId;
+  readonly principalId: PrincipalId;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
+}): {
+  readonly authority: WalletAuthAuthority;
+  readonly authSource: WalletExecutionLaneAuthSource;
+} | null {
+  if (input.authMethod.kind === 'passkey') {
+    try {
+      const derived = buildPasskeyWalletAuthAuthority({
+        walletId: input.walletId,
+        rpId: input.authMethod.rpId,
+        credentialIdB64u: input.authMethod.credentialIdB64u,
+      });
+      const authority: WalletAuthAuthority = {
+        walletId: derived.walletId,
+        factor: derived.factor,
+        verifier: derived.verifier,
+        bindingId: input.authMethod.walletAuthMethodId,
+      };
+      return {
+        authority,
+        authSource: {
+          kind: 'passkey',
+          credentialIdB64u: authority.factor.credentialIdB64u,
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const providerSubject = parseProviderSubject(input.principalId);
+  if (!providerSubject.ok) return null;
+  try {
+    const derived = buildEmailOtpWalletAuthAuthority({
+      walletId: input.walletId,
+      provider: input.principalId.startsWith('google:') ? 'google' : 'email',
+      providerUserId: providerSubject.value,
+      emailHashHex: input.authMethod.emailHashHex,
+    });
+    const authority: WalletAuthAuthority = {
+      walletId: derived.walletId,
+      factor: derived.factor,
+      verifier: derived.verifier,
+      bindingId: input.authMethod.walletAuthMethodId,
+    };
+    return {
+      authority,
+      authSource: {
+        kind: 'oidc_provider',
+        providerId: authority.factor.provider === 'google' ? 'google_oidc' : 'oidc',
+        providerSubject: providerSubject.value,
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function readClonedJson(request: Request): Promise<unknown> {

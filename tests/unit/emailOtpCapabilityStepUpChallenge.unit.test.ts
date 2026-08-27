@@ -11,6 +11,7 @@ import {
   ecdsaWalletSessionRefFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 
 // Auth-neutral Email OTP material has no warm signing lane and no reauth
 // anchor, so the capability itself is the authority a step-up proves against.
@@ -18,7 +19,8 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 // the material being signed with, which is why every disagreement is a hard
 // failure rather than a fallback.
 
-const OPERATION_FINGERPRINT = 'sha256:capability-step-up-operation-1';
+const OPERATION_FINGERPRINT_DIGEST = parseDigestB64u('A'.repeat(43));
+const OPERATION_FINGERPRINT = `sha256:${OPERATION_FINGERPRINT_DIGEST}`;
 
 async function capabilityFor(factor: 'passkey' | 'email_otp') {
   return await canonicalEvmFamilyEcdsaSigningCapabilityFixture(factor);
@@ -41,14 +43,18 @@ test.describe('Email OTP capability step-up challenge', () => {
       operationFingerprint: OPERATION_FINGERPRINT,
     });
 
-    const seen: EmailOtpEcdsaChallengeAuthority[] = [];
+    const seen: Array<{
+      authority: EmailOtpEcdsaChallengeAuthority;
+      operationFingerprintDigest: typeof OPERATION_FINGERPRINT_DIGEST;
+    }> = [];
     const bridge = createEmailOtpEcdsaTransactionSigningBridge({
       walletId: String(manifest.signer.walletId),
       walletSession: ecdsaWalletSessionRefFixture(manifest),
       chain: 'evm',
       authority: stepUpAuthority,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
       requestEmailOtpTransactionSigningChallenge: async (args) => {
-        seen.push(args.authority);
+        seen.push(args);
         // The full production challenge shape: `delivery` is required, and the
         // bridge derives the demo-code hint from it after the mint.
         return deliveredChallenge();
@@ -59,7 +65,7 @@ test.describe('Email OTP capability step-up challenge', () => {
 
     expect(challenge.challengeId).toBe('capability-step-up-challenge');
     expect(seen).toHaveLength(1);
-    const crossed = seen[0]!;
+    const crossed = seen[0]!.authority;
     expect(crossed.kind).toBe('capability_step_up');
     if (crossed.kind !== 'capability_step_up') throw new Error('expected a capability step-up');
     // Provider identity and email binding come from the capability, not from
@@ -70,6 +76,7 @@ test.describe('Email OTP capability step-up challenge', () => {
       String(manifest.activation.materialActivation.activationId),
     );
     expect(crossed.operationFingerprint).toBe(OPERATION_FINGERPRINT);
+    expect(seen[0]!.operationFingerprintDigest).toBe(OPERATION_FINGERPRINT_DIGEST);
   });
 
   test('rejects a caller-supplied authority that disagrees with the capability', async () => {
@@ -148,6 +155,7 @@ test.describe('Email OTP capability step-up challenge', () => {
       capability,
       materialActivation: manifest.activation.materialActivation,
       operationFingerprint: OPERATION_FINGERPRINT,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
     });
 
     expect(result.signingAuthPlan).toEqual({ kind: 'passkeyReauth', method: 'passkey' });
@@ -177,6 +185,7 @@ test.describe('Email OTP capability step-up challenge', () => {
       capability,
       materialActivation: manifest.activation.materialActivation,
       operationFingerprint: OPERATION_FINGERPRINT,
+      operationFingerprintDigest: OPERATION_FINGERPRINT_DIGEST,
     });
 
     expect(result.signingAuthPlan).toEqual({ kind: 'emailOtpReauth', method: 'email_otp' });

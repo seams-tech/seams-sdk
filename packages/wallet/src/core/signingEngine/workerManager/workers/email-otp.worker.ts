@@ -67,7 +67,10 @@ import {
   type DerivationClientSharePublicKey33B64u,
   type EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  normalizeRuntimePolicyScope,
+  signingRootScopeFromRuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import {
   SIGNING_SESSION_SEAL_GROUP_ID,
   WALLET_SESSION_SEAL_BASE_PATH,
@@ -87,7 +90,13 @@ import {
   type WalletSessionRouteAuth,
 } from '@shared/utils/sessionTokens';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
-import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import {
+  parseEmailOtpUnlockEd25519Identity,
+  parseEmailOtpUnlockEd25519Selection,
+  parseEmailOtpVerifiedAuthorityProjection,
+  type EmailOtpChallengeDelivery,
+  type EmailOtpVerifiedAuthorityProjection,
+} from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   decodeEmailOtpEscrowSecret32,
   type EmailOtpEscrowSecret32DecodeResult,
@@ -631,6 +640,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
 type EmailOtpEd25519ExportCustodyResolutionState = {
   readonly relayUrl: string;
   readonly walletId: string;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly orgId: string;
   readonly providerSubjectId: string;
   readonly material: EmailOtpEd25519YaoExportMaterialV1;
@@ -721,7 +731,10 @@ async function resolveEmailOtpEd25519ExportCustodyEnvelope(
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl: state.relayUrl,
       walletId: state.walletId,
-      authoritySelector: { kind: 'wallet' },
+      authoritySelector: {
+        kind: 'wallet_auth_method',
+        walletAuthMethodId: state.walletAuthMethodId,
+      },
       orgId: state.orgId,
       userId: state.providerSubjectId,
       enrollmentId: released.enrollmentId,
@@ -875,6 +888,28 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
 
 function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
+}
+
+function parseEmailOtpChallengeSignerSelection(
+  value: unknown,
+): EmailOtpWorkerOperationMap['requestEmailOtpChallenge']['result']['signerSelection'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('signerSelection must be an object');
+  }
+  const kind = Reflect.get(value, 'kind');
+  if (kind === 'ed25519_only') {
+    return {
+      kind: 'ed25519_only',
+      ...parseEmailOtpUnlockEd25519Identity(value as Record<string, unknown>),
+    };
+  }
+  if (kind !== 'ecdsa') throw new Error('signerSelection.kind is invalid');
+  return {
+    kind: 'ecdsa',
+    keyHandle: readString(Reflect.get(value, 'keyHandle'), 'signerSelection.keyHandle'),
+    runtimePolicyScope: normalizeRuntimePolicyScope(Reflect.get(value, 'runtimePolicyScope')),
+    ed25519: parseEmailOtpUnlockEd25519Selection(Reflect.get(value, 'ed25519')),
+  };
 }
 
 function readSigningSessionSealGroupId(value: unknown): typeof SIGNING_SESSION_SEAL_GROUP_ID {
@@ -2220,6 +2255,11 @@ async function unlockEmailOtpAuthorityWallet(
               },
       },
     });
+    const verifiedAuthorityProjection = requireVerifiedEmailOtpAuthorityProjection({
+      raw: verified.verifiedAuthorityProjection,
+      walletId,
+      authoritySelector: { kind: 'wallet_auth_method', walletAuthMethodId },
+    });
     const walletSession = parseActiveWalletSessionV1(verified.walletSession);
     const operationCredential = parseWalletSessionOperationCredentialV1(
       verified.operationCredential,
@@ -2286,6 +2326,7 @@ async function unlockEmailOtpAuthorityWallet(
       factorSecret32: ownedFactorSecret32,
       walletSession,
       operationCredential,
+      verifiedAuthorityProjection,
       ed25519Activation,
     };
   } finally {
@@ -2616,9 +2657,7 @@ function buildEmailOtpRequestedCapabilities(args: {
 }): EmailOtpRequestedCapabilities {
   switch (args.material.kind) {
     case 'ecdsa':
-      return args.material.ecdsaSessionPolicy
-        ? { kind: 'wallet_session' }
-        : { kind: 'none' };
+      return args.material.ecdsaSessionPolicy ? { kind: 'wallet_session' } : { kind: 'none' };
     case 'ed25519_yao_export':
       return { kind: 'none' };
     case 'ed25519_yao_recovery': {
@@ -3229,6 +3268,25 @@ async function restoreEmailOtpEd25519FromCustodyCache(args: {
   }
 }
 
+function requireVerifiedEmailOtpAuthorityProjection(args: {
+  raw: unknown;
+  walletId: string;
+  authoritySelector: EmailOtpAuthoritySelector;
+}): EmailOtpVerifiedAuthorityProjection {
+  const projection = parseEmailOtpVerifiedAuthorityProjection(args.raw);
+  if (String(projection.authority.walletId) !== args.walletId) {
+    throw new Error('Email OTP verified authority projection changed wallets');
+  }
+  if (
+    args.authoritySelector.kind === 'wallet_auth_method' &&
+    String(projection.authMethod.walletAuthMethodId) !==
+      String(args.authoritySelector.walletAuthMethodId)
+  ) {
+    throw new Error('Email OTP verified authority projection changed auth methods');
+  }
+  return projection;
+}
+
 async function completeEmailOtpUnlockFromSecret32(args: {
   relayUrl: string;
   walletId: string;
@@ -3247,6 +3305,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
     unlockChallengeB64u: string;
     clientUnlockPublicKeyB64u: string;
     unlockSignatureB64u: string;
+    verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
   } & EmailOtpUnlockCompletionMaterial
 > {
   await ensureEvmCryptoWasm();
@@ -3322,6 +3381,11 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         requestedCapabilities,
       },
     });
+    const verifiedAuthorityProjection = requireVerifiedEmailOtpAuthorityProjection({
+      raw: verified.verifiedAuthorityProjection,
+      walletId,
+      authoritySelector: args.authoritySelector,
+    });
     const walletCustody = parseEmailOtpWalletCustodyUnlockProjection({
       raw: verified.walletCustody,
       walletId,
@@ -3385,6 +3449,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       unlockChallengeB64u,
       clientUnlockPublicKeyB64u,
       unlockSignatureB64u,
+      verifiedAuthorityProjection,
     };
     switch (args.material.kind) {
       case 'ecdsa': {
@@ -3689,6 +3754,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
     unlockChallengeB64u: string;
     clientUnlockPublicKeyB64u: string;
     unlockSignatureB64u: string;
+    verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
   } & (
     | {
         kind: 'ecdsa';
@@ -3823,6 +3889,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       unlockChallengeB64u: unlocked.unlockChallengeB64u,
       clientUnlockPublicKeyB64u: unlocked.clientUnlockPublicKeyB64u,
       unlockSignatureB64u: unlocked.unlockSignatureB64u,
+      verifiedAuthorityProjection: unlocked.verifiedAuthorityProjection,
     };
     switch (unlocked.kind) {
       case 'ecdsa':
@@ -6639,6 +6706,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           expiresAtMs?: number;
           ownerProofBindingDigest: string;
           walletAuthMethodId: string;
+          signerSelection: EmailOtpWorkerOperationMap['requestEmailOtpChallenge']['result']['signerSelection'];
         } = {
           challengeId: readString(challenge?.challengeId, 'challengeId'),
           otpChannel: EMAIL_OTP_CHANNEL,
@@ -6649,6 +6717,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             'ownerProofBindingDigest',
           ),
           walletAuthMethodId: readString(response.walletAuthMethodId, 'walletAuthMethodId'),
+          signerSelection: parseEmailOtpChallengeSignerSelection(response.signerSelection),
         };
         if (Number.isFinite(expiresAtMs)) {
           result.expiresAtMs = expiresAtMs;
@@ -6859,6 +6928,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           unlockChallengeB64u: result.unlockChallengeB64u,
           clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
           unlockSignatureB64u: result.unlockSignatureB64u,
+          verifiedAuthorityProjection: result.verifiedAuthorityProjection,
         };
         switch (result.kind) {
           case 'ecdsa':
@@ -7131,6 +7201,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const resolutionState: EmailOtpEd25519ExportCustodyResolutionState = {
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           walletId: readString(msg.payload.lane.walletId, 'lane.walletId'),
+          walletAuthMethodId: requireWorkerWalletAuthMethodId(
+            msg.payload.lane.walletAuthMethodId,
+          ),
           orgId: exportOrgId,
           providerSubjectId: readString(
             msg.payload.lane.providerSubjectId,

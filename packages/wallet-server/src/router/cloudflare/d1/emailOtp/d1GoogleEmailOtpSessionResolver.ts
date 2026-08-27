@@ -314,6 +314,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
         message: 'registrationAttemptId does not match walletId',
       };
     }
+    if (attempt.state === 'active') return { ok: true };
     if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
       return {
         ok: false,
@@ -432,7 +433,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
           mode: 'existing_wallet',
           walletId: input.linkedWalletId,
           providerSubject: input.providerSubject,
-          ...(input.email ? { email: input.email } : {}),
+          email: enrollment.enrollment.verifiedEmail,
           hasEmailOtpEnrollment: true,
         };
       }
@@ -466,7 +467,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
       mode: 'existing_wallet',
       walletId: discovered.walletId,
       providerSubject: input.providerSubject,
-      ...(input.email ? { email: input.email } : {}),
+      email: discovered.verifiedEmail,
       hasEmailOtpEnrollment: true,
     };
   }

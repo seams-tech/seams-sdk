@@ -116,6 +116,7 @@ import {
 import type { NearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { parseSigningOperationFingerprintDigest } from '../../session/planning/operationFingerprint';
 
 function requireNearOperationStepUpPreparation(
   value: NearOperationStepUpPreparationRef | undefined,
@@ -348,6 +349,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
       transactions: [parsedTransaction],
     }),
   );
+  const operationFingerprintDigest = parseSigningOperationFingerprintDigest(operationFingerprint);
   const deferredIdentity: DeferredEd25519MaterialIdentity = {
     kind: 'deferred_ed25519_material_identity',
     signer: nearEd25519SignerBindingFromBoundaryFields({
@@ -384,6 +386,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
     signingAuthPlan,
     signingLaneAuth: candidate.auth,
     requiredSignatureUses: requiredNearTransactionSignatureUses(transaction),
+    operationFingerprintDigest,
     ...(passkeyEd25519OperationStepUp ? { passkeyEd25519OperationStepUp } : {}),
     ...(emailOtpEd25519StepUp ? { emailOtpEd25519StepUp } : {}),
   });
@@ -412,6 +415,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
         nearAccountId,
         materialActivation: operationStepUpMaterial.materialActivation,
         operationId,
+        operationFingerprint,
         txSigningRequest,
         transactionContext: preparation.transactionContext,
         displayDigest: preparation.displayDigest,
@@ -627,6 +631,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       transactions: [presignFingerprintTransaction],
     }),
   );
+  const operationFingerprintDigest = parseSigningOperationFingerprintDigest(operationFingerprint);
 
   // UserConfirm before sending anything to the signer worker.
   // WebAuthn uses the typed threshold session policy challenge when passkey reauth is required.
@@ -711,6 +716,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     signingAuthPlan: providedSigningAuthPlan,
     signingLaneAuth: signingLane.auth,
     requiredSignatureUses,
+    operationFingerprintDigest,
     ...(passkeyEd25519OperationStepUp ? { passkeyEd25519OperationStepUp } : {}),
     ...(emailOtpEd25519StepUp ? { emailOtpEd25519StepUp } : {}),
   });
@@ -760,6 +766,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           nearAccountId,
           materialActivation: material.materialActivation,
           operationId: signingOperation.operationId,
+          operationFingerprint,
           txSigningRequest,
           transactionContext: preparation.transactionContext,
           displayDigest: preparation.displayDigest,

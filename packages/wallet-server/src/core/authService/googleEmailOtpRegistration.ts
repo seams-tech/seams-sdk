@@ -46,7 +46,7 @@ export type GoogleEmailOtpResolutionResult =
       mode: 'existing_wallet';
       walletId: string;
       providerSubject: string;
-      email?: string;
+      email: string;
       hasEmailOtpEnrollment: true;
     }
   | {
@@ -267,6 +267,7 @@ export async function completeGoogleEmailOtpRegistrationAttemptWithStore(input: 
       message: 'registrationAttemptId does not match walletId',
     };
   }
+  if (attempt.state === 'active') return { ok: true };
   if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
     return {
       ok: false,
@@ -619,7 +620,7 @@ async function resolveGoogleEmailOtpLoginSession(input: {
         mode: 'existing_wallet',
         walletId: hostedLinkedWalletId,
         providerSubject: input.request.providerSubject,
-        ...(input.request.email ? { email: input.request.email } : {}),
+        email: enrollment.enrollment.verifiedEmail,
         hasEmailOtpEnrollment: true,
       };
     }
@@ -666,7 +667,7 @@ async function resolveGoogleEmailOtpLoginSession(input: {
     mode: 'existing_wallet',
     walletId: discovered.walletId,
     providerSubject: input.request.providerSubject,
-    ...(input.request.email ? { email: input.request.email } : {}),
+    email: discovered.verifiedEmail,
     hasEmailOtpEnrollment: true,
   };
 }

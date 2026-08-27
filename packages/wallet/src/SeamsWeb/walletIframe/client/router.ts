@@ -3498,6 +3498,7 @@ export class WalletIframeRouter {
       type: 'PM_START_DEVICE2_LINKING_FLOW',
       payload: {
         targetFactor: payload.targetFactor,
+        ...(payload.targetFactor.kind === 'email_otp' ? { targetEmail: payload.targetEmail } : {}),
         ...(payload.ui ? { ui: payload.ui } : {}),
         ...(payload.cameraId ? { cameraId: payload.cameraId } : {}),
         ...(payload.options

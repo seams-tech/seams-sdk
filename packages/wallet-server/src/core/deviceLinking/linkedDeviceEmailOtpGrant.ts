@@ -19,8 +19,10 @@ import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   parseWalletAuthMethodId,
   parseWalletId,
+  parseVerifiedEmailAddress,
   type WalletAuthMethodId,
   type WalletId,
+  type VerifiedEmailAddress,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
@@ -37,6 +39,7 @@ import {
   rejectUnknownFields,
   parseUnixMs,
 } from '@shared/passkey-custody/primitives';
+import type { LinkedDeviceEmailOtpEnrollmentSelectionV1 } from '@shared/device-linking/contracts';
 
 const GRANT_TOKEN_DIGEST_DOMAIN = 'seams:linked-device-email-otp-grant-token:v1';
 const DESCRIPTOR_CREDENTIAL_DOMAIN = 'seams:linked-device-email-otp-descriptor-credential:v1';
@@ -56,9 +59,15 @@ export async function computeLinkedDeviceEmailOtpChallengeBindingDigestV1(input:
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly targetEmail: VerifiedEmailAddress;
+  readonly enrollment: LinkedDeviceEmailOtpEnrollmentSelectionV1;
+  readonly baseWalletAuthMethodId?: WalletAuthMethodId;
   readonly walletAuthMethodId: WalletAuthMethodId;
 }): Promise<DigestB64u> {
+  const baseWalletAuthMethodId =
+    input.enrollment.kind === 'existing_enrollment'
+      ? requirePresentBaseMethod(input.baseWalletAuthMethodId)
+      : '';
   const preimage = [
     CHALLENGE_BINDING_DOMAIN,
     String(input.walletId),
@@ -67,7 +76,9 @@ export async function computeLinkedDeviceEmailOtpChallengeBindingDigestV1(input:
     String(input.deviceId),
     'email_otp',
     String(input.targetPreparationDigestB64u),
-    String(input.baseWalletAuthMethodId),
+    input.targetEmail,
+    input.enrollment.kind,
+    String(baseWalletAuthMethodId),
     String(input.walletAuthMethodId),
   ].join('\\u0000');
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(preimage)));
@@ -87,7 +98,12 @@ export type LinkedDeviceEmailOtpGrantRecordV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly targetFactor: { readonly kind: 'email_otp' };
   readonly targetPreparationDigestB64u: DigestB64u;
-  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly targetEmail: VerifiedEmailAddress;
+  readonly enrollment: LinkedDeviceEmailOtpEnrollmentSelectionV1;
+  readonly emailHashHex: string;
+  readonly registrationAuthorityId: string;
+  readonly providerUserId: string;
+  readonly baseWalletAuthMethodId?: WalletAuthMethodId;
   readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly challengeId: string;
@@ -106,6 +122,11 @@ const GRANT_RECORD_FIELDS = [
   'deviceId',
   'targetFactor',
   'targetPreparationDigestB64u',
+  'targetEmail',
+  'enrollment',
+  'emailHashHex',
+  'registrationAuthorityId',
+  'providerUserId',
   'baseWalletAuthMethodId',
   'walletAuthMethodId',
   'authorityDigestB64u',
@@ -120,8 +141,12 @@ export function parseLinkedDeviceEmailOtpGrantRecordV1(
 ): LinkedDeviceEmailOtpGrantRecordV1 {
   const record = requireRecord(raw, 'LinkedDeviceEmailOtpGrantRecordV1');
   rejectUnknownFields(record, GRANT_RECORD_FIELDS, 'LinkedDeviceEmailOtpGrantRecordV1');
+  const enrollment = parseEnrollmentSelection(
+    record.enrollment,
+    'LinkedDeviceEmailOtpGrantRecordV1.enrollment',
+  );
   for (const field of GRANT_RECORD_FIELDS) {
-    if (record[field] === undefined) {
+    if (record[field] === undefined && !(field === 'baseWalletAuthMethodId' && enrollment.kind === 'new_enrollment')) {
       throw new Error(`LinkedDeviceEmailOtpGrantRecordV1.${field} is required`);
     }
   }
@@ -144,7 +169,7 @@ export function parseLinkedDeviceEmailOtpGrantRecordV1(
   if (expiresAtMs <= issuedAtMs) {
     throw new Error('LinkedDeviceEmailOtpGrantRecordV1.expiresAtMs must follow issuedAtMs');
   }
-  return {
+  const base = {
     kind: 'linked_device_email_otp_grant_record_v1',
     grantId: requireToken(record.grantId, 'LinkedDeviceEmailOtpGrantRecordV1.grantId'),
     grantTokenDigestB64u: requireGrantDigest(
@@ -172,9 +197,19 @@ export function parseLinkedDeviceEmailOtpGrantRecordV1(
       record.targetPreparationDigestB64u,
       'LinkedDeviceEmailOtpGrantRecordV1.targetPreparationDigestB64u',
     ),
-    baseWalletAuthMethodId: requireParsed(
-      parseWalletAuthMethodId(record.baseWalletAuthMethodId),
-      'LinkedDeviceEmailOtpGrantRecordV1.baseWalletAuthMethodId',
+    targetEmail: requireTargetEmail(record.targetEmail),
+    enrollment,
+    emailHashHex: requireToken(
+      record.emailHashHex,
+      'LinkedDeviceEmailOtpGrantRecordV1.emailHashHex',
+    ),
+    registrationAuthorityId: requireToken(
+      record.registrationAuthorityId,
+      'LinkedDeviceEmailOtpGrantRecordV1.registrationAuthorityId',
+    ),
+    providerUserId: requireToken(
+      record.providerUserId,
+      'LinkedDeviceEmailOtpGrantRecordV1.providerUserId',
     ),
     walletAuthMethodId: requireParsed(
       parseWalletAuthMethodId(record.walletAuthMethodId),
@@ -188,6 +223,17 @@ export function parseLinkedDeviceEmailOtpGrantRecordV1(
     state: parseGrantStateV1(record.state, issuedAtMs),
     issuedAtMs,
     expiresAtMs,
+  } as const;
+  if (enrollment.kind === 'new_enrollment') {
+    return { ...base, enrollment: { kind: 'new_enrollment' } };
+  }
+  return {
+    ...base,
+    enrollment: { kind: 'existing_enrollment' },
+    baseWalletAuthMethodId: requireParsed(
+      parseWalletAuthMethodId(record.baseWalletAuthMethodId),
+      'LinkedDeviceEmailOtpGrantRecordV1.baseWalletAuthMethodId',
+    ),
   };
 }
 
@@ -254,15 +300,23 @@ export async function computeLinkedDeviceEmailOtpAuthorityDigestV1(input: {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly targetEmail: string;
+  readonly enrollment: LinkedDeviceEmailOtpEnrollmentSelectionV1;
+  readonly baseWalletAuthMethodId?: WalletAuthMethodId;
 }): Promise<DigestB64u> {
+  const baseWalletAuthMethodId =
+    input.enrollment.kind === 'existing_enrollment'
+      ? requirePresentBaseMethod(input.baseWalletAuthMethodId)
+      : '';
   const preimage = [
     AUTHORITY_DIGEST_DOMAIN,
     String(input.walletId),
     String(input.enrollmentId),
     String(input.deviceId),
     String(input.walletAuthMethodId),
-    String(input.baseWalletAuthMethodId),
+    input.targetEmail,
+    input.enrollment.kind,
+    String(baseWalletAuthMethodId),
   ].join('\u0000');
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(preimage)));
 }
@@ -290,6 +344,29 @@ function requireToken(raw: unknown, label: string): string {
     throw new Error(`${label} must be a non-empty canonical string`);
   }
   return raw;
+}
+
+function requirePresentBaseMethod(value: WalletAuthMethodId | undefined): WalletAuthMethodId {
+  if (!value) throw new Error('Email OTP existing enrollment requires a base auth method');
+  return value;
+}
+
+function requireTargetEmail(raw: unknown): VerifiedEmailAddress {
+  const parsed = parseVerifiedEmailAddress(raw);
+  if (!parsed.ok) throw new Error(`LinkedDeviceEmailOtpGrantRecordV1.targetEmail ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function parseEnrollmentSelection(
+  raw: unknown,
+  label: string,
+): LinkedDeviceEmailOtpEnrollmentSelectionV1 {
+  const record = requireRecord(raw, label);
+  rejectUnknownFields(record, ['kind'], label);
+  if (record.kind === 'existing_enrollment' || record.kind === 'new_enrollment') {
+    return { kind: record.kind };
+  }
+  throw new Error(`${label}.kind is unsupported`);
 }
 
 function requireGrantDigest(raw: unknown, label: string): DigestB64u {

@@ -1965,9 +1965,9 @@ export class CloudflareD1AuthorizationStore
         null,
         null,
         null,
-        null,
-        null,
-        null,
+        source.kind === 'authorization_grant' ? this.walletSignerScope.orgId : null,
+        source.kind === 'authorization_grant' ? this.walletSignerScope.projectId : null,
+        source.kind === 'authorization_grant' ? this.walletSignerScope.envId : null,
       ] as const;
       const statement =
         input.material?.kind === 'ecdsa_material_activation'
@@ -2053,20 +2053,52 @@ export class CloudflareD1AuthorizationStore
   private async isAuthorizedOperationSourceActive(row: D1Row, nowMs: number): Promise<boolean> {
     const sourceKind = requireString(row.authorization_source_kind, 'operation.authorization.kind');
     if (sourceKind === 'authorization_grant') {
+      const scope = [row.linked_scope_org_id, row.linked_scope_project_id, row.linked_scope_env_id];
+      if (scope.some((value) => typeof value !== 'string' || value.length === 0)) return false;
+      if (
+        scope[0] !== this.walletSignerScope.orgId ||
+        scope[1] !== this.walletSignerScope.projectId ||
+        scope[2] !== this.walletSignerScope.envId
+      ) {
+        return false;
+      }
       const session = await this.database
         .prepare(
           `SELECT 1 AS active
-             FROM reusable_wallet_sessions
-            WHERE namespace = ?
-              AND tenant_id = ?
-              AND authorization_id = ?
-              AND principal_id = ?
-              AND lifecycle_kind = 'active'
-              AND expires_at_ms > ?
+             FROM wallet_session_authorizations_v2 AS session
+             JOIN wallet_authorities AS authority
+               ON authority.namespace = session.namespace
+              AND authority.org_id = session.org_id
+              AND authority.project_id = session.project_id
+              AND authority.env_id = session.env_id
+              AND authority.authority_id = session.authority_id
+              AND authority.wallet_id = session.wallet_id
+             JOIN wallet_auth_methods AS auth_method
+               ON auth_method.namespace = session.namespace
+              AND auth_method.org_id = session.org_id
+              AND auth_method.project_id = session.project_id
+              AND auth_method.env_id = session.env_id
+              AND auth_method.wallet_auth_method_id = session.wallet_auth_method_id
+              AND auth_method.wallet_id = session.wallet_id
+              AND auth_method.wallet_authority_id = session.authority_id
+            WHERE session.namespace = ?
+              AND session.org_id = ?
+              AND session.project_id = ?
+              AND session.env_id = ?
+              AND session.tenant_id = ?
+              AND session.authorization_id = ?
+              AND session.principal_id = ?
+              AND session.retired_at_ms IS NULL
+              AND session.expires_at_ms > ?
+              AND authority.lifecycle_state = 'active'
+              AND authority.authority_digest_b64u = session.authority_digest_b64u
+              AND authority.revocation_epoch = session.authority_revocation_epoch
+              AND auth_method.status = 'active'
             LIMIT 1`,
         )
         .bind(
           this.namespace,
+          ...scope,
           requireString(row.tenant_id, 'operation.tenantId'),
           requireString(row.authorization_id, 'operation.authorizationId'),
           requireString(row.principal_id, 'operation.principalId'),

@@ -40,7 +40,10 @@ import {
   emitSigningSessionFlowFailure,
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
-import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
+import {
+  computeSigningOperationFingerprint,
+  parseSigningOperationFingerprintDigest,
+} from '../../session/planning/operationFingerprint';
 import {
   buildOperationAuthorizationQueueKey,
   type OperationAuthorizationQueueKey,
@@ -388,6 +391,7 @@ async function signEvmFamilyAttempt(
         request: args.request,
       },
     });
+  const operationFingerprintDigest = parseSigningOperationFingerprintDigest(operationFingerprint);
   bindEvmFamilyCallerProvidedOperationIdToFingerprint(
     operationIds,
     operationFingerprint,
@@ -512,6 +516,7 @@ async function signEvmFamilyAttempt(
     walletSession: args.walletSession,
     chain: requestChain,
     accountAuth: resolvedAccountAuth,
+    operationFingerprintDigest,
     onEvent: args.onEvent,
   };
   const getPreparedEcdsaSigningSession = (): PreparedEvmFamilyEcdsaSigningSession => {

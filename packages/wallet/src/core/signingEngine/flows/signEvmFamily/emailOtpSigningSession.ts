@@ -55,6 +55,7 @@ import type { EcdsaCommittedLane } from './ecdsaSelection';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import { demoEmailOtpCodeFromDelivery } from '../../session/emailOtp/challengeDelivery';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 type WalletSessionEmailOtpChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
@@ -222,11 +223,13 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   chain: EvmFamilyChain;
   selectedLane?: ResolvedEvmFamilyEcdsaSigningLane;
   authority: EmailOtpEcdsaStepUpAuthority;
+  operationFingerprintDigest: DigestB64u;
   onEvent?: EvmFamilyLifecycleEventCallback;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authority: EmailOtpEcdsaChallengeAuthority;
+    operationFingerprintDigest: DigestB64u;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
   // One challenge belongs to one operation. A capability step-up mints its
@@ -269,6 +272,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         walletSession: args.walletSession,
         chain: args.chain,
         authority: emailOtpEcdsaChallengeAuthority(args.authority),
+        operationFingerprintDigest: args.operationFingerprintDigest,
       });
       const challengeId = String(challenge.challengeId || '').trim();
       if (!challengeId) {

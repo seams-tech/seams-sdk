@@ -2,16 +2,95 @@ import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import { IndexedDBManager } from '@/core/indexedDB';
+import type { EmailOtpVerifiedAuthorityProjection } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+
+export async function persistVerifiedEmailOtpAuthorityAfterUnlock(args: {
+  readonly walletId: string;
+  readonly walletAuthMethodId: string;
+  readonly projection: EmailOtpVerifiedAuthorityProjection;
+}): Promise<void> {
+  const { authority, authMethod } = args.projection;
+  if (
+    String(authority.walletId) !== args.walletId ||
+    String(authMethod.walletId) !== args.walletId ||
+    String(authMethod.walletAuthMethodId) !== args.walletAuthMethodId ||
+    String(authMethod.walletAuthorityId) !== String(authority.authorityId)
+  ) {
+    throw new Error('Verified Email OTP authority changed during wallet unlock');
+  }
+  switch (authority.provenance.kind) {
+    case 'wallet_registration':
+      await IndexedDBManager.persistFoundingWalletAuthority({ authority, authMethod });
+      return;
+    case 'device_link': {
+      const local = await IndexedDBManager.resolveWalletAuthorityForMethod(
+        args.walletId,
+        args.walletAuthMethodId,
+      );
+      if (
+        local.kind !== 'resolved' ||
+        String(local.authority.authorityId) !== String(authority.authorityId) ||
+        String(local.authority.authorityDigestB64u) !== String(authority.authorityDigestB64u)
+      ) {
+        throw new Error('Verified linked Email OTP authority is not installed on this device');
+      }
+      return;
+    }
+  }
+  authority.provenance satisfies never;
+}
+
+export async function walletAuthAuthorityRefForVerifiedEmailOtpUnlock(args: {
+  readonly walletId: string;
+  readonly walletAuthMethodId: string;
+  readonly providerSubject: string;
+  readonly emailHashHex: string;
+  readonly projection: EmailOtpVerifiedAuthorityProjection;
+}): Promise<WalletAuthAuthorityRef> {
+  const { authority, authMethod } = args.projection;
+  if (
+    String(authority.walletId) !== args.walletId ||
+    String(authMethod.walletId) !== args.walletId ||
+    String(authMethod.walletAuthMethodId) !== args.walletAuthMethodId ||
+    String(authMethod.walletAuthorityId) !== String(authority.authorityId) ||
+    authMethod.emailHashHex !== args.emailHashHex
+  ) {
+    throw new Error('Verified Email OTP authority does not match the wallet unlock factor');
+  }
+  const base = buildEmailOtpWalletAuthAuthority({
+    walletId: args.walletId,
+    provider: args.providerSubject.startsWith('google:') ? 'google' : 'email',
+    providerUserId: args.providerSubject,
+    emailHashHex: args.emailHashHex,
+  });
+  return await walletAuthAuthorityRef({
+    authority: {
+      walletId: base.walletId,
+      factor: base.factor,
+      verifier: base.verifier,
+      bindingId: authMethod.walletAuthMethodId,
+    },
+  });
+}
 
 export type EmailOtpWalletPostUnlockActivation =
   | {
       kind: 'near_ed25519_wallet';
       signer: NearEd25519SignerBinding;
+      walletAuthMethodId: WalletAuthMethodId;
       walletId?: never;
     }
   | {
       kind: 'evm_family_ecdsa_wallet';
       walletId: WalletId;
+      walletAuthMethodId: WalletAuthMethodId;
       signer?: never;
     };
 
@@ -28,7 +107,10 @@ export type EmailOtpWalletPostUnlockActivationDeps = {
       signerSlot: number;
       nearClient?: NearClient;
     }): Promise<void>;
-    markSelectedEmailOtpWalletAuthorityUnlocked(walletId: WalletId): Promise<void>;
+    markSelectedEmailOtpWalletAuthorityUnlocked(input: {
+      walletId: WalletId;
+      walletAuthMethodId: WalletAuthMethodId;
+    }): Promise<void>;
     getUserPreferences(): {
       setCurrentWallet(walletId: WalletId): void;
       reloadUserSettings(): Promise<void>;
@@ -53,9 +135,10 @@ export async function activateEmailOtpWalletAfterUnlock(
         signerSlot: activation.signer.signerSlot,
         ...(deps.nearClient ? { nearClient: deps.nearClient } : {}),
       });
-      await deps.signingEngine.markSelectedEmailOtpWalletAuthorityUnlocked(
-        activation.signer.account.wallet.walletId,
-      );
+      await deps.signingEngine.markSelectedEmailOtpWalletAuthorityUnlocked({
+        walletId: activation.signer.account.wallet.walletId,
+        walletAuthMethodId: activation.walletAuthMethodId,
+      });
       deps.signingEngine.setWalletAuthenticated({
         kind: 'authenticated',
         walletId: activation.signer.account.wallet.walletId,
@@ -66,7 +149,10 @@ export async function activateEmailOtpWalletAfterUnlock(
       const preferences = deps.signingEngine.getUserPreferences();
       preferences.setCurrentWallet(activation.walletId);
       await preferences.reloadUserSettings().catch(ignoreUserPreferenceReloadError);
-      await deps.signingEngine.markSelectedEmailOtpWalletAuthorityUnlocked(activation.walletId);
+      await deps.signingEngine.markSelectedEmailOtpWalletAuthorityUnlocked({
+        walletId: activation.walletId,
+        walletAuthMethodId: activation.walletAuthMethodId,
+      });
       deps.signingEngine.setWalletAuthenticated({
         kind: 'authenticated',
         walletId: activation.walletId,

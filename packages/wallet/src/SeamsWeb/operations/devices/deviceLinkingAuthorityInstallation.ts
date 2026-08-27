@@ -295,7 +295,11 @@ export async function activateLinkedAuthorityV1(
       await input.installation.clearCommittedDeliveryResumeV1({
         authorityId: active.authority.authorityId,
       });
-      return { kind: 'active', session: active.walletSession };
+      return {
+        kind: 'active',
+        session: active.walletSession,
+        operationCredential: active.operationCredential,
+      };
     }
   }
 }

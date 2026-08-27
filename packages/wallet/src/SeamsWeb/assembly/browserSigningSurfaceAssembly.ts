@@ -76,6 +76,7 @@ import {
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
@@ -576,6 +577,7 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
   walletSession: WalletSessionRef;
   chain: ThresholdEcdsaChainTarget['kind'];
   authority: EmailOtpEcdsaChallengeAuthority;
+  operationFingerprintDigest: DigestB64u;
 }): Promise<EmailOtpTransactionSigningChallenge> {
   switch (args.authority.kind) {
     case 'live_session':
@@ -584,12 +586,14 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
         walletSession: args.walletSession,
         chain: args.chain,
         authLane: args.authority.authLane,
+        operationFingerprintDigest: args.operationFingerprintDigest,
       });
     case 'capability_step_up':
       return await args.coordinator.requestTransactionSigningChallenge({
         kind: 'wallet_login_challenge',
         walletSession: args.walletSession,
         chain: args.chain,
+        operationFingerprintDigest: args.operationFingerprintDigest,
       });
   }
 }
@@ -687,12 +691,17 @@ export function createBrowserSigningSurfaceEnginePorts(
         walletSession: challengeArgs.walletSession,
         chain: challengeArgs.chain,
         authority: challengeArgs.authority,
+        operationFingerprintDigest: challengeArgs.operationFingerprintDigest,
       }),
-    requestEmailOtpEd25519SigningChallenge: ({ walletSession }) =>
+    requestEmailOtpEd25519SigningChallenge: ({
+      walletSession,
+      operationFingerprintDigest,
+    }) =>
       args.emailOtpSessions.requestTransactionSigningChallenge({
         kind: 'wallet_login_challenge',
         walletSession,
         chain: 'near',
+        operationFingerprintDigest,
       }),
     prepareNearEd25519YaoMaterialBoundary: args.prepareNearEd25519YaoMaterialBoundary,
     provisionThresholdEd25519Session: (provisionArgs) =>

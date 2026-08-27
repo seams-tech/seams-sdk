@@ -154,8 +154,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
   test('uses verified account sync when a recent local wallet has no readable capability subject', async () => {
     const originalFetch = globalThis.fetch;
     const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
-    const originalResolveSelectedWalletAuthority =
-      IndexedDBManager.resolveSelectedWalletAuthority;
+    const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
     const walletId = 'river-garden-2fprg7';
     const resolvedWalletIds: string[] = [];
     globalThis.fetch = async () =>
@@ -192,18 +191,14 @@ test.describe('hosted auth-menu passkey continuation', () => {
         getAppearance: () => APPEARANCE,
         send: () => {},
       });
-      const prepared = await Reflect.apply(
-        Reflect.get(controller, 'prepareLogin'),
-        controller,
-        [
-          walletIframeRequestIdFromBoundary('auth-menu-local-repair-request'),
-          authMenuSessionId,
-          { kind: 'abort_signal', signal: new AbortController().signal },
-          null,
-          { walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null },
-          { kind: 'wallet_sync', walletId: walletIdFromString(walletId) },
-        ],
-      );
+      const prepared = await Reflect.apply(Reflect.get(controller, 'prepareLogin'), controller, [
+        walletIframeRequestIdFromBoundary('auth-menu-local-repair-request'),
+        authMenuSessionId,
+        { kind: 'abort_signal', signal: new AbortController().signal },
+        null,
+        { walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null },
+        { kind: 'wallet_sync', walletId: walletIdFromString(walletId) },
+      ]);
 
       expect(prepared).toMatchObject({
         kind: 'hosted_passkey_account_sync_prepared_v1',

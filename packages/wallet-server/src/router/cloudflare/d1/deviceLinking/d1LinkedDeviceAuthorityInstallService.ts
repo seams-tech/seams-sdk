@@ -111,6 +111,7 @@ import {
   type WebAuthnCredentialBindingRecord,
 } from '../../../../core/WebAuthnCredentialBindingStore';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
+import type { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from '../emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 
 type ExactSigner = ExactAdministeredSignerV1;
 
@@ -179,6 +180,11 @@ export type D1LinkedDeviceAuthorityInstallServiceOptionsV1 = {
       input: PreparedWalletSessionAuthorizationV2,
     ): readonly [D1PreparedStatementLike, D1PreparedStatementLike];
   };
+  /** Supplies first-Email enrollment statements for the new linked target branch. */
+  readonly emailOtpEnrollmentFinalizer?: Pick<
+    CloudflareD1EmailOtpRegistrationEnrollmentFinalizer,
+    'prepareLinkedDeviceEnrollment'
+  >;
   readonly tenantId: TenantId;
   readonly walletSessionTtlMs?: number;
   readonly walletSessionRemainingUses?: number;
@@ -213,7 +219,18 @@ export type ActivateInstalledAuthorityResultV1 =
       readonly walletSession: IssuedWalletSessionAuthorizationV2;
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
+  | {
+      readonly kind: 'pending_local_install';
+      readonly authorityId: WalletAuthorityId;
+      readonly reason: 'server_worker_activation_pending' | 'wallet_session_issuance_pending';
+    }
   | { readonly kind: 'integrity_error'; readonly message: string };
+
+type InstalledAuthorityActivationStageV1 =
+  | 'receipt_validation'
+  | 'server_worker_activation'
+  | 'authority_activation'
+  | 'wallet_session_issuance';
 
 type StoredInstallationRow = {
   readonly linkSessionId: LinkDeviceSessionId;
@@ -387,6 +404,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       }
 
       const authorityId = expectedAuthorityId;
+      const emailOtpEnrollmentStatements = await this.prepareEmailOtpEnrollmentStatements(input);
       const reservations = await this.reserveSignerMaterial(input, sourceContributionPreparation);
       const activationSet = buildActivationSet(input.signerManifest, reservations);
       const pendingAuthMethod = buildPendingAuthMethod(input, authorityId, nowMs);
@@ -444,6 +462,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         { authority: pendingAuthority, authMethod: pendingAuthMethod },
         [
           ...(allocation.statement ? [allocation.statement] : []),
+          ...emailOtpEnrollmentStatements,
           packageStatement,
           ...sessionStatements,
         ],
@@ -502,6 +521,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly receipt: LocalAuthorityInstallationReceiptV1;
     readonly nowMs?: number;
   }): Promise<ActivateInstalledAuthorityResultV1> {
+    let stage: InstalledAuthorityActivationStageV1 = 'receipt_validation';
     try {
       await this.ensureSchema();
       const nowMs = requireTime(input.nowMs ?? this.nowV1(), 'nowMs');
@@ -538,6 +558,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         session.state.state === 'active'
       ) {
         await this.markInstalled(stored, receipt);
+        stage = 'wallet_session_issuance';
         const walletSession = await this.issueWalletSession(
           authority,
           authMethod,
@@ -574,7 +595,9 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         authMethod: activeAuthMethod,
         activatedAtMs: receipt.installedAtMs,
       });
+      stage = 'server_worker_activation';
       await this.activateReservations(stored, receipt.installedAtMs);
+      stage = 'wallet_session_issuance';
       const nextSession = buildAuthorityActiveSessionRecordV1({
         record: session,
         activatedAtMs: receipt.installedAtMs,
@@ -598,6 +621,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         this.options.authorizationStore.prepareWalletSessionAuthorizationV2Statements(
           preparedWalletSession,
         );
+      stage = 'authority_activation';
       const activation = await this.options.authorityStore.activatePendingAuthorityWithStatements(
         {
           pendingAuthority: authority,
@@ -615,6 +639,7 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
       }
       const persistedSession = activation.kind === 'replayed' ? session : nextSession;
       await this.markInstalled(stored, receipt);
+      stage = 'wallet_session_issuance';
       const walletSession = await this.issueWalletSession(
         activation.authority,
         activation.authMethod,
@@ -634,6 +659,20 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         operationCredential,
       };
     } catch (error: unknown) {
+      if (stage === 'server_worker_activation') {
+        return {
+          kind: 'pending_local_install',
+          authorityId: input.receipt.authorityId,
+          reason: 'server_worker_activation_pending',
+        };
+      }
+      if (stage === 'wallet_session_issuance') {
+        return {
+          kind: 'pending_local_install',
+          authorityId: input.receipt.authorityId,
+          reason: 'wallet_session_issuance_pending',
+        };
+      }
       return { kind: 'integrity_error', message: errorMessage(error) };
     }
   }
@@ -1197,6 +1236,31 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     return { authorityId: candidate, statement };
   }
 
+  private async prepareEmailOtpEnrollmentStatements(
+    input: CommitPendingAuthorityInputV1,
+  ): Promise<readonly D1PreparedStatementLike[]> {
+    if (input.targetFactor.kind !== 'verified_email_otp_target_v1') return [];
+    if (input.targetFactor.enrollment.kind !== 'new_enrollment') return [];
+    const material = input.emailOtpEnrollment;
+    if (!material) {
+      throw new Error('new Email OTP target is missing enrollment material');
+    }
+    const finalizer = this.options.emailOtpEnrollmentFinalizer;
+    if (!finalizer) {
+      throw new Error('new Email OTP target enrollment finalizer is not configured');
+    }
+    const prepared = await finalizer.prepareLinkedDeviceEnrollment({
+      walletId: String(input.walletId),
+      orgId: this.options.scope.orgId,
+      authSubjectId: input.targetFactor.providerUserId,
+      verifiedEmail: input.targetFactor.targetEmail,
+      material,
+      nowMs: input.nowMs,
+    });
+    if (!prepared.ok) throw new Error(prepared.message);
+    return prepared.statements;
+  }
+
   private async readAuthorityAllocation(
     linkSessionId: LinkDeviceSessionId,
   ): Promise<AuthorityAllocation | null> {
@@ -1489,6 +1553,17 @@ async function validateVerifiedLinkInput(
     throw new Error('link verification is from the future');
   if (input.targetFactor.authMethod.walletId !== input.walletId)
     throw new Error('target auth method wallet does not match link wallet');
+  if (input.targetFactor.kind === 'verified_email_otp_target_v1') {
+    if (
+      input.targetFactor.enrollment.kind === 'new_enrollment'
+        ? input.emailOtpEnrollment === null
+        : input.emailOtpEnrollment !== null
+    ) {
+      throw new Error('Email OTP target enrollment material does not match its branch');
+    }
+  } else if (input.emailOtpEnrollment !== null) {
+    throw new Error('Passkey target cannot carry Email OTP enrollment material');
+  }
   if (input.signerManifest.signers.some((signer) => signer.walletId !== input.walletId))
     throw new Error('signer manifest wallet does not match link wallet');
   assertRecipientRequestsMatchManifest(input);

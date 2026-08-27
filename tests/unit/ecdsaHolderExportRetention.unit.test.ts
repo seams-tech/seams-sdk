@@ -246,6 +246,7 @@ async function runHolderRetentionScenario(input: {
   readonly poolIdentity: Record<string, unknown>;
 }): Promise<{
   readonly ordinaryExportFinalization: WorkerRpcResult;
+  readonly secondExportRequest: WorkerRpcResult;
   readonly presignInit: WorkerRpcResult;
 }> {
   const worker = new Worker(input.workerUrl, { type: 'module' });
@@ -347,6 +348,11 @@ async function runHolderRetentionScenario(input: {
     if (ordinaryExportFinalization.ok) {
       throw new Error('invalid export proof unexpectedly finalized');
     }
+    const secondExportRequest = await request('holder-export-request-retry', 70_027, {
+      kind: 'create_ecdsa_holder_ordinary_export_request_v1',
+      holderHandleId: input.holderHandleId,
+      request: input.ordinaryExportFacts,
+    });
 
     const channel = new MessageChannel();
     worker.postMessage({ kind: 'attach_linked_holder_to_ecdsa_presign_v1', port: channel.port2 }, [
@@ -391,7 +397,7 @@ async function runHolderRetentionScenario(input: {
       );
     });
     channel.port1.close();
-    return { ordinaryExportFinalization, presignInit };
+    return { ordinaryExportFinalization, secondExportRequest, presignInit };
   } finally {
     worker.terminate();
   }
@@ -422,6 +428,7 @@ test('keeps a linked ECDSA holder after rejected ordinary-export finalization fo
   });
 
   expect(result.ordinaryExportFinalization.ok).toBe(false);
+  expect(result.secondExportRequest.ok).toBe(true);
   expect(result.presignInit.ok).toBe(true);
   if (result.presignInit.ok) {
     expect(result.presignInit.result.kind).toBe('progress');

@@ -138,6 +138,7 @@ async function verifyActiveEcdsaOperationStepUpAuthority(
 }
 import {
   parseEmailOtpChallengeId,
+  parseOrgId,
   parseWalletId,
   parseProviderSubject,
 } from '@shared/utils/domainIds';
@@ -1178,9 +1179,12 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
         requestOrigin,
         audience: requestOrigin,
         authorityRef: authenticated.authorityRef,
+        ...(operation.operation_kind === 'evm.sign_transaction'
+          ? { operationFingerprintDigest: envelope.digests.laneDigest }
+          : {}),
       });
       const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
-        userId: authenticated.session.principalId,
+        userId: proof.authority.factor.providerUserId,
         walletId: authenticated.session.walletId,
         orgId: authenticated.session.tenantId,
         challengeId: proof.challenge_id,
@@ -1200,9 +1204,13 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
           ? null
           : await input.ctx.service.emailOtp.consumeEmailOtpGrant({
               subject: {
-                kind: 'authorization_session',
-                tenantId: authenticated.session.tenantId,
-                principalId: authenticated.session.principalId,
+                kind: 'provider_identity',
+                orgId: requireAuthorizationValue(
+                  parseOrgId(authenticated.session.tenantId),
+                ),
+                providerSubject: requireAuthorizationValue(
+                  parseProviderSubject(proof.authority.factor.providerUserId),
+                ),
                 walletId: walletIdFromString(authenticated.session.walletId),
               },
               loginGrant: verified.loginGrant,

@@ -4,9 +4,12 @@ import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/util
 import {
   parseWalletAuthMethodId,
   parseWalletId,
+  parseVerifiedEmailAddress,
   type WalletAuthMethodId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { sha256HexUtf8 } from '../../packages/shared-ts/src/utils/digests';
+import type { EmailOtpWalletEnrollmentRecord } from '../../packages/wallet-server/src/core/EmailOtpStores';
+import type { WalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
   fullOwnerPermissionsForManagementFixture,
@@ -21,7 +24,10 @@ function required<T>(
   throw new Error(result.error.message);
 }
 
-async function buildProviderFixture() {
+async function buildProviderFixture(input: {
+  readonly enrollment?: EmailOtpWalletEnrollmentRecord | null;
+  readonly methods?: WalletAuthMethodRecordV2[];
+} = {}) {
   const walletId = required(parseWalletId('wallet:email-base-factor'));
   const first = await buildLinkedDeviceManagementAuthorityFixture({
     label: 'email-base-first',
@@ -53,31 +59,39 @@ async function buildProviderFixture() {
     buildEmailMethod(firstMethodId, first.authority.authorityId, walletId, emailHashHex),
     buildEmailMethod(secondMethodId, second.authority.authorityId, walletId, emailHashHex),
   ];
+  const enrollment =
+    input.enrollment === undefined
+      ? {
+          version: 'email_otp_wallet_enrollment_v1' as const,
+          walletId,
+          providerUserId: 'google:email-base-owner',
+          orgId: 'org:email-base',
+          verifiedEmail: email,
+          enrollmentId: 'email-enrollment:email-base',
+          enrollmentVersion: 'v1',
+          enrollmentSealKeyVersion: 'v1',
+          clientUnlockPublicKeyB64u: 'client-unlock-key',
+          unlockKeyVersion: 'v1',
+          serverSealedFactorCiphertextB64u: 'sealed-factor',
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        }
+      : input.enrollment;
   const authorities = new Map([
     [first.authority.authorityId, first.authority],
     [second.authority.authorityId, second.authority],
   ]);
   const provider = new D1LinkedDeviceEmailOtpTargetFactorV1({
     issuer: { create: async () => Promise.reject(new Error('unused issuer')) },
-    verifier: { verifyExisting: async () => Promise.reject(new Error('unused verifier')) },
-    enrollments: {
-      readEnrollment: async () => ({
-        version: 'email_otp_wallet_enrollment_v1',
-        walletId,
-        providerUserId: 'google:email-base-owner',
-        orgId: 'org:email-base',
-        verifiedEmail: email,
-        enrollmentId: 'email-enrollment:email-base',
-        enrollmentVersion: 'v1',
-        enrollmentSealKeyVersion: 'v1',
-        clientUnlockPublicKeyB64u: 'client-unlock-key',
-        unlockKeyVersion: 'v1',
-        serverSealedFactorCiphertextB64u: 'sealed-factor',
-        createdAtMs: 1,
-        updatedAtMs: 1,
-      }),
+    verifier: {
+      verifyExisting: async () => Promise.reject(new Error('unused verifier')),
+      verifyRegistration: async () => Promise.reject(new Error('unused verifier')),
     },
-    walletAuthMethods: { listForWalletV2: async () => methods },
+    orgId: 'org:email-base',
+    enrollments: {
+      readEnrollment: async () => enrollment,
+    },
+    walletAuthMethods: { listForWalletV2: async () => input.methods ?? methods },
     walletAuthorities: {
       readById: async (authorityId) => authorities.get(authorityId) ?? null,
     },
@@ -173,4 +187,28 @@ test('returns the same unavailable result for stale or inactive selections', asy
     kind: 'unavailable',
     reason: 'no_active_email_otp_base_factor',
   });
+});
+
+test('selects a new enrollment when the wallet has no Email OTP enrollment', async () => {
+  const fixture = await buildProviderFixture({ enrollment: null, methods: [] });
+  const targetEmail = required(parseVerifiedEmailAddress('new-owner@example.test'));
+
+  await expect(
+    fixture.provider.resolveTargetEnrollmentV1({
+      walletId: fixture.walletId,
+      targetEmail,
+    }),
+  ).resolves.toEqual({ kind: 'new_enrollment', targetEmail });
+});
+
+test('selects a new enrollment when the wallet has no active Email OTP method', async () => {
+  const fixture = await buildProviderFixture({ methods: [] });
+  const targetEmail = required(parseVerifiedEmailAddress('owner@example.test'));
+
+  await expect(
+    fixture.provider.resolveTargetEnrollmentV1({
+      walletId: fixture.walletId,
+      targetEmail,
+    }),
+  ).resolves.toEqual({ kind: 'new_enrollment', targetEmail });
 });

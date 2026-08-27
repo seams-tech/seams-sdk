@@ -126,7 +126,15 @@ export type AuthMenuGoogleRegistrationViewModel = AuthMenuViewModelCommon & {
 export type AuthMenuLinkDeviceState =
   | {
       readonly kind: 'select_factor';
-      readonly targetFactor: LinkedDeviceTargetFactorV1;
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }>;
+      readonly targetEmail?: never;
+      readonly error?: string;
+    }
+  | {
+      readonly kind: 'select_factor';
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'email_otp' }>;
+      readonly targetEmail: string;
+      readonly error?: string;
     }
   | { readonly kind: 'loading'; readonly message: string }
   | {
@@ -255,6 +263,10 @@ export type AuthMenuIntent =
       readonly targetFactor: LinkedDeviceTargetFactorV1;
     }
   | {
+      readonly kind: 'link_device_target_email_changed';
+      readonly emailAddress: string;
+    }
+  | {
       readonly kind: 'link_device_start';
     }
   | {
@@ -343,6 +355,8 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
         isPlainObject(record.targetFactor) &&
         (record.targetFactor.kind === 'passkey_prf' || record.targetFactor.kind === 'email_otp')
       );
+    case 'link_device_target_email_changed':
+      return typeof record.emailAddress === 'string';
     case 'link_device_email_otp_code_changed':
       return typeof record.code === 'string';
     case 'submit':

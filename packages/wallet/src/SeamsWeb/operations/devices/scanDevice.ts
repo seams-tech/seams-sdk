@@ -10,6 +10,7 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceApprovedTargetFactorV1,
   LinkedDeviceEmailOtpBaseFactorChoiceV1,
+  LinkedDeviceEmailOtpBaseFactorResolutionResultV1,
   LinkedDeviceEd25519SourceContributionPreparationV1,
   LinkedDeviceEcdsaSourceContributionPreparationV1,
   LinkedDeviceOrdinaryMaterialSourceContributionPreparationTupleV1,
@@ -22,7 +23,11 @@ import type {
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import { type WalletAuthMethodId, type WalletId } from '@shared/utils/domainIds';
+import {
+  type VerifiedEmailAddress,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -162,6 +167,8 @@ export async function scanAndLinkDevice(
     };
     const targetFactor = await resolveApprovedTargetFactorV1({
       targetFactor: parsedQrData.targetFactor,
+      targetEmail:
+        parsedQrData.targetFactor.kind === 'email_otp' ? parsedQrData.targetEmail : undefined,
       linkSessionId: claim.linkSessionId,
       sessionRevision: claim.sessionRevision,
       transport: ports.transport,
@@ -262,6 +269,7 @@ async function cancelClaimedSessionAfterOwnerAbortV1(
 
 type ResolveApprovedTargetFactorInputV1 = {
   readonly targetFactor: QrLinkedDeviceSessionPayloadV5['targetFactor'];
+  readonly targetEmail: VerifiedEmailAddress | undefined;
   readonly linkSessionId: QrLinkedDeviceSessionPayloadV5['linkSessionId'];
   readonly sessionRevision: number;
   readonly transport: LinkSessionOwnerTransportPortV1;
@@ -275,21 +283,29 @@ async function resolveApprovedTargetFactorV1(
   input: ResolveApprovedTargetFactorInputV1,
 ): Promise<LinkedDeviceApprovedTargetFactorV1> {
   if (input.targetFactor.kind === 'passkey_prf') return { kind: 'passkey_prf' };
+  const targetEmail = requireTargetEmailAddressV1(input.targetEmail);
   const result = await input.transport.resolveEmailOtpBaseFactorV1({
     linkSessionId: input.linkSessionId,
     request: { kind: 'resolve', expectedRevision: input.sessionRevision },
     authentication: input.authentication,
   });
+  assertEmailOtpBaseFactorResolutionIsCurrentV1(result, input.sessionRevision);
   switch (result.resolution.kind) {
     case 'selected':
       return {
         kind: 'email_otp',
+        targetEmail,
+        enrollment: { kind: 'existing_enrollment' },
         baseWalletAuthMethodId: result.resolution.choice.baseWalletAuthMethodId,
       };
     case 'selection_required':
       return await selectRequiredEmailOtpBaseFactorV1(input, result.resolution.choices);
     case 'unavailable':
-      throw new Error('No active Email OTP method can authorize this linked device');
+      return {
+        kind: 'email_otp',
+        targetEmail,
+        enrollment: { kind: 'new_enrollment' },
+      };
   }
 }
 
@@ -316,13 +332,39 @@ async function selectRequiredEmailOtpBaseFactorV1(
     },
     authentication: input.authentication,
   });
+  assertEmailOtpBaseFactorResolutionIsCurrentV1(result, input.sessionRevision);
   if (
     result.resolution.kind !== 'selected' ||
     result.resolution.choice.baseWalletAuthMethodId !== selected
   ) {
     throw new Error('The selected Email OTP method is unavailable for this linked device');
   }
-  return { kind: 'email_otp', baseWalletAuthMethodId: selected };
+  return {
+    kind: 'email_otp',
+    targetEmail: requireTargetEmailAddressV1(input.targetEmail),
+    enrollment: { kind: 'existing_enrollment' },
+    baseWalletAuthMethodId: selected,
+  };
+}
+
+function assertEmailOtpBaseFactorResolutionIsCurrentV1(
+  result: LinkedDeviceEmailOtpBaseFactorResolutionResultV1,
+  expectedRevision: number,
+): void {
+  if (result.revision === expectedRevision) return;
+  if (result.resolution.kind === 'unavailable') {
+    throw new Error(
+      `linked-device Email OTP target-factor resolution failed: ${result.resolution.reason}`,
+    );
+  }
+  throw new Error('linked-device Email OTP target-factor resolution changed the session');
+}
+
+function requireTargetEmailAddressV1(
+  targetEmail: VerifiedEmailAddress | undefined,
+): VerifiedEmailAddress {
+  if (!targetEmail) throw new Error('Email OTP linked-device QR omitted its target email');
+  return targetEmail;
 }
 
 function emailOtpBaseFactorChoicesIncludeV1(

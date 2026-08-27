@@ -47,6 +47,7 @@ import type {
 } from '../session/material/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { OwnerLaneScope } from '../session/identity/signingLaneAuthBinding';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
@@ -97,6 +98,7 @@ export type NearSigningApiDeps = {
   ) => Promise<NearEd25519YaoPreparedMaterialBoundary>;
   requestEmailOtpEd25519SigningChallenge?: (args: {
     walletSession: WalletSessionRef;
+    operationFingerprintDigest: DigestB64u;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
   signingSessionCoordinator: SigningSessionCoordinator;
   readAvailableSigningLanesForSigning: (
@@ -166,6 +168,7 @@ export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityRe
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authority: EmailOtpEcdsaChallengeAuthority;
+    operationFingerprintDigest: DigestB64u;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
   restorePersistedSessionForSigning: (
     args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,

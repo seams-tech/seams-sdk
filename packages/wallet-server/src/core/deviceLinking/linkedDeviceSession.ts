@@ -37,6 +37,7 @@ import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAb
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   hasWhitespaceOrControlCharacters,
+  parseVerifiedEmailAddress,
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   type DomainIdParseResult,
@@ -139,14 +140,17 @@ type LinkedDeviceEmailOtpChallengeV1 =
 
 type LinkedDeviceTargetFactorRecordV1 =
   | {
-      readonly targetFactor: { readonly kind: 'passkey_prf' };
+      readonly targetFactor: Extract<
+        LinkedDeviceApprovedTargetFactorV1,
+        { readonly kind: 'passkey_prf' }
+      >;
       readonly emailOtpChallenge?: never;
     }
   | {
-      readonly targetFactor: {
-        readonly kind: 'email_otp';
-        readonly baseWalletAuthMethodId: import('@shared/utils/domainIds').WalletAuthMethodId;
-      };
+      readonly targetFactor: Extract<
+        LinkedDeviceApprovedTargetFactorV1,
+        { readonly kind: 'email_otp' }
+      >;
       readonly emailOtpChallenge?: LinkedDeviceEmailOtpChallengeV1;
     };
 
@@ -2151,15 +2155,41 @@ function parseOptionalApprovedTargetFactor(
     return { kind: 'passkey_prf' };
   }
   if (record.kind === 'email_otp') {
-    requireExactKeys(record, ['kind', 'baseWalletAuthMethodId']);
-    return {
-      kind: 'email_otp',
-      baseWalletAuthMethodId: parseId(
-        record.baseWalletAuthMethodId,
-        parseWalletAuthMethodId,
-        'targetFactor.baseWalletAuthMethodId',
-      ),
-    };
+    const targetEmail = parseId(
+      record.targetEmail,
+      parseVerifiedEmailAddress,
+      'targetFactor.targetEmail',
+    );
+    const enrollment = requireRecord(record.enrollment, 'targetFactor.enrollment');
+    if (enrollment.kind === 'existing_enrollment') {
+      requireExactKeys(record, [
+        'kind',
+        'targetEmail',
+        'enrollment',
+        'baseWalletAuthMethodId',
+      ]);
+      requireExactKeys(enrollment, ['kind']);
+      return {
+        kind: 'email_otp',
+        targetEmail,
+        enrollment: { kind: 'existing_enrollment' },
+        baseWalletAuthMethodId: parseId(
+          record.baseWalletAuthMethodId,
+          parseWalletAuthMethodId,
+          'targetFactor.baseWalletAuthMethodId',
+        ),
+      };
+    }
+    if (enrollment.kind === 'new_enrollment') {
+      requireExactKeys(record, ['kind', 'targetEmail', 'enrollment']);
+      requireExactKeys(enrollment, ['kind']);
+      return {
+        kind: 'email_otp',
+        targetEmail,
+        enrollment: { kind: 'new_enrollment' },
+      };
+    }
+    throw new Error('targetFactor.enrollment.kind is invalid');
   }
   throw new Error('targetFactor.kind is invalid');
 }

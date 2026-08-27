@@ -7,11 +7,13 @@ import type {
   LinkSessionStateV1,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
+import { parseVerifiedEmailAddress } from '@shared/utils/domainIds';
 import type {
   LinkedDeviceEnrollmentId,
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
+import type { VerifiedEmailAddress } from '@shared/utils/domainIds';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
@@ -68,10 +70,37 @@ export enum DeviceLinkingErrorCode {
   UNSUPPORTED = 'UNSUPPORTED',
 }
 
-export type StartDevice2LinkingFlowArgs = {
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
+export type StartDevice2LinkingTargetV1 =
+  | {
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }>;
+      readonly targetEmail?: never;
+    }
+  | {
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'email_otp' }>;
+      readonly targetEmail: string;
+    };
+
+export type StartDevice2LinkingFlowArgs = StartDevice2LinkingTargetV1 & {
   ui?: 'modal' | 'inline';
 } & StartDeviceLinkingOptionsDevice2;
+
+/** Normalize the target address at the Device 2 input boundary. */
+export function normalizeLinkedDeviceTargetEmailAddressV1(raw: unknown): VerifiedEmailAddress {
+  const parsed = parseVerifiedEmailAddress(raw);
+  if (!parsed.ok) {
+    throw new Error(`Device-link target email address is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+export function isLinkedDeviceTargetEmailAddressV1(raw: unknown): boolean {
+  try {
+    normalizeLinkedDeviceTargetEmailAddressV1(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface StartDevice2LinkingFlowResults {
   readonly qrData: QrLinkedDeviceSessionPayloadV5;

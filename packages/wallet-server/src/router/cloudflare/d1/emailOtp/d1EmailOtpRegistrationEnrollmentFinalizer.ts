@@ -20,19 +20,10 @@ import {
 
 type FinalizeWalletRegistrationInput = WalletRegistrationFinalizeRequest;
 
-export type D1EmailOtpRegistrationEnrollmentPersistence =
-  | {
-      readonly providerEnrollmentMove: 'none';
-      readonly previousProviderWalletId?: never;
-      readonly enrollment: EmailOtpWalletEnrollmentRecord;
-      readonly existingAuthState: EmailOtpAuthStateRecord | null;
-    }
-  | {
-      readonly providerEnrollmentMove: 'delete_previous';
-      readonly previousProviderWalletId: string;
-      readonly enrollment: EmailOtpWalletEnrollmentRecord;
-      readonly existingAuthState: EmailOtpAuthStateRecord | null;
-    };
+export type D1EmailOtpRegistrationEnrollmentPersistence = {
+  readonly enrollment: EmailOtpWalletEnrollmentRecord;
+  readonly existingAuthState: EmailOtpAuthStateRecord | null;
+};
 
 export type D1EmailOtpRegistrationCommitPlan = {
   readonly kind: 'd1_email_otp_registration_commit_plan_v1';
@@ -106,9 +97,6 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
   async persistPrepared(
     persistence: D1EmailOtpRegistrationEnrollmentPersistence,
   ): Promise<{ readonly ok: true }> {
-    if (persistence.providerEnrollmentMove === 'delete_previous') {
-      await this.emailOtpEnrollments.deleteEnrollment(persistence.previousProviderWalletId);
-    }
     await this.emailOtpEnrollments.putEnrollment(persistence.enrollment);
     await this.emailOtpEnrollments.resetAuthStateForEnrollment({
       enrollment: persistence.enrollment,
@@ -121,23 +109,35 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
   prepareRegistrationCommitPlan(
     persistence: D1EmailOtpRegistrationEnrollmentPersistence,
   ): D1EmailOtpRegistrationCommitPlan {
-    const statements: D1PreparedStatementLike[] = [];
-    if (persistence.providerEnrollmentMove === 'delete_previous') {
-      statements.push(
-        this.emailOtpEnrollments.prepareDeleteEnrollmentStatement(
-          persistence.previousProviderWalletId,
-        ),
-      );
-    }
-    statements.push(
+    const statements: D1PreparedStatementLike[] = [
       this.emailOtpEnrollments.preparePutEnrollmentStatement(persistence.enrollment),
       this.emailOtpEnrollments.prepareResetAuthStateForEnrollment({
         enrollment: persistence.enrollment,
         existingState: persistence.existingAuthState,
         updatedAtMs: persistence.enrollment.updatedAtMs,
       }).statement,
-    );
+    ];
     return { kind: 'd1_email_otp_registration_commit_plan_v1', statements };
+  }
+
+  async completeRegistrationIdentity(input: {
+    readonly authority: RegistrationAuthority;
+    readonly walletId: WalletId;
+  }): Promise<{ readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }> {
+    switch (input.authority.kind) {
+      case 'passkey':
+        return { ok: true };
+      case 'email_otp':
+        switch (input.authority.proofKind) {
+          case 'otp_challenge':
+            return { ok: true };
+          case 'google_sso_registration':
+            return await this.googleEmailOtpSessions.completeRegistrationAttempt({
+              registrationAttemptId: input.authority.googleEmailOtpRegistrationAttemptId,
+              walletId: input.walletId,
+            });
+        }
+    }
   }
 
   async persistVerifiedEnrollment(input: {
@@ -210,6 +210,57 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
     };
   }
 
+  /**
+   * Prepares the first Email OTP enrollment for a linked target. The insert is
+   * intentionally strict: a concurrent enrollment must abort the authority
+   * batch instead of silently replacing material that another operation owns.
+   */
+  async prepareLinkedDeviceEnrollment(input: {
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly authSubjectId: string;
+    readonly verifiedEmail: string;
+    readonly material: EmailOtpEnrollmentMaterialBoundaryInput;
+    readonly nowMs: number;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly enrollment: EmailOtpWalletEnrollmentRecord;
+        readonly statements: readonly D1PreparedStatementLike[];
+      }
+    | { readonly ok: false; readonly code: string; readonly message: string }
+  > {
+    if (!(await this.emailOtpEnrollments.signerWalletExists(input.walletId))) {
+      return {
+        ok: false,
+        code: 'wallet_registration_incomplete',
+        message: 'Email OTP enrollment requires a canonical wallet',
+      };
+    }
+    if (await this.emailOtpEnrollments.readEnrollment(input.walletId)) {
+      return {
+        ok: false as const,
+        code: 'enrollment_conflict',
+        message: 'Email OTP wallet enrollment already exists',
+      };
+    }
+    const prepared = await this.buildPersistence(input);
+    if (!prepared.ok) return prepared;
+    const reset = this.emailOtpEnrollments.prepareResetAuthStateForEnrollment({
+      enrollment: prepared.persistence.enrollment,
+      existingState: prepared.persistence.existingAuthState,
+      updatedAtMs: prepared.persistence.enrollment.updatedAtMs,
+    });
+    return {
+      ok: true,
+      enrollment: prepared.persistence.enrollment,
+      statements: [
+        this.emailOtpEnrollments.prepareInsertEnrollmentStatement(prepared.persistence.enrollment),
+        reset.statement,
+      ],
+    };
+  }
+
   private async buildPersistence(input: {
     readonly walletId: string;
     readonly orgId: string;
@@ -251,23 +302,9 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
       createdAtMs: existing?.createdAtMs ?? input.nowMs,
       updatedAtMs: input.nowMs,
     };
-    const previous = await this.emailOtpEnrollments.readEnrollmentByProviderUserId({
-      providerUserId: enrollment.providerUserId,
-      orgId: enrollment.orgId,
-    });
-    return previous && previous.walletId !== enrollment.walletId
-      ? {
-          ok: true,
-          persistence: {
-            providerEnrollmentMove: 'delete_previous',
-            previousProviderWalletId: previous.walletId,
-            enrollment,
-            existingAuthState,
-          },
-        }
-      : {
-          ok: true,
-          persistence: { providerEnrollmentMove: 'none', enrollment, existingAuthState },
-        };
+    return {
+      ok: true,
+      persistence: { enrollment, existingAuthState },
+    };
   }
 }

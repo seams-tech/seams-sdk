@@ -4,6 +4,7 @@ import type {
   LinkSessionProjectionV1,
   LinkSessionStateV1,
   LinkedDeviceApprovalV1,
+  LinkedDeviceApprovedTargetFactorV1,
   LinkedDeviceEmailOtpChallengeResendRequestV1,
   LinkedDeviceEmailOtpChallengeStartRequestV1,
   LinkedDeviceEmailOtpBaseFactorRequestV1,
@@ -74,6 +75,10 @@ import type {
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
+import { normalizeCorsOrigin } from '../../../../core/SessionService';
+import { resolvePublishableKeyApiCredentialAuth } from '../../../auth/routerApiCredentialAuth';
+import { extractRouterApiEnvironmentId } from '../../../auth/routerApiKeyAuth';
+import { findRouteDefinitionById } from '../../../framework/routeDefinitions';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
@@ -81,6 +86,8 @@ import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/sign
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 
 const DEVICE_LINKING_BASE = '/wallet/device-linking/v1/sessions';
+const TARGET_PREPARATION_ROUTE_ID = 'linked_device_target_preparation';
+const TARGET_CREDENTIAL_ROUTE_ID = 'linked_device_target_credential';
 export const DEVICE_LINKING_REQUEST_PROOF_HEADER_V1 = LINKED_DEVICE_REQUEST_PROOF_HEADER_V1;
 
 export type DeviceLinkingAuthDeniedV1 = {
@@ -123,16 +130,22 @@ export type DeviceLinkingDeviceAuthenticatedRequestV1 = {
 export type DeviceLinkingRouteMutationResultV1 = LinkedDeviceSessionServiceResultV1;
 
 export type DeviceLinkingTargetCredentialProviderV1 = {
-  getTargetPreparationV1(input: {
-    readonly session: LinkedDeviceSessionRecordV1;
-    readonly approval: LinkedDeviceApprovalV1;
-    readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceTargetPreparationV1>;
+  getTargetPreparationV1(
+    input: {
+      readonly session: LinkedDeviceSessionRecordV1;
+      readonly approval: LinkedDeviceApprovalV1;
+      readonly requestedAtMs: number;
+    } & (
+      | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
+      | { readonly access: 'replay_only'; readonly expectedOrigin?: never }
+    ),
+  ): Promise<LinkedDeviceTargetPreparationV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
+    readonly expectedOrigin: string;
     readonly requestedAtMs: number;
   }): Promise<
     | {
@@ -191,7 +204,7 @@ export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
     | {
         readonly kind: 'verified';
         readonly grant: LinkedDeviceEmailOtpVerificationGrantV1;
-        readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+        readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1 | null;
       }
     | { readonly kind: 'refused'; readonly code: string; readonly message: string }
   >;
@@ -467,7 +480,8 @@ async function handleApproval(
   if (approval.linkSessionId !== linkSessionId)
     return invalidInputResponse('link session id does not match route');
   validateOwnerRequestBinding(authentication.binding, ctx, bodyDigestB64u, nowMs);
-  if (approval.targetFactor.kind === 'email_otp') {
+  const targetFactor = approval.targetFactor;
+  if (isExistingEmailOtpTargetFactorV1(targetFactor)) {
     const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
     if (!session) return notFoundResponse();
     const ownerMismatch = requireOwnerMatchesClaimedWallet(authentication.owner, session);
@@ -484,7 +498,7 @@ async function handleApproval(
     }
     const selectionError = await requireSelectedEmailOtpBaseFactorV1(service, session, {
       walletId: approval.walletId,
-      baseWalletAuthMethodId: approval.targetFactor.baseWalletAuthMethodId,
+      baseWalletAuthMethodId: targetFactor.baseWalletAuthMethodId,
     });
     if (selectionError) return selectionError;
   }
@@ -494,6 +508,17 @@ async function handleApproval(
       nowMs,
       owner: authentication.owner,
     }),
+  );
+}
+
+function isExistingEmailOtpTargetFactorV1(
+  targetFactor: LinkedDeviceApprovedTargetFactorV1,
+): targetFactor is Extract<
+  LinkedDeviceApprovedTargetFactorV1,
+  { readonly baseWalletAuthMethodId: WalletAuthMethodId }
+> {
+  return (
+    targetFactor.kind === 'email_otp' && targetFactor.enrollment.kind === 'existing_enrollment'
   );
 }
 
@@ -507,11 +532,14 @@ async function handleTargetPreparation(
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  const origin = await authenticateTargetPasskeyOriginV1(ctx, TARGET_PREPARATION_ROUTE_ID);
+  if (!origin.ok) return origin.response;
   const approval = requireApproval(authenticated.session);
   const rawPreparation = await readTargetPreparation(
     service,
     authenticated.session,
     approval,
+    { access: 'create_or_replay', expectedOrigin: origin.expectedOrigin },
     nowMs,
   );
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
@@ -528,6 +556,8 @@ async function handleCredential(
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const origin = await authenticateTargetPasskeyOriginV1(ctx, TARGET_CREDENTIAL_ROUTE_ID);
+  if (!origin.ok) return origin.response;
   const registration = parseBoundary(() =>
     parseLinkedDeviceTargetCredentialRegistrationV1(authenticated.body),
   );
@@ -535,13 +565,20 @@ async function handleCredential(
     return invalidInputResponse('link session id does not match route');
   const session = authenticated.session;
   const approval = requireApproval(session);
-  const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
+  const rawPreparation = await readTargetPreparation(
+    service,
+    session,
+    approval,
+    { access: 'replay_only' },
+    nowMs,
+  );
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const result = await service.targetCredential.registerTargetCredentialV1({
     registration,
     preparation,
     session,
     approval,
+    expectedOrigin: origin.expectedOrigin,
     requestedAtMs: nowMs,
   });
   if (result.outcome === 'invalid_input') return invalidInputResponse(result.message);
@@ -646,9 +683,23 @@ async function handleSourceContribution(
     nowMs,
     ed25519ExportRootPackage,
   });
-  if (committed.kind === 'invalid_input') return invalidInputResponse(committed.message);
+  if (committed.kind === 'invalid_input') {
+    const failed = await service.sessionService.failBeforeCommitV1({
+      linkSessionId,
+      expectedRevision: recorded.record.revision,
+      error: { kind: 'package_preparation_failed', reason: committed.message },
+      nowMs,
+    });
+    return sessionResultResponse(failed);
+  }
   if (committed.kind === 'conflict') {
-    return json({ ok: false, outcome: 'conflict', message: committed.message }, { status: 409 });
+    const failed = await service.sessionService.failBeforeCommitV1({
+      linkSessionId,
+      expectedRevision: recorded.record.revision,
+      error: { kind: 'package_preparation_failed', reason: committed.message },
+      nowMs,
+    });
+    return sessionResultResponse(failed);
   }
   return sessionProjectionResponse(
     committed.session,
@@ -719,7 +770,13 @@ async function handleEmailOtpChallenge(
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const session = authenticated.session;
   const approval = requireApproval(session);
-  const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
+  const rawPreparation = await readTargetPreparation(
+    service,
+    session,
+    approval,
+    { access: 'replay_only' },
+    nowMs,
+  );
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const started = await provider.startChallengeV1({
     session,
@@ -798,21 +855,6 @@ async function handleEmailOtpBaseFactor(
   const provider = service.emailOtpTargetFactor;
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const resolution = await provider.resolveBaseFactorSelectionV1({ walletId, request });
-  if (resolution.kind === 'unavailable') {
-    const failed = await service.sessionService.failBeforeCommitV1({
-      linkSessionId,
-      expectedRevision: request.expectedRevision,
-      error: {
-        kind: 'target_factor_failed',
-        reason: 'no_active_email_otp_base_factor',
-      },
-      nowMs,
-    });
-    if (failed.outcome !== 'applied' && failed.outcome !== 'replayed') {
-      return sessionResultResponse(failed);
-    }
-    return json({ revision: failed.record.revision, resolution }, { status: 200 });
-  }
   return json({ revision: session.revision, resolution }, { status: 200 });
 }
 
@@ -862,7 +904,13 @@ async function handleEmailOtpVerify(
   if (!provider) return notSupportedResponse('Email OTP linking is not configured');
   const session = authenticated.session;
   const approval = requireApproval(session);
-  const rawPreparation = await readTargetPreparation(service, session, approval, nowMs);
+  const rawPreparation = await readTargetPreparation(
+    service,
+    session,
+    approval,
+    { access: 'replay_only' },
+    nowMs,
+  );
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   const challenge = requireSentEmailOtpChallenge(session);
   if (challenge.challengeId !== request.challengeId)
@@ -1008,6 +1056,15 @@ function installationResultResponse(result: D1ActivateInstalledAuthorityResultV1
           operationCredential: result.operationCredential,
         } satisfies WireActivateInstalledAuthorityResultV1,
         { status: 200 },
+      );
+    case 'pending_local_install':
+      return json(
+        {
+          kind: 'pending_local_install',
+          authorityId: result.authorityId,
+          reason: { kind: result.reason },
+        } satisfies WireActivateInstalledAuthorityResultV1,
+        { status: 202 },
       );
     case 'integrity_error':
       return json(
@@ -1313,13 +1370,79 @@ function readTargetPreparation(
   service: DeviceLinkingRouteServiceV1,
   session: LinkedDeviceSessionRecordV1,
   approval: LinkedDeviceApprovalV1,
+  access:
+    | { readonly access: 'create_or_replay'; readonly expectedOrigin: string }
+    | { readonly access: 'replay_only' },
   nowMs: number,
 ): Promise<LinkedDeviceTargetPreparationV1> {
   return service.targetCredential.getTargetPreparationV1({
     session,
     approval,
+    ...access,
     requestedAtMs: nowMs,
   });
+}
+
+async function authenticateTargetPasskeyOriginV1(
+  ctx: FetchRouterApiContext,
+  routeId: string,
+): Promise<
+  | { readonly ok: true; readonly expectedOrigin: string }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, routeId);
+  if (!route) throw new Error(`Missing route definition for ${routeId}`);
+  const publishableKeyAuth = ctx.opts.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'service_not_configured',
+          message: 'Publishable-key auth is not configured',
+        },
+        { status: 501 },
+      ),
+    };
+  }
+  const rawOrigin = String(ctx.request.headers.get('origin') || '').trim();
+  const expectedOrigin = normalizeCorsOrigin(rawOrigin);
+  if (!expectedOrigin || expectedOrigin !== rawOrigin) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'forbidden',
+          message: 'Origin header is required and must be a valid exact origin',
+        },
+        { status: 403 },
+      ),
+    };
+  }
+  const headers = Object.fromEntries(ctx.request.headers.entries());
+  const auth = await resolvePublishableKeyApiCredentialAuth({
+    environmentId: extractRouterApiEnvironmentId(headers),
+    headers,
+    missingEnvironmentMessage: 'Environment header is required for linked-device Passkey setup',
+    missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+    missingPublishableKeyMessage: 'Missing publishable key',
+    origin: expectedOrigin,
+    publishableKeyAuth,
+    route,
+    routeAuthNotConfiguredMessage: 'Linked-device Passkey route auth is not configured',
+  });
+  if (!auth.ok) {
+    return {
+      ok: false,
+      response: json(
+        { ok: false, code: auth.code, message: auth.message },
+        { status: auth.status },
+      ),
+    };
+  }
+  return { ok: true, expectedOrigin };
 }
 
 function projectLinkSessionStateV1(state: LinkSessionStateV1): LinkSessionStateV1 {

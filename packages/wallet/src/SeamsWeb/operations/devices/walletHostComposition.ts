@@ -34,6 +34,8 @@ export type WalletHostCompositionDependenciesV1 = {
   readonly authenticator: AuthenticatorPort;
   readonly http: HttpTransport;
   readonly relayerUrl: string;
+  readonly publishableKey: string;
+  readonly projectEnvironmentId: string;
   readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;

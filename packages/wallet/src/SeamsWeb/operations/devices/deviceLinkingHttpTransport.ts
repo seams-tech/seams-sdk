@@ -90,6 +90,8 @@ async function waitForCommittedAuthorityPackagesV1(input: {
 export type DeviceLinkingAuthenticatedSessionTransportOptionsV1 = {
   readonly http: HttpTransport;
   readonly relayerUrl: string;
+  readonly publishableKey: string;
+  readonly projectEnvironmentId: string;
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
@@ -101,6 +103,8 @@ export type DeviceLinkingSessionTransportAssemblyOptionsV1 = {
   readonly owner: LinkSessionOwnerTransportPortV1;
   readonly http: HttpTransport;
   readonly relayerUrl: string;
+  readonly publishableKey: string;
+  readonly projectEnvironmentId: string;
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly nowMs: () => number;
   readonly pollIntervalMs: number;
@@ -304,6 +308,8 @@ export function createDeviceLinkingSessionTransportPortV1(
       createDeviceLinkingAuthenticatedSessionTransportV1({
         http: options.http,
         relayerUrl: options.relayerUrl,
+        publishableKey: options.publishableKey,
+        projectEnvironmentId: options.projectEnvironmentId,
         keyMaterial: options.keyMaterial,
         keyMaterialHandle: keyMaterial,
         devicePublicKeyB64u,
@@ -359,6 +365,11 @@ async function requestDeviceV1(input: {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly body?: unknown;
 }): Promise<DeviceRequestResponseV1> {
+  const publishableKey = input.options.publishableKey.trim();
+  const projectEnvironmentId = input.options.projectEnvironmentId.trim();
+  if (!publishableKey || !projectEnvironmentId) {
+    throw new Error('linked-device Passkey ceremony requires registration API credentials');
+  }
   const bodyBytes = encodeRequestBodyV1(input.body);
   const bodyDigestB64u = parseDigestB64u(base64UrlEncode(await sha256Bytes(bodyBytes)));
   const issuedAtMs = input.options.nowMs();
@@ -402,7 +413,9 @@ async function requestDeviceV1(input: {
     url: `${input.baseUrl}${input.canonicalPath}`,
     headers: {
       Accept: 'application/json',
+      Authorization: `Bearer ${publishableKey}`,
       'Content-Type': 'application/json',
+      'X-Seams-Environment-Id': projectEnvironmentId,
       [LINKED_DEVICE_REQUEST_PROOF_HEADER_V1]: proofHeader,
     },
     ...(input.body === undefined ? {} : { body: input.body }),

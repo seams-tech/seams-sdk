@@ -1,3 +1,5 @@
+import type { EmailOtpVerifiedAuthorityProjection } from '../../session/emailOtp/publicTypes';
+
 export type EmailOtpBootstrapRecovery = {
   challengeId: string;
   enrollmentSealKeyVersion: string;
@@ -5,4 +7,5 @@ export type EmailOtpBootstrapRecovery = {
   unlockChallengeB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockSignatureB64u: string;
+  verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
 };

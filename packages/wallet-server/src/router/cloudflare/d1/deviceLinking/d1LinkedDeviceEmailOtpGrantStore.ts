@@ -42,10 +42,12 @@ export class D1LinkedDeviceEmailOtpGrantStoreV1 {
            namespace, org_id, project_id, env_id, grant_id,
            grant_token_digest_b64u, wallet_id, link_session_id, enrollment_id,
            device_id, target_factor, target_preparation_digest_b64u,
+           target_email, enrollment_kind, email_hash_hex,
+           registration_authority_id, provider_user_id,
            base_wallet_auth_method_id, linked_owner_auth_method_id,
            authority_digest_b64u, challenge_id, state, record_json,
            issued_at_ms, expires_at_ms, consumed_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'email_otp', ?, ?, ?, ?, ?, 'issued', ?, ?, ?, NULL)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'email_otp', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, ?, NULL)`,
       )
       .bind(
         ...scopeValues(this.scope),
@@ -56,7 +58,12 @@ export class D1LinkedDeviceEmailOtpGrantStoreV1 {
         String(parsed.enrollmentId),
         String(parsed.deviceId),
         parsed.targetPreparationDigestB64u,
-        String(parsed.baseWalletAuthMethodId),
+        parsed.targetEmail,
+        parsed.enrollment.kind,
+        parsed.emailHashHex,
+        parsed.registrationAuthorityId,
+        parsed.providerUserId,
+        parsed.baseWalletAuthMethodId ?? null,
         String(parsed.walletAuthMethodId),
         parsed.authorityDigestB64u,
         parsed.challengeId,

@@ -8,7 +8,11 @@ import type {
   LinkedDeviceTargetEmailOtpActivationV1,
   LinkedDeviceTargetPasskeyActivationV1,
 } from '@/core/types/linkDevice';
-import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
+import {
+  DeviceLinkingError,
+  DeviceLinkingErrorCode,
+  normalizeLinkedDeviceTargetEmailAddressV1,
+} from '@/core/types/linkDevice';
 import {
   buildQrLinkedDeviceSessionPayloadV5,
   buildLinkedDeviceSessionCancelClaimedRequestV1,
@@ -30,6 +34,7 @@ import type {
   QrLinkedDeviceSessionPayloadV5,
   OrdinarySignerMaterialRecipientRequestV1,
 } from '@shared/device-linking';
+import type { WalletEmailOtpEnrollmentMaterialV1 } from '@shared/utils/registrationIntent';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { errorMessage } from '@shared/utils/errors';
@@ -68,7 +73,7 @@ import {
 } from '@shared/passkey-custody';
 import { parsePasskeyEnvelopeId, type PasskeyEnvelopeId } from '@shared/utils/domainIds';
 import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { activateLinkedEmailOtpEcdsaHolderAfterLink } from '../auth/login';
+import { activateLinkedDeviceSignerRuntimesAfterLink } from '../auth/login';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -117,9 +122,10 @@ type PasskeyTargetPreparationV1 = Extract<
     readonly passkeyCreationOptions: LinkedDevicePasskeyCreationOptionsV1;
   }
 >;
-type EmailOtpTargetPreparationV1 = LinkedDeviceTargetPreparationV1 & {
-  readonly targetFactor: { readonly kind: 'email_otp' };
-};
+type EmailOtpTargetPreparationV1 = Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'email_otp' } }
+>;
 
 function isPasskeyTargetPreparation(
   preparation: LinkedDeviceTargetPreparationV1,
@@ -322,12 +328,39 @@ type EmailOtpTargetActivationStateV1 =
   | {
       readonly kind: 'completed';
       readonly runEpoch: number;
+      readonly enrollment:
+        | { readonly kind: 'existing_enrollment' }
+        | { readonly kind: 'new_enrollment' };
       readonly factorSecret: Uint8Array;
       readonly providerUserId: string;
       readonly exportRootRequirement?: never;
       readonly verificationGrant?: never;
       readonly factorRelease?: never;
     };
+
+type CompletedEmailOtpTargetActivationStateV1 = Extract<
+  EmailOtpTargetActivationStateV1,
+  { readonly kind: 'completed' }
+>;
+
+function requireCompletedEmailOtpTargetActivationStateV1(
+  state: EmailOtpTargetActivationStateV1,
+): CompletedEmailOtpTargetActivationStateV1 {
+  if (
+    state.kind !== 'completed' ||
+    !state.factorSecret ||
+    typeof state.providerUserId !== 'string'
+  ) {
+    throw new Error('linked-device Email OTP factor runtime is unavailable');
+  }
+  return {
+    kind: 'completed',
+    runEpoch: state.runEpoch,
+    enrollment: state.enrollment,
+    factorSecret: state.factorSecret,
+    providerUserId: state.providerUserId,
+  };
+}
 
 function assertNeverEmailOtpTargetActivationState(value: never): never {
   throw new Error(`Unknown Email OTP target activation state: ${String(value)}`);
@@ -341,8 +374,23 @@ function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
 }
 
+function emailOtpProviderForLinkedEnrollment(
+  enrollment: CompletedEmailOtpTargetActivationStateV1['enrollment'],
+): 'google' | 'email' {
+  return enrollment.kind === 'existing_enrollment' ? 'google' : 'email';
+}
+
 function requireTargetRpIdV1(preparation: PasskeyTargetPreparationV1): WebAuthnRpId {
   return preparation.passkeyCreationOptions.rpId;
+}
+
+function requireEmailOtpTargetPreparationV1(
+  preparation: LinkedDeviceTargetPreparationV1,
+): EmailOtpTargetPreparationV1 {
+  if (!isEmailOtpTargetPreparation(preparation)) {
+    throw new Error('linked-device Email OTP preparation is unavailable');
+  }
+  return preparation;
 }
 
 function createExportRootEnvelopeIdV1(): PasskeyEnvelopeId {
@@ -351,6 +399,81 @@ function createExportRootEnvelopeIdV1(): PasskeyEnvelopeId {
   );
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+function createEmailOtpFactorSecretV1(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(32));
+}
+
+async function prepareNewEmailOtpEnrollmentMaterialV1(input: {
+  readonly context: DeviceLinkingWebContext;
+  readonly walletId: EmailOtpTargetPreparationV1['walletId'];
+  readonly targetEmail: EmailOtpTargetPreparationV1['targetEmail'];
+  readonly factorSecret: Uint8Array;
+}): Promise<{
+  readonly enrollmentId: string;
+  readonly enrollment: WalletEmailOtpEnrollmentMaterialV1;
+}> {
+  const disposableSecret = input.factorSecret.slice();
+  try {
+    const material =
+      await input.context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
+        relayUrl: String(input.context.configs.network.relayer.url || '').trim(),
+        walletId: input.walletId,
+        userId: input.targetEmail,
+        clientSecret32: disposableSecret,
+      });
+    if (material.emailOtpSessionHandle.kind !== 'not_requested') {
+      throw new Error('Strict linked-device Email OTP enrollment received obsolete ECDSA material');
+    }
+    return {
+      enrollmentId: material.enrollmentId,
+      enrollment: material.emailOtpEnrollment,
+    };
+  } finally {
+    zeroizeLiveBytes(disposableSecret);
+  }
+}
+
+function buildDevice2QrSessionPayloadV1(input: {
+  readonly linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId;
+  readonly linkPublicKeyB64u: import('@shared/device-linking').LinkDevicePublicKeyB64u;
+  readonly devicePublicKeyB64u: import('@shared/device-linking').LinkDevicePublicKeyB64u;
+  readonly target: StartDevice2LinkingFlowArgs;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+}): QrLinkedDeviceSessionPayloadV5 {
+  const requestedPermission = buildFullOwnerDelegatedWalletAuthorityV1();
+  if (input.target.targetFactor.kind === 'email_otp') {
+    return buildQrLinkedDeviceSessionPayloadV5({
+      linkSessionId: input.linkSessionId,
+      linkPublicKeyB64u: input.linkPublicKeyB64u,
+      devicePublicKeyB64u: input.devicePublicKeyB64u,
+      requestedPermission,
+      targetFactor: { kind: 'email_otp' },
+      targetEmail: normalizeLinkedDeviceTargetEmailAddressV1(input.target.targetEmail),
+      issuedAtMs: input.issuedAtMs,
+      expiresAtMs: input.expiresAtMs,
+    });
+  }
+  return buildQrLinkedDeviceSessionPayloadV5({
+    linkSessionId: input.linkSessionId,
+    linkPublicKeyB64u: input.linkPublicKeyB64u,
+    devicePublicKeyB64u: input.devicePublicKeyB64u,
+    requestedPermission,
+    targetFactor: { kind: 'passkey_prf' },
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  });
+}
+
+function requireNewEmailOtpEnrollmentMaterialV1(
+  value: WalletEmailOtpEnrollmentMaterialV1 | null,
+): WalletEmailOtpEnrollmentMaterialV1 {
+  if (!value) {
+    throw new Error('new linked-device Email OTP enrollment material is unavailable');
+  }
+  return value;
 }
 
 export class LinkDeviceFlow {
@@ -423,12 +546,11 @@ export class LinkDeviceFlow {
       this.emailOtpReleasePublicKey65B64u = keyMaterial.emailOtpReleasePublicKey65B64u;
       const issuedAtMs = Date.now();
       const linkSessionId = createLinkSessionId();
-      const qrData = buildQrLinkedDeviceSessionPayloadV5({
+      const qrData = buildDevice2QrSessionPayloadV1({
         linkSessionId,
         linkPublicKeyB64u: keyMaterial.linkPublicKeyB64u,
         devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
-        requestedPermission: buildFullOwnerDelegatedWalletAuthorityV1(),
-        targetFactor: this.options.targetFactor,
+        target: this.options,
         issuedAtMs,
         expiresAtMs: issuedAtMs + 15 * 60 * 1000,
       });
@@ -687,7 +809,12 @@ export class LinkDeviceFlow {
             'registration',
           );
         }
-        await this.finishActiveAuthorityV1(event.state, result.session, runEpoch);
+        await this.finishActiveAuthorityV1(
+          event.state,
+          result.session,
+          result.operationCredential,
+          runEpoch,
+        );
         return;
       }
       case 'active': {
@@ -707,7 +834,12 @@ export class LinkDeviceFlow {
             'registration',
           );
         }
-        await this.finishActiveAuthorityV1(event.state, result.session, runEpoch);
+        await this.finishActiveAuthorityV1(
+          event.state,
+          result.session,
+          result.operationCredential,
+          runEpoch,
+        );
         return;
       }
       case 'expired': {
@@ -1067,49 +1199,110 @@ export class LinkDeviceFlow {
       throw error;
     }
     this.assertCurrentRun(context.runEpoch);
+    const preparation = requireEmailOtpTargetPreparationV1(context.preparation);
     let recipient = context.exportRoot.kind === 'required' ? context.exportRoot.recipient : null;
     let factorSecret: ArrayBuffer | null = null;
     let retainedFactorSecret: Uint8Array | null = null;
+    let verificationGrant:
+      | Awaited<
+          ReturnType<DeviceLinkingAuthenticatedTransportPortV1['verifyTargetEmailOtpChallengeV1']>
+        >['verificationGrant']
+      | null = null;
+    let emailOtpEnrollmentId: string | null = null;
+    let emailOtpEnrollmentSealKeyVersion: string | null = null;
+    let emailOtpEnrollmentMaterial: WalletEmailOtpEnrollmentMaterialV1 | null = null;
+    const existingEnrollment = preparation.enrollment.kind === 'existing_enrollment';
     try {
-      const targetPreparationDigestB64u = await computeLinkedDeviceTargetPreparationDigestV1(
-        context.preparation,
-      );
-      const opened = await this.ports.keyMaterial.openEmailOtpFactorReleaseV1({
-        keyMaterial: this.requireKeyMaterialHandleV1(),
-        walletId: context.preparation.walletId,
-        linkSessionId: context.preparation.linkSessionId,
-        enrollmentId: context.preparation.enrollmentId,
-        deviceId: context.preparation.deviceId,
-        walletAuthMethodId: context.preparation.walletAuthMethodId,
-        baseWalletAuthMethodId: verification.verificationGrant.baseWalletAuthMethodId,
-        targetPreparationDigestB64u,
-        expectedChallengeId: context.challenge.challengeId,
-        verificationGrant: verification.verificationGrant,
-        factorRelease: verification.factorRelease,
-      });
-      factorSecret = opened.factorSecret;
+      const targetPreparationDigestB64u =
+        await computeLinkedDeviceTargetPreparationDigestV1(preparation);
+      if (verification.verificationGrant.targetEmail !== preparation.targetEmail) {
+        throw new Error('linked-device Email OTP verification target email changed');
+      }
+      if (existingEnrollment) {
+        const existingVerificationGrant = verification.verificationGrant;
+        if (existingVerificationGrant.enrollment.kind !== 'existing_enrollment') {
+          throw new Error('linked-device Email OTP verification enrollment changed');
+        }
+        const baseWalletAuthMethodId = existingVerificationGrant.baseWalletAuthMethodId;
+        if (!baseWalletAuthMethodId) {
+          throw new Error('linked-device Email OTP base auth method is unavailable');
+        }
+        const factorRelease = verification.factorRelease;
+        if (!factorRelease) {
+          throw new Error('linked-device Email OTP factor release is unavailable');
+        }
+        const opened = await this.ports.keyMaterial.openEmailOtpFactorReleaseV1({
+          keyMaterial: this.requireKeyMaterialHandleV1(),
+          walletId: preparation.walletId,
+          linkSessionId: preparation.linkSessionId,
+          enrollmentId: preparation.enrollmentId,
+          deviceId: preparation.deviceId,
+          walletAuthMethodId: preparation.walletAuthMethodId,
+          baseWalletAuthMethodId,
+          targetPreparationDigestB64u,
+          expectedChallengeId: context.challenge.challengeId,
+          verificationGrant: existingVerificationGrant,
+          factorRelease,
+        });
+        factorSecret = opened.factorSecret;
+        verificationGrant = opened.verificationGrant;
+        emailOtpEnrollmentId = factorRelease.enrollmentId;
+        emailOtpEnrollmentSealKeyVersion = factorRelease.enrollmentSealKeyVersion;
+      } else {
+        const newVerificationGrant = verification.verificationGrant;
+        if (newVerificationGrant.enrollment.kind !== 'new_enrollment') {
+          throw new Error('linked-device Email OTP verification enrollment changed');
+        }
+        if (verification.factorRelease !== null) {
+          throw new Error('new linked-device Email OTP enrollment returned a factor release');
+        }
+        const authenticationContext = this.getAuthenticationContext?.();
+        if (!authenticationContext) {
+          throw new Error('linked-device authentication context is unavailable');
+        }
+        const freshFactorSecret = createEmailOtpFactorSecretV1();
+        factorSecret = freshFactorSecret.buffer;
+        const enrollment = await prepareNewEmailOtpEnrollmentMaterialV1({
+          context: authenticationContext,
+          walletId: preparation.walletId,
+          targetEmail: preparation.targetEmail,
+          factorSecret: freshFactorSecret,
+        });
+        emailOtpEnrollmentId = enrollment.enrollmentId;
+        emailOtpEnrollmentSealKeyVersion = enrollment.enrollment.enrollmentSealKeyVersion;
+        emailOtpEnrollmentMaterial = enrollment.enrollment;
+        verificationGrant = newVerificationGrant;
+      }
+      if (
+        !factorSecret ||
+        !verificationGrant ||
+        !emailOtpEnrollmentId ||
+        !emailOtpEnrollmentSealKeyVersion
+      ) {
+        throw new Error('linked-device Email OTP factor material is unavailable');
+      }
       this.assertCurrentRun(context.runEpoch);
       if (context.exportRoot.kind === 'required') {
         if (!recipient) {
           throw new Error('linked-device Ed25519 export-root recipient is unavailable');
         }
-        const exportRoot = context.preparation.ed25519ExportRoot;
+        const exportRoot = preparation.ed25519ExportRoot;
         if (!exportRoot) {
           throw new Error('linked-device Ed25519 export-root preparation is unavailable');
         }
         const envelopeId = createExportRootEnvelopeIdV1();
         const factor = buildEmailOtpEnvelopeFactor({
-          enrollmentId: verification.factorRelease.enrollmentId,
-          enrollmentSealKeyVersion: verification.factorRelease.enrollmentSealKeyVersion,
+          enrollmentId: emailOtpEnrollmentId,
+          enrollmentSealKeyVersion: emailOtpEnrollmentSealKeyVersion,
         });
         const binding = buildEd25519YaoClientRootBinding({
-          linkSessionId: context.preparation.linkSessionId,
+          linkSessionId: preparation.linkSessionId,
           walletKeyId: exportRoot.walletKeyId,
-          targetFactor: context.preparation.targetFactor,
+          targetFactor: preparation.targetFactor,
           applicationBindingDigestB64u: exportRoot.applicationBindingDigestB64u,
           registeredPublicKeyB64u: exportRoot.registeredPublicKeyB64u,
-          enrollmentId: context.preparation.enrollmentId,
-          deviceId: context.preparation.deviceId,
+          enrollmentId: preparation.enrollmentId,
+          deviceId: preparation.deviceId,
           revocationEpoch: exportRoot.revocationEpoch,
         });
         const resealed = await acceptLinkedDeviceEd25519ExportRootV1({
@@ -1117,8 +1310,8 @@ export class LinkDeviceFlow {
           transport: this.requireAuthenticatedTransport(),
           recipient,
           replacementEnvelope: buildDeviceLinkingEd25519ExportRootReplacementEnvelopeV1({
-            walletId: context.preparation.walletId,
-            ownership: buildMethodBoundEnvelopeOwnership(context.preparation.walletAuthMethodId),
+            walletId: preparation.walletId,
+            ownership: buildMethodBoundEnvelopeOwnership(preparation.walletAuthMethodId),
             envelopeId,
             factor,
             binding,
@@ -1126,7 +1319,7 @@ export class LinkDeviceFlow {
           }),
           replacementFactorSecret: new Uint8Array(factorSecret),
           expiresAtMs: Math.min(
-            context.preparation.expiresAtMs,
+            preparation.expiresAtMs,
             this.requireSessionV1().qrData.expiresAtMs,
           ),
           assertCurrentRun: () => this.assertCurrentRun(context.runEpoch),
@@ -1135,18 +1328,36 @@ export class LinkDeviceFlow {
         this.resealedExportRoot = resealed;
         recipient = null;
       }
-      const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
-        linkSessionId: context.preparation.linkSessionId,
-        walletId: context.preparation.walletId,
-        enrollmentId: context.preparation.enrollmentId,
-        deviceId: context.preparation.deviceId,
-        walletAuthMethodId: context.preparation.walletAuthMethodId,
-        targetFactor: { kind: 'email_otp' },
-        emailOtpVerificationGrant: opened.verificationGrant,
-        targetPreparationDigestB64u,
-        ordinarySignerMaterialRecipientRequests: context.ordinarySignerMaterialRecipientRequests,
-        registeredAtMs: Date.now(),
-      });
+      const registration = existingEnrollment
+        ? buildLinkedDeviceTargetCredentialRegistrationV1({
+            linkSessionId: preparation.linkSessionId,
+            walletId: preparation.walletId,
+            enrollmentId: preparation.enrollmentId,
+            deviceId: preparation.deviceId,
+            walletAuthMethodId: preparation.walletAuthMethodId,
+            targetFactor: { kind: 'email_otp' },
+            targetEmail: preparation.targetEmail,
+            emailOtpVerificationGrant: verificationGrant,
+            targetPreparationDigestB64u,
+            ordinarySignerMaterialRecipientRequests:
+              context.ordinarySignerMaterialRecipientRequests,
+            registeredAtMs: Date.now(),
+          })
+        : buildLinkedDeviceTargetCredentialRegistrationV1({
+            linkSessionId: preparation.linkSessionId,
+            walletId: preparation.walletId,
+            enrollmentId: preparation.enrollmentId,
+            deviceId: preparation.deviceId,
+            walletAuthMethodId: preparation.walletAuthMethodId,
+            targetFactor: { kind: 'email_otp' },
+            targetEmail: preparation.targetEmail,
+            emailOtpVerificationGrant: verificationGrant,
+            emailOtpEnrollment: requireNewEmailOtpEnrollmentMaterialV1(emailOtpEnrollmentMaterial),
+            targetPreparationDigestB64u,
+            ordinarySignerMaterialRecipientRequests:
+              context.ordinarySignerMaterialRecipientRequests,
+            registeredAtMs: Date.now(),
+          });
       const registrationResult =
         await this.requireAuthenticatedTransport().registerTargetCredentialV1({ registration });
       this.assertCurrentRun(context.runEpoch);
@@ -1167,11 +1378,17 @@ export class LinkDeviceFlow {
         linkSessionId: context.preparation.linkSessionId,
         stage: 'ordinary_signer_material_prepared',
       });
+      if (!retainedFactorSecret) {
+        throw new Error('linked-device Email OTP factor runtime is unavailable');
+      }
       this.emailOtpTargetActivationState = {
         kind: 'completed',
         runEpoch: context.runEpoch,
+        enrollment: existingEnrollment
+          ? { kind: 'existing_enrollment' }
+          : { kind: 'new_enrollment' },
         factorSecret: retainedFactorSecret,
-        providerUserId: verification.verificationGrant.providerUserId,
+        providerUserId: verificationGrant.providerUserId,
       };
       retainedFactorSecret = null;
       this.notifyEmailOtpActivationV1({
@@ -1527,13 +1744,23 @@ export class LinkDeviceFlow {
     readonly state: AwaitingTargetFactorStateV1;
     readonly linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId;
   }): void {
+    const sessionTargetFactor = this.requireSessionTargetFactorV1();
+    const qrData = this.requireSessionV1().qrData;
     if (
       input.preparation.linkSessionId !== input.linkSessionId ||
       String(input.preparation.deviceId) !== String(input.state.deviceId) ||
-      input.preparation.targetFactor.kind !== this.requireSessionTargetFactorV1().kind ||
+      input.preparation.targetFactor.kind !== sessionTargetFactor.kind ||
       input.preparation.expiresAtMs <= Date.now()
     ) {
       throw new Error('linked-device target preparation does not match the claimed session');
+    }
+    if (
+      sessionTargetFactor.kind === 'email_otp' &&
+      qrData.targetFactor.kind === 'email_otp' &&
+      input.preparation.targetFactor.kind === 'email_otp' &&
+      input.preparation.targetEmail !== qrData.targetEmail
+    ) {
+      throw new Error('linked-device target preparation email does not match the QR session');
     }
   }
 
@@ -1570,18 +1797,31 @@ export class LinkDeviceFlow {
       committedAtMs: Date.now(),
     });
     this.assertCurrentRun(runEpoch);
-    return await activateLinkedAuthorityV1({
-      transport,
-      committed,
-      installation: this.ports.authorityInstallation,
-      sessionState: state,
-      linkSessionId: this.requireSessionV1().linkSessionId,
-      targetFactor: registration.targetFactor,
-      keyMaterial,
-      resealedExportRoot: this.resealedExportRoot,
-      expectedLockGeneration,
-      nowMs: () => Date.now(),
-    });
+    const activationDeadlineMs = this.requireSessionV1().qrData.expiresAtMs;
+    let attempt = 0;
+    while (Date.now() < activationDeadlineMs) {
+      const result = await activateLinkedAuthorityV1({
+        transport,
+        committed,
+        installation: this.ports.authorityInstallation,
+        sessionState: state,
+        linkSessionId: this.requireSessionV1().linkSessionId,
+        targetFactor: registration.targetFactor,
+        keyMaterial,
+        resealedExportRoot: this.resealedExportRoot,
+        expectedLockGeneration,
+        nowMs: () => Date.now(),
+      });
+      if (result.kind !== 'pending_local_install') return result;
+      await waitForSessionStateRetry(attempt);
+      this.assertCurrentRun(runEpoch);
+      attempt += 1;
+    }
+    throw new DeviceLinkingError(
+      'Linked-device authority activation did not complete before the link session expired',
+      DeviceLinkingErrorCode.REGISTRATION_FAILED,
+      'registration',
+    );
   }
 
   private async finishActiveAuthorityV1(
@@ -1590,6 +1830,7 @@ export class LinkDeviceFlow {
       { readonly state: 'provisioning' | 'authority_pending_local_install' | 'active' }
     >,
     walletSession: ActiveWalletSessionV1,
+    operationCredential: import('@shared/device-linking').WalletSessionOperationCredentialV1,
     runEpoch: number,
   ): Promise<void> {
     this.assertCurrentRun(runEpoch);
@@ -1598,7 +1839,7 @@ export class LinkDeviceFlow {
     if (!registration || registration.walletId !== walletSession.walletId) {
       throw new Error('linked-device activation identity is unavailable');
     }
-    this.session = {
+    const activeSession: DeviceLinkingSession = {
       ...session,
       state: {
         state: 'active',
@@ -1618,24 +1859,62 @@ export class LinkDeviceFlow {
     if (!authenticationContext) {
       throw new Error('linked-device authentication context is unavailable');
     }
-    if (registration.targetFactor.kind === 'verified_email_otp_target_v1') {
-      const activation = this.emailOtpTargetActivationState;
-      if (activation.kind !== 'completed' || activation.runEpoch !== runEpoch) {
-        throw new Error('linked-device Email OTP factor runtime is unavailable');
-      }
-      await activateLinkedEmailOtpEcdsaHolderAfterLink({
-        context: authenticationContext,
-        walletId: walletSession.walletId,
-        walletAuthMethodId: registration.walletAuthMethodId,
-        emailHashHex: registration.targetFactor.authMethod.emailHashHex,
-        providerUserId: activation.providerUserId,
-        walletSession,
-        factorSecret32: activation.factorSecret,
-      });
-    }
+    const postLinkActivation =
+      registration.targetFactor.kind === 'verified_passkey_target_v1'
+        ? (() => {
+            const activation = this.targetCredentialActivationState;
+            if (
+              (activation.kind !== 'factor_ready' && activation.kind !== 'consuming') ||
+              activation.runEpoch !== runEpoch
+            ) {
+              throw new Error('linked-device Passkey factor runtime is unavailable');
+            }
+            return {
+              factor: {
+                kind: 'passkey' as const,
+                walletId: walletSession.walletId,
+              },
+              factorSecret32: activation.factorSecret,
+            };
+          })()
+        : (() => {
+            const activation = requireCompletedEmailOtpTargetActivationStateV1(
+              this.emailOtpTargetActivationState,
+            );
+            if (activation.runEpoch !== runEpoch) {
+              throw new Error('linked-device Email OTP factor runtime is unavailable');
+            }
+            return {
+              factor: {
+                kind: 'email_otp' as const,
+                walletId: walletSession.walletId,
+                walletAuthMethodId: registration.walletAuthMethodId,
+                emailHashHex: registration.targetFactor.authMethod.emailHashHex,
+                providerIdentity: {
+                  provider: emailOtpProviderForLinkedEnrollment(activation.enrollment),
+                  providerSubjectId: activation.providerUserId,
+                },
+              },
+              factorSecret32: activation.factorSecret,
+            };
+          })();
+    await activateLinkedDeviceSignerRuntimesAfterLink({
+      context: authenticationContext,
+      factor: postLinkActivation.factor,
+      walletSession,
+      operationCredential,
+      factorSecret32: postLinkActivation.factorSecret32,
+    });
+    this.session = activeSession;
     authenticationContext.signingEngine.setWalletAuthenticated(
       linkedDeviceWalletAuthenticationState(walletSession, registration),
     );
+    await this.cleanupCompletedLocalResources();
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: session.qrData.linkSessionId,
+      stage: 'post_link_runtime_ready',
+    });
     this.emit({
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
@@ -1647,7 +1926,6 @@ export class LinkDeviceFlow {
       },
       interaction: { kind: 'qr_display', overlay: 'hide' },
     });
-    await this.cleanupCompletedLocalResources();
   }
 
   private requireAuthenticatedTransport(): DeviceLinkingAuthenticatedTransportPortV1 {
@@ -1777,7 +2055,12 @@ export class LinkDeviceFlow {
             'registration',
           );
         }
-        await this.finishActiveAuthorityV1(event.state, result.session, runEpoch);
+        await this.finishActiveAuthorityV1(
+          event.state,
+          result.session,
+          result.operationCredential,
+          runEpoch,
+        );
         return;
       }
       default:
@@ -1868,7 +2151,10 @@ export class LinkDeviceFlow {
 
   private clearEmailOtpTargetActivationState(): void {
     const state = this.emailOtpTargetActivationState;
-    if (state.kind === 'completed') state.factorSecret.fill(0);
+    if (state.kind === 'completed') {
+      const completedState = requireCompletedEmailOtpTargetActivationStateV1(state);
+      completedState.factorSecret.fill(0);
+    }
     this.emailOtpTargetActivationState = { kind: 'idle' };
   }
 

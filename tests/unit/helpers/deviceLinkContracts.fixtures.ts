@@ -103,6 +103,7 @@ export function buildR103DeviceLinkFixture(
     readonly enrollmentId?: string;
     readonly deviceId?: string;
     readonly targetFactor?: LinkedDeviceTargetFactorV1;
+    readonly targetEmail?: string;
     readonly issuedAtMs?: number;
     readonly expiresAtMs?: number;
   } = {},
@@ -117,6 +118,8 @@ export function buildR103DeviceLinkFixture(
   );
   const deviceId = required(parseLinkedDeviceId(input.deviceId ?? 'device:r103'));
   const walletKeyId = required(parseWalletKeyId('wallet-key:r103'));
+  const targetEmail =
+    targetFactor.kind === 'email_otp' ? (input.targetEmail ?? 'owner@example.test') : undefined;
   const payload = parseQrLinkedDeviceSessionPayloadV5({
     version: 'v5',
     purpose: 'linked_device_lane_creation',
@@ -125,6 +128,7 @@ export function buildR103DeviceLinkFixture(
     devicePublicKeyB64u: PUBLIC_KEY_B64U,
     requestedPermission: buildSigningOnlyDelegatedWalletAuthorityV1(),
     targetFactor,
+    ...(targetEmail === undefined ? {} : { targetEmail }),
     issuedAtMs: input.issuedAtMs ?? 1_000,
     expiresAtMs: input.expiresAtMs ?? 10_000,
   });
@@ -137,13 +141,18 @@ export function buildR103DeviceLinkFixture(
     signingWorker: required(parseMpcSigningWorkerRef('worker:r103')),
   });
   const sourceWalletAuthMethodId = required(parseWalletAuthMethodId('passkey:wallet:r103'));
-  const approvedTargetFactor: LinkedDeviceApprovedTargetFactorV1 =
-    targetFactor.kind === 'passkey_prf'
-      ? { kind: 'passkey_prf' }
-      : {
-          kind: 'email_otp',
-          baseWalletAuthMethodId: required(parseWalletAuthMethodId('email-otp:wallet:r103')),
-        };
+  let approvedTargetFactor: LinkedDeviceApprovedTargetFactorV1;
+  if (targetFactor.kind === 'passkey_prf') {
+    approvedTargetFactor = { kind: 'passkey_prf' };
+  } else {
+    if (!payload.targetEmail) throw new Error('Email OTP fixture target email is missing');
+    approvedTargetFactor = {
+      kind: 'email_otp',
+      targetEmail: payload.targetEmail,
+      enrollment: { kind: 'existing_enrollment' },
+      baseWalletAuthMethodId: required(parseWalletAuthMethodId('email-otp:wallet:r103')),
+    };
+  }
   const sourceSignerManifest = buildExactAdministeredSignerManifestV1([
     {
       kind: 'exact_administered_ed25519_signer_v1',

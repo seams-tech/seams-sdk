@@ -24,6 +24,7 @@ import type {
   WalletAuthMethodRecordV2,
   PasskeyWalletAuthMethodDraftV1,
   EmailOtpWalletAuthMethodDraftV1,
+  WalletEmailOtpEnrollmentMaterialV1,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { parseDeviceId } from '@shared/authorization/capabilityKinds';
@@ -134,9 +135,21 @@ export async function buildVerifiedLinkInputV1(
     permissions: input.approval.permission.permissions,
     signerManifest: source.signerManifest,
     sourceContribution,
+    emailOtpEnrollment: targetEmailOtpEnrollmentForRegistration(input.registration),
     ordinarySignerMaterialRecipientRequests:
       input.registration.ordinarySignerMaterialRecipientRequests,
   };
+}
+
+function targetEmailOtpEnrollmentForRegistration(
+  registration: LinkedDeviceTargetCredentialRegistrationV1,
+): WalletEmailOtpEnrollmentMaterialV1 | null {
+  if (registration.targetFactor.kind !== 'email_otp') return null;
+  const grant = registration.emailOtpVerificationGrant;
+  if (!grant || grant.enrollment.kind !== 'new_enrollment') return null;
+  const material = registration.emailOtpEnrollment;
+  if (!material) throw new Error('Email OTP target enrollment material is missing');
+  return material;
 }
 
 export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
@@ -155,7 +168,12 @@ export async function computeVerifiedTargetFactorVerificationDigestV1(input: {
       : {
           kind: input.evidence.kind,
           grantId: input.evidence.grant.grantId,
-          baseWalletAuthMethodId: input.evidence.grant.baseWalletAuthMethodId,
+          targetEmail: input.evidence.grant.targetEmail,
+          enrollment: input.evidence.grant.enrollment.kind,
+          providerUserId: input.evidence.grant.providerUserId,
+          ...(input.evidence.grant.enrollment.kind === 'existing_enrollment'
+            ? { baseWalletAuthMethodId: input.evidence.grant.baseWalletAuthMethodId }
+            : {}),
           authorityDigestB64u: input.evidence.grant.authorityDigestB64u,
           descriptorCredentialIdB64u: input.evidence.grant.descriptorCredentialIdB64u,
         };
@@ -234,10 +252,31 @@ export async function buildVerifiedTargetFactorV1(
     grant.deviceId !== input.registration.deviceId ||
     grant.targetPreparationDigestB64u !== input.registration.targetPreparationDigestB64u ||
     grant.grantId !== input.evidence.grant.grantId ||
-    grant.baseWalletAuthMethodId !== input.evidence.grant.baseWalletAuthMethodId ||
     grant.authorityDigestB64u !== input.evidence.grant.authorityDigestB64u
   ) {
     throw new Error('Email OTP target factor grant identity changed');
+  }
+  if (
+    grant.targetEmail !== input.registration.targetEmail ||
+    grant.targetEmail !== input.preparation.targetEmail ||
+    grant.enrollment.kind !== input.evidence.grant.enrollment.kind ||
+    grant.providerUserId !== input.evidence.grant.providerUserId
+  ) {
+    throw new Error('Email OTP target factor enrollment identity changed');
+  }
+  if (grant.enrollment.kind === 'existing_enrollment') {
+    if (
+      input.evidence.grant.enrollment.kind !== 'existing_enrollment' ||
+      grant.baseWalletAuthMethodId !== input.evidence.grant.baseWalletAuthMethodId ||
+      grant.baseWalletAuthMethodId !== input.preparation.baseWalletAuthMethodId
+    ) {
+      throw new Error('Email OTP target factor base identity changed');
+    }
+  } else if (
+    input.evidence.grant.enrollment.kind !== 'new_enrollment' ||
+    input.registration.emailOtpEnrollment === undefined
+  ) {
+    throw new Error('Email OTP target factor enrollment material is missing');
   }
   const authMethod: EmailOtpWalletAuthMethodDraftV1 = {
     walletAuthMethodId: input.registration.walletAuthMethodId,
@@ -247,10 +286,28 @@ export async function buildVerifiedTargetFactorV1(
     emailHashHex: grant.emailHashHex,
     registrationAuthorityId: grant.registrationAuthorityId,
   };
+  if (grant.enrollment.kind === 'existing_enrollment') {
+    const baseWalletAuthMethodId = grant.baseWalletAuthMethodId;
+    if (!baseWalletAuthMethodId) {
+      throw new Error('Email OTP existing target factor is missing its base factor');
+    }
+    return {
+      kind: 'verified_email_otp_target_v1',
+      authMethod,
+      targetEmail: grant.targetEmail,
+      enrollment: grant.enrollment,
+      baseWalletAuthMethodId,
+      providerUserId: grant.providerUserId,
+      verificationDigestB64u,
+      verifiedAtMs,
+    };
+  }
   return {
     kind: 'verified_email_otp_target_v1',
     authMethod,
-    baseWalletAuthMethodId: grant.baseWalletAuthMethodId,
+    targetEmail: grant.targetEmail,
+    enrollment: grant.enrollment,
+    providerUserId: grant.providerUserId,
     verificationDigestB64u,
     verifiedAtMs,
   };
