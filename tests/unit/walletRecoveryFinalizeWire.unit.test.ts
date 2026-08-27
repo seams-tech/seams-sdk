@@ -10,6 +10,8 @@ import {
   WALLET_ID,
   passkeyCustodyEnvelope,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
 
 const REGISTRATION: WebAuthnRegistrationCredential = {
   id: 'replacement-credential',
@@ -69,6 +71,20 @@ function finalizeWith(fetchImpl: typeof fetch) {
   });
 }
 
+async function recoveryProjectionFixture() {
+  return await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'recovery-wire',
+    permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
+    provenance: 'wallet_registration',
+    identity: {
+      walletId: WALLET_ID,
+      authorityId: 'wallet-authority:replacement',
+      walletAuthMethodId: 'wallet-auth-method:replacement',
+      rpId: 'example.localhost',
+    },
+  });
+}
+
 test('the route is registered where the client posts', () => {
   const routeDefinitions = createRouterApiRouteDefinitions();
   const route = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_finalize');
@@ -77,17 +93,13 @@ test('the route is registered where the client posts', () => {
 
 test('finalize posts only the atomic R114 promotion request', async () => {
   const captured: CapturedRequest = { url: '', body: null };
+  const projection = await recoveryProjectionFixture();
   const result = await finalizeWith(
     captureRequest(captured, {
       ok: true,
       storeVersion: '2',
-      walletAuthMethodId: 'wallet-auth-method:replacement',
-      walletAuthorityId: 'wallet-authority:replacement',
-      credential: {
-        credentialIdB64u: 'replacement-credential',
-        credentialPublicKeyB64u: 'AQID',
-        counter: 0,
-      },
+      authority: projection.authority,
+      authMethod: projection.authMethod,
     }),
   );
 
@@ -112,13 +124,8 @@ test('finalize posts only the atomic R114 promotion request', async () => {
   expect(result).toEqual({
     kind: 'promoted',
     storeVersion: '2',
-    walletAuthMethodId: 'wallet-auth-method:replacement',
-    walletAuthorityId: 'wallet-authority:replacement',
-    credential: {
-      credentialIdB64u: 'replacement-credential',
-      credentialPublicKeyB64u: 'AQID',
-      counter: 0,
-    },
+    authority: projection.authority,
+    authMethod: projection.authMethod,
   });
 });
 

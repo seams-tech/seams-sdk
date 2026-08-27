@@ -1610,6 +1610,7 @@ export class IntendedBehaviourHarness {
       registration.walletId,
     );
     this.passkeyPromptCount += 2;
+    this.operatingAuthFamily = 'passkey';
     this.currentWarmSigningStage = 'post_unlock';
     this.recordService('fresh-browser passkey recovery completed through normal passkey login');
   }
@@ -2022,10 +2023,16 @@ export class IntendedBehaviourHarness {
        everywhere else, so this is an opt-out a step must take rather than a
        prefix the flow can accidentally match. */
     if (this.crossFamilyAuthMethodAdditionRan) return;
-    if (this.flow.startsWith('passkey') && this.emailOtpVerificationCount > 0) {
+    if (
+      (this.flow === 'passkey.registration' || this.flow === 'passkey.unlock') &&
+      this.emailOtpVerificationCount > 0
+    ) {
       throw new Error('Passkey lifecycle used Email OTP verification');
     }
-    if (this.flow.startsWith('email_otp') && this.passkeyPromptCount > 0) {
+    if (
+      (this.flow === 'email_otp.registration' || this.flow === 'email_otp.unlock') &&
+      this.passkeyPromptCount > 0
+    ) {
       throw new Error('Email OTP lifecycle used passkey/WebAuthn verification');
     }
   }
@@ -2851,7 +2858,12 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
     return 'passkey.registration';
   }
   if (normalized.endsWith('passkey.unlock.contract.test.ts')) return 'passkey.unlock';
-  if (normalized.endsWith('passkey.recovery.contract.test.ts')) return 'passkey.recovery';
+  if (
+    normalized.endsWith('passkey.recovery.contract.test.ts') ||
+    normalized.endsWith('passkey-only.recovery.contract.test.ts')
+  ) {
+    return 'passkey.recovery';
+  }
   if (
     normalized.endsWith('email-otp.registration.contract.test.ts') ||
     normalized.endsWith('email-otp.add-passkey.contract.test.ts') ||

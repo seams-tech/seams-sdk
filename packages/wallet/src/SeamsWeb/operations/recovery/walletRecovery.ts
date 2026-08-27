@@ -189,7 +189,7 @@ function promotedPendingContinuityOperation(
 function recoveredPasskeyWalletAuthAuthority(input: {
   readonly walletId: WalletId;
   readonly rpId: WebAuthnRpId;
-  readonly credentialIdB64u: CommittedRecoveryPromotion['credential']['credentialIdB64u'];
+  readonly credentialIdB64u: CommittedRecoveryPromotion['authMethod']['credentialIdB64u'];
   readonly walletAuthMethodId: WalletAuthMethodId;
 }): PasskeyWalletAuthAuthority {
   return {
@@ -259,17 +259,17 @@ async function persistRecoveredLocalContinuity(input: {
   readonly context: WalletRecoveryWebContext;
   readonly operation: Extract<RecoveryOperation, { stage: 'promoted_pending_continuity' }>;
 }): Promise<void> {
+  const committedAuthMethod = input.operation.committedPromotion.authMethod;
   const authority = await walletAuthAuthorityRef({
     authority: recoveredPasskeyWalletAuthAuthority({
       walletId: input.operation.walletId,
       rpId: input.operation.prepared.registration.rpId,
-      credentialIdB64u: input.operation.replacement.credentialIdB64u,
-      walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
+      credentialIdB64u: committedAuthMethod.credentialIdB64u,
+      walletAuthMethodId: committedAuthMethod.walletAuthMethodId,
     }),
   });
 
   const replacement = input.operation.replacement;
-  const committedCredential = input.operation.committedPromotion.credential;
   const nearProjection = input.operation.recovered.nearKeySets;
   if (nearProjection.length > 0) {
     for (const recovered of nearProjection) {
@@ -282,7 +282,7 @@ async function persistRecoveredLocalContinuity(input: {
         operationalPublicKey: `ed25519:${base58Encode(recovered.metadata.registeredPublicKey)}`,
         rpId: input.operation.prepared.registration.rpId,
         credential: replacement.registration,
-        credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
+        credentialPublicKeyB64u: committedAuthMethod.credentialPublicKeyB64u,
         relayerKeyId: recovered.metadata.scope.signing_worker_id,
         keyVersion: NEAR_ED25519_YAO_KEY_VERSION_V1,
         participantIds: [...recovered.metadata.participantIds],
@@ -290,13 +290,8 @@ async function persistRecoveredLocalContinuity(input: {
     }
     await persistRecoveredPasskeyAuthMethodProjectionV1({
       kind: 'near',
-      walletId: input.operation.walletId,
-      walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
-      walletAuthorityId: input.operation.committedPromotion.walletAuthorityId,
-      rpId: input.operation.prepared.registration.rpId,
-      credentialIdB64u: committedCredential.credentialIdB64u,
-      credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
-      counter: committedCredential.counter,
+      authority: input.operation.committedPromotion.authority,
+      authMethod: committedAuthMethod,
       credential: {
         id: replacement.registration.id,
         rawId: replacement.registration.rawId,
@@ -305,14 +300,9 @@ async function persistRecoveredLocalContinuity(input: {
   } else {
     await persistRecoveredPasskeyAuthMethodProjectionV1({
       kind: 'wallet_only',
-      walletId: input.operation.walletId,
-      walletAuthMethodId: input.operation.committedPromotion.walletAuthMethodId,
-      walletAuthorityId: input.operation.committedPromotion.walletAuthorityId,
+      authority: input.operation.committedPromotion.authority,
+      authMethod: committedAuthMethod,
       signerSlot: ECDSA_ONLY_WALLET_SIGNER_SLOT,
-      rpId: input.operation.prepared.registration.rpId,
-      credentialIdB64u: committedCredential.credentialIdB64u,
-      credentialPublicKeyB64u: committedCredential.credentialPublicKeyB64u,
-      counter: committedCredential.counter,
       credential: {
         id: replacement.registration.id,
         rawId: replacement.registration.rawId,
@@ -500,7 +490,7 @@ export class WalletRecoveryCoordinator {
           return finalized;
         }
         if (finalized.kind !== 'promoted') return finalized;
-        if (finalized.credential.credentialIdB64u !== current.replacement.credentialIdB64u) {
+        if (finalized.authMethod.credentialIdB64u !== current.replacement.credentialIdB64u) {
           return { kind: 'transport_uncertain' };
         }
         current = promotedPendingContinuityOperation(current, finalized);

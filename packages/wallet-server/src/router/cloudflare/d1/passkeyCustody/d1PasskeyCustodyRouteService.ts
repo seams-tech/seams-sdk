@@ -70,6 +70,8 @@ import type {
   WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
+import type { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   projectWalletUnlockKeyManifestV1,
   projectWalletRecoveryPreparationKeyManifestV1,
@@ -142,6 +144,18 @@ export type WalletCustodyEnvelopeOwnershipUpgradeResult =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'conflict'; readonly reason: string }
   | { readonly kind: 'refused'; readonly reason: string };
+
+type WalletRecoveryRouteFinalizationResult =
+  | {
+      readonly kind: 'promoted';
+      readonly storeVersion: string;
+      readonly authority: ActiveWalletAuthorityV1;
+      readonly authMethod: Extract<
+        WalletAuthMethodRecordV2,
+        { readonly kind: 'passkey'; readonly status: 'active' }
+      >;
+    }
+  | Exclude<WalletRecoveryFinalizationResult, { readonly kind: 'promoted' }>;
 
 export interface RouterApiPasskeyCustodyService {
   readVerifiedFactorCustody(request: {
@@ -229,7 +243,7 @@ export interface RouterApiPasskeyCustodyService {
       readonly keySetId: string;
       readonly proof: WalletRecoveryEcdsaPossessionProofV1;
     }[];
-  }): Promise<WalletRecoveryFinalizationResult>;
+  }): Promise<WalletRecoveryRouteFinalizationResult>;
 
   /**
    * Records that the owner confirmed saving their recovery codes.
@@ -383,6 +397,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
   readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
   readonly walletStore: D1WalletStore;
+  readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly logger: NormalizedLogger;
   /** Injected so the reservation window is testable without waiting. */
@@ -914,6 +929,7 @@ async function finalizeRecoveryForRoute(
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
     readonly walletStore: D1WalletStore;
+    readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
     readonly nowMs?: () => number;
   },
@@ -930,8 +946,8 @@ async function finalizeRecoveryForRoute(
       readonly proof: WalletRecoveryEcdsaPossessionProofV1;
     }[];
   },
-): Promise<WalletRecoveryFinalizationResult> {
-  return await finalizeRecoveredWalletCredentialV1({
+): Promise<WalletRecoveryRouteFinalizationResult> {
+  const result = await finalizeRecoveredWalletCredentialV1({
     envelopeStore: assembly.passkeyCustodyEnvelopes,
     walletCustodyCommits: assembly.walletCustodyCommits,
     walletId: request.walletId,
@@ -946,6 +962,32 @@ async function finalizeRecoveryForRoute(
     ecdsaMaterialPossessionProofs: request.ecdsaMaterialPossessionProofs,
     nowMs: (assembly.nowMs ?? Date.now)(),
   });
+  if (result.kind !== 'promoted') return result;
+  const [authority, authMethod] = await Promise.all([
+    assembly.walletAuthorityStore.readById(result.walletAuthorityId),
+    assembly.walletCustodyCommits.readWalletAuthMethodById(result.walletAuthMethodId),
+  ]);
+  if (
+    !authority ||
+    authority.state !== 'active' ||
+    authority.walletId !== request.walletId ||
+    !authMethod ||
+    authMethod.kind !== 'passkey' ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== request.walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.credentialIdB64u !== result.credential.credentialIdB64u ||
+    authMethod.credentialPublicKeyB64u !== result.credential.credentialPublicKeyB64u ||
+    authMethod.counter !== result.credential.counter
+  ) {
+    throw new Error('recovery promotion authority projection is unavailable');
+  }
+  return {
+    kind: 'promoted',
+    storeVersion: result.storeVersion,
+    authority,
+    authMethod,
+  };
 }
 
 async function buildEcdsaPossessionChallenges(input: {

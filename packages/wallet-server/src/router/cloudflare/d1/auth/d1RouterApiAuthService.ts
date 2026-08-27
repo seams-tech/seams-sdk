@@ -2584,6 +2584,7 @@ export function createCloudflareD1RouterApiAuthService(
       passkeyCustodyEnvelopes: assembly.passkeyCustodyEnvelopes,
       walletCustodyCommits: assembly.walletCustodyCommitStore,
       walletStore: assembly.walletStore,
+      walletAuthorityStore: assembly.walletAuthorityStore,
       webAuthnStore: assembly.webAuthnStore,
       logger: normalizeLogger(),
     }),

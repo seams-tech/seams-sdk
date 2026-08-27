@@ -335,6 +335,15 @@ export type WalletLockGenerationAdvanceInputV1 = {
   readonly lockedAtMs: number;
 };
 
+export type RecoveredWalletAuthorityProjectionInputV1 = {
+  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+  readonly authMethod: Extract<
+    WalletAuthMethodRecordV2,
+    { readonly kind: 'passkey'; readonly status: 'active' }
+  >;
+  readonly recoveredAtMs: number;
+};
+
 export type ResolveSelectedWalletAuthorityResultV1 =
   | {
       readonly kind: 'resolved';
@@ -2706,6 +2715,40 @@ export class SeamsWalletRepositories {
     );
   }
 
+  async persistRecoveredWalletAuthority(
+    input: RecoveredWalletAuthorityProjectionInputV1,
+  ): Promise<void> {
+    const authority = requireBoundaryParsed(parseWalletAuthorityV1(input.authority), 'authority');
+    const authMethod = parseWalletAuthMethodRecordV2(input.authMethod);
+    const recoveredAtMs = parseNonNegativeSafeInteger(input.recoveredAtMs, 'recoveredAtMs');
+    if (
+      authority.state !== 'active' ||
+      !authMethod ||
+      authMethod.kind !== 'passkey' ||
+      authMethod.status !== 'active' ||
+      authMethod.walletId !== authority.walletId ||
+      authMethod.walletAuthorityId !== authority.authorityId
+    ) {
+      throw new Error('recovered Wallet Authority projection is invalid');
+    }
+    if (!(await walletAuthorityDigestsMatchV1(authority))) {
+      throw new Error('recovered Wallet Authority digest is invalid');
+    }
+    await this.manager.runTransaction(
+      [
+        SEAMS_WALLET_STORES.walletAuthorities,
+        SEAMS_WALLET_STORES.walletSelections,
+        SEAMS_WALLET_STORES.walletAuthMethods,
+      ],
+      'readwrite',
+      this.persistRecoveredWalletAuthorityInTransaction.bind(this, {
+        authority,
+        authMethod,
+        recoveredAtMs,
+      }),
+    );
+  }
+
   async getLocalAuthorityInstallationReceipt(
     authorityId: string,
   ): Promise<LocalAuthorityInstallationReceiptV1 | null> {
@@ -2926,6 +2969,45 @@ export class SeamsWalletRepositories {
         lockGeneration: selection.record.lockGeneration,
         lockState: 'unlocked',
         updatedAtMs: input.unlockedAtMs,
+      }),
+    );
+  }
+
+  private async persistRecoveredWalletAuthorityInTransaction(
+    input: RecoveredWalletAuthorityProjectionInputV1,
+    ctx: SeamsWalletTransactionContext,
+  ): Promise<void> {
+    const authorityStore = ctx.store(SEAMS_WALLET_STORES.walletAuthorities);
+    const existingAuthorityRaw = await authorityStore.get(input.authority.authorityId);
+    const existingAuthority =
+      existingAuthorityRaw === undefined
+        ? null
+        : parseWalletAuthorityStorageRow(existingAuthorityRaw)?.record;
+    if (existingAuthorityRaw !== undefined && !existingAuthority) {
+      throw new Error('local Wallet Authority is corrupt');
+    }
+    if (existingAuthority && !walletAuthorityRecordsMatch(existingAuthority, input.authority)) {
+      throw new Error('recovered Wallet Authority conflicts with local authority');
+    }
+    await authorityStore.put(walletAuthorityStorageRow(input.authority));
+    await ctx
+      .store(SEAMS_WALLET_STORES.walletAuthMethods)
+      .put(walletAuthMethodV2StorageRow(input.authMethod));
+    const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
+    const selectionRaw = await selectionStore.get(input.authority.walletId);
+    const selection =
+      selectionRaw === undefined ? null : parseWalletSelectionStorageRow(selectionRaw);
+    if (selectionRaw !== undefined && !selection) {
+      throw new Error('recovered wallet selection is corrupt');
+    }
+    await selectionStore.put(
+      walletSelectionStorageRow({
+        kind: 'wallet_selection_v1',
+        walletId: input.authority.walletId,
+        walletAuthMethodId: input.authMethod.walletAuthMethodId,
+        lockGeneration: selection?.record.lockGeneration ?? 0,
+        lockState: 'locked',
+        updatedAtMs: input.recoveredAtMs,
       }),
     );
   }
