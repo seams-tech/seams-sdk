@@ -41,6 +41,17 @@
   box-sizing: border-box;
 }
 
+.w3a-auth-methods-modal-content {
+  width: min(520px, 100%);
+}
+
+.w3a-auth-methods-modal-intro {
+  margin: -0.25rem 2.5rem 0.75rem 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .w3a-linked-devices-modal-title {
   margin: 0 2.5rem 0.75rem 0;
   font-size: 1.3125rem;

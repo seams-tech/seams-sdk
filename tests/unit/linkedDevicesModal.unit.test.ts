@@ -14,6 +14,8 @@ import { activeWalletSessionFixture } from './helpers/walletSessionReadProjectio
 
 const IMPORT_PATHS = {
   modal: '/_test-sdk/esm/react/components/AccountMenuButton/LinkedDevicesModal.js',
+  authenticationModal:
+    '/_test-sdk/esm/react/components/AccountMenuButton/AuthenticationMethodsModal.js',
   loginStateBuilders: '/_test-sdk/esm/react/context/reactLoginStateBuilders.js',
   theme: '/_test-sdk/esm/react/components/theme/ThemeProvider.js',
 } as const;
@@ -193,6 +195,7 @@ function selectedOwnerSessionFixture(
 async function renderModal(
   page: import('@playwright/test').Page,
   options: {
+    readonly component?: 'linked_devices' | 'authentication_methods';
     readonly devices: readonly DeviceFixture[];
     readonly ownerDevices?: readonly OwnerDeviceFixture[];
     readonly revokeOutcomes: readonly ('revoked' | 'not_found')[];
@@ -201,7 +204,16 @@ async function renderModal(
   },
 ): Promise<void> {
   await page.evaluate(
-    async ({ paths, walletId, devices, ownerDevices, revokeOutcomes, loadError, session }) => {
+    async ({
+      paths,
+      walletId,
+      devices,
+      ownerDevices,
+      revokeOutcomes,
+      loadError,
+      session,
+      component,
+    }) => {
       const React = await import('react');
       const ReactDOMClient = await import('react-dom/client');
       const ReactDOM = await import('react-dom');
@@ -209,10 +221,16 @@ async function renderModal(
       const loginStateBuilders = await import(paths.loginStateBuilders);
       const themeModule = await import(paths.theme);
       const LinkedDevicesModal = modalModule.LinkedDevicesModal || modalModule.default;
+      let Modal = LinkedDevicesModal;
+      if (component === 'authentication_methods') {
+        const authenticationModalModule = await import(paths.authenticationModal);
+        Modal =
+          authenticationModalModule.AuthenticationMethodsModal || authenticationModalModule.default;
+      }
       const Theme = themeModule.Theme;
 
-      if (typeof LinkedDevicesModal !== 'function') {
-        throw new Error('LinkedDevicesModal export missing');
+      if (typeof Modal !== 'function') {
+        throw new Error('Account-menu modal export missing');
       }
       if (typeof Theme !== 'function') {
         throw new Error('React linked-device test theme is unavailable');
@@ -271,7 +289,7 @@ async function renderModal(
       };
 
       const Harness: React.FC = () => {
-        return React.createElement(LinkedDevicesModal, {
+        return React.createElement(Modal, {
           walletId,
           isOpen: true,
           onClose: () => undefined,
@@ -295,6 +313,7 @@ async function renderModal(
       revokeOutcomes: options.revokeOutcomes,
       loadError: options.loadError,
       session: options.session,
+      component: options.component ?? 'linked_devices',
     },
   );
 }
@@ -321,16 +340,15 @@ test.describe('linked devices modal lifecycle', () => {
   test('offers the missing family for the selected authority', async ({ page }) => {
     const passkeyOwner = ownerDeviceFixture('Original passkey');
     await renderModal(page, {
+      component: 'authentication_methods',
       ownerDevices: [passkeyOwner],
       devices: [],
       revokeOutcomes: [],
       session: selectedOwnerSessionFixture([passkeyOwner], 'passkey'),
     });
 
-    const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(
-      dialog.getByRole('heading', { name: 'Add an authentication method' }),
-    ).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'Authentication methods' });
+    await expect(dialog.getByRole('heading', { name: 'Add Email OTP' })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Add Email OTP' })).toBeVisible();
   });
 
@@ -341,18 +359,18 @@ test.describe('linked devices modal lifecycle', () => {
     const emailOtpOwner = ownerEmailOtpDeviceFixture();
     const ownerDevices = [passkeyOwner, emailOtpOwner];
     await renderModal(page, {
+      component: 'authentication_methods',
       ownerDevices,
       devices: [],
       revokeOutcomes: [],
       session: selectedOwnerSessionFixture(ownerDevices, 'passkey'),
     });
 
-    const dialog = page.getByRole('dialog', { name: 'Your devices' });
-    await expect(dialog.getByText('Device 1 · Original passkey')).toBeVisible();
-    await expect(dialog.getByText('Device 2 · Email OTP')).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'Add an authentication method' })).toHaveCount(
-      0,
-    );
+    const dialog = page.getByRole('dialog', { name: 'Authentication methods' });
+    await expect(dialog.getByText('Passkey', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Email OTP', { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Add Passkey' })).toHaveCount(0);
+    await expect(dialog.getByRole('heading', { name: 'Add Email OTP' })).toHaveCount(0);
   });
 
   test('shows active and paused devices with remove actions and filters removed devices', async ({
