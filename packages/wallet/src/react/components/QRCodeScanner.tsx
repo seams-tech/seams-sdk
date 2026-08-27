@@ -47,11 +47,10 @@ type PendingEmailOtpBaseFactorSelection = {
 
 type ScannerLifecycleState =
   | { readonly kind: 'scanning' }
-  | { readonly kind: 'linking'; readonly payload: QrLinkedDeviceSessionPayloadV5 }
-  | { readonly kind: 'minimized'; readonly payload: QrLinkedDeviceSessionPayloadV5 }
+  | { readonly kind: 'linking' }
   | { readonly kind: 'expired' };
 
-type FocusIntent = 'scanner' | 'email' | 'progress' | 'minimized' | 'return' | null;
+type FocusIntent = 'scanner' | 'email' | 'progress' | 'return' | null;
 
 function focusElement(element: HTMLElement | null): void {
   if (!element || !element.isConnected) return;
@@ -110,7 +109,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   const focusIntentRef = React.useRef<FocusIntent>(null);
   const scannerPanelRef = React.useRef<HTMLDivElement | null>(null);
   const progressTitleRef = React.useRef<HTMLHeadingElement | null>(null);
-  const restoreButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const pendingEmailOtpSelectionRef = useRef<PendingEmailOtpBaseFactorSelection | null>(null);
   const [scannerState, setScannerState] = useState<ScannerLifecycleState>({ kind: 'scanning' });
@@ -216,7 +214,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       linkStartedRef.current = true;
       scannedPayloadRef.current = qrData;
       stopScanningRef.current?.();
-      setScannerState({ kind: 'linking', payload: qrData });
+      setScannerState({ kind: 'linking' });
       focusIntentRef.current = 'progress';
       await linkDevice(qrData, QRScanMode.CAMERA);
     },
@@ -285,9 +283,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
       case 'progress':
         focusElement(progressTitleRef.current);
         break;
-      case 'minimized':
-        focusElement(restoreButtonRef.current);
-        break;
       case 'return':
         focusElement(returnFocusRef.current);
         break;
@@ -325,18 +320,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     cancelActiveLink();
     handleFlowClose();
   }, [cancelActiveLink, handleFlowClose, stopScanning]);
-
-  const handleMinimizeLinking = useCallback(() => {
-    if (scannerState.kind !== 'linking') return;
-    focusIntentRef.current = 'minimized';
-    setScannerState({ kind: 'minimized', payload: scannerState.payload });
-  }, [scannerState]);
-
-  const handleRestoreLinking = useCallback(() => {
-    if (scannerState.kind !== 'minimized') return;
-    focusIntentRef.current = 'progress';
-    setScannerState({ kind: 'linking', payload: scannerState.payload });
-  }, [scannerState]);
 
   const handleRetryExpiredLink = useCallback(() => {
     linkExpiredRef.current = false;
@@ -557,40 +540,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     );
   }
 
-  if (scannerState.kind === 'minimized') {
-    return (
-      <Theme theme={theme} tokens={scopedTokens}>
-        <aside
-          className="qr-scanner-linking-toast"
-          aria-label="Device linking status"
-          onPointerDown={stopEventPropagation}
-          onMouseDown={stopEventPropagation}
-        >
-          <p role="status" aria-live="polite">
-            Continue linking on your other device.
-          </p>
-          <div className="qr-scanner-linking-toast-actions">
-            <button
-              ref={restoreButtonRef}
-              type="button"
-              className="qr-scanner-linking-toast-restore"
-              onClick={handleRestoreLinking}
-            >
-              Restore linking
-            </button>
-            <button
-              type="button"
-              className="qr-scanner-linking-toast-cancel"
-              onClick={handleCancelLinking}
-            >
-              Cancel linking
-            </button>
-          </div>
-        </aside>
-      </Theme>
-    );
-  }
-
   return (
     <Theme theme={theme} tokens={scopedTokens}>
       <div
@@ -633,7 +582,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
                 </button>
                 <button
                   type="button"
-                  className="qr-scanner-progress-minimize"
+                  className="qr-scanner-progress-primary"
                   onClick={handleRetryExpiredLink}
                 >
                   Try again
@@ -642,6 +591,11 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
             </div>
           ) : scannerState.kind === 'linking' ? (
             <div className="qr-scanner-progress" aria-labelledby="qr-scanner-progress-title">
+              <div className="qr-scanner-progress-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
               <h2 id="qr-scanner-progress-title" ref={progressTitleRef} tabIndex={-1}>
                 Linking device
               </h2>
@@ -655,13 +609,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
                   onClick={handleCancelLinking}
                 >
                   Cancel linking
-                </button>
-                <button
-                  type="button"
-                  className="qr-scanner-progress-minimize"
-                  onClick={handleMinimizeLinking}
-                >
-                  Minimize
                 </button>
               </div>
             </div>
