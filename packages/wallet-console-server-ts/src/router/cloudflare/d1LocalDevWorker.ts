@@ -132,7 +132,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
-  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
@@ -204,14 +203,14 @@ const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
 const DEFAULT_LOCAL_CONSOLE_SESSION_HMAC_SECRET =
   'seams-local-console-session-secret-change-before-shared-dev';
 const DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
-const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:4004/console';
+const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:4101/console';
 const DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
 const DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY_ID = 'local-console-webhook-k1';
 // AES-256-GCM key material for sealing webhook signing secrets at rest.
 // Exactly 32 ASCII bytes; local dev only, overridden by CONSOLE_WEBHOOK_SECRET_KEY_B64U.
 const DEFAULT_LOCAL_CONSOLE_WEBHOOK_SECRET_KEY = 'seams-local-console-webhook-key!';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
-const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
+const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:4100';
 // Local D1 handlers are rebuilt per request, so synthetic provider state must outlive one handler.
 const LOCAL_SYNTHETIC_BILLING_PROVIDERS = createDefaultBillingProviderAdapters();
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -571,9 +570,9 @@ const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
   'http://localhost:4001',
   'https://localhost',
   'https://localhost:4002',
-  'https://localhost:4004',
-  'http://127.0.0.1:9090',
-  'http://localhost:9090',
+  'https://localhost:4101',
+  'http://127.0.0.1:4100',
+  'http://localhost:4100',
   'http://127.0.0.1:8787',
   'http://localhost:8787',
 ]);
@@ -1348,10 +1347,6 @@ function localLinkedDeviceSessionComposition(
   return {
     session: {
       readOwnerSourceChildV1: sourceChildReader.readOwnerSourceChildV1,
-      targetPasskeyOrigin: requireLocalEnvString(
-        env.LINKED_DEVICE_WEBAUTHN_ORIGIN,
-        'LINKED_DEVICE_WEBAUTHN_ORIGIN',
-      ),
       targetPasskeyRpId: requireLocalEnvString(
         env.LINKED_DEVICE_WEBAUTHN_RP_ID,
         'LINKED_DEVICE_WEBAUTHN_RP_ID',

@@ -6621,6 +6621,207 @@ select.dashboard-input {
   letter-spacing: -0.0025em;
 }
 
+.dashboard-wallet-row {
+  position: relative;
+  cursor: pointer;
+}
+
+.dashboard-wallet-row--expanded {
+  border-bottom: 0;
+  background: var(--dashboard-alpha-50);
+}
+
+.dashboard-wallet-row__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.dashboard-lead__title > .dashboard-wallet-row__toggle {
+  overflow: visible;
+}
+
+.dashboard-wallet-row__toggle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.dashboard-wallet-row__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-wallet-row__chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--dashboard-graphite);
+  display: grid;
+  place-items: center;
+}
+
+.dashboard-wallet-row__chevron svg {
+  transform: rotate(0deg);
+}
+
+.dashboard-lead__title > .dashboard-wallet-row__toggle:hover,
+.dashboard-lead__title > .dashboard-wallet-row__toggle:focus-visible {
+  text-decoration: none;
+}
+
+.dashboard-wallet-row:has(.dashboard-wallet-row__toggle:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--dashboard-ink) 48%, transparent);
+  outline-offset: -2px;
+}
+
+.dashboard-wallet-row__toggle:focus-visible {
+  outline: none;
+}
+
+.dashboard-wallet-row__toggle[aria-expanded='true'] .dashboard-wallet-row__chevron {
+  color: var(--dashboard-ink);
+}
+
+.dashboard-wallet-row__toggle[aria-expanded='true'] .dashboard-wallet-row__chevron svg {
+  transform: rotate(90deg);
+}
+
+.dashboard-data-table__details-panel.dashboard-wallet-balances {
+  padding: 10px 16px 12px;
+  border-radius: 0;
+  background: var(--dashboard-alpha-50);
+}
+
+.dashboard-wallet-balances > section {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-wallet-balances__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-wallet-balances__header strong {
+  color: var(--dashboard-ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.dashboard-wallet-balances__header span,
+.dashboard-wallet-balances__header time {
+  color: var(--dashboard-ash);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.dashboard-wallet-balances__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--dashboard-border);
+  border-radius: var(--dashboard-radius-lg);
+  background: var(--dashboard-surface);
+  overflow: hidden;
+}
+
+.dashboard-wallet-balances__card {
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border-inline-start: 1px solid var(--dashboard-line);
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-wallet-balances__card:first-child {
+  border-inline-start: 0;
+}
+
+.dashboard-wallet-balances__network {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-wallet-balances__network strong {
+  color: var(--dashboard-ink);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.dashboard-wallet-balances__network span {
+  color: var(--dashboard-ash);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.dashboard-wallet-balances__amount {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-wallet-balances__amount strong {
+  color: var(--dashboard-ink);
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+}
+
+.dashboard-wallet-balances__amount span {
+  color: var(--dashboard-graphite);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.dashboard-wallet-balances__identity {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dashboard-wallet-balances__identity > span {
+  color: var(--dashboard-ash);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.dashboard-wallet-balances__identity code {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--dashboard-graphite);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-wallet-balances__empty {
+  margin: 0;
+  color: var(--dashboard-ink-soft);
+  font-size: 0.875rem;
+}
+
 .dashboard-observability-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

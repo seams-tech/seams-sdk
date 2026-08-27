@@ -81,6 +81,7 @@ import type {
   RouterApiOptions,
   RouterApiProjectEnvironmentResolver,
   RouterApiUsageMeterAdapter,
+  RouterApiWalletProjectionAdapter,
 } from '@seams/wallet-server/cloud-host';
 import { createWalletProjectEnvironmentResolver } from '../projectEnvironmentAdapter';
 import type { ConsoleRouterOptions } from '@seams-internal/wallet-console-server/router/console';
@@ -88,6 +89,7 @@ import {
   createRouterApiKeyAuthAdapter,
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiPublishableKeyAuthAdapter,
+  createRouterApiWalletProjectionAdapter,
 } from '@seams-internal/wallet-console-server/router/routerApiKeyAuth';
 import {
   createConsoleRouterApiRouteExtensions,
@@ -214,6 +216,7 @@ export interface CloudflareD1RouterApiStorageOptions {
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
+  readonly walletProjection: RouterApiWalletProjectionAdapter;
   readonly orgProjectEnv: RouterApiProjectEnvironmentResolver;
   readonly routeExtensions: NonNullable<RouterApiOptions['routeExtensions']>;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
@@ -317,6 +320,7 @@ export function createCloudflareD1RouterApiRouteExtensions(
 
 interface NormalizedCloudflareD1ConsoleCommonOptions {
   readonly consoleDatabase: D1DatabaseLike;
+  readonly signerMetadataDatabase?: D1DatabaseLike;
   readonly namespace: string;
   readonly ensureSchema: boolean;
   readonly now?: () => Date;
@@ -748,6 +752,9 @@ async function createCloudflareD1Wallets(
     namespace: options.namespace,
     ensureSchema: options.ensureSchema,
     now: options.now,
+    balanceReader: options.signerMetadataDatabase
+      ? { signerDatabase: options.signerMetadataDatabase }
+      : null,
   });
 }
 
@@ -1090,6 +1097,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
       orgProjectEnv: input.orgProjectEnv,
       wallets: input.wallets,
     }),
+    walletProjection: createRouterApiWalletProjectionAdapter(input.orgProjectEnv, input.wallets),
     orgProjectEnv: createWalletProjectEnvironmentResolver(input.orgProjectEnv),
     routeExtensions: createConsoleRouterApiRouteExtensions({
       apiKeyAuth,

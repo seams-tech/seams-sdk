@@ -1,8 +1,30 @@
-export type ConsoleWalletChain = 'Ethereum' | 'Base' | 'Tempo' | 'Arc Circle' | 'NEAR';
+export type ConsoleWalletChain =
+  | 'Multichain'
+  | 'Ethereum'
+  | 'Base'
+  | 'Tempo'
+  | 'Arc Circle'
+  | 'NEAR';
 export type ConsoleWalletType = 'EOA' | 'SMART';
 export type ConsoleWalletStatus = 'ACTIVE' | 'FROZEN' | 'ARCHIVED';
 export type ConsoleWalletSortBy = 'createdAt' | 'balance' | 'lastActivity';
 export type ConsoleWalletSortOrder = 'asc' | 'desc';
+
+export interface ConsoleWalletGasBalances {
+  readonly observedAt: string;
+  readonly near: {
+    readonly accountId: string;
+    readonly balanceYocto: string;
+  };
+  readonly tempo: {
+    readonly address: string;
+    readonly alphaUsdRaw: string;
+  };
+  readonly arc: {
+    readonly address: string;
+    readonly usdcRaw: string;
+  };
+}
 
 export interface ConsoleWallet {
   id: string;
@@ -17,6 +39,8 @@ export interface ConsoleWallet {
   status: ConsoleWalletStatus;
   policyId: string | null;
   balanceMinor: number;
+  funded?: boolean;
+  gasBalances?: ConsoleWalletGasBalances;
   lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;

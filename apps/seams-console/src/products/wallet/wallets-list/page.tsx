@@ -6,8 +6,8 @@ import {
 } from '@core/dashboard/components/dashboardContent';
 import {
   DashboardTable,
-  DashboardTableBadge,
   DashboardTableCell,
+  DashboardTableDetailsPanel,
   DashboardTableFooter,
   DashboardTableHeader,
   DashboardTableHeaderCell,
@@ -22,18 +22,18 @@ import {
   dashboardStatusLabel,
   dashboardStatusTone,
 } from '@core/dashboard/utils/statusTone';
-import { WalletCardsIcon } from '@core/dashboard/icons/SidebarIcons';
+import { ChevronRightIcon, WalletCardsIcon } from '@core/dashboard/icons/SidebarIcons';
 import { useDashboardConsoleSession } from '@core/dashboard/consoleSession';
 import { useDashboardSelectedContext } from '@core/dashboard/selectedContext';
 import { listDashboardPolicies } from '../policy-engine/consolePoliciesApi';
 import {
   formatWalletBalanceMinor,
-  getDashboardWallet,
   listDashboardWallets,
   mergeDashboardWalletsById,
+  refreshDashboardWalletBalances,
+  replaceDashboardWalletsById,
   searchDashboardWallets,
   type DashboardConsoleWallet,
-  type DashboardConsoleWalletChain,
   type DashboardConsoleWalletListInput,
   type DashboardConsoleWalletSortBy,
   type DashboardConsoleWalletSortOrder,
@@ -49,15 +49,6 @@ type WalletSortOption = WalletFilterOption & {
   sortBy: DashboardConsoleWalletSortBy;
   sortOrder: DashboardConsoleWalletSortOrder;
 };
-
-const CHAIN_OPTIONS: readonly WalletFilterOption[] = [
-  { value: '', label: 'All chains' },
-  { value: 'Ethereum', label: 'Ethereum' },
-  { value: 'Base', label: 'Base' },
-  { value: 'Tempo', label: 'Tempo' },
-  { value: 'Arc Circle', label: 'Arc Circle' },
-  { value: 'NEAR', label: 'NEAR' },
-];
 
 const WALLET_TYPE_OPTIONS: readonly WalletFilterOption[] = [
   { value: '', label: 'EOA + Smart' },
@@ -89,6 +80,108 @@ function formatTimestamp(value: string): string {
   return formatDashboardTimestamp(value, '—');
 }
 
+function formatRawAmount(
+  raw: string,
+  decimals: number,
+  minimumFractionDigits: number,
+  maximumFractionDigits: number,
+): string {
+  const normalized = String(raw || '').trim();
+  if (!/^\d+$/.test(normalized)) return DASHBOARD_EMPTY_VALUE;
+  const padded = normalized.padStart(decimals + 1, '0');
+  const whole = padded.slice(0, -decimals) || '0';
+  const rawFraction = decimals > 0 ? padded.slice(-decimals) : '';
+  const truncated = rawFraction.slice(0, maximumFractionDigits);
+  const fraction = truncated.replace(/0+$/u, '').padEnd(minimumFractionDigits, '0');
+  const localizedWhole = BigInt(whole).toLocaleString();
+  return fraction ? `${localizedWhole}.${fraction}` : localizedWhole;
+}
+
+function formatNearBalance(raw: string): string {
+  return formatRawAmount(raw, 24, 2, 6);
+}
+
+function formatStablecoinBalance(raw: string, decimals: number): string {
+  return `$${formatRawAmount(raw, decimals, 2, 2)}`;
+}
+
+function walletBalancesRegionId(walletId: string): string {
+  return `wallet-chain-balances-${walletId.replace(/[^a-zA-Z0-9_-]/gu, '-')}`;
+}
+
+function WalletChainBalances(props: { wallet: DashboardConsoleWallet }): React.JSX.Element {
+  const { wallet } = props;
+  const balances = wallet.gasBalances;
+
+  return (
+    <DashboardTableDetailsPanel className="dashboard-wallet-balances">
+      <section
+        id={walletBalancesRegionId(wallet.id)}
+        aria-label={`Gas balances for ${wallet.address}`}
+      >
+        <header className="dashboard-wallet-balances__header">
+          <strong>Gas balances</strong>
+          {balances ? (
+            <time dateTime={balances.observedAt}>
+              Updated {formatTimestamp(balances.observedAt)}
+            </time>
+          ) : (
+            <span>Waiting for first balance refresh</span>
+          )}
+        </header>
+        {balances ? (
+          <div className="dashboard-wallet-balances__grid">
+            <article className="dashboard-wallet-balances__card">
+              <header className="dashboard-wallet-balances__network">
+                <strong>NEAR</strong>
+                <span>Gas currency</span>
+              </header>
+              <p className="dashboard-wallet-balances__amount">
+                <strong>{formatNearBalance(balances.near.balanceYocto)}</strong>
+                <span>NEAR</span>
+              </p>
+              <div className="dashboard-wallet-balances__identity">
+                <span>Account</span>
+                <code title={balances.near.accountId}>{balances.near.accountId}</code>
+              </div>
+            </article>
+            <article className="dashboard-wallet-balances__card">
+              <header className="dashboard-wallet-balances__network">
+                <strong>Tempo</strong>
+                <span>Gas currency</span>
+              </header>
+              <p className="dashboard-wallet-balances__amount">
+                <strong>{formatStablecoinBalance(balances.tempo.alphaUsdRaw, 6)}</strong>
+                <span>AlphaUSD</span>
+              </p>
+              <div className="dashboard-wallet-balances__identity">
+                <span>Address</span>
+                <code title={balances.tempo.address}>{balances.tempo.address}</code>
+              </div>
+            </article>
+            <article className="dashboard-wallet-balances__card">
+              <header className="dashboard-wallet-balances__network">
+                <strong>Arc</strong>
+                <span>Gas currency</span>
+              </header>
+              <p className="dashboard-wallet-balances__amount">
+                <strong>{formatStablecoinBalance(balances.arc.usdcRaw, 18)}</strong>
+                <span>USDC</span>
+              </p>
+              <div className="dashboard-wallet-balances__identity">
+                <span>Address</span>
+                <code title={balances.arc.address}>{balances.arc.address}</code>
+              </div>
+            </article>
+          </div>
+        ) : (
+          <p className="dashboard-wallet-balances__empty">Balances have not been read yet.</p>
+        )}
+      </section>
+    </DashboardTableDetailsPanel>
+  );
+}
+
 export function UserWalletsListPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
@@ -96,11 +189,7 @@ export function UserWalletsListPage(): React.JSX.Element {
   const [wallets, setWallets] = React.useState<DashboardConsoleWallet[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
-  const [selectedWalletId, setSelectedWalletId] = React.useState<string>('');
-  const [selectedWallet, setSelectedWallet] = React.useState<DashboardConsoleWallet | null>(null);
-  const [selectedLoading, setSelectedLoading] = React.useState<boolean>(false);
-  const [selectedError, setSelectedError] = React.useState<string>('');
-  const [chainFilter, setChainFilter] = React.useState<string>('');
+  const [expandedWalletId, setExpandedWalletId] = React.useState<string>('');
   const [policyFilter, setPolicyFilter] = React.useState<string>('');
   const [walletTypeFilter, setWalletTypeFilter] = React.useState<string>('');
   const [sortValue, setSortValue] = React.useState<string>(SORT_OPTIONS[0].value);
@@ -126,20 +215,12 @@ export function UserWalletsListPage(): React.JSX.Element {
     () => ({
       projectId: walletScope.projectId,
       environmentId: walletScope.environmentId,
-      chain: (chainFilter || undefined) as DashboardConsoleWalletChain | undefined,
       walletType: (walletTypeFilter || undefined) as DashboardConsoleWalletType | undefined,
       policyId: policyFilter || undefined,
       sortBy: activeSort.sortBy,
       sortOrder: activeSort.sortOrder,
     }),
-    [
-      activeSort.sortBy,
-      activeSort.sortOrder,
-      chainFilter,
-      policyFilter,
-      walletScope,
-      walletTypeFilter,
-    ],
+    [activeSort.sortBy, activeSort.sortOrder, policyFilter, walletScope, walletTypeFilter],
   );
 
   React.useEffect(() => {
@@ -242,6 +323,12 @@ export function UserWalletsListPage(): React.JSX.Element {
         }
         if (cancelled) return;
         setWallets(allWallets);
+        void refreshDashboardWalletBalances(allWallets.slice(0, 10).map((wallet) => wallet.id))
+          .then((refreshedWallets) => {
+            if (cancelled || refreshedWallets.length === 0) return;
+            setWallets((current) => replaceDashboardWalletsById(current, refreshedWallets));
+          })
+          .catch(() => undefined);
       } catch (error: unknown) {
         if (cancelled) return;
         setWallets([]);
@@ -268,47 +355,8 @@ export function UserWalletsListPage(): React.JSX.Element {
   ]);
 
   React.useEffect(() => {
-    setSelectedWalletId('');
-  }, [
-    chainFilter,
-    policyFilter,
-    sortValue,
-    walletScope.environmentId,
-    walletScope.projectId,
-    walletTypeFilter,
-  ]);
-
-  React.useEffect(() => {
-    if (!selectedWalletId) {
-      setSelectedWallet(null);
-      setSelectedLoading(false);
-      setSelectedError('');
-      return;
-    }
-    let cancelled = false;
-    setSelectedLoading(true);
-    setSelectedError('');
-    getDashboardWallet(selectedWalletId)
-      .then((wallet) => {
-        if (cancelled) return;
-        setSelectedWallet(wallet);
-        if (!wallet) {
-          setSelectedError(`Wallet ${selectedWalletId} was not found.`);
-        }
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setSelectedWallet(null);
-        setSelectedError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setSelectedLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedWalletId]);
+    setExpandedWalletId('');
+  }, [policyFilter, sortValue, walletScope.environmentId, walletScope.projectId, walletTypeFilter]);
 
   const summaryMetrics = React.useMemo(
     () => [
@@ -318,7 +366,7 @@ export function UserWalletsListPage(): React.JSX.Element {
       },
       {
         label: 'Funded',
-        value: String(wallets.filter((wallet) => wallet.balanceMinor > 0).length),
+        value: String(wallets.filter((wallet) => wallet.funded).length),
       },
       {
         label: 'Active',
@@ -342,20 +390,6 @@ export function UserWalletsListPage(): React.JSX.Element {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-        </label>
-        <label className="dashboard-form-field">
-          <select
-            className="dashboard-input"
-            aria-label="Filter wallets by chain"
-            value={chainFilter}
-            onChange={(event) => setChainFilter(event.target.value)}
-          >
-            {CHAIN_OPTIONS.map((option) => (
-              <option key={option.value || 'all'} value={option.value}>
-                Chain: {option.label}
-              </option>
-            ))}
-          </select>
         </label>
         <label className="dashboard-form-field">
           <select
@@ -445,59 +479,75 @@ export function UserWalletsListPage(): React.JSX.Element {
           </DashboardTableState>
         ) : (
           <>
-            {walletsPagination.rows.map((wallet) => (
-              <DashboardTableRow key={wallet.id}>
-                <DashboardTableCell
-                  title={`${wallet.address} · ${wallet.id}`}
-                  className="dashboard-data-table__cell--lead"
-                >
-                  <div className="dashboard-lead">
-                    <span className="dashboard-lead__icon" aria-hidden="true">
-                      <WalletCardsIcon size={16} />
-                    </span>
-                    <span className="dashboard-lead__copy">
-                      <span className="dashboard-lead__title">
-                        <button
-                          type="button"
-                          className="dashboard-inline-link dashboard-data-table__mono"
-                          onClick={() => setSelectedWalletId(wallet.id)}
-                        >
-                          {wallet.address}
-                        </button>
-                        {wallet.chain ? (
-                          <DashboardTableBadge>{wallet.chain}</DashboardTableBadge>
-                        ) : null}
-                      </span>
-                      <span className="dashboard-lead__sub">{wallet.id}</span>
-                    </span>
-                  </div>
-                </DashboardTableCell>
-                <DashboardTableCell
-                  title={wallet.userId}
-                  className="dashboard-data-table__cell--nowrap"
-                >
-                  {wallet.userId || DASHBOARD_EMPTY_VALUE}
-                </DashboardTableCell>
-                <DashboardTableCell title={wallet.policyId || ''}>
-                  {wallet.policyId ? <code>{wallet.policyId}</code> : DASHBOARD_EMPTY_VALUE}
-                </DashboardTableCell>
-                <DashboardTableCell align="end">
-                  {formatWalletBalanceMinor(wallet.balanceMinor)}
-                </DashboardTableCell>
-                <DashboardTableCell>
-                  {wallet.status ? (
-                    <DashboardTableStatus tone={dashboardStatusTone(wallet.status)}>
-                      {dashboardStatusLabel(wallet.status)}
-                    </DashboardTableStatus>
-                  ) : (
-                    DASHBOARD_EMPTY_VALUE
-                  )}
-                </DashboardTableCell>
-                <DashboardTableCell truncate>
-                  {formatTimestamp(wallet.updatedAt)}
-                </DashboardTableCell>
-              </DashboardTableRow>
-            ))}
+            {walletsPagination.rows.map((wallet) => {
+              const expanded = expandedWalletId === wallet.id;
+              return (
+                <React.Fragment key={wallet.id}>
+                  <DashboardTableRow
+                    className={`dashboard-wallet-row${
+                      expanded ? ' dashboard-wallet-row--expanded' : ''
+                    }`}
+                  >
+                    <DashboardTableCell className="dashboard-data-table__cell--lead">
+                      <div className="dashboard-lead">
+                        <span className="dashboard-lead__icon" aria-hidden="true">
+                          <WalletCardsIcon size={16} />
+                        </span>
+                        <span className="dashboard-lead__copy">
+                          <span className="dashboard-lead__title">
+                            <button
+                              type="button"
+                              className="dashboard-inline-link dashboard-data-table__mono dashboard-wallet-row__toggle"
+                              aria-expanded={expanded}
+                              aria-controls={walletBalancesRegionId(wallet.id)}
+                              aria-label={`Toggle chain balances for ${wallet.address}`}
+                              onClick={() =>
+                                setExpandedWalletId((current) =>
+                                  current === wallet.id ? '' : wallet.id,
+                                )
+                              }
+                            >
+                              <span className="dashboard-wallet-row__label">{wallet.address}</span>
+                              <span className="dashboard-wallet-row__chevron" aria-hidden="true">
+                                <ChevronRightIcon size={16} strokeWidth={1.75} />
+                              </span>
+                            </button>
+                          </span>
+                          {wallet.id !== wallet.address ? (
+                            <span className="dashboard-lead__sub">{wallet.id}</span>
+                          ) : null}
+                        </span>
+                      </div>
+                    </DashboardTableCell>
+                    <DashboardTableCell
+                      title={wallet.userId}
+                      className="dashboard-data-table__cell--nowrap"
+                    >
+                      {wallet.userId || DASHBOARD_EMPTY_VALUE}
+                    </DashboardTableCell>
+                    <DashboardTableCell title={wallet.policyId || ''}>
+                      {wallet.policyId ? <code>{wallet.policyId}</code> : DASHBOARD_EMPTY_VALUE}
+                    </DashboardTableCell>
+                    <DashboardTableCell align="end">
+                      {formatWalletBalanceMinor(wallet.balanceMinor)}
+                    </DashboardTableCell>
+                    <DashboardTableCell>
+                      {wallet.status ? (
+                        <DashboardTableStatus tone={dashboardStatusTone(wallet.status)}>
+                          {dashboardStatusLabel(wallet.status)}
+                        </DashboardTableStatus>
+                      ) : (
+                        DASHBOARD_EMPTY_VALUE
+                      )}
+                    </DashboardTableCell>
+                    <DashboardTableCell truncate>
+                      {formatTimestamp(wallet.updatedAt)}
+                    </DashboardTableCell>
+                  </DashboardTableRow>
+                  {expanded ? <WalletChainBalances wallet={wallet} /> : null}
+                </React.Fragment>
+              );
+            })}
             <DashboardTableFooter>
               {searchMode
                 ? `Showing ${wallets.length} result${wallets.length === 1 ? '' : 's'}.`
@@ -511,46 +561,6 @@ export function UserWalletsListPage(): React.JSX.Element {
           </>
         )}
       </DashboardTable>
-
-      {selectedWalletId ? (
-        <section className="dashboard-view__section" aria-label="Selected wallet detail">
-          <h2>Wallet detail</h2>
-          {selectedLoading ? (
-            <p>Loading wallet detail...</p>
-          ) : selectedError ? (
-            <p>{selectedError}</p>
-          ) : selectedWallet ? (
-            <ul className="dashboard-view-list">
-              <li>
-                <strong>ID:</strong> {selectedWallet.id}
-              </li>
-              <li>
-                <strong>Address:</strong> {selectedWallet.address}
-              </li>
-              <li>
-                <strong>Chain:</strong> {selectedWallet.chain || DASHBOARD_EMPTY_VALUE}
-              </li>
-              <li>
-                <strong>User:</strong> {selectedWallet.userId || DASHBOARD_EMPTY_VALUE}
-              </li>
-              <li>
-                <strong>Policy:</strong> {selectedWallet.policyId || DASHBOARD_EMPTY_VALUE}
-              </li>
-              <li>
-                <strong>Status:</strong> {selectedWallet.status || DASHBOARD_EMPTY_VALUE}
-              </li>
-              <li>
-                <strong>Balance:</strong> {formatWalletBalanceMinor(selectedWallet.balanceMinor)}
-              </li>
-              <li>
-                <strong>Updated:</strong> {formatTimestamp(selectedWallet.updatedAt)}
-              </li>
-            </ul>
-          ) : (
-            <p>No wallet selected.</p>
-          )}
-        </section>
-      ) : null}
     </div>
   );
 }

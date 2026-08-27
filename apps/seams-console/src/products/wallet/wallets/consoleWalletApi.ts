@@ -1,5 +1,6 @@
 import {
   buildConsoleAcceptHeaders,
+  buildConsoleJsonHeaders,
   consoleErrorMessage,
   fetchConsoleEndpoint,
   parseConsoleJson,
@@ -14,13 +15,37 @@ export interface DashboardConsoleWallet {
   userId: string;
   policyId: string | null;
   balanceMinor: number;
+  funded: boolean;
+  gasBalances: DashboardWalletGasBalances | null;
   status: string;
   createdAt: string;
   updatedAt: string;
   lastActivityAt: string | null;
 }
 
-export type DashboardConsoleWalletChain = 'Ethereum' | 'Base' | 'Tempo' | 'Arc Circle' | 'NEAR';
+export interface DashboardWalletGasBalances {
+  observedAt: string;
+  near: {
+    accountId: string;
+    balanceYocto: string;
+  };
+  tempo: {
+    address: string;
+    alphaUsdRaw: string;
+  };
+  arc: {
+    address: string;
+    usdcRaw: string;
+  };
+}
+
+export type DashboardConsoleWalletChain =
+  | 'Multichain'
+  | 'Ethereum'
+  | 'Base'
+  | 'Tempo'
+  | 'Arc Circle'
+  | 'NEAR';
 export type DashboardConsoleWalletType = 'EOA' | 'SMART';
 export type DashboardConsoleWalletSortBy = 'createdAt' | 'balance' | 'lastActivity';
 export type DashboardConsoleWalletSortOrder = 'asc' | 'desc';
@@ -57,20 +82,88 @@ interface ConsoleWalletResponse {
   wallet?: unknown;
 }
 
+function asRecord(raw: unknown): Record<string, unknown> | null {
+  return raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : null;
+}
+
+function decodeGasBalances(raw: unknown): DashboardWalletGasBalances | null {
+  const balances = asRecord(raw);
+  const near = asRecord(balances?.near);
+  const tempo = asRecord(balances?.tempo);
+  const arc = asRecord(balances?.arc);
+  const observedAt = String(balances?.observedAt ?? '').trim();
+  const nearAccountId = String(near?.accountId ?? '').trim();
+  const nearBalanceYocto = String(near?.balanceYocto ?? '').trim();
+  const evmAddress = String(tempo?.address ?? '').trim();
+  const arcAddress = String(arc?.address ?? '').trim();
+  const alphaUsdRaw = String(tempo?.alphaUsdRaw ?? '').trim();
+  const usdcRaw = String(arc?.usdcRaw ?? '').trim();
+  if (
+    !observedAt ||
+    !nearAccountId ||
+    !nearBalanceYocto ||
+    !evmAddress ||
+    !arcAddress ||
+    !alphaUsdRaw ||
+    !usdcRaw
+  ) {
+    return null;
+  }
+  return {
+    observedAt,
+    near: { accountId: nearAccountId, balanceYocto: nearBalanceYocto },
+    tempo: { address: evmAddress, alphaUsdRaw },
+    arc: { address: arcAddress, usdcRaw },
+  };
+}
+
+function decodeWalletChain(raw: unknown): DashboardConsoleWalletChain | null {
+  const value = String(raw ?? '').trim();
+  switch (value) {
+    case 'Multichain':
+    case 'Ethereum':
+    case 'Base':
+    case 'Tempo':
+    case 'Arc Circle':
+    case 'NEAR':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function decodeWalletType(raw: unknown): DashboardConsoleWalletType | null {
+  const value = String(raw ?? '').trim();
+  switch (value) {
+    case 'EOA':
+    case 'SMART':
+      return value;
+    default:
+      return null;
+  }
+}
+
 function decodeWallet(raw: unknown): DashboardConsoleWallet | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
+  const row = asRecord(raw);
+  if (!row) return null;
   const id = String(row.id || '').trim();
   const address = String(row.address || '').trim();
-  if (!id || !address) return null;
+  const chain = decodeWalletChain(row.chain);
+  const walletType = decodeWalletType(row.walletType);
+  if (!id || !address || !chain || !walletType) return null;
+  const balanceMinor = Number(row.balanceMinor || 0);
   return {
     id,
     address,
-    chain: String(row.chain || '').trim() as DashboardConsoleWalletChain,
-    walletType: String(row.walletType || '').trim() as DashboardConsoleWalletType,
+    chain,
+    walletType,
     userId: String(row.userId || '').trim(),
     policyId: row.policyId == null ? null : String(row.policyId || '').trim(),
-    balanceMinor: Number(row.balanceMinor || 0),
+    balanceMinor,
+    funded: row.funded === true || balanceMinor > 0,
+    gasBalances: decodeGasBalances(row.gasBalances),
     status: String(row.status || '').trim(),
     createdAt: String(row.createdAt || '').trim(),
     updatedAt: String(row.updatedAt || '').trim(),
@@ -180,6 +273,37 @@ export async function searchDashboardWallets(
   return fetchWalletPage(`/console/wallets/search?${params.toString()}`);
 }
 
+export async function refreshDashboardWalletBalances(
+  walletIds: readonly string[],
+): Promise<DashboardConsoleWallet[]> {
+  const normalizedWalletIds = [
+    ...new Set(walletIds.map((walletId) => walletId.trim()).filter(Boolean)),
+  ];
+  if (normalizedWalletIds.length === 0) return [];
+  const base = requireConsoleBaseUrl();
+  const path = '/console/wallets/balances/refresh';
+  const response = await fetchConsoleEndpoint(
+    `${base}${path}`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({ walletIds: normalizedWalletIds.slice(0, 10) }),
+    },
+    {
+      baseUrl: base,
+      path,
+      operation: 'Console wallet balance refresh',
+    },
+  );
+  const body = (await parseConsoleJson(response)) as ConsoleWalletPageResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Console wallet balance refresh failed'));
+  }
+  return decodeWalletPage(body).wallets;
+}
+
 export function formatWalletBalanceMinor(balanceMinor: number): string {
   const asNumber = Number(balanceMinor || 0);
   return `$${(asNumber / 100).toLocaleString(undefined, {
@@ -200,4 +324,12 @@ export function mergeDashboardWalletsById(
     seen.add(wallet.id);
   }
   return merged;
+}
+
+export function replaceDashboardWalletsById(
+  current: DashboardConsoleWallet[],
+  incoming: DashboardConsoleWallet[],
+): DashboardConsoleWallet[] {
+  const replacements = new Map(incoming.map((wallet) => [wallet.id, wallet]));
+  return current.map((wallet) => replacements.get(wallet.id) || wallet);
 }
