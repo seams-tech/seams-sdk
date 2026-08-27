@@ -5,11 +5,7 @@ import {
   parseDelegatedWalletPermissionSetV1,
   type CanonicalDelegatedWalletPermissionSetV1,
 } from './delegatedAuthority';
-import {
-  parseDeviceId,
-  type AuthorizationParseResult,
-  type DeviceId,
-} from './capabilityKinds';
+import { parseDeviceId, type AuthorizationParseResult, type DeviceId } from './capabilityKinds';
 import {
   buildExactAdministeredSignerManifestV1,
   parseExactAdministeredSignerManifestV1,
@@ -23,11 +19,13 @@ import {
   parseMpcMaterialActivationRef,
   parseWalletAuthorityId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
   type LinkDeviceSessionId,
   type LinkedDeviceEnrollmentId,
   type MpcMaterialActivationRef,
   type WalletAuthorityId,
   type WalletId,
+  type WalletRecoveryOperationId,
 } from '../utils/domainIds';
 
 const SIGNER_ACTIVATION_SET_DOMAIN = 'seams/wallet-signer-activation-set/v1';
@@ -45,12 +43,24 @@ export type WalletAuthorityProvenanceV1 =
       readonly enrollmentId?: never;
       readonly sourceAuthorityId?: never;
       readonly linkSessionId?: never;
+      readonly recoveryOperationId?: never;
+      readonly continuityAuthorityId?: never;
     }
   | {
       readonly kind: 'device_link';
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly sourceAuthorityId: WalletAuthorityId;
       readonly linkSessionId: LinkDeviceSessionId;
+      readonly recoveryOperationId?: never;
+      readonly continuityAuthorityId?: never;
+    }
+  | {
+      readonly kind: 'wallet_recovery';
+      readonly recoveryOperationId: WalletRecoveryOperationId;
+      readonly continuityAuthorityId: WalletAuthorityId;
+      readonly enrollmentId?: never;
+      readonly sourceAuthorityId?: never;
+      readonly linkSessionId?: never;
     };
 
 export type WalletEd25519SignerActivationV1 = {
@@ -164,19 +174,13 @@ export type CombinedWalletSignerActivationSetV1 = Extract<
   { readonly keyFamilies: readonly ['ed25519', 'ecdsa_secp256k1'] }
 >;
 
-export type ActiveEd25519WalletAuthorityV1 = Omit<
-  ActiveWalletAuthorityV1,
-  'signerActivations'
-> & {
+export type ActiveEd25519WalletAuthorityV1 = Omit<ActiveWalletAuthorityV1, 'signerActivations'> & {
   readonly signerActivations: Ed25519WalletSignerActivationSetV1;
 };
 export type ActiveEcdsaWalletAuthorityV1 = Omit<ActiveWalletAuthorityV1, 'signerActivations'> & {
   readonly signerActivations: EcdsaWalletSignerActivationSetV1;
 };
-export type ActiveCombinedWalletAuthorityV1 = Omit<
-  ActiveWalletAuthorityV1,
-  'signerActivations'
-> & {
+export type ActiveCombinedWalletAuthorityV1 = Omit<ActiveWalletAuthorityV1, 'signerActivations'> & {
   readonly signerActivations: CombinedWalletSignerActivationSetV1;
 };
 
@@ -344,7 +348,9 @@ export function encodeWalletSignerActivationSetV1(value: WalletSignerActivationS
 export async function computeWalletSignerActivationSetDigestB64u(
   value: WalletSignerActivationSetV1,
 ): Promise<DigestB64u> {
-  return parseDigestB64u(base64UrlEncode(await sha256Bytes(encodeWalletSignerActivationSetV1(value))));
+  return parseDigestB64u(
+    base64UrlEncode(await sha256Bytes(encodeWalletSignerActivationSetV1(value))),
+  );
 }
 
 export function parseWalletSignerActivationSetDigestB64u(raw: unknown): DigestB64u {
@@ -367,7 +373,9 @@ export function buildWalletAuthorityV1(input: WalletAuthorityV1): WalletAuthorit
   }
 }
 
-export function buildPendingWalletAuthorityV1(input: PendingWalletAuthorityV1): PendingWalletAuthorityV1 {
+export function buildPendingWalletAuthorityV1(
+  input: PendingWalletAuthorityV1,
+): PendingWalletAuthorityV1 {
   validateWalletAuthorityV1(input);
   return {
     kind: 'wallet_authority_v1',
@@ -387,7 +395,9 @@ export function buildPendingWalletAuthorityV1(input: PendingWalletAuthorityV1): 
   };
 }
 
-export function buildActiveWalletAuthorityV1(input: ActiveWalletAuthorityV1): ActiveWalletAuthorityV1 {
+export function buildActiveWalletAuthorityV1(
+  input: ActiveWalletAuthorityV1,
+): ActiveWalletAuthorityV1 {
   validateWalletAuthorityV1(input);
   return {
     kind: 'wallet_authority_v1',
@@ -493,7 +503,9 @@ export function buildActiveCombinedWalletAuthorityV1(
   };
 }
 
-export function buildRevokedWalletAuthorityV1(input: RevokedWalletAuthorityV1): RevokedWalletAuthorityV1 {
+export function buildRevokedWalletAuthorityV1(
+  input: RevokedWalletAuthorityV1,
+): RevokedWalletAuthorityV1 {
   validateWalletAuthorityV1(input);
   return {
     kind: 'wallet_authority_v1',
@@ -520,22 +532,26 @@ export function parseWalletAuthorityV1(raw: unknown): AuthorizationParseResult<W
     const common = parseWalletAuthorityCommon(record);
     switch (record.state) {
       case 'pending_local_install': {
-        exactFields(record, [
-          'kind',
-          'authorityId',
-          'walletId',
-          'principal',
-          'provenance',
-          'permissions',
-          'signerActivations',
-          'signerActivationSetDigestB64u',
-          'authorityDigestB64u',
-          'revocationEpoch',
-          'createdAtMs',
-          'updatedAtMs',
-          'state',
-          'localInstallPackageSetDigestB64u',
-        ], 'WalletAuthorityV1');
+        exactFields(
+          record,
+          [
+            'kind',
+            'authorityId',
+            'walletId',
+            'principal',
+            'provenance',
+            'permissions',
+            'signerActivations',
+            'signerActivationSetDigestB64u',
+            'authorityDigestB64u',
+            'revocationEpoch',
+            'createdAtMs',
+            'updatedAtMs',
+            'state',
+            'localInstallPackageSetDigestB64u',
+          ],
+          'WalletAuthorityV1',
+        );
         return {
           ok: true,
           value: buildPendingWalletAuthorityV1({
@@ -560,22 +576,26 @@ export function parseWalletAuthorityV1(raw: unknown): AuthorizationParseResult<W
         };
       }
       case 'active': {
-        exactFields(record, [
-          'kind',
-          'authorityId',
-          'walletId',
-          'principal',
-          'provenance',
-          'permissions',
-          'signerActivations',
-          'signerActivationSetDigestB64u',
-          'authorityDigestB64u',
-          'revocationEpoch',
-          'createdAtMs',
-          'updatedAtMs',
-          'state',
-          'activatedAtMs',
-        ], 'WalletAuthorityV1');
+        exactFields(
+          record,
+          [
+            'kind',
+            'authorityId',
+            'walletId',
+            'principal',
+            'provenance',
+            'permissions',
+            'signerActivations',
+            'signerActivationSetDigestB64u',
+            'authorityDigestB64u',
+            'revocationEpoch',
+            'createdAtMs',
+            'updatedAtMs',
+            'state',
+            'activatedAtMs',
+          ],
+          'WalletAuthorityV1',
+        );
         return {
           ok: true,
           value: buildActiveWalletAuthorityV1({
@@ -597,23 +617,27 @@ export function parseWalletAuthorityV1(raw: unknown): AuthorizationParseResult<W
         };
       }
       case 'revoked': {
-        exactFields(record, [
-          'kind',
-          'authorityId',
-          'walletId',
-          'principal',
-          'provenance',
-          'permissions',
-          'signerActivations',
-          'signerActivationSetDigestB64u',
-          'authorityDigestB64u',
-          'revocationEpoch',
-          'createdAtMs',
-          'updatedAtMs',
-          'state',
-          'activatedAtMs',
-          'revokedAtMs',
-        ], 'WalletAuthorityV1');
+        exactFields(
+          record,
+          [
+            'kind',
+            'authorityId',
+            'walletId',
+            'principal',
+            'provenance',
+            'permissions',
+            'signerActivations',
+            'signerActivationSetDigestB64u',
+            'authorityDigestB64u',
+            'revocationEpoch',
+            'createdAtMs',
+            'updatedAtMs',
+            'state',
+            'activatedAtMs',
+            'revokedAtMs',
+          ],
+          'WalletAuthorityV1',
+        );
         return {
           ok: true,
           value: buildRevokedWalletAuthorityV1({
@@ -674,16 +698,17 @@ export function parseWalletAuthorityDigestB64u(raw: unknown): DigestB64u {
 }
 
 export async function walletAuthorityDigestsMatchV1(value: WalletAuthorityV1): Promise<boolean> {
-  const activationDigest = await computeWalletSignerActivationSetDigestB64u(value.signerActivations);
+  const activationDigest = await computeWalletSignerActivationSetDigestB64u(
+    value.signerActivations,
+  );
   if (activationDigest !== value.signerActivationSetDigestB64u) return false;
   const authorityDigest = await computeWalletAuthorityDigestB64u(value);
   return authorityDigest === value.authorityDigestB64u;
 }
 
-function parseWalletAuthorityCommon(record: Record<string, unknown>): Omit<
-  WalletAuthorityCommonV1,
-  'kind'
-> {
+function parseWalletAuthorityCommon(
+  record: Record<string, unknown>,
+): Omit<WalletAuthorityCommonV1, 'kind'> {
   const kind = record.kind;
   if (kind !== 'wallet_authority_v1') throw new Error('WalletAuthorityV1.kind is unsupported');
   const authorityId = requireParsed(parseWalletAuthorityId(record.authorityId), 'authorityId');
@@ -755,7 +780,8 @@ function validateWalletAuthorityV1(value: WalletAuthorityV1): void {
 
 function parsePrincipal(raw: unknown): WalletAuthorityPrincipalV1 {
   const record = exactRecord(raw, ['kind', 'deviceId'], 'WalletAuthorityPrincipalV1');
-  if (record.kind !== 'owner_device') throw new Error('wallet authority principal kind is unsupported');
+  if (record.kind !== 'owner_device')
+    throw new Error('wallet authority principal kind is unsupported');
   return {
     kind: 'owner_device',
     deviceId: requireParsed(parseDeviceId(record.deviceId), 'deviceId'),
@@ -784,7 +810,27 @@ function parseProvenance(raw: unknown): WalletAuthorityProvenanceV1 {
           parseWalletAuthorityId(record.sourceAuthorityId),
           'sourceAuthorityId',
         ),
-        linkSessionId: requireParsed(parseLinkDeviceSessionId(record.linkSessionId), 'linkSessionId'),
+        linkSessionId: requireParsed(
+          parseLinkDeviceSessionId(record.linkSessionId),
+          'linkSessionId',
+        ),
+      };
+    case 'wallet_recovery':
+      exactFields(
+        record,
+        ['kind', 'recoveryOperationId', 'continuityAuthorityId'],
+        'WalletAuthorityProvenanceV1',
+      );
+      return {
+        kind: 'wallet_recovery',
+        recoveryOperationId: requireParsed(
+          parseWalletRecoveryOperationId(record.recoveryOperationId),
+          'recoveryOperationId',
+        ),
+        continuityAuthorityId: requireParsed(
+          parseWalletAuthorityId(record.continuityAuthorityId),
+          'continuityAuthorityId',
+        ),
       };
     default:
       throw new Error('wallet authority provenance kind is unsupported');
@@ -800,7 +846,13 @@ function validateProvenance(value: WalletAuthorityProvenanceV1): void {
         throw new Error('device-link provenance requires every audit identity');
       }
       return;
+    case 'wallet_recovery':
+      if (!value.recoveryOperationId || !value.continuityAuthorityId) {
+        throw new Error('wallet-recovery provenance requires every audit identity');
+      }
+      return;
   }
+  assertNever(value, 'wallet authority provenance');
 }
 
 function validateSignerActivationsForWallet(
@@ -820,10 +872,7 @@ function validateSignerActivationsForWallet(
     return;
   }
   if (isBothFamilyActivationSet(value)) {
-    if (
-      value.ed25519.signer.walletId !== walletId ||
-      value.ecdsa.signer.walletId !== walletId
-    ) {
+    if (value.ed25519.signer.walletId !== walletId || value.ecdsa.signer.walletId !== walletId) {
       throw new Error('signer activations must use the authority wallet id');
     }
     return;
@@ -831,10 +880,7 @@ function validateSignerActivationsForWallet(
   throw new Error('wallet signer activation families are unsupported');
 }
 
-function parseEd25519Activation(
-  raw: unknown,
-  label: string,
-): WalletEd25519SignerActivationV1 {
+function parseEd25519Activation(raw: unknown, label: string): WalletEd25519SignerActivationV1 {
   const record = exactRecord(raw, ['kind', 'signer', 'materialActivation'], label);
   if (record.kind !== 'wallet_ed25519_signer_activation_v1') {
     throw new Error(`${label}.kind is invalid`);
@@ -900,7 +946,10 @@ function encodeEd25519Signer(value: ExactAdministeredEd25519SignerV1): Uint8Arra
     text(value.keyFamily, 'ed25519.signer.keyFamily'),
     text(value.walletId, 'ed25519.signer.walletId'),
     text(value.walletKeyId, 'ed25519.signer.walletKeyId'),
-    lp32(rawPublicKey(value.registeredPublicKeyB64u, 'ed25519.signer.registeredPublicKeyB64u'), 'ed25519.signer.registeredPublicKeyB64u'),
+    lp32(
+      rawPublicKey(value.registeredPublicKeyB64u, 'ed25519.signer.registeredPublicKeyB64u'),
+      'ed25519.signer.registeredPublicKeyB64u',
+    ),
   ]);
 }
 
@@ -910,7 +959,10 @@ function encodeEcdsaSigner(value: ExactAdministeredEcdsaSignerV1): Uint8Array {
     text(value.keyFamily, 'ecdsa.signer.keyFamily'),
     text(value.walletId, 'ecdsa.signer.walletId'),
     text(value.walletKeyId, 'ecdsa.signer.walletKeyId'),
-    lp32(rawPublicKey(value.thresholdPublicKey33B64u, 'ecdsa.signer.thresholdPublicKey33B64u'), 'ecdsa.signer.thresholdPublicKey33B64u'),
+    lp32(
+      rawPublicKey(value.thresholdPublicKey33B64u, 'ecdsa.signer.thresholdPublicKey33B64u'),
+      'ecdsa.signer.thresholdPublicKey33B64u',
+    ),
     text(value.evmAddress, 'ecdsa.signer.evmAddress'),
   ]);
 }
@@ -932,18 +984,30 @@ function encodePrincipal(value: WalletAuthorityPrincipalV1): Uint8Array {
 }
 
 function encodeProvenance(value: WalletAuthorityProvenanceV1): Uint8Array {
-  if (value.kind === 'wallet_registration') return text(value.kind, 'provenance.kind');
-  return concat([
-    text(value.kind, 'provenance.kind'),
-    text(value.enrollmentId, 'provenance.enrollmentId'),
-    text(value.sourceAuthorityId, 'provenance.sourceAuthorityId'),
-    text(value.linkSessionId, 'provenance.linkSessionId'),
-  ]);
+  switch (value.kind) {
+    case 'wallet_registration':
+      return text(value.kind, 'provenance.kind');
+    case 'device_link':
+      return concat([
+        text(value.kind, 'provenance.kind'),
+        text(value.enrollmentId, 'provenance.enrollmentId'),
+        text(value.sourceAuthorityId, 'provenance.sourceAuthorityId'),
+        text(value.linkSessionId, 'provenance.linkSessionId'),
+      ]);
+    case 'wallet_recovery':
+      return concat([
+        text(value.kind, 'provenance.kind'),
+        text(value.recoveryOperationId, 'provenance.recoveryOperationId'),
+        text(value.continuityAuthorityId, 'provenance.continuityAuthorityId'),
+      ]);
+  }
+  return assertNever(value, 'wallet authority provenance');
 }
 
 function encodePermissions(value: CanonicalDelegatedWalletPermissionSetV1): Uint8Array {
   const parts: Uint8Array[] = [u32(value.length, 'permissions')];
-  for (const permission of value) parts.push(lp32(text(permission, 'permissions.item'), 'permissions.item'));
+  for (const permission of value)
+    parts.push(lp32(text(permission, 'permissions.item'), 'permissions.item'));
   return concat(parts);
 }
 
@@ -964,7 +1028,11 @@ function exactRecord(
   return record;
 }
 
-function exactFields(record: Record<string, unknown>, fields: readonly string[], label: string): void {
+function exactFields(
+  record: Record<string, unknown>,
+  fields: readonly string[],
+  label: string,
+): void {
   const expected = new Set(fields);
   const actual = Object.keys(record);
   if (actual.length !== fields.length) throw new Error(`${label} contains unexpected fields`);
@@ -978,10 +1046,7 @@ function exactFields(record: Record<string, unknown>, fields: readonly string[],
   }
 }
 
-function parseFamilies(
-  raw: unknown,
-  label: string,
-): WalletSignerActivationSetV1['keyFamilies'] {
+function parseFamilies(raw: unknown, label: string): WalletSignerActivationSetV1['keyFamilies'] {
   if (!Array.isArray(raw)) throw new Error(`${label} must be an array`);
   if (raw.length === 1 && raw[0] === 'ed25519') return ['ed25519'];
   if (raw.length === 1 && raw[0] === 'ecdsa_secp256k1') return ['ecdsa_secp256k1'];
@@ -991,10 +1056,7 @@ function parseFamilies(
   throw new Error(`${label} must use canonical family order`);
 }
 
-function sameFamilies(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
+function sameFamilies(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
     if (left[index] !== right[index]) return false;
@@ -1004,7 +1066,10 @@ function sameFamilies(
 
 function isEd25519OnlyManifest(
   value: ExactAdministeredSignerManifestV1,
-): value is Extract<ExactAdministeredSignerManifestV1, { readonly keyFamilies: readonly ['ed25519'] }> {
+): value is Extract<
+  ExactAdministeredSignerManifestV1,
+  { readonly keyFamilies: readonly ['ed25519'] }
+> {
   return value.keyFamilies.length === 1 && value.keyFamilies[0] === 'ed25519';
 }
 
@@ -1028,7 +1093,10 @@ function isBothFamilyManifest(
 
 function isEd25519OnlyMaterials(
   value: WalletSignerActivationMaterialsV1,
-): value is Extract<WalletSignerActivationMaterialsV1, { readonly keyFamilies: readonly ['ed25519'] }> {
+): value is Extract<
+  WalletSignerActivationMaterialsV1,
+  { readonly keyFamilies: readonly ['ed25519'] }
+> {
   return value.keyFamilies.length === 1 && value.keyFamilies[0] === 'ed25519';
 }
 
@@ -1065,10 +1133,7 @@ function normalizeWalletSignerActivationMaterials(
   if (isEcdsaOnlyMaterials(value)) {
     return {
       keyFamilies: ['ecdsa_secp256k1'],
-      ecdsa: requireParsed(
-        parseMpcMaterialActivationRef(value.ecdsa),
-        'materialActivations.ecdsa',
-      ),
+      ecdsa: requireParsed(parseMpcMaterialActivationRef(value.ecdsa), 'materialActivations.ecdsa'),
     };
   }
   if (isBothFamilyMaterials(value)) {
@@ -1078,10 +1143,7 @@ function normalizeWalletSignerActivationMaterials(
         parseMpcMaterialActivationRef(value.ed25519),
         'materialActivations.ed25519',
       ),
-      ecdsa: requireParsed(
-        parseMpcMaterialActivationRef(value.ecdsa),
-        'materialActivations.ecdsa',
-      ),
+      ecdsa: requireParsed(parseMpcMaterialActivationRef(value.ecdsa), 'materialActivations.ecdsa'),
     };
   }
   throw new Error('wallet signer activation materials are unsupported');
@@ -1200,7 +1262,10 @@ function validateTimestamp(value: number, label: string): void {
 }
 
 function requireParsed<T>(
-  result: AuthorizationParseResult<T> | { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  result:
+    | AuthorizationParseResult<T>
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
   label: string,
 ): T {
   if (result.ok) return result.value;
@@ -1213,4 +1278,8 @@ function invalidResult<T>(message: string): AuthorizationParseResult<T> {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function assertNever(value: never, label: string): never {
+  throw new Error(`${label} branch is unsupported: ${String(value)}`);
 }

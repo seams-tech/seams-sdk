@@ -34,6 +34,7 @@ import type {
   WalletAuthMethodId,
   WalletId,
   WalletKeyId,
+  WalletRecoveryOperationId,
 } from './domainIds';
 import {
   buildMpcMaterialActivationRef,
@@ -49,6 +50,7 @@ import {
   parseMpcSigningWorkerRef,
   parseWalletAuthorityId,
   parseWalletAuthMethodId,
+  parseWalletRecoveryOperationId,
 } from './domainIds';
 import type {
   WalletSessionAuthorizationId,
@@ -58,6 +60,7 @@ import type {
 declare const walletId: WalletId;
 declare const walletAuthorityId: WalletAuthorityId;
 declare const walletAuthMethodId: WalletAuthMethodId;
+declare const walletRecoveryOperationId: WalletRecoveryOperationId;
 declare const walletSessionAuthorizationId: WalletSessionAuthorizationId;
 declare const providerSubject: ProviderSubject;
 declare const googleProviderSubject: GoogleProviderSubject;
@@ -106,6 +109,10 @@ function acceptsWalletId(value: WalletId): void {
 }
 
 function acceptsWalletAuthorityId(value: WalletAuthorityId): void {
+  void value;
+}
+
+function acceptsWalletRecoveryOperationId(value: WalletRecoveryOperationId): void {
   void value;
 }
 
@@ -235,6 +242,7 @@ function acceptsMpcMaterialActivationRef(value: MpcMaterialActivationRef): void 
 
 acceptsWalletId(walletId);
 acceptsWalletAuthorityId(walletAuthorityId);
+acceptsWalletRecoveryOperationId(walletRecoveryOperationId);
 acceptsProviderSubject(providerSubject);
 acceptsProviderSubject(googleProviderSubject);
 acceptsGoogleProviderSubject(googleProviderSubject);
@@ -292,6 +300,9 @@ parseMpcMaterialActivationRef({
 }) satisfies DomainIdParseResult<MpcMaterialActivationRef>;
 parseWalletAuthorityId('wallet-authority') satisfies DomainIdParseResult<WalletAuthorityId>;
 parseWalletAuthMethodId('wallet-auth-method') satisfies DomainIdParseResult<WalletAuthMethodId>;
+parseWalletRecoveryOperationId(
+  'wallet-recovery-operation',
+) satisfies DomainIdParseResult<WalletRecoveryOperationId>;
 
 // @ts-expect-error Provider subjects are not wallet ids.
 acceptsWalletId(providerSubject);
@@ -301,6 +312,9 @@ acceptsWalletAuthorityId(walletId);
 
 // @ts-expect-error Auth-method ids are not wallet authority ids.
 acceptsWalletAuthorityId(walletAuthMethodId);
+
+// @ts-expect-error Recovery operation ids are not wallet authority ids.
+acceptsWalletAuthorityId(walletRecoveryOperationId);
 
 // @ts-expect-error Material activation ids are not wallet authority ids.
 acceptsWalletAuthorityId(mpcMaterialActivationId);

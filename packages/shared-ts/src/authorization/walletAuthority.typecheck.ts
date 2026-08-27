@@ -8,8 +8,10 @@ import {
   type CombinedWalletSignerActivationSetV1,
   type EcdsaWalletSignerActivationSetV1,
   type Ed25519WalletSignerActivationSetV1,
+  type WalletAuthorityProvenanceV1,
   type WalletSignerActivationSetV1,
 } from './walletAuthority';
+import type { WalletRecoveryOperationId } from '../utils/domainIds';
 
 declare const activeAuthority: ActiveWalletAuthorityV1;
 declare const activeEd25519Authority: ActiveEd25519WalletAuthorityV1;
@@ -19,6 +21,23 @@ declare const broadSignerActivations: WalletSignerActivationSetV1;
 declare const ed25519Activations: Ed25519WalletSignerActivationSetV1;
 declare const ecdsaActivations: EcdsaWalletSignerActivationSetV1;
 declare const combinedActivations: CombinedWalletSignerActivationSetV1;
+declare const recoveryOperationId: WalletRecoveryOperationId;
+
+const recoveryProvenance: WalletAuthorityProvenanceV1 = {
+  kind: 'wallet_recovery',
+  recoveryOperationId,
+  continuityAuthorityId: activeAuthority.authorityId,
+};
+void recoveryProvenance;
+
+const invalidRecoveryProvenance: WalletAuthorityProvenanceV1 = {
+  kind: 'wallet_recovery',
+  recoveryOperationId,
+  continuityAuthorityId: activeAuthority.authorityId,
+  // @ts-expect-error Recovery provenance cannot carry device-link enrollment.
+  enrollmentId: activeAuthority.authorityId,
+};
+void invalidRecoveryProvenance;
 
 const combinedAuthority = buildActiveCombinedWalletAuthorityV1(activeCombinedAuthority);
 void combinedAuthority;
