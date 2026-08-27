@@ -24,6 +24,7 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 } from '@shared/utils/routerAbEd25519Yao';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -40,7 +41,10 @@ export type IntendedLifecycleFlow =
   | 'passkey.unlock'
   | 'passkey.recovery'
   | 'email_otp.registration'
-  | 'email_otp.unlock';
+  | 'email_otp.unlock'
+  | 'email_otp.recovery';
+
+export type IntendedRecoveryTargetKind = WalletRecoveryTargetV1['kind'];
 
 export type IntendedChainTarget = 'near' | 'tempo' | 'arc_evm';
 
@@ -87,6 +91,7 @@ type IntendedHarnessAction =
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
   | 'recoverPasskeyWallet'
+  | 'recoverGoogleEmailOtpWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'unlockWithAddedEmailOtp'
@@ -178,6 +183,7 @@ const ROUTER_AB_ED25519_YAO_EXPORT_PATHS = [
 ] as const;
 
 const ROUTER_AB_WALLET_BUDGET_STATUS_PATH = '/wallet/session/status';
+const ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH = '/wallets/recovery/finalize';
 
 type IntendedHarnessConfig = {
   appUrl: string;
@@ -420,6 +426,13 @@ type PasskeyRecoveryResultSnapshot = {
   totalRecoveryCodeCount: number;
 };
 
+type GoogleEmailOtpRecoveryResultSnapshot = {
+  kind: 'google_email_otp_recovery_success';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
 type EmailOtpUnlockCoreSnapshot = {
   kind: 'email_otp_unlock_success';
   walletId: string;
@@ -508,6 +521,7 @@ type IntendedActionResultSnapshot =
   | NearSigningResultSnapshot
   | PasskeySyncResultSnapshot
   | PasskeyRecoveryResultSnapshot
+  | GoogleEmailOtpRecoveryResultSnapshot
   | PasskeyUnlockResultSnapshot
   | EmailOtpUnlockResultSnapshot
   | TempoSigningResultSnapshot
@@ -632,8 +646,39 @@ type CapturedWalletBudgetStatusRequest = {
   quotaId: string;
 };
 
+type RecoveryAuthorityProjection = {
+  readonly walletId: string;
+  readonly authorityId: string;
+  readonly deviceId: string;
+  readonly provenanceKind: 'wallet_recovery';
+  readonly recoveryOperationId: string;
+  readonly continuityAuthorityId: string;
+  readonly authMethodWalletAuthMethodId: string;
+  readonly authMethodWalletAuthorityId: string;
+  readonly authMethodKind: 'passkey' | 'email_otp';
+  readonly authMethodStatus: 'active';
+};
+
+type IntendedRecoveryAction =
+  | {
+      readonly target: Extract<IntendedRecoveryTargetKind, 'passkey'>;
+      readonly name: 'recoverPasskeyWallet';
+      readonly buttonTestId: 'intended-recover-passkey';
+      readonly replaceWebAuthnAuthenticator: true;
+    }
+  | {
+      readonly target: Extract<IntendedRecoveryTargetKind, 'google_email_otp'>;
+      readonly name: 'recoverGoogleEmailOtpWallet';
+      readonly buttonTestId: 'intended-recover-google-email-otp';
+      readonly replaceWebAuthnAuthenticator: false;
+    };
+
 type AuthoritativeWalletBudgetReplay =
-  | { kind: 'active' }
+  | {
+      kind: 'active';
+      walletSessionId: string;
+      quotaId: string;
+    }
   | {
       kind: 'exhausted';
       walletSessionId: string;
@@ -914,6 +959,12 @@ export class IntendedBehaviourHarness {
   private latestSigningRemainingUses: number | null = null;
 
   private latestWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
+
+  private sourceWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
+
+  private recoveryAuthorityProjection: RecoveryAuthorityProjection | null = null;
+
+  private recoveryAuthorityProjectionError: string | null = null;
 
   private intendedYaoFaultInjection: IntendedYaoFaultInjectionStateV1 = { kind: 'idle' };
 
@@ -1588,49 +1639,95 @@ export class IntendedBehaviourHarness {
 
   async recoverPasskeyWalletFromFreshBrowser(): Promise<void> {
     this.recordStage('recover_passkey_wallet_from_fresh_browser');
-    const registration = this.requireRegisteredWalletForSigning();
-    const recoveryCode = this.recoveryCodes[0];
-    if (!recoveryCode) throw new Error('Passkey recovery requires a captured recovery code');
-    await this.clearBrowserStorageForColdSync();
-    await this.replaceWebAuthnVirtualAuthenticatorForRecovery();
-    await this.ensureIntendedPageOpen();
-    const pageRoot = this.page.getByTestId('intended-e2e-page');
-    await expect(pageRoot).toHaveAttribute('data-login-state', 'logged_out');
-    await expect(pageRoot).toHaveAttribute('data-login-wallet-id', '');
-    await this.page.getByTestId('intended-recover-passkey').click();
-    await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
+    const { registration, recoveryCode } = await this.beginFreshBrowserRecovery({
+      action: recoveryActionForTarget('passkey'),
+    });
     await driveHostedPasskeyRecovery(this.page, recoveryCode);
     const snapshot = await this.waitForIntendedPageActionCompletion(
       'recoverPasskeyWallet',
       'success',
     );
     const result = requirePasskeyRecoveryResult(snapshot, this.walletId);
-    if (result.totalRecoveryCodeCount !== this.recoveryCodes.length) {
-      throw new Error('Recovery changed the recovery-set size');
-    }
-    if (result.activeRecoveryCodeCount !== this.recoveryCodes.length - 1) {
-      throw new Error('Recovery did not consume exactly one recovery code');
-    }
-    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
-      'data-login-state',
-      'logged_in',
-    );
-    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
-      'data-login-wallet-id',
-      registration.walletId,
-    );
+    this.assertRecoveryCodeConsumption(result);
+    await this.assertRecoveredWalletLoggedIn(registration.walletId);
     this.passkeyPromptCount += 2;
     this.operatingAuthFamily = 'passkey';
     this.currentWarmSigningStage = 'post_unlock';
     this.recordService('fresh-browser passkey recovery completed through normal passkey login');
   }
 
-  async assertConsumedRecoveryCodeRefusedGenerically(): Promise<void> {
+  async recoverGoogleEmailOtpWalletFromFreshBrowser(): Promise<void> {
+    this.recordStage('recover_google_email_otp_wallet_from_fresh_browser');
+    const { registration, recoveryCode } = await this.beginFreshBrowserRecovery({
+      action: recoveryActionForTarget('google_email_otp'),
+    });
+    await fillHostedRecoveryCode(this.page, recoveryCode, 'google_email_otp');
+    const diagnostics: WalletIframeAutoConfirmDiagnostics = { attempts: 0, clicked: false };
+    const snapshot = await autoConfirmWalletIframeUntil(
+      this.page,
+      this.waitForIntendedPageActionCompletion('recoverGoogleEmailOtpWallet', 'success'),
+      {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+        diagnostics,
+      },
+    );
+    this.latestPageSnapshot = snapshot;
+    this.latestWalletIframeAutoConfirmDiagnostics = diagnostics;
+    const result = requireGoogleEmailOtpRecoveryResult(snapshot, this.walletId);
+    this.assertRecoveryCodeConsumption(result);
+    await this.assertRecoveredWalletLoggedIn(registration.walletId);
+    this.emailOtpVerificationCount += 1;
+    this.operatingAuthFamily = 'email_otp';
+    this.currentWarmSigningStage = 'post_unlock';
+    this.recordService('fresh-browser Google Email OTP recovery completed through normal login');
+  }
+
+  async assertRecoveryAuthorityIsAdditive(target: IntendedRecoveryTargetKind): Promise<void> {
+    const projection = await this.waitForRecoveryAuthorityProjection();
+    const expectedMethod = target === 'passkey' ? 'passkey' : 'email_otp';
+    if (projection.walletId !== this.walletId) {
+      throw new Error('Recovery authority projection named a different wallet');
+    }
+    if (projection.authMethodKind !== expectedMethod) {
+      throw new Error(
+        `Recovery authority installed ${projection.authMethodKind}, expected ${expectedMethod}`,
+      );
+    }
+    if (projection.authorityId === projection.continuityAuthorityId) {
+      throw new Error('Recovery reused the continuity authority instead of adding one');
+    }
+    if (projection.authMethodWalletAuthorityId !== projection.authorityId) {
+      throw new Error('Recovery method is not bound to the recovered authority');
+    }
+    this.recordService(`recovery installed an additive ${expectedMethod} authority`);
+  }
+
+  async assertSourceWalletSessionRemainsActive(): Promise<void> {
+    const captured = this.sourceWalletBudgetStatusRequest;
+    if (!captured) {
+      throw new Error('Source Wallet Session authorization was not captured before recovery');
+    }
+    const replay = await this.replayWalletBudgetStatus(captured);
+    if (
+      replay.kind !== 'active' ||
+      replay.walletSessionId !== captured.walletSessionId ||
+      replay.quotaId !== captured.quotaId
+    ) {
+      throw new Error('The pre-recovery Wallet Session was not active after recovery');
+    }
+    this.recordService('source Wallet Session remained active after recovery');
+  }
+
+  async assertConsumedRecoveryCodeRefusedGenerically(
+    target: IntendedRecoveryTargetKind = 'passkey',
+  ): Promise<void> {
     const recoveryCode = this.recoveryCodes[0];
     if (!recoveryCode) throw new Error('Recovery-code reuse requires a captured recovery code');
-    await this.page.getByTestId('intended-recover-passkey').click();
-    await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
-    const frame = await fillHostedRecoveryCode(this.page, recoveryCode);
+    const action = recoveryActionForTarget(target);
+    await this.page.getByTestId(action.buttonTestId).click();
+    await this.waitForIntendedPageActionStarted(action.name);
+    const frame = await fillHostedRecoveryCode(this.page, recoveryCode, target);
     await expect(frame.locator('.w3a-recovery-status')).toHaveText(
       'That recovery code can’t be used. Check the code and try again.',
       { timeout: 30_000 },
@@ -1639,6 +1736,73 @@ export class IntendedBehaviourHarness {
     this.intendedPageReady = false;
     this.reloadIntendedPageBeforeNextAction = true;
     this.recordService('consumed recovery code received the generic refusal');
+  }
+
+  private async beginFreshBrowserRecovery(input: {
+    readonly action: IntendedRecoveryAction;
+  }): Promise<{
+    readonly registration: RegisteredWalletSnapshot;
+    readonly recoveryCode: string;
+  }> {
+    const registration = this.requireRegisteredWalletForSigning();
+    const recoveryCode = this.recoveryCodes[0];
+    if (!recoveryCode) {
+      throw new Error(`${input.action.target} recovery requires a captured recovery code`);
+    }
+    this.sourceWalletBudgetStatusRequest = this.latestWalletBudgetStatusRequest;
+    if (!this.sourceWalletBudgetStatusRequest) {
+      throw new Error('Source Wallet Session authorization was not captured before recovery');
+    }
+    this.recoveryAuthorityProjection = null;
+    this.recoveryAuthorityProjectionError = null;
+    await this.clearBrowserStorageForColdSync();
+    if (input.action.replaceWebAuthnAuthenticator) {
+      await this.replaceWebAuthnVirtualAuthenticatorForRecovery();
+    }
+    await this.ensureIntendedPageOpen();
+    const pageRoot = this.page.getByTestId('intended-e2e-page');
+    await expect(pageRoot).toHaveAttribute('data-login-state', 'logged_out');
+    await expect(pageRoot).toHaveAttribute('data-login-wallet-id', '');
+    await this.page.getByTestId(input.action.buttonTestId).click();
+    await this.waitForIntendedPageActionStarted(input.action.name);
+    return { registration, recoveryCode };
+  }
+
+  private assertRecoveryCodeConsumption(
+    result: Pick<
+      PasskeyRecoveryResultSnapshot | GoogleEmailOtpRecoveryResultSnapshot,
+      'activeRecoveryCodeCount' | 'totalRecoveryCodeCount'
+    >,
+  ): void {
+    if (result.totalRecoveryCodeCount !== this.recoveryCodes.length) {
+      throw new Error('Recovery changed the recovery-set size');
+    }
+    if (result.activeRecoveryCodeCount !== this.recoveryCodes.length - 1) {
+      throw new Error('Recovery did not consume exactly one recovery code');
+    }
+  }
+
+  private async assertRecoveredWalletLoggedIn(expectedWalletId: string): Promise<void> {
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_in',
+    );
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-wallet-id',
+      expectedWalletId,
+    );
+  }
+
+  private async waitForRecoveryAuthorityProjection(): Promise<RecoveryAuthorityProjection> {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (this.recoveryAuthorityProjection) return this.recoveryAuthorityProjection;
+      await this.page.waitForTimeout(50);
+    }
+    if (this.recoveryAuthorityProjectionError) {
+      throw new Error(this.recoveryAuthorityProjectionError);
+    }
+    throw new Error('Recovery finalization did not return its authority projection');
   }
 
   async unlockEmailOtpWallet(): Promise<void> {
@@ -2389,6 +2553,12 @@ export class IntendedBehaviourHarness {
     if (!captured) {
       throw new Error('Signing did not issue an authenticated wallet budget status request');
     }
+    return await this.replayWalletBudgetStatus(captured);
+  }
+
+  private async replayWalletBudgetStatus(
+    captured: CapturedWalletBudgetStatusRequest,
+  ): Promise<AuthoritativeWalletBudgetReplay> {
     const response = await this.request.post(captured.url, {
       headers: {
         Authorization: captured.authorization,
@@ -2420,6 +2590,7 @@ export class IntendedBehaviourHarness {
     );
     const yaoExportPath = routerAbEd25519YaoExportPath(response.url(), this.config.routerUrl);
     if (status < 400) {
+      void this.captureRecoveryAuthorityProjection(response);
       const observedPath = signingPath ?? yaoRegistrationPath ?? yaoRecoveryPath ?? yaoExportPath;
       if (observedPath) {
         this.trace.push({
@@ -2440,6 +2611,28 @@ export class IntendedBehaviourHarness {
       url: response.url(),
     });
     void this.captureFailedResponseBody(response);
+  }
+
+  private async captureRecoveryAuthorityProjection(response: Response): Promise<void> {
+    let url: URL;
+    try {
+      url = new URL(response.url());
+    } catch {
+      return;
+    }
+    if (
+      url.origin !== new URL(this.config.routerUrl).origin ||
+      url.pathname !== ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH
+    ) {
+      return;
+    }
+    const body = await response.json().catch(() => null);
+    try {
+      this.recoveryAuthorityProjection = parseRecoveryAuthorityProjection(body);
+    } catch {
+      this.recoveryAuthorityProjectionError =
+        'Recovery finalization returned an invalid authority projection';
+    }
   }
 
   private async captureFailedResponseBody(response: Response): Promise<void> {
@@ -2841,6 +3034,9 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
   if (normalized.endsWith('passkey.unlock.contract.test.ts')) return 'passkey.unlock';
   if (normalized.endsWith('passkey.recovery.contract.test.ts')) {
     return 'passkey.recovery';
+  }
+  if (normalized.endsWith('google-email-otp.recovery.contract.test.ts')) {
+    return 'email_otp.recovery';
   }
   if (
     normalized.endsWith('email-otp.registration.contract.test.ts') ||
@@ -3562,6 +3758,23 @@ function requirePasskeyRecoveryResult(
   }
   if (result.walletId !== expectedWalletId) {
     throw new Error(`Passkey recovery wallet mismatch: ${result.walletId}`);
+  }
+  return result;
+}
+
+function requireGoogleEmailOtpRecoveryResult(
+  snapshot: IntendedPageSnapshot,
+  expectedWalletId: string,
+): GoogleEmailOtpRecoveryResultSnapshot {
+  if (snapshot.action.status !== 'success') {
+    throw new Error(`Google Email OTP recovery did not succeed: ${snapshot.action.status}`);
+  }
+  const result = snapshot.action.result;
+  if (result.kind !== 'google_email_otp_recovery_success') {
+    throw new Error(`Google Email OTP recovery returned unexpected result kind: ${result.kind}`);
+  }
+  if (result.walletId !== expectedWalletId) {
+    throw new Error(`Google Email OTP recovery wallet mismatch: ${result.walletId}`);
   }
   return result;
 }
@@ -4424,6 +4637,19 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
           'passkey recovery totalRecoveryCodeCount',
         ),
       };
+    case 'google_email_otp_recovery_success':
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'Google Email OTP recovery walletId'),
+        activeRecoveryCodeCount: requireNonNegativeInteger(
+          record.activeRecoveryCodeCount,
+          'Google Email OTP recovery activeRecoveryCodeCount',
+        ),
+        totalRecoveryCodeCount: requirePositiveInteger(
+          record.totalRecoveryCodeCount,
+          'Google Email OTP recovery totalRecoveryCodeCount',
+        ),
+      };
     case 'email_otp_unlock_success':
       return {
         kind,
@@ -4626,6 +4852,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'awaitNearReady':
     case 'syncPasskeyWallet':
     case 'recoverPasskeyWallet':
+    case 'recoverGoogleEmailOtpWallet':
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
     case 'unlockWithAddedEmailOtp':
@@ -4795,7 +5022,9 @@ function parseAuthoritativeWalletBudgetStatus(args: {
     'authoritative wallet session status walletSessionId',
   );
   const quotaId = requireString(response.quotaId, 'authoritative wallet session status quotaId');
-  if (response.status === 'active') return { kind: 'active' };
+  if (response.status === 'active') {
+    return { kind: 'active', walletSessionId, quotaId };
+  }
   if (response.status !== 'exhausted') {
     throw new Error(
       `Authoritative wallet budget status has unexpected status ${String(response.status)}`,
@@ -4812,6 +5041,56 @@ function parseAuthoritativeWalletBudgetStatus(args: {
     kind: 'exhausted',
     walletSessionId,
     quotaId,
+  };
+}
+
+function parseRecoveryAuthorityProjection(raw: unknown): RecoveryAuthorityProjection {
+  const response = requireRecord(raw, 'recovery finalization response');
+  if (response.ok !== true) {
+    throw new Error('recovery finalization response must report ok=true');
+  }
+  const authority = requireRecord(response.authority, 'recovery authority projection');
+  const principal = requireRecord(authority.principal, 'recovery authority principal');
+  const provenance = requireRecord(authority.provenance, 'recovery authority provenance');
+  const authMethod = requireRecord(response.authMethod, 'recovery auth method projection');
+  if (authority.state !== 'active') {
+    throw new Error('recovery authority projection must be active');
+  }
+  if (principal.kind !== 'owner_device') {
+    throw new Error('recovery authority projection must be an owner device');
+  }
+  if (provenance.kind !== 'wallet_recovery') {
+    throw new Error('recovery authority projection must carry wallet-recovery provenance');
+  }
+  if (authMethod.status !== 'active') {
+    throw new Error('recovery auth method projection must be active');
+  }
+  if (authMethod.kind !== 'passkey' && authMethod.kind !== 'email_otp') {
+    throw new Error('recovery auth method projection has an unsupported kind');
+  }
+  return {
+    walletId: requireString(authority.walletId, 'recovery authority walletId'),
+    authorityId: requireString(authority.authorityId, 'recovery authority authorityId'),
+    deviceId: requireString(principal.deviceId, 'recovery authority deviceId'),
+    provenanceKind: 'wallet_recovery',
+    recoveryOperationId: requireString(
+      provenance.recoveryOperationId,
+      'recovery authority recoveryOperationId',
+    ),
+    continuityAuthorityId: requireString(
+      provenance.continuityAuthorityId,
+      'recovery authority continuityAuthorityId',
+    ),
+    authMethodWalletAuthMethodId: requireString(
+      authMethod.walletAuthMethodId,
+      'recovery auth method walletAuthMethodId',
+    ),
+    authMethodWalletAuthorityId: requireString(
+      authMethod.walletAuthorityId,
+      'recovery auth method walletAuthorityId',
+    ),
+    authMethodKind: authMethod.kind,
+    authMethodStatus: 'active',
   };
 }
 
@@ -4878,11 +5157,36 @@ async function hostedAuthMenuFrame(page: Page): Promise<FrameLocator> {
   return iframe.contentFrame();
 }
 
-async function fillHostedRecoveryCode(page: Page, recoveryCode: string): Promise<FrameLocator> {
+function recoveryActionForTarget(target: IntendedRecoveryTargetKind): IntendedRecoveryAction {
+  switch (target) {
+    case 'passkey':
+      return {
+        target,
+        name: 'recoverPasskeyWallet',
+        buttonTestId: 'intended-recover-passkey',
+        replaceWebAuthnAuthenticator: true,
+      };
+    case 'google_email_otp':
+      return {
+        target,
+        name: 'recoverGoogleEmailOtpWallet',
+        buttonTestId: 'intended-recover-google-email-otp',
+        replaceWebAuthnAuthenticator: false,
+      };
+    default:
+      return assertNever(target);
+  }
+}
+
+async function fillHostedRecoveryCode(
+  page: Page,
+  recoveryCode: string,
+  target: IntendedRecoveryTargetKind,
+): Promise<FrameLocator> {
   const frame = await hostedAuthMenuFrame(page);
   await frame.getByRole('button', { name: 'Recover account' }).click({ timeout: 15_000 });
   await frame.locator('[data-recovery-code]').fill(recoveryCode);
-  await frame.getByRole('button', { name: 'Continue', exact: true }).click();
+  await frame.locator(`[data-recovery-target="${target}"]`).click({ timeout: 30_000 });
   return frame;
 }
 
@@ -4912,7 +5216,11 @@ async function waitForHostedPasskeyRecoverySignIn(page: Page, frame: FrameLocato
 }
 
 async function driveHostedPasskeyRecovery(page: Page, recoveryCode: string): Promise<void> {
-  const frame = await fillHostedRecoveryCode(page, recoveryCode);
+  const frame = await fillHostedRecoveryCode(page, recoveryCode, 'passkey');
+  await expect(page.getByTestId('intended-e2e-page')).toHaveAttribute(
+    'data-login-state',
+    'logged_out',
+  );
   await frame.getByRole('button', { name: 'Create new passkey', exact: true }).click({
     timeout: 30_000,
   });
@@ -4940,7 +5248,9 @@ async function fillWalletIframeEmailOtpIfAvailable(
   },
 ): Promise<boolean> {
   const timeoutMs = Math.max(50, Math.floor(opts?.timeoutMs ?? 500));
-  const input = frame.locator('#email-otp-confirm-code, #drawer-email-otp-confirm-code').first();
+  const input = frame
+    .locator('#email-otp-confirm-code, #drawer-email-otp-confirm-code, #w3a-auth-menu-google-otp')
+    .first();
   const visible = await input
     .waitFor({ state: 'visible', timeout: timeoutMs })
     .then(() => true)

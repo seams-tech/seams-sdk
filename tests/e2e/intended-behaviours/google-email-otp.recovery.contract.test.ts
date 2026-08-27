@@ -1,4 +1,8 @@
-import { intendedTest as test, type IntendedBehaviourHarness } from './harness';
+import {
+  intendedTest as test,
+  type IntendedBehaviourHarness,
+  type IntendedRecoveryTargetKind,
+} from './harness';
 
 type RecoveryOrigin = {
   readonly name: string;
@@ -14,12 +18,22 @@ async function registerEmailOnlyWallet(harness: IntendedBehaviourHarness): Promi
   await harness.registerEmailOtpWallet();
 }
 
+async function assertPasskeyFoundedInventoryRemains(
+  harness: IntendedBehaviourHarness,
+): Promise<void> {
+  await harness.unlockPasskeyWallet();
+}
+
 async function assertEmailOnlyInventoryRemains(harness: IntendedBehaviourHarness): Promise<void> {
   await harness.unlockEmailOtpWallet();
 }
 
 const recoveryOrigins: readonly RecoveryOrigin[] = [
-  { name: 'Passkey-founded', register: registerPasskeyFoundedWallet },
+  {
+    name: 'Passkey-founded',
+    register: registerPasskeyFoundedWallet,
+    assertExistingInventory: assertPasskeyFoundedInventoryRemains,
+  },
   {
     name: 'Email-only',
     register: registerEmailOnlyWallet,
@@ -27,20 +41,22 @@ const recoveryOrigins: readonly RecoveryOrigin[] = [
   },
 ];
 
+const recoveryTarget: IntendedRecoveryTargetKind = 'google_email_otp';
+
 for (const origin of recoveryOrigins) {
-  test(`a fresh browser recovers a ${origin.name} wallet with one code, signs, and refuses reuse`, async ({
+  test(`a fresh browser recovers a ${origin.name} wallet with Google and Email OTP, signs, and refuses reuse`, async ({
     harness,
   }) => {
     await origin.register(harness);
     await harness.awaitNearReady();
     await harness.signTempoTransaction('post_registration');
-    await harness.recoverPasskeyWalletFromFreshBrowser();
-    await harness.assertRecoveryAuthorityIsAdditive('passkey');
+    await harness.recoverGoogleEmailOtpWalletFromFreshBrowser();
+    await harness.assertRecoveryAuthorityIsAdditive(recoveryTarget);
     await harness.assertSourceWalletSessionRemainsActive();
     await harness.refreshPagePreservingWalletStorage();
     await harness.signNearTransaction('post_unlock');
     await harness.signTempoAndArcEvmConcurrently('post_unlock');
     await origin.assertExistingInventory?.(harness);
-    await harness.assertConsumedRecoveryCodeRefusedGenerically();
+    await harness.assertConsumedRecoveryCodeRefusedGenerically(recoveryTarget);
   });
 }
