@@ -92,14 +92,18 @@ R109D product implementation may proceed.
       the source credential.
 - [x] Add the owner-authenticated cancel path for the claimed, pre-approval
       state and make terminal cancellation replay idempotent.
-- [x] Complete the four source/target factor operating paths and their focused
-      intended-browser contracts.
+- [ ] Complete the four source/target factor operating paths from genuine
+      single-method source inventories and their focused intended-browser
+      contracts.
 
-The operating contract now enumerates all twelve factor/profile cases. The
-combined Passkey-to-Email and Email-to-Passkey paths have each passed their
-full browser lifecycle: link, activate, reload, unlock, sign, export, revoke,
-reject the revoked method, and preserve the surviving owner. Same-factor
-linking continues through the ordinary R103E paths.
+The operating contract enumerates all twelve factor/profile cases. Its former
+Passkey-to-Email setup added an Email OTP method to Device 1 before linking, so
+it proved an existing-enrollment path rather than the required transition from
+a Passkey-only wallet. Manual acceptance exposed the missing first-Email
+target enrollment. R109D remains open until that shortcut is removed and the
+genuine Passkey-only-to-Email path completes link, activation, reload, unlock,
+signing, export, revocation, revoked-method rejection, and surviving-owner
+operation.
 
 ## Successful result
 
@@ -217,9 +221,11 @@ requires it to match this branch.
 
 ### Passkey
 
-Use the managed `LINKED_DEVICE_WEBAUTHN_RP_ID` and
-`LINKED_DEVICE_WEBAUTHN_ORIGIN`. Normalize and validate them once at server
-composition, then bind their digest into target preparation.
+Use the managed `LINKED_DEVICE_WEBAUTHN_RP_ID`. Authenticate the target
+preparation and credential requests through the same publishable-key,
+environment, and exact-origin admission used by registration. Normalize that
+admitted request origin, require it to fall inside the managed RP ID, then bind
+their digest into target preparation.
 
 ```ts
 type LinkedDevicePasskeyTargetConfigurationV1 = {
@@ -230,9 +236,10 @@ type LinkedDevicePasskeyTargetConfigurationV1 = {
 };
 ```
 
-Make this a required server-composition value. Missing or invalid
-configuration prevents device-linking startup. Recompute and compare the
-configuration digest at verification; a mid-flow change fails closed.
+The RP ID remains a required server-composition value. The origin has no
+device-linking-specific configuration source. Recompute the configuration
+digest from the credential request's admitted origin and compare it with the
+persisted preparation; a different origin fails closed.
 
 Creation options use a fresh challenge, target method ID, wallet ID as the user
 handle, existing PRF salts, and `excludeCredentials: []`. They never copy the
@@ -240,11 +247,21 @@ source factor, credential, or RP configuration.
 
 ### Email OTP
 
-Device 1 selects the base Email OTP method. Device 2 receives a masked address
-and enters the code; it never supplies or edits an email address.
+Device 2 enters and confirms the target email before QR creation. The target
+email is normalized once, bound into the QR/session, owner approval, target
+preparation, challenge, verification grant, and target registration.
 
-Eligible methods have an active method, active authority, exact canonical
-enrollment, and addressable factor release in the same wallet.
+When the wallet already has an Email enrollment for that address, Device 1
+selects the exact active base method. Eligible methods have an active method,
+active authority, exact canonical enrollment, and addressable factor release
+in the same wallet.
+
+When a Passkey-only wallet has no Email enrollment, target verification uses a
+registration challenge. Device 2 generates a fresh factor secret, seals it to
+the server enrollment key, and submits the resulting enrollment material with
+the verified target registration. The pending linked-authority commit writes
+the enrollment, target method, authority, signer packages, and Wallet Session
+atomically. Device 1 remains Passkey-only.
 
 The candidate operation returns only these shapes:
 
@@ -277,7 +294,10 @@ The D1 adapter joins `CloudflareD1WalletAuthMethodService`,
 existing factor-release loader. Wallet ID comes from the verified source; the
 client cannot nominate it.
 
-- zero candidates: typed terminal unavailable result;
+- zero candidates and no wallet Email enrollment: select the new-enrollment
+  branch bound to the target email;
+- an existing wallet Email enrollment for a different address: typed terminal
+  conflict;
 - one: automatic selection;
 - several: Device 1 chooses from rows sorted by `WalletAuthMethodId`;
 - stale or foreign ID: the same non-disclosing ineligible result.
@@ -360,9 +380,10 @@ Email OTP authentication. Its ready state contains required wallet, authority,
 auth-method, and Wallet Session IDs from the exact selected session. Opening
 linking must retain that state; it must not trigger another login or step-up.
 
-Device 2 chooses the target factor before QR creation. Device 1 owns Email
-base-method selection and sees server-masked choices keyed by exact auth-method
-ID. Device 2 has no email-entry control.
+Device 2 chooses the target factor before QR creation. The Email branch also
+collects the target address before creating the QR. Device 1 owns existing
+Email base-method selection and sees server-masked choices keyed by exact
+auth-method ID; it never chooses or rewrites Device 2's target address.
 
 Both devices branch on typed lifecycle and failure results. Release the
 in-progress guard after `active`, `failed_before_commit`, `cancelled`, or
@@ -426,16 +447,17 @@ work. An Email grant must also remain live until pending commit.
 resumes the same authority, auth method, activation refs, verification digest,
 and byte-identical package set. Cancellation and ordinary expiry are forbidden.
 
-| Failure                                     | Result                                  |
-| ------------------------------------------- | --------------------------------------- |
-| no eligible Email base method               | terminal typed unavailable              |
-| selected Email method changes before commit | terminal typed changed                  |
-| incorrect Email code before expiry          | remain awaiting target; retry or resend |
-| target preparation or Email grant expires   | terminal target-verification expiry     |
-| Passkey configuration changes before commit | terminal configuration-changed          |
-| source session fails revalidation           | terminal typed source failure           |
-| malformed source contribution               | `invalid_input`; retain state           |
-| failure after pending commit                | resume exact pending installation       |
+| Failure                                       | Result                                  |
+| --------------------------------------------- | --------------------------------------- |
+| no base method and no Email enrollment        | new target enrollment                   |
+| target email conflicts with wallet enrollment | terminal typed conflict                 |
+| selected Email method changes before commit   | terminal typed changed                  |
+| incorrect Email code before expiry            | remain awaiting target; retry or resend |
+| target preparation or Email grant expires     | terminal target-verification expiry     |
+| Passkey configuration changes before commit   | terminal configuration-changed          |
+| source session fails revalidation             | terminal typed source failure           |
+| malformed source contribution                 | `invalid_input`; retain state           |
+| failure after pending commit                  | resume exact pending installation       |
 
 ## Durable target registration
 
@@ -559,6 +581,8 @@ signer profiles.
 
 Each of the twelve cases proves:
 
+- the source inventory is genuine: Passkey-to-Email starts with no Email OTP
+  method or enrollment, and Email-to-Passkey starts with no Passkey method;
 - Device 1 is unchanged;
 - Device 2 gets exactly one fresh authority, method, and required activations;
 - reload, lock, unlock, inventory, signing, export, and exact revocation use
