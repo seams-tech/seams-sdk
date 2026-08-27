@@ -5,7 +5,9 @@ import {
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
   type ActiveWalletAuthorityV1,
+  type WalletSignerActivationSetV1,
 } from '@shared/authorization';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseWalletId,
   parseWebAuthnRpId,
@@ -52,6 +54,7 @@ import {
   buildWalletRecoveryEcdsaPossessionChallengesV1,
   resolveWalletRecoveryKeyManifestV1,
   verifyWalletRecoveryKeyActivationsV1,
+  type WalletRecoveryKeyManifestV1,
 } from './walletRecoveryKeyManifest';
 import type { WalletRecoveryEcdsaPossessionProofV1 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { WebAuthnCredentialBindingRecord } from '../../../core/WebAuthnCredentialBindingStore';
@@ -242,11 +245,13 @@ async function buildRecoveredWalletAuthority(input: {
   readonly walletId: WalletId;
   readonly challenge: WebAuthnRecoveryRegistrationChallengeRecord;
   readonly continuityAuthority: ActiveWalletAuthorityV1;
+  readonly manifest: WalletRecoveryKeyManifestV1;
   readonly nowMs: number;
 }): Promise<ActiveWalletAuthorityV1> {
-  /* Current recovery activation emits no fresh Ed25519 reference. Reuse the
-     exact anchor activation refs until that output is available. */
-  const signerActivations = input.continuityAuthority.signerActivations;
+  const signerActivations = recoverySignerActivations({
+    continuity: input.continuityAuthority.signerActivations,
+    manifest: input.manifest,
+  });
   const signerActivationSetDigestB64u =
     await computeWalletSignerActivationSetDigestB64u(signerActivations);
   const draft: ActiveWalletAuthorityV1 = {
@@ -288,6 +293,45 @@ async function buildRecoveredWalletAuthority(input: {
     state: draft.state,
     activatedAtMs: draft.activatedAtMs,
   });
+}
+
+function recoverySignerActivations(input: {
+  readonly continuity: WalletSignerActivationSetV1;
+  readonly manifest: WalletRecoveryKeyManifestV1;
+}): WalletSignerActivationSetV1 {
+  const continuityEd25519 = input.continuity.ed25519;
+  if (!continuityEd25519) return input.continuity;
+  const registeredPublicKeyB64u = continuityEd25519.signer.registeredPublicKeyB64u;
+  const entries = input.manifest.entries.filter(
+    (entry) =>
+      entry.kind === 'near_ed25519' &&
+      entry.registeredPublicKeyB64u === registeredPublicKeyB64u &&
+      entry.recoveryBasis.capabilityKind === 'recovery',
+  );
+  if (entries.length !== 1 || entries[0]?.kind !== 'near_ed25519') {
+    throw new Error('wallet recovery has no exact fresh Ed25519 activation');
+  }
+  const ed25519 = {
+    kind: 'wallet_ed25519_signer_activation_v1' as const,
+    signer: continuityEd25519.signer,
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(
+      entries[0].recoveryBasis.activeMaterialActivation,
+    ),
+  };
+  const continuityEcdsa = input.continuity.ecdsa;
+  if (!continuityEcdsa) {
+    return {
+      kind: 'wallet_signer_activation_set_v1',
+      keyFamilies: ['ed25519'],
+      ed25519,
+    };
+  }
+  return {
+    kind: 'wallet_signer_activation_set_v1',
+    keyFamilies: ['ed25519', 'ecdsa_secp256k1'],
+    ed25519,
+    ecdsa: continuityEcdsa,
+  };
 }
 
 function buildRecoveredWalletAuthMethod(input: {
@@ -713,6 +757,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     walletId,
     challenge,
     continuityAuthority: continuity.authority,
+    manifest,
     nowMs: input.nowMs,
   });
   const binding = buildRecoveredCredentialBinding({

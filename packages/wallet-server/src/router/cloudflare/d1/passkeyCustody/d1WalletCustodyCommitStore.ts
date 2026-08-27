@@ -59,6 +59,37 @@ type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
   { readonly kind: 'passkey'; readonly status: 'active' }
 >;
 
+function recoverySignerActivationsMatchContinuity(input: {
+  readonly recovery: ActiveWalletAuthorityV1['signerActivations'];
+  readonly continuity: ActiveWalletAuthorityV1['signerActivations'];
+}): boolean {
+  if (
+    alphabetizeStringify(input.recovery.keyFamilies) !==
+    alphabetizeStringify(input.continuity.keyFamilies)
+  ) {
+    return false;
+  }
+  const recoveryEcdsa = input.recovery.ecdsa;
+  const continuityEcdsa = input.continuity.ecdsa;
+  if (
+    alphabetizeStringify(recoveryEcdsa ?? null) !==
+    alphabetizeStringify(continuityEcdsa ?? null)
+  ) {
+    return false;
+  }
+  const recoveryEd25519 = input.recovery.ed25519;
+  const continuityEd25519 = input.continuity.ed25519;
+  if (!recoveryEd25519 || !continuityEd25519) {
+    return recoveryEd25519 === continuityEd25519;
+  }
+  return (
+    alphabetizeStringify(recoveryEd25519.signer) ===
+      alphabetizeStringify(continuityEd25519.signer) &&
+    alphabetizeStringify(recoveryEd25519.materialActivation) !==
+      alphabetizeStringify(continuityEd25519.materialActivation)
+  );
+}
+
 const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
   INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
   SELECT 1
@@ -770,12 +801,14 @@ export class CloudflareD1WalletCustodyCommitStore {
       return { kind: 'inconsistent', reason: 'recovery authority must have full-owner permissions' };
     }
     if (
-      alphabetizeStringify(input.authority.signerActivations) !==
-      alphabetizeStringify(input.continuityAuthority.signerActivations)
+      !recoverySignerActivationsMatchContinuity({
+        recovery: input.authority.signerActivations,
+        continuity: input.continuityAuthority.signerActivations,
+      })
     ) {
       return {
         kind: 'inconsistent',
-        reason: 'recovery authority must reuse the continuity signer activations',
+        reason: 'recovery authority signer activations violate custody continuity',
       };
     }
     if (
