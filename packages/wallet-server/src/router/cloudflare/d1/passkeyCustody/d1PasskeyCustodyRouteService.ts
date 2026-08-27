@@ -60,12 +60,16 @@ import {
   type WebAuthnRecoveryRegistrationChallengeRecord,
   type WebAuthnRecoveryContinuityAnchorRecord,
 } from '../webauthn/d1WebAuthnRecords';
-import type { CloudflareD1WalletRecoveryGoogleEmailOtpService } from './d1WalletRecoveryGoogleEmailOtpService';
+import type {
+  CloudflareD1WalletRecoveryGoogleEmailOtpService,
+  WalletRecoveryGoogleEmailOtpFinalizationResult,
+} from './d1WalletRecoveryGoogleEmailOtpService';
 import {
   buildPreparedWalletRecoveryGoogleEmailOtpAttempt,
   walletRecoveryGoogleEmailOtpFinalizationInput,
   type WalletRecoveryGoogleEmailOtpFinalizationInput,
 } from './d1WalletRecoveryGoogleEmailOtpRecords';
+import type { EmailOtpEnrollmentMaterialBoundaryInput } from '../emailOtp/d1EmailOtpRecords';
 import {
   rotateWalletRecoveryCodesV1,
   type WalletRecoveryRotationResult,
@@ -281,6 +285,16 @@ export interface RouterApiPasskeyCustodyService {
   }): Promise<WalletRecoveryRouteFinalizationResult>;
 
   /**
+   * Finalizes the Google/Email target from the server-retained OTP attempt.
+   * The route never supplies recovery identity: the operation and reservation
+   * select the verified attempt, while create material is the only enrollment
+   * input a browser may add.
+   */
+  finalizeGoogleEmailOtpRecovery(
+    request: WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
+  ): Promise<WalletRecoveryGoogleEmailOtpFinalizationResult>;
+
+  /**
    * Records that the owner confirmed saving their recovery codes.
    *
    * Cosmetic by design: nothing consults it to decide whether a recovery may
@@ -338,6 +352,21 @@ export interface RouterApiPasskeyCustodyService {
     | { readonly kind: 'no_recovery_set' }
   >;
 }
+
+export type WalletRecoveryGoogleEmailOtpRouteFinalizationRequest = {
+  readonly recoveryOperationId: WalletRecoveryOperationId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly ecdsaMaterialPossessionProofs: readonly {
+    readonly keySetId: string;
+    readonly proof: WalletRecoveryEcdsaPossessionProofV1;
+  }[];
+  /** Null is the existing-enrollment branch; the attempt supplies its IDs. */
+  readonly emailOtpEnrollment: {
+    readonly kind: 'create';
+    readonly material: EmailOtpEnrollmentMaterialBoundaryInput;
+  } | null;
+};
 
 /** How long a reservation may sit before another attempt may take the code. */
 const RECOVERY_RESERVATION_TTL_MS = 5 * 60 * 1000;
@@ -651,6 +680,9 @@ export function createD1PasskeyCustodyRouteService(assembly: {
   readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly googleRecovery?: CloudflareD1WalletRecoveryGoogleEmailOtpService;
+  readonly emailOtpRegistrationEnrollmentFinalizer?: Parameters<
+    CloudflareD1WalletRecoveryGoogleEmailOtpService['finalizeRecovery']
+  >[0]['dependencies']['enrollmentFinalizer'];
   readonly logger: NormalizedLogger;
   /** Injected so the reservation window is testable without waiting. */
   readonly nowMs?: () => number;
@@ -874,6 +906,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
     ),
 
     finalizeRecovery: finalizeRecoveryForRoute.bind(undefined, assembly),
+    finalizeGoogleEmailOtpRecovery: finalizeGoogleEmailOtpRecoveryForRoute.bind(undefined, assembly),
 
     acknowledgeRecoveryBackup: async (request) => {
       const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
@@ -949,6 +982,7 @@ async function readPreparedEd25519RecoveryAdmission(
     readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
     readonly walletStore: D1WalletStore;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
+    readonly googleRecovery?: CloudflareD1WalletRecoveryGoogleEmailOtpService;
   },
   request: {
     readonly challengeId: string;
@@ -959,25 +993,65 @@ async function readPreparedEd25519RecoveryAdmission(
     request.challengeId,
     request.nowMs,
   );
-  if (!challenge) return null;
+  if (challenge) {
+    const storedRecoverySet = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
+      challenge.walletId,
+    );
+    const hasActiveReservation = storedRecoverySet?.record.manifestKekWraps.some(
+      (wrap) =>
+        wrap.lifecycle.state === 'reserved' &&
+        wrap.lifecycle.reservationId === challenge.reservationId &&
+        wrap.lifecycle.reservationExpiresAtMs > request.nowMs,
+    );
+    if (!hasActiveReservation) return null;
+    const manifest = await resolveWalletRecoveryKeyManifestV1({
+      registry: assembly.walletStore,
+      walletId: challenge.walletId,
+    });
+    return {
+      kind: 'prepared_ed25519_recovery_admission_v1',
+      walletId: challenge.walletId,
+      reservationId: challenge.reservationId,
+      entries: manifest.entries.filter(
+        (
+          entry,
+        ): entry is Extract<(typeof manifest.entries)[number], { readonly kind: 'near_ed25519' }> =>
+          entry.kind === 'near_ed25519',
+      ),
+    };
+  }
+
+  const recoveryOperationId = parseWalletRecoveryOperationId(request.challengeId);
+  if (!recoveryOperationId.ok || !assembly.googleRecovery) return null;
+  const storedAttempt = await assembly.googleRecovery.readAttempt(recoveryOperationId.value);
+  if (storedAttempt.kind !== 'present') return null;
+  const attempt = storedAttempt.value;
+  if (
+    attempt.state !== 'otp_verified' ||
+    attempt.orgId !== assembly.orgId ||
+    attempt.recoveryOperationId !== recoveryOperationId.value ||
+    attempt.expiresAtMs <= request.nowMs
+  ) {
+    return null;
+  }
   const storedRecoverySet = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
-    challenge.walletId,
+    attempt.walletId,
   );
   const hasActiveReservation = storedRecoverySet?.record.manifestKekWraps.some(
     (wrap) =>
       wrap.lifecycle.state === 'reserved' &&
-      wrap.lifecycle.reservationId === challenge.reservationId &&
+      wrap.lifecycle.reservationId === attempt.reservationId &&
       wrap.lifecycle.reservationExpiresAtMs > request.nowMs,
   );
   if (!hasActiveReservation) return null;
   const manifest = await resolveWalletRecoveryKeyManifestV1({
     registry: assembly.walletStore,
-    walletId: challenge.walletId,
+    walletId: attempt.walletId,
   });
   return {
     kind: 'prepared_ed25519_recovery_admission_v1',
-    walletId: challenge.walletId,
-    reservationId: challenge.reservationId,
+    walletId: attempt.walletId,
+    reservationId: attempt.reservationId,
     entries: manifest.entries.filter(
       (
         entry,
@@ -1326,6 +1400,105 @@ async function finalizeRecoveryForRoute(
     authority,
     authMethod,
   };
+}
+
+async function finalizeGoogleEmailOtpRecoveryForRoute(
+  assembly: {
+    readonly orgId: string;
+    readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
+    readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+    readonly walletStore: D1WalletStore;
+    readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
+    readonly googleRecovery?: CloudflareD1WalletRecoveryGoogleEmailOtpService;
+    readonly emailOtpRegistrationEnrollmentFinalizer?: Parameters<
+      CloudflareD1WalletRecoveryGoogleEmailOtpService['finalizeRecovery']
+    >[0]['dependencies']['enrollmentFinalizer'];
+  },
+  request: WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
+): Promise<WalletRecoveryGoogleEmailOtpFinalizationResult> {
+  const googleRecovery = assembly.googleRecovery;
+  const enrollmentFinalizer = assembly.emailOtpRegistrationEnrollmentFinalizer;
+  if (!googleRecovery || !enrollmentFinalizer) {
+    return { kind: 'refused', reason: 'Google Email OTP recovery is not configured' };
+  }
+
+  const stored = await googleRecovery.readAttempt(request.recoveryOperationId);
+  if (stored.kind !== 'present' || stored.value.state !== 'otp_verified') {
+    return { kind: 'refused', reason: 'the verified recovery operation is unavailable' };
+  }
+  const attempt = stored.value;
+  if (String(attempt.reservationId) !== String(request.reservationId)) {
+    return { kind: 'refused', reason: 'the recovery reservation does not match the operation' };
+  }
+
+  const recovery = walletRecoveryGoogleEmailOtpFinalizationInput(attempt);
+  const emailOtpEnrollment = googleEmailOtpEnrollmentForRoute({
+    recovery,
+    emailOtpEnrollment: request.emailOtpEnrollment,
+  });
+  if (emailOtpEnrollment.kind !== 'ready') return emailOtpEnrollment;
+
+  return await googleRecovery.finalizeRecovery({
+    recovery,
+    replacementEnvelope: request.replacementEnvelope,
+    emailOtpEnrollment: emailOtpEnrollment.enrollment,
+    ecdsaMaterialPossessionProofs: request.ecdsaMaterialPossessionProofs,
+    dependencies: {
+      envelopeStore: assembly.passkeyCustodyEnvelopes,
+      walletCustodyCommits: assembly.walletCustodyCommits,
+      walletAuthorityStore: assembly.walletAuthorityStore,
+      walletStore: assembly.walletStore,
+      enrollmentFinalizer,
+    },
+  });
+}
+
+type GoogleEmailOtpEnrollmentForRouteResult =
+  | {
+      readonly kind: 'ready';
+      readonly enrollment: Parameters<
+        CloudflareD1WalletRecoveryGoogleEmailOtpService['finalizeRecovery']
+      >[0]['emailOtpEnrollment'];
+    }
+  | Extract<WalletRecoveryGoogleEmailOtpFinalizationResult, { readonly kind: 'enrollment_rejected' }>;
+
+function googleEmailOtpEnrollmentForRoute(input: {
+  readonly recovery: WalletRecoveryGoogleEmailOtpFinalizationInput;
+  readonly emailOtpEnrollment: WalletRecoveryGoogleEmailOtpRouteFinalizationRequest['emailOtpEnrollment'];
+}): GoogleEmailOtpEnrollmentForRouteResult {
+  switch (input.recovery.targetEnrollment.kind) {
+    case 'existing':
+      if (input.emailOtpEnrollment !== null) {
+        return {
+          kind: 'enrollment_rejected',
+          reason: 'existing recovery Email enrollment accepts no client material',
+        };
+      }
+      return {
+        kind: 'ready',
+        enrollment: {
+          kind: 'existing',
+          enrollmentId: input.recovery.targetEnrollment.enrollmentId,
+          enrollmentSealKeyVersion: input.recovery.targetEnrollment.enrollmentSealKeyVersion,
+        },
+      };
+    case 'create':
+      if (input.emailOtpEnrollment === null) {
+        return {
+          kind: 'enrollment_rejected',
+          reason: 'new recovery Email enrollment material is required',
+        };
+      }
+      return {
+        kind: 'ready',
+        enrollment: {
+          kind: 'create',
+          providerSubject: input.recovery.providerSubject,
+          verifiedEmail: input.recovery.verifiedEmail,
+          material: input.emailOtpEnrollment.material,
+        },
+      };
+  }
 }
 
 async function buildEcdsaPossessionChallenges(input: {

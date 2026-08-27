@@ -1,5 +1,8 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
-import type { PasskeyCustodyEnvelopeRetrievalWireRequest } from '../../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import type {
+  PasskeyCustodyEnvelopeRetrievalWireRequest,
+  WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
+} from '../../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
 import type { WalletRecoveryCodeLocatorRecord } from '../../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import {
   findRouteDefinitionById,
@@ -96,6 +99,7 @@ import {
   type WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import { base64UrlDecode } from '@shared/utils/base64';
+import type { EmailOtpEnrollmentMaterialBoundaryInput } from '../../../cloudflare/d1/emailOtp/d1EmailOtpRecords';
 
 /**
  * The transport for custody envelope retrieval.
@@ -114,6 +118,7 @@ const RECOVERY_PREPARE_ROUTE_ID = 'wallet_recovery_prepare';
 const RECOVERY_GOOGLE_VERIFY_ROUTE_ID = 'wallet_recovery_google_verify';
 const RECOVERY_EMAIL_OTP_VERIFY_ROUTE_ID = 'wallet_recovery_email_otp_verify';
 const RECOVERY_EMAIL_OTP_RELEASE_ROUTE_ID = 'wallet_recovery_email_otp_release';
+const RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_ROUTE_ID = 'wallet_recovery_google_email_otp_finalize';
 const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
@@ -1220,6 +1225,73 @@ export async function handleWalletRecoveryEmailOtpRelease(
   }
 }
 
+/**
+ * Installs the Google/Email OTP recovery target selected by the persisted
+ * `otp_verified` attempt. Recovery identity and enrollment identifiers stay
+ * server-side; the body can add only a new-enrollment material bundle.
+ */
+export async function handleWalletRecoveryGoogleEmailOtpFinalize(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(
+    ctx.routeDefinitions,
+    RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_ROUTE_ID,
+  );
+  if (!route) {
+    throw new Error(`Missing route definition for ${RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_ROUTE_ID}`);
+  }
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  let request: WalletRecoveryGoogleEmailOtpRouteFinalizationRequest;
+  try {
+    request = parseWalletRecoveryGoogleEmailOtpFinalizeRequest(await readJson(ctx.request));
+  } catch {
+    return walletRecoveryRequestError();
+  }
+
+  const finalizer = ctx.service.passkeyCustody.finalizeGoogleEmailOtpRecovery;
+  if (!finalizer) {
+    return toFetchRouteResponse({
+      status: 503,
+      body: {
+        ok: false,
+        code: 'not_configured',
+        message: 'Google Email OTP recovery is not configured',
+      },
+    });
+  }
+
+  try {
+    const result = await finalizer(request);
+    switch (result.kind) {
+      case 'promoted':
+        return toFetchRouteResponse({
+          status: 200,
+          body: {
+            ok: true,
+            storeVersion: result.storeVersion,
+            authority: result.authority,
+            authMethod: result.authMethod,
+          },
+        });
+      case 'conflict':
+        return toFetchRouteResponse({
+          status: 409,
+          body: { ok: false, code: 'recovery_conflict', message: 'wallet recovery conflicted' },
+        });
+      case 'refused':
+      case 'envelope_rejected':
+      case 'enrollment_rejected':
+        return toFetchRouteResponse({
+          status: 400,
+          body: { ok: false, code: 'recovery_rejected', message: 'wallet recovery was rejected' },
+        });
+    }
+  } catch {
+    return walletRecoveryInternalError();
+  }
+}
+
 type WalletRecoveryOperationRequest = {
   readonly recoveryOperationId: WalletRecoveryOperationId;
   readonly reservationId: RecoveryCodeReservationId;
@@ -1295,6 +1367,84 @@ function parseWalletRecoveryEmailOtpReleaseRequest(
       'workerEphemeralPublicKey65B64u',
     ),
   };
+}
+
+function parseWalletRecoveryGoogleEmailOtpFinalizeRequest(
+  value: unknown,
+): WalletRecoveryGoogleEmailOtpRouteFinalizationRequest {
+  if (!isObject(value)) {
+    throw new Error('wallet recovery Google Email OTP finalization body must be an object');
+  }
+  requireExactObjectFields(
+    value,
+    [
+      'recoveryOperationId',
+      'reservationId',
+      'replacementEnvelope',
+      'ecdsaMaterialPossessionProofs',
+      ...(value.emailOtpEnrollment === undefined ? [] : ['emailOtpEnrollment']),
+    ],
+    'wallet recovery Google Email OTP finalization',
+  );
+  const recoveryOperationId = parseWalletRecoveryOperationId(value.recoveryOperationId);
+  if (!recoveryOperationId.ok) {
+    throw new Error('wallet recovery Google Email OTP finalization operation is invalid');
+  }
+  const emailOtpEnrollment =
+    value.emailOtpEnrollment === undefined
+      ? null
+      : parseWalletRecoveryGoogleEmailOtpCreateEnrollment(value.emailOtpEnrollment);
+  return {
+    recoveryOperationId: recoveryOperationId.value,
+    reservationId: parseRecoveryCodeReservationId(value.reservationId),
+    replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
+      value.replacementEnvelope,
+      'walletRecoveryGoogleEmailOtpFinalize.replacementEnvelope',
+    ),
+    ecdsaMaterialPossessionProofs: parseEcdsaMaterialPossessionProofs(
+      value.ecdsaMaterialPossessionProofs,
+    ),
+    emailOtpEnrollment,
+  };
+}
+
+function parseWalletRecoveryGoogleEmailOtpCreateEnrollment(
+  value: unknown,
+): NonNullable<WalletRecoveryGoogleEmailOtpRouteFinalizationRequest['emailOtpEnrollment']> {
+  if (!isObject(value)) {
+    throw new Error('new recovery Email enrollment is invalid');
+  }
+  requireExactObjectFields(value, ['kind', 'material'], 'new recovery Email enrollment');
+  if (value.kind !== 'create' || !isObject(value.material)) {
+    throw new Error('new recovery Email enrollment is invalid');
+  }
+  const material = value.material;
+  requireExactObjectFields(
+    material,
+    [
+      'enrollmentSealKeyVersion',
+      'clientUnlockPublicKeyB64u',
+      'unlockKeyVersion',
+      'serverSealedFactorCiphertextB64u',
+    ],
+    'new recovery Email enrollment material',
+  );
+  const normalized: EmailOtpEnrollmentMaterialBoundaryInput = {
+    enrollmentSealKeyVersion: parseRequiredString(
+      material.enrollmentSealKeyVersion,
+      'enrollmentSealKeyVersion',
+    ),
+    clientUnlockPublicKeyB64u: parseRequiredString(
+      material.clientUnlockPublicKeyB64u,
+      'clientUnlockPublicKeyB64u',
+    ),
+    unlockKeyVersion: parseRequiredString(material.unlockKeyVersion, 'unlockKeyVersion'),
+    serverSealedFactorCiphertextB64u: parseRequiredString(
+      material.serverSealedFactorCiphertextB64u,
+      'serverSealedFactorCiphertextB64u',
+    ),
+  };
+  return { kind: 'create', material: normalized };
 }
 
 function walletRecoveryRequestError(): Response {
@@ -1623,6 +1773,7 @@ function parseEcdsaMaterialPossessionProofs(value: unknown): readonly {
   if (!Array.isArray(value)) {
     throw new Error('wallet recovery finalization ECDSA proofs must be an array');
   }
+  const seen = new Set<string>();
   return value.map((item, index) => {
     if (!isObject(item)) {
       throw new Error(`wallet recovery finalization ECDSA proof ${index} is invalid`);
@@ -1632,6 +1783,10 @@ function parseEcdsaMaterialPossessionProofs(value: unknown): readonly {
     if (!/^evm_family_ecdsa:\S+$/.test(keySetId)) {
       throw new Error(`wallet recovery finalization ECDSA proof ${index} is invalid`);
     }
+    if (seen.has(keySetId)) {
+      throw new Error(`wallet recovery finalization ECDSA proof ${index} is duplicated`);
+    }
+    seen.add(keySetId);
     return {
       keySetId,
       proof: parseWalletRecoveryEcdsaPossessionProofV1(item.proof),
