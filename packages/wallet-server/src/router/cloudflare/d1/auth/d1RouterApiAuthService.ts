@@ -125,6 +125,8 @@ import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1Wal
 import { CloudflareD1WalletCustodyCommitStore } from '../passkeyCustody/d1WalletCustodyCommitStore';
 import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import { createD1PasskeyCustodyRouteService } from '../passkeyCustody/d1PasskeyCustodyRouteService';
+import { CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore } from '../passkeyCustody/d1WalletRecoveryGoogleEmailOtpAttemptStore';
+import { CloudflareD1WalletRecoveryGoogleEmailOtpService } from '../passkeyCustody/d1WalletRecoveryGoogleEmailOtpService';
 import {
   CloudflareD1WalletAddSignerService,
   parseD1WalletAddSignerFinalizeSideEffectRecord,
@@ -248,6 +250,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly emailOtpServerSeal: CloudflareD1EmailOtpServerSealRuntime;
   readonly emailOtpChallengeService: CloudflareD1EmailOtpChallengeService;
   readonly emailOtpRecoveryService: CloudflareD1EmailOtpRecoveryService;
+  readonly walletRecoveryGoogleEmailOtp: CloudflareD1WalletRecoveryGoogleEmailOtpService;
   readonly identityService: CloudflareD1IdentityService;
   readonly oidcVerification: CloudflareD1OidcVerificationService;
   readonly authorizationService: AuthorizationService;
@@ -1826,6 +1829,28 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpRateLimits,
     grantTtlMs: options.emailOtp.grantTtlMs,
   });
+  const walletRecoveryGoogleEmailOtpAttempts =
+    new CloudflareD1WalletRecoveryGoogleEmailOtpAttemptStore({
+      database: options.database,
+      scope: {
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+      },
+    });
+  const walletRecoveryGoogleEmailOtp = new CloudflareD1WalletRecoveryGoogleEmailOtpService({
+    attempts: walletRecoveryGoogleEmailOtpAttempts,
+    google: {
+      verifyGoogleLoginForRecovery:
+        oidcVerification.verifyGoogleLoginForRecovery.bind(oidcVerification),
+    },
+    issuer: emailOtpChallengeIssuer,
+    verifier: emailOtpChallengeVerifier,
+    enrollments: emailOtpEnrollments,
+    serverSeal: emailOtpServerSeal,
+    orgId: options.orgId,
+  });
   // Composed after the R100 Email OTP pieces so the linked-device Email OTP
   // target factor reuses this deployment's exact issuer, verifier, enrollment
   // store, and server-seal runtime — never a second OTP implementation.
@@ -1867,6 +1892,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpServerSeal,
     emailOtpChallengeService,
     emailOtpRecoveryService,
+    walletRecoveryGoogleEmailOtp,
     identityService,
     oidcVerification,
     authorizationService,
@@ -2587,6 +2613,7 @@ export function createCloudflareD1RouterApiAuthService(
       walletStore: assembly.walletStore,
       walletAuthorityStore: assembly.walletAuthorityStore,
       webAuthnStore: assembly.webAuthnStore,
+      googleRecovery: assembly.walletRecoveryGoogleEmailOtp,
       logger: normalizeLogger(),
     }),
     executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(

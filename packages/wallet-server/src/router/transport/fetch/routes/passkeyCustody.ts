@@ -7,7 +7,10 @@ import {
 } from '../../../framework/routeDefinitions';
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
-import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
+import {
+  extractBearerCredential,
+  resolveSourceIpFromFetchHeaders,
+} from '../../../auth/routerApiKeyAuth';
 import {
   isHostWithinRpId,
   originHostnameOrEmpty,
@@ -46,6 +49,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   parseEmailOtpChallengeId,
+  type EmailOtpChallengeId,
   parseOrgId,
   parseProviderSubject,
   parseWalletAuthMethodId,
@@ -107,6 +111,9 @@ const ROUTE_ID = 'passkey_custody_envelope_retrieve';
 const CREDENTIALS_LIST_ROUTE_ID = 'wallet_custody_credentials_list';
 const CREDENTIAL_LABEL_ROUTE_ID = 'wallet_custody_credential_label';
 const RECOVERY_PREPARE_ROUTE_ID = 'wallet_recovery_prepare';
+const RECOVERY_GOOGLE_VERIFY_ROUTE_ID = 'wallet_recovery_google_verify';
+const RECOVERY_EMAIL_OTP_VERIFY_ROUTE_ID = 'wallet_recovery_email_otp_verify';
+const RECOVERY_EMAIL_OTP_RELEASE_ROUTE_ID = 'wallet_recovery_email_otp_release';
 const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
@@ -1073,6 +1080,277 @@ export async function handleWalletRecoveryPrepare(
     recoveryCodeBytes.fill(0);
   }
 }
+
+export async function handleWalletRecoveryGoogleVerify(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_GOOGLE_VERIFY_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_GOOGLE_VERIFY_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  let request: WalletRecoveryGoogleVerifyRequest;
+  try {
+    request = parseWalletRecoveryGoogleVerifyRequest(await readJsonObject(ctx.request));
+  } catch {
+    return walletRecoveryRequestError();
+  }
+  const requestOrigin = trimmed(ctx.request.headers.get('origin'));
+  if (!requestOrigin) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_origin',
+        message: 'wallet recovery origin is required',
+      },
+    });
+  }
+  try {
+    const result = await ctx.service.passkeyCustody.verifyGoogleRecovery({
+      recoveryOperationId: request.recoveryOperationId,
+      reservationId: String(request.reservationId),
+      idToken: request.idToken,
+      requestOrigin,
+      clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    });
+    if (!result.ok) return walletRecoveryGoogleFailureResponse(result);
+    return toFetchRouteResponse({
+      status: 200,
+      body: {
+        ok: true,
+        recoveryOperationId: result.recoveryOperationId,
+        reservationId: result.reservationId,
+        challengeId: result.challengeId,
+        delivery: result.delivery,
+        expiresAtMs: result.expiresAtMs,
+      },
+    });
+  } catch {
+    return walletRecoveryInternalError();
+  }
+}
+
+export async function handleWalletRecoveryEmailOtpVerify(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_EMAIL_OTP_VERIFY_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_EMAIL_OTP_VERIFY_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  let request: WalletRecoveryEmailOtpVerifyRequest;
+  try {
+    request = parseWalletRecoveryEmailOtpVerifyRequest(await readJsonObject(ctx.request));
+  } catch {
+    return walletRecoveryRequestError();
+  }
+  try {
+    const result = await ctx.service.passkeyCustody.verifyRecoveryEmailOtp({
+      recoveryOperationId: request.recoveryOperationId,
+      reservationId: String(request.reservationId),
+      challengeId: String(request.challengeId),
+      otpCode: request.otpCode,
+      clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    });
+    if (!result.ok) return walletRecoveryGoogleFailureResponse(result);
+    return toFetchRouteResponse({
+      status: 200,
+      body: {
+        ok: true,
+        recoveryOperationId: String(result.recovery.recoveryOperationId),
+        reservationId: String(result.recovery.reservationId),
+        challengeId: String(result.recovery.challengeId),
+      },
+    });
+  } catch {
+    return walletRecoveryInternalError();
+  }
+}
+
+export async function handleWalletRecoveryEmailOtpRelease(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_EMAIL_OTP_RELEASE_ROUTE_ID);
+  if (!route)
+    throw new Error(`Missing route definition for ${RECOVERY_EMAIL_OTP_RELEASE_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  let request: WalletRecoveryEmailOtpReleaseRequest;
+  try {
+    request = parseWalletRecoveryEmailOtpReleaseRequest(await readJsonObject(ctx.request));
+  } catch {
+    return walletRecoveryRequestError();
+  }
+  try {
+    const result = await ctx.service.passkeyCustody.releaseRecoveryEmailOtpFactor({
+      recoveryOperationId: request.recoveryOperationId,
+      reservationId: String(request.reservationId),
+      workerEphemeralPublicKey65B64u: request.workerEphemeralPublicKey65B64u,
+    });
+    if (!result.ok) return walletRecoveryGoogleFailureResponse(result);
+    switch (result.kind) {
+      case 'email_otp_factor_release_v1':
+        return toFetchRouteResponse({
+          status: 200,
+          body: {
+            ok: true,
+            kind: result.kind,
+            recoveryOperationId: String(result.recovery.recoveryOperationId),
+            reservationId: String(result.recovery.reservationId),
+            enrollmentId: result.enrollment.enrollmentId,
+            enrollmentSealKeyVersion: result.enrollment.enrollmentSealKeyVersion,
+            serverEphemeralPublicKey65B64u: result.serverEphemeralPublicKey65B64u,
+            nonce12B64u: result.nonce12B64u,
+            ciphertextB64u: result.ciphertextB64u,
+          },
+        });
+      case 'wallet_recovery_google_email_otp_new_enrollment_v1':
+        return toFetchRouteResponse({
+          status: 200,
+          body: {
+            ok: true,
+            kind: result.kind,
+            recoveryOperationId: String(result.recovery.recoveryOperationId),
+            reservationId: String(result.recovery.reservationId),
+            enrollment: { kind: 'create' },
+          },
+        });
+    }
+  } catch {
+    return walletRecoveryInternalError();
+  }
+}
+
+type WalletRecoveryOperationRequest = {
+  readonly recoveryOperationId: WalletRecoveryOperationId;
+  readonly reservationId: RecoveryCodeReservationId;
+};
+
+type WalletRecoveryGoogleVerifyRequest = WalletRecoveryOperationRequest & {
+  readonly idToken: string;
+};
+
+type WalletRecoveryEmailOtpVerifyRequest = WalletRecoveryOperationRequest & {
+  readonly challengeId: EmailOtpChallengeId;
+  readonly otpCode: string;
+};
+
+type WalletRecoveryEmailOtpReleaseRequest = WalletRecoveryOperationRequest & {
+  readonly workerEphemeralPublicKey65B64u: string;
+};
+
+function parseWalletRecoveryOperationRequest(
+  body: Record<string, unknown> | null,
+  fields: readonly string[],
+  label: string,
+): WalletRecoveryOperationRequest {
+  if (!body) throw new Error(`${label} body is required`);
+  requireExactObjectFields(body, fields, label);
+  return {
+    recoveryOperationId: parseRequiredAuthorizationValue(
+      parseWalletRecoveryOperationId(body.recoveryOperationId),
+    ),
+    reservationId: parseRecoveryCodeReservationId(body.reservationId),
+  };
+}
+
+function parseWalletRecoveryGoogleVerifyRequest(
+  body: Record<string, unknown> | null,
+): WalletRecoveryGoogleVerifyRequest {
+  return {
+    ...parseWalletRecoveryOperationRequest(
+      body,
+      ['recoveryOperationId', 'reservationId', 'idToken'],
+      'wallet recovery Google verification',
+    ),
+    idToken: parseRequiredString(body?.idToken, 'idToken'),
+  };
+}
+
+function parseWalletRecoveryEmailOtpVerifyRequest(
+  body: Record<string, unknown> | null,
+): WalletRecoveryEmailOtpVerifyRequest {
+  const operation = parseWalletRecoveryOperationRequest(
+    body,
+    ['recoveryOperationId', 'reservationId', 'challengeId', 'otpCode'],
+    'wallet recovery Email OTP verification',
+  );
+  return {
+    ...operation,
+    challengeId: parseRequiredAuthorizationValue(parseEmailOtpChallengeId(body?.challengeId)),
+    otpCode: parseRequiredString(body?.otpCode, 'otpCode'),
+  };
+}
+
+function parseWalletRecoveryEmailOtpReleaseRequest(
+  body: Record<string, unknown> | null,
+): WalletRecoveryEmailOtpReleaseRequest {
+  return {
+    ...parseWalletRecoveryOperationRequest(
+      body,
+      ['recoveryOperationId', 'reservationId', 'workerEphemeralPublicKey65B64u'],
+      'wallet recovery Email OTP factor release',
+    ),
+    workerEphemeralPublicKey65B64u: parseRequiredString(
+      body?.workerEphemeralPublicKey65B64u,
+      'workerEphemeralPublicKey65B64u',
+    ),
+  };
+}
+
+function walletRecoveryRequestError(): Response {
+  return toFetchRouteResponse({
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message: 'wallet recovery request is invalid',
+    },
+  });
+}
+
+function walletRecoveryInternalError(): Response {
+  return toFetchRouteResponse({
+    status: 500,
+    body: {
+      ok: false,
+      code: 'internal',
+      message: 'wallet recovery could not continue',
+    },
+  });
+}
+
+function walletRecoveryGoogleFailureResponse(result: {
+  readonly ok: false;
+  readonly code: string;
+}): Response {
+  return toFetchRouteResponse({
+    status: walletRecoveryGoogleStatusCode(result.code),
+    body: {
+      ok: false,
+      code: result.code,
+      message: 'wallet recovery could not continue',
+    },
+  });
+}
+
+function walletRecoveryGoogleStatusCode(code: string): number {
+  if (code === 'internal') return 500;
+  if (code === 'not_configured') return 503;
+  if (code === 'recovery_conflict') return 409;
+  if (code === 'rate_limited' || code === 'otp_locked_out' || code === 'otp_attempts_exhausted') {
+    return 429;
+  }
+  if (
+    code === 'recovery_attempt_unavailable' ||
+    code === 'provider_identity_mismatch' ||
+    code === 'challenge_expired_or_invalid' ||
+    code === 'invalid_otp'
+  ) {
+    return 401;
+  }
+  return emailOtpStatusCode(code);
+}
+
 function refusedSpend() {
   return {
     status: 401,

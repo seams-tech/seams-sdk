@@ -14,6 +14,9 @@ import {
   handleWalletRecoveryStatus,
   handleWalletRecoveryFinalize,
   handleWalletRecoveryPrepare,
+  handleWalletRecoveryGoogleVerify,
+  handleWalletRecoveryEmailOtpVerify,
+  handleWalletRecoveryEmailOtpRelease,
 } from './routes/passkeyCustody';
 import {
   handleReusableWalletSessionStatus,
@@ -235,6 +238,9 @@ export function createFetchRouter(
     handleWalletCustodyCredentialLabel,
     handleWalletCustodyEnvelopeOwnershipUpgrade,
     handleWalletRecoveryPrepare,
+    handleWalletRecoveryGoogleVerify,
+    handleWalletRecoveryEmailOtpVerify,
+    handleWalletRecoveryEmailOtpRelease,
     handleWalletRecoveryFinalize,
     handleWalletRecoveryBackupAcknowledge,
     handleWalletRecoveryRotate,

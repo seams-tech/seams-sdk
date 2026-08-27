@@ -237,6 +237,18 @@ export interface RouterApiPasskeyCustodyService {
     readonly reservationId: RecoveryCodeReservationId;
   }): Promise<WalletRecoveryRoutePreparationResult>;
 
+  verifyGoogleRecovery(
+    request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyGoogle']>[0],
+  ): ReturnType<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyGoogle']>;
+
+  verifyRecoveryEmailOtp(
+    request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyOtp']>[0],
+  ): ReturnType<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyOtp']>;
+
+  releaseRecoveryEmailOtpFactor(
+    request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['releaseFactor']>[0],
+  ): ReturnType<CloudflareD1WalletRecoveryGoogleEmailOtpService['releaseFactor']>;
+
   readPreparedEd25519RecoveryAdmission(request: {
     readonly challengeId: string;
     readonly nowMs: number;
@@ -601,6 +613,36 @@ async function walletRecoveryKeyManifestDigest(
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(manifest))));
 }
 
+async function unavailableWalletRecoveryGoogleVerify(
+  _request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyGoogle']>[0],
+) {
+  return {
+    ok: false as const,
+    code: 'not_configured',
+    message: 'Google Email OTP recovery is not configured',
+  };
+}
+
+async function unavailableWalletRecoveryEmailOtpVerify(
+  _request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyOtp']>[0],
+) {
+  return {
+    ok: false as const,
+    code: 'not_configured',
+    message: 'Google Email OTP recovery is not configured',
+  };
+}
+
+async function unavailableWalletRecoveryEmailOtpRelease(
+  _request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['releaseFactor']>[0],
+) {
+  return {
+    ok: false as const,
+    code: 'not_configured',
+    message: 'Google Email OTP recovery is not configured',
+  };
+}
+
 export function createD1PasskeyCustodyRouteService(assembly: {
   readonly orgId: string;
   readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
@@ -614,6 +656,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
   readonly nowMs?: () => number;
 }): RouterApiPasskeyCustodyService {
   const authenticatorStore = authenticatorStoreView(assembly.webAuthnStore);
+  const googleRecovery = assembly.googleRecovery;
   return {
     readVerifiedFactorCustody: async (request) => {
       const envelope = await assembly.passkeyCustodyEnvelopes.lookupEnvelopeForFactor(request);
@@ -816,6 +859,15 @@ export function createD1PasskeyCustodyRouteService(assembly: {
     },
 
     prepareRecovery: prepareRecoveryForRoute.bind(undefined, assembly),
+    verifyGoogleRecovery: googleRecovery
+      ? googleRecovery.verifyGoogle.bind(googleRecovery)
+      : unavailableWalletRecoveryGoogleVerify,
+    verifyRecoveryEmailOtp: googleRecovery
+      ? googleRecovery.verifyOtp.bind(googleRecovery)
+      : unavailableWalletRecoveryEmailOtpVerify,
+    releaseRecoveryEmailOtpFactor: googleRecovery
+      ? googleRecovery.releaseFactor.bind(googleRecovery)
+      : unavailableWalletRecoveryEmailOtpRelease,
     readPreparedEd25519RecoveryAdmission: readPreparedEd25519RecoveryAdmission.bind(
       undefined,
       assembly,
