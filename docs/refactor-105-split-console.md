@@ -2,10 +2,12 @@
 
 Date created: August 11, 2026
 
-Last reconciled: August 24, 2026 (repository closeout decision)
+Last reconciled: August 27, 2026 (closeout confirmation run)
 
 Status: planned closeout. Phases 0–6 define the required in-monorepo Console
-boundary. Confirm their remaining work against the current tree before Phase 7.
+boundary. The pre-Phase-7 tree confirmation ran on August 27, 2026; its
+remaining gaps and their execution plan are
+[Refactor 105D](./refactor-105D-boundary-closeout.md), which blocks Phase 7.
 Phase 8 is executed by Refactor 105B. The current private repository will be
 renamed in place and will not be extracted into a second private repository.
 
@@ -796,6 +798,17 @@ A failed item reopens the corresponding boundary work. Phase 7 and Refactor
 105B remain blocked until the closeout is complete. Refactor 99B's
 implementation remains private, and R105C separately requires its complete
 Admin authority exit.
+
+The August 27, 2026 confirmation found the package split, schema ownership,
+Gateway binding removal, and billing neutrality in place, and seven bounded
+gaps open: the core route table still declares wallet routes, the Console
+Worker still reads signer D1 for balance addresses, core observability/audit
+carries sponsorship and approval vocabulary, core scripts own wallet
+deployment wiring, two core frontend pages import the wallet product, core
+frontend types and imports invert the `app/` composition direction, and no
+boundary check covers `apps/seams-console`.
+[Refactor 105D](./refactor-105D-boundary-closeout.md) enumerates the exact
+paths and executes the fixes.
 
 ### Phase 7: Packed-Artifact Gate For The Wallet Packages
 
