@@ -1,8 +1,8 @@
 # Refactor 115 — Recover Multi-Auth Wallets
 
-Status: implementation plan, resolved against the landed R114 code. The
-signer-activation asymmetry and the authority-schema work are decided; the
-phases below are the worklist.
+Status: implementation plan, reconciled through recovery baseline commit
+`d676e7d22`. The signer-activation asymmetry and the authority-schema work are
+decided; the phases below are the worklist.
 
 ## Goal
 
@@ -18,36 +18,35 @@ method, custody envelope, authority, linked device, and Wallet Session.
 Recovery restores access to the wallet; it does not replace or revoke the
 wallet's existing access paths.
 
-R115 supersedes R114's single-active-Passkey replacement policy. It retains
+R115 supersedes the current selected-Passkey replacement policy. It retains
 R114's code-only wallet lookup, reservation lifecycle, complete key-manifest
 verification, recovery-code cryptography, possession proofs, retry model, and
 normal-login continuation.
 
 ## Current Failure
 
-R114 resolves the wallet from the recovery-code locator, then requires:
-
-```ts
-activeMethods.length === 1 && activeMethods[0].kind === 'passkey';
-```
-
-Its durable challenge stores that source Passkey method, credential, authority
-digest, and method update timestamp. Finalization requires the source WebAuthn
-binding and custody envelope, installs a replacement Passkey on the same
-authority, revokes the old Passkey and its Wallet Sessions, and retires its
-envelope.
+The current path resolves the wallet from the recovery-code locator, then
+selects the oldest active Passkey bound to the requested RP, with auth-method ID
+as the stable tie-breaker. Active sibling methods no longer block preparation.
+Its durable challenge stores that selected source Passkey method, credential,
+authority digest, and method update timestamp. Finalization requires the source
+WebAuthn binding and custody envelope, installs a replacement Passkey on the
+same authority, revokes the selected Passkey and its Wallet Sessions, and
+retires its envelope. Sibling methods remain active.
 
 Consequences:
 
 - an Email-OTP-only wallet cannot recover;
-- a combined wallet cannot recover;
-- a wallet with linked-device methods cannot recover;
 - the user cannot recover with Google SSO and Email OTP; and
+- a wallet with no active Passkey for the requested RP cannot recover even when
+  another exact active custody anchor exists;
+- recovery still revokes one existing Passkey and its Wallet Sessions; and
 - a valid, active, unused code receives `recovery_code_rejected` when the
-  wallet's method inventory is outside the R114 shape.
+  wallet has no RP-matching Passkey.
 
 The recovery code and recovery set are already wallet-scoped. The remaining
-single-Passkey restriction is ceremony and persistence policy.
+Passkey-target and selected-source replacement restrictions are ceremony and
+persistence policy.
 
 ## Dependencies and Ownership
 
@@ -586,9 +585,10 @@ boundary.
 
 ### What R115 changes in the landed R114 code
 
-- The admission gate is one expression in the D1 Passkey-custody route service's
-  recovery preparation: active methods must number exactly one, be a Passkey,
-  and match the request RP. Phase 1 deletes it.
+- The D1 Passkey-custody route service currently selects the oldest active
+  RP-matching Passkey through `selectWalletRecoverySourcePasskey`. Phase 1
+  replaces that target-coupled source selection with the target-independent
+  exact continuity-anchor policy above.
 - The replacement policy lives in two files. `walletRecoveryFinalization.ts`
   retires the source envelope, revokes the source method, and installs the
   replacement on `sourceAuthMethod.walletAuthorityId`. `commitRecoveryPromotion`
