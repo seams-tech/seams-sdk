@@ -649,6 +649,45 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
+      'wallet_recovery_google_verify',
+      'POST',
+      '/wallets/recovery/google/verify',
+      'Verify the recovery-scoped Google identity and issue its Email OTP challenge',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'The request continues a prepared recovery operation whose recovery code reservation and target are already bound server-side.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
+      'wallet_recovery_email_otp_verify',
+      'POST',
+      '/wallets/recovery/email-otp/verify',
+      'Verify the Email OTP issued for a recovery-scoped Google identity',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'The OTP is checked against the prepared recovery operation and its server-issued challenge.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
+      'wallet_recovery_email_otp_release',
+      'POST',
+      '/wallets/recovery/email-otp/release',
+      'Release the verified recovery Email OTP factor for replacement enrollment',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'Factor material is released only after the recovery operation records a verified Email OTP.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'passkey_custody_envelope_retrieve',
       'POST',
       '/wallets/custody/envelope',

@@ -223,31 +223,33 @@ Expected behaviour:
 
 ## Account Recovery
 
-### Passkey Recovery Target
+### Passkey and Google / Email OTP Recovery Targets
 
 Expected behaviour:
 
 - The hosted login menu accepts one unused recovery code, resolves its wallet,
-  then creates a replacement Passkey from a separate user activation.
-- The recovery code is the sole recovery authorization. The flow does not ask
-  for Email OTP, Google identity, an assertion from the source Passkey, or a
-  client-selected source credential.
-- Recovery selects the oldest active Passkey bound to the requested RP, with
-  auth-method ID as the stable tie-breaker. Active sibling methods do not block
-  recovery.
+  and lets the user recover with a new Passkey or Google SSO with Email OTP.
+- The recovery code is the sole wallet-recovery authorization. The selected
+  target still proves its own factor: Passkey registration for Passkey, or a
+  server-verified Google identity followed by Email OTP for Email OTP.
+- The server selects one exact active method and custody envelope as the
+  continuity anchor. Passkey-only, Email-only, and mixed-method wallets admit
+  either recovery target.
 - Finalization verifies the complete stored key manifest and preserves the
   registered NEAR, Tempo, and Arc/EVM public identities.
-- Replacement installation, recovery-code consumption, selected source
-  auth-method and envelope retirement, and selected source Wallet Session
-  revocation occur atomically. Sibling methods remain active.
-- Recovery completion proceeds through normal login with the replacement
-  Passkey. That login creates the fresh Wallet Session.
-- A consumed code cannot authorize a second replacement.
+- Recovery-code consumption and installation of a fresh device authority,
+  target method, signer activations, and method-bound custody envelope occur
+  atomically. Existing methods, envelopes, authorities, linked devices, and
+  Wallet Sessions remain active.
+- Recovery completion proceeds through normal login with the newly installed
+  method. That login creates the fresh Wallet Session.
+- A consumed code cannot authorize a second recovery.
 
 Failure behaviour:
 
-- Unknown wallets, malformed or spent codes, RP mismatches, unsupported auth
-  shapes, and conflicting attempts receive the same generic hosted refusal.
+- Unknown wallets, malformed or spent codes, target-policy mismatches,
+  unsupported auth shapes, and conflicting attempts receive the same generic
+  hosted refusal.
 - Precommit cancellation and definite failure leave the recovery code
   unconsumed.
 - Recovery material, server diagnostics, and code values never enter hosted
@@ -436,24 +438,27 @@ Expected behaviour:
 
 ## Account Recovery
 
-Code recovery selects an exact active Passkey owner method for the requested
-RP. Other active methods do not block preparation.
+Code recovery selects an exact active method and custody envelope as its
+continuity anchor. The source family does not constrain the selected recovery
+target.
 
 Expected behaviour:
 
 - The hosted wallet-iframe menu accepts one unused recovery code. The server
-  resolves the wallet from the code locator. It does not request Email OTP, Google authentication, an
-  existing Passkey assertion, or an old credential ID.
-- Preparation reserves the code and returns replacement Passkey registration
-  options. A separate **Create new passkey** activation starts WebAuthn.
+  resolves the wallet from the code locator without an existing Passkey
+  assertion, an old credential ID, or a client-supplied wallet or source
+  method.
+- Preparation reserves the code and binds an immutable Passkey or
+  Google/Email target. Passkey creation and Google authentication each begin
+  from their dedicated user action; Google recovery also requires the issued
+  Email OTP before factor release.
 - Finalization preserves every public wallet identity and atomically installs
-  the replacement authenticator, auth method, binding, and custody envelope;
-  consumes one code; revokes the selected source method and its Wallet
-  Sessions; and retires the selected source envelope. Sibling methods remain
-  active.
-- Recovery restores local continuity against the replacement Passkey authority.
-- The menu reports `authenticated/passkey` only after normal login with the
-  replacement Passkey creates a fresh Wallet Session.
+  a fresh recovery authority, its target auth method, signer activations, and
+  method-bound custody envelope while consuming one code. Existing methods,
+  envelopes, authorities, linked devices, and Wallet Sessions stay active.
+- Recovery restores local continuity against the fresh recovery authority.
+- The menu reports authentication only after normal login through the new
+  Passkey or Google/Email method creates a fresh Wallet Session.
 - The remaining recovery codes stay active. Reusing the consumed code receives
   the same generic refusal as every other invalid recovery attempt.
 
@@ -461,10 +466,11 @@ Failure behaviour:
 
 - Cancellation before finalization leaves the code usable after its reservation
   expires and clears client-held recovery material.
-- A failed atomic finalization leaves the source method active and the code
-  unconsumed. Transport uncertainty may replay the same finalization.
-- Unknown wallets, unusable codes, RP mismatch, and unsupported auth-method
-  shapes expose no distinguishing recovery detail.
+- A failed atomic finalization leaves all existing methods active and the code
+  unconsumed. Transport uncertainty may replay the same exact additive
+  finalization.
+- Unknown wallets, unusable codes, target mismatch, and unsupported
+  auth-method shapes expose no distinguishing recovery detail.
 
 ## Adding an Authentication Method
 
@@ -584,8 +590,8 @@ restore, lane selection, or budget handling.
 | Repeating an addition answers already_configured before sending a code   | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
 | Either sibling revokes the other; the last method cannot be revoked      | `tests/unit/r109cSiblingRevocation.unit.test.ts`                             |
 | The Add action disappears once both families are active                  | `tests/unit/linkedDevicesModal.unit.test.ts`                                 |
-| Code recovery replaces one Passkey and preserves all public identities   | Intended-behaviour recovery contract                                         |
-| Code recovery revokes source sessions and consumes exactly one code      | Intended-behaviour recovery contract                                         |
+| Code recovery adds either target family and preserves public identities  | Intended-behaviour 2x2 recovery contracts                                    |
+| Code recovery preserves source sessions and consumes exactly one code    | Intended-behaviour 2x2 recovery contracts                                    |
 | Email OTP paths never call passkey credential lookup or PRF restore      | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
 | ECDSA budget checks are exact to chain target                            | `tests/unit/refactor46d.guard.unit.test.ts`                                  |
 
