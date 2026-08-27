@@ -1,4 +1,4 @@
-# Refactor 115 — Minimal EIP-8130 Foundation and Vibenet MVP
+# Refactor 116 — Minimal EIP-8130 Foundation and Vibenet MVP
 
 Status: future/inactive. Current product uses normal threshold ECDSA owner
 addresses for Tempo and EVM-family signing. Smart-account code has been removed
@@ -15,7 +15,7 @@ Prove that the existing Seams threshold-signing architecture can authorize a
 native EIP-8130 smart account on Base Vibenet. Add the smallest isolated seam
 needed for the experimental protocol.
 
-Refactor 115 does not redesign wallet identity or generalize the current EVM
+Refactor 116 does not redesign wallet identity or generalize the current EVM
 architecture. The existing architecture remains authoritative:
 
 ```text
@@ -65,7 +65,7 @@ The proof is complete when one development wallet:
 - deterministic reference vectors;
 - one explicit Vibenet smoke command.
 
-There is no repo-wide `EvmAccountIdentity` abstraction in Refactor 115. Product
+There is no repo-wide `EvmAccountIdentity` abstraction in Refactor 116. Product
 account identity becomes relevant only when smart accounts enter registration,
 persistence, and the public wallet surface. That decision belongs to the later
 product-integration plan.
@@ -106,7 +106,7 @@ type Eip8130NativeProfile = {
 runtime code and hashes, deployment version, and k1 authenticator identifier.
 Callers cannot override those values.
 
-Refactor 115 does not add Vibenet to general supported-chain configuration. A
+Refactor 116 does not add Vibenet to general supported-chain configuration. A
 later product plan may introduce a chain execution-profile union when there are
 two real product execution modes to select between.
 
@@ -174,7 +174,7 @@ the pinned EIP implementation:
 
 The adapter emits one secp256k1 digest sign request. The existing generic
 EVM-family signing flow handles threshold authorization and signing. This is the
-main integration seam proven by Refactor 115.
+main integration seam proven by Refactor 116.
 
 ### Internal signing request
 
