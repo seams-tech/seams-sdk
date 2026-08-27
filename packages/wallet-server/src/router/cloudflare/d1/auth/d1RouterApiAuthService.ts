@@ -250,6 +250,10 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly emailOtpServerSeal: CloudflareD1EmailOtpServerSealRuntime;
   readonly emailOtpChallengeService: CloudflareD1EmailOtpChallengeService;
   readonly emailOtpRecoveryService: CloudflareD1EmailOtpRecoveryService;
+  readonly emailOtpRegistrationEnrollmentFinalizer: Pick<
+    CloudflareD1EmailOtpRegistrationEnrollmentFinalizer,
+    'prepareLinkedDeviceEnrollment'
+  >;
   readonly walletRecoveryGoogleEmailOtp: CloudflareD1WalletRecoveryGoogleEmailOtpService;
   readonly identityService: CloudflareD1IdentityService;
   readonly oidcVerification: CloudflareD1OidcVerificationService;
@@ -1892,6 +1896,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpServerSeal,
     emailOtpChallengeService,
     emailOtpRecoveryService,
+    emailOtpRegistrationEnrollmentFinalizer,
     walletRecoveryGoogleEmailOtp,
     identityService,
     oidcVerification,
@@ -2614,6 +2619,8 @@ export function createCloudflareD1RouterApiAuthService(
       walletAuthorityStore: assembly.walletAuthorityStore,
       webAuthnStore: assembly.webAuthnStore,
       googleRecovery: assembly.walletRecoveryGoogleEmailOtp,
+      emailOtpRegistrationEnrollmentFinalizer:
+        assembly.emailOtpRegistrationEnrollmentFinalizer,
       logger: normalizeLogger(),
     }),
     executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(

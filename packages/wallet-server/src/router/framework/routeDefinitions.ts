@@ -688,6 +688,19 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
+      'wallet_recovery_google_email_otp_finalize',
+      'POST',
+      '/wallets/recovery/google-email-otp/finalize',
+      'Finalize an admitted Google/Email OTP wallet recovery',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'Finalization resolves the verified Google/Email OTP recovery attempt by its server-issued operation and reservation identities.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'passkey_custody_envelope_retrieve',
       'POST',
       '/wallets/custody/envelope',
