@@ -148,6 +148,7 @@ export type AuthMenuLinkDeviceState =
       readonly otpCode: string;
     }
   | { readonly kind: 'activating'; readonly message: string }
+  | { readonly kind: 'expired'; readonly message: string }
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'activation_error'; readonly message: string };
 
