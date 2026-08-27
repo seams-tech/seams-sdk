@@ -16,6 +16,8 @@ import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { RecoveryCodesModal } from './RecoveryCodesModal';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
+import { AuthenticationMethodsModal } from './AuthenticationMethodsModal';
+import TouchIcon from './icons/TouchIcon';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { requirePrimaryChainByFamily, resolvePrimaryExplorerUrl } from '@/core/config/chains';
@@ -136,6 +138,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
+  const [showAuthenticationMethods, setShowAuthenticationMethods] = useState(false);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
   const [exportKeysOpen, setExportKeysOpen] = useState(false);
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
@@ -166,7 +169,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   }, [canShowRecoveryCodes]);
 
   useEffect(() => {
-    if (!canManageLinkedDevices) setShowLinkedDevices(false);
+    if (!canManageLinkedDevices) {
+      setShowLinkedDevices(false);
+      setShowAuthenticationMethods(false);
+    }
   }, [canManageLinkedDevices]);
 
   // Keep local view state in sync with SDK preferences (mirrors wallet host in iframe mode)
@@ -401,6 +407,15 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
       items.push(
         {
+          id: PROFILE_MENU_ITEM_IDS.AUTHENTICATION_METHODS,
+          icon: <TouchIcon />,
+          label: 'Authentication Methods',
+          description: 'Add or remove ways to unlock this device',
+          disabled: !canManageLinkedDevices,
+          onClick: () => setShowAuthenticationMethods(true),
+          keepOpenOnClick: true,
+        },
+        {
           id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
           icon: <ScanIcon />,
           label: 'Scan and Link Device',
@@ -554,6 +569,16 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         )}
 
       {/* Linked Devices Modal (portaled alongside the other account-menu modals) */}
+      {canPortal &&
+        createPortal(
+          <AuthenticationMethodsModal
+            walletId={walletId ?? null}
+            isOpen={showAuthenticationMethods}
+            onClose={() => setShowAuthenticationMethods(false)}
+          />,
+          portalHost!,
+        )}
+
       {canPortal &&
         createPortal(
           <LinkedDevicesModal
