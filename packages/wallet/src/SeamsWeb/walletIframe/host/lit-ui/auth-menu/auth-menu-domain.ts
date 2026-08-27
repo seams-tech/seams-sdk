@@ -7,6 +7,7 @@ import type {
 import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
 import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
 import { isPlainObject } from '@shared/utils/validation';
+import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 
 /**
  * The view model is normalized by the wallet-host controller before it reaches
@@ -74,7 +75,7 @@ export type AuthMenuLoginViewModel = AuthMenuViewModelCommon & {
   readonly kind: 'passkey';
   readonly mode: 'login';
   readonly accountOptions: readonly AuthMenuAccountOption[];
-  readonly selectedWalletId: string | null;
+  readonly selectedAccount: AuthMenuAccountOption | null;
   readonly passkeyName?: never;
   readonly passkeyNameLabel?: never;
 };
@@ -91,6 +92,7 @@ export type AuthMenuRegisterViewModel = AuthMenuViewModelCommon & {
 export type AuthMenuAccountOption = Readonly<{
   readonly walletId: string;
   readonly displayName: string;
+  readonly authMethod: WalletAuthMethod;
 }>;
 
 export type AuthMenuGoogleLoginViewModel = AuthMenuViewModelCommon & {
@@ -283,6 +285,7 @@ export type AuthMenuIntent =
   | {
       readonly kind: 'login_account_selected';
       readonly walletId: string;
+      readonly authMethod: WalletAuthMethod;
     }
   | {
       readonly kind: 'external_auth';
@@ -349,7 +352,7 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
     case 'passkey_name_changed':
       return typeof record.passkeyName === 'string';
     case 'login_account_selected':
-      return typeof record.walletId === 'string';
+      return typeof record.walletId === 'string' && isWalletAuthMethod(record.authMethod);
     case 'external_auth':
       return record.provider === 'google';
     case 'google_otp_code_changed':
@@ -412,7 +415,7 @@ export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
       );
     case 'passkey':
       return viewModel.mode === 'login'
-        ? true
+        ? viewModel.selectedAccount?.authMethod !== 'email_otp'
         : !viewModel.showRegistrationInput || viewModel.passkeyName.trim().length > 0;
   }
 }

@@ -2,38 +2,61 @@ import type { GetRecentUnlocksResult } from '@/core/types/seams';
 import { WALLET_AUTH_METHODS } from '@shared/utils';
 import type { AuthMenuAccountOption } from '../lit-ui/auth-menu/auth-menu-domain';
 
+function accountOptionKey(option: AuthMenuAccountOption): string {
+  return `${option.walletId}:${option.authMethod}`;
+}
+
 export function loginAccountOptions(
   recentUnlocks: GetRecentUnlocksResult | null,
   localPasskeyWalletIds: readonly string[] = [],
 ): AuthMenuAccountOption[] {
-  const byWalletId = new Map<string, AuthMenuAccountOption>();
+  const byWalletAuthMethod = new Map<string, AuthMenuAccountOption>();
   for (const walletIdValue of localPasskeyWalletIds) {
     const walletId = String(walletIdValue || '').trim();
-    if (walletId) byWalletId.set(walletId, { walletId, displayName: walletId });
+    if (!walletId) continue;
+    const option: AuthMenuAccountOption = {
+      walletId,
+      displayName: walletId,
+      authMethod: WALLET_AUTH_METHODS.passkey,
+    };
+    byWalletAuthMethod.set(accountOptionKey(option), option);
   }
   for (const account of recentUnlocks?.accounts ?? []) {
     if (
       account.authMethod !== WALLET_AUTH_METHODS.passkey &&
-      account.authMethod !== 'linked_device'
+      account.authMethod !== WALLET_AUTH_METHODS.emailOtp
     )
       continue;
     const walletId = String(account.walletId || '').trim();
     if (!walletId) continue;
     const displayName = String(account.displayName || walletId).trim() || walletId;
-    byWalletId.set(walletId, { walletId, displayName });
+    const option: AuthMenuAccountOption = {
+      walletId,
+      displayName,
+      authMethod: account.authMethod,
+    };
+    byWalletAuthMethod.set(accountOptionKey(option), option);
   }
-  return [...byWalletId.values()];
+  return [...byWalletAuthMethod.values()];
 }
 
-export function defaultLoginWalletId(
+export function defaultLoginAccount(
   recentUnlocks: GetRecentUnlocksResult | null,
   options: readonly AuthMenuAccountOption[],
-): string | null {
-  const lastUsedWalletId = String(recentUnlocks?.lastUsedAccount?.walletId || '').trim();
-  if (lastUsedWalletId && options.some((option) => option.walletId === lastUsedWalletId)) {
-    return lastUsedWalletId;
+): AuthMenuAccountOption | null {
+  const lastUsedAccount = recentUnlocks?.lastUsedAccount;
+  if (
+    lastUsedAccount?.authMethod === WALLET_AUTH_METHODS.passkey ||
+    lastUsedAccount?.authMethod === WALLET_AUTH_METHODS.emailOtp
+  ) {
+    const lastUsedWalletId = String(lastUsedAccount.walletId || '').trim();
+    const exactMatch = options.find(
+      (option) =>
+        option.walletId === lastUsedWalletId && option.authMethod === lastUsedAccount.authMethod,
+    );
+    if (exactMatch) return exactMatch;
   }
-  return options[0]?.walletId || null;
+  return options[0] ?? null;
 }
 
 export function passkeyRecentWalletId(recentUnlocks: GetRecentUnlocksResult | null): string | null {

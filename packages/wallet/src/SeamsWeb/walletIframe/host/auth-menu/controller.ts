@@ -28,11 +28,8 @@ import {
   type HostedPasskeyPrepared,
 } from './passkey';
 import type { GoogleEmailOtpWalletAuthFlow } from '@/SeamsWeb/publicApi/types';
-import {
-  defaultLoginWalletId,
-  loginAccountOptions,
-  passkeyRecentWalletId,
-} from './account-options';
+import { defaultLoginAccount, loginAccountOptions, passkeyRecentWalletId } from './account-options';
+import { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   StartDevice2LinkingFlowArgs,
@@ -190,9 +187,21 @@ export class AuthMenuController {
       );
       session.setLoginPreparation({
         accountOptions: requestedWalletId
-          ? [{ walletId: requestedWalletId, displayName: requestedWalletId }]
+          ? [
+              {
+                walletId: requestedWalletId,
+                displayName: requestedWalletId,
+                authMethod: WALLET_AUTH_METHODS.passkey,
+              },
+            ]
           : [],
-        selectedWalletId: requestedWalletId,
+        selectedAccount: requestedWalletId
+          ? {
+              walletId: requestedWalletId,
+              displayName: requestedWalletId,
+              authMethod: WALLET_AUTH_METHODS.passkey,
+            }
+          : null,
         prepare: (walletId, cancellation) =>
           this.prepareLogin(
             requestId,
@@ -229,7 +238,7 @@ export class AuthMenuController {
     const accountOptions = loginAccountOptions(recentUnlocks, localPasskeyWalletIds);
     session.setLoginPreparation({
       accountOptions,
-      selectedWalletId: defaultLoginWalletId(recentUnlocks, accountOptions),
+      selectedAccount: defaultLoginAccount(recentUnlocks, accountOptions),
       prepare: (walletId, cancellation) =>
         this.prepareLogin(
           requestId,

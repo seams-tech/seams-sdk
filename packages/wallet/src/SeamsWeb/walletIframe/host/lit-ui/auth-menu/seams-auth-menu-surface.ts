@@ -8,6 +8,7 @@ import {
   isAuthMenuActionable,
   isAuthMenuLoadingStatus,
   isAuthMenuReady,
+  type AuthMenuAccountOption,
   type AuthMenuIntent,
   type AuthMenuLinkDeviceState,
   type AuthMenuLoginViewModel,
@@ -388,10 +389,30 @@ function rerollIcon(): TemplateResult {
 
 function selectedLoginAccount(viewModel: AuthMenuLoginViewModel) {
   return (
-    viewModel.accountOptions.find((account) => account.walletId === viewModel.selectedWalletId) ??
+    viewModel.accountOptions.find(
+      (account) =>
+        account.walletId === viewModel.selectedAccount?.walletId &&
+        account.authMethod === viewModel.selectedAccount.authMethod,
+    ) ??
     viewModel.accountOptions[0] ??
     null
   );
+}
+
+type AuthMenuAccountGroup = Readonly<{
+  authMethod: AuthMenuAccountOption['authMethod'];
+  label: 'Passkey' | 'Email OTP';
+  accounts: readonly AuthMenuAccountOption[];
+}>;
+
+function accountGroups(options: readonly AuthMenuAccountOption[]): AuthMenuAccountGroup[] {
+  const passkeyAccounts = options.filter((option) => option.authMethod === 'passkey');
+  const emailOtpAccounts = options.filter((option) => option.authMethod === 'email_otp');
+  const groups: AuthMenuAccountGroup[] = [
+    { authMethod: 'passkey', label: 'Passkey', accounts: passkeyAccounts },
+    { authMethod: 'email_otp', label: 'Email OTP', accounts: emailOtpAccounts },
+  ];
+  return groups.filter((group) => group.accounts.length > 0);
 }
 
 export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
@@ -646,9 +667,19 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private onLoginAccountSelect = (event: Event): void => {
     if (!(event.currentTarget instanceof HTMLButtonElement)) return;
     const walletId = event.currentTarget.dataset.walletId;
-    if (!walletId) return;
+    const authMethod = event.currentTarget.dataset.authMethod;
+    const viewModel = this.viewModel;
+    if (!walletId || viewModel.kind !== 'passkey' || viewModel.mode !== 'login') return;
+    const selected = viewModel.accountOptions.find(
+      (account) => account.walletId === walletId && account.authMethod === authMethod,
+    );
+    if (!selected) return;
     this.accountMenuOpen = false;
-    this.emitIntent({ kind: 'login_account_selected', walletId });
+    this.emitIntent({
+      kind: 'login_account_selected',
+      walletId: selected.walletId,
+      authMethod: selected.authMethod,
+    });
   };
 
   private onAccountMenuToggle = (): void => {
@@ -863,6 +894,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     if (viewModel.mode === 'login') {
       const selected = selectedLoginAccount(viewModel);
       const hasAccounts = viewModel.accountOptions.length > 0;
+      const groups = accountGroups(viewModel.accountOptions);
       return html`
         <div class="w3a-passkey-row">
           <div class="w3a-input-pill">
@@ -904,32 +936,59 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
                             class="w3a-account-menu-popover"
                             role="listbox"
                           >
-                            <div class="w3a-account-menu-group">
-                              <div class="w3a-account-menu-group-label">Passkey</div>
-                              ${viewModel.accountOptions.map((account) => {
-                                const isSelected = account.walletId === selected?.walletId;
-                                return html`
-                                  <button
-                                    class="w3a-account-menu-option ${isSelected
-                                      ? 'is-selected'
-                                      : ''}"
-                                    type="button"
-                                    role="option"
-                                    aria-selected=${isSelected ? 'true' : 'false'}
-                                    title=${account.displayName}
-                                    data-wallet-id=${account.walletId}
-                                    @click=${this.onLoginAccountSelect}
-                                  >
-                                    <span class="w3a-account-menu-check" aria-hidden="true"></span>
-                                    <span class="w3a-account-menu-account">
-                                      <span class="w3a-account-menu-account-primary"
-                                        >${account.displayName}</span
+                            ${groups.map((group) => {
+                              const groupLabelId = `${AUTH_MENU_ACCOUNT_LIST_ID}-${group.authMethod}`;
+                              return html`
+                                <div
+                                  class="w3a-account-menu-group"
+                                  role="group"
+                                  aria-labelledby=${groupLabelId}
+                                >
+                                  <div id=${groupLabelId} class="w3a-account-menu-group-label">
+                                    ${group.label}
+                                  </div>
+                                  ${group.accounts.map((account) => {
+                                    const isSelected =
+                                      account.walletId === selected?.walletId &&
+                                      account.authMethod === selected.authMethod;
+                                    const showWalletId =
+                                      account.authMethod === 'email_otp' &&
+                                      account.walletId !== account.displayName;
+                                    return html`
+                                      <button
+                                        class="w3a-account-menu-option ${isSelected
+                                          ? 'is-selected'
+                                          : ''}"
+                                        type="button"
+                                        role="option"
+                                        aria-selected=${isSelected ? 'true' : 'false'}
+                                        title=${showWalletId
+                                          ? `${account.displayName} ${account.walletId}`
+                                          : account.displayName}
+                                        data-wallet-id=${account.walletId}
+                                        data-auth-method=${account.authMethod}
+                                        @click=${this.onLoginAccountSelect}
                                       >
-                                    </span>
-                                  </button>
-                                `;
-                              })}
-                            </div>
+                                        <span
+                                          class="w3a-account-menu-check"
+                                          aria-hidden="true"
+                                        ></span>
+                                        <span class="w3a-account-menu-account">
+                                          <span class="w3a-account-menu-account-primary"
+                                            >${account.displayName}</span
+                                          >
+                                          ${showWalletId
+                                            ? html`<span class="w3a-account-menu-account-secondary"
+                                                >${account.walletId}</span
+                                              >`
+                                            : null}
+                                        </span>
+                                      </button>
+                                    `;
+                                  })}
+                                </div>
+                              `;
+                            })}
                           </div>
                         `
                       : null}
