@@ -139,7 +139,7 @@ export async function scanAndLinkDevice(
     phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
     status: 'started',
     message: 'Scanning QR code',
-    interaction: { kind: 'qr_scan', overlay: 'none' },
+    interaction: { kind: 'qr_scan', overlay: 'hide' },
   });
 
   try {
@@ -229,7 +229,7 @@ export async function scanAndLinkDevice(
       message: 'Device-link approval recorded',
       walletId: String(claim.walletId),
       data: { enrollmentId: String(claim.enrollmentId) },
-      interaction: { kind: 'qr_scan', overlay: 'none' },
+      interaction: { kind: 'qr_scan', overlay: 'hide' },
     });
     await options.afterCall?.(true, result);
     return result;
@@ -240,7 +240,7 @@ export async function scanAndLinkDevice(
       phase: LinkDeviceEventPhase.FAILED,
       status: 'failed',
       message: failure.message,
-      interaction: { kind: 'qr_scan', overlay: 'none' },
+      interaction: { kind: 'qr_scan', overlay: 'hide' },
       error: {
         code: failure.code,
         message: failure.message,

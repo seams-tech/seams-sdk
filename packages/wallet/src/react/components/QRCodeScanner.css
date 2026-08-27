@@ -22,13 +22,6 @@
   padding: 0.5rem;
 }
 
-/* The camera surface stays below wallet operations. Once a QR code has been
-   accepted, this progress surface owns the only remaining local action and
-   must receive the Cancel click instead of the hidden wallet iframe. */
-.qr-scanner-modal--linking {
-  z-index: calc(var(--w3a-wallet-overlay-z, 2147483646) + 1);
-}
-
 /* Themed panel similar to ShowQRCode modal content */
 .qr-scanner-panel {
   display: flex;
@@ -43,7 +36,7 @@
   width: min(100%, 360px);
   min-height: 0;
   box-sizing: border-box;
-  padding: 36px 28px 28px;
+  padding: 1rem;
   color: var(--w3a-colors-textPrimary);
   background: var(--w3a-colors-colorBackground, var(--w3a-colors-surface));
   border: 1px solid var(--w3a-colors-borderPrimary);
@@ -498,7 +491,7 @@
 
 @media (max-width: 480px) {
   .qr-scanner-progress-panel {
-    padding: 32px 22px 22px;
+    padding: 1rem;
   }
 
   .qr-scanner-progress h2 {

@@ -66,3 +66,26 @@ test('does not submit owner approval after terminal Email OTP target resolution'
   );
   expect(ownerApprovalCalls).toBe(0);
 });
+
+test('releases the wallet iframe foreground surface while device 1 waits', async () => {
+  const nowMs = Date.now();
+  const fixture = buildR103DeviceLinkFixture({
+    linkSessionId: 'link-session:owner-progress-surface',
+    targetFactor: { kind: 'email_otp' },
+    issuedAtMs: nowMs - 1_000,
+    expiresAtMs: nowMs + 60_000,
+  });
+  const events: Array<{ readonly interaction?: { readonly overlay: string } }> = [];
+
+  await expect(
+    scanAndLinkDevice(undefined, fixture.payload, { onEvent: (event) => events.push(event) }, {
+      ownerAuthorization: {
+        authenticateOwnerForLinkingV1: async () => {
+          throw new Error('stop after the foreground surface is released');
+        },
+      },
+    } as unknown as Device1LinkingFlowPortsV1),
+  ).rejects.toThrow('stop after the foreground surface is released');
+
+  expect(events[0]?.interaction?.overlay).toBe('hide');
+});
