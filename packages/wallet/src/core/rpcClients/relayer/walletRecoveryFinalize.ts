@@ -59,6 +59,10 @@ export async function finalizeWalletRecovery(args: {
   readonly relayUrl: string;
   readonly walletId: string;
   readonly reservationId: string;
+  readonly recoveryOperationId: string;
+  readonly targetDeviceId: string;
+  readonly targetAuthorityId: string;
+  readonly targetWalletAuthMethodId: string;
   readonly challengeId: string;
   readonly replacementId: string;
   readonly webauthnRegistration: WebAuthnRegistrationCredential;
@@ -124,6 +128,10 @@ export async function finalizeWalletRecovery(args: {
         body: {
           walletId: args.walletId,
           reservationId: args.reservationId,
+          recoveryOperationId: args.recoveryOperationId,
+          targetDeviceId: args.targetDeviceId,
+          targetAuthorityId: args.targetAuthorityId,
+          targetWalletAuthMethodId: args.targetWalletAuthMethodId,
           challengeId: args.challengeId,
           replacementId: args.replacementId,
           webauthnRegistration,

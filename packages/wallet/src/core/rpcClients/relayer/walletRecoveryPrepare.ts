@@ -42,12 +42,17 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   parseWalletAuthMethodId,
+  parseWalletAuthorityId,
+  parseWalletRecoveryOperationId,
   parseWalletId,
   type WalletId,
   type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
   type WalletAuthMethodId,
+  type WalletAuthorityId,
+  type WalletRecoveryOperationId,
 } from '@shared/utils/domainIds';
+import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   PASSKEY_PRF_FIRST_SALT_V1,
@@ -221,6 +226,10 @@ export type WalletRecoveryPrepareResult =
       readonly kind: 'prepared';
       readonly walletId: WalletId;
       readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
+      readonly recoveryOperationId: WalletRecoveryOperationId;
+      readonly targetDeviceId: DeviceId;
+      readonly targetAuthorityId: WalletAuthorityId;
+      readonly targetWalletAuthMethodId: WalletAuthMethodId;
       readonly wrap: {
         readonly nonceB64u: EnvelopeNonceB64u;
         readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
@@ -324,6 +333,10 @@ async function parseWalletRecoveryPrepareResponse(args: {
           'ok',
           'walletId',
           'target',
+          'recoveryOperationId',
+          'targetDeviceId',
+          'targetAuthorityId',
+          'targetWalletAuthMethodId',
           'wrap',
           'entries',
           'keyManifest',
@@ -339,11 +352,21 @@ async function parseWalletRecoveryPrepareResponse(args: {
       const walletIdResult = parseWalletId(body.walletId);
       if (!walletIdResult.ok) throw new Error('walletRecoveryPrepare.walletId is invalid');
       const walletId = walletIdResult.value;
-      if (body.target !== undefined) {
-        const target = parseWalletRecoveryTargetV1(body.target);
-        if (target.kind !== 'passkey' || target.rpId !== args.target.rpId) {
-          throw new Error('wallet recovery preparation changed the recovery target');
-        }
+      const target = parseWalletRecoveryTargetV1(body.target);
+      if (target.kind !== 'passkey' || target.rpId !== args.target.rpId) {
+        throw new Error('wallet recovery preparation changed the recovery target');
+      }
+      const recoveryOperationId = parseWalletRecoveryOperationId(body.recoveryOperationId);
+      const targetDeviceId = parseDeviceId(body.targetDeviceId);
+      const targetAuthorityId = parseWalletAuthorityId(body.targetAuthorityId);
+      const targetWalletAuthMethodId = parseWalletAuthMethodId(body.targetWalletAuthMethodId);
+      if (
+        !recoveryOperationId.ok ||
+        !targetDeviceId.ok ||
+        !targetAuthorityId.ok ||
+        !targetWalletAuthMethodId.ok
+      ) {
+        throw new Error('wallet recovery preparation target identity is invalid');
       }
       const keyManifest = parseWalletRecoveryPreparationKeyManifest(body.keyManifest, walletId);
       const registration = parseWalletRecoveryRegistrationOptions(
@@ -351,6 +374,9 @@ async function parseWalletRecoveryPrepareResponse(args: {
         String(walletId),
         args.target.rpId,
       );
+      if (registration.walletAuthMethodId !== targetWalletAuthMethodId.value) {
+        throw new Error('wallet recovery registration changed the target auth method');
+      }
       const reservationId = parseRecoveryCodeReservationId(body.reservationId);
       const reservationExpiresAtMs = parseUnixMs(
         body.reservationExpiresAtMs,
@@ -364,6 +390,10 @@ async function parseWalletRecoveryPrepareResponse(args: {
         kind: 'prepared',
         walletId,
         target: args.target,
+        recoveryOperationId: recoveryOperationId.value,
+        targetDeviceId: targetDeviceId.value,
+        targetAuthorityId: targetAuthorityId.value,
+        targetWalletAuthMethodId: targetWalletAuthMethodId.value,
         wrap,
         entries,
         keyManifest,
