@@ -138,14 +138,14 @@ localhost:4101 {
 }
 
 # Cosigner instance #1
-localhost:8445 {
+localhost:4301 {
 	tls internal
 	encode gzip
 	reverse_proxy 127.0.0.1:3001
 }
 
 # Cosigner instance #2
-localhost:8446 {
+localhost:4302 {
 	tls internal
 	encode gzip
 	reverse_proxy 127.0.0.1:3002
