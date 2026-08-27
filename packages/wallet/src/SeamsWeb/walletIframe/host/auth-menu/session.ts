@@ -66,6 +66,7 @@ import type {
   LinkedDeviceTargetPasskeyActivationV1,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
+import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
 import type {
   HostedRecoveryCredentialCreated,
@@ -1985,6 +1986,21 @@ export class AuthMenuSession {
         );
         return;
       case 'failed':
+        if (event.error?.code === DeviceLinkingErrorCode.SESSION_EXPIRED) {
+          this.stateValue = {
+            ...state,
+            viewModel: {
+              ...state.viewModel,
+              linkDevice: {
+                kind: 'expired',
+                message: 'This linking request expired. Start again to link this device.',
+              },
+            },
+          };
+          this.updateElement();
+          return;
+        }
+        break;
       case 'cancelled':
       case 'pending':
         break;
