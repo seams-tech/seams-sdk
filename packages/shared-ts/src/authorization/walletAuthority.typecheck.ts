@@ -1,9 +1,11 @@
 import {
   buildActiveCombinedWalletAuthorityV1,
   isActiveEcdsaWalletAuthorityV1,
+  isActiveRecoveredWalletAuthorityV1,
   type ActiveCombinedWalletAuthorityV1,
   type ActiveEcdsaWalletAuthorityV1,
   type ActiveEd25519WalletAuthorityV1,
+  type ActiveRecoveredWalletAuthorityV1,
   type ActiveWalletAuthorityV1,
   type CombinedWalletSignerActivationSetV1,
   type EcdsaWalletSignerActivationSetV1,
@@ -46,6 +48,16 @@ if (isActiveEcdsaWalletAuthorityV1(activeAuthority)) {
   const ecdsaActivation = activeAuthority.signerActivations.ecdsa;
   void ecdsaActivation;
 }
+
+if (isActiveRecoveredWalletAuthorityV1(activeAuthority)) {
+  const recoveredAuthority: ActiveRecoveredWalletAuthorityV1 = activeAuthority;
+  const recoveryOperation = recoveredAuthority.provenance.recoveryOperationId;
+  void recoveryOperation;
+}
+
+// @ts-expect-error A broad active authority does not prove recovery provenance.
+const invalidRecoveredAuthority: ActiveRecoveredWalletAuthorityV1 = activeAuthority;
+void invalidRecoveredAuthority;
 
 const invalidCombinedWithoutEcdsa = buildActiveCombinedWalletAuthorityV1({
   ...activeCombinedAuthority,

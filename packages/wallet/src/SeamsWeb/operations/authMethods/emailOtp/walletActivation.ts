@@ -10,6 +10,7 @@ import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { isActiveRecoveredWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 
 export async function persistVerifiedEmailOtpAuthorityAfterUnlock(args: {
   readonly walletId: string;
@@ -28,6 +29,16 @@ export async function persistVerifiedEmailOtpAuthorityAfterUnlock(args: {
   switch (authority.provenance.kind) {
     case 'wallet_registration':
       await IndexedDBManager.persistFoundingWalletAuthority({ authority, authMethod });
+      return;
+    case 'wallet_recovery':
+      if (!isActiveRecoveredWalletAuthorityV1(authority)) {
+        throw new Error('Recovered Email OTP authority provenance is invalid');
+      }
+      await IndexedDBManager.persistRecoveredWalletAuthority({
+        authority,
+        authMethod,
+        recoveredAtMs: Date.now(),
+      });
       return;
     case 'device_link': {
       const local = await IndexedDBManager.resolveWalletAuthorityForMethod(
