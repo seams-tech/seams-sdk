@@ -19,7 +19,7 @@ dotenv.config({ path: localEnvPath, override: true });
 
 const child = spawn(
   'pnpm',
-  ['-C', 'apps/seams-site', 'vite', '--host', 'localhost', '--port', '3600'],
+  ['-C', 'apps/seams-site', 'vite', '--host', 'localhost', '--port', '4004'],
   {
     cwd: repoRoot,
     env: localSiteEnvironment(process.env),

@@ -38,7 +38,7 @@ pnpm router
 - `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:4100` is not already ready.
 - Primary local endpoints: app `http://localhost:4001`, wallet `https://localhost:4002`, Gateway base `https://localhost:4101`.
 - Docs default origin: `https://docs.localhost:4003`.
-- Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:4100`, and MPCRouter on `http://127.0.0.1:4102`.
+- Internal dev ports: site Vite on `http://localhost:4004`, Console Vite on `http://localhost:4005`, docs VitePress on `http://localhost:4006`, Gateway on `http://127.0.0.1:4100`, and MPCRouter on `http://127.0.0.1:4102`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
 - Keep all human-edited local configuration in the ignored root `.env.local`.

@@ -2,7 +2,7 @@
 
 This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from the installed `@seams/wallet` package.
 
-- Dev server: `http://localhost:3600`
+- Dev server: `http://localhost:4004`
 - App origin (via Caddy): `http://localhost:4001`
 - Docs origin (via Caddy): `https://docs.localhost:4003`
 - Wallet origin (via Caddy): `https://localhost:4002`

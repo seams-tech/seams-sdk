@@ -3,11 +3,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "vite": "vite --host localhost --port 3601",
-    "dev": "vite --host localhost --port 3601",
+    "vite": "vite --host localhost --port 4005",
+    "dev": "vite --host localhost --port 4005",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host localhost --port 3601"
+    "preview": "vite preview --host localhost --port 4005"
   },
   "dependencies": {
     "@fontsource/hanken-grotesk": "^5.2.8",

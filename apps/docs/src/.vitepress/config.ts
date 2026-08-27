@@ -257,7 +257,7 @@ export default defineConfig({
     logLevel: 'info',
     server: {
       host: 'localhost',
-      port: 5222,
+      port: 4006,
       allowedHosts: ['docs.localhost', 'localhost', 'pta-m4.local'],
     },
   },

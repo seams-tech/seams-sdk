@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "VITE_SITE_ORIGIN=${VITE_SITE_ORIGIN:-https://localhost} VITE_DOCS_ORIGIN=${VITE_DOCS_ORIGIN:-https://docs.localhost} vitepress dev src --port 5222",
+    "dev": "VITE_SITE_ORIGIN=${VITE_SITE_ORIGIN:-https://localhost} VITE_DOCS_ORIGIN=${VITE_DOCS_ORIGIN:-https://docs.localhost} vitepress dev src --port 4006",
     "build": "vitepress build src --outDir dist",
-    "preview": "vite preview --outDir dist --port 5222",
+    "preview": "vite preview --outDir dist --port 4006",
     "type-check": "pnpm -C ../../packages/wallet build:types && tsc --noEmit"
   },
   "devDependencies": {
