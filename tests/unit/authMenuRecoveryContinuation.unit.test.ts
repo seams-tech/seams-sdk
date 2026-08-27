@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { AuthMenuSession } from '@/SeamsWeb/walletIframe/host/auth-menu/session';
 import type {
+  HostedRecoveryEmailOtpVerified,
   HostedRecoveryCredentialCreated,
+  HostedRecoveryFinalizationOperation,
+  HostedRecoveryGoogleVerified,
   HostedRecoveryPort,
   HostedRecoveryPrepared,
 } from '@/SeamsWeb/walletIframe/host/recovery-port';
@@ -25,6 +28,8 @@ const PASSKEY_TARGET = {
   kind: 'passkey',
   rpId: 'wallet.example.test',
 } as const satisfies WalletRecoveryTargetV1;
+
+const AUTH_MENU_REQUEST_ID = walletIframeRequestIdFromBoundary('auth-menu-recovery-request');
 
 class SuccessfulRecoveryPort implements HostedRecoveryPort {
   readonly calls: string[] = [];
@@ -56,13 +61,50 @@ class SuccessfulRecoveryPort implements HostedRecoveryPort {
     };
   }
 
-  async finalize(operation: HostedRecoveryCredentialCreated) {
+  async verifyGoogle(operation: HostedRecoveryPrepared, idToken: string) {
+    this.calls.push(`verify-google:${operation.recoveryOperationId}:${idToken}`);
+    return {
+      kind: 'hosted_recovery_google_verified' as const,
+      recoveryOperationId: operation.recoveryOperationId,
+      walletId: operation.walletId,
+      target: { kind: 'google_email_otp' as const, googleProvider: 'google' as const },
+      challengeId: 'recovery-email-challenge-1',
+      delivery: { kind: 'provider' as const, status: 'sent' as const, emailHint: 'r***@test' },
+      expiresAtMs: Date.now() + 60_000,
+    };
+  }
+
+  async verifyEmailOtp(operation: HostedRecoveryGoogleVerified) {
+    this.calls.push(`verify-email:${operation.recoveryOperationId}`);
+    return {
+      kind: 'hosted_recovery_email_otp_verified' as const,
+      recoveryOperationId: operation.recoveryOperationId,
+      walletId: operation.walletId,
+      target: operation.target,
+      challengeId: operation.challengeId,
+    };
+  }
+
+  async finalize(operation: HostedRecoveryFinalizationOperation) {
     this.calls.push(`finalize:${operation.recoveryOperationId}`);
     return { kind: 'ready_for_sign_in' as const, walletId: operation.walletId };
   }
 
-  async cancel(operation: HostedRecoveryPrepared | HostedRecoveryCredentialCreated): Promise<void> {
+  async cancel(
+    operation:
+      | HostedRecoveryPrepared
+      | HostedRecoveryCredentialCreated
+      | HostedRecoveryGoogleVerified
+      | HostedRecoveryEmailOtpVerified,
+  ): Promise<void> {
     this.calls.push(`cancel:${operation.recoveryOperationId}`);
+  }
+}
+
+class RetryablePasskeyCreationRecoveryPort extends SuccessfulRecoveryPort {
+  override async createPasskey(operation: HostedRecoveryPrepared) {
+    this.calls.push(`create:${operation.recoveryOperationId}`);
+    return { kind: 'transport_uncertain' as const };
   }
 }
 
@@ -76,6 +118,14 @@ class RefusingRecoveryPort implements HostedRecoveryPort {
   }
 
   async createPasskey(): Promise<{ readonly kind: 'refused' }> {
+    return { kind: 'refused' };
+  }
+
+  async verifyGoogle(): Promise<{ readonly kind: 'refused' }> {
+    return { kind: 'refused' };
+  }
+
+  async verifyEmailOtp(): Promise<{ readonly kind: 'refused' }> {
     return { kind: 'refused' };
   }
 
@@ -120,9 +170,9 @@ function sessionWithRecovery(args: {
     request: buildHostedAuthMenuOpenRequest({
       authMenuSessionId: sessionId,
       initialMode: args.initialMode ?? 'login',
-      enabledExternalProviders: [],
+      enabledExternalProviders: ['google'],
     }),
-    requestId: walletIframeRequestIdFromBoundary('auth-menu-recovery-request'),
+    requestId: AUTH_MENU_REQUEST_ID,
     appearance: APPEARANCE,
     hostname: 'wallet.example.test',
     beginGoogleEmailOtp: rejectGoogleFlow,
@@ -173,7 +223,7 @@ test.describe('hosted auth-menu recovery continuation', () => {
     session.cleanup();
   });
 
-  test('prepares one code, creates one passkey, then targets normal login for that wallet', async () => {
+  test('starts passkey creation immediately after recovery preparation', async () => {
     const recoveryPort = new SuccessfulRecoveryPort();
     const loginWalletIds: string[] = [];
     const prepareRecoveredLogin: AuthMenuSessionArgs['prepareRecoveredLogin'] = async (
@@ -187,14 +237,6 @@ test.describe('hosted auth-menu recovery continuation', () => {
     invoke(session, 'openRecovery');
     invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
     invoke(session, 'prepareRecovery');
-    await expect
-      .poll(() => session.state.kind === 'recovery' && session.state.stage)
-      .toBe('passkey_ready');
-    if (session.state.kind !== 'recovery') throw new Error('recovery state was lost');
-    expect(session.state.viewModel.recoveryCode).toBe('');
-
-    invoke(session, 'createRecoveryPasskey');
-    expect(recoveryPort.calls).toEqual(['prepare:ABCD-EFGH', 'create:recovery-operation-1']);
     await expect
       .poll(() => session.state.kind === 'recovery' && session.state.stage)
       .toBe('sign_in_ready');
@@ -214,7 +256,7 @@ test.describe('hosted auth-menu recovery continuation', () => {
     session.cleanup();
   });
 
-  test('keeps the selected Google target at the prepare boundary without falling back to Passkey', async () => {
+  test('starts Google recovery immediately and replaces the recovery form with its OTP step', async () => {
     const recoveryPort = new SuccessfulRecoveryPort();
     const session = sessionWithRecovery({
       recoveryPort,
@@ -227,19 +269,35 @@ test.describe('hosted auth-menu recovery continuation', () => {
 
     await expect
       .poll(() => session.state.kind === 'recovery' && session.state.stage)
-      .toBe('enter_code');
+      .toBe('google_external_auth');
     expect(recoveryPort.targets).toEqual([{ kind: 'google_email_otp', googleProvider: 'google' }]);
-    if (session.state.kind !== 'recovery') throw new Error('recovery state was lost');
-    expect(session.state.viewModel.status).toEqual({
-      kind: 'recoverable',
-      reason: 'error',
-      message: 'That recovery code can’t be used. Check the code and try again.',
+    if (session.state.kind !== 'recovery' || session.state.stage !== 'google_external_auth') {
+      throw new Error('Google recovery did not start');
+    }
+    const accepted = session.acceptExternalAuthResolution({
+      kind: 'hosted_auth_menu_external_auth_resolution_v1',
+      authMenuSessionId: session.state.request.authMenuSessionId,
+      externalAuthRequestId: session.state.request.externalAuthRequestId,
+      requestId: AUTH_MENU_REQUEST_ID,
+      evidence: { kind: 'google_id_token', idToken: 'google-id-token-1' },
     });
+    expect(accepted).toBe(true);
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('email_code_required');
+    expect(recoveryPort.calls).toEqual([
+      'prepare:ABCD-EFGH',
+      'verify-google:recovery-operation-1:google-id-token-1',
+    ]);
+    if (session.state.kind !== 'recovery' || session.state.stage !== 'email_code_required') {
+      throw new Error('Recovery OTP form did not replace the recovery form');
+    }
+    expect(session.state.viewModel.emailHint).toBe('r***@test');
     session.cleanup();
   });
 
-  test('cancels a prepared operation when Back leaves recovery', async () => {
-    const recoveryPort = new SuccessfulRecoveryPort();
+  test('cancels a prepared operation when Back leaves a passkey retry', async () => {
+    const recoveryPort = new RetryablePasskeyCreationRecoveryPort();
     const session = sessionWithRecovery({
       recoveryPort,
       prepareRecoveredLogin: rejectRecoveredLogin,
@@ -267,11 +325,6 @@ test.describe('hosted auth-menu recovery continuation', () => {
     invoke(session, 'openRecovery');
     invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
     invoke(session, 'prepareRecovery');
-    await expect
-      .poll(() => session.state.kind === 'recovery' && session.state.stage)
-      .toBe('passkey_ready');
-
-    invoke(session, 'createRecoveryPasskey');
     await expect
       .poll(() => session.state.kind === 'recovery' && session.state.stage)
       .toBe('finalizing');
