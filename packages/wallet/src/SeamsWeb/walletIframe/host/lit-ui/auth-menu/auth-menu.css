@@ -1507,9 +1507,20 @@ seams-auth-menu-surface {
   cursor: pointer;
 }
 
+.w3a-link-device-factor-options label:has(input:checked) {
+  border-color: var(--w3a-colors-textPrimary, #1e293b);
+  background: var(--w3a-colors-surface2, #f1f5f9);
+}
+
+.w3a-auth-method-choice-label {
+  flex: 1;
+}
+
 .w3a-link-device-factor-options input {
+  flex: 0 0 auto;
   width: 1rem;
   height: 1rem;
+  margin: 0 0 0 auto;
 }
 
 .w3a-link-device-factor-options input:focus-visible {
@@ -2067,6 +2078,25 @@ seams-auth-menu-surface {
 .w3a-link-device-btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.w3a-auth-method-choice-btn {
+  justify-content: flex-start;
+  min-height: 48px;
+  height: auto;
+  padding-inline: 0.875rem;
+  text-align: start;
+}
+
+.w3a-auth-method-choice-icon {
+  display: grid;
+  flex: 0 0 22px;
+  place-items: center;
+  color: var(--w3a-colors-textSecondary, #64748b);
+}
+
+.w3a-auth-method-choice-icon svg {
+  display: block;
 }
 
 /* The link-device confirmations commit in ink, not in brand blue: these views

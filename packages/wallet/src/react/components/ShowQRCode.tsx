@@ -24,6 +24,7 @@ import {
   normalizeLinkedDeviceTargetEmailAddressV1,
 } from '../../core/types/linkDevice';
 import { toAccountId } from '../../core/types/accountIds';
+import { FingerprintIcon } from './SeamsAuthMenu/ui/icons';
 import './ShowQRCode.css';
 
 export interface ShowQRCodeProps {
@@ -97,12 +98,26 @@ type Device2LinkingRuntime = {
 
 const DEFAULT_TARGET_FACTOR: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }> =
   { kind: 'passkey_prf' };
-const FACTOR_FIELDSET_STYLE = {
-  border: 0,
-  margin: 0,
-  padding: 0,
-  width: '100%',
-};
+
+function EmailOtpMethodIcon() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="2.75" y="5" width="18.5" height="14" rx="2.75" />
+      <path d="m3.75 7.75 6.94 4.86a2.25 2.25 0 0 0 2.62 0l6.94-4.86" />
+    </svg>
+  );
+}
 
 function targetFactorFromSelection(value: string): LinkedDeviceTargetFactorV1 | null {
   switch (value) {
@@ -526,27 +541,35 @@ function FactorSelection({
               you enter.
             </p>
           </div>
-          <fieldset style={FACTOR_FIELDSET_STYLE}>
+          <fieldset className="w3a-device-link-factor-options">
             <legend className="w3a-field-label">Wallet unlock method</legend>
-            <label>
+            <label className="w3a-device-link-factor-option">
+              <span className="w3a-device-link-factor-icon" aria-hidden="true">
+                <FingerprintIcon size={22} />
+              </span>
+              <span className="w3a-device-link-factor-label">
+                Passkey <span>(recommended)</span>
+              </span>
               <input
                 type="radio"
                 name="w3a-device-link-target-factor"
                 value="passkey_prf"
                 checked={targetFactor.kind === 'passkey_prf'}
                 onChange={onChange}
-              />{' '}
-              Passkey <span>(recommended)</span>
+              />
             </label>
-            <label>
+            <label className="w3a-device-link-factor-option">
+              <span className="w3a-device-link-factor-icon" aria-hidden="true">
+                <EmailOtpMethodIcon />
+              </span>
+              <span className="w3a-device-link-factor-label">Email code</span>
               <input
                 type="radio"
                 name="w3a-device-link-target-factor"
                 value="email_otp"
                 checked={targetFactor.kind === 'email_otp'}
                 onChange={onChange}
-              />{' '}
-              Email code
+              />
             </label>
           </fieldset>
           {emailTargetSelected ? (

@@ -1153,20 +1153,22 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           </div>
           <div class="w3a-secondary-actions">
             <button
-              class="w3a-link-device-btn w3a-link-device-btn-primary"
+              class="w3a-link-device-btn w3a-auth-method-choice-btn"
               type="button"
               data-recovery-target="passkey"
               @click=${this.onRecoveryPasskeySelected}
             >
-              Recover with Passkey
+              <span class="w3a-auth-method-choice-icon">${fingerprintIcon()}</span>
+              <span>Recover with Passkey</span>
             </button>
             <button
-              class="w3a-link-device-btn w3a-link-device-btn-primary"
+              class="w3a-link-device-btn w3a-auth-method-choice-btn"
               type="button"
               data-recovery-target="google_email_otp"
               @click=${this.onRecoveryGoogleSelected}
             >
-              Recover with Google
+              <span class="w3a-auth-method-choice-icon">${googleIcon()}</span>
+              <span>Recover with Google</span>
             </button>
           </div>
         </form>
@@ -1316,6 +1318,8 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         <fieldset class="w3a-link-device-factor-options">
           <legend class="sr-only">Wallet unlock method</legend>
           <label>
+            <span class="w3a-auth-method-choice-icon">${fingerprintIcon()}</span>
+            <span class="w3a-auth-method-choice-label">Passkey</span>
             <input
               type="radio"
               name="linked-device-factor"
@@ -1323,9 +1327,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
               .checked=${linkDevice.targetFactor.kind === 'passkey_prf'}
               @change=${this.onLinkDeviceFactorChange}
             />
-            Passkey
           </label>
           <label>
+            <span class="w3a-auth-method-choice-icon">${mailIcon()}</span>
+            <span class="w3a-auth-method-choice-label">Email code</span>
             <input
               type="radio"
               name="linked-device-factor"
@@ -1333,7 +1338,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
               .checked=${linkDevice.targetFactor.kind === 'email_otp'}
               @change=${this.onLinkDeviceFactorChange}
             />
-            Email code
           </label>
         </fieldset>
         ${emailTargetSelected
