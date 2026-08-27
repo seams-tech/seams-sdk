@@ -25,6 +25,10 @@ import {
   type DerivedWalletRecoveryKeyId,
 } from '@shared/wallet-recovery/recoveryKeyId';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import {
+  buildFullOwnerPermissionsV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
@@ -45,18 +49,23 @@ import {
 } from '../../../../core/WebAuthnCredentialBindingStore';
 import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
+import {
+  D1WalletAuthorityStore,
+  prepareD1WalletAuthorityPutStatement,
+} from '../wallet/d1WalletAuthorityStore';
 
 type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
   WalletAuthMethodRecordV2,
   { readonly kind: 'passkey'; readonly status: 'active' }
 >;
 
-type RevokedPasskeyWalletAuthMethodRecordV2 = Extract<
-  WalletAuthMethodRecordV2,
-  { readonly kind: 'passkey'; readonly status: 'revoked' }
->;
-
 const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
+  INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+  SELECT 1
+   WHERE changes() = 0
+`;
+
+const RECOVERY_CODE_LOCATOR_CAS_GUARD = `
   INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
   SELECT 1
    WHERE changes() = 0
@@ -95,6 +104,7 @@ export type CloudflareD1WalletCustodyCommitStoreOptions = {
   readonly database: D1DatabaseLike;
   readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
   readonly walletAuthMethodStore?: D1WalletAuthMethodStore;
+  readonly walletAuthorityStore?: Pick<D1WalletAuthorityStore, 'readById'>;
 };
 
 export type WalletCustodyRegistrationCommit = {
@@ -137,7 +147,7 @@ export type WalletCustodyRegistrationCommitResult =
   /** The two records describe different wallets. */
   | { readonly kind: 'inconsistent'; readonly reason: string };
 
-export type WalletCustodyRecoveryPromotionCommitResult =
+export type WalletCustodyRecoveryAuthorityInstallCommitResult =
   | { readonly kind: 'committed' | 'already_committed'; readonly envelopeStoreVersion: string }
   | { readonly kind: 'conflict' }
   | { readonly kind: 'inconsistent'; readonly reason: string };
@@ -253,6 +263,7 @@ export class CloudflareD1WalletCustodyCommitStore {
   private readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
   private readonly records: CloudflareD1VersionedJsonRecordStore<WalletCustodyCommitRecord>;
   private readonly walletAuthMethodStore: D1WalletAuthMethodStore;
+  private readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
 
   constructor(options: CloudflareD1WalletCustodyCommitStoreOptions) {
     this.database = options.database;
@@ -265,6 +276,12 @@ export class CloudflareD1WalletCustodyCommitStore {
         orgId: options.scope.orgId,
         projectId: options.scope.projectId,
         envId: options.scope.envId,
+      });
+    this.walletAuthorityStore =
+      options.walletAuthorityStore ??
+      new D1WalletAuthorityStore({
+        database: options.database,
+        scope: options.scope,
       });
     this.records = new CloudflareD1VersionedJsonRecordStore<WalletCustodyCommitRecord>({
       database: options.database,
@@ -310,6 +327,51 @@ export class CloudflareD1WalletCustodyCommitStore {
         locatorB64u: parsedLocator,
         walletId: walletId.value,
         recoveryKeyId: parseDerivedWalletRecoveryKeyId(row.recovery_key_id),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Reads locator metadata without ever materializing a recovery code. */
+  async readRecoveryCodeLocatorByRecoveryKey(input: {
+    readonly walletId: WalletId;
+    readonly recoveryKeyId: DerivedWalletRecoveryKeyId;
+  }): Promise<WalletRecoveryCodeLocatorRecord | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT locator_b64u, wallet_id, recovery_key_id
+           FROM wallet_recovery_code_locators
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND wallet_id = ?5
+            AND recovery_key_id = ?6
+          LIMIT 1`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        String(input.walletId),
+        String(input.recoveryKeyId),
+      )
+      .first<{
+        readonly locator_b64u?: unknown;
+        readonly wallet_id?: unknown;
+        readonly recovery_key_id?: unknown;
+      }>();
+    if (!row) return null;
+    const walletId = parseWalletId(row.wallet_id);
+    if (!walletId.ok || walletId.value !== input.walletId) return null;
+    try {
+      const recoveryKeyId = parseDerivedWalletRecoveryKeyId(row.recovery_key_id);
+      return {
+        locatorB64u: parseRecoveryCodeLocatorV1(row.locator_b64u),
+        walletId: walletId.value,
+        recoveryKeyId,
       };
     } catch {
       return null;
@@ -664,56 +726,95 @@ export class CloudflareD1WalletCustodyCommitStore {
   }
 
   /**
-   * Installs a recovered credential and consumes its held code in one D1
-   * transaction. A process can fail after this returns without creating an
-   * envelope whose recovery code is still usable, or consuming a code whose
-   * replacement envelope never landed.
+   * Installs a fresh recovered-device authority and Passkey target while
+   * consuming its held code in one D1 transaction. The continuity authority,
+   * methods, envelopes, and sessions are deliberately never updated here.
+   * Current recovery activation output has no fresh Ed25519 reference, so the
+   * first functional slice requires the target authority to reuse the exact
+   * anchor signer activation set.
    */
-  async commitRecoveryPromotion(input: {
+  async commitRecoveryAuthorityInstall(input: {
+    readonly continuityAuthority: ActiveWalletAuthorityV1;
+    readonly authority: ActiveWalletAuthorityV1;
     readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
     readonly expectedRecoverySetVersion: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-    readonly sourceEnvelope: PasskeyCustodyEnvelopeRecord;
-    readonly expectedSourceEnvelopeVersion: string;
-    readonly sourceAuthMethod: {
-      readonly expected: ActivePasskeyWalletAuthMethodRecordV2;
-      readonly record: RevokedPasskeyWalletAuthMethodRecordV2;
-      readonly expectedUpdatedAtMs: number;
-      readonly revokedAtMs: number;
-    };
     readonly reservationId: RecoveryCodeReservationId;
     readonly recoveryKeyId: DerivedWalletRecoveryKeyId;
     readonly authenticatorCommit: WalletRecoveryAuthenticatorCommit;
-  }): Promise<WalletCustodyRecoveryPromotionCommitResult> {
-    if (String(input.recoverySet.walletId) !== String(input.replacementEnvelope.walletId)) {
-      return { kind: 'inconsistent', reason: 'recovery set and envelope name different wallets' };
+  }): Promise<WalletCustodyRecoveryAuthorityInstallCommitResult> {
+    const walletId = input.recoverySet.walletId;
+    if (
+      String(input.authority.walletId) !== String(walletId) ||
+      String(input.continuityAuthority.walletId) !== String(walletId)
+    ) {
+      return { kind: 'inconsistent', reason: 'recovery authority records name different wallets' };
     }
-    if (String(input.recoverySet.walletId) !== String(input.sourceEnvelope.walletId)) {
+    if (
+      input.authority.state !== 'active' ||
+      input.authority.provenance.kind !== 'wallet_recovery' ||
+      input.authority.provenance.continuityAuthorityId !==
+        input.continuityAuthority.authorityId ||
+      input.authority.authorityId === input.continuityAuthority.authorityId ||
+      input.authority.principal.deviceId === input.continuityAuthority.principal.deviceId
+    ) {
       return {
         kind: 'inconsistent',
-        reason: 'recovery set and source envelope name different wallets',
+        reason: 'recovery authority must be a fresh active device authority',
       };
     }
     if (
+      alphabetizeStringify(input.authority.permissions) !==
+      alphabetizeStringify(buildFullOwnerPermissionsV1())
+    ) {
+      return { kind: 'inconsistent', reason: 'recovery authority must have full-owner permissions' };
+    }
+    if (
+      alphabetizeStringify(input.authority.signerActivations) !==
+      alphabetizeStringify(input.continuityAuthority.signerActivations)
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery authority must reuse the continuity signer activations',
+      };
+    }
+    if (
+      input.replacementEnvelope.walletId !== walletId ||
       input.replacementEnvelope.binding.kind !== 'wallet_custody_seed_v1' ||
       input.replacementEnvelope.factor.kind !== 'passkey' ||
       input.replacementEnvelope.lifecycle.state !== 'active' ||
-      Number(input.replacementEnvelope.envelopeRevision) !== 1
+      Number(input.replacementEnvelope.envelopeRevision) !== 1 ||
+      input.replacementEnvelope.ownership.kind !== 'method_bound'
     ) {
       return {
         kind: 'inconsistent',
-        reason: 'recovery promotion requires a first-revision active wallet custody envelope',
+        reason: 'recovery install requires a first-revision active wallet custody envelope',
       };
     }
+    if (input.authenticatorCommit.userId !== String(walletId)) {
+      return { kind: 'inconsistent', reason: 'replacement authenticator names a different wallet' };
+    }
+    const targetMethod = input.authenticatorCommit.walletAuthMethod;
     if (
-      input.sourceEnvelope.factor.kind !== 'passkey' ||
-      input.sourceEnvelope.lifecycle.state !== 'retired' ||
-      input.sourceEnvelope.binding.kind !== 'wallet_custody_seed_v1' ||
-      String(input.sourceEnvelope.envelopeId) === String(input.replacementEnvelope.envelopeId)
+      targetMethod.kind !== 'passkey' ||
+      targetMethod.status !== 'active' ||
+      targetMethod.walletId !== walletId ||
+      targetMethod.walletAuthorityId !== input.authority.authorityId ||
+      input.replacementEnvelope.ownership.walletAuthMethodId !== targetMethod.walletAuthMethodId ||
+      targetMethod.rpId !== input.replacementEnvelope.factor.rpId ||
+      targetMethod.credentialIdB64u !== input.replacementEnvelope.factor.credentialIdB64u ||
+      targetMethod.credentialPublicKeyB64u !==
+        input.authenticatorCommit.authenticator.credentialPublicKeyB64u ||
+      targetMethod.counter !== input.authenticatorCommit.authenticator.counter ||
+      input.authenticatorCommit.binding.userId !== String(walletId) ||
+      input.authenticatorCommit.binding.rpId !== targetMethod.rpId ||
+      input.authenticatorCommit.binding.credentialIdB64u !== targetMethod.credentialIdB64u ||
+      input.authenticatorCommit.authenticator.credentialIdB64u !== targetMethod.credentialIdB64u ||
+      !String(targetMethod.walletAuthMethodId).startsWith('wallet-auth-method:')
     ) {
       return {
         kind: 'inconsistent',
-        reason: 'recovery promotion requires a retired source wallet custody envelope',
+        reason: 'recovery authority, method, envelope, and authenticator disagree',
       };
     }
     const matchingConsumptions = input.recoverySet.manifestKekWraps.filter(
@@ -723,92 +824,24 @@ export class CloudflareD1WalletCustodyCommitStore {
     if (matchingConsumptions.length !== 1) {
       return {
         kind: 'inconsistent',
-        reason: 'recovery promotion must consume exactly its reserved recovery code',
-      };
-    }
-    if (input.authenticatorCommit.userId !== String(input.recoverySet.walletId)) {
-      return {
-        kind: 'inconsistent',
-        reason: 'replacement authenticator names a different wallet',
-      };
-    }
-    if (
-      input.authenticatorCommit.authenticator.credentialIdB64u !==
-        input.authenticatorCommit.binding.credentialIdB64u ||
-      input.authenticatorCommit.binding.userId !== input.authenticatorCommit.userId ||
-      input.authenticatorCommit.binding.rpId !== input.replacementEnvelope.factor.rpId ||
-      input.authenticatorCommit.binding.credentialIdB64u !==
-        input.replacementEnvelope.factor.credentialIdB64u
-    ) {
-      return {
-        kind: 'inconsistent',
-        reason: 'replacement authenticator, binding, and envelope disagree',
-      };
-    }
-    if (
-      input.authenticatorCommit.walletAuthMethod.kind !== 'passkey' ||
-      input.authenticatorCommit.walletAuthMethod.status !== 'active' ||
-      String(input.authenticatorCommit.walletAuthMethod.walletId) !==
-        String(input.recoverySet.walletId) ||
-      input.authenticatorCommit.walletAuthMethod.rpId !== input.replacementEnvelope.factor.rpId ||
-      input.authenticatorCommit.walletAuthMethod.credentialIdB64u !==
-        input.replacementEnvelope.factor.credentialIdB64u ||
-      input.authenticatorCommit.walletAuthMethod.credentialPublicKeyB64u !==
-        input.authenticatorCommit.authenticator.credentialPublicKeyB64u ||
-      input.authenticatorCommit.walletAuthMethod.counter !==
-        input.authenticatorCommit.authenticator.counter ||
-      !String(input.authenticatorCommit.walletAuthMethod.walletAuthMethodId).startsWith(
-        'wallet-auth-method:',
-      )
-    ) {
-      return {
-        kind: 'inconsistent',
-        reason: 'replacement authenticator and wallet auth method disagree',
-      };
-    }
-    if (
-      input.sourceAuthMethod.expected.kind !== 'passkey' ||
-      input.sourceAuthMethod.expected.status !== 'active' ||
-      input.sourceAuthMethod.record.kind !== 'passkey' ||
-      input.sourceAuthMethod.record.status !== 'revoked' ||
-      String(input.sourceAuthMethod.expected.walletId) !== String(input.recoverySet.walletId) ||
-      String(input.sourceAuthMethod.record.walletId) !== String(input.recoverySet.walletId) ||
-      input.sourceAuthMethod.expected.walletAuthorityId !==
-        input.sourceAuthMethod.record.walletAuthorityId ||
-      input.sourceAuthMethod.expected.walletAuthMethodId !==
-        input.sourceAuthMethod.record.walletAuthMethodId ||
-      input.sourceAuthMethod.expected.rpId !== input.sourceEnvelope.factor.rpId ||
-      input.sourceAuthMethod.expected.credentialIdB64u !==
-        input.sourceEnvelope.factor.credentialIdB64u
-    ) {
-      return {
-        kind: 'inconsistent',
-        reason: 'source auth method and envelope disagree',
-      };
-    }
-    if (
-      input.authenticatorCommit.walletAuthMethod.walletAuthorityId !==
-        input.sourceAuthMethod.expected.walletAuthorityId ||
-      input.authenticatorCommit.walletAuthMethod.walletAuthMethodId ===
-        input.sourceAuthMethod.expected.walletAuthMethodId ||
-      input.sourceAuthMethod.expected.updatedAtMs !== input.sourceAuthMethod.expectedUpdatedAtMs ||
-      input.sourceAuthMethod.record.updatedAtMs !== input.sourceAuthMethod.revokedAtMs ||
-      input.sourceAuthMethod.record.revokedAtMs !== input.sourceAuthMethod.revokedAtMs ||
-      !String(input.sourceAuthMethod.expected.walletAuthMethodId).startsWith('wallet-auth-method:')
-    ) {
-      return {
-        kind: 'inconsistent',
-        reason: 'recovery promotion source and replacement authority identities disagree',
+        reason: 'recovery install must consume exactly its reserved recovery code',
       };
     }
 
     const envelopeKey = passkeyCustodyEnvelopeRecordKey(
       passkeyCustodyEnvelopeLocatorOf(input.replacementEnvelope),
     );
-    const sourceEnvelopeKey = passkeyCustodyEnvelopeRecordKey(
-      passkeyCustodyEnvelopeLocatorOf(input.sourceEnvelope),
-    );
-    const recoverySetKey = walletRecoveryEnvelopeSetRecordKey(input.recoverySet.walletId);
+    const recoverySetKey = walletRecoveryEnvelopeSetRecordKey(walletId);
+    const authorityStatement = prepareD1WalletAuthorityPutStatement({
+      database: this.database,
+      scope: {
+        namespace: this.scope.namespace,
+        orgId: this.scope.orgId,
+        projectId: this.scope.projectId,
+        envId: this.scope.envId,
+      },
+      authority: input.authority,
+    });
     const authenticatorStatement = prepareD1WebAuthnAuthenticatorInsertStatement({
       database: this.database,
       scope: {
@@ -831,14 +864,8 @@ export class CloudflareD1WalletCustodyCommitStore {
       record: input.authenticatorCommit.binding,
     });
     const walletAuthMethodStatements = this.walletAuthMethodStore.prepareV2InsertStatements(
-      input.authenticatorCommit.walletAuthMethod,
+      targetMethod,
     );
-    const authMethodStatements =
-      this.walletAuthMethodStore.preparePasskeyRecoveryV2RevocationStatements({
-        expected: input.sourceAuthMethod.expected,
-        record: input.sourceAuthMethod.record,
-        revokedAtMs: input.sourceAuthMethod.revokedAtMs,
-      });
     let stored: CloudflareD1VersionedJsonRecordBatchPutResultV1;
     try {
       stored = await this.records.putManyWithAdditionalStatements(
@@ -849,41 +876,42 @@ export class CloudflareD1WalletCustodyCommitStore {
             expectedVersion: input.expectedRecoverySetVersion,
           },
           { key: envelopeKey, value: input.replacementEnvelope, expectedVersion: null },
-          {
-            key: sourceEnvelopeKey,
-            value: input.sourceEnvelope,
-            expectedVersion: input.expectedSourceEnvelopeVersion,
-          },
         ],
         [
+          /* The authority precedes its foreign-keyed active method. Existing
+             method/envelope/session rows are absent from this mutation list. */
+          authorityStatement,
+          ...walletAuthMethodStatements,
           authenticatorStatement,
           bindingStatement,
-          ...walletAuthMethodStatements,
-          ...authMethodStatements,
           input.authenticatorCommit.challengeDeleteStatement,
           this.database.prepare(WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD),
           this.prepareRecoveryCodeLocatorDeleteStatement({
-            walletId: input.recoverySet.walletId,
+            walletId,
             recoveryKeyId: input.recoveryKeyId,
           }),
+          this.database.prepare(RECOVERY_CODE_LOCATOR_CAS_GUARD),
         ],
       );
     } catch {
-      /* Insert-only authenticator/binding statements and the challenge CAS
-         guard roll back the complete batch on a race. The reservation remains
-         retryable and no replacement envelope is visible. */
+      /* Insert-only target rows and both delete guards roll back every part of
+         the batch. The held reservation remains retryable after a race. */
       return { kind: 'conflict' };
     }
     if (stored.kind === 'version_mismatch') {
-      const [recoveryRead, envelopeRead, sourceEnvelopeRead, authMethodRead] = await Promise.all([
-        this.readRecoveryEnvelopeSet(input.recoverySet.walletId),
-        this.records.read(envelopeKey),
-        this.records.read(sourceEnvelopeKey),
-        this.walletAuthMethodStore.getPasskeyV2({
-          rpId: input.sourceAuthMethod.expected.rpId,
-          credentialIdB64u: input.sourceAuthMethod.expected.credentialIdB64u,
-        }),
-      ]);
+      const [recoveryRead, envelopeRead, authorityRead, methodRead, locatorRead] =
+        await Promise.all([
+          this.readRecoveryEnvelopeSet(walletId),
+          this.records.read(envelopeKey),
+          this.walletAuthorityStore.readById(input.authority.authorityId),
+          this.walletAuthMethodStore.readByIdV2({
+            walletAuthMethodId: targetMethod.walletAuthMethodId,
+          }),
+          this.readRecoveryCodeLocatorByRecoveryKey({
+            walletId,
+            recoveryKeyId: input.recoveryKeyId,
+          }),
+        ]);
       const alreadyConsumed = recoveryRead?.record.manifestKekWraps.some(
         (wrap) =>
           wrap.lifecycle.state === 'consumed' &&
@@ -894,28 +922,22 @@ export class CloudflareD1WalletCustodyCommitStore {
         envelopeRead.value.kind !== 'wallet_recovery_envelope_set_v1' &&
         alphabetizeStringify(envelopeRead.value) ===
           alphabetizeStringify(input.replacementEnvelope);
-      const sourceRetired =
-        sourceEnvelopeRead.kind === 'present' &&
-        alphabetizeStringify(sourceEnvelopeRead.value) ===
-          alphabetizeStringify(input.sourceEnvelope);
-      const sourceAuthRevoked =
-        authMethodRead?.status === 'revoked' &&
-        alphabetizeStringify(authMethodRead) ===
-          alphabetizeStringify(input.sourceAuthMethod.record);
-      if (
-        alreadyConsumed &&
-        sameEnvelope &&
-        sourceRetired &&
-        sourceAuthRevoked &&
-        envelopeRead.kind === 'present'
-      ) {
-        return { kind: 'already_committed', envelopeStoreVersion: envelopeRead.version };
+      const sameAuthority =
+        authorityRead !== null &&
+        alphabetizeStringify(authorityRead) === alphabetizeStringify(input.authority);
+      const sameMethod =
+        methodRead !== null && alphabetizeStringify(methodRead) === alphabetizeStringify(targetMethod);
+      if (alreadyConsumed && sameEnvelope && sameAuthority && sameMethod && !locatorRead) {
+        return {
+          kind: 'already_committed',
+          envelopeStoreVersion: envelopeRead.version,
+        };
       }
       return { kind: 'conflict' };
     }
     const envelopeVersion = stored.versions.find((entry) => entry.key === envelopeKey);
     if (!envelopeVersion) {
-      throw new Error('wallet recovery promotion did not report the envelope version');
+      throw new Error('wallet recovery install did not report the envelope version');
     }
     return { kind: 'committed', envelopeStoreVersion: envelopeVersion.version };
   }
