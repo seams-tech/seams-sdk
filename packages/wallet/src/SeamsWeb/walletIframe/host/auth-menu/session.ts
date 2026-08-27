@@ -1899,34 +1899,57 @@ export class AuthMenuSession {
       this.updateElement();
       return;
     }
-    this.stateValue = isPasskeyRecoveryPrepared(result)
-      ? {
-          kind: 'recovery',
+    if (isPasskeyRecoveryPrepared(result)) {
+      this.stateValue = {
+        kind: 'recovery',
+        stage: 'passkey_ready',
+        operation: result,
+        returnState: state.returnState,
+        viewModel: recoveryViewModel({
+          base: state.viewModel,
+          walletId: String(result.walletId),
+          recoveryCode: '',
           stage: 'passkey_ready',
-          operation: result,
-          returnState: state.returnState,
-          viewModel: recoveryViewModel({
-            base: state.viewModel,
-            walletId: String(result.walletId),
-            recoveryCode: '',
-            stage: 'passkey_ready',
-            target: result.target,
-          }),
-        }
-      : {
-          kind: 'recovery',
+          target: result.target,
+        }),
+      };
+      this.createRecoveryPasskey();
+      return;
+    }
+    const googleReadyState: Extract<
+      AuthMenuRecoveryState,
+      { readonly stage: 'google_ready' }
+    > = {
+      kind: 'recovery',
+      stage: 'google_ready',
+      operation: result,
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(result.walletId),
+        recoveryCode: '',
+        stage: 'google_ready',
+        target: result.target,
+      }),
+    };
+    this.stateValue = googleReadyState;
+    if (!this.requestRecoveryGoogleVerification('google', googleReadyState)) {
+      this.stateValue = {
+        ...googleReadyState,
+        viewModel: recoveryViewModel({
+          base: googleReadyState.viewModel,
+          walletId: recoveryWalletId(googleReadyState.viewModel),
           stage: 'google_ready',
-          operation: result,
-          returnState: state.returnState,
-          viewModel: recoveryViewModel({
-            base: state.viewModel,
-            walletId: String(result.walletId),
-            recoveryCode: '',
-            stage: 'google_ready',
-            target: result.target,
-          }),
-        };
-    this.updateElement();
+          target: googleReadyState.operation.target,
+          status: {
+            kind: 'recoverable',
+            reason: 'error',
+            message: 'Google sign-in is unavailable. Try again.',
+          },
+        }),
+      };
+      this.updateElement();
+    }
   }
 
   private rejectRecoveryPreparation(generation: number): void {
