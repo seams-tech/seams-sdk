@@ -5264,7 +5264,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
   const currentValue = await input.inputValue().catch(() => '');
   if (/^\d{6}$/.test(currentValue)) return true;
   recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstOtpInputVisibleMs');
-  let otpIdentity: { challengeId: string; walletId: string } | null = null;
+  let otpIdentity: { challengeId: string; walletId: string | null } | null = null;
   try {
     otpIdentity = await input.evaluate(readWalletIframeEmailOtpIdentity);
   } catch (error) {
@@ -5333,10 +5333,24 @@ function compactUnknownErrorForDiagnostics(error: unknown): string {
 
 function readWalletIframeEmailOtpIdentity(
   anchor: Element,
-): { challengeId: string; walletId: string } | null {
+): { challengeId: string; walletId: string | null } | null {
   const challengeId = String(anchor.getAttribute('data-email-otp-challenge-id') || '').trim();
   const walletId = String(anchor.getAttribute('data-email-otp-wallet-id') || '').trim();
-  return challengeId && walletId ? { challengeId, walletId } : null;
+  if (challengeId) return { challengeId, walletId: walletId || null };
+
+  const roots: Array<Document | ShadowRoot> = [anchor.ownerDocument];
+  for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
+    const elements = Array.from(roots[rootIndex].querySelectorAll('*'));
+    for (const element of elements) {
+      const promptElement = element as HTMLElement & {
+        emailOtpPrompt?: { challengeId?: unknown };
+      };
+      const promptChallengeId = String(promptElement.emailOtpPrompt?.challengeId || '').trim();
+      if (promptChallengeId) return { challengeId: promptChallengeId, walletId: null };
+      if (element.shadowRoot) roots.push(element.shadowRoot);
+    }
+  }
+  return null;
 }
 
 async function readIntendedEmailOtpCodeFromPage(
