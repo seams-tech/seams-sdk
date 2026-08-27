@@ -9,7 +9,8 @@ deletion ledger are reconciled against the landed tree.
 Design safety audit incorporated: August 26, 2026.
 
 Claude critique and repeated working-tree reconciliation incorporated through
-commit `d676e7d22` on August 27, 2026.
+commit `58b728773`, including recovery authority restoration in `c9f232da1`, on
+August 27, 2026.
 
 ## Goal
 
@@ -126,6 +127,14 @@ later normal sign-in must use the direct exact issuer established here. R115
 later changes the policy again by preserving the selected source method and its
 sessions as well.
 
+The landed current recovery response now returns the complete committed active
+Wallet Authority and replacement Passkey auth-method projections. The client
+strictly parses their wallet/authority/method relationship, persists the
+authority, exact method, and locked selection, then reconstructs the remaining
+local continuity before normal login. R103F treats that full projection as the
+current recovery wire contract. It must never regress to loose IDs plus a
+credential fragment or synthesize authority state from client inputs.
+
 The R115 implementation plan landed after this plan. It adds a future
 `wallet_recovery` authority-provenance migration that rebuilds
 `wallet_authorities`. Serialize that migration after both R103F migration stages
@@ -149,7 +158,7 @@ August 27 working-tree checkpoint, the most relevant are:
 | --- | ---: | --- |
 | `packages/wallet/src/SeamsWeb/operations/auth/login.ts` | 7,907 | exact-method unlock and local discovery |
 | `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts` | 6,684 | exact browser-record readers and replacement |
-| `packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts` | 5,666 | linked local-install transaction |
+| `packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts` | 5,748 | linked and recovery local-install transactions |
 | `packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts` | 5,557 | direct issuance and registration replay |
 | `packages/wallet/src/SeamsWeb/operations/registration/registration.ts` | 4,667 | pending registration commit and terminal persistence |
 | `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts` | 4,010 | terminal registration response boundary |
@@ -750,9 +759,13 @@ authority or method state never become HTTP 500/503 errors.
     auth-method ID as tie-breaker; replaces only that selected method; retires
     its envelope and exact Wallet Sessions; and preserves sibling methods and
     their sessions. Recovery replay accepts those active sibling envelopes and
-    methods. R115 later owns additive recovery, including preservation of the
-    selected source method and its sessions. Neither finalization creates a
-    session; normal post-recovery sign-in uses the direct exact issuer.
+    methods. A promoted response/replay returns the server-read active authority
+    and replacement method as one validated committed projection. Local recovery
+    publishes that authority, method, locked selection, profile/authenticator,
+    and recovered signer continuity before normal login. R115 later owns
+    additive recovery, including preservation of the selected source method and
+    its sessions. Neither finalization creates a session; normal post-recovery
+    sign-in uses the direct exact issuer.
 12. No runtime compatibility branch reads `reusable_wallet_sessions` or
     `opaque_wallet_session_tokens` after the cutover deployment.
 13. A hosted child credential is audience-bound, resolves only its exact parent
@@ -1116,6 +1129,25 @@ the operating cutover is complete.
       selected method's exact sessions and envelope; preserve sibling methods,
       sessions, and envelopes; and accept them during committed replay. R115's
       later preservation of the selected source remains outside this refactor.
+- [ ] Preserve the landed recovery-finalize response as a strict committed
+      projection containing the server-read active Wallet Authority and active
+      replacement Passkey method. Validate wallet, authority, method,
+      credential, digest, and lifecycle relationships at the response boundary;
+      reject the former loose authority/method IDs plus credential fragment.
+- [ ] Close the post-promotion recovery crash window before converting its
+      session consumers. Today `promoted_pending_continuity` exists only in the
+      coordinator's in-memory map, while authority/method/selection, profile,
+      authenticator, legacy local method projection, and recovered signer
+      material publish through separate writes after the server has consumed
+      the code. Define and test a bounded resumable local commit receipt or
+      non-discoverable pending installation that survives reload without
+      persisting a recovery code, factor secret, custody seed, or signer root in
+      plaintext. Publish the recovered wallet atomically only after every
+      fail-closed login prerequisite is durable.
+- [ ] Return `ready_for_sign_in` only after the committed authority/method
+      projection and every local continuity prerequisite are durable. A retry or
+      reload after server promotion must read back the same committed projection
+      and resume local installation without consuming another recovery code.
 - [ ] Keep wallet lock local: retire/delete exact browser records and dispose
       runtimes. Do not claim atomic remote retirement.
 - [ ] Return expiry and exhaustion as typed states even when row cleanup is
@@ -1125,8 +1157,13 @@ Primary files:
 
 - `packages/wallet-server/src/core/d1WalletAuthMethodStore.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore.ts`
+- `packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService.ts`
+- `packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody.ts`
 - `packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryFinalization.ts`
 - `packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement.ts`
+- `packages/wallet/src/SeamsWeb/operations/recovery/walletRecovery.ts`
+- `packages/wallet/src/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection.ts`
+- `packages/wallet/src/core/rpcClients/relayer/walletRecoveryFinalize.ts`
 
 ### F. Device-link source and owner authorization
 
@@ -1199,9 +1236,13 @@ Primary files:
       inventory work immediately after linking without a lock/unlock cycle.
 - [ ] Preserve the landed cancellation contract across client orchestration:
       local cancellation remains interactive and returns focus to the opener;
-      remote cancellation emits one terminal `cancelled` event, releases local
-      resources, and leaves the hosted auth menu in an explicit retry state
-      rather than a perpetual loading state.
+      Device 1 retains its owner-authenticated cancellation identity after
+      approval; owner cancellation targets the authenticated current revision
+      throughout `claimed`, `awaiting_target_factor`,
+      `awaiting_source_contribution`, and `provisioning`; Device 2 emits one
+      terminal `cancelled` event, releases local resources, and leaves the
+      hosted auth menu in an explicit retry state. Postcommit local installation
+      and active sessions remain non-cancellable through this route.
 - [ ] Delete `INSTALLATION_SCHEMA_SQL` and the other runtime `CREATE TABLE`
       copies from `d1LinkedDeviceAuthorityInstallService.ts`. Forward migrations
       own these schemas so production and local execution cannot drift.
@@ -1676,6 +1717,14 @@ High-priority test inventory:
 - [ ] `tests/unit/walletRecoveryFinalization.unit.test.ts`, preserving exact
       selected-source retirement while committed replay accepts active sibling
       methods and envelopes;
+- [ ] `tests/unit/walletRecoveryFinalizeWire.unit.test.ts`, preserving the strict
+      active-authority/active-method committed projection and rejecting loose or
+      cross-wallet identities;
+- [ ] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, extending the
+      landed authority/method/locked-selection assertions with interruption and
+      reload at every local publication boundary;
+- [ ] `tests/unit/passkeyCustodyRouteService.unit.test.ts`, proving promotion
+      replay returns the same server-read committed authority/method projection;
 - [ ] `tests/unit/scanDevice.firstEmail.unit.test.ts` when client linking
       orchestration changes, preserving first-Email routing and release of the
       wallet iframe foreground surface while Device 1 waits;
@@ -1783,7 +1832,9 @@ High-priority test inventory:
 - [ ] exact auth-method and authority revocation transaction tests;
 - [ ] current Passkey recovery exact-model finalization/replay test, proving the
       selected source's exact session retires, sibling-method sessions remain
-      active, and the replacement's normal login issues one exact session;
+      active, the full committed authority/method projection restores fresh
+      local storage, interruption after server promotion resumes without a
+      second code, and the replacement's normal login issues one exact session;
 - [ ] rolling-deploy migration tests covering an old-worker all-null-scope V1
       claim, a fully scoped V2 claim, partial-scope rejection, and pending V1
       replay through the temporary persistence boundary;
@@ -1802,6 +1853,7 @@ Intended-behaviour and operating-path inventory:
 - [ ] `tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`;
+- [ ] `tests/e2e/intended-behaviours/passkey-only.recovery.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts`
       registration replay assertion: replace byte-identical terminal output with
       stable committed projection plus a valid parsed adapter response;
@@ -1873,6 +1925,12 @@ Documentation:
       while neither record contains a Wallet Session credential or exposes a
       pending wallet as active. Freeze that same projection as the sole source
       for the adapter's non-credential response fields.
+- [ ] Freeze the current recovery-finalize committed projection introduced by
+      `c9f232da1`: exact active authority plus exact active replacement Passkey
+      method, read from server state after promotion and replay. Record every
+      local continuity store it feeds and close the page-reload window between
+      server promotion and their atomic publication before changing recovery
+      Wallet Session consumers.
 - [ ] Assign every legacy opaque runtime-binding field to an authoritative exact
       material resolver or to a deletion. Stop if a live consumer would require
       a synthesized threshold identity.
@@ -1898,7 +1956,7 @@ Documentation:
       historical hard-coded local ports from older evidence.
 - [ ] Establish a green focused baseline for
       `tests/unit/authMenuPasskeyContinuation.unit.test.ts`. At the
-      post-`d676e7d22` checkpoint, 23 of its 25 cases pass. Triage the two
+      post-`58b728773` checkpoint, 23 of its 25 cases pass. Triage the two
       pre-existing mismatches before R103F production changes: the local-wallet
       account-sync case still expects an exact requested wallet while
       `8751f7229` deliberately enters the discoverable `walletId: null` sync
@@ -1906,6 +1964,19 @@ Documentation:
       email introduced by `03b39d34f`. Resolve each against intended behavior,
       then update or delete stale assertions and fixtures instead of adding a
       compatibility branch to production.
+- [ ] Run both current recovery intended contracts from fresh storage: the
+      Passkey-only case and the multi-auth sibling-preservation case. Add an
+      interruption checkpoint immediately after server promotion and before
+      local continuity publication; reload must resume the same committed
+      authority/method projection and reach normal exact-method login with no
+      second recovery code.
+- [ ] Repair the valid stale fixture in
+      `tests/unit/passkeyCustodyRouteService.unit.test.ts` before using it as a
+      recovery baseline. Its inline envelope-store stub predates
+      `listWalletCredentialActivity`, so the challenge-replay case currently
+      fails before reaching its owned single-use invariant. Update the fixture
+      through a narrow current store factory; do not weaken the production
+      retrieval boundary.
 - [ ] Run `tests/e2e/linked-device.operating-path.test.ts` before production
       changes. Record prerequisites, exact command, current result, and failure
       classification so Phase 7 can distinguish baseline failure from cutover
@@ -2081,7 +2152,9 @@ write is enabled before the Phase 6 precursor gate.
 - [ ] Convert current recovery finalization, replay, and post-recovery session
       behavior to the exact model. Preserve deterministic oldest
       RP-matching-Passkey selection, selected-source replacement, and sibling
-      preservation. Do not implement R115's later selected-source preservation.
+      preservation. Preserve the full committed authority/method response and
+      crash-resumable local continuity publication before normal login. Do not
+      implement R115's later selected-source preservation.
 - [ ] Implement hosted child credentials and prove redeeming one leaves the
       primary credential valid.
 - [ ] Require hosted issue `walletOrigin` to equal authenticated tenant
@@ -2220,9 +2293,13 @@ Run only the verification needed to prove the operating contract first:
 16. Current Passkey recovery with two active RP-matching Passkeys and an active
     Email OTP sibling → the oldest Passkey is selected with auth-method ID as
     tie-breaker → only the selected source, its envelope, and its exact session
-    retire → sibling methods, envelopes, and sessions remain active → committed
-    replay succeeds → normal replacement-Passkey login issues one exact session
-    and signs.
+    retire → sibling methods, envelopes, and sessions remain active → promotion
+    returns the server-read active authority and replacement method → terminate
+    the page before local continuity publication → reload resumes that same
+    committed projection without another recovery code → authority, method,
+    locked selection, profile/authenticator, and signer continuity publish
+    together → normal replacement-Passkey login issues one exact session and
+    signs. Run the same local restoration path for a Passkey-only wallet.
 17. Key export → fresh exact-method step-up.
 18. Hosted exchange redemption → nominal child credential works only across its
     stored app-issue, wallet-redeem/use, and iframe-parent origins while the
@@ -2399,6 +2476,10 @@ R103F is complete only when all of the following are true:
   RP-matching Passkey, retires only its exact session and envelope, preserves
   siblings, and uses the exact Wallet Session model without adopting R115's
   selected-source preservation;
+- current recovery promotion/replay returns the strict server-read active
+  authority and replacement-method projection, and a reload after server commit
+  resumes non-discoverable local continuity publication without another code or
+  any plaintext durable recovery secret;
 - IndexedDB cleanup removes only obsolete Wallet Session rows;
 - no V1 bearer is promoted or reinterpreted as an exact operation credential;
 - V1 tables and triggers are removed by forward migration;

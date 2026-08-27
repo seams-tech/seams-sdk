@@ -2,18 +2,37 @@
 
 Date created: August 5, 2026
 Cloudflare API feasibility checked: August 9, 2026
+Workers routing and RP-domain boundary rechecked: August 27, 2026
 
-Status: active demo implementation plan. This plan replaces the earlier
-production self-hosting proposal with a bounded example that demonstrates the
-public Seams SDK on customer-owned Cloudflare infrastructure.
+Status: active product-validation plan. The first milestone remains a bounded
+public-SDK deployment example. The complete plan now proves a progressive
+custody path from an embedded managed wallet to an independently operable
+wallet on customer-owned Cloudflare infrastructure.
 
 ## Purpose
 
-Build a convincing, reproducible demo of the SDK's strict Router A/B signing
-architecture in a customer-owned Cloudflare account.
+Build a convincing, reproducible proof that an MPC wallet can begin with the
+UX of an embedded managed wallet and later move to customer-operated
+infrastructure without changing its public keys or addresses.
 
-The demo should let an evaluator authorize Cloudflare, wait for an automatic
-deployment, create a wallet, and observe:
+The product thesis is:
+
+- embedded registration, recovery, and signing should remain the easy starting
+  experience;
+- wallet owners and operators should have a practical exit from Seams-operated
+  infrastructure;
+- a changed WebAuthn RP ID is handled by creating a new destination credential
+  through explicit device linking, rather than by copying or rebinding the old
+  passkey;
+- one browser on one physical device is sufficient for that migration;
+- after verified destination activation, the self-hosted wallet must operate
+  with the old wallet origin, Seams runtime, and Seams control plane
+  unavailable;
+- the original managed signer remains a usable backup until the owner
+  explicitly revokes it.
+
+The proof should let an evaluator authorize Cloudflare, wait for an automatic
+deployment, create a new wallet or migrate an existing wallet, and observe:
 
 - one Cloudflare OAuth consent;
 - five separately deployed runtime artifacts;
@@ -22,17 +41,30 @@ deployment, create a wallet, and observe:
 - a fixed single-tenant Gateway boundary;
 - a public `workers.dev` Gateway endpoint, with optional custom-domain routing;
 - new Ed25519 and ECDSA wallet registration and signing;
+- one-device migration from an old RP ID to a customer-controlled destination
+  RP ID;
+- unchanged wallet public keys and addresses across migration;
 - normal signing without Deriver participation;
 - health, readiness, configuration, and key-agreement diagnostics.
 
-This is an SDK showcase. It is not the supported production self-hosting
-product, a managed-tenant migration destination, or a general infrastructure
-platform.
+The first milestone is still an SDK showcase. The complete proof extends the
+existing device-link protocol across a deployment boundary, provisions fresh
+destination-owned client and server material, and verifies the destination
+with the source unavailable. Refactor 150 owns that narrow protocol extension,
+the Cloudflare destination, and the same-device cross-RP linking experience.
+It does not depend on an app-level migration or general deployment-portability
+design.
 
-After this strict-topology demo works from a clean account, a separate
-follow-up may demonstrate a single-Worker custody profile. That follow-up is
-defined below so its protocol and security tradeoffs do not alter the first
-milestone.
+`100% self-hosted operation` means destination unlock, signing, and key export
+have no runtime, RP-domain, or control-plane dependency on Seams. Keeping the
+old signer as an independently usable backup does not create a destination
+dependency. It does retain the source signer's attack surface. The UI and
+receipt distinguish independent self-hosted operation from exclusive
+customer-only operation. The latter requires an explicit source revocation and
+decommissioning decision. The customer and its chosen infrastructure providers
+remain inside the trust model. A Cloudflare account administrator can replace
+deployed Worker code, so this phrase does not claim independence from
+Cloudflare or protection from a malicious customer administrator.
 
 ## Decisions
 
@@ -62,14 +94,41 @@ milestone.
    discarded or revoked when deployment finishes. Generated role secrets are
    installed directly into their owning Workers and never enter browser state,
    rendered configuration, or a deployment receipt.
-10. Backup support is a separate optional demonstration. The initial demo does
-    not claim production disaster recovery or safe restoration after deleting
-    active wallet authority.
+10. Destination-local recovery and backup do not gate clean-account deployment
+    or cross-deployment linking. The existing signer remains an optional backup
+    while those destination operations mature.
 11. No compatibility path is kept for the current one-Worker example. The
     generated strict-topology demo replaces it directly.
 12. The onboarding application uses one verified public Cloudflare OAuth
     client. Customers authorize only the account and scopes required by the
     deployment and may revoke that authorization from Cloudflare.
+13. For a `workers.dev` deployment, the default RP ID is the customer account's
+    registrable domain, `<account-subdomain>.workers.dev`. `workers.dev` itself
+    is a public suffix and is never accepted as an RP ID. Worker names may
+    change within the account while the account subdomain remains pinned.
+14. A wallet created under a Seams-owned RP ID migrates by linking a new wallet
+    authority whose passkey is created under the destination RP ID. Related
+    Origin Requests are not part of the migration path because they preserve a
+    liveness dependency on the old RP domain.
+15. The migration UX runs on one physical device. The source and destination
+    wallet origins remain isolated browser principals and exchange only a
+    versioned, one-use device-link session reference through an untrusted
+    coordinator.
+16. Destination activation requires a fresh source-owner proof, a verified
+    destination credential, exact destination origin and deployment binding,
+    identical wallet public identities, and successful destination reload,
+    unlock, signing, and export for both signing families.
+17. Cross-deployment linking has ordinary device-link semantics: the source and
+    destination authorities may remain active concurrently. Successful linking
+    never fences, revokes, deletes, or retires the source. Revocation is a
+    separate explicit owner operation.
+18. The strict Router A/B topology is the self-hosting target. A single-Worker
+    custody profile is outside this plan because it would test a different
+    custody proposition.
+19. The device-link change is a narrow additive branch in precise protocol
+    unions. The same-deployment and cross-deployment branches have required,
+    mutually exclusive fields and exhaustive handling. The implementation does
+    not introduce a generalized portability framework.
 
 ## Isolation Boundary
 
@@ -83,6 +142,8 @@ Demo runtime and tooling may depend on:
 - `@seams/wallet-server`;
 - `@seams/wallet-server/router/cloudflare`;
 - other documented public `@seams/wallet-server` exports;
+- public device-linking contracts from the SDK, including the reviewed
+  cross-deployment target branch;
 - Cloudflare OAuth and Cloudflare's public REST APIs;
 - Wrangler for local development and CI dry runs;
 - content-addressed Router A/B Worker artifacts produced by the release build.
@@ -122,6 +183,11 @@ examples/self-host-cloudflare-worker/
     deployment.ts
     wallet.ts
     ui/
+  linking/
+    coordinator.ts
+    transcript.ts
+    source.ts
+    destination.ts
   src/
     gateway.ts
   tooling/
@@ -147,9 +213,11 @@ inside the example. The browser flow uses the short-lived server-side job
 described below. Tests remain in the top-level `tests/` workspace, as required
 by the repository layout.
 
-## Streamlined Onboarding Experience
+## Streamlined Onboarding And Migration Experience
 
-The primary experience has two user actions.
+A new-wallet evaluator has two primary actions: deploy, then create. Migration
+adds the two explicit WebAuthn confirmations required to establish a new RP
+credential and authorize it from the existing wallet.
 
 ### 1. Deploy with Cloudflare
 
@@ -194,18 +262,34 @@ Verifying deployment
 Worker role names and resource identifiers remain available under deployment
 details. They are not setup decisions.
 
-The default public endpoint is the Gateway's stable `workers.dev` hostname.
-The operator may select an active zone and attach a Custom Domain before wallet
-creation. Cloudflare then creates the required DNS record and certificate.
+The default public endpoint is the Gateway's `workers.dev` hostname. Given:
 
-The wallet origin and WebAuthn RP ID are finalized before the first durable
-wallet is created. Adding a cosmetic Gateway hostname later does not silently
-change an existing wallet's RP ID. Moving an existing wallet to a different RP
-ID requires an explicit passkey re-enrollment design outside this demo.
+```text
+wallet origin: https://wallet.<account-subdomain>.workers.dev
+RP ID:         <account-subdomain>.workers.dev
+```
 
-### 2. Create wallet
+the passkey remains valid if the customer later replaces the `wallet` Worker
+with another Worker in the same Cloudflare account. The account subdomain is a
+durable wallet boundary and cannot be renamed after the first wallet is
+created. The operator may instead select an active zone and attach a Custom
+Domain before wallet creation. Cloudflare then creates the required DNS record
+and certificate.
 
-The second screen is unavailable until deployment diagnostics pass:
+Cloudflare [documents Worker hostnames](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
+as `<worker>.<account-subdomain>.workers.dev`, and Cloudflare lists `workers.dev`
+in the [Public Suffix List](https://publicsuffix.org/list/public_suffix_list.dat).
+The [WebAuthn RP-ID rules](https://www.w3.org/TR/webauthn-3/#relying-party-identifier)
+therefore permit the account subdomain as the common RP boundary and reject
+`workers.dev` itself.
+
+The wallet origin and WebAuthn RP ID are finalized before a new durable wallet
+is created. Adding a Gateway hostname later does not silently change an
+existing wallet's RP ID. A changed RP ID enters the migration experience below.
+
+### 2. Create or migrate a wallet
+
+The wallet screen is unavailable until deployment diagnostics pass:
 
 ```text
 Your wallet backend is ready
@@ -223,6 +307,74 @@ Selecting `Create wallet`:
 
 RPC selection, chain funding, relayer credentials, sponsorship, backup, and
 production policy do not block this first success.
+
+An evaluator with an existing managed wallet instead selects:
+
+```text
+Move an existing wallet
+```
+
+The first migration proof uses one browser and one physical device. A
+cross-deployment link coordinator embeds the old and new wallet origins as
+separate origin-owned frames. The destination frame initiates a one-use
+device-link session and creates its passkey under the destination RP ID. The
+coordinator relays only the opaque
+session reference to the source frame. The source frame displays the exact
+destination origin, RP ID, deployment identity, wallet identities, and
+permissions, then obtains fresh owner approval with the existing factor.
+
+Each frame calls WebAuthn for its own origin and RP ID. The top-level page must
+delegate `publickey-credentials-create` and `publickey-credentials-get` through
+[Permissions Policy](https://www.w3.org/TR/webauthn-3/#sctn-iframe-guidance).
+The server verifies the exact iframe origin, expected top origin when the client
+supplies it, cross-origin state, challenge, and linking transcript. A parent
+click is not treated as user activation inside either frame.
+
+The parent frame is an untrusted transport. It cannot receive custody seeds,
+holder or server shares, PRF output, credential private material, reusable
+Wallet Sessions, Cloudflare credentials, or role secrets. Both wallet origins
+load the canonical transcript from authenticated server state and compare its
+digest before acting.
+
+Phase 0 must prove that supported Chrome, Safari, and Firefox versions allow
+the required embedded WebAuthn operations and expose the source wallet's
+required local state under storage partitioning. If that exact path fails on a
+supported browser, implementation selects a sequential top-level redirect for
+that product release before migration code lands. The plan does not accumulate
+two partially supported migration protocols.
+
+Cross-deployment linking completes through these ten steps:
+
+1. The destination creates and verifies its new credential under the exact
+   destination RP ID.
+2. The destination publishes its signed deployment descriptor, target client
+   recipient keys, and destination server-material recipient keys.
+3. The source displays the exact destination origin, RP ID, deployment digest,
+   wallet identities, requested permissions, and expiry; the owner approves
+   that transcript with a fresh source-wallet proof.
+4. The source client creates destination-bound Ed25519 and ECDSA linked-device
+   contributions using the existing source-preserving flows.
+5. The source SigningWorker transforms the ECDSA server counterpart and seals
+   the fresh destination server share directly to the destination
+   SigningWorker. The Ed25519 contribution is likewise sealed only to the
+   target-owned recipients named by the verified descriptor.
+6. The destination stores the client and server packages as one inactive,
+   transcript-bound installation.
+7. The destination verifies that every wallet ID, wallet-key ID, public key,
+   and address matches the source wallet.
+8. The destination commits the fresh linked authority through the existing
+   idempotent activation ordering. The Gateway publishes it as active only
+   after every required role receipt passes.
+9. The destination reloads, unlocks, signs, and exports Ed25519 and ECDSA keys,
+   then records a self-contained activation receipt.
+10. The source authority and its server participants remain intact as a usable
+    backup. Only a later explicit owner revocation disables that wallet.
+
+The independence test temporarily blocks the old origin and all managed
+services, then repeats destination reload, unlock, signing, and export. It next
+restores source availability and confirms the old wallet still works. These two
+checks prove both destination independence and source preservation; no
+automatic source retirement is part of migration.
 
 ### Advanced CLI
 
@@ -254,6 +406,156 @@ Separating roles within one account demonstrates secret ownership and runtime
 boundaries; it does not protect against a malicious account administrator who
 can replace deployed Worker code.
 
+### Progressive custody path
+
+```text
+embedded managed wallet
+  -> customer deploys destination Router A/B
+       -> destination creates a new RP-scoped passkey
+            -> old wallet approves one linked authority
+                 -> device linking emits destination-bound client and server material
+                      -> destination activates and verifies the linked authority
+                           -> both wallets remain usable until explicit revocation
+```
+
+Migration is device linking with a destination participant that belongs to a
+different deployment. Each authority owns fresh client material and a matching
+server counterpart for the same wallet public key. The source authority, its
+shares, sessions, and signing lanes remain unchanged.
+
+This bounded active-active state is intentional and matches ordinary device
+linking. The destination never calls the source after activation. The source is
+used during enrollment and remains independently available afterward as an
+optional backup. An explicit owner revocation later removes the source
+authority through the source-owned device-management path.
+
+The retained source is an active authorized signer, even when the product
+presents it as standby. This improves rollback safety and preserves the old
+deployment's compromise surface. The approval UI and final receipt state that
+tradeoff plainly and offer the separate source-revocation action.
+
+### Cross-deployment linking boundary
+
+The existing device-linking operating path creates another authority inside
+one deployment. Migration extends that proven authority-install model across a
+deployment boundary without adding a request-selected Router URL to the
+ordinary linking API or creating a second migration lifecycle.
+
+The destination link job supplies its signed deployment manifest, recipient
+keys, exact tenant mapping, target origin, and target RP ID. The source resolves
+that job from the one-use `LinkDeviceSessionId`, verifies the source owner's
+`link_devices` authority and wallet-key manifest, and emits only contributions
+encrypted to destination recipients. The destination verifies those
+contributions against its pinned link job and public wallet identities before
+committing a pending authority. Browser input cannot choose a Router, database,
+tenant, deployment, recipient key, or signer identity.
+
+For ECDSA, let the existing authority use client share `C1` and source server
+share `S1`. The source client samples a fresh destination client share `C2` and
+computes `delta = C1 - C2`. The source SigningWorker derives
+`S2 = S1 + delta`, which preserves the aggregate secret and public key because
+`C2 + S2 = C1 + S1`. It seals `S2` directly to the destination SigningWorker
+and keeps `S1` unchanged. The client seals `C2` to the destination browser. A
+raw source server share never crosses the deployment boundary.
+
+The existing same-deployment ECDSA flow can use one SigningWorker recipient for
+both the transformation input and resulting server material. The
+cross-deployment branch must distinguish:
+
+- the source SigningWorker recipient that can open `delta` and perform the
+  transformation; and
+- the destination SigningWorker recipient that can open the fresh `S2`
+  material.
+
+Ed25519 continues to use the existing source-preserving linked-device
+activation. Its client and SigningWorker contributions are sealed to the exact
+destination-owned recipients from the verified target admission keyset. The
+wallet custody seed is never transferred. The linked authority remains capable
+of ordinary Ed25519 and ECDSA export through the existing export flows.
+
+The protocol change stays narrow. The existing ECDSA target preparation
+replaces its single SigningWorker recipient field with one required
+server-recipient union. Source contribution already carries that target, so the
+new branch flows through without a parallel payload family:
+
+```ts
+type LinkedDeviceEcdsaServerRecipientTargetV2 =
+  | {
+      readonly kind: 'same_deployment_v2';
+      readonly signingWorkerRecipientPublicKeyB64u: string;
+      readonly destination?: never;
+      readonly sourceTransformationRecipientPublicKeyB64u?: never;
+      readonly destinationServerMaterialRecipientPublicKeyB64u?: never;
+    }
+  | {
+      readonly kind: 'cross_deployment_v2';
+      readonly destination: VerifiedLinkedDeviceDestinationV1;
+      readonly sourceTransformationRecipientPublicKeyB64u: string;
+      readonly destinationServerMaterialRecipientPublicKeyB64u: string;
+      readonly signingWorkerRecipientPublicKeyB64u?: never;
+    };
+
+type LinkedDeviceEcdsaTargetRecipientPreparationV2 = {
+  readonly activation: MpcMaterialActivationRef;
+  readonly targetDeviceId: DeviceId;
+  readonly targetFactorVerificationDigestB64u: DigestB64u;
+  readonly clientRecipientPublicKeyB64u: string;
+  readonly serverRecipients: LinkedDeviceEcdsaServerRecipientTargetV2;
+};
+```
+
+`VerifiedLinkedDeviceDestinationV1` contains the signed deployment digest,
+origin, RP ID, tenant binding, target credential, client recipient keys, and
+destination role-key identities. The device-link session target also gains a
+small same-deployment/cross-deployment union that commits this descriptor for
+both signing families. Ed25519 keeps its current target admission and recipient
+fields; the cross-deployment branch requires them to match the verified
+destination descriptor.
+
+A boundary parser verifies and normalizes the descriptor once. Core
+contribution functions accept only the narrowed branch. Every switch is
+exhaustive, and type fixtures reject missing cross-deployment recipients,
+mixed-branch fields, broad object spreads, and unsafe construction. The affected
+V1 wire shapes are replaced by required V2 discriminants at request boundaries;
+no optional compatibility branch is retained.
+
+The current same-deployment ECDSA validators require the source and target
+activation records to name the same SigningWorker, and they preserve the same
+SigningWorker key epoch in normal-signing state. The V2 validation relation is
+branch-specific:
+
+- `same_deployment_v2` retains every existing equality;
+- `cross_deployment_v2` preserves wallet-key identity fields and requires every
+  deployment-local target field to match the verified destination descriptor;
+- source fields continue to match the configured source deployment;
+- destination SigningWorker identity, key epoch, recipient key, activation
+  reference, reservation, and storage identity come from the destination.
+
+Phase 0 must classify every normal-signing and activation field as wallet-key
+identity or deployment-local state before the V2 shape is finalized. The cross
+branch changes only the latter. Its canonical binding domain is versioned and
+commits the branch discriminator, destination digest, and both server recipient
+keys. Rust vectors and TypeScript fixtures own that boundary. The source Worker
+seals `S2` using the key already committed in the binding; it does not accept a
+second unbound destination key in its completion request.
+
+The destination begins with no wallet row. Existing same-deployment commit
+code may assume that the wallet projection and key manifests already exist.
+Phase 0 must verify that assumption. If present, the destination install request
+gains one cross-deployment branch carrying the minimal public wallet bootstrap:
+wallet ID, wallet-key IDs, public keys, manifest digest, signing-root metadata,
+and destination activation references. A boundary parser verifies those public
+facts against both source contributions and constructs the established
+destination records. SQL rows, raw server material, source sessions, nonces,
+presignatures, and source deployment epochs never appear in this request.
+
+Every client recipient key, both ECDSA server recipient keys, the deployment
+digest, source authority, wallet-key manifest, permissions, expiry, and one-use
+session ID are committed into the canonical linking transcript. Recipient keys
+are pairwise distinct within each family and prove possession under their
+expected client or Worker roles. Ordinary same-deployment linking remains a
+first-class branch of the same protocol.
+
 ## Demo Specification
 
 The browser does not ask the user to author a deployment specification. Its raw
@@ -275,11 +577,36 @@ type SelfHostedCloudflareOnboardingInputV1 = {
 };
 ```
 
+The boundary converts that route choice into one exact RP configuration:
+
+```ts
+type SelfHostedWalletRpConfigurationV1 =
+  | {
+      readonly kind: 'cloudflare_account_rp_v1';
+      readonly accountSubdomain: WorkersDevAccountSubdomain;
+      readonly walletOrigin: WalletOrigin;
+      readonly rpId: WebAuthnRpId;
+    }
+  | {
+      readonly kind: 'custom_domain_rp_v1';
+      readonly zoneId: string;
+      readonly walletOrigin: WalletOrigin;
+      readonly rpId: WebAuthnRpId;
+    };
+```
+
+The `cloudflare_account_rp_v1` parser requires `rpId` to equal the exact
+`<account-subdomain>.workers.dev` registrable domain obtained from Cloudflare.
+It rejects `workers.dev`, another account's subdomain, and a Worker-specific
+host where the account-level RP was selected. The custom-domain branch requires
+an authorized zone and an RP ID that contains the wallet origin under normal
+WebAuthn domain rules.
+
 The authorized Cloudflare account comes from the OAuth grant. The deployment
-name, resource prefix, tenant fields, Gateway origin, allowed onboarding origin,
-and test-vector configuration are generated. Selecting a custom domain uses a
-zone returned by Cloudflare; the UI does not accept an unverified account or
-zone identifier.
+name, resource prefix, tenant fields, Gateway origin, RP configuration, allowed
+onboarding origin, and test-vector configuration are generated. Selecting a
+custom domain uses a zone returned by Cloudflare; the UI does not accept an
+unverified account or zone identifier.
 
 The onboarding boundary validates and normalizes the OAuth result and route
 choice once, then constructs the internal `SelfHostedCloudflareDemoSpecV1`.
@@ -333,9 +660,10 @@ Its output is a discriminated union of the five role plans. Each branch contains
 only the bindings, public values, database identity, artifact digest, and secret
 names owned by that role. Secret values never enter the compiled plan.
 
-The compiler is intentionally demo-specific. Shared compiler extraction happens
-only if a later production self-hosting project demonstrates a real second
-consumer and the extraction removes more code than it adds.
+The compiler remains example-specific through the clean deployment milestone.
+Production promotion happens only after another concrete consumer demonstrates
+the same compiler boundary and shared extraction removes more code than it
+adds.
 
 ## Secret Handling
 
@@ -394,19 +722,19 @@ Cloudflare REST API.
 The streamlined flow is supported by Cloudflare's documented public APIs as of
 August 9, 2026:
 
-| Onboarding operation | Cloudflare surface | Required permission |
-| --- | --- | --- |
-| Authenticate, choose an account, and consent | [OAuth Authorization Code flow](https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/) | OAuth client scopes selected at consent |
-| Exchange and revoke authorization | [OAuth authorization, token, and revoke endpoints](https://developers.cloudflare.com/fundamentals/oauth/integrate-with-cloudflare/) | OAuth protocol |
-| Discover zones for optional custom routing | `GET /zones` via [List Zones](https://developers.cloudflare.com/api/resources/zones/methods/list/) | `Zone Zone Read` |
-| Create role databases | `POST /accounts/{account_id}/d1/database` via [Create D1 Database](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/create) | `D1 Write` |
-| Apply and verify D1 schemas | `POST /accounts/{account_id}/d1/database/{database_id}/query` via [D1 Database API](https://developers.cloudflare.com/api/resources/d1/subresources/database/) | `D1 Write` |
-| Upload each Worker and its non-secret bindings | `PUT /accounts/{account_id}/workers/scripts/{script_name}` via [Workers Scripts API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/) | `Workers Scripts Write` |
-| Describe D1, Durable Object, and Service Bindings | Worker multipart [`metadata.bindings`](https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/) | `Workers Scripts Write` |
-| Install role-owned secrets | `PATCH /accounts/{account_id}/workers/scripts/{script_name}/secrets-bulk` via [Bulk Secrets API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/secrets/methods/bulk_update) | `Workers Scripts Write` |
-| Read or create the account's `workers.dev` name | `GET` or `PUT /accounts/{account_id}/workers/subdomain` via [Workers Subdomains API](https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/) | `Workers Scripts Write` |
-| Publish the default Gateway endpoint | `POST /accounts/{account_id}/workers/scripts/{script_name}/subdomain` via [Workers Scripts API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/) | `Workers Scripts Write` |
-| Attach an optional custom hostname | `PUT /accounts/{account_id}/workers/domains` via [Attach Domain](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/) | `Workers Scripts Write` |
+| Onboarding operation                              | Cloudflare surface                                                                                                                                                                                                      | Required permission                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Authenticate, choose an account, and consent      | [OAuth Authorization Code flow](https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/)                                                                                                           | OAuth client scopes selected at consent |
+| Exchange and revoke authorization                 | [OAuth authorization, token, and revoke endpoints](https://developers.cloudflare.com/fundamentals/oauth/integrate-with-cloudflare/)                                                                                     | OAuth protocol                          |
+| Discover zones for optional custom routing        | `GET /zones` via [List Zones](https://developers.cloudflare.com/api/resources/zones/methods/list/)                                                                                                                      | `Zone Zone Read`                        |
+| Create role databases                             | `POST /accounts/{account_id}/d1/database` via [Create D1 Database](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/create)                                                             | `D1 Write`                              |
+| Apply and verify D1 schemas                       | `POST /accounts/{account_id}/d1/database/{database_id}/query` via [D1 Database API](https://developers.cloudflare.com/api/resources/d1/subresources/database/)                                                          | `D1 Write`                              |
+| Upload each Worker and its non-secret bindings    | `PUT /accounts/{account_id}/workers/scripts/{script_name}` via [Workers Scripts API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/)                                                     | `Workers Scripts Write`                 |
+| Describe D1, Durable Object, and Service Bindings | Worker multipart [`metadata.bindings`](https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/)                                                                                              | `Workers Scripts Write`                 |
+| Install role-owned secrets                        | `PATCH /accounts/{account_id}/workers/scripts/{script_name}/secrets-bulk` via [Bulk Secrets API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/secrets/methods/bulk_update) | `Workers Scripts Write`                 |
+| Read or create the account's `workers.dev` name   | `GET` or `PUT /accounts/{account_id}/workers/subdomain` via [Workers Subdomains API](https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/)                                                  | `Workers Scripts Write`                 |
+| Publish the default Gateway endpoint              | `POST /accounts/{account_id}/workers/scripts/{script_name}/subdomain` via [Workers Scripts API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/)                                          | `Workers Scripts Write`                 |
+| Attach an optional custom hostname                | `PUT /accounts/{account_id}/workers/domains` via [Attach Domain](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)                                                          | `Workers Scripts Write`                 |
 
 The public OAuth client requests `Workers Scripts Write`, `D1 Write`, and
 `Zone Zone Read`. Cloudflare represents OAuth scopes with IDs, so client setup
@@ -441,6 +769,8 @@ manually copied API token.
 The onboarding server stores a short-lived deployment job with:
 
 - normalized deployment and tenant identities;
+- the pinned wallet origin, RP ID, and Workers account subdomain or verified
+  custom-domain identity;
 - plan and artifact digests;
 - exact Worker, D1, route, and binding identifiers;
 - the last completed apply phase;
@@ -462,6 +792,24 @@ Pre-wallet rollback removes only resources listed in the deployment job. Once
 the demo has created a wallet, automated destructive cleanup is disabled and
 the receipt identifies the exact resources requiring manual review.
 
+Cross-deployment linking uses the existing device-link session lifecycle. It
+does not add `SelfHostedWalletMigrationStateV1`, a cutover state, or a source
+retirement transition. The only protocol-state extension is the
+`cross_deployment_v2` target branch carried by target preparation, source
+contribution, and the resulting installation receipt.
+
+Each existing link transition consumes the exact preceding state and canonical
+transcript digest. The destination completes the session only after its
+authority and role-local material are active and the destination verification
+receipt passes. Source state is absent from that receipt because successful
+linking does not mutate the source authority or source signer material.
+
+Browser messages carry only a one-use `LinkDeviceSessionId`; they cannot
+propose a lifecycle state, destination deployment, tenant, RP ID, recipient
+key, or authority record. A failed or abandoned link leaves the source
+unchanged and the destination installation inactive. Destination cleanup is
+scoped to that pending link session and is idempotent.
+
 ## Provisioning Operations
 
 The onboarding deployment job performs the compiler, apply, and doctor stages
@@ -480,12 +828,17 @@ behind one visible deployment action. Internally it:
 8. Generates and installs independent role secrets.
 9. Applies current schemas to the exact owning databases.
 10. Enables the Gateway `workers.dev` endpoint or attaches the selected Custom
-   Domain while leaving private roles unexposed.
+    Domain while leaving private roles unexposed.
 11. Runs doctor and marks the job `ready_for_wallet_creation`.
 12. Revokes or discards Cloudflare authorization and emits the non-secret
     receipt.
 
-No active production state is imported or destroyed.
+The clean-wallet path imports no production state. The cross-deployment path
+accepts only a verified linked-device destination descriptor and encrypted
+curve-specific contribution packages at the destination boundary. It never
+copies a managed D1 database, wallet custody seed, raw source server share,
+deployment KEK, session issuer, CI credential, complete private key, or
+cross-tenant record. Source mutation is outside destination installation.
 
 ### Doctor
 
@@ -500,31 +853,78 @@ Doctor verifies:
 - normal-signing configuration and zero-Deriver-call diagnostics;
 - absence of unresolved apply phases.
 
+Cross-deployment link doctor additionally verifies:
+
+- the target passkey RP ID and exact destination origin;
+- source and destination wallet ID, key ID, public-key, and address equality;
+- the destination deployment digest, role identities, recipient-key proofs,
+  and role-owned storage identity;
+- distinct source-transformation and destination-server-material recipients;
+- the active destination authority and its exact auth method;
+- destination reload, unlock, Ed25519 and ECDSA signing, and both export paths;
+- absence of destination calls to the old RP domain or managed runtime after
+  activation;
+- source authority preservation after the source test environment is restored.
+
 Doctor returns a structured exhaustive result and concise human output. It does
 not infer readiness from a diagnostics object used for control flow; each check
 produces an explicit pass or failure branch.
 
-## Optional Snapshot Demonstration
+## Cross-Deployment Link Independence
 
-Portable recovery is not required for the first demo milestone.
+The self-hosting proof is complete when the destination can perform its normal
+wallet operations without reaching the source deployment. Keeping the source
+available as a backup is compatible with that property because destination
+operation does not depend on source availability.
 
-A later optional milestone may demonstrate:
+The complete proof must demonstrate:
 
-1. exporting each D1 database to a portable SQL snapshot;
-2. encrypting snapshots and required role material to a customer-provided
-   recipient;
-3. creating new empty resources;
-4. importing the snapshots;
-5. reinstalling the sealed role material;
-6. verifying the same demo wallet public keys and addresses.
+1. bootstrap of empty destination resources and fresh role secrets;
+2. creation of a destination credential under the exact destination RP ID;
+3. signed publication and proof of the destination's client and server
+   recipient keys;
+4. fresh source-owner approval of the exact link transcript;
+5. creation of destination-bound Ed25519 contributions and the ECDSA `C2` and
+   `S2` shares without copying `S1` or the wallet custody seed;
+6. activation of one fresh destination authority with unchanged wallet IDs,
+   wallet-key IDs, public keys, and addresses;
+7. destination reload, unlock, Ed25519 and ECDSA export, and both signing flows;
+8. continued destination operation while the old origin and managed services
+   are blocked;
+9. continued source operation after the source test environment is restored;
+10. source revocation only through a separate, explicit owner action.
 
-Cloudflare Time Travel bookmarks and Durable Object PITR bookmarks are useful
-operational tools within their retention windows. They are not treated as
-portable backups and cannot by themselves satisfy recovery after namespace or
-database deletion.
+Destination independence also requires the linked authority to act as Device 1
+for a later ordinary device link while the managed source is blocked. Phase 0
+must verify that the installed Ed25519 Yao Client root, ECDSA client share,
+permissions, and export-capable state already support that flow. A failure here
+limits the claim to independent signing and export until the device-growth gap
+is fixed.
 
-The demo must not advertise production backup, deletion, or disaster recovery
-until this complete export-and-restore exercise passes.
+Cloudflare Time Travel bookmarks and Durable Object PITR bookmarks remain
+useful destination-local operational aids within their retention windows.
+Destination backup and disaster recovery need a separate design and do not
+block this cross-deployment link proof.
+
+Both backends can sign for the same public wallet after linking. Applications
+that submit chain transactions from both at once must coordinate chain-specific
+nonces, sequence numbers, and replacement policy. The source is presented as a
+standby backup in this experience; simultaneous transaction orchestration is
+outside the linking protocol.
+
+Source revocation remains a source-scoped operation because the deployments
+have independent authority stores. The destination UI may relay an exact,
+owner-signed revocation request to the source, and the source must return a
+verifiable receipt. Once accepted, source decommissioning disables the source
+authority and retires that wallet's client-specific server participants.
+Source unavailability makes that signer unreachable; it does not prove
+cryptographic erasure. The first proof adds no replicated revocation registry
+or destination-controlled source deletion.
+
+The revocation receipt proves that the source deployment accepted and enforced
+the authority transition. It cannot prove physical erasure of every historical
+secret copy. Documentation must avoid presenting it as cryptographic
+invalidation of a copied signer while the wallet public key remains unchanged.
 
 ## Implementation Plan
 
@@ -547,6 +947,45 @@ until this complete export-and-restore exercise passes.
       subdomain discovery or creation, D1 creation, Worker upload, D1 and
       Service Bindings, bulk secret installation, Gateway `workers.dev`
       enablement, optional Custom Domain attachment, doctor, and OAuth
+      revocation.
+- [ ] Prove in hosted Chrome, Safari, and Firefox that two exact cross-origin
+      wallet frames can perform the required `get` and `create` ceremonies with
+      explicit frame-owned clicks and Permissions Policy delegation.
+- [ ] Record `origin`, `crossOrigin`, and `topOrigin` behavior for both frames
+      and prove exact server-side verification.
+- [ ] Verify whether the embedded source origin can read the wallet-local state
+      required for linking under each browser's storage partitioning. If it
+      cannot, select the sequential top-level redirect path before Phase 1 and
+      remove the two-frame path from the implementation plan.
+- [ ] Prove that `<account-subdomain>.workers.dev` is accepted as the RP ID from
+      two Worker origins in one account and that `workers.dev` and another
+      account's subdomain are rejected.
+- [ ] Inventory the exact public device-link target-preparation, source-
+      contribution, destination-installation, export, and receipt contracts.
+      Identify the smallest payload union that can own the cross-deployment
+      target branch.
+- [ ] Classify every ECDSA activation and normal-signing field as preserved
+      wallet-key identity or destination-owned deployment state. Locate every
+      same-Worker and same-key-epoch assertion that needs branch-specific V2
+      validation.
+- [ ] Determine the minimal public wallet projection required when the
+      destination has no existing wallet row; prove the existing install path
+      can consume it after one boundary parser.
+- [ ] Prove the ECDSA two-recipient path: `delta` opens only in the source
+      SigningWorker, `S2` opens only in the destination SigningWorker, the
+      destination public key is unchanged, and `S1` remains usable at source.
+- [ ] Prove the existing Ed25519 source-preserving activation against
+      destination-owned client and SigningWorker recipients.
+- [ ] Prove both linked-authority export flows without transferring the wallet
+      custody seed.
+- [ ] With the managed source blocked, prove the destination linked authority
+      can act as Device 1 for another ordinary link. Record any missing
+      permission or retained Ed25519 Yao Client root requirement before
+      implementation.
+- [ ] Inventory the exact source-scoped owner-revocation operation and receipt.
+      Keep cross-deployment revocation out of the link completion transaction.
+      If last-owner protection blocks it, specify a separate owner-confirmed
+      source-wallet decommission action instead of weakening ordinary device
       revocation.
 - [ ] Freeze the exact Cloudflare permissions and paid-plan assumptions
       required by the demo.
@@ -592,199 +1031,81 @@ small, independently reviewed, and separate from the demo implementation.
 - [ ] Capture a secret-free walkthrough receipt with artifact, keyset, health,
       wallet public key, address, and transaction or signature evidence.
 
-### Phase 4: package and publish the demo
+### Phase 4: prove one-device cross-RP linking
+
+- [ ] Add the versioned cross-deployment link transcript and server-held
+      one-use rendezvous using the existing device-link lifecycle.
+- [ ] Add the selected same-device coordinator from Phase 0. The browser relay
+      carries only a `LinkDeviceSessionId` and validates exact message sources
+      and origins.
+- [ ] Create and verify the destination passkey under the pinned customer RP
+      ID before it receives wallet authority.
+- [ ] Display the destination origin, RP ID, deployment digest, wallet public
+      identities, permissions, expiry, and the fact that the source wallet will
+      remain active inside the source-owned approval surface.
+- [ ] Obtain fresh source-owner proof and bind it to the exact target
+      credential and canonical link transcript.
+- [ ] Add one required cross-deployment variant to the narrowest existing
+      target-preparation and source-contribution payload union. Use exhaustive
+      switches and branch-specific builders; reject partial or mixed variants
+      at the request boundary.
+- [ ] Split the ECDSA source-transformation recipient from the destination-
+      server-material recipient in that branch. Preserve the existing
+      same-deployment behavior.
+- [ ] Version the ECDSA binding and enforce branch-specific activation,
+      SigningWorker, key-epoch, and recipient validation in Rust and
+      TypeScript.
+- [ ] Route the existing Ed25519 source-preserving contributions to the
+      destination-owned client and SigningWorker recipients.
+- [ ] Add the minimal cross-deployment destination-install branch for a verified
+      public wallet projection when no destination wallet row exists.
+- [ ] Install a fresh linked authority and role-local signer material without
+      transferring the wallet custody seed or raw source server shares through
+      the coordinator.
+- [ ] Reuse the existing inactive-reservation and activation receipts across
+      destination roles. Publish the Gateway authority only after all required
+      commits pass; make retry and pending-reservation cleanup idempotent.
+- [ ] Verify identical wallet IDs, wallet-key IDs, public keys, and addresses,
+      then reload, unlock, sign, and export both signing families from the
+      destination.
+- [ ] Disable the old origin and managed routes in the test environment and
+      repeat destination reload, unlock, signing, and export without Related
+      Origin Requests or source calls.
+- [ ] Restore the old origin and managed routes and prove the original wallet
+      can still reload, unlock, and sign.
+
+### Phase 5: prove source preservation and explicit revocation
+
+- [ ] Verify that successful destination activation changes no source authority,
+      server share, signing lane, or source credential state.
+- [ ] Verify that destination failure or abandonment leaves the source usable
+      and all destination material inactive or scoped for cleanup.
+- [ ] Keep the source visible as an optional backup after link completion.
+- [ ] With the source blocked, link and revoke a third test authority from the
+      destination to prove that future device management is self-hosted.
+- [ ] Exercise the source-scoped explicit owner-revocation path as a separate
+      opt-in test and prove the source stops working only after the source
+      accepts that action and returns its receipt.
+- [ ] Document the concurrency warning for applications that submit transactions
+      from both active signers and require chain-specific nonce coordination.
+- [ ] Record destination-local backup and disaster recovery as future work
+      without adding a portability package to this protocol.
+
+### Phase 6: package and publish the proof
 
 - [ ] Make the example work with packed or published public SDK packages.
 - [ ] Publish the exact Cloudflare OAuth scopes, quotas, costs, and optional
       custom-domain prerequisites.
-- [ ] Document teardown behavior and the lack of production recovery guarantees.
+- [ ] Document the RP-ID boundary, same-account Worker portability, changed-RP
+      linking ceremony, retained source backup, explicit revocation, recovery
+      limits, and administrator trust model.
 - [ ] Run the two-action walkthrough against a clean dedicated Cloudflare
       account without entering a token, resource name, tenant ID, RPC URL, or
       relayer credential.
+- [ ] Run the one-device managed-to-self-hosted walkthrough and record its
+      destination-independent link receipt.
 - [ ] Replace the existing README with the verified onboarding walkthrough and
-      advanced CLI notes.
-
-### Phase 5: optional portable snapshot exercise
-
-- [ ] Define an encrypted demo snapshot format.
-- [ ] Export all authoritative D1 data and required role material.
-- [ ] Restore into new resource identifiers.
-- [ ] Verify identical demo wallet public keys and addresses.
-- [ ] Clearly label the result experimental until operational review is
-      complete.
-
-## Follow-Up: Single-Worker Custody Profile
-
-This work starts only after the strict Router A/B definition of done has been
-met. The strict demo must first prove that the current public SDK, reviewed
-artifacts, deployment compiler, and Cloudflare operating path work together
-without protocol changes. The optional snapshot exercise does not gate this
-follow-up.
-
-The follow-up tests a different proposition: a customer willing to trust one
-customer-operated Worker can run a much smaller Seams deployment while keeping
-the same high-level wallet API.
-
-### Security position
-
-The single-Worker profile is organizational custody. It does not provide the
-split-custody, independent-role, or single-Deriver-compromise properties of
-Router A/B.
-
-One deployed Worker contains the Gateway boundary, direct derivation service,
-persistence adapters, and normal-signing service. Compromise of its code,
-bindings, or administrative account has a larger blast radius than compromise
-of one strict Router A/B role.
-
-Collapsing the trust boundary removes protocol work that no longer protects
-against the relevant adversary:
-
-- Ed25519 derivation uses direct reviewed derivation instead of A/B streaming
-  Yao;
-- ECDSA derivation uses direct reviewed derivation instead of the A/B
-  threshold-PRF exchange;
-- the client sends one authenticated derivation request instead of separate
-  Deriver A and Deriver B envelopes;
-- the server has no A/B peer transport, oblivious transfer, role-to-role HPKE,
-  Service Bindings, or cross-role ceremony coordination.
-
-HTTPS, request authentication, authorization, replay protection, transcript
-binding, lifecycle binding, recipient encryption for client-owned secret
-outputs, and encryption at rest remain required. Raw secret derivation remains
-inside reviewed Rust or WASM cryptographic code. TypeScript and JavaScript
-orchestrate the protocol and do not implement secret-dependent arithmetic.
-
-### Profile architecture
-
-The SDK supports two explicit custody profiles rather than a collection of
-feature flags:
-
-```ts
-type CustodyProfile =
-  | {
-      readonly kind: 'router_ab_v1';
-    }
-  | {
-      readonly kind: 'single_worker_v1';
-    };
-```
-
-The intended SDK shape is:
-
-```text
-one public wallet API
-  -> router_ab_v1 protocol driver
-       -> Gateway + MPCRouter + Deriver A + Deriver B + SigningWorker
-  -> single_worker_v1 protocol driver
-       -> one customer-operated Worker
-```
-
-The public registration, recovery, export, and signing methods remain the
-same. Each protocol driver owns its exact request types, lifecycle transitions,
-and response parsing. Shared domain behavior may be reused where it already
-fits; Router A/B functions do not gain optional fields or simple-mode branches.
-
-The profile is selected from authenticated, deployment-pinned configuration
-and recorded when a wallet is created. Every later lifecycle operation requires
-that exact profile. Requests cannot choose a profile, and neither client nor
-server falls back from `router_ab_v1` to `single_worker_v1` after an error.
-
-Wallet portability between profiles is excluded. A migration would require a
-separately reviewed protocol and must not be inferred from compatible public
-keys, storage records, or derivation outputs.
-
-### Isolation boundary
-
-The follow-up lives in a sibling example:
-
-```text
-examples/self-host-cloudflare-single-worker/
-```
-
-It does not replace or add conditionals to
-`examples/self-host-cloudflare-worker`. The strict example remains the proof of
-the reviewed Router A/B architecture.
-
-The single-Worker example initially consumes public SDK surfaces. If the spike
-finds a missing client or server capability, that capability is proposed as a
-narrow profile-specific public entrypoint with its own protocol tests. Demo
-code must not import package source files or add repository-wide demo flags.
-
-Server code remains internally separated into Gateway, derivation, storage,
-and signing modules even though those modules share one deployed Worker and use
-direct calls. This preserves readable ownership without pretending the modules
-are separate security principals.
-
-### Follow-up phase 0: specify and prove the direct protocol
-
-- [ ] Inventory every Router A/B step used by registration, recovery, export,
-      refresh, activation, and normal signing.
-- [ ] Specify the direct Ed25519 and ECDSA derivation transcripts, recipient
-      outputs, replay rules, and lifecycle bindings.
-- [ ] Confirm which existing Rust/WASM primitives can be reused without
-      exposing raw secret arithmetic to TypeScript.
-- [ ] Define authenticated server metadata and client configuration that pin
-      exactly one custody profile.
-- [ ] Prove with vectors that direct derivation produces the intended wallet
-      keys and signer material.
-- [ ] Review the reduced security claim before implementation proceeds.
-
-### Follow-up phase 1: build the segregated server
-
-- [ ] Add the sibling example with one Worker entrypoint and one demo-local
-      deployment specification.
-- [ ] Compose public Gateway, derivation, persistence, and signing surfaces as
-      internal modules with direct calls.
-- [ ] Use the smallest D1 and secret layout required by the demonstrated
-      lifecycle.
-- [ ] Add a package-local provisioner and doctor command without changing the
-      strict demo compiler.
-- [ ] Demonstrate a clean deployment without A/B Service Bindings, Yao,
-      threshold-PRF exchange, or role envelopes.
-
-### Follow-up phase 2: add the client protocol driver
-
-- [ ] Keep the existing high-level wallet API unchanged.
-- [ ] Add an exhaustive custody-profile boundary and separate branch-specific
-      request builders and response parsers.
-- [ ] Send one direct lifecycle request in `single_worker_v1` while preserving
-      the existing Router A/B ceremony in `router_ab_v1`.
-- [ ] Persist the profile with wallet lifecycle state and reject mismatched
-      server metadata, stored state, or operation requests.
-- [ ] Add type fixtures that reject wallets and requests assembled from
-      mismatched custody-profile branches.
-- [ ] Confirm normal signing uses the narrow single-Worker path and does not
-      retain unused derivation ceremony state.
-- [ ] Compare browser bundle size and lifecycle round trips against the strict
-      profile.
-
-### Follow-up phase 3: demonstrate and compare
-
-- [ ] Register, sign, recover, and export one Ed25519 wallet.
-- [ ] Register, sign, recover, and export one ECDSA wallet.
-- [ ] Run both profiles through the same public SDK walkthrough.
-- [ ] Publish a concise topology, latency, deployment-step, and security-claim
-      comparison.
-- [ ] Verify the single-Worker example works from packed or published SDK
-      packages with no monorepo source imports.
-
-### Follow-up acceptance criteria
-
-The single-Worker follow-up is complete when:
-
-1. One customer-operated Cloudflare Worker supports the demonstrated wallet
-   lifecycle for both Ed25519 and ECDSA.
-2. Applications use the same public wallet operations for both custody
-   profiles.
-3. Profile choice is authenticated, pinned, persisted, and exhaustive, with no
-   request-selected downgrade or automatic fallback.
-4. The direct protocol contains no A/B envelopes, Yao transport, threshold-PRF
-   exchange, or role-to-role Service Bindings.
-5. Direct secret derivation remains in reviewed Rust/WASM code.
-6. The sibling example consumes public packages and introduces no simple-mode
-   branches into Router A/B implementation code.
-7. Documentation labels the deployment as organizational custody and states
-   its larger compromise boundary plainly.
+      migration, recovery, and advanced CLI notes.
 
 ## Validation
 
@@ -801,6 +1122,9 @@ Tests live in the top-level `tests/` workspace and focus on behavior:
 - a denied or interrupted OAuth flow performs no mutation;
 - a resumed deployment continues from the exact recorded plan digest;
 - the base flow exposes only the Gateway on `workers.dev`;
+- a `workers.dev` route derives the exact account-level RP ID and rejects the
+  public suffix, another account's subdomain, and an unpinned account-subdomain
+  change;
 - optional Custom Domain attachment accepts only a zone in the authorized
   account and completes before durable wallet creation;
 - Ed25519 and ECDSA wallets register and sign through the strict topology;
@@ -809,7 +1133,53 @@ Tests live in the top-level `tests/` workspace and focus on behavior:
   headers or fields;
 - hosted console, billing, support, and membership routes are unavailable;
 - pre-wallet apply retries are idempotent;
-- cleanup targets only the exact pre-wallet resources in the deployment job.
+- cleanup targets only the exact pre-wallet resources in the deployment job;
+- a source passkey and destination passkey with different RP IDs can authorize
+  the same wallet through one-device linking;
+- iframe messages with the wrong source window, origin, version, link session
+  ID, or transcript digest fail before lifecycle mutation;
+- WebAuthn verification requires the exact source or destination origin and
+  expected embedded top origin;
+- migration preserves every wallet ID, wallet-key ID, public key, and address;
+- the same-deployment payload branch rejects cross-deployment fields, while the
+  cross-deployment branch requires the signed destination descriptor, source
+  transformation recipient, and destination server-material recipient;
+- type fixtures reject missing recipients, mixed variants, unsafe casts, broad
+  spreads, and non-exhaustive switches for the deployment-target union;
+- ECDSA client, source-transformation, and destination-server-material
+  recipient keys are pairwise distinct and prove possession under their
+  expected client, source Worker, and destination Worker roles;
+- ECDSA linking preserves the aggregate public key, leaves `S1` unchanged, and
+  makes `S2` decryptable only by the destination SigningWorker;
+- same-deployment ECDSA validation retains its Worker and key-epoch equalities,
+  while cross-deployment validation admits only destination-local values from
+  the signed descriptor;
+- Ed25519 contributions are decryptable only by the target-owned client and
+  SigningWorker recipients in the verified admission keyset;
+- an empty destination can construct only the verified public wallet projection
+  and fresh destination-owned authority records required by the link;
+- a failed destination install leaves the source active and creates no active
+  destination authority;
+- a failure injected before or after each destination role commit leaves the
+  Gateway authority unpublished, supports idempotent retry, and exposes no
+  half-active signing path;
+- replaying source approval, destination credential evidence, installation,
+  activation, or acknowledgement creates no duplicate authority or signing
+  lane;
+- destination reload, unlock, both exports, and both signing flows succeed
+  after the old domain and managed endpoints are disabled;
+- restoring the old domain and managed endpoints shows that the source wallet
+  remains usable after successful destination activation;
+- source authority removal occurs only after a separate explicit owner
+  revocation request;
+- destination runtime tracing records no call to the source deployment after
+  activation;
+- while the source is blocked, the destination can act as Device 1 to add and
+  revoke a third test authority;
+- a destination-local revocation record alone has no effect on the source; the
+  source stops only after accepting an explicit owner-signed source request;
+- no cross-deployment link request fetches or depends on the old RP ID's
+  `/.well-known/webauthn` resource.
 
 The suite does not add source-text guards. Public-boundary isolation is proven
 by building the packed example outside the monorepo and by exercising the
@@ -817,7 +1187,7 @@ resulting deployment.
 
 ## Definition Of Done
 
-The first demo is complete when:
+The deployment milestone is complete when:
 
 1. An evaluator starts with a Cloudflare account and the onboarding page.
 2. The evaluator selects `Deploy with Cloudflare`, authorizes one account, and
@@ -840,12 +1210,59 @@ The first demo is complete when:
 12. A clean-account OAuth-to-wallet walkthrough succeeds and records the API,
     artifact, deployment, doctor, and signature evidence.
 
+The progressive self-hosting thesis is complete when:
+
+1. An existing managed Ed25519 and ECDSA wallet enters a one-device migration
+   from its old wallet origin.
+2. The destination creates a new passkey under the pinned customer RP ID; the
+   existing credential remains scoped to the old RP ID.
+3. The source owner explicitly approves the exact destination deployment,
+   origin, RP ID, credential, permissions, wallet identities, and expiry.
+4. One narrow cross-deployment device-link variant carries exact destination
+   recipient and deployment bindings through type-safe, exhaustive payloads.
+5. The source emits fresh destination-bound Ed25519 contributions and derives
+   ECDSA `C2` and `S2` without exporting the wallet custody seed, `S1`, shared
+   managed deployment secrets, or raw databases.
+6. Device linking installs one fresh destination authority while preserving
+   every wallet ID, wallet-key ID, public key, and address.
+7. Destination reload, unlock, Ed25519 export, ECDSA export, Ed25519 signing,
+   and ECDSA signing all pass.
+8. Failed or abandoned migration leaves the source wallet operational and the
+   destination authority inactive.
+9. Successful migration leaves the source authority and server participants
+   intact as a usable backup.
+10. With the old RP domain, managed Gateway, and Seams control plane blocked,
+    the destination still reloads, unlocks, exports, and signs. Restoring those
+    services proves the source wallet still operates.
+11. Only a separate explicit owner-revocation action disables the source
+    wallet; migration completion itself never performs that action.
+12. The final receipt lets the customer independently verify deployment,
+    artifact, destination-recipient, wallet-identity, linked-authority, and
+    independence-test facts.
+13. Documentation states the remaining Cloudflare and customer-administrator
+    trust assumptions and the limits of destination disaster recovery.
+14. With the managed source blocked, the destination can act as Device 1 for a
+    later link and can manage that new authority through its local deployment.
+
 ## Non-Goals
 
-- supported production self-hosting;
-- migrating a managed Seams tenant;
-- Refactor 121 import staging or activation;
-- production backup, destruction, or disaster recovery;
+- silent or background RP-ID migration without fresh user presence;
+- copying, exporting, or rewriting a passkey private key;
+- using `workers.dev` as an RP ID or sharing credentials across unrelated
+  Cloudflare account subdomains;
+- relying on Related Origin Requests after destination activation;
+- automatic source fencing, revocation, deletion, or server-participant
+  retirement during migration;
+- app-level migration or a general deployment-portability package;
+- copying a raw source server share, wallet custody seed, complete private key,
+  or managed database into the destination;
+- coordinating simultaneous chain transaction nonces across both active
+  backends;
+- destination disaster recovery or destructive restore in the first migration
+  proof;
+- a single-Worker custody profile;
+- a production self-hosting support commitment before every progressive
+  self-hosting definition-of-done item passes;
 - a repository-wide `seams` CLI;
 - a general administrator console or self-host membership system;
 - billing, support access, organization switching, sponsorship, or managed
@@ -857,18 +1274,22 @@ The first demo is complete when:
 
 ## Future Production Work
 
-If the demo creates real demand for supported self-hosting, a separate plan can
-promote the proven pieces into a production product. That plan must independently
+After the proof passes, productionization promotes the demonstrated boundaries
+without creating a second device-link protocol. A supported release must
 address:
 
 - a stable CLI and update policy;
 - production administrator authentication and authorization;
-- portable encrypted backup and destructive restore drills;
 - artifact rollback after wallets are active;
 - customer monitoring and alert delivery;
 - production chain funding and sponsorship;
-- tenant portability and Refactor 121 activation;
+- operational approval, audit, and support for cross-deployment linked-device
+  activation and explicit source revocation;
+- browser support policy for the selected one-device migration surface;
+- destination-local backup, recovery-package rotation, and restore drills;
 - provider support and operational ownership.
 
-The demo supplies evidence for that decision. It does not pre-commit the core
-SDK or managed platform to the production architecture.
+The clean deployment milestone supplies early SDK evidence. The
+source-unavailable destination test and source-preservation test supply the
+evidence needed for the stronger product promise: embedded-wallet UX with a
+practical path to customer-controlled operation and an optional managed backup.

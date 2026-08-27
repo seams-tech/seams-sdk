@@ -1,475 +1,452 @@
-# Product Vision: Policy Harness For Agentic Commerce
+# Product vision: Expense management for agents
 
 Date created: June 20, 2026
 
-Status: draft product vision; use as positioning and product-direction context.
+Last revised: August 27, 2026
+
+Status: draft product vision; use as product-direction and implementation
+context.
 
 Related docs:
 
-- [Seams wallet vision](vision.md)
-- [Router A/B spec](./router-ab/protocol.md)
-- [Router A/B deployment](./router-ab/deployment.md)
-- [Wallet key and execution lanes](refactor-96-wallet-execution-lanes.md)
-- [Physical device linking](refactor-98-device-linking.md)
-- [Agent identity and delegated spending](refactor-99-agent-id-spending.md)
-- [Voice agent GTM](../voiceId/docs/voice-agent-gtm.md)
-- [VoiceID engine specification](../voiceId/docs/voiceId-mvp-1.md)
+- [Seams product vision](vision.md)
+- [Stablecoin-linked virtual card](stablecoin-linked-virtual-card.md)
+- [Airwallex sandbox integration](refactor-130-airwallex-sandbox-integration.md)
+- [Router A/B protocol](./router-ab/protocol.md)
+- [Wallet key and execution lanes](refactor-101-wallet-execution-lanes.md)
+- [Agent identity and delegated spending](refactor-104-agent-id-spending.md)
 
 ## Thesis
 
-This document defines the policy and authorization direction for the shopping-
-agent use case in the broader [Seams wallet vision](vision.md). Platform wallets
-are the shared foundation. Shopping wallet applications and shopping agents are
-product experiences built on that foundation.
+Seams is an expense-management account for AI agents.
 
-The key product is a policy engine attached to cryptographic proofs.
+The customer funds one account, connects one or more agents, and defines what
+each agent may buy. Seams binds those permissions to typed purchase intents,
+enforces them before payment, and preserves the evidence needed to understand
+authorizations, denials, approvals, settlement, and refunds.
 
-The product should help users, merchants, marketplaces, and organizations define
-what an AI agent may do, bind that permission to a verifiable intent, enforce it
-before execution, and revoke it cryptographically when authority changes.
-
-Short version:
+Internal category shorthand:
 
 ```text
-Prove who is acting.
-Prove what they approved.
-Enforce what they can do.
-```
-
-Product category:
-
-```text
-Policy Harness for Agentic Commerce
-```
-
-Buyer-facing line:
-
-```text
-Give agents permission to act without giving them unlimited authority.
+Ramp for agents, initially stablecoin-funded.
 ```
 
 Developer-facing line:
 
 ```text
-Define what an agent may do. Bind it to signed intent. Enforce it before money,
-inventory, or authority moves.
+Give every agent a budget and spending mandate without giving it unrestricted
+control of a wallet or card.
 ```
 
-## Why This Is Stronger Than A Broad Identity Pivot
-
-A wallet-as-a-service product resembling Dynamic centers on wallet creation,
-authentication, embedded wallets, signing flows, and key management.
-
-A generalized identity platform resembling Veridas centers on identity proofing,
-document verification, biometrics, liveness, reusable credentials, and
-authentication.
-
-Both categories are adjacent to this product, but neither is the exact wedge.
-The stronger wedge is authorization for autonomous action:
+Customer-facing line:
 
 ```text
-Who is acting?
-What did they approve?
-What is the agent allowed to do?
-Can that authority be revoked before execution?
-Can the system prove what happened afterward?
+Fund once. Connect an agent. Control exactly what it can spend.
 ```
 
-The wallet/key layer remains valuable because autonomous agents eventually need
-to execute through payment rails, wallets, marketplace accounts, merchant APIs,
-or signing systems. The identity layer remains valuable because high-risk agent
-actions need subject proof, role proof, device proof, biometric proof, or
-credential proof.
+## Why this is the product
 
-The policy harness is the control layer between those surfaces.
+Embedded wallets and threshold signing solve custody and execution. They do not
+by themselves complete the customer's expense-management job.
 
-## Core Product Primitive
-
-The core object is a signed mandate:
+The direct product must answer:
 
 ```text
-This subject may perform this class of action, under this policy, until this
-expiry, within this budget, against this exact intent shape.
+Which agent is acting?
+What did its principal authorize?
+Does this exact purchase satisfy the active mandate?
+Should Seams allow, block, or escalate it?
+How was it paid?
+What settled, reversed, or refunded afterward?
 ```
 
-A signed mandate should be:
+This product can reach individuals and teams directly. It does not depend on a
+new platform deciding to add wallets or an existing wallet application replacing
+its infrastructure.
 
-- scoped to a subject, agent, device, org role, or wallet
-- bound to typed intent data
-- constrained by budget, merchant, marketplace, geography, time, and risk rules
-- versioned by policy epoch
-- revocable before execution
-- auditable after execution
+## Customer and buyer
 
-## Product Layers
+The initial customer is an AI-native individual, operator, or small business
+that already delegates repeated work to agents and wants those agents to make
+bounded purchases.
 
-| Layer | Responsibility |
+The customer may also be the account administrator and funding principal. In a
+larger organization, these roles can separate:
+
+| Role | Responsibility |
 | --- | --- |
-| Policy Studio | Prompt or visually define agent authority. |
-| Policy Compiler | Convert natural language and templates into typed policy. |
-| Intent Harness | Canonicalize cart, order, bid, refund, payment, and shipment intents. |
-| Proof Layer | Bind user, org role, wallet, passkey, device, biometric, or credential proof. |
-| Simulation Layer | Check totals, merchant, inventory, fees, settlement, substitutions, and risk flags. |
-| Enforcement Gateway | Allow, deny, escalate, or require human approval. |
-| Revocation And Audit | Track policy epochs, signed mandates, revocation state, and evidence trails. |
-| Signing And Execution | Execute through wallets, payment rails, marketplaces, merchant APIs, or agent tools. |
+| Economic buyer | Pays for controlled agent spending and expense operations. |
+| Account administrator | Connects agents, sets policy, and manages funding. |
+| Funding principal | Owns the stablecoin, fiat, or payment account. |
+| Approver | Reviews purchases that cross defined thresholds. |
+| Agent | Proposes or executes purchases within an Agent Grant. |
 
-The engine is the enforcement core. The harness is the runtime around agents,
-tools, payment systems, and signing systems. The studio is the interface for
-authoring, inspecting, testing, and debugging policies.
+Strong first workflows include:
 
-## Policy Engine Guarantees
+- software, API, domain, and cloud-service procurement
+- business travel booking
+- ecommerce inventory and supplies
+- user-directed shopping at unrelated merchants
+- recurring operational purchases with merchant and amount controls
+
+## Product model
+
+```text
+Seams account
+  -> funding balance
+  -> agent connection
+  -> Agent Grant
+  -> spending mandate
+  -> purchase intent
+  -> policy decision
+  -> approval when required
+  -> payment execution
+  -> settlement, receipt, refund, and audit
+```
+
+### Funding account
+
+A customer should fund one primary Seams account. The account ledger separates:
+
+- available balance
+- budget allocated to active Agent Grants
+- pending payment authorizations and holds
+- settled spend
+- reversed or expired holds
+- refunds and recoverable balance
+
+Budget allocation does not require an onchain transfer into a separate agent
+wallet. Seams may provision isolated wallets, cards, or credentials underneath
+for execution isolation, chain identity, privacy, or provider requirements.
+
+### Agent connection
+
+An Agent Connection identifies and authenticates one installed agent integration.
+Supported connection surfaces should include:
+
+- OAuth for user-authorized hosted agents
+- a remote MCP server for Codex, ChatGPT, and compatible runtimes
+- scoped API credentials for custom backends
+- SDK adapters for agent frameworks
+
+Connection authority and spending authority are separate lifecycle states.
+Connecting an agent gives it access to the Seams API surface. An active Agent
+Grant gives it bounded permission to propose or execute spend.
+
+### Agent Grant
+
+An Agent Grant binds:
+
+- one Seams account
+- one agent connection or agent identity
+- one versioned spending mandate
+- one budget and currency policy
+- one validity period
+- one approval policy
+- one revocation epoch
+- one set of permitted payment rails
+
+The grant is narrow, expiring, and independently revocable. It carries no
+authority to change account ownership, broaden its own mandate, export owner
+keys, or create another grant.
+
+### Spending mandate
+
+A spending mandate defines what the agent may do. Its first policy vocabulary
+should cover:
+
+- per-purchase and cumulative budgets
+- merchant and merchant-category rules
+- item, quantity, and substitution constraints
+- currency and geography
+- shipping, tax, fee, and final-price ceilings
+- delivery destination
+- one-time and recurring-payment rules
+- validity window and expiry
+- human-approval thresholds
+- payment-rail restrictions
+
+The mandate is versioned, signed where required, and bound to a revocation
+epoch. Natural-language authoring may propose a policy, but the enforcement
+boundary is the reviewed typed mandate.
+
+### Purchase intent
+
+The agent submits a canonical purchase intent containing the final commercial
+details available before payment:
+
+```text
+merchant
+items and quantities
+currency
+subtotal
+shipping
+tax
+fees
+total
+delivery terms
+recurring-payment status
+payment rail
+```
+
+Seams normalizes untrusted merchant and agent inputs once, computes the intent
+digest, and evaluates the exact intent against the active grant.
+
+### Policy decision
+
+Every decision is explicit:
+
+```text
+allow
+  -> the active grant permits execution
+
+block
+  -> the purchase violates a hard constraint
+
+request approval
+  -> the purchase matches an escalation rule and awaits a named approver
+```
+
+Diagnostics and model reasoning may explain a decision. The typed mandate,
+normalized intent, account state, and approval state determine control flow.
+
+### Execution and reconciliation
+
+An allowed purchase executes through one supported rail. Seams links the policy
+decision to every subsequent payment state:
+
+```text
+authorized
+captured or settled
+reversed
+expired
+partially refunded
+refunded
+disputed
+```
+
+The customer sees one evidence chain from agent instruction through final
+financial outcome.
+
+## Payment reach
+
+### Stablecoin
+
+Stablecoin is the initial funding and native settlement rail. It fits the
+existing Seams wallet and signing foundation and gives customers an explicit,
+programmable source of funds.
+
+The first path should support one stablecoin on one production-approved chain
+after the required operational and regulatory gates are satisfied. Testnet and
+sandbox environments remain the development path until then.
+
+### Virtual cards
+
+Virtual cards let agents purchase from ordinary ecommerce merchants with no
+Seams, agent, or stablecoin integration. This makes card reach central to the
+shopping and procurement experience.
+
+Airwallex is the first planned provider. The integration boundary should be:
+
+| Seams owns | Airwallex owns |
+| --- | --- |
+| Agent identity and connection | Card program and issuance |
+| Spending mandate and budget | Cardholder onboarding |
+| Purchase-intent normalization | Sensitive card data |
+| Policy decision and approval | Visa network access |
+| Stablecoin funding allocation | 3DS and card authentication |
+| Hold and settlement evidence | Card authorization and transaction events |
+| Cross-rail activity and audit | Card lifecycle and provider settlement |
+
+Seams should issue or assign bounded cards only when the purchase workflow needs
+card reach. Per-order, per-agent, or shared card models remain execution choices
+under the Agent Grant.
+
+The [stablecoin-linked virtual-card plan](stablecoin-linked-virtual-card.md)
+defines the longer-term reserve architecture. The first operating proof should
+use the smallest Airwallex sandbox path that demonstrates one policy-bound
+purchase, settlement, reversal, and refund.
+
+## Direct product surface
+
+### Console and dashboard
+
+The direct customer experience should provide:
+
+- account onboarding and funding
+- available, allocated, pending, settled, and refunded balances
+- connected-agent list and connection status
+- Agent Grant creation, editing, expiry, and revocation
+- budget and mandate templates
+- approval inbox
+- purchase activity and receipts
+- blocked-attempt explanations
+- card and stablecoin execution status
+- audit and reconciliation detail
+
+The primary dashboard actions should use expense-management language:
+
+```text
+Fund account
+Connect agent
+Create Agent Grant
+Set budget
+Review purchase
+Revoke access
+```
+
+Wallet roots, shares, lanes, and provider credentials remain implementation and
+advanced diagnostic concepts.
+
+### Agent API and MCP surface
+
+The normal agent surface should expose intent-oriented operations:
+
+- `get_spending_authority`
+- `propose_purchase`
+- `request_purchase_approval`
+- `execute_approved_purchase`
+- `get_purchase_status`
+- `cancel_purchase`
+- `get_remaining_budget`
+
+A generic unrestricted `send_money` or `sign` operation is outside the default
+expense-management surface. Advanced wallet APIs may remain available through a
+separately authorized integration.
+
+Client-side tool approval can add a useful human checkpoint. Seams' server-side
+mandate and account state remain the enforcement authority.
+
+## Policy and audit foundation
 
 The policy engine should make these guarantees practical:
 
-- Harder to spoof: high-risk authority requires cryptographic, biometric,
-  device, credential, wallet, or org-role proof.
-- Harder to fake prompts and intents: the approved user-visible action is bound
-  to a canonical typed intent digest.
-- Cryptographically revocable policy and intents: policy epochs, delegates,
-  sessions, credentials, and pending intents can be revoked before execution.
-- Auditable execution: every action has a verifiable chain from proof to policy
-  decision to intent digest to signature, payment, bid, or API call.
+- every execution is tied to one authenticated agent connection
+- every agent connection spends through one active grant
+- every grant has a budget, validity period, and revocation epoch
+- every payment is bound to a normalized purchase intent
+- an agent cannot broaden its own permissions
+- approval is bound to the exact intent presented to the approver
+- settlement and refunds remain linked to the original decision
+- customers can reconstruct why Seams allowed, blocked, or escalated an action
 
-## Policy Studio
+The existing wallet policy, budget, authorization, and audit primitives provide
+the foundation. The next work should expose them as a coherent expense product
+through the Console, dashboard, API, and MCP server.
 
-A Tines-style visual studio is a good interface metaphor for inspection and
-debugging. The user should be able to see triggers, policy checks, agent steps,
-human approvals, simulation, execution, and audit output as a graph.
+## Relationship to wallet infrastructure
 
-The first version should be template-first and prompt-assisted:
+Seams' wallet infrastructure provides:
 
-1. User describes the delegation in plain language.
-2. The studio proposes a typed policy.
-3. The user reviews constraints, approval paths, budgets, and revocation rules.
-4. The system simulates allowed and denied examples.
-5. The policy is signed, versioned, and deployed.
+- passkey and application-native authentication
+- wallet provisioning and recovery
+- device linking and authority revocation
+- threshold custody and signing
+- session and budget enforcement
+- chain execution
+- export and transfer of control where supported
 
-The visual canvas should show the generated policy rather than forcing every
-user to manually draw a workflow from scratch.
+These capabilities protect the funding account and execute supported payments.
+The customer buys the agent-expense workflow built on top of them.
 
-Useful studio blocks:
+The embedded platform SDK remains valuable as a later distribution path. Agent
+platforms can eventually provision Seams spending accounts and grants for their
+own users after the direct product proves the workflow.
 
-- trigger
-- agent identity
-- user or org proof
-- device proof
-- credential proof
-- intent normalization
-- cart/order/bid/refund simulation
-- merchant or marketplace checks
-- budget checks
-- condition
-- human approval
-- signer or payment rail
-- revocation check
-- audit sink
+## Roadmap and current state
 
-## Relationship To Aomi
-
-Aomi is a useful neighboring reference because it frames itself as a harness for
-agentic blockchain actions. Its core ideas include intent-first interaction,
-structured action generation, contextual intent sanitization, simulation
-guardrails, and execution.
-
-The policy harness direction should focus on authorization:
-
-```text
-Is this agent allowed to perform this exact commercial action right now?
-```
-
-The product should work across off-chain and on-chain commerce:
-
-- shopping carts
-- checkout flows
-- marketplace listings
-- bidding systems
-- refunds
-- promotions
-- supplier orders
-- stablecoin settlement
-- wallet signatures
-- merchant APIs
-
-This keeps the product tied to commerce outcomes instead of becoming a generic
-agent workflow tool.
-
-## Relationship To AP2-Style Mandates
-
-Agentic commerce protocols such as AP2 validate the need for signed mandates,
-verifiable credentials, and accountable agent payments.
-
-The product should integrate with emerging mandate-style standards where they
-fit. The value should be the policy authoring, testing, enforcement, revocation,
-and audit layer around those mandates.
-
-Practical position:
-
-```text
-Author mandates.
-Test mandates.
-Sign mandates.
-Enforce mandates.
-Revoke mandates.
-Audit mandates.
-```
-
-## First agentic-commerce wedge: Shopping agents
-
-Shopping agents purchasing from unrelated ecommerce stores are the strongest
-first agentic-commerce wedge because the failure modes are concrete:
-
-- agent buys the wrong item
-- prompt injection changes the cart
-- seller substitutes a product
-- fees or shipping push the order outside budget
-- agent spends after authority was revoked
-- refund or support agent exceeds policy
-- marketplace bid crosses the approved ceiling
-- merchant cannot prove what the user authorized
-
-The product should make delegated shopping safe enough for real commerce.
-
-Example policy:
-
-```text
-This shopping agent may buy one jacket under USD 500 from approved merchants in
-Japan, with no refurbished substitutions, no recurring payments, and human
-approval required if shipping exceeds USD 40 or delivery is later than 14 days.
-The mandate expires in 24 hours.
-```
-
-Example execution chain:
-
-```text
-User proof
-  -> signed shopping mandate
-  -> agent finds quote
-  -> cart intent digest
-  -> simulation checks price, merchant, shipping, taxes, substitutions
-  -> policy decision
-  -> payment/signing execution
-  -> receipt and audit trail
-```
-
-Stable commerce abstraction:
-
-```text
-one approved quote -> one customer payment -> one purchase order -> one receipt
-trail -> one refund/support policy
-```
-
-## Use Case: AI Shopping Agents
-
-AI shopping agents need delegated spend with narrow authority.
-
-Useful controls:
-
-- signed purchase mandates
-- merchant allowlists and category rules
-- max price and fee ceilings
-- shipping and delivery constraints
-- substitution rules
-- refund and support policy
-- per-order mandate expiry
-- quote-to-payment linkage
-- payment rail constraints
-- revocation before checkout
-
-The product prevents a web page, seller, tool result, or prompt injection from
-silently turning a narrow shopping instruction into broader spend authority.
-
-## Future adjacent applications
-
-The current product use cases are platform wallets, shopping wallet
-applications, and shopping agents. Robotics, merchant-side storefront agents,
-and marketplace bidding remain future applications of the policy primitives.
-They do not direct the current wallet roadmap.
-
-### Robotics fleets
-
-Robotics fleets need delegated physical authority.
-
-Useful controls:
-
-- robot device identity
-- operator or owner proof
-- site and zone policy
-- action class limits
-- time windows
-- safety budgets
-- human-approved delegated sessions
-- emergency revocation
-- audit trails for physical actions
-
-Clean framing:
-
-```text
-Humans approve. Robots act. Keys never move.
-```
-
-Example robot flow:
-
-```text
-Human approval
-  -> delegated robot session
-  -> robot device proof
-  -> typed physical intent
-  -> policy, expiry, budget, revocation, and location checks
-  -> execution
-  -> audit evidence
-```
-
-Robotics should remain future scope until the commerce wedge is proven.
-
-### AI-managed storefronts
-
-AI storefronts make commercial commitments on behalf of a seller.
-
-Useful controls:
-
-- discount limits
-- margin floors
-- inventory reservation rules
-- refund limits
-- customer segment rules
-- supplier reorder policy
-- campaign authority
-- promotion expiry
-- approval paths for exceptions
-- audit trails for customer-facing commitments
-
-The model can suggest commercial actions. The policy harness decides which
-actions can become binding offers, refunds, promotions, orders, or payments.
-
-### AI-managed bidding and marketplace agents
-
-Bidding agents need strict spend, listing, and settlement controls.
-
-Useful controls:
-
-- auction-specific mandates
-- max bid and fee ceiling
-- bid cadence limits
-- marketplace allowlists
-- listing metadata hash binding
-- seller trust checks
-- settlement constraints
-- per-auction and per-day budgets
-- strategy approval
-- revocation before settlement
-
-Example policy:
-
-```text
-This bidding agent may bid up to USD 2,000 on this exact listing until Friday at
-18:00 UTC. It may increase bids only in USD 25 increments, may not bid if seller
-trust falls below the approved threshold, and must stop if total fees exceed
-8 percent.
-```
-
-## Competitive Positioning
-
-| Reference | Their Center | Useful Lesson | Our Center |
+| Priority | Product layer | Current state | Next outcome |
 | --- | --- | --- | --- |
-| Dynamic | Wallet auth, embedded wallets, key management, signing flows | Key infrastructure and developer UX matter. | Policy-bound authorization over wallet, payment, and agent execution. |
-| Veridas | Identity verification, biometrics, liveness, reusable identity credentials | Strong identity proof can be a policy input. | Use identity and presence proofs to authorize exact agent actions. |
-| Tines | Visual workflow automation and governed AI workflows | Canvas inspection helps teams trust and debug complex automations. | Policy Studio for mandate authoring, simulation, revocation, and audit. |
-| Aomi | Harness for agentic blockchain actions | Intent-first execution and simulation are valuable for agents. | Commerce-wide authorization harness across carts, bids, payments, APIs, and signatures. |
-| AP2-style protocols | Signed mandates for accountable agent payments | Standard mandate objects can become interoperability rails. | Author, test, sign, enforce, revoke, and audit mandates. |
+| 1 | Direct agent spending product | Needs product surface | Build funding, agents, budgets, approvals, and activity into the Console and dashboard. |
+| 2 | Universal agent connection | Needs product surface | Add OAuth, remote MCP, scoped API credentials, and SDK adapters. |
+| 3 | Payment reach | Stablecoin foundation exists; card reach needs integration | Integrate one Airwallex sandbox card path, then satisfy production gates. |
+| 4 | Policy and audit | Core primitives built | Productize merchant rules, limits, expiry, approvals, receipts, refunds, revocation, and evidence. |
+| 5 | Wallet infrastructure | Built | Maintain as the custody and execution foundation. |
+| 6 | Embedded platform SDK | Built | Offer as a later enterprise distribution channel. |
 
-## Product Surface
+This order makes the requested operating path visible to a direct customer
+before expanding infrastructure or enterprise integration breadth.
 
-Initial product surfaces:
+## First operating proof
 
-- policy template library
-- prompt-to-policy authoring
-- typed commerce intent schemas
-- mandate signing and verification
-- policy simulation against allowed and denied examples
-- revocation registry
-- audit log and evidence viewer
-- agent gateway API
-- tool or MCP gateway for agents
-- payment and wallet execution adapters
-
-Future surfaces:
-
-- visual policy canvas
-- marketplace-specific bid policy packs
-- Shopify and ecommerce platform integrations
-- AP2-compatible mandate tooling
-- org role and approval workflows
-- robotics policy packs
-- physical device identity and site policy
-- AI storefront policy packs
-
-## Implementation Principles
-
-Keep the policy model precise:
-
-- use typed intents rather than raw prompts as the enforcement boundary
-- normalize untrusted tool, agent, wallet, merchant, and marketplace inputs once
-  at boundaries
-- make policy branches explicit and versioned
-- require expiry for delegated authority
-- require a policy epoch for revocation-sensitive decisions
-- bind every execution to a canonical intent digest
-- preserve a verifiable audit chain for high-risk actions
-
-Keep product scope concrete:
-
-- start the agentic-commerce product with shopping agents purchasing from
-  unrelated ecommerce stores
-- use robotics, storefronts, and bidding as expansion paths
-- treat identity vendors as proof providers where useful
-- treat wallet/key infrastructure as the execution layer
-- treat the policy harness as the product center
-
-## Near-Term MVP
-
-MVP goal:
+The first proof should demonstrate one complete purchase lifecycle:
 
 ```text
-Let a user or merchant create a signed commerce mandate, let an AI agent propose
-an action, simulate and enforce the policy, then execute or deny with an audit
-trail.
+Customer funds a Seams account
+  -> connects one agent
+  -> creates one Agent Grant and budget
+  -> agent proposes an exact purchase
+  -> Seams allows, blocks, or requests approval
+  -> an allowed purchase executes in the Airwallex sandbox or testnet
+  -> the dashboard shows authorization, settlement, receipt, and refund state
 ```
 
-Suggested MVP sequence:
+Success requires one real agent integration and one repeated customer workflow.
+Creating wallets and policies without completing purchases is insufficient
+evidence of product demand.
 
-1. Define typed commerce intents for quote, cart, checkout, refund, and bid.
-2. Define a minimal signed mandate schema.
-3. Build a policy compiler for a small template set.
-4. Add simulation fixtures for allowed and denied shopping actions.
-5. Add mandate signing, policy epoch, expiry, and revocation checks.
-6. Add an enforcement gateway for one shopping-agent flow.
-7. Add an audit viewer that shows proof, mandate, intent digest, decision, and
-   execution result.
-8. Add prompt-to-policy after the typed policy model is stable.
-9. Add a visual studio after templates and audits prove the workflow.
+## Product boundaries
 
-## Open Questions
+Near-term scope:
 
-- Which commerce wedge is first: personal shopping, merchant-side storefront
-  agents, marketplace bidding, or procurement?
-- Which mandate format should be internal-only, and which should align with AP2
-  or other emerging agent-commerce standards?
-- Which execution rail should be first: wallet signing, stablecoin payment,
-  merchant API, marketplace API, or simulated checkout?
-- Which proof input is required for v1: passkey, wallet, email, org role,
-  biometric presence, or external identity credential?
-- What is the smallest policy studio that gives users trust without requiring a
-  full workflow-builder product?
+- direct Seams account and dashboard
+- stablecoin funding
+- connected agents
+- typed purchase intents
+- Agent Grants, budgets, approvals, and revocation
+- Airwallex sandbox virtual-card execution
+- purchase, receipt, refund, and audit history
 
-## Reference Links
+Later scope:
 
-- Dynamic wallet infrastructure: <https://www.dynamic.xyz/features/wallet-infrastructure>
-- Dynamic embedded wallets: <https://www.dynamic.xyz/features/embedded-wallets>
-- Veridas identity verification: <https://veridas.com/en/identity-verification-platform/>
-- Veridas ID wallet: <https://veridas.com/en/id-wallet/>
-- Tines AI platform: <https://www.tines.com/platform/ai/>
-- Tines AI agent action: <https://www.tines.com/docs/actions/types/ai-agent/>
-- Aomi: <https://aomi.dev/>
+- embedded agent-platform distribution
+- additional card issuers and payment rails
+- fiat funding and treasury integrations
+- organization roles and multi-approver workflows
+- subscription management
+- AP2-compatible mandate import and export
+- policy templates for more expense categories
+
+Deferred scope:
+
+- general-purpose identity platform
+- broad agent orchestration
+- merchant discovery and product recommendation
+- consumer banking unrelated to agent spending
+- generic workflow automation
+- robotics and physical-action policy
+
+## Product principles
+
+- Start with a repeated expense-management job.
+- Keep one primary funding account and allocate authority through the ledger.
+- Give agents typed intent tools instead of unrestricted credentials.
+- Require an explicit budget, validity period, and revocation path for every
+  Agent Grant.
+- Bind approval to the exact purchase that will execute.
+- Treat stablecoin and cards as payment rails under one policy model.
+- Preserve one audit chain through settlement and refund.
+- Keep custody and signing details below the normal customer experience.
+- Prove the direct workflow before expanding platform distribution.
+
+## Open questions
+
+- Which first workflow has the strongest repeated demand: software procurement,
+  travel, ecommerce operations, or personal shopping?
+- Should the first Airwallex proof use one card per order, one card per agent, or
+  a shared card with remote authorization?
+- Which agent runtime should be the first OAuth and MCP integration?
+- Which purchases may execute automatically in the first release?
+- Which funding and regulatory model can support the first production customer?
+- Which evidence should appear in the default activity view and which belongs in
+  an advanced audit view?
+
+## Reference links
+
+- Google Agent Payments Protocol announcement:
+  <https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol>
 - AP2 protocol: <https://ap2-protocol.org/>
-- Google AP2 announcement: <https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol>
+- Airwallex issuing overview: <https://www.airwallex.com/docs/issuing/overview>
+- Airwallex supported card programs:
+  <https://www.airwallex.com/docs/issuing/supported-card-programs>
+- OpenAI MCP documentation: <https://learn.chatgpt.com/docs/extend/mcp>

@@ -1,649 +1,617 @@
-# Refactor 120: Proactive Router A/B Deployment-Root Refresh
+# Refactor 120: Per-Tenant Proactive Derivation-Root Share Refresh
 
 Created: June 11, 2026
 
-Last reconciled with the repository: August 5, 2026
+Rewritten: August 28, 2026
 
-Status: Deferred. The current custody split remains authoritative. Proactive
-deployment-root refresh and joined-root Yao derivation are not planned for
-implementation at this time because their protocol, lifecycle, erasure, and
-operational complexity outweigh the current security benefit.
+Status: proposed implementation plan. The refresh protocol is unimplemented.
+Production rollout is gated on refresh-invariant Ed25519 derivation and credible
+retired-share erasure.
 
-## Purpose
+## Outcome
 
-This document defines identity-preserving proactive refresh for the Router A/B
-deployment root. A refresh replaces both Shamir shares while preserving the joined
-`k_org`, every wallet public key, every address, and all client threshold material.
-Once the target derivation boundary is active, the operation is O(1) in wallet count
-and requires no client migration.
+Give every tenant a distinct server-side derivation root and refresh its two
+Deriver shares without changing the root itself.
 
-The filename retains the historical `k_org` term. In `threshold-prf`, `k_org` names
-the underlying root scalar. Operational code exposes only role-specific signing-root
-shares and treats the root as deployment custody.
+After the new derivation profile is active, one tenant refresh:
 
-The authoritative protocol and deployment documents are:
+- changes both Deriver root shares;
+- advances one `RootShareEpoch`;
+- preserves every wallet public key and address;
+- preserves `signingRootId` and `signingRootVersion`;
+- leaves wallet custody seeds, Ed25519 Yao Client roots, ECDSA client root
+  shares, passkeys, local databases, signer packages, and
+  `MpcMaterialActivationRef` values untouched;
+- requires no WebAuthn ceremony, client message, wallet scan, or per-wallet
+  activation;
+- leaves normal signing available throughout the refresh.
 
-- [Router A/B protocol](router-ab/protocol.md)
-- [Router A/B deployment](router-ab/deployment.md)
-- [R90: modular auth and capabilities](refactor-90-modular-auth-capabilities-plan.md)
-- [R102: rotatable signing lanes](refactor-102-rotatable-signing-lanes.md)
-- [R121: deployment portability](refactor-121-deployment-portability.md)
-- [Self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md)
+The scalar refresh is small and well understood. The overall refactor is
+moderate rather than trivial. Two parts carry most of the work:
 
-Those documents own protocol behavior and product sequencing. This document owns the
-operational distinction between deployment-root custody, deployment-root share
-refresh, deployment-root replacement, and wallet-level share rotation.
+1. Ed25519 must derive from the refresh-invariant joined tenant root instead of
+   separately hashing the two role shares.
+2. Retired shares must remain unrecoverable through Worker rollback, database
+   history, backups, or retained wrapping keys.
 
-## Current Decisions
+## Terminology
 
-1. Router A/B uses two isolated Deriver roles and a strict 2-of-2 threshold policy.
-   Deriver A and Deriver B must both participate in derivation. Production places
-   them in separately administered Cloudflare accounts.
-2. A managed deployment currently has one deployment-level signing root. Its two root
-   shares are shared infrastructure across the tenants served by that deployment.
-3. `signingRootId` and `signingRootVersion` provide product scope, domain separation,
-   and lifecycle selection. They do not imply a physically distinct root pair for
-   every tenant.
-4. Each Deriver receives only its own root-share wire secret through its role-specific
-   Cloudflare secret binding:
-   - `DERIVER_A_ROOT_SHARE_WIRE_SECRET`
-   - `DERIVER_B_ROOT_SHARE_WIRE_SECRET`
-5. The central Signer D1 root-share table has been removed. Root shares must never be
-   persisted in the shared signing database.
-6. The self-hosting design requires fresh operational secret material. Its production
-   bootstrap remains planned work. Managed deployment root shares are outside tenant
-   export and migration packages.
-7. Normal signing workers do not receive either deployment-root share.
-8. A successful deployment-root share refresh preserves the underlying root and every
-   derived public identity. A deployment-root replacement changes the root and normally
-   changes derived wallet keys and EOA addresses.
-9. The refresh protocol operates on the current Shamir 2-of-2 shares. For share IDs
-   `1` and `2`, a fresh zero-constant polynomial updates the shares without changing
-   `k_org`.
-10. ECDSA threshold-PRF derivation depends on stable wallet context and
-    `signingRootVersion`. `RootShareEpoch` binds custody, transcripts, share selection,
-    and replay protection; it does not enter the stable wallet KDF.
-11. Ed25519 Yao receives the raw A and B Shamir scalars as protected inputs,
-    reconstructs `k_org` only on garbled wires, and derives the stable server
-    contributions inside the circuit. Neither Deriver, Router, Gateway, nor
-    SigningWorker learns the joined root.
-12. After the joined-root derivation cutover, a root-share refresh does not enumerate
-    wallets, rewrite wallet records, issue new client packages, or change
-    `MpcMaterialActivationRef` values. Fixed canary derivations prove continuity before
-    activation.
+These terms name different layers:
 
-The earlier per-project 2-of-3 construction with a customer-held recovery share and
-the per-wallet contribution-migration approach are outside this design. The selected
-design refreshes one deployment share pair and leaves wallet state untouched.
+| Term                        | Meaning                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------- |
+| Tenant derivation root      | One stable server-side secret derivation origin for one tenant                         |
+| Deriver root share          | Deriver A or B's 2-of-2 Shamir share of that tenant root                               |
+| `signingRootId`             | Persisted identifier for the logical signing-root namespace; it is not secret material |
+| `signingRootVersion`        | Stable derivation-version metadata; changing it may select different wallet keys       |
+| `RootShareEpoch`            | Mutable custody epoch selecting the active A/B share pair                              |
+| Role operational key        | A role-local KEK, HPKE key, peer-authentication key, or service credential             |
+| Wallet custody seed         | The client-controlled secret derivation origin for owner signing roots                 |
+| Active wallet signing share | Already-provisioned client or SigningWorker material used for normal signing           |
 
-## Threat Model
+The phrase server-seed rotation in product discussion means tenant derivation-root
+share refresh. A tenant derivation-root replacement is a different operation and
+normally changes deterministically derived wallet material.
 
-The managed deployment assumes Deriver A and Deriver B run in separate Cloudflare
-accounts with independent administrators, passkeys, recovery paths, API tokens, CI
-credentials, secret stores, and deployment authority. No ordinary operator or
-automation identity may control both accounts.
+## Rotation Taxonomy
 
-The proactive-refresh guarantee is epoch based. An attacker must obtain both shares
-from one recoverable epoch, or compromise one role while it still retains enough
-refresh state to translate a stolen share from another epoch. Exact wall-clock
-simultaneity is not the boundary. A refresh heals a prior single-role exposure only
-after all of these conditions hold:
+| Operation                            | Client action                   | Wallet identity                   | Security effect                                           |
+| ------------------------------------ | ------------------------------- | --------------------------------- | --------------------------------------------------------- |
+| Role operational-key rotation        | None                            | Unchanged                         | Rewraps or replaces one role-local protection key         |
+| Tenant derivation-root share refresh | None                            | Unchanged                         | Replaces both A/B shares while preserving the joined root |
+| Tenant derivation-root replacement   | Wallet migration                | Usually changes                   | Replaces a root that may be fully compromised             |
+| Wallet or lane share refresh         | Depends on the signing protocol | Unchanged when correctly reshared | Replaces already-active threshold signing material        |
 
-1. The exposed role has been cleaned and its control-plane credentials have rotated.
-2. Both roles complete an authenticated refresh in uncompromised runtimes.
-3. Refresh deltas, temporary inputs, old shares, and recoverable old Worker versions
-   are cryptographically erased.
-4. Rollback paths cannot restore an earlier share.
+Refactor 120 owns only tenant derivation-root creation and share refresh.
+Role-key rotation remains role-local. Wallet and execution-lane share refresh
+remain curve-specific lifecycle operations.
 
-Compromise of both roles during the same recoverable epoch exposes `k_org`. Share
-refresh cannot remediate that event; the deployment must replace the root and migrate
-the affected wallet identities. A provider-wide Cloudflare compromise is also outside
-the two-account isolation guarantee. Provider diversity can strengthen a future
-deployment without changing the protocol model.
+## Decisions
 
-Hourly refresh with jitter is the initial operational target, supplemented by an
-event-triggered refresh after a role is cleaned. A one-minute interval is useful only
-if installation, canary verification, secret erasure, and version retirement finish
-reliably inside that cadence. Frequency cannot compensate for retained historical
-shares or shared administrative authority.
+1. Every Router A/B tenant has a physically distinct tenant derivation root.
+2. Each tenant root uses the strict Router A/B 2-of-2 policy. Deriver A and
+   Deriver B each hold exactly one share.
+3. One authenticated tenant maps to exactly one active root identity. Requests
+   cannot select a tenant, root, share, Deriver, or epoch.
+4. `signingRootId` and `signingRootVersion` remain the persisted derivation
+   identity. Their serialized names remain unchanged.
+5. `RootShareEpoch` is custody metadata. It never enters stable wallet KDF
+   input after this refactor.
+6. Refresh changes the two role shares and `RootShareEpoch`. The joined tenant
+   root stays constant.
+7. Initial tenant-root creation is distributed. No bootstrap process, Router,
+   Gateway, SigningWorker, database, or control-plane record receives the
+   joined root or both shares.
+8. Each role stores tenant shares only inside its private custody boundary.
+   The shared Gateway and SigningWorker databases never store them.
+9. Ed25519 uses a joined-root Yao derivation profile. Raw role shares enter only
+   as protected circuit inputs, and the joined root remains on garbled wires.
+10. ECDSA threshold-PRF evaluation uses a stable derivation context and a
+    separate epoch-bound custody transcript.
+11. The current derivation profile is replaced directly. Production code keeps
+    no dual profile, fallback, legacy epoch KDF, or compatibility branch.
+12. A refresh is O(1) in the selected tenant's wallet count. Fleet-wide rotation
+    is O(number of tenants) and runs through bounded, jittered jobs.
+13. Normal signing uses already-active material and remains available. Only new
+    derivation ceremonies for the selected tenant are briefly fenced.
+14. A refresh never changes active SigningWorker shares. Rotating those shares
+    requires the corresponding wallet or lane protocol.
+15. Tenant derivation-root replacement is an explicit wallet-identity migration.
+    It never masquerades as a share-epoch increment.
+16. Managed and self-hosted deployments create and refresh their roots
+    independently. Cross-deployment device linking transfers no root share.
+17. Client transparency is a release invariant. Once the new profile is
+    deployed, future refreshes require zero client ceremonies or local-state
+    changes.
+18. Compromise-healing claims require verified destruction of retired shares
+    and their epoch wrapping keys.
+19. The no-client guarantee begins after the per-tenant, refresh-invariant
+    derivation profile is authoritative. Converting an existing shared-root or
+    epoch-dependent wallet population is a separate one-time cutover.
 
-## Current Secret Hierarchy
+## Security Goal
 
-### Managed deployment
+A successful refresh limits the usefulness of one previously exposed Deriver
+share.
+
+Suppose an attacker obtains Deriver A's epoch 7 share. After both honest roles
+refresh to epoch 8, erase epoch 7, and prevent rollback, that old A share cannot
+combine with Deriver B's epoch 8 share. The attacker still needs both shares
+from one recoverable epoch.
+
+The guarantee holds only after:
+
+1. the exposed role and its administrative credentials are clean;
+2. both roles complete the refresh in uncompromised runtimes;
+3. the next epoch is verified and activated;
+4. old shares, deltas, ephemeral keys, and wrapping keys are destroyed;
+5. Worker, database, secret, and backup rollback cannot recover the old epoch.
+
+Exposure of both shares from one recoverable epoch compromises the tenant root.
+Share refresh cannot repair that event. The response is tenant derivation-root
+replacement and explicit wallet migration.
+
+Tenant roots reduce cryptographic blast radius. Compromise of both root shares
+for tenant A does not reveal tenant B's root. A full compromise of both Deriver
+roles can still expose every tenant that those roles serve.
+
+This refresh protects derivation-root custody. It does not refresh active client
+or SigningWorker signing shares.
+
+## Architecture
 
 ```text
-managed deployment signing root
-├── Deriver A root share
-│   ├── Cloudflare secret binding
-│   ├── Deriver A private D1 KEK
-│   └── Deriver A envelope and peer-authentication keys
-└── Deriver B root share
-    ├── Cloudflare secret binding
-    ├── Deriver B private D1 KEK
-    └── Deriver B envelope and peer-authentication keys
+authenticated tenant
+  -> stable signingRootId + signingRootVersion
+       -> authoritative active RootShareEpoch
+            -> Deriver A private share store: A_tenant,epoch
+            -> Deriver B private share store: B_tenant,epoch
 
-tenant/product scope
-└── signingRootId + signingRootVersion
-    └── account/lane derivation context
-        └── wallet public key and threshold signing material
+stable tenant derivation root
+  K_tenant = 2*A_tenant,epoch - B_tenant,epoch
+  -> ECDSA threshold PRF
+  -> Ed25519 joined-root Yao
+  -> stable wallet server contributions
 ```
 
-The deployment root is infrastructure custody. Tenant identifiers select a derivation
-domain under that root. Tenant export therefore cannot contain the managed
-deployment's root shares.
+The Gateway resolves the tenant-root identity from authenticated deployment
+configuration. The Router receives one verified tenant-root binding and exact
+active epoch. A browser request cannot provide or override either value.
 
-### Target derivation boundary
+Each Deriver private store contains:
+
+- tenant scope;
+- `signingRootId`;
+- `signingRootVersion`;
+- `RootShareEpoch`;
+- role identity;
+- sealed role share;
+- share commitment;
+- epoch wrapping-key reference;
+- lifecycle state and timestamps.
+
+The control plane stores only public lifecycle state, commitments, transcript
+digests, canary results, and receipts.
+
+## Initial Tenant-Root Creation
+
+Initial creation must avoid a process that observes both shares.
+
+For fixed Shamir share IDs 1 and 2:
 
 ```text
-Deriver A private input: Shamir share f(1)
-Deriver B private input: Shamir share f(2)
+Deriver A samples A
+Deriver B samples B
 
-ECDSA threshold PRF
-└── combines verified partial evaluations of the same stable context
-
-Ed25519 Yao
-└── protected circuit wires compute k_org = 2*f(1) - f(2)
-    └── in-circuit domain-separated KDF
-        ├── server/A y and tau contribution
-        └── server/B y and tau contribution
-
-public result
-└── unchanged wallet public identity
+K = 2*A - B
 ```
 
-The joined `k_org` exists only as an intermediate secret inside the Yao circuit or as
-the mathematical relation reconstructed by verified threshold-PRF partials. It is
-never decoded or returned.
+Any valid pair `A` and `B` defines one degree-one Shamir polynomial and its
+constant `K`. If either role samples honestly, `K` is unpredictable to the
+other role.
 
-### Self-hosted deployment
+The creation ceremony:
 
-```text
-self-hosted deployment
-├── fresh Deriver A root share
-├── fresh Deriver B root share
-├── fresh role KEKs and authentication keys
-└── tenant data imported through the deployment-portability contract
-```
+1. Allocates the tenant-root identity and epoch 1.
+2. Opens an authenticated A/B session bound to the tenant, root identity,
+   epoch, roles, protocol version, nonce, and expiry.
+3. Both roles commit to independently sampled nonzero shares before revealing
+   public share commitments.
+4. Both roles prove knowledge of their committed shares.
+5. The Router computes the public tenant-root commitment
+   `K_pub = 2*C_A - C_B` and rejects the identity element.
+6. Each role installs its own sealed pending share.
+7. Fixed ECDSA and Ed25519 canaries run against the pending epoch.
+8. The control plane activates epoch 1 after both roles attest installation and
+   every canary passes.
 
-Self-hosting uses a new trust domain. The intended recovery package described by R120
-is still planned work; production bootstrap and recovery ceremonies are not complete.
+Neither scalar share crosses into the opposite role. Only commitments, proofs,
+and redacted receipts leave a Deriver.
 
-## Identity and Epoch Taxonomy
+## Proactive Share Refresh
 
-These values serve different purposes and must remain distinct.
-
-| Value | Scope | Purpose | Rotation effect |
-|---|---|---|---|
-| Deployment signing root | One Router A/B deployment | Root PRF/derivation secret | Replacement changes derived wallet identities |
-| Deriver root share | One Deriver role | One 2-of-2 share of the deployment root | Refresh can preserve the root and wallet identities |
-| `signingRootId` | Product/tenant derivation domain | Selects the logical root namespace | Changing it selects a different domain |
-| `signingRootVersion` | Product root lifecycle | Selects the product root version and participates in derivation bindings | Changing it can change derived key material |
-| `RootShareEpoch` | Deployment-root share set | Selects shares and binds custody/transcript freshness | Incrementing it preserves stable wallet derivation |
-| Wallet public key | Account or execution lane | On-chain signing identity | Changes when wallet key material changes |
-| Wallet/lane share epoch | One wallet key or lane | Identifies refreshed wallet threshold shares | Incrementing it preserves the wallet public key |
-| `MpcMaterialActivationRef` | Persisted wallet activation | Selects active MPC material | Changes only after successful activation |
-
-The Rust protocol already models `RootShareEpoch` as a separate type. Current ECDSA
-derivation context still includes it, and some TypeScript product paths populate
-`root_share_epoch` from `signingRootVersion`. Refactor 120 removes both couplings.
-Stable derivation uses `signingRootVersion`; share selection, authorization,
-transcripts, persistence AAD, and replay protection use `RootShareEpoch`.
-
-## Role Ownership
-
-| Role | Holds deployment-root share? | Mutable persistence | Current responsibility |
-|---|---:|---|---|
-| Router | No | None | Request validation, routing, transcript coordination |
-| Deriver A | A only | Private Deriver A D1 | A-side derivation and sealed contribution |
-| Deriver B | B only | Private Deriver B D1 | B-side derivation and sealed contribution |
-| Signing worker | No | Private signing D1 | Wallet signing material and signing execution |
-| Gateway | No | Gateway D1 | Product ceremonies, activation results, authorization, policy, and audit state |
-| Deployment control plane | No | Authoritative epoch store undecided | Deployment configuration and root-epoch coordination |
-| Tenant application | No | Application data | Product lifecycle and wallet requests |
-| Deployment bootstrap process | Both, transiently | Temporary process and command output | Generate the initial pair and route each share to its role |
-
-Normal operation must preserve these boundaries. No runtime path may assemble both
-root shares in one Worker, database, log stream, or administrative response.
-
-## Implemented State
-
-### Cryptographic and protocol primitives
-
-- `threshold-prf` generates a signing root and splits it under a 2-of-2 policy.
-- The current Shamir polynomial is evaluated at share IDs `1` and `2`.
-- Root shares have typed wire encodings and proof/vector coverage.
-- Root-share commitments and DLEQ proofs already bind PRF partials to committed
-  scalars.
-- `router-ab-core` has distinct Router, Deriver A, and Deriver B types.
-- `RootShareEpoch` is included in protocol inputs and transcript validation.
-- The protocol rejects role, peer, epoch, transcript, and authorization mismatches.
-- Wallet derivation is bound to product/account context.
-
-### Deployment and runtime boundaries
-
-- `router:deploy:root-share-keygen` currently generates the root and both 2-of-2 wire
-  shares in one operator-run bootstrap process, then prints the two role-specific
-  secret values for separate installation. This process temporarily sees the complete
-  bootstrap output and must run in an isolated operator environment with output
-  capture disabled.
-- Cloudflare has separate Deriver A and Deriver B Worker entry points.
-- Each Worker consumes a role-specific root-share secret binding.
-- Each Deriver has private D1 state and a separate KEK.
-- The signing worker does not receive root-share bindings.
-- The former shared `signing_root_secret_shares` D1 table is dropped by migration.
-- Local development can simulate both roles and use deterministic fixture shares.
-
-### Product binding
-
-- Registration paths carry `signingRootId`, `signingRootVersion`, and Router A/B
-  protocol inputs.
-- Persisted activation records select wallet MPC material.
-- Deployment portability excludes shared managed root material.
-
-### Existing adjacent refresh surfaces
-
-- `router-ab-core` defines wallet/account-scoped `RefreshScope` state.
-- The ECDSA product path has a `server_share_refresh` operation and activation-refresh
-  routing for existing wallet material.
-- The Ed25519 Yao plans define wallet-key/root refresh and recovery lifecycle.
-- R102 defines execution-lane creation and share refresh, while its new lane protocol
-  remains unregistered.
-
-These surfaces refresh or reactivate wallet/account material. They do not rotate the
-two deployment root-share Secret bindings.
-
-### Current Ed25519 Yao boundary
-
-The deployed Yao preparation path hashes each raw root-share wire value into an
-independent role-local root. The role-local contribution HKDF runs before the garbled
-circuit, and the circuit receives already-derived `y` and `tau` contributions. A
-Shamir refresh therefore changes both role roots nonlinearly and does not preserve the
-joined Ed25519 output automatically.
-
-The existing `server_share_refresh` keeps the role roots stable and applies correlated
-zero-sum deltas to one wallet's persisted contributions. It proves useful lifecycle and
-activation machinery, but it is not the O(1) deployment-root refresh defined here.
-
-The joined-root Yao profile is derivation-breaking relative to this current role-local
-hashing profile. Values derived as `KDF(H(A), context)` and `KDF(H(B), context)` cannot
-in general be reproduced from `k_org` after A and B are refreshed. The O(1) guarantee
-therefore starts only after the joined-root profile becomes authoritative. Rollout must
-either happen before production Ed25519 identities depend on the current profile, or
-include an explicit one-time migration for those identities. This plan does not keep a
-dual legacy derivation path.
-
-These controls implement custody isolation and epoch binding. They do not yet provide
-an online rotation ceremony or distributed root generation.
-
-## Unimplemented State
-
-For deployment-root Secret custody, the repository does not currently implement:
-
-- distributed refresh of Deriver A and Deriver B root shares while preserving the
-  underlying deployment root;
-- a public commitment to the joined deployment root and a proof that the next share
-  commitments preserve it;
-- a Yao input schema that accepts raw Shamir share scalars;
-- binding from each protected Yao input to the installed role, share commitment, and
-  active `RootShareEpoch`;
-- in-circuit Shamir interpolation and server-contribution KDF;
-- circuit manifests, vectors, formal evidence, and performance gates for joined-root
-  Yao derivation;
-- removal of `RootShareEpoch` from stable ECDSA derivation context;
-- an inventory-backed cutover decision proving whether any production Ed25519
-  identity depends on the current role-local hashing profile;
-- a control-plane state machine for prepare, verify, activate, retire, and rollback;
-- coordinated installation of a next `RootShareEpoch` across both Derivers;
-- an overlap window in which active and next epochs can be verified safely;
-- an explicit policy for records whose AAD binds their creation epoch versus the
-  current custody epoch;
-- an audited recovery runbook for loss or compromise of a Deriver root share;
-- managed customer-held recovery shares;
-- physically distinct deployment-root pairs per managed tenant;
-- export of managed deployment root material;
-- the separate [self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md)'s production
-  bootstrap and recovery package.
-
-Documentation and operations must describe these as gaps until executable code,
-deployment automation, and tests exist.
-
-## Rotation Operations
-
-The word rotation covers four different operations. Operators must choose the intended
-operation explicitly.
-
-### 1. Role operational-key rotation
-
-This rotates a Deriver KEK, envelope key, peer-authentication key, service credential,
-or similar role-local secret. It does not change the deployment root or wallet keys.
-
-Where ciphertext is protected by the rotated key, the owning role must rewrap it inside
-that role's boundary. The opposite Deriver and the signing worker do not participate
-unless the protocol for that key explicitly requires them.
-
-This class of rotation is operationally feasible with the current role separation,
-though individual secrets still need secret-specific deployment runbooks.
-
-### 2. Deployment-root share refresh
-
-This is the intended security operation for refreshing long-lived A/B custody while
-preserving the same deployment signing root.
-
-The current `threshold-prf` root uses a degree-one Shamir polynomial over the scalar
-field, evaluated at share IDs `1` and `2`:
+For tenant root `K`, current shares `A` and `B`, and fresh scalar `rho`:
 
 ```text
-f(x) = k_org + a*x
-A = f(1)
-B = f(2)
-k_org = 2*A - B
+K = 2*A - B
 
-g(x) = rho*x
 A' = A + rho
 B' = B + 2*rho
 
-2*A' - B' = 2*A - B = k_org
+2*A' - B' = 2*A - B = K
 ```
 
-The two-party form makes the contributory step concrete:
+Both roles contribute randomness:
 
 ```text
 rho = rho_A + rho_B
 
-Deriver A keeps rho_A and sends 2*rho_A to Deriver B.
-Deriver B keeps 2*rho_B and sends rho_B to Deriver A.
+Deriver A sends 2*rho_A to Deriver B.
+Deriver B sends rho_B to Deriver A.
 
 A' = A + rho_A + rho_B
 B' = B + 2*rho_A + 2*rho_B
 ```
 
-Before sending an update, A commits to `R_A = rho_A*G` and B commits to
-`R_B = rho_B*G`. A verifies the received B update against `R_B`; B verifies its
-received A update against `2*R_A`. The scalar updates travel only through the
-encrypted A/B channel and live only for the ceremony.
+Before sending updates:
 
-All arithmetic is modulo the curve scalar order. Each Deriver contributes fresh
-randomness to `rho` and sends only its recipient-specific zero-share update over the
-authenticated role-to-role channel. A coefficient commitment lets the recipient
-verify that its update is the evaluation of a zero-constant polynomial. Commitments
-and proofs enter the refresh transcript; scalar deltas never enter logs, audit events,
-or durable control-plane state. Ephemeral refresh material is erased after activation.
+- A commits to `R_A = rho_A*G`;
+- B commits to `R_B = rho_B*G`;
+- A verifies the received B update against `R_B`;
+- B verifies the received A update against `2*R_A`.
 
-The deployment stores a public root commitment `K = k_org*G`. Given next-share
-commitments `C_A'` and `C_B'`, both roles verify `2*C_A' - C_B' = K` and prove
-knowledge of their installed share. This establishes continuity without reconstructing
-`k_org`. The protocol needs commit-before-send ordering, authenticated encryption,
-contributory randomness from both roles, and abort behavior for invalid, replayed, or
-inconsistent updates.
+All scalar operations use the root field. Updates travel through the
+authenticated encrypted A/B channel and remain inside the refresh session.
 
-A complete refresh ceremony needs:
+The complete ceremony:
 
-1. Allocate a new `RootShareEpoch`.
-2. Fence new derivation ceremonies while allowing normal signing with already-active
-   wallet material.
-3. Open a bounded, mutually authenticated A/B refresh session bound to deployment,
-   current epoch, next epoch, nonce, protocol version, and role identities.
-4. Commit to independently sampled refresh coefficients before exchanging encrypted
-   recipient-specific updates.
-5. Verify each received update against its coefficient commitment, then calculate and
-   install the role-local next share.
-6. Publish the next-share commitments and prove possession of the installed shares.
-7. Verify `2*C_A' - C_B' = K` against the pinned deployment-root commitment.
-8. Run fixed ECDSA threshold-PRF canaries under stable derivation contexts.
-9. Run fixed Ed25519 Yao canaries with the next shares and compare all public outputs
-   with the active-epoch fixtures.
-10. Atomically activate the next epoch after both roles and every canary attest success.
-11. Erase prior shares and ephemeral refresh state, then make the transition
-    forward-only.
-12. Emit a redacted audit record containing epoch IDs, transcript hashes,
-    commitments, proof results, canary IDs, and destruction attestations.
+1. Resolve the exact authenticated tenant and active root identity.
+2. Acquire a per-tenant refresh lock.
+3. Allocate the next `RootShareEpoch`.
+4. Fence new derivation ceremonies for that tenant.
+5. Open a one-use A/B refresh transcript bound to current and next epochs.
+6. Commit to independently sampled refresh contributions.
+7. Exchange encrypted recipient-specific updates.
+8. Verify contributions and calculate role-local next shares.
+9. Seal next shares under fresh epoch wrapping keys.
+10. Publish next-share commitments and proofs of possession.
+11. Verify `2*C_A' - C_B' = K_pub`.
+12. Run fixed ECDSA and Ed25519 continuity canaries.
+13. Mark the next epoch verified.
+14. Activate it for new derivations after both role receipts pass.
+15. Unfence tenant derivation.
+16. Destroy previous-epoch shares, refresh material, and previous-epoch wrapping
+    keys.
+17. Verify both destruction receipts and return the lifecycle to `active`.
+18. Emit a redacted receipt and release the lock.
 
-Current Deriver-private D1 records use independent role-local KEKs. Deployment-root
-refresh does not rotate those KEKs and does not require re-encrypting unrelated
-records. Any persistence whose AAD selects the custody epoch needs a current/next
-selection rule and forward-only retirement; stable wallet derivation records remain
-unchanged.
+Normal signing continues during every step because it does not read tenant root
+shares.
 
-Expected outcome:
+## Stable Derivation Boundary
 
-- existing wallet public keys, addresses, and lane public keys remain unchanged;
-- `signingRootId` and `signingRootVersion` remain unchanged;
-- `RootShareEpoch` increments;
-- wallet records, client threshold packages, and `MpcMaterialActivationRef` values are
-  untouched;
-- compromise of an old individual share no longer exposes the active share set.
+### ECDSA
 
-This ceremony is planned and unimplemented.
-
-### 3. Deployment-root replacement
-
-Replacement creates a new underlying deployment signing root and a new A/B share pair.
-It is required when preserving the old root is unsafe or impossible.
-
-Replacement must be modeled as a product migration because derived keys generally
-change. EVM EOAs will have new addresses. NEAR access keys and smart-contract wallet
-keys may be migrated through chain-specific account-control mechanisms.
-
-A replacement plan needs:
-
-- a new product root version or equivalent explicit derivation namespace;
-- new wallet derivation and activation records;
-- chain-specific asset and authority migration;
-- a rollback policy that does not silently reactivate compromised material;
-- explicit retirement of the previous root and its wallet material.
-
-Replacement cannot masquerade as a `RootShareEpoch` increment.
-
-### 4. Wallet-key or execution-lane share refresh
-
-R102 addresses creation and refresh of threshold shares for an individual execution
-lane. The lane ID and wallet public key remain stable while the lane share epoch,
-holder/server material, and activation reference change. Curve-specific wallet-key
-root refresh can update every active lane package for that wallet key and remains owned
-by the authoritative ECDSA and Ed25519 protocol plans.
-
-This operates below the deployment-root layer:
+The current ECDSA derivation context includes `RootShareEpoch`. Refactor 120
+separates two records:
 
 ```text
-deployment-root custody
-└── derives or authorizes wallet material
-    └── wallet/lane threshold shares
-        └── refreshed by R102
+StableTenantDerivationContextV2
+  tenant identity
+  signingRootId
+  signingRootVersion
+  wallet/key derivation facts
+
+TenantRootCustodyBindingV1
+  tenant-root identity
+  RootShareEpoch
+  Deriver identities
+  share commitments
+  request nonce and transcript digest
 ```
 
-R102 remains valuable after smart-contract wallets or ERC-4337 support because share
-refresh reduces exposure of long-lived off-chain signing material. Contract wallets
-improve on-chain account/key indirection; they do not refresh the custody shares that
-authorize signatures.
+Threshold-PRF evaluation depends only on the stable derivation context. Partial
+proofs, routing, share selection, replay protection, and persistence AAD bind
+the custody record.
 
-## Failure and Incident Policy
+Changing only `RootShareEpoch` must leave stable context bytes and threshold-
+PRF output unchanged.
 
-| Condition | Required response |
-|---|---|
-| One current Deriver share suspected exposed; peer share trusted | Halt sensitive derivation, investigate, and perform a verified share refresh when the refresh protocol exists |
-| Both current Deriver shares suspected exposed | Treat the deployment root as compromised and execute root replacement |
-| One Deriver share lost with no recoverable role secret | Current strict 2-of-2 deployment cannot derive new wallet material; recover from approved deployment backup or replace the root |
-| Refresh fails before activation | Keep the current epoch active and destroy incomplete next-epoch material |
-| Refresh fails after one role installs next material | Do not activate; restore a consistent epoch through the controlled rollback procedure |
-| Canary public key changes during a claimed refresh | Abort. The operation changed the root relation or derivation inputs |
-| Tenant requests managed root export | Reject the request; shared deployment root material is outside tenant export scope |
+### Ed25519
 
-The present repository lacks the refresh and recovery control plane needed to automate
-these responses. Incidents involving root-share loss or compromise require a
-deployment-specific manual procedure and may require root replacement.
+The current Ed25519 profile hashes each role share independently before the
+garbled circuit. Share refresh changes those hashes and therefore changes its
+derived output.
 
-## Managed and Self-Hosted Boundaries
+The replacement profile:
 
-### Managed
+1. admits A and B as protected scalar inputs;
+2. binds each input to the authenticated role, active epoch, and installed share
+   commitment;
+3. reconstructs `K = 2*A - B` only on garbled wires;
+4. runs the domain-separated server-contribution KDF inside the circuit;
+5. emits the same recipient-encrypted client and SigningWorker package shapes;
+6. never decodes or returns K.
 
-- Root material belongs to the managed deployment trust domain.
-- Tenants share the deployment root while remaining separated by authenticated
-  derivation context and product scope.
-- Tenant migration exports tenant-owned data and activation state.
-- Tenant migration excludes Deriver root shares, role KEKs, peer keys, and other
-  deployment-wide secrets.
+The joined-root profile requires a new circuit manifest, protocol version,
+cache identity, vectors, formal checks, and explicit performance budget.
 
-### Self-hosted
+Production must use one authoritative profile. If existing production wallets
+depend on the role-local hashing profile, rollout requires one explicit
+pre-cutover migration. The implementation retains no dual derivation path.
 
-- The planned bootstrap creates a fresh deployment root and role-local operational
-  secrets.
-- The host becomes responsible for backup, recovery, rotation, and destruction.
-- R121 imports wallet-specific material through role-local handoff capsules and
-  verifies that wallet public keys and addresses remain unchanged.
-- The separate [self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md) requires an encrypted
-  recovery package for disaster recovery within the same self-hosted trust domain.
+## Client Transparency
 
-Moving a tenant from managed to self-hosted is a deployment migration. It is not a
-share refresh of the managed root.
+Once the stable derivation profile is deployed, a refresh causes no client
+operation:
+
+- no passkey prompt;
+- no iframe or SDK callback;
+- no wallet custody-seed access;
+- no IndexedDB mutation;
+- no Ed25519 Yao Client root or ECDSA client root share replacement;
+- no signer-package download;
+- no wallet-key or lane reactivation;
+- no `MpcMaterialActivationRef` change.
+
+Clients may require a normal SDK release for the one-time protocol-profile
+cutover if current public wires expose derivation epochs. Every subsequent
+tenant refresh is entirely server-side.
+
+Registration and recovery re-establishment use the active epoch whenever they
+invoke server derivation. They derive identical wallet-key material because the
+joined tenant root and stable context remain unchanged. Factor addition, device
+linking, and export do not become root-refresh ceremonies and keep their
+existing client behavior.
+
+The initial conversion from one deployment-wide root to distinct tenant roots
+cannot inherit this guarantee automatically. A fresh tenant root normally
+changes deterministic outputs. The clean rollout creates tenant roots before
+production wallets depend on the old profile. Any existing population requires
+an explicit migration plan or a documented decision to preserve its current
+root profile until retirement.
+
+## Lifecycle
+
+The control-plane state is exhaustive and contains no secret share bytes:
+
+```ts
+type TenantRootRefreshStateV1 =
+  | {
+      readonly kind: 'active';
+      readonly identity: TenantRootIdentityV1;
+      readonly current: ActiveTenantRootEpochV1;
+      readonly next?: never;
+      readonly previous?: never;
+      readonly activation?: never;
+      readonly failure?: never;
+    }
+  | {
+      readonly kind: 'preparing';
+      readonly identity: TenantRootIdentityV1;
+      readonly current: ActiveTenantRootEpochV1;
+      readonly next: PendingTenantRootEpochV1;
+      readonly previous?: never;
+      readonly activation?: never;
+      readonly failure?: never;
+    }
+  | {
+      readonly kind: 'verified';
+      readonly identity: TenantRootIdentityV1;
+      readonly current: ActiveTenantRootEpochV1;
+      readonly next: VerifiedTenantRootEpochV1;
+      readonly previous?: never;
+      readonly activation?: never;
+      readonly failure?: never;
+    }
+  | {
+      readonly kind: 'retiring';
+      readonly identity: TenantRootIdentityV1;
+      readonly current: ActiveTenantRootEpochV1;
+      readonly previous: RetiringTenantRootEpochV1;
+      readonly activation: TenantRootActivationReceiptV1;
+      readonly next?: never;
+      readonly failure?: never;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly identity: TenantRootIdentityV1;
+      readonly current: ActiveTenantRootEpochV1;
+      readonly next: FailedTenantRootEpochV1;
+      readonly previous?: never;
+      readonly activation?: never;
+      readonly failure: TenantRootRefreshFailureV1;
+    };
+```
+
+Boundary parsers normalize raw control-plane and role receipts once. Core
+functions accept only the exact preceding branch. Every switch is exhaustive.
+Type fixtures reject mixed current/next epochs, missing role receipts, direct
+object-literal construction, broad spreads, and invalid activation calls.
+
+A verified transition activates one exact next epoch and enters `retiring`.
+Normal derivation uses the new current epoch while both roles destroy the
+previous epoch. Destruction receipts return the lifecycle to `active`. A failed
+pre-activation transition keeps the current epoch active and destroys pending
+material. After activation, rollback is unavailable; remediation uses another
+forward refresh. A lifecycle stuck in `retiring` remains operational but cannot
+claim proactive compromise healing.
+
+## Storage and Erasure
+
+Per-tenant shares cannot use one Cloudflare secret binding per epoch at fleet
+scale. They require role-private indexed storage plus a destroyable wrapping-key
+boundary.
+
+Each epoch share is encrypted under a fresh epoch wrapping key. A stable role KEK
+must not be able to reconstruct retired epoch keys. Otherwise D1 Time Travel,
+backups, or copied ciphertext can recover old shares.
+
+The production adapter must demonstrate:
+
+- only the owning Deriver can open its active share;
+- current and pending are the only usable epochs;
+- old ciphertext is useless after epoch-key destruction;
+- Worker rollback cannot select or recover a retired share;
+- database recovery cannot restore its wrapping key;
+- backups exclude plaintext shares and recoverable retired keys;
+- logs, metrics, errors, and receipts contain no shares or refresh scalars.
+
+If the selected platform cannot provide credible epoch-key destruction, the
+feature may still rotate the active epoch operationally. Documentation must then
+avoid the stronger proactive compromise-healing claim.
+
+## Scheduling and Isolation
+
+Refresh jobs are tenant-scoped:
+
+- one refresh lock per tenant root;
+- bounded global concurrency;
+- hourly or daily policy with tenant-specific jitter;
+- event-triggered refresh after a role is cleaned;
+- exponential retry before activation;
+- forward refresh after activation;
+- independent failure and audit receipts per tenant.
+
+A refresh for tenant A never fences tenant B. Fleet-wide refresh cost grows with
+tenant count, so scheduling must respect Yao capacity and role-store quotas.
+
+## Self-Hosted Wallets
+
+[Refactor 150](../examples/self-host-cloudflare-worker/refactor-150-cloudflare-self-hosted-wallets.md)
+creates a destination deployment and provisions a fresh linked authority.
+
+Refactor 120 composes with that model:
+
+- the managed source keeps and refreshes its own tenant root;
+- the self-hosted destination creates and refreshes a separate tenant root;
+- cross-deployment linking transfers fresh destination-bound signing material,
+  never a source root share;
+- refreshing either deployment changes no linked wallet public key;
+- destination refresh requires no source availability or client participation;
+- retaining the source as a backup creates no shared root or refresh lifecycle.
+
+A migrated linked authority can contain signing material whose origin is the
+cross-deployment link ceremony. Root refresh still leaves that active material
+untouched. The destination tenant root governs future destination derivation
+ceremonies.
 
 ## Implementation Plan
 
-### Phase 0: finish the model separation
+### Phase 0: prove the derivation cutover
 
-- [x] Use a strict 2-of-2 root policy.
-- [x] Give each Deriver only its own root-share secret binding.
-- [x] Remove central D1 persistence of root shares.
-- [x] Bind `RootShareEpoch` into Router A/B protocol transcripts.
-- [ ] Separate `RootShareEpoch` from `signingRootVersion` throughout TypeScript
-  registration, persistence, routing, and deployment configuration.
-- [ ] Remove `RootShareEpoch` from the stable ECDSA derivation context while retaining
-  it in share selection, authorization, transcripts, persistence AAD, and replay
-  protection.
-- [ ] Represent stable derivation identity and custody epoch as separate required
-  domain types.
-- [ ] Add continuity vectors for existing ECDSA contexts. If the corrected stable
-  encoding changes an existing production identity, cut over before production or
-  perform one explicit boundary migration.
+- [ ] Inventory every place where `RootShareEpoch` enters ECDSA stable context
+      bytes, TypeScript construction, persistence, and activation validation.
+- [ ] Inventory every Ed25519 role-local root hash and server-contribution KDF.
+- [ ] Generate fixed old/new-share vectors proving stable ECDSA outputs after
+      epoch removal.
+- [ ] Build one joined-root Ed25519 Yao slice and measure gates, memory, CPU,
+      synthesis time, and wire size.
+- [ ] Inventory production identities that depend on either current derivation
+      profile.
+- [ ] Prove that the per-tenant root profile can activate before production, or
+      stop and define the one-time existing-wallet migration separately.
+- [ ] Select the destroyable epoch wrapping-key storage boundary.
+- [ ] Stop if stable-output vectors, joined-root performance, or erasure cannot
+      meet the release gates.
 
-### Phase 1: implement threshold-PRF proactive refresh
+### Phase 1: add per-tenant root custody
 
-- [ ] Add a typed 2-of-2 Shamir refresh protocol using zero-constant degree-one
-  polynomials at the fixed share IDs `1` and `2`.
-- [ ] Add commit-before-send contributory randomness and encrypted role-to-role update
-  delivery.
-- [ ] Pin the deployment-root commitment and verify the next-share commitment relation.
-- [ ] Prove possession and correct installation of each next share.
-- [ ] Define typed lifecycle states for current, preparing, verified, active,
-  retiring, and failed epochs.
-- [ ] Define authenticated refresh transcripts and replay protection.
-- [ ] Add vectors for success, mixed epochs, invalid zero shares, malformed proofs,
-  malicious updates, aborts, and replay.
+- [ ] Add exact tenant-root identity and role-share record types.
+- [ ] Add independent Deriver A and B private stores.
+- [ ] Add distributed tenant-root creation with commitments and proofs.
+- [ ] Map each authenticated tenant to one physical root pair.
+- [ ] Remove deployment-wide root-share Secret bindings after tenant roots are
+      active.
+- [ ] Reject caller-selected tenants, roots, roles, and epochs.
 
-### Phase 2: validate joined-root Yao feasibility
+### Phase 2: implement ECDSA transparent refresh
 
-- [ ] Define protected raw-scalar inputs for Deriver A and Deriver B.
-- [ ] Compute `k_org = 2*A - B` on garbled wires and prevent it from entering any
-  decoded output.
-- [ ] Implement one domain-separated in-circuit KDF path as a representative slice.
-- [ ] Measure synthesis time, gate/table size, memory, CPU, and wire bytes against the
-  active Yao profile.
-- [ ] Set explicit performance gates before expanding the circuit.
+- [ ] Split stable derivation context from custody binding.
+- [ ] Remove `RootShareEpoch` from threshold-PRF input bytes.
+- [ ] Add the contributory two-party zero-share refresh protocol.
+- [ ] Add root-continuity commitments and proof-of-installation.
+- [ ] Add mixed-epoch, replay, substitution, abort, and restart vectors.
 
-### Phase 3: integrate production joined-root Yao
+### Phase 3: replace the Ed25519 derivation profile
 
-- [ ] Move the stable server/A and server/B `y` and `tau` contribution KDFs into the
-  circuit and define their authoritative joined-root outputs.
-- [ ] Version the input schema, circuit manifest, protocol profile, and cache keys.
-- [ ] Bind each protected scalar input to its authenticated role, installed share
-  commitment, and active epoch so substitution aborts before recipient outputs exist.
-- [ ] Add Rust, Python, WASM, and cross-runtime vectors plus formal and security
-  evidence for interpolation, KDF domain separation, and output privacy.
-- [ ] Preserve the existing recipient output packages so wallet and client state does
-  not migrate during later deployment-root refreshes.
-- [ ] Inventory current-profile production identities. Cut over before production or
-  execute one explicit migration; do not retain both derivation profiles.
+- [ ] Admit authenticated raw share scalars as protected Yao inputs.
+- [ ] Perform interpolation and server-contribution KDF inside the circuit.
+- [ ] Preserve the current recipient package outputs.
+- [ ] Version the circuit manifest, protocol, cache keys, and vectors.
+- [ ] Add cross-runtime and formal evidence.
+- [ ] Delete the role-local hash profile when the joined-root profile activates.
 
-### Phase 4: implement lifecycle and secret installation
+### Phase 4: add lifecycle and operations
 
-- [ ] Add one authoritative current/next deployment epoch state machine.
-- [ ] Add role-local install hooks, idempotent activation, mixed-epoch rejection, and
-  fixed ECDSA and Ed25519 canaries.
-- [ ] Define storage that cannot recover retired shares through secret-version history,
-  Worker rollback, database time travel, backups, or the active KEK.
-- [ ] Permit rollback only before activation; use a new forward refresh after
-  activation.
-- [ ] Emit redacted metrics, audit events, and destruction attestations.
-- [ ] Exercise partial-install, crash, replay, role-loss, and compromise drills across
-  two independently administered Cloudflare accounts.
+- [ ] Add the exhaustive current/next control-plane state.
+- [ ] Add per-tenant locks, fences, canaries, activation, and redacted receipts.
+- [ ] Add fresh epoch wrapping keys and verified retirement.
+- [ ] Inject failure before and after every role install and activation step.
+- [ ] Prove normal signing remains available.
+- [ ] Add operator-triggered refresh before scheduled refresh.
 
-### Phase 5: roll out operations and recovery
+### Phase 5: release the client-transparent path
 
-- [ ] Start with operator-triggered refresh, then enable an hourly schedule with
-  jitter and event-triggered refresh after role recovery.
-- [ ] Prove that refresh never scans wallet records or rewrites client packages.
-- [ ] Document managed backup constraints without weakening proactive erasure.
-- [ ] Implement the separate self-host recovery package.
-- [ ] Add an explicit deployment-root replacement workflow.
-- [ ] Add chain-specific wallet/account migration hooks.
-- [ ] Exercise the both-shares-compromised replacement drill.
+- [ ] Run refresh against tenants with Ed25519 and ECDSA wallets.
+- [ ] Prove no wallet enumeration or client mutation occurs.
+- [ ] Run multi-tenant concurrency, quota, and isolation tests.
+- [ ] Run role-compromise, cleanup, refresh, and rollback drills.
+- [ ] Enable a conservative jittered schedule.
+- [ ] Publish exact security claims and recovery limitations.
 
-## Verification Requirements
+## Verification
 
-A production refresh implementation is complete only when tests demonstrate:
+The implementation is complete only when tests prove:
 
-- old and new root shares differ;
-- `2*A - B` and `2*A' - B'` bind to the same pinned public root commitment;
-- old and new shares produce identical threshold-PRF outputs for fixed stable contexts;
-- old and new shares under the joined-root profile produce identical Ed25519 Yao `y`,
-  `tau`, `d`, public key, and recipient outputs for fixed canaries;
-- changing only `RootShareEpoch` leaves stable derivation input bytes unchanged;
-- a mixed old/new share pair is rejected;
-- a substituted Yao scalar that does not match the authenticated active share is
-  rejected;
-- a stale, future, or replayed `RootShareEpoch` is rejected;
-- no wallet record, client threshold package, or `MpcMaterialActivationRef` changes;
-- no party or decoded Yao output receives `k_org`;
-- either Deriver can fail before activation without changing the active epoch;
-- restart during every lifecycle state converges to a defined outcome;
-- neither logs nor audit records contain share bytes, seed bytes, or plaintext wrapping
-  keys;
-- Router, signing worker, and control plane never receive both shares;
-- retired shares and refresh deltas cannot be recovered through rollback or retained
-  history;
-- normal signing remains available throughout the derivation-ceremony fence;
-- the joined-root Yao profile stays within its explicit latency, memory, CPU, and wire
-  budget;
-- deployment-root replacement produces a separately versioned wallet identity.
+- tenant A and tenant B have unrelated root commitments and shares;
+- neither initial creation nor refresh exposes the joined root;
+- both root shares change after refresh;
+- `2*A - B` and `2*A' - B'` bind to the same public root commitment;
+- old and new shares produce identical ECDSA threshold-PRF outputs;
+- old and new shares produce identical Ed25519 contributions and public keys;
+- changing only `RootShareEpoch` leaves stable derivation bytes unchanged;
+- mixed current/next shares are rejected;
+- stale, future, substituted, and replayed epochs are rejected;
+- failure before activation leaves the current epoch usable;
+- failure after one pending install exposes no mixed-epoch derivation path;
+- restart from every lifecycle state converges to one defined branch;
+- no wallet record, signer package, client state, public key, address, or
+  activation reference changes;
+- no client request, WebAuthn ceremony, or browser callback occurs;
+- normal signing succeeds throughout a refresh;
+- retired shares cannot be recovered through supported rollback and backup
+  paths;
+- refreshing tenant A changes no state or availability for tenant B;
+- source and self-hosted destination roots refresh independently.
 
-The current vector and protocol tests cover generation, encoding, role separation, and
-transcript binding. They do not satisfy the refresh-specific requirements above.
+## Definition of Done
 
-## Open Decisions
+Refactor 120 is complete when:
 
-Before implementing refresh, the project must decide:
-
-1. The malicious-secure commit, encrypted-update, proof, abort, and transcript details
-   for the two-party zero-sharing protocol.
-2. The maximum acceptable gate, table, CPU, memory, and wire increase for in-circuit
-   interpolation and KDF.
-3. Which control-plane store is authoritative for deployment `RootShareEpoch`.
-4. How current and next shares are staged and atomically selected across Cloudflare
-   Workers without retaining recoverable secret history.
-5. Which storage mechanism provides credible cryptographic erasure despite Worker
-   version history, database recovery, backups, and operator rollback.
-6. Whether any Deriver-private record truly needs custody-epoch AAD and, if so, its
-   forward-only replacement rule.
-7. Whether hourly refresh with jitter satisfies the measured ceremony duration and
-   operational failure rate.
-8. What managed disaster-recovery mechanism can coexist with the stated proactive
-   compromise-recovery guarantee.
-9. Whether future deployments require provider diversity in addition to separate
-   Cloudflare accounts.
-10. Whether any production Ed25519 identity uses the current role-local hashing
-    profile and therefore needs a one-time cutover migration.
-11. Whether decoupling the ECDSA custody epoch preserves current stable context bytes,
-    or requires the same pre-production cutover rule.
+1. Every tenant maps to a distinct physical tenant derivation root.
+2. No process or runtime holds both root shares.
+3. ECDSA stable derivation excludes `RootShareEpoch`.
+4. Ed25519 derives from the joined tenant root inside Yao.
+5. One server-side ceremony replaces both tenant root shares and advances the
+   epoch while preserving the joined root.
+6. Existing wallet public keys, addresses, client state, signer packages, and
+   activation references remain unchanged.
+7. Clients perform no ceremony or local-state mutation for a refresh.
+8. Normal signing remains available.
+9. Mixed epochs, replay, partial installation, and role substitution fail
+   closed.
+10. Retired shares and their wrapping keys are unrecoverable through supported
+    rollback paths.
+11. Refreshing one tenant has no effect on another tenant.
+12. Managed and self-hosted deployments can refresh independently.
+13. Root replacement remains an explicit wallet-migration operation.
+14. Documentation distinguishes active-epoch rotation from verified proactive
+    compromise healing.
 
 ## Non-Goals
 
-- This document does not define wallet-level share-refresh cryptography; R102 owns it.
-- It does not define tenant export payloads; R121 owns them.
-- It does not define self-host bootstrap UX or packaging; the separate
-  [self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md) owns them.
-- It does not introduce per-tenant managed root pairs or customer-held third shares.
-- It does not enumerate wallets, migrate client threshold shares, or reactivate wallet
-  material during deployment-root refresh.
-- It provides no recovery claim after both shares from one recoverable epoch are
-  compromised.
-- It does not claim that an epoch field alone provides rotation. Rotation requires the
-  ceremony, installation, activation, erasure, and retirement controls described above.
+- transparent replacement of the joined tenant derivation root;
+- transparent conversion of existing shared-root wallets to unrelated tenant
+  roots;
+- refreshing active client or SigningWorker shares;
+- exporting managed or self-hosted tenant roots;
+- reconstructing a joined root in a Router, Gateway, SigningWorker, control
+  plane, script, or operator process;
+- app-level migration or a deployment-portability package;
+- carrying root shares through cross-deployment device linking;
+- keeping the current role-local Ed25519 profile as a fallback;
+- claiming recovery after both shares from one recoverable epoch are exposed;
+- claiming cryptographic erasure without executable rollback evidence;
+- introducing customer-held third shares in the first implementation.
+
+## Remaining Release Decisions
+
+Before production activation, choose:
+
+1. the storage system that provides destroyable per-epoch wrapping keys;
+2. the maximum joined-root Yao latency, memory, CPU, and wire budgets;
+3. the refresh interval and global concurrency limits;
+4. the recovery policy for loss of one current share;
+5. the cutover treatment for any production identity derived under the current
+   ECDSA or Ed25519 profile.

@@ -90,8 +90,9 @@ R109D product implementation may proceed.
       including cancellation of a pending selection when the scanner closes.
 - [x] Build Passkey targets from managed RP configuration with no dependency on
       the source credential.
-- [x] Add the owner-authenticated cancel path for the claimed, pre-approval
-      state and make terminal cancellation replay idempotent.
+- [x] Propagate owner-authenticated cancellation throughout every cancellable
+      precommit state, make revision advances transparent to interactive cancel,
+      and make terminal cancellation replay idempotent.
 - [x] Complete the four source/target factor operating paths from genuine
       single-method source inventories and their focused intended-browser
       contracts.
@@ -352,10 +353,15 @@ only after its last reference is gone.
 
 Add an owner-authenticated candidate-resolution operation and owner-cancel
 operation to the existing linking route and Device 1 transport. Both use the
-exact Wallet Session credential and expected revision. Candidate reads do not
-mutate state; approval revalidates the selected ID and performs the CAS.
-Owner-cancel moves only `claimed` to `cancelled`. Device 2's cancel path is
-unchanged.
+exact Wallet Session credential. Candidate selection uses the supplied expected
+revision; approval revalidates the selected ID and performs the CAS. Owner
+cancellation authenticates the current server record and cancels its current
+revision, so an approval-driven revision advance cannot make an interactive
+cancel stale. It moves any cancellable precommit state (`claimed`,
+`awaiting_target_factor`, `awaiting_source_contribution`, or `provisioning`) to
+`cancelled`. Device 2 then observes the terminal state through its existing
+subscription. Postcommit `authority_pending_local_install` and `active` remain
+non-cancellable.
 
 Use these action paths under the existing session route:
 
@@ -366,8 +372,10 @@ baseWalletAuthMethodId } }`;
   `{ expectedRevision }`.
 
 Candidate `selected` and `selection_required` responses retain the current
-revision. `unavailable` terminally fails that exact revision. Owner-cancel is
-idempotent for the resulting terminal record and returns `invalid_state` from
+revision. `unavailable` terminally fails that exact revision. Device 1 retains
+the owner-authenticated cancellation identity after approval while target work
+continues. Owner-cancel is idempotent for the resulting terminal record and
+returns `invalid_state` from
 any other lifecycle branch.
 
 ## Product UI
@@ -575,6 +583,13 @@ shim, or parallel activation path.
 
 Run all four factor combinations for Ed25519-only, ECDSA-only, and combined
 signer profiles.
+
+**Matrix scaling rule:** device-linking coverage is the Cartesian product of
+supported source and target auth-method families. With two families, the suite
+must cover the current 2x2 matrix. Adding a third family requires a 3x3 matrix;
+adding a fourth requires 4x4. Diagonal and cross-family cases are both required,
+and a new auth-method family is incomplete until every source-to-target
+combination has an intended-browser contract.
 
 Each of the twelve cases proves:
 
