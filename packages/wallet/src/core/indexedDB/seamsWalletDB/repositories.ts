@@ -28,8 +28,10 @@ import {
 } from '@shared/utils/registrationIntent';
 import {
   encodeWalletSignerActivationSetV1,
+  isActiveRecoveredWalletAuthorityV1,
   parseWalletAuthorityV1,
   walletAuthorityDigestsMatchV1,
+  type ActiveRecoveredWalletAuthorityV1,
   type PendingWalletAuthorityV1,
   type WalletAuthorityV1,
   type WalletSignerActivationSetV1,
@@ -336,11 +338,8 @@ export type WalletLockGenerationAdvanceInputV1 = {
 };
 
 export type RecoveredWalletAuthorityProjectionInputV1 = {
-  readonly authority: Extract<WalletAuthorityV1, { readonly state: 'active' }>;
-  readonly authMethod: Extract<
-    WalletAuthMethodRecordV2,
-    { readonly kind: 'passkey'; readonly status: 'active' }
-  >;
+  readonly authority: ActiveRecoveredWalletAuthorityV1;
+  readonly authMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly recoveredAtMs: number;
 };
 
@@ -2723,8 +2722,8 @@ export class SeamsWalletRepositories {
     const recoveredAtMs = parseNonNegativeSafeInteger(input.recoveredAtMs, 'recoveredAtMs');
     if (
       authority.state !== 'active' ||
+      !isActiveRecoveredWalletAuthorityV1(authority) ||
       !authMethod ||
-      authMethod.kind !== 'passkey' ||
       authMethod.status !== 'active' ||
       authMethod.walletId !== authority.walletId ||
       authMethod.walletAuthorityId !== authority.authorityId

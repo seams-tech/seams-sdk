@@ -19,8 +19,9 @@ import {
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
 import {
+  isActiveRecoveredWalletAuthorityV1,
   parseWalletAuthorityV1,
-  type ActiveWalletAuthorityV1,
+  type ActiveRecoveredWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
 
 /**
@@ -46,7 +47,7 @@ export type WalletRecoveryFinalizeResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
-      readonly authority: ActiveWalletAuthorityV1;
+      readonly authority: ActiveRecoveredWalletAuthorityV1;
       readonly authMethod: Extract<
         WalletAuthMethodRecordV2,
         { readonly kind: 'passkey'; readonly status: 'active' }
@@ -153,6 +154,7 @@ export async function finalizeWalletRecovery(args: {
         !walletId.ok ||
         !authority.ok ||
         authority.value.state !== 'active' ||
+        !isActiveRecoveredWalletAuthorityV1(authority.value) ||
         !authMethod ||
         authMethod.kind !== 'passkey' ||
         authMethod.status !== 'active' ||

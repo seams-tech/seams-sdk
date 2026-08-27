@@ -23,7 +23,7 @@ import {
   type WalletAuthMethodRecordV2,
   type WalletId,
 } from '@shared/utils/registrationIntent';
-import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import type { ActiveRecoveredWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import { IndexedDBManager, type LocalWalletAuthMethodRecord } from '@/core/indexedDB';
 
 /** The finalize fields this projection is built from, whichever route returned them. */
@@ -185,7 +185,7 @@ export async function persistSyncedPasskeyAuthMethodV2(
 }
 
 type RecoveredPasskeyLocalProjection = {
-  readonly authority: ActiveWalletAuthorityV1;
+  readonly authority: ActiveRecoveredWalletAuthorityV1;
   readonly authMethod: Extract<
     WalletAuthMethodRecordV2,
     { readonly kind: 'passkey'; readonly status: 'active' }

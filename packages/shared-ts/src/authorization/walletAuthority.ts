@@ -159,6 +159,15 @@ export type PendingWalletAuthorityV1 = Extract<
   { readonly state: 'pending_local_install' }
 >;
 export type ActiveWalletAuthorityV1 = Extract<WalletAuthorityV1, { readonly state: 'active' }>;
+export type ActiveRecoveredWalletAuthorityV1 = Omit<
+  ActiveWalletAuthorityV1,
+  'provenance'
+> & {
+  readonly provenance: Extract<
+    WalletAuthorityProvenanceV1,
+    { readonly kind: 'wallet_recovery' }
+  >;
+};
 export type RevokedWalletAuthorityV1 = Extract<WalletAuthorityV1, { readonly state: 'revoked' }>;
 
 export type Ed25519WalletSignerActivationSetV1 = Extract<
@@ -194,6 +203,12 @@ export function isActiveEcdsaWalletAuthorityV1(
   value: ActiveWalletAuthorityV1,
 ): value is ActiveEcdsaWalletAuthorityV1 {
   return isEcdsaOnlyActivationSet(value.signerActivations);
+}
+
+export function isActiveRecoveredWalletAuthorityV1(
+  value: ActiveWalletAuthorityV1,
+): value is ActiveRecoveredWalletAuthorityV1 {
+  return value.provenance.kind === 'wallet_recovery';
 }
 
 export function buildWalletEd25519SignerActivationV1(input: {
