@@ -19,6 +19,7 @@ import {
   mpcMaterialActivationRefsEqual,
   parseWalletAuthorityId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
   type WalletAuthorityId,
   type WalletAuthMethodId,
   type WalletId,
@@ -112,6 +113,8 @@ export const WALLET_AUTHORITY_STORE_D1_SCHEMA_SQL = Object.freeze([
       enrollment_id TEXT,
       source_authority_id TEXT,
       link_session_id TEXT,
+      recovery_operation_id TEXT,
+      continuity_authority_id TEXT,
       lifecycle_state TEXT NOT NULL,
       permissions_json TEXT NOT NULL,
       signer_activations_json TEXT NOT NULL,
@@ -128,7 +131,7 @@ export const WALLET_AUTHORITY_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(authority_id) > 0),
       CHECK (length(wallet_id) > 0),
       CHECK (length(device_id) > 0),
-      CHECK (provenance_kind IN ('wallet_registration', 'device_link')),
+      CHECK (provenance_kind IN ('wallet_registration', 'device_link', 'wallet_recovery')),
       CHECK (lifecycle_state IN ('pending_local_install', 'active', 'revoked')),
       CHECK (length(permissions_json) > 0 AND json_valid(permissions_json)),
       CHECK (length(signer_activations_json) > 0 AND json_valid(signer_activations_json)),
@@ -142,12 +145,25 @@ export const WALLET_AUTHORITY_STORE_D1_SCHEMA_SQL = Object.freeze([
         (provenance_kind = 'wallet_registration'
           AND enrollment_id IS NULL
           AND source_authority_id IS NULL
-          AND link_session_id IS NULL)
+          AND link_session_id IS NULL
+          AND recovery_operation_id IS NULL
+          AND continuity_authority_id IS NULL)
         OR
         (provenance_kind = 'device_link'
           AND enrollment_id IS NOT NULL AND length(enrollment_id) > 0
           AND source_authority_id IS NOT NULL AND length(source_authority_id) > 0
-          AND link_session_id IS NOT NULL AND length(link_session_id) > 0)
+          AND link_session_id IS NOT NULL AND length(link_session_id) > 0
+          AND recovery_operation_id IS NULL
+          AND continuity_authority_id IS NULL)
+        OR
+        (provenance_kind = 'wallet_recovery'
+          AND enrollment_id IS NULL
+          AND source_authority_id IS NULL
+          AND link_session_id IS NULL
+          AND recovery_operation_id IS NOT NULL
+          AND length(recovery_operation_id) > 0
+          AND continuity_authority_id IS NOT NULL
+          AND length(continuity_authority_id) > 0)
       ),
       CHECK (
         (lifecycle_state = 'pending_local_install'
@@ -218,6 +234,8 @@ type AuthorityRow = {
   readonly enrollment_id?: unknown;
   readonly source_authority_id?: unknown;
   readonly link_session_id?: unknown;
+  readonly recovery_operation_id?: unknown;
+  readonly continuity_authority_id?: unknown;
   readonly lifecycle_state?: unknown;
   readonly permissions_json?: unknown;
   readonly signer_activations_json?: unknown;
@@ -292,9 +310,7 @@ function parseAuthorityRow(row: AuthorityRow): WalletAuthorityV1 {
   const walletId = requiredId(row.wallet_id, parseWalletId, 'wallet_id');
   const deviceId = requiredId(row.device_id, parseDeviceIdValue, 'device_id');
   const columns = authorityColumns(authority);
-  const permissions = parseDelegatedWalletPermissionSetV1(
-    parseD1JsonColumn(row.permissions_json),
-  );
+  const permissions = parseDelegatedWalletPermissionSetV1(parseD1JsonColumn(row.permissions_json));
   const signerActivations = parseWalletSignerActivationSetV1(
     parseD1JsonColumn(row.signer_activations_json),
   );
@@ -327,37 +343,76 @@ function parseAuthorityRow(row: AuthorityRow): WalletAuthorityV1 {
   if (authority.provenance.kind !== provenanceKind) {
     throw new Error('stored wallet authority provenance disagrees with columns');
   }
-  if (authority.provenance.kind === 'device_link') {
-    const enrollmentId = requiredId(
-      row.enrollment_id,
-      parseLinkedDeviceEnrollmentId,
-      'enrollment_id',
-    );
-    const sourceAuthorityId = requiredId(
-      row.source_authority_id,
-      parseWalletAuthorityId,
-      'source_authority_id',
-    );
-    const linkSessionId = requiredId(
-      row.link_session_id,
-      parseLinkDeviceSessionId,
-      'link_session_id',
-    );
-    if (
-      authority.provenance.enrollmentId !== enrollmentId ||
-      authority.provenance.sourceAuthorityId !== sourceAuthorityId ||
-      authority.provenance.linkSessionId !== linkSessionId
-    ) {
-      throw new Error('stored wallet authority provenance columns disagree with record_json');
-    }
-  } else if (
-    nullableString(row.enrollment_id) !== null ||
-    nullableString(row.source_authority_id) !== null ||
-    nullableString(row.link_session_id) !== null
-  ) {
-    throw new Error('founding wallet authority has device-link provenance columns');
-  }
+  assertAuthorityProvenanceColumns(row, authority.provenance);
   return authority;
+}
+
+function assertAuthorityProvenanceColumns(
+  row: AuthorityRow,
+  provenance: WalletAuthorityV1['provenance'],
+): void {
+  switch (provenance.kind) {
+    case 'wallet_registration':
+      if (
+        nullableString(row.enrollment_id) !== null ||
+        nullableString(row.source_authority_id) !== null ||
+        nullableString(row.link_session_id) !== null ||
+        nullableString(row.recovery_operation_id) !== null ||
+        nullableString(row.continuity_authority_id) !== null
+      ) {
+        throw new Error('founding wallet authority has provenance columns');
+      }
+      return;
+    case 'device_link': {
+      const enrollmentId = requiredId(
+        row.enrollment_id,
+        parseLinkedDeviceEnrollmentId,
+        'enrollment_id',
+      );
+      const sourceAuthorityId = requiredId(
+        row.source_authority_id,
+        parseWalletAuthorityId,
+        'source_authority_id',
+      );
+      const linkSessionId = requiredId(
+        row.link_session_id,
+        parseLinkDeviceSessionId,
+        'link_session_id',
+      );
+      if (
+        provenance.enrollmentId !== enrollmentId ||
+        provenance.sourceAuthorityId !== sourceAuthorityId ||
+        provenance.linkSessionId !== linkSessionId ||
+        nullableString(row.recovery_operation_id) !== null ||
+        nullableString(row.continuity_authority_id) !== null
+      ) {
+        throw new Error('stored wallet authority provenance columns disagree with record_json');
+      }
+      return;
+    }
+    case 'wallet_recovery': {
+      const recoveryOperationId = requiredId(
+        row.recovery_operation_id,
+        parseWalletRecoveryOperationId,
+        'recovery_operation_id',
+      );
+      const continuityAuthorityId = requiredId(
+        row.continuity_authority_id,
+        parseWalletAuthorityId,
+        'continuity_authority_id',
+      );
+      if (
+        provenance.recoveryOperationId !== recoveryOperationId ||
+        provenance.continuityAuthorityId !== continuityAuthorityId ||
+        nullableString(row.enrollment_id) !== null ||
+        nullableString(row.source_authority_id) !== null ||
+        nullableString(row.link_session_id) !== null
+      ) {
+        throw new Error('stored wallet authority provenance columns disagree with record_json');
+      }
+      return;
+    }
+  }
 }
 
 function parseDeviceIdValue(
@@ -373,6 +428,8 @@ function authorityColumns(authority: WalletAuthorityV1): {
   readonly enrollmentId: string | null;
   readonly sourceAuthorityId: string | null;
   readonly linkSessionId: string | null;
+  readonly recoveryOperationId: string | null;
+  readonly continuityAuthorityId: string | null;
   readonly lifecycleState: WalletAuthorityV1['state'];
   readonly permissionsJson: string;
   readonly signerActivationsJson: string;
@@ -394,6 +451,10 @@ function authorityColumns(authority: WalletAuthorityV1): {
     sourceAuthorityId:
       provenance.kind === 'device_link' ? String(provenance.sourceAuthorityId) : null,
     linkSessionId: provenance.kind === 'device_link' ? String(provenance.linkSessionId) : null,
+    recoveryOperationId:
+      provenance.kind === 'wallet_recovery' ? String(provenance.recoveryOperationId) : null,
+    continuityAuthorityId:
+      provenance.kind === 'wallet_recovery' ? String(provenance.continuityAuthorityId) : null,
     lifecycleState: authority.state,
     permissionsJson: JSON.stringify(authority.permissions),
     signerActivationsJson: JSON.stringify(authority.signerActivations),
@@ -471,12 +532,13 @@ function prepareAuthorityInsertStatement(input: {
         namespace, org_id, project_id, env_id,
         authority_id, wallet_id, device_id, provenance_kind,
         enrollment_id, source_authority_id, link_session_id,
+        recovery_operation_id, continuity_authority_id,
         lifecycle_state, permissions_json, signer_activations_json,
         local_install_package_set_digest_b64u,
         signer_activation_set_digest_b64u, authority_digest_b64u,
         revocation_epoch, record_json, created_at_ms, updated_at_ms,
         activated_at_ms, revoked_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       ...scopeValues(input.scope),
@@ -487,6 +549,8 @@ function prepareAuthorityInsertStatement(input: {
       columns.enrollmentId,
       columns.sourceAuthorityId,
       columns.linkSessionId,
+      columns.recoveryOperationId,
+      columns.continuityAuthorityId,
       columns.lifecycleState,
       columns.permissionsJson,
       columns.signerActivationsJson,
@@ -544,6 +608,8 @@ function prepareAuthorityTransitionStatement(input: {
           AND enrollment_id IS ?
           AND source_authority_id IS ?
           AND link_session_id IS ?
+          AND recovery_operation_id IS ?
+          AND continuity_authority_id IS ?
           AND lifecycle_state = ?
           AND permissions_json = ?
           AND signer_activations_json = ?
@@ -574,6 +640,8 @@ function prepareAuthorityTransitionStatement(input: {
       expectedColumns.enrollmentId,
       expectedColumns.sourceAuthorityId,
       expectedColumns.linkSessionId,
+      expectedColumns.recoveryOperationId,
+      expectedColumns.continuityAuthorityId,
       expectedColumns.lifecycleState,
       expectedColumns.permissionsJson,
       expectedColumns.signerActivationsJson,
@@ -844,7 +912,9 @@ export class D1WalletAuthorityStore {
       throw new Error('active wallet authority digest does not match its canonical record');
     }
     const existingAuthority = await this.readById(input.pendingAuthority.authorityId);
-    const existingMethod = await this.readAuthMethodById(input.pendingAuthMethod.walletAuthMethodId);
+    const existingMethod = await this.readAuthMethodById(
+      input.pendingAuthMethod.walletAuthMethodId,
+    );
     if (
       existingAuthority?.state === 'pending_local_install' &&
       !recordsEqual(existingAuthority, input.pendingAuthority)
@@ -1101,7 +1171,9 @@ export class D1WalletAuthorityStore {
           ...scopeValues(this.scope),
           String(authority.authorityId),
         ),
-      this.database.prepare(`
+      this.database
+        .prepare(
+          `
         INSERT INTO wallet_authority_cas_guard (guard_id)
         SELECT 1
          WHERE changes() = 0
@@ -1111,7 +1183,9 @@ export class D1WalletAuthorityStore {
               WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
                 AND wallet_authority_id = ? AND status = 'active'
            )
-      `).bind(...scopeValues(this.scope), String(authority.authorityId)),
+      `,
+        )
+        .bind(...scopeValues(this.scope), String(authority.authorityId)),
     ];
     let results: readonly D1ResultLike[];
     try {
@@ -1193,14 +1267,19 @@ function signerActivationSetsEqual(
     return isEcdsaActivationSet(right) && ecdsaActivationsEqual(left, right);
   }
   if (isBothActivationSet(left)) {
-    return isBothActivationSet(right) &&
+    return (
+      isBothActivationSet(right) &&
       ed25519ActivationsEqual(left, right) &&
-      ecdsaActivationsEqual(left, right);
+      ecdsaActivationsEqual(left, right)
+    );
   }
   return false;
 }
 
-function ed25519ActivationsEqual(left: Ed25519ActivationSet | BothActivationSet, right: Ed25519ActivationSet | BothActivationSet): boolean {
+function ed25519ActivationsEqual(
+  left: Ed25519ActivationSet | BothActivationSet,
+  right: Ed25519ActivationSet | BothActivationSet,
+): boolean {
   return (
     left.ed25519.kind === right.ed25519.kind &&
     left.ed25519.signer.kind === right.ed25519.signer.kind &&
@@ -1215,7 +1294,10 @@ function ed25519ActivationsEqual(left: Ed25519ActivationSet | BothActivationSet,
   );
 }
 
-function ecdsaActivationsEqual(left: EcdsaActivationSet | BothActivationSet, right: EcdsaActivationSet | BothActivationSet): boolean {
+function ecdsaActivationsEqual(
+  left: EcdsaActivationSet | BothActivationSet,
+  right: EcdsaActivationSet | BothActivationSet,
+): boolean {
   return (
     left.ecdsa.kind === right.ecdsa.kind &&
     left.ecdsa.signer.kind === right.ecdsa.signer.kind &&
@@ -1233,13 +1315,23 @@ function provenanceEqual(
   right: WalletAuthorityV1['provenance'],
 ): boolean {
   if (left.kind !== right.kind) return false;
-  if (left.kind === 'wallet_registration') return true;
-  return (
-    right.kind === 'device_link' &&
-    left.enrollmentId === right.enrollmentId &&
-    left.sourceAuthorityId === right.sourceAuthorityId &&
-    left.linkSessionId === right.linkSessionId
-  );
+  switch (left.kind) {
+    case 'wallet_registration':
+      return true;
+    case 'device_link':
+      return (
+        right.kind === 'device_link' &&
+        left.enrollmentId === right.enrollmentId &&
+        left.sourceAuthorityId === right.sourceAuthorityId &&
+        left.linkSessionId === right.linkSessionId
+      );
+    case 'wallet_recovery':
+      return (
+        right.kind === 'wallet_recovery' &&
+        left.recoveryOperationId === right.recoveryOperationId &&
+        left.continuityAuthorityId === right.continuityAuthorityId
+      );
+  }
 }
 
 function recordsEqual(left: WalletAuthorityV1, right: WalletAuthorityV1): boolean {

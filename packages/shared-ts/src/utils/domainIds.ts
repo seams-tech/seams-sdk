@@ -147,6 +147,8 @@ export type LaneOperationId = DomainId<'LaneOperationId'>;
 export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
 export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
 export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
+// One immutable recovery operation that owns the fresh recovered-device authority.
+export type WalletRecoveryOperationId = DomainId<'WalletRecoveryOperationId'>;
 export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
 export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
 export type LaneHolderRecipientHandleV1 = DomainId<'LaneHolderRecipientHandleV1'>;
@@ -588,6 +590,12 @@ export function parseLinkedDeviceEnrollmentId(
   raw: unknown,
 ): DomainIdParseResult<LinkedDeviceEnrollmentId> {
   return parseDomainId(raw, 'linkedDeviceEnrollmentId');
+}
+
+export function parseWalletRecoveryOperationId(
+  raw: unknown,
+): DomainIdParseResult<WalletRecoveryOperationId> {
+  return parseDomainId(raw, 'walletRecoveryOperationId');
 }
 
 export function parseEd25519YaoSuiteId(raw: unknown): DomainIdParseResult<Ed25519YaoSuiteId> {
