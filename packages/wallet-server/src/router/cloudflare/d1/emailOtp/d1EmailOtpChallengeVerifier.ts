@@ -4,6 +4,7 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -128,6 +129,19 @@ function emailOtpEnrollmentTenantMismatch(): ActiveEmailOtpEnrollmentResult {
   };
 }
 
+/**
+ * Recovery bootstrap deliberately has the registration verifier's
+ * unenrolled-wallet semantics. The recovery operation, rather than an
+ * existing Email enrollment, proves which wallet and target the OTP belongs
+ * to; an existing enrollment is still checked by the recovery coordinator
+ * before this verifier is called.
+ */
+export type EmailOtpRecoveryBootstrapChallengeVerifyInput =
+  EmailOtpRegistrationChallengeVerifyInput & {
+    readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
+    readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+  };
+
 async function emailOtpRegistrationVerificationFingerprint(input: {
   readonly operationId: string;
   readonly providerSubject: string;
@@ -158,7 +172,11 @@ async function emailOtpRegistrationVerificationFingerprint(input: {
   );
 }
 
-function emailOtpProviderIdentityMismatch(): ActiveEmailOtpEnrollmentResult {
+function emailOtpProviderIdentityMismatch(): {
+  readonly ok: false;
+  readonly code: string;
+  readonly message: string;
+} {
   return {
     ok: false,
     code: 'provider_identity_mismatch',
@@ -351,11 +369,19 @@ export class CloudflareD1EmailOtpChallengeVerifier {
     });
   }
 
+  async verifyRecoveryBootstrap(
+    input: EmailOtpRecoveryBootstrapChallengeVerifyInput,
+  ): Promise<EmailOtpRegistrationChallengeVerifyResult> {
+    return await this.verifyRegistrationWithConsumption(input, { kind: 'single_use' });
+  }
+
   private async verifyRegistrationWithConsumption(
-    input: EmailOtpRegistrationChallengeVerifyInput,
+    input: EmailOtpRegistrationChallengeVerifyInput | EmailOtpRecoveryBootstrapChallengeVerifyInput,
     consumption: EmailOtpRegistrationConsumption,
   ): Promise<EmailOtpRegistrationChallengeVerifyResult> {
     try {
+      const recoveryBootstrap =
+        'action' in input && input.action === WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
       const providerSubject = toOptionalTrimmedString(input.providerSubject);
       const walletId = toOptionalTrimmedString(input.walletId);
       const orgId = toOptionalTrimmedString(input.orgId);
@@ -382,6 +408,13 @@ export class CloudflareD1EmailOtpChallengeVerifier {
           ok: false,
           code: 'invalid_body',
           message: 'Email OTP registration requires proofEmail',
+        };
+      }
+      if (recoveryBootstrap && !providerSubject) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Email OTP recovery requires providerSubject',
         };
       }
 
@@ -429,7 +462,9 @@ export class CloudflareD1EmailOtpChallengeVerifier {
 
       const rateLimit = await this.emailOtpRateLimits.consume({
         scope: 'verify',
-        action: WALLET_EMAIL_OTP_ACTIONS.registration,
+        action: recoveryBootstrap
+          ? WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
+          : WALLET_EMAIL_OTP_ACTIONS.registration,
         userId: providerSubject || walletId,
         walletId,
         orgId,
@@ -444,6 +479,13 @@ export class CloudflareD1EmailOtpChallengeVerifier {
           code: 'tenant_scope_mismatch',
           message: 'Email OTP enrollment does not match the requested orgId',
         };
+      }
+      if (
+        recoveryBootstrap &&
+        existingEnrollment &&
+        existingEnrollment.providerUserId !== providerSubject
+      ) {
+        return emailOtpProviderIdentityMismatch();
       }
       const authState = existingEnrollment
         ? await this.emailOtpEnrollments.readAuthStateForEnrollment(existingEnrollment)
@@ -468,14 +510,25 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       }
       const resolvedProviderSubject = providerSubject || record.challengeSubjectId;
 
-      const bindingMismatch = emailOtpRegistrationChallengeBindingMismatchCode({
-        record,
-        providerSubject: resolvedProviderSubject,
-        walletId,
-        orgId,
-        ownerProofBindingDigest,
-        proofEmail,
-      });
+      const bindingMismatch = recoveryBootstrap
+        ? emailOtpChallengeBindingMismatchCode({
+            record,
+            userId: resolvedProviderSubject,
+            walletId,
+            orgId,
+            ownerProofBindingDigest,
+            action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
+            operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+          }) ||
+          (record.email !== proofEmail ? 'challenge_email_mismatch' : null)
+        : emailOtpRegistrationChallengeBindingMismatchCode({
+            record,
+            providerSubject: resolvedProviderSubject,
+            walletId,
+            orgId,
+            ownerProofBindingDigest,
+            proofEmail,
+          });
       if (bindingMismatch) {
         return {
           ok: false,
