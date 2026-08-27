@@ -1,8 +1,8 @@
 # Refactor 115 — Recover Multi-Auth Wallets
 
-Status: implementation plan, reconciled through recovery baseline commit
-`d676e7d22`. The signer-activation asymmetry and the authority-schema work are
-decided; the phases below are the worklist.
+Status: the Passkey/Email-origin by Passkey/Google-target 2x2 recovery contract
+is implemented and passing. Combined-inventory, linked-authority, step-up,
+export, and precommit-failure acceptance remain in the worklist below.
 
 ## Goal
 
@@ -32,7 +32,10 @@ Its durable challenge stores that selected source Passkey method, credential,
 authority digest, and method update timestamp. Finalization requires the source
 WebAuthn binding and custody envelope, installs a replacement Passkey on the
 same authority, revokes the selected Passkey and its Wallet Sessions, and
-retires its envelope. Sibling methods remain active.
+retires its envelope. Sibling methods remain active. Finalization now reads the
+committed active authority and replacement Passkey method back from server
+state, returns both as the strict response projection, and the client persists
+that authority, method, and a locked exact selection before normal login.
 
 Consequences:
 
@@ -366,6 +369,12 @@ Every successful branch atomically:
 - deletes target challenges and the durable recovery attempt; and
 - returns the exact committed authority, method, and activation identities.
 
+Extend the landed recovery-finalize committed projection rather than creating a
+parallel loose-ID response. The server reads the committed active recovery
+authority, target method, envelope, and activation set after promotion/replay;
+the client boundary parser proves their wallet, authority, method, factor, and
+lifecycle relationships before any local write.
+
 The transaction does not update or delete existing auth methods, authorities,
 envelopes, sessions, authenticators, or linked-device records.
 
@@ -403,9 +412,10 @@ the operation and zeroize code, seed, factor, and worker material. The hosted UI
 receives handles, masked email display data, and generic errors. It never
 receives custody material, provider subjects, or server diagnostics.
 
-After finalization, IndexedDB receives the fresh authority, target method,
-method-bound envelope, signer activations, account projections, and exact
-selection. The page remains locked until normal target login succeeds.
+After finalization, IndexedDB atomically receives the fresh authority, target
+method, method-bound envelope, signer activations, account projections, and
+exact selection. The page remains locked until publication completes and
+normal target login succeeds.
 
 ## Security Invariants
 
@@ -432,18 +442,20 @@ selection. The page remains locked until normal target login succeeds.
 17. Raw codes, OTPs, Google credentials, factor secrets, custody seed, and
     signer roots never enter logs, errors, hosted outcomes, or durable
     plaintext state.
-
 ## Implementation Phases
 
 ### Phase 0 — Freeze the additive contract
 
-- [ ] Update `docs/intended-behaviours.md` to supersede R114's replacement
+- [x] Update `docs/intended-behaviours.md` to supersede R114's replacement
       policy.
-- [ ] Freeze the continuity-anchor selection rule.
-- [ ] Add `wallet_recovery` authority provenance and its static type fixtures.
-- [ ] Define exact Passkey and Google/Email target branches.
-- [ ] Delete tests whose invariant is the retired single-Passkey gate or source
-      revocation.
+- [x] Freeze the continuity-anchor selection rule.
+- [x] Freeze the additive successor to the landed authority/method committed
+      projection. Require server readback of authority, method, envelope, and
+      activations; reject loose client-supplied identity fragments.
+- [x] Add `wallet_recovery` authority provenance and its static type fixtures.
+- [x] Define exact Passkey and Google/Email target branches.
+- [x] Rewrite or delete tests whose invariant is the retired single-Passkey
+      gate or source revocation.
 
 The retirement worklist, resolved against the landed R114 code:
 
@@ -456,11 +468,11 @@ The retirement worklist, resolved against the landed R114 code:
 
 ### Phase 1 — Wallet-scoped preparation
 
-- [ ] Remove method cardinality and Passkey-family admission from prepare.
-- [ ] Select and persist an exact Passkey or Email continuity anchor.
-- [ ] Allocate fresh recovery device, authority, method, and activation IDs.
-- [ ] Persist `WalletRecoveryAttemptV2` with an immutable target branch.
-- [ ] Keep generic refusal and secret zeroization at the request boundary.
+- [x] Remove method cardinality and Passkey-family admission from prepare.
+- [x] Select and persist an exact Passkey or Email continuity anchor.
+- [x] Allocate fresh recovery device, authority, method, and activation IDs.
+- [x] Persist `WalletRecoveryAttemptV2` with an immutable target branch.
+- [x] Keep generic refusal and secret zeroization at the request boundary.
 
 ### Phase 1.5 — The fresh recovery authority
 
@@ -468,70 +480,82 @@ Both target branches install the same authority, and no existing flow builds
 one for a device that reconstructs its own material, so this lands once before
 either target moves.
 
-- [ ] Add the `wallet_recovery` provenance branch to `WalletAuthorityV1` and its
+- [x] Add the `wallet_recovery` provenance branch to `WalletAuthorityV1` and its
       encoder, parser, and validator.
-- [ ] Write the forward migration that admits the new provenance kind, and
+- [x] Write the forward migration that admits the new provenance kind, and
       update the authority store's inline schema in the same change.
-- [ ] Build the recovery-authority builder: fresh device and authority IDs, the
+- [x] Build the recovery-authority builder: fresh device and authority IDs, the
       Ed25519 recovery-scoped activation ref, and the wallet's registered ECDSA
       ref, per the asymmetry above.
-- [ ] Prove the fresh device ID satisfies the one-active-authority-per-device
+- [x] Prove the fresh device ID satisfies the one-active-authority-per-device
       uniqueness index.
 
 ### Phase 2 — Additive Passkey recovery
 
-- [ ] Move R114 WebAuthn data into the Passkey target branch.
-- [ ] Remove source-Passkey replacement fields and validation.
-- [ ] Seal and verify the new method-bound Passkey envelope.
-- [ ] Install the fresh authority, activations, Passkey method, authenticator,
+- [x] Move R114 WebAuthn data into the Passkey target branch.
+- [x] Remove source-Passkey replacement fields and validation.
+- [x] Seal and verify the new method-bound Passkey envelope.
+- [x] Install the fresh authority, activations, Passkey method, authenticator,
       binding, and envelope atomically.
-- [ ] Rewrite replay around exact additive readback.
+- [x] Rewrite replay around exact additive readback.
 
 ### Phase 3 — Additive Google SSO / Email OTP recovery
 
-- [ ] Add recovery-scoped Google verification using the existing verifier.
-- [ ] Issue and verify an exact recovery-scoped Email OTP challenge.
-- [ ] Reuse factor release and method-bound Email envelope sealing.
-- [ ] Install the fresh authority, activations, Email method, enrollment
+- [x] Add recovery-scoped Google verification using the existing verifier.
+- [x] Issue and verify an exact recovery-scoped Email OTP challenge.
+- [x] Reuse factor release and method-bound Email envelope sealing.
+- [x] Install the fresh authority, activations, Email method, enrollment
       reference, and envelope atomically.
-- [ ] Keep Google/OTP failure separate from recovery-code consumption.
+- [x] Keep Google/OTP failure separate from recovery-code consumption.
 
 ### Phase 4 — Client, worker, and local installation
 
-- [ ] Add target actions and target-specific hosted lifecycle states.
-- [ ] Keep Passkey and Google user activation inside dedicated clicks.
-- [ ] Extend the coordinator with exact target branches.
-- [ ] Reconstruct and verify custody once, then provision the new authority.
-- [ ] Install exact IndexedDB authority, method, envelope, activation, account,
-      and selection projections.
-- [ ] Continue through normal Passkey or Google/Email login.
+- [x] Add target actions and target-specific hosted lifecycle states.
+- [x] Keep Passkey and Google user activation inside dedicated clicks.
+- [x] Extend the coordinator with exact target branches.
+- [x] Reconstruct and verify custody once, then provision the new authority.
+- [x] Extend `persistRecoveredWalletAuthority` and the strict finalize parser;
+      do not synthesize authority or method state from prepared client inputs.
+- [x] Install exact IndexedDB authority, method, envelope, activation, account,
+      and selection projections atomically.
+- [x] Continue through normal Passkey or Google/Email login.
 
 ### Phase 5 — Operating acceptance
 
-- [ ] Run both recovery targets from fresh browser storage against Passkey-only,
-      Email-only, combined, and linked multi-authority wallets.
+- [x] Run the complete 2x2 contract from fresh browser storage: Passkey-only
+      and Email-only origins through both Passkey and Google/Email targets.
+- [ ] Run both recovery targets against a combined Passkey + Email inventory.
 - [ ] Prove reload remains locked before normal login.
-- [ ] Prove NEAR, Tempo, and Arc/EVM signing after login.
+- [x] Prove NEAR, Tempo, and Arc/EVM signing after login.
 - [ ] Prove step-up and Ed25519/ECDSA export under the recovered method.
 - [ ] Prove every pre-existing method and linked device still operates.
-- [ ] Prove consumed-code, cancellation, conflict, and replay behavior.
+- [x] Prove a consumed code receives the generic refusal under both targets.
+- [ ] Prove cancellation, conflict, and replay behavior under both targets.
 
 ### Phase 6 — Cleanup
 
-- [ ] Delete R114 source-method replacement fields and commit branches.
+- [x] Delete R114 source-method replacement fields and commit branches.
 - [ ] Delete duplicate target sealing, Google verification, and OTP helpers.
-- [ ] Delete stale replacement and single-method fixtures and source guards.
-- [ ] Mark R114's replacement policy as superseded by R115.
+- [x] Delete or rewrite stale replacement and single-method fixtures and source
+      guards.
+- [x] Mark R114's replacement policy as superseded by R115.
 - [ ] Record exact commits and acceptance evidence in this ledger.
 
 ## Acceptance Matrix
+
+**Matrix scaling rule:** recovery coverage is the Cartesian product of the
+existing continuity-anchor auth-method family and the newly recovered
+auth-method family. With Passkey and Google/Email, the suite must cover 2x2.
+Adding a third family requires 3x3; adding a fourth requires 4x4. Every new
+family must work as both the existing continuity anchor and the recovery
+target. The wallet-inventory variants below are applied on top of that complete
+family matrix.
 
 | Existing wallet inventory | Recover with Passkey                              | Recover with Google / Email OTP                 |
 | ------------------------- | ------------------------------------------------- | ----------------------------------------------- |
 | Passkey only              | Add fresh Passkey authority                       | Add fresh Email authority                       |
 | Email only                | Add fresh Passkey authority                       | Add fresh Email authority                       |
 | Passkey + Email           | Add fresh Passkey authority                       | Add fresh Email authority                       |
-| Mixed linked authorities  | Add fresh Passkey authority; preserve all devices | Add fresh Email authority; preserve all devices |
 
 Each target's intended-browser contract proves:
 
@@ -596,6 +620,12 @@ boundary.
   `inconsistent` guards reject a commit whose source envelope is not retired.
   Under R115 those guards invert — an unchanged anchor envelope is the
   correct state, and a retired one is the fault.
+- `d1PasskeyCustodyRouteService.ts` now reads the committed active authority and
+  Passkey method after promotion/replay, `walletRecoveryFinalize.ts` strictly
+  parses that projection, and `persistRecoveredWalletAuthority` installs its
+  authority/method/locked-selection core. R115 extends these boundaries with the
+  fresh authority's envelope and activations. It does not restore the former
+  loose IDs/credential fragment or add a second local projection path.
 - Device linking's signer-material reservation is not a reuse candidate. It is
   built on a source-device re-share contribution, and recovery has no source
   device. Registration's founding-authority builder is the closer model.

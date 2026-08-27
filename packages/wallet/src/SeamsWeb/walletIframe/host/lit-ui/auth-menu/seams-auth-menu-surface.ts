@@ -760,6 +760,21 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     this.emitIntent({ kind: 'recovery_google_selected' });
   };
 
+  private onRecoveryGoogleOtpCodeInput = (event: Event): void => {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    this.emitIntent({ kind: 'recovery_google_otp_code_changed', code: event.currentTarget.value });
+  };
+
+  private onRecoveryGoogleOtpKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    this.emitIntent({ kind: 'recovery_google_otp_submit' });
+  };
+
+  private onRecoveryGoogleOtpSubmit = (): void => {
+    this.emitIntent({ kind: 'recovery_google_otp_submit' });
+  };
+
   private onRecoveryCreatePasskey = (): void => {
     this.emitIntent({ kind: 'recovery_create_passkey' });
   };
@@ -1122,13 +1137,14 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     if (viewModel.stage === 'enter_code') {
       const statusMessage = viewModel.status.kind === 'recoverable' ? viewModel.status.message : '';
       const feedbackMessage = viewModel.recoveryCodeError ?? statusMessage;
-      const feedbackIsError = viewModel.recoveryCodeError !== null;
+      const feedbackIsError = feedbackMessage.length > 0;
       return html`
         ${this.renderHeader(viewModel)}
         <p
           id="w3a-recovery-code-feedback"
           class="w3a-recovery-status ${feedbackIsError ? 'w3a-recovery-error' : ''}"
           aria-hidden=${feedbackIsError ? 'false' : 'true'}
+          role=${feedbackIsError ? 'alert' : 'status'}
         >
           ${feedbackMessage}
         </p>
@@ -1174,15 +1190,90 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         </form>
       `;
     }
+    if (viewModel.stage === 'email_code_required') {
+      const digits = otpCodeDigits(viewModel.otpCode);
+      const canSubmit = /^\d{6}$/.test(viewModel.otpCode) && viewModel.status.kind !== 'busy';
+      const deliveryMessage =
+        viewModel.delivery.status === 'reused'
+          ? `Use the code already sent to ${viewModel.emailHint}.`
+          : `A 6-digit code was sent to ${viewModel.emailHint}.`;
+      return html`
+        ${this.renderHeader(viewModel)}
+        <div class="w3a-otp-prompt" aria-live="polite">
+          <p class="w3a-otp-description">${deliveryMessage}</p>
+          <label class="w3a-field-label" for="w3a-recovery-google-otp">Email code</label>
+          <div
+            class="w3a-otp-code-field"
+            data-disabled=${viewModel.status.kind === 'busy' ? 'true' : 'false'}
+          >
+            <input
+              class="w3a-otp-input"
+              id="w3a-recovery-google-otp"
+              data-auth-menu-input
+              data-email-otp-challenge-id=${viewModel.challengeId}
+              data-email-otp-wallet-id=${viewModel.walletId}
+              name="recoveryEmailOtpCode"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              spellcheck="false"
+              pattern="[0-9]*"
+              maxlength="6"
+              aria-invalid=${viewModel.status.kind === 'recoverable' ? 'true' : 'false'}
+              aria-describedby=${viewModel.status.kind === 'recoverable'
+                ? 'w3a-recovery-google-otp-error'
+                : ''}
+              .value=${viewModel.otpCode}
+              ?disabled=${viewModel.status.kind === 'busy'}
+              @input=${this.onRecoveryGoogleOtpCodeInput}
+              @keydown=${this.onRecoveryGoogleOtpKeydown}
+            />
+            <div class="w3a-otp-slots" aria-hidden="true">${digits.map(renderOtpCodeDigit)}</div>
+          </div>
+          ${viewModel.status.kind === 'recoverable'
+            ? html`<p
+                id="w3a-recovery-google-otp-error"
+                class="w3a-recovery-status w3a-recovery-error"
+                role="alert"
+              >
+                ${viewModel.status.message}
+              </p>`
+            : null}
+          <button
+            class="w3a-link-device-btn w3a-link-device-btn-primary"
+            type="button"
+            data-auth-menu-primary
+            ?disabled=${!canSubmit}
+            @click=${this.onRecoveryGoogleOtpSubmit}
+          >
+            Verify email code
+          </button>
+        </div>
+      `;
+    }
     const finalizationRetry =
       viewModel.stage === 'finalizing' && viewModel.status.kind === 'recoverable';
     const signIn = viewModel.stage === 'sign_in_ready';
+    const googleTarget = viewModel.target.kind === 'google_email_otp';
     const message =
       viewModel.status.kind === 'recoverable'
         ? viewModel.status.message
         : signIn
-          ? 'Your new passkey is ready.'
-          : 'Create a new passkey to finish recovering this account.';
+          ? googleTarget
+            ? 'Your Google account is ready to sign in.'
+            : 'Your new passkey is ready.'
+          : viewModel.stage === 'google_ready'
+            ? 'Continue with Google, then verify the code sent to your email.'
+            : googleTarget
+              ? 'Finishing recovery with Google…'
+              : 'Create a new passkey to finish recovering this account.';
+    const action = signIn
+      ? this.onRecoverySignIn
+      : googleTarget
+        ? finalizationRetry
+          ? this.onRecoveryGoogleOtpSubmit
+          : this.onGoogleClick
+        : this.onRecoveryCreatePasskey;
     return html`
       ${this.renderHeader(viewModel)}
       <div class="w3a-recovery-confirmation">
@@ -1191,13 +1282,17 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           class="w3a-link-device-btn w3a-link-device-btn-primary"
           type="button"
           data-auth-menu-primary
-          @click=${signIn ? this.onRecoverySignIn : this.onRecoveryCreatePasskey}
+          @click=${action}
         >
           ${signIn
-            ? 'Sign in with new passkey'
+            ? googleTarget
+              ? 'Sign in with Google'
+              : 'Sign in with new passkey'
             : finalizationRetry
               ? 'Retry finalization'
-              : 'Create new passkey'}
+              : googleTarget
+                ? 'Continue with Google'
+                : 'Create new passkey'}
         </button>
       </div>
     `;
@@ -1625,6 +1720,8 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             class="w3a-otp-input"
             id="w3a-auth-menu-google-otp"
             data-auth-menu-input
+            data-email-otp-challenge-id=${viewModel.challengeId}
+            data-email-otp-wallet-id=${viewModel.walletId}
             type="text"
             inputmode="numeric"
             autocomplete="one-time-code"

@@ -62,6 +62,10 @@ function finalizeWith(fetchImpl: typeof fetch) {
     relayUrl: 'https://relay.localhost/',
     walletId: WALLET_ID,
     reservationId: 'reservation-1',
+    recoveryOperationId: 'wallet-recovery-operation:wire-1',
+    targetDeviceId: 'device:wire-1',
+    targetAuthorityId: 'wallet-authority:replacement',
+    targetWalletAuthMethodId: 'wallet-auth-method:replacement',
     challengeId: 'challenge-1',
     replacementId: ENVELOPE_ID,
     webauthnRegistration: REGISTRATION,
@@ -75,7 +79,7 @@ async function recoveryProjectionFixture() {
   return await buildLinkedDeviceManagementAuthorityFixture({
     label: 'recovery-wire',
     permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
-    provenance: 'wallet_registration',
+    provenance: 'wallet_recovery',
     identity: {
       walletId: WALLET_ID,
       authorityId: 'wallet-authority:replacement',
@@ -91,7 +95,7 @@ test('the route is registered where the client posts', () => {
   expect(route?.path).toBe('/wallets/recovery/finalize');
 });
 
-test('finalize posts only the atomic R114 promotion request', async () => {
+test('finalize posts only the atomic R115 promotion request', async () => {
   const captured: CapturedRequest = { url: '', body: null };
   const projection = await recoveryProjectionFixture();
   const result = await finalizeWith(
@@ -107,15 +111,23 @@ test('finalize posts only the atomic R114 promotion request', async () => {
   expect(Object.keys(captured.body ?? {}).sort()).toEqual([
     'challengeId',
     'ecdsaMaterialPossessionProofs',
+    'recoveryOperationId',
     'replacementEnvelope',
     'replacementId',
     'reservationId',
+    'targetAuthorityId',
+    'targetDeviceId',
+    'targetWalletAuthMethodId',
     'walletId',
     'webauthnRegistration',
   ]);
   expect(captured.body).toMatchObject({
     walletId: WALLET_ID,
     reservationId: 'reservation-1',
+    recoveryOperationId: 'wallet-recovery-operation:wire-1',
+    targetDeviceId: 'device:wire-1',
+    targetAuthorityId: 'wallet-authority:replacement',
+    targetWalletAuthMethodId: 'wallet-auth-method:replacement',
     challengeId: 'challenge-1',
     replacementId: ENVELOPE_ID,
     ecdsaMaterialPossessionProofs: [],

@@ -40,6 +40,7 @@ import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   type MpcMaterialActivationRef,
@@ -95,8 +96,9 @@ export type LinkedDeviceManagementAuthorityFixture = {
 export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly label: string;
   readonly permissions: CanonicalDelegatedWalletPermissionSetV1;
-  readonly provenance: 'wallet_registration' | 'device_link';
+  readonly provenance: 'wallet_registration' | 'device_link' | 'wallet_recovery';
   readonly keyFamily?: 'ed25519' | 'ecdsa_secp256k1';
+  readonly materialActivation?: MpcMaterialActivationRef;
   readonly sourceAuthorityId?: ActiveWalletAuthorityV1['authorityId'];
   readonly identity?: LinkedDeviceManagementAuthorityIdentityV1;
 }): Promise<LinkedDeviceManagementAuthorityFixture> {
@@ -143,31 +145,45 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
           manifest,
           materialActivations: {
             keyFamilies: ['ed25519'],
-            ed25519: buildMpcMaterialActivationRefFixture(`management-${input.label}`),
+            ed25519:
+              input.materialActivation ??
+              buildMpcMaterialActivationRefFixture(`management-${input.label}`),
           },
         })
       : buildWalletSignerActivationSetV1({
           manifest,
           materialActivations: {
             keyFamilies: ['ecdsa_secp256k1'],
-            ecdsa: buildMpcMaterialActivationRefFixture(`management-${input.label}`),
+            ecdsa:
+              input.materialActivation ??
+              buildMpcMaterialActivationRefFixture(`management-${input.label}`),
           },
         });
   const provenance =
     input.provenance === 'wallet_registration'
       ? ({ kind: 'wallet_registration' } as const)
-      : {
-          kind: 'device_link' as const,
-          enrollmentId: required(
-            parseLinkedDeviceEnrollmentId(`enrollment:management-${input.label}`),
-          ),
-          sourceAuthorityId:
-            input.sourceAuthorityId ??
-            required(parseWalletAuthorityId('authority:management-owner')),
-          linkSessionId: required(
-            parseLinkDeviceSessionId(`link-session:management-${input.label}`),
-          ),
-        };
+      : input.provenance === 'device_link'
+        ? {
+            kind: 'device_link' as const,
+            enrollmentId: required(
+              parseLinkedDeviceEnrollmentId(`enrollment:management-${input.label}`),
+            ),
+            sourceAuthorityId:
+              input.sourceAuthorityId ??
+              required(parseWalletAuthorityId('authority:management-owner')),
+            linkSessionId: required(
+              parseLinkDeviceSessionId(`link-session:management-${input.label}`),
+            ),
+          }
+        : {
+            kind: 'wallet_recovery' as const,
+            recoveryOperationId: required(
+              parseWalletRecoveryOperationId(`wallet-recovery-operation:${input.label}`),
+            ),
+            continuityAuthorityId:
+              input.sourceAuthorityId ??
+              required(parseWalletAuthorityId('authority:management-owner')),
+          };
   /* Canonical, not placeholder. Every server path that reads an authority
      recomputes both digests and refuses a record whose stored values disagree,
      so a fixture with a stand-in digest describes a row production would treat

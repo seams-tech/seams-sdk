@@ -1948,14 +1948,21 @@ async function addClientSealFromBytes(args: {
 
 const EMAIL_OTP_FACTOR_RELEASE_AAD_PREFIX = 'seams/email-otp/factor-release/v1';
 
+type EmailOtpFactorReleaseEnvelope = {
+  readonly kind: 'email_otp_factor_release_v1';
+  readonly challengeId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly serverEphemeralPublicKey65B64u: string;
+  readonly nonce12B64u: string;
+  readonly ciphertextB64u: string;
+};
+
 async function decryptEmailOtpFactorReleaseEnvelope(args: {
   walletId: string;
   challengeId: string;
   workerPrivateKey: CryptoKey;
-  materialRecovery: Extract<
-    IssuedEd25519OperationStepUpAuthorization['materialRecovery'],
-    { kind: 'email_otp_factor_release_v1' }
-  >;
+  materialRecovery: EmailOtpFactorReleaseEnvelope;
 }): Promise<{
   challengeId: string;
   enrollmentId: string;
@@ -2026,6 +2033,133 @@ async function decryptEmailOtpFactorReleaseEnvelope(args: {
     zeroizeBytes(sharedSecret);
     zeroizeBytes(aad);
     zeroizeBytes(factorSecret32);
+  }
+}
+
+async function releaseWalletRecoveryEmailOtpFactor(
+  args: EmailOtpWorkerOperationMap['releaseWalletRecoveryEmailOtpFactor']['payload'],
+): Promise<EmailOtpWorkerOperationMap['releaseWalletRecoveryEmailOtpFactor']['result']> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error('Email OTP recovery factor release requires WebCrypto');
+  const generated = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, [
+    'deriveBits',
+  ]);
+  if (!('privateKey' in generated) || !('publicKey' in generated)) {
+    throw new Error('Email OTP recovery factor release generated an invalid ECDH key pair');
+  }
+  const workerPublicKey = new Uint8Array(await subtle.exportKey('raw', generated.publicKey));
+  if (workerPublicKey.length !== 65 || workerPublicKey[0] !== 4) {
+    throw new Error('Email OTP recovery factor release generated an invalid public key');
+  }
+  let factorSecret32: Uint8Array | null = null;
+  try {
+    const released = await postEmailOtpJson({
+      relayUrl: readString(args.relayUrl, 'relayUrl'),
+      route: '/wallets/recovery/email-otp/release',
+      body: {
+        recoveryOperationId: readString(args.recoveryOperationId, 'recoveryOperationId'),
+        reservationId: readString(args.reservationId, 'reservationId'),
+        workerEphemeralPublicKey65B64u: base64UrlEncode(workerPublicKey),
+      },
+    });
+    const responseKind = readString(released.kind, 'recovery factor release.kind');
+    const recoveryOperationId = readString(
+      released.recoveryOperationId,
+      'recovery factor release.recoveryOperationId',
+    );
+    const reservationId = readString(
+      released.reservationId,
+      'recovery factor release.reservationId',
+    );
+    if (
+      recoveryOperationId !== String(args.recoveryOperationId).trim() ||
+      reservationId !== String(args.reservationId).trim()
+    ) {
+      throw new Error('Email OTP recovery factor release changed its operation identity');
+    }
+    if (responseKind === 'wallet_recovery_google_email_otp_new_enrollment_v1') {
+      if (
+        !released.enrollment ||
+        typeof released.enrollment !== 'object' ||
+        Array.isArray(released.enrollment)
+      ) {
+        throw new Error('Email OTP recovery new enrollment response is invalid');
+      }
+      const enrollment = released.enrollment as Record<string, unknown>;
+      if (enrollment.kind !== 'create') {
+        throw new Error('Email OTP recovery new enrollment kind is invalid');
+      }
+      return {
+        kind: 'create',
+        recoveryOperationId,
+        reservationId,
+        providerSubject: readString(
+          enrollment.providerSubject,
+          'recovery factor release.enrollment.providerSubject',
+        ),
+        verifiedEmail: readString(
+          enrollment.verifiedEmail,
+          'recovery factor release.enrollment.verifiedEmail',
+        ),
+      };
+    }
+    if (responseKind !== 'email_otp_factor_release_v1') {
+      throw new Error('Email OTP recovery factor release returned an invalid response kind');
+    }
+    const challengeId = readString(released.challengeId, 'recovery factor release.challengeId');
+    const enrollmentId = readString(
+      released.enrollmentId,
+      'recovery factor release.enrollmentId',
+    );
+    const providerSubject = readString(
+      released.providerSubject,
+      'recovery factor release.providerSubject',
+    );
+    const verifiedEmail = readString(
+      released.verifiedEmail,
+      'recovery factor release.verifiedEmail',
+    );
+    const enrollmentSealKeyVersion = readString(
+      released.enrollmentSealKeyVersion,
+      'recovery factor release.enrollmentSealKeyVersion',
+    );
+    const decrypted = await decryptEmailOtpFactorReleaseEnvelope({
+      walletId: String(args.walletId).trim(),
+      challengeId,
+      workerPrivateKey: generated.privateKey,
+      materialRecovery: {
+        kind: 'email_otp_factor_release_v1',
+        challengeId,
+        enrollmentId,
+        enrollmentSealKeyVersion,
+        serverEphemeralPublicKey65B64u: readString(
+          released.serverEphemeralPublicKey65B64u,
+          'recovery factor release.serverEphemeralPublicKey65B64u',
+        ),
+        nonce12B64u: readString(released.nonce12B64u, 'recovery factor release.nonce12B64u'),
+        ciphertextB64u: readString(
+          released.ciphertextB64u,
+          'recovery factor release.ciphertextB64u',
+        ),
+      },
+    });
+    factorSecret32 = decrypted.factorSecret32;
+    const ownedFactorSecret32 = Uint8Array.from(factorSecret32).buffer;
+    factorSecret32.fill(0);
+    factorSecret32 = null;
+    return {
+      kind: 'existing',
+      recoveryOperationId,
+      reservationId,
+      providerSubject,
+      verifiedEmail,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+      factorSecret32: ownedFactorSecret32,
+    };
+  } finally {
+    workerPublicKey.fill(0);
+    if (factorSecret32) factorSecret32.fill(0);
   }
 }
 
@@ -2994,9 +3128,6 @@ function walletCustodyActivationFactsFromEmailOtpBootstrap(
 ): WalletCustodyActivationFactsV1 {
   const capability = bootstrap.capability;
   const continuity = capability.registrationContinuity;
-  if (continuity.kind !== 'registration') {
-    throw new Error('Email OTP wallet custody cache requires registration continuity');
-  }
   return {
     materialActivation: capability.materialActivation,
     lifecycleId: capability.lifecycle.lifecycleId,
@@ -6117,6 +6248,22 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     }
+    case 'releaseWalletRecoveryEmailOtpFactor':
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['relayUrl', 'walletId', 'recoveryOperationId', 'reservationId'],
+        type,
+      );
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          recoveryOperationId: readString(payload.recoveryOperationId, 'recoveryOperationId'),
+          reservationId: readString(payload.reservationId, 'reservationId'),
+        },
+      };
     case 'createEmailOtpEd25519YaoSigningShare':
       rejectUnknownEmailOtpYaoFields(payload, ['activeClientHandle', 'input'], type);
       return {
@@ -6860,6 +7007,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
         } finally {
           zeroizeBytes(result.clientSecret32);
         }
+        return;
+      }
+      case 'releaseWalletRecoveryEmailOtpFactor': {
+        const result = await releaseWalletRecoveryEmailOtpFactor(msg.payload);
+        postToMainThread(
+          { id: msg.id, ok: true, result },
+          result.kind === 'existing' ? [result.factorSecret32] : [],
+        );
         return;
       }
       case 'createEmailOtpEd25519YaoSigningShare': {

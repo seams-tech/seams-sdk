@@ -1,4 +1,8 @@
-import { parseWalletId, parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletId,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 import {
   deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
   deriveRouterAbEd25519YaoExportConfirmationDigestV1,
@@ -501,11 +505,17 @@ export function localYaoOrigin(): string {
 
 function registrationIntent(walletId: ReturnType<typeof walletIdFromString>): RegistrationIntentV1 {
   const rpId = parseWebAuthnRpId('wallet.local');
-  if (!rpId.ok) throw new Error(rpId.error.message);
+  const foundingWalletAuthMethodId = parseWalletAuthMethodId(
+    'wallet-auth-method:local-yao-registration',
+  );
+  if (!rpId.ok || !foundingWalletAuthMethodId.ok) {
+    throw new Error('local Yao registration auth identity is invalid');
+  }
   return {
     version: 'registration_intent_v1',
     walletId,
     authMethod: { kind: 'passkey', rpId: rpId.value },
+    foundingWalletAuthMethodId: foundingWalletAuthMethodId.value,
     signerSelection: {
       kind: 'signer_set',
       signers: [

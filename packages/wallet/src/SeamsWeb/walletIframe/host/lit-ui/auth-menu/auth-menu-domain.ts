@@ -7,8 +7,16 @@ import type {
 import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
 import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
-import { isPlainObject } from '@shared/utils/validation';
-import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
+import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
+import type { WalletAuthMethod } from '@shared/utils/signerDomain';
+
+function isAuthMenuRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isAuthMenuWalletAuthMethod(value: unknown): value is WalletAuthMethod {
+  return value === 'passkey' || value === 'email_otp';
+}
 
 /**
  * The view model is normalized by the wallet-host controller before it reaches
@@ -101,6 +109,7 @@ export type AuthMenuGoogleLoginViewModel = AuthMenuViewModelCommon & {
   readonly mode: 'login';
   readonly emailHint: string;
   readonly walletId: string;
+  readonly challengeId: string;
   readonly prompt: GoogleEmailOtpWalletAuthPromptCopy;
   readonly delivery: GoogleEmailOtpWalletAuthDelivery;
   readonly otpCode: string;
@@ -174,6 +183,8 @@ export type AuthMenuRecoveryStage =
   | 'enter_code'
   | 'preparing'
   | 'passkey_ready'
+  | 'google_ready'
+  | 'email_code_required'
   | 'finalizing'
   | 'sign_in_ready';
 
@@ -205,6 +216,22 @@ export type AuthMenuRecoveryViewModel = AuthMenuViewModelCommon & {
         readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
         readonly walletId: string;
         readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
+      }
+    | {
+        readonly stage: 'google_ready';
+        readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'google_email_otp' }>;
+        readonly walletId: string;
+        readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus;
+      }
+    | {
+        readonly stage: 'email_code_required';
+        readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'google_email_otp' }>;
+        readonly walletId: string;
+        readonly challengeId: string;
+        readonly emailHint: string;
+        readonly delivery: EmailOtpChallengeDelivery;
+        readonly otpCode: string;
+        readonly status: AuthMenuIdleStatus | AuthMenuRecoverableStatus | AuthMenuBusyStatus;
       }
     | {
         readonly stage: 'finalizing';
@@ -257,6 +284,13 @@ export type AuthMenuIntent =
     }
   | {
       readonly kind: 'recovery_google_selected';
+    }
+  | {
+      readonly kind: 'recovery_google_otp_code_changed';
+      readonly code: string;
+    }
+  | {
+      readonly kind: 'recovery_google_otp_submit';
     }
   | {
       readonly kind: 'recovery_create_passkey';
@@ -350,6 +384,7 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
     case 'recovery_open':
     case 'recovery_passkey_selected':
     case 'recovery_google_selected':
+    case 'recovery_google_otp_submit':
     case 'recovery_create_passkey':
     case 'recovery_sign_in':
     case 'link_device_create_passkey':
@@ -360,9 +395,11 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
       return true;
     case 'recovery_code_changed':
       return typeof record.recoveryCode === 'string';
+    case 'recovery_google_otp_code_changed':
+      return typeof record.code === 'string';
     case 'link_device_factor_selected':
       return (
-        isPlainObject(record.targetFactor) &&
+        isAuthMenuRecord(record.targetFactor) &&
         (record.targetFactor.kind === 'passkey_prf' || record.targetFactor.kind === 'email_otp')
       );
     case 'link_device_target_email_changed':
@@ -377,7 +414,7 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
     case 'passkey_name_changed':
       return typeof record.passkeyName === 'string';
     case 'login_account_selected':
-      return typeof record.walletId === 'string' && isWalletAuthMethod(record.authMethod);
+      return typeof record.walletId === 'string' && isAuthMenuWalletAuthMethod(record.authMethod);
     case 'external_auth':
       return record.provider === 'google';
     case 'google_otp_code_changed':
@@ -435,7 +472,9 @@ export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
     case 'recovery':
       return (
         viewModel.stage === 'passkey_ready' ||
-        viewModel.stage === 'sign_in_ready'
+        viewModel.stage === 'google_ready' ||
+        viewModel.stage === 'sign_in_ready' ||
+        (viewModel.stage === 'email_code_required' && /^\d{6}$/.test(viewModel.otpCode))
       );
     case 'passkey':
       return viewModel.mode === 'login'

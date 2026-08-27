@@ -3255,6 +3255,10 @@ async function unlockOwnerAuthorityEmailOtpEd25519(input: {
   if (ready.bootstrap.session.walletSessionId !== unlocked.operationCredential.walletSessionId) {
     throw new Error('[login] owner Email OTP Ed25519 session credential mismatch');
   }
+  const authority = await walletAuthAuthorityRefForLinkedDeviceMethod({
+    selection,
+    providerIdentity: input.providerIdentity,
+  });
   await input.context.signingEngine.activateOwnerAuthorityEd25519RuntimeInternal({
     walletSession: {
       walletId: selection.walletId,
@@ -3266,10 +3270,7 @@ async function unlockOwnerAuthorityEmailOtpEd25519(input: {
     /* From the selection this unlock already verified against the returned
        session, not from a lookup: activation is part of installing that
        session, so reading it back would be waiting on itself. */
-    authority: await walletAuthAuthorityRefForLinkedDeviceMethod({
-      selection,
-      providerIdentity: input.providerIdentity,
-    }),
+    authority,
     activeClientHandle: ready.activeClientHandle,
     metadata: ready.metadata,
     bootstrap: ready.bootstrap,

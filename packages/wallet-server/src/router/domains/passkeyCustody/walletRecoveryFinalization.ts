@@ -4,12 +4,14 @@ import {
   buildActiveWalletAuthorityV1,
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
+  replaceActiveWalletAuthorityEd25519MaterialActivationV1,
   type ActiveWalletAuthorityV1,
   type WalletSignerActivationSetV1,
 } from '@shared/authorization';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseWalletId,
+  parseWalletAuthorityBindingDigest,
   parseWebAuthnRpId,
   parseWebAuthnCredentialIdB64u,
   type WalletAuthMethodId,
@@ -167,7 +169,7 @@ function continuityEnvelopeMatchesAnchor(
     envelope.envelopeId !== anchor.envelope.envelopeId ||
     envelope.binding.kind !== 'wallet_custody_seed_v1' ||
     envelope.ownership.kind !== 'method_bound' ||
-    envelope.ownership.walletAuthMethodId !== anchor.walletAuthMethodId ||
+    envelope.ownership.walletAuthMethodId !== anchor.method.walletAuthMethodId ||
     envelope.envelopeRevision !== anchor.envelope.envelopeRevision ||
     envelope.updatedAtMs !== anchor.envelope.updatedAtMs
   ) {
@@ -192,22 +194,30 @@ function continuityEnvelopeMatchesAnchor(
 async function readContinuityAnchor(input: {
   readonly walletId: WalletId;
   readonly anchor: WebAuthnRecoveryContinuityAnchorRecord;
+  readonly manifest: WalletRecoveryKeyManifestV1;
   readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
   readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
 }): Promise<ContinuityAnchorRead> {
-  const authority = await input.walletAuthorityStore.readById(input.anchor.walletAuthorityId);
+  const authority = await input.walletAuthorityStore.readById(input.anchor.authority.authorityId);
+  const expectedAuthority = authority
+    ? await recoveryContinuityAuthorityAfterActivation({
+        authority: input.anchor.authority,
+        manifest: input.manifest,
+        updatedAtMs: authority.updatedAtMs,
+      })
+    : null;
   if (
     !authority ||
+    !expectedAuthority ||
     authority.state !== 'active' ||
     authority.walletId !== input.walletId ||
-    String(authority.authorityDigestB64u) !== String(input.anchor.authorityDigestB64u) ||
-    authority.provenance.kind !== input.anchor.provenanceKind
+    alphabetizeStringify(authority) !== alphabetizeStringify(expectedAuthority)
   ) {
     return { kind: 'rejected', reason: 'the recovery continuity authority changed' };
   }
   const method = await input.walletCustodyCommits.readWalletAuthMethodById(
-    input.anchor.walletAuthMethodId,
+    input.anchor.method.walletAuthMethodId,
   );
   if (
     !method ||
@@ -226,11 +236,17 @@ async function readContinuityAnchor(input: {
   ) {
     return { kind: 'rejected', reason: 'the recovery continuity envelope changed' };
   }
+  const authorityDigest = parseWalletAuthorityBindingDigest(
+    String(input.anchor.authority.authorityDigestB64u),
+  );
+  if (!authorityDigest.ok) {
+    return { kind: 'rejected', reason: 'the recovery continuity authority changed' };
+  }
   const authorityRef: WalletAuthAuthorityRef = {
     kind: 'wallet_auth_authority_ref',
     walletId: input.walletId,
-    authorityDigest: input.anchor.authorityDigestB64u,
-    walletAuthMethodId: input.anchor.walletAuthMethodId,
+    authorityDigest: authorityDigest.value,
+    walletAuthMethodId: input.anchor.method.walletAuthMethodId,
   };
   return {
     kind: 'ready',
@@ -239,6 +255,30 @@ async function readContinuityAnchor(input: {
     envelope: envelopeLookup.envelope,
     authorityRef,
   };
+}
+
+async function recoveryContinuityAuthorityAfterActivation(input: {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly manifest: WalletRecoveryKeyManifestV1;
+  readonly updatedAtMs: number;
+}): Promise<ActiveWalletAuthorityV1> {
+  const signerActivations = recoverySignerActivations({
+    continuity: input.authority.signerActivations,
+    manifest: input.manifest,
+  });
+  const ed25519 = signerActivations.ed25519;
+  if (!ed25519) return input.authority;
+  return await replaceActiveWalletAuthorityEd25519MaterialActivationV1({
+    authority: input.authority,
+    materialActivation: ed25519.materialActivation,
+    updatedAtMs: input.updatedAtMs,
+  });
+}
+
+function parseRecoveryAuthorityDigest(authority: ActiveWalletAuthorityV1) {
+  const parsed = parseWalletAuthorityBindingDigest(String(authority.authorityDigestB64u));
+  if (!parsed.ok) throw new Error('wallet recovery authority digest is invalid');
+  return parsed.value;
 }
 
 async function buildRecoveredWalletAuthority(input: {
@@ -634,17 +674,6 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     };
   }
 
-  const continuity = await readContinuityAnchor({
-    walletId,
-    anchor: challenge.continuityAnchor,
-    envelopeStore: input.envelopeStore,
-    walletCustodyCommits: input.walletCustodyCommits,
-    walletAuthorityStore: input.walletAuthorityStore,
-  });
-  if (continuity.kind === 'rejected') {
-    return { kind: 'registration_rejected', reason: continuity.reason };
-  }
-
   let manifest;
   try {
     manifest = await resolveWalletRecoveryKeyManifestV1({
@@ -657,12 +686,25 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: error instanceof Error ? error.message : 'wallet recovery key manifest unavailable',
     };
   }
+  const continuity = await readContinuityAnchor({
+    walletId,
+    anchor: challenge.continuityAnchor,
+    manifest,
+    envelopeStore: input.envelopeStore,
+    walletCustodyCommits: input.walletCustodyCommits,
+    walletAuthorityStore: input.walletAuthorityStore,
+  });
+  if (continuity.kind === 'rejected') {
+    return { kind: 'registration_rejected', reason: continuity.reason };
+  }
   const ecdsaPossessionChallenges = await buildWalletRecoveryEcdsaPossessionChallengesV1({
     manifest,
     walletId,
     reservationId: String(challenge.reservationId),
     replacementId: String(challenge.replacementId),
-    sourceAuthorityDigestB64u: challenge.continuityAnchor.authorityDigestB64u,
+    sourceAuthorityDigestB64u: parseRecoveryAuthorityDigest(
+      challenge.continuityAnchor.authority,
+    ),
     challengeB64u: challenge.challengeB64u,
     expiresAtMs: challenge.expiresAtMs,
   });

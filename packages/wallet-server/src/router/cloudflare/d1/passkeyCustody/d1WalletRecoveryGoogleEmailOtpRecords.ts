@@ -7,7 +7,6 @@ import {
 import {
   parsePasskeyEnvelopeId,
   parseWalletAuthMethodId,
-  parseWalletAuthorityBindingDigest,
   parseWalletAuthorityId,
   parseWalletId,
   parseWalletRecoveryOperationId,
@@ -23,7 +22,7 @@ import {
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { parseEnvelopeRevision, type EnvelopeRevision } from '@shared/passkey-custody';
-import type { WalletAuthorityProvenanceV1 } from '@shared/authorization/walletAuthority';
+import { parseWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   parseWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
@@ -63,7 +62,6 @@ type WalletRecoveryGoogleEmailOtpAttemptCommonV1 = {
   readonly target: WalletRecoveryGoogleEmailOtpTargetV1;
   readonly continuityAnchor: WebAuthnRecoveryContinuityAnchorRecord;
   readonly recoverySetVersion: string;
-  readonly keyManifestDigestB64u: DigestB64u;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
 };
@@ -149,7 +147,6 @@ export function buildPreparedWalletRecoveryGoogleEmailOtpAttempt(input: {
   readonly targetWalletAuthMethodId: WalletAuthMethodId;
   readonly continuityAnchor: WebAuthnRecoveryContinuityAnchorRecord;
   readonly recoverySetVersion: string;
-  readonly keyManifestDigestB64u: DigestB64u;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
 }): PreparedWalletRecoveryGoogleEmailOtpAttempt {
@@ -165,7 +162,6 @@ export function buildPreparedWalletRecoveryGoogleEmailOtpAttempt(input: {
     target: { kind: 'google_email_otp', googleProvider: 'google' },
     continuityAnchor: input.continuityAnchor,
     recoverySetVersion: input.recoverySetVersion,
-    keyManifestDigestB64u: input.keyManifestDigestB64u,
     state: 'prepared',
     createdAtMs: input.createdAtMs,
     expiresAtMs: input.expiresAtMs,
@@ -233,14 +229,13 @@ export function parseWalletRecoveryGoogleEmailOtpAttemptRecord(
     'target',
     'continuityAnchor',
     'recoverySetVersion',
-    'keyManifestDigestB64u',
     'state',
     'createdAtMs',
     'expiresAtMs',
   ] as const;
   if (
     raw.version !== 'wallet_recovery_google_email_otp_attempt_v1' ||
-    !hasExactFields(raw, expectedCommonFields) ||
+    !hasFields(raw, expectedCommonFields) ||
     typeof raw.orgId !== 'string' ||
     !raw.orgId.trim() ||
     typeof raw.recoverySetVersion !== 'string' ||
@@ -254,12 +249,6 @@ export function parseWalletRecoveryGoogleEmailOtpAttemptRecord(
   const targetDeviceId = parseDeviceId(raw.targetDeviceId);
   const targetAuthorityId = parseWalletAuthorityId(raw.targetAuthorityId);
   const targetWalletAuthMethodId = parseWalletAuthMethodId(raw.targetWalletAuthMethodId);
-  let keyManifestDigestB64u: DigestB64u;
-  try {
-    keyManifestDigestB64u = parseDigestB64u(raw.keyManifestDigestB64u);
-  } catch {
-    return null;
-  }
   const continuityAnchor = parseContinuityAnchor(raw.continuityAnchor);
   const createdAtMs = parsePositiveMs(raw.createdAtMs);
   const expiresAtMs = parsePositiveMs(raw.expiresAtMs);
@@ -293,7 +282,6 @@ export function parseWalletRecoveryGoogleEmailOtpAttemptRecord(
     target,
     continuityAnchor,
     recoverySetVersion: raw.recoverySetVersion,
-    keyManifestDigestB64u,
     createdAtMs,
     expiresAtMs,
   };
@@ -349,28 +337,22 @@ export function parseWalletRecoveryGoogleEmailOtpAttemptRecord(
 function parseContinuityAnchor(raw: unknown): WebAuthnRecoveryContinuityAnchorRecord | null {
   if (!isRecord(raw) || !hasExactFields(raw, [
     'kind',
-    'walletAuthMethodId',
-    'walletAuthorityId',
-    'authorityDigestB64u',
-    'provenanceKind',
+    'authority',
     'method',
     'envelope',
   ])) return null;
   if (raw.kind !== 'wallet_recovery_continuity_anchor_v1') return null;
-  const walletAuthMethodId = parseWalletAuthMethodId(raw.walletAuthMethodId);
-  const walletAuthorityId = parseWalletAuthorityId(raw.walletAuthorityId);
-  const authorityDigestB64u = parseWalletAuthorityBindingDigest(raw.authorityDigestB64u);
+  const authority = parseWalletAuthorityV1(raw.authority);
   const method = parseWalletAuthMethodRecordV2(raw.method);
   const envelope = parseContinuityEnvelope(raw.envelope);
   if (
-    !walletAuthMethodId.ok ||
-    !walletAuthorityId.ok ||
-    !authorityDigestB64u.ok ||
+    !authority.ok ||
+    authority.value.state !== 'active' ||
     !method ||
     method.status !== 'active' ||
     !envelope ||
-    method.walletAuthMethodId !== walletAuthMethodId.value ||
-    method.walletAuthorityId !== walletAuthorityId.value
+    method.walletId !== authority.value.walletId ||
+    method.walletAuthorityId !== authority.value.authorityId
   ) return null;
   if (
     method.kind === 'passkey' &&
@@ -379,17 +361,9 @@ function parseContinuityAnchor(raw: unknown): WebAuthnRecoveryContinuityAnchorRe
       method.credentialIdB64u !== envelope.credentialIdB64u)
   ) return null;
   if (method.kind === 'email_otp' && envelope.kind !== 'email_otp') return null;
-  if (
-    raw.provenanceKind !== 'wallet_registration' &&
-    raw.provenanceKind !== 'device_link' &&
-    raw.provenanceKind !== 'wallet_recovery'
-  ) return null;
   return {
     kind: 'wallet_recovery_continuity_anchor_v1',
-    walletAuthMethodId: walletAuthMethodId.value,
-    walletAuthorityId: walletAuthorityId.value,
-    authorityDigestB64u: authorityDigestB64u.value,
-    provenanceKind: raw.provenanceKind,
+    authority: authority.value,
     method,
     envelope,
   };
@@ -407,7 +381,7 @@ function parseContinuityEnvelope(
     'updatedAtMs',
     'bindingKind',
   ] as const;
-  if (!hasExactFields(raw, commonFields)) return null;
+  if (!hasFields(raw, commonFields)) return null;
   const envelopeId = parsePasskeyEnvelopeId(raw.envelopeId);
   const walletId = parseWalletId(raw.walletId);
   let envelopeRevision: EnvelopeRevision;
@@ -502,6 +476,10 @@ function hasExactFields(record: Record<string, unknown>, fields: readonly string
   const actual = Object.keys(record).sort();
   const expected = [...fields].sort();
   return actual.length === expected.length && actual.every((field, index) => field === expected[index]);
+}
+
+function hasFields(record: Record<string, unknown>, fields: readonly string[]): boolean {
+  return fields.every((field) => Object.hasOwn(record, field));
 }
 
 export type {

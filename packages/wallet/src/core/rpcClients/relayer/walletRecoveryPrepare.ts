@@ -222,27 +222,34 @@ export type WalletRecoveryAttemptFailure =
   | { readonly kind: 'transport_uncertain' };
 
 export type WalletRecoveryPrepareResult =
-  | {
-      readonly kind: 'prepared';
-      readonly walletId: WalletId;
+  | (WalletRecoveryPrepareResultCommon & {
       readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
-      readonly recoveryOperationId: WalletRecoveryOperationId;
-      readonly targetDeviceId: DeviceId;
-      readonly targetAuthorityId: WalletAuthorityId;
-      readonly targetWalletAuthMethodId: WalletAuthMethodId;
-      readonly wrap: {
-        readonly nonceB64u: EnvelopeNonceB64u;
-        readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
-        readonly aadHashB64u: DigestB64u;
-      };
-      readonly entries: readonly [WalletRecoveryEnvelopeEntry];
-      readonly keyManifest: WalletRecoveryPreparationKeyManifest;
       readonly registration: WalletRecoveryRegistrationOptions;
-      readonly reservationId: RecoveryCodeReservationId;
-      readonly reservationExpiresAtMs: number;
-      readonly storeVersion: string;
-    }
+    })
+  | (WalletRecoveryPrepareResultCommon & {
+      readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'google_email_otp' }>;
+      readonly registration?: never;
+    })
   | WalletRecoveryAttemptFailure;
+
+type WalletRecoveryPrepareResultCommon = {
+  readonly kind: 'prepared';
+  readonly walletId: WalletId;
+  readonly recoveryOperationId: WalletRecoveryOperationId;
+  readonly targetDeviceId: DeviceId;
+  readonly targetAuthorityId: WalletAuthorityId;
+  readonly targetWalletAuthMethodId: WalletAuthMethodId;
+  readonly wrap: {
+    readonly nonceB64u: EnvelopeNonceB64u;
+    readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
+    readonly aadHashB64u: DigestB64u;
+  };
+  readonly entries: readonly [WalletRecoveryEnvelopeEntry];
+  readonly keyManifest: WalletRecoveryPreparationKeyManifest;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly reservationExpiresAtMs: number;
+  readonly storeVersion: string;
+};
 
 export type PreparedWalletRecovery = Extract<
   WalletRecoveryPrepareResult,
@@ -277,7 +284,6 @@ export async function prepareWalletRecoveryWithCode(args: {
   readonly reservationId: RecoveryCodeReservationId;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryPrepareResult> {
-  if (args.target.kind !== 'passkey') return { kind: 'refused' };
   const requested = await requestWalletRecoveryPrepare(args);
   if (!requested.ok) return { kind: requested.kind };
   return await parseWalletRecoveryPrepareResponse({
@@ -319,7 +325,7 @@ async function requestWalletRecoveryPrepare(args: {
 
 async function parseWalletRecoveryPrepareResponse(args: {
   readonly response: Response;
-  readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
+  readonly target: WalletRecoveryTargetV1;
   readonly reservationId: RecoveryCodeReservationId;
 }): Promise<WalletRecoveryPrepareResult> {
   const response = args.response;
@@ -353,7 +359,7 @@ async function parseWalletRecoveryPrepareResponse(args: {
       if (!walletIdResult.ok) throw new Error('walletRecoveryPrepare.walletId is invalid');
       const walletId = walletIdResult.value;
       const target = parseWalletRecoveryTargetV1(body.target);
-      if (target.kind !== 'passkey' || target.rpId !== args.target.rpId) {
+      if (!recoveryTargetsMatch(target, args.target)) {
         throw new Error('wallet recovery preparation changed the recovery target');
       }
       const recoveryOperationId = parseWalletRecoveryOperationId(body.recoveryOperationId);
@@ -369,14 +375,6 @@ async function parseWalletRecoveryPrepareResponse(args: {
         throw new Error('wallet recovery preparation target identity is invalid');
       }
       const keyManifest = parseWalletRecoveryPreparationKeyManifest(body.keyManifest, walletId);
-      const registration = parseWalletRecoveryRegistrationOptions(
-        body.registration,
-        String(walletId),
-        args.target.rpId,
-      );
-      if (registration.walletAuthMethodId !== targetWalletAuthMethodId.value) {
-        throw new Error('wallet recovery registration changed the target auth method');
-      }
       const reservationId = parseRecoveryCodeReservationId(body.reservationId);
       const reservationExpiresAtMs = parseUnixMs(
         body.reservationExpiresAtMs,
@@ -386,10 +384,9 @@ async function parseWalletRecoveryPrepareResponse(args: {
       if (reservationId !== args.reservationId) {
         throw new Error('wallet recovery preparation changed the reservation identity');
       }
-      return {
-        kind: 'prepared',
+      const common = {
+        kind: 'prepared' as const,
         walletId,
-        target: args.target,
         recoveryOperationId: recoveryOperationId.value,
         targetDeviceId: targetDeviceId.value,
         targetAuthorityId: targetAuthorityId.value,
@@ -397,11 +394,30 @@ async function parseWalletRecoveryPrepareResponse(args: {
         wrap,
         entries,
         keyManifest,
-        registration,
         reservationId,
         reservationExpiresAtMs,
         storeVersion,
       };
+      switch (target.kind) {
+        case 'passkey': {
+          const registration = parseWalletRecoveryRegistrationOptions(
+            body.registration,
+            String(walletId),
+            target.rpId,
+          );
+          if (registration.walletAuthMethodId !== targetWalletAuthMethodId.value) {
+            throw new Error('wallet recovery registration changed the target auth method');
+          }
+          return { ...common, target, registration };
+        }
+        case 'google_email_otp':
+          if (Object.prototype.hasOwnProperty.call(body, 'registration')) {
+            throw new Error('Google Email OTP recovery cannot carry passkey registration');
+          }
+          return { ...common, target };
+        default:
+          return assertNeverRecoveryTarget(target);
+      }
     } catch {
       return { kind: 'transport_uncertain' };
     }
@@ -622,6 +638,25 @@ function parseRecoveryExcludeCredentials(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function recoveryTargetsMatch(
+  left: WalletRecoveryTargetV1,
+  right: WalletRecoveryTargetV1,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case 'passkey':
+      return right.kind === 'passkey' && left.rpId === right.rpId;
+    case 'google_email_otp':
+      return right.kind === 'google_email_otp' && left.googleProvider === right.googleProvider;
+    default:
+      return assertNeverRecoveryTarget(left);
+  }
+}
+
+function assertNeverRecoveryTarget(value: never): never {
+  throw new Error(`unsupported wallet recovery target: ${String(value)}`);
 }
 
 const PREPARED_WRAP_FIELDS = ['nonceB64u', 'wrappedManifestKekB64u', 'aadHashB64u'] as const;

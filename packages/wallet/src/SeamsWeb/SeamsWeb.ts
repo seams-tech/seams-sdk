@@ -235,6 +235,7 @@ import {
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { isObject } from '@shared/utils/validation';
+import type { WalletAuthorityProvenanceV1 } from '@shared/authorization/walletAuthority';
 
 type EmailOtpWalletCustodyEd25519LoginDomainArgs = Omit<
   LoginWithEmailOtpWalletCustodyEd25519Args,
@@ -253,6 +254,20 @@ type EmailOtpUnlockActiveRuntimeState = {
   kind: 'email_otp_unlock_active_runtime_state_v1';
   inventory: WalletRuntimeInventory;
 };
+
+function googleEmailOtpUnlockExecution(
+  provenance: WalletAuthorityProvenanceV1,
+): 'ordinary' | 'linked' {
+  switch (provenance.kind) {
+    case 'wallet_registration':
+      return 'ordinary';
+    case 'device_link':
+    case 'wallet_recovery':
+      return 'linked';
+  }
+  provenance satisfies never;
+  throw new Error('Email OTP authority provenance is invalid');
+}
 
 function requireWalletAuthMethodId(value: string): WalletAuthMethodId {
   const parsed = parseWalletAuthMethodId(value);
@@ -2223,10 +2238,7 @@ export class SeamsWeb {
         return {
           kind: 'selected',
           walletAuthMethodId: String(resolution.selection.authMethod.walletAuthMethodId),
-          execution:
-            resolution.selection.authority.provenance.kind === 'device_link'
-              ? 'linked'
-              : 'ordinary',
+          execution: googleEmailOtpUnlockExecution(resolution.selection.authority.provenance),
           keyFamilies: resolution.selection.authority.signerActivations.keyFamilies,
         };
       case 'rejected':

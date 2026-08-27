@@ -363,10 +363,10 @@ export type RejoinedEvmFamilyCustody = {
   readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
 };
 
-export type RecoveryCredentialReplacement =
+export type RecoveryFactorReplacement =
   | { readonly kind: 'preserve_existing' }
   | {
-      readonly kind: 'reseal_replacement_passkey';
+      readonly kind: 'reseal_replacement_factor';
       readonly factorJson: string;
       readonly factorSecret: ArrayBuffer;
     };
@@ -375,7 +375,7 @@ type WalletRecoveryCustodyInput = {
   readonly custodyJson: string;
   readonly recoveryCode: ArrayBuffer;
   readonly recordedKeyManifestDigestB64u: string;
-  readonly credentialReplacement: RecoveryCredentialReplacement;
+  readonly factorReplacement: RecoveryFactorReplacement;
 };
 
 function recoveryCeremonyCustody(
@@ -384,28 +384,28 @@ function recoveryCeremonyCustody(
   Parameters<typeof runWalletCustodyKeySetCeremony>[0]['custody'],
   { readonly origin: 'recover' | 'recover_and_reseal' }
 > {
-  switch (input.credentialReplacement.kind) {
+  switch (input.factorReplacement.kind) {
     case 'preserve_existing':
       return {
         origin: 'recover',
         custodyJson: input.custodyJson,
         recoveryCode: input.recoveryCode,
       };
-    case 'reseal_replacement_passkey':
+    case 'reseal_replacement_factor':
       return {
         origin: 'recover_and_reseal',
         custodyJson: input.custodyJson,
         recoveryCode: input.recoveryCode,
-        replacementFactorJson: input.credentialReplacement.factorJson,
-        replacementFactorSecret: input.credentialReplacement.factorSecret,
+        replacementFactorJson: input.factorReplacement.factorJson,
+        replacementFactorSecret: input.factorReplacement.factorSecret,
       };
     default:
-      return assertNeverRecoveryCredentialReplacement(input.credentialReplacement);
+      return assertNeverRecoveryFactorReplacement(input.factorReplacement);
   }
 }
 
-function assertNeverRecoveryCredentialReplacement(value: never): never {
-  throw new Error(`unsupported recovery credential replacement: ${String(value)}`);
+function assertNeverRecoveryFactorReplacement(value: never): never {
+  throw new Error(`unsupported recovery factor replacement: ${String(value)}`);
 }
 
 export type RecoverEvmFamilyCustodyInput = WalletRecoveryCustodyInput & {

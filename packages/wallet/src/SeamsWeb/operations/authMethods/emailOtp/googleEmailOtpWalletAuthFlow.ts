@@ -338,10 +338,13 @@ async function resolveGoogleEmailOtpProviderForAuthFlow(args: {
 
 function resolveSessionState(input: {
   idToken: string;
-  requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
+  authInput: GoogleEmailOtpWalletAuthStartInput;
   resolution: GoogleEmailOtpProviderResolution;
 }): GoogleSessionState {
-  const walletId = requireWalletId(input.resolution);
+  const walletId =
+    input.authInput.mode === 'login' && input.authInput.loginTarget.kind === 'wallet'
+      ? walletIdFromString(String(input.authInput.loginTarget.walletId))
+      : requireWalletId(input.resolution);
   const emailHint = requireEmail(input.resolution);
   const resolution = input.resolution;
   const mode = resolveGoogleEmailOtpAuthMode(resolution.mode);
@@ -365,7 +368,7 @@ function resolveSessionState(input: {
     ...(offer ? { offer } : {}),
     providerSubject: requireProviderSubject(input.resolution),
     emailHint,
-    requestedMode: input.requestedMode,
+    requestedMode: input.authInput.mode,
     mode,
     expiresAtMs:
       resolution.mode === 'register_started'
@@ -629,7 +632,7 @@ export async function beginGoogleEmailOtpWalletAuth(
     });
     sessionState = resolveSessionState({
       idToken: input.idToken,
-      requestedMode: input.mode,
+      authInput: input,
       resolution,
     });
     sessionState = await selectLinkedEmailOtpWalletAuth({ deps, state: sessionState });

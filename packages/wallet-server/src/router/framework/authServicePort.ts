@@ -121,11 +121,13 @@ export type WalletUnlockEmailOtpAuthorityResolution =
 export type WalletUnlockPasskeySessionResolution =
   | {
       readonly kind: 'active_authority';
+      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
       readonly walletSession: IssuedWalletSessionAuthorizationV2;
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
   | {
       readonly kind: 'wallet_registration';
+      readonly authorityProvenanceKind?: never;
       readonly walletSession?: never;
       readonly operationCredential?: never;
     }

@@ -994,7 +994,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
     readonly walletId: string;
     readonly enrollmentId: string;
     readonly enrollmentSealKeyVersion: string;
-  }) => Promise<WalletUnlockEmailOtpCustodyLookup>;
+  } & (
+    | { readonly kind: 'factor' }
+    | { readonly kind: 'wallet_auth_method'; readonly walletAuthMethodId: WalletAuthMethodId }
+  )) => Promise<WalletUnlockEmailOtpCustodyLookup>;
   resolvePasskeyCustody: (input: {
     readonly walletId: string;
     readonly rpId: string;
@@ -1122,6 +1125,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
     }
     let activeWalletSession: IssuedWalletSessionAuthorizationV2 | null = null;
     let activeOperationCredential: WalletSessionOperationCredentialV1 | null = null;
+    let passkeyCustodyRequired = false;
     try {
       const authorityResolution = await input.service.issueWalletSessionForPasskeyUnlock({
         walletId: walletId.value,
@@ -1135,8 +1139,11 @@ export async function handleWalletUnlockVerifyRoute(input: {
         case 'active_authority':
           activeWalletSession = authorityResolution.walletSession;
           activeOperationCredential = authorityResolution.operationCredential;
+          passkeyCustodyRequired =
+            authorityResolution.authorityProvenanceKind === 'wallet_recovery';
           break;
         case 'wallet_registration':
+          passkeyCustodyRequired = true;
           break;
         case 'rejected':
           return {
@@ -1160,7 +1167,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
     }
 
     let passkeyCustody: WalletUnlockPasskeyCustodyProjectionV1 | null = null;
-    if (!activeWalletSession) {
+    if (passkeyCustodyRequired) {
       try {
         const custodyResult = projectPasskeyCustody(
           result,
@@ -1344,6 +1351,12 @@ export async function handleWalletUnlockVerifyRoute(input: {
             walletId: result.walletId,
             enrollmentId: result.enrollmentId,
             enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+            ...(exactEmailOtpAuthority
+              ? {
+                  kind: 'wallet_auth_method' as const,
+                  walletAuthMethodId: exactEmailOtpAuthority.authMethod.walletAuthMethodId,
+                }
+              : { kind: 'factor' as const }),
           }),
         );
   if (emailOtpCustody && !emailOtpCustody.ok) return emailOtpCustody.response;

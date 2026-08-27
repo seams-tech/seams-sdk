@@ -19,6 +19,7 @@ const replacementOperation: RouterAbEd25519YaoCapabilityReplacementOperationV1 =
   kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1',
   operationId: 'recovery-lifecycle-1',
   operationFingerprint: 'activation-fingerprint-1',
+  authorityProjection: { kind: 'replace_active_authority_projection' },
 };
 
 const activationClaim: RouterAbEd25519YaoRecoveryActivationClaimV1 = {
@@ -27,6 +28,7 @@ const activationClaim: RouterAbEd25519YaoRecoveryActivationClaimV1 = {
   recoveryKey: 'recovery-key-1',
   sessionId: 'session-1',
   activationFingerprint: replacementOperation.operationFingerprint,
+  authorityProjection: replacementOperation.authorityProjection,
   disposition: 'initial',
 };
 
@@ -57,6 +59,7 @@ const claimWithoutDisposition: RouterAbEd25519YaoRecoveryActivationClaimV1 = {
   recoveryKey: activationClaim.recoveryKey,
   sessionId: activationClaim.sessionId,
   activationFingerprint: activationClaim.activationFingerprint,
+  authorityProjection: activationClaim.authorityProjection,
 };
 
 // @ts-expect-error successful persistence must distinguish a write from receipt redelivery

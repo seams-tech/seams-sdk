@@ -2230,7 +2230,20 @@ async function issueWalletSessionForActiveAuthority(input: {
       await input.authorizationService.issueWalletSessionAuthorizationV2OperationCredential({
         session: walletSession.session,
       });
-    return { kind: 'active_authority', walletSession, operationCredential };
+    const authorityProvenanceKind = input.resolved.authority.provenance.kind;
+    if (authorityProvenanceKind === 'wallet_registration') {
+      return {
+        kind: 'rejected',
+        code: 'invalid_state',
+        message: 'Founding authority entered additive Wallet Session issuance',
+      };
+    }
+    return {
+      kind: 'active_authority',
+      authorityProvenanceKind,
+      walletSession,
+      operationCredential,
+    };
   } catch (error: unknown) {
     return {
       kind: 'rejected',
@@ -2298,6 +2311,9 @@ async function issueWalletSessionForEmailOtpUnlock(input: {
       code: resolved.code,
       message: resolved.message,
     };
+  }
+  if (resolved.authority.provenance.kind === 'wallet_registration') {
+    return { kind: 'wallet_registration' };
   }
   return await issueWalletSessionForActiveAuthority({
     resolved,

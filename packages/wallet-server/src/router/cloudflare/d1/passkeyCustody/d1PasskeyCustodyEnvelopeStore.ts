@@ -696,6 +696,27 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     return await this.lookupEnvelope(envelopeLocator(terminal));
   }
 
+  async lookupEnvelopeForWalletAuthMethod(input: {
+    readonly walletId: WalletId;
+    readonly factor: WalletCustodyFactorRef;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<PasskeyCustodyEnvelopeFactorLookupResult> {
+    const envelopes = await this.listWalletEnvelopes(input.walletId);
+    const matching = envelopes.filter(
+      (envelope) =>
+        factorRefsMatch(envelopeFactorRef(envelope), input.factor) &&
+        envelope.ownership.kind === 'method_bound' &&
+        envelope.ownership.walletAuthMethodId === input.walletAuthMethodId,
+    );
+    const active = matching.filter((envelope) => envelope.lifecycle.state === 'active');
+    if (active.length > 1) return { kind: 'conflict' };
+    const selected = active[0];
+    if (selected) return await this.lookupEnvelope(envelopeLocator(selected));
+    const terminal = matching[0];
+    if (!terminal) return { kind: 'missing' };
+    return await this.lookupEnvelope(envelopeLocator(terminal));
+  }
+
   async createEnvelope(
     envelope: PasskeyCustodyEnvelopeRecord,
   ): Promise<PasskeyCustodyEnvelopePutResult> {

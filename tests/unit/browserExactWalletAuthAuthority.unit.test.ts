@@ -28,6 +28,11 @@ import {
 } from './helpers/linkedDeviceManagement.fixtures';
 
 const noLocalAuthMethods = async (): Promise<readonly LocalWalletAuthMethodRecord[]> => [];
+const recoveredGoogleProviderSubject = 'google:recovered-provider-user';
+
+async function readRecoveredGoogleProviderSubject(): Promise<string> {
+  return recoveredGoogleProviderSubject;
+}
 
 function required<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
   if (!result.ok) throw new Error(String(result.error));
@@ -141,6 +146,36 @@ test('resolves the exact Email OTP authority from its canonical and local record
   const authority = await resolveExactWalletAuthAuthority(authorityRef, {
     getWalletAuthMethodV2: async () => method,
     listWalletAuthMethodsForWallet: async () => [localMethod],
+  });
+
+  expect(authority).toEqual(exactAuthority);
+});
+
+test('resolves a recovered Email OTP authority from its verified provider subject', async () => {
+  const method = emailOtpMethod({
+    walletId: 'recovered-email-wallet',
+    walletAuthMethodId: 'wallet-auth-method:recovered-email-test',
+    emailHashHex: 'recovered-email-hash',
+  });
+  const exactAuthority = {
+    walletId: method.walletId,
+    factor: {
+      kind: 'email_otp' as const,
+      provider: 'google' as const,
+      providerUserId: required(parseEmailOtpProviderUserId(recoveredGoogleProviderSubject)),
+    },
+    verifier: {
+      kind: 'email_otp_wallet_auth_method' as const,
+      emailHashHex: method.emailHashHex,
+    },
+    bindingId: method.walletAuthMethodId,
+  };
+  const authorityRef = await walletAuthAuthorityRef({ authority: exactAuthority });
+
+  const authority = await resolveExactWalletAuthAuthority(authorityRef, {
+    getWalletAuthMethodV2: async () => method,
+    listWalletAuthMethodsForWallet: noLocalAuthMethods,
+    readEmailOtpProviderSubjectForWallet: readRecoveredGoogleProviderSubject,
   });
 
   expect(authority).toEqual(exactAuthority);

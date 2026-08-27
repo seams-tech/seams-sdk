@@ -3,7 +3,7 @@ import type { WalletCustodyCeremonyStepRunner } from './ceremonyDriver';
 import {
   recoverEvmFamilyCustodyV1,
   recoverNearEd25519CustodyV1,
-  type RecoveryCredentialReplacement,
+  type RecoveryFactorReplacement,
 } from './registrationCeremony';
 import {
   activateWalletRecoveryEd25519V1,
@@ -16,7 +16,7 @@ import {
   type WalletRecoveryEcdsaActivation,
 } from './walletRecoveryEcdsa';
 import { walletRecoveryEd25519ActiveClientMetadataV1 } from './ceremonyActiveClientMetadata';
-import { buildRecoveredPasskeyCustodyEnvelopeRecord } from './recoveryReplacementEnvelope';
+import { buildRecoveredCustodyEnvelopeRecord } from './recoveryReplacementEnvelope';
 import type {
   PreparedWalletRecovery,
   WalletRecoveryPreparationKeyManifestEntry,
@@ -28,15 +28,13 @@ import {
 import type {
   PasskeyCustodyEnvelopeRecord,
   RecoveryReplacementEnvelopePayload,
+  WalletCustodyEnvelopeFactor,
   WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { buildPasskeyEnvelopeFactor } from '@shared/passkey-custody';
 import type {
   WalletAuthMethodId,
   WalletId,
-  WebAuthnCredentialIdB64u,
-  WebAuthnRpId,
 } from '@shared/utils/domainIds';
 
 type NearRecoveryEntry = Extract<
@@ -72,26 +70,26 @@ export type RecoveredWalletCustodyManifestV1 = {
   readonly ecdsaKeySets: readonly RecoveredWalletCustodyEcdsaKeySetV1[];
 };
 
-function replacementForEntry(input: {
-  readonly entryIndex: number;
+export type WalletRecoveryReplacementFactorInput = {
   readonly replacementId: string;
   readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly rpId: WebAuthnRpId;
-  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly factor: WalletCustodyEnvelopeFactor;
   readonly factorSecret: ArrayBuffer;
-}): RecoveryCredentialReplacement {
+};
+
+function replacementForEntry(input: {
+  readonly entryIndex: number;
+  readonly replacementFactor: WalletRecoveryReplacementFactorInput;
+}): RecoveryFactorReplacement {
   if (input.entryIndex !== 0) return { kind: 'preserve_existing' };
   return {
-    kind: 'reseal_replacement_passkey',
+    kind: 'reseal_replacement_factor',
     factorJson: JSON.stringify({
-      envelopeId: input.replacementId,
-      walletAuthMethodId: input.walletAuthMethodId,
-      factor: buildPasskeyEnvelopeFactor({
-        rpId: input.rpId,
-        credentialIdB64u: input.credentialIdB64u,
-      }),
+      envelopeId: input.replacementFactor.replacementId,
+      walletAuthMethodId: input.replacementFactor.walletAuthMethodId,
+      factor: input.replacementFactor.factor,
     }),
-    factorSecret: input.factorSecret.slice(0),
+    factorSecret: input.replacementFactor.factorSecret.slice(0),
   };
 }
 
@@ -99,8 +97,8 @@ function recoveryCodeBuffer(bytes: Uint8Array): ArrayBuffer {
   return Uint8Array.from(bytes).buffer;
 }
 
-function zeroizeCredentialReplacement(replacement: RecoveryCredentialReplacement): void {
-  if (replacement.kind === 'reseal_replacement_passkey') {
+function zeroizeFactorReplacement(replacement: RecoveryFactorReplacement): void {
+  if (replacement.kind === 'reseal_replacement_factor') {
     new Uint8Array(replacement.factorSecret).fill(0);
   }
 }
@@ -147,8 +145,8 @@ export async function recoverWalletCustodyManifestV1(input: {
   readonly prepared: PreparedWalletRecovery;
   readonly custodyJson: string;
   readonly recoveryCodeBytes: Uint8Array;
-  readonly replacementCredentialIdB64u: WebAuthnCredentialIdB64u;
-  readonly replacementFactorSecret: ArrayBuffer;
+  readonly replacementFactor: WalletRecoveryReplacementFactorInput;
+  readonly recoveryChallengeId: string;
   readonly relayUrl: string;
   readonly runStep: WalletCustodyCeremonyStepRunner;
   readonly workerCtx: WorkerOperationContext;
@@ -160,26 +158,22 @@ export async function recoverWalletCustodyManifestV1(input: {
 
   for (const [entryIndex, entry] of input.prepared.keyManifest.entries.entries()) {
     let copiedRecoveryCode: ArrayBuffer | null = null;
-    let credentialReplacement: RecoveryCredentialReplacement | null = null;
+    let factorReplacement: RecoveryFactorReplacement | null = null;
     try {
       const recoveryCode = recoveryCodeBuffer(input.recoveryCodeBytes);
       copiedRecoveryCode = recoveryCode;
       const replacement = replacementForEntry({
         entryIndex,
-        replacementId: input.prepared.registration.replacementId,
-        walletAuthMethodId: input.prepared.registration.walletAuthMethodId,
-        rpId: input.prepared.registration.rpId,
-        credentialIdB64u: input.replacementCredentialIdB64u,
-        factorSecret: input.replacementFactorSecret,
+        replacementFactor: input.replacementFactor,
       });
-      credentialReplacement = replacement;
+      factorReplacement = replacement;
       switch (entry.kind) {
         case 'near_ed25519': {
           const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
             routerOrigin: new URL(input.relayUrl).origin,
             authorization: {
               kind: 'recovery_challenge',
-              challengeId: input.prepared.registration.challengeId,
+              challengeId: input.recoveryChallengeId,
             },
             fetch: globalThis.fetch,
           });
@@ -194,7 +188,7 @@ export async function recoverWalletCustodyManifestV1(input: {
             custodyJson: input.custodyJson,
             recoveryCode,
             recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-            credentialReplacement: replacement,
+            factorReplacement: replacement,
             nearEd25519SigningKeyId:
               entry.recoveryBasis.applicationBinding.near_ed25519_signing_key_id,
             recoveryLifecycleId: request.scope.lifecycle_id,
@@ -234,7 +228,7 @@ export async function recoverWalletCustodyManifestV1(input: {
             custodyJson: input.custodyJson,
             recoveryCode,
             recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-            credentialReplacement: replacement,
+            factorReplacement: replacement,
             evmFamilySigningKeySlotId: entry.evmFamilySigningKeySlotId,
             applicationBindingDigestB64u:
               entry.recoveryBasis.publicCapability.context.application_binding_digest_b64u,
@@ -260,7 +254,7 @@ export async function recoverWalletCustodyManifestV1(input: {
             entry,
             walletId: input.walletId,
             reservationId: input.prepared.reservationId,
-            replacementId: input.prepared.registration.replacementId,
+            replacementId: input.replacementFactor.replacementId,
             readyStateBlobB64u: recovered.readyStateBlobB64u,
             publicFacts: recovered.publicFacts,
             workerCtx: input.workerCtx,
@@ -279,7 +273,7 @@ export async function recoverWalletCustodyManifestV1(input: {
         }
       }
     } finally {
-      if (credentialReplacement) zeroizeCredentialReplacement(credentialReplacement);
+      if (factorReplacement) zeroizeFactorReplacement(factorReplacement);
       if (copiedRecoveryCode) new Uint8Array(copiedRecoveryCode).fill(0);
     }
   }
@@ -288,7 +282,7 @@ export async function recoverWalletCustodyManifestV1(input: {
     throw new Error('wallet recovery produced no replacement custody envelope');
   }
   return {
-    replacementEnvelope: buildRecoveredPasskeyCustodyEnvelopeRecord({
+    replacementEnvelope: buildRecoveredCustodyEnvelopeRecord({
       expectedWalletId: input.walletId,
       replacement: replacementEnvelope,
       activatedAtMs: (input.nowMs ?? Date.now)(),

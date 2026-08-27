@@ -11,6 +11,7 @@ export async function startGoogleEmailOtpLogin(
   const started = await seams.auth.beginGoogleEmailOtpWalletAuth({
     idToken: googleIdToken,
     mode: 'login',
+    loginTarget: { kind: 'discoverable' },
   });
   if (!started.ok) {
     throw new Error(started.error.message);

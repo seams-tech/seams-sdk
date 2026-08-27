@@ -11,6 +11,7 @@ import {
   buildFullOwnerPermissionsV1,
   computeWalletAuthorityDigestB64u,
   computeWalletSignerActivationSetDigestB64u,
+  replaceActiveWalletAuthorityEd25519MaterialActivationV1,
   type ActiveWalletAuthorityV1,
   type WalletSignerActivationSetV1,
 } from '@shared/authorization';
@@ -46,6 +47,7 @@ import {
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { PasskeyCustodyEnvelopeLocator } from './d1PasskeyCustodyEnvelopeStore';
 import {
+  parseWalletAuthorityBindingDigest,
   parseProviderSubject,
   parseVerifiedGoogleEmail,
   type WalletId,
@@ -501,9 +503,21 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
       return recoveryAttemptConflictForFinalization();
     }
 
+    let manifest: WalletRecoveryKeyManifestV1;
+    try {
+      manifest = await resolveWalletRecoveryKeyManifestV1({
+        registry: input.dependencies.walletStore,
+        walletId: recovery.walletId,
+      });
+    } catch (error: unknown) {
+      return recoveryFinalizationRefused(
+        error instanceof Error ? error.message : 'wallet recovery key manifest unavailable',
+      );
+    }
     const continuity = await readGoogleEmailRecoveryContinuityAnchor({
       walletId: recovery.walletId,
       anchor: attempt.continuityAnchor,
+      manifest,
       envelopeStore: input.dependencies.envelopeStore,
       walletCustodyCommits: input.dependencies.walletCustodyCommits,
       walletAuthorityStore: input.dependencies.walletAuthorityStore,
@@ -512,31 +526,15 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
       return recoveryFinalizationRefused(continuity.reason);
     }
 
-    let manifest: WalletRecoveryKeyManifestV1;
-    try {
-      manifest = await resolveWalletRecoveryKeyManifestV1({
-        registry: input.dependencies.walletStore,
-        walletId: recovery.walletId,
-      });
-      const manifestDigest = parseDigestB64u(
-        base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(manifest))),
-      );
-      if (String(manifestDigest) !== String(attempt.keyManifestDigestB64u)) {
-        return recoveryFinalizationRefused('the wallet recovery key manifest changed');
-      }
-    } catch (error: unknown) {
-      return recoveryFinalizationRefused(
-        error instanceof Error ? error.message : 'wallet recovery key manifest unavailable',
-      );
-    }
-
     try {
       const ecdsaPossessionChallenges = await buildWalletRecoveryEcdsaPossessionChallengesV1({
         manifest,
         walletId: recovery.walletId,
         reservationId: String(recovery.reservationId),
         replacementId: String(recovery.recoveryOperationId),
-        sourceAuthorityDigestB64u: attempt.continuityAnchor.authorityDigestB64u,
+        sourceAuthorityDigestB64u: googleEmailRecoveryAuthorityDigest(
+          attempt.continuityAnchor.authority,
+        ),
         challengeB64u: String(recovery.recoveryOperationId),
         expiresAtMs: attempt.expiresAtMs,
       });
@@ -820,22 +818,30 @@ type GoogleEmailRecoveryContinuityRead =
 async function readGoogleEmailRecoveryContinuityAnchor(input: {
   readonly walletId: WalletId;
   readonly anchor: WebAuthnRecoveryContinuityAnchorRecord;
+  readonly manifest: WalletRecoveryKeyManifestV1;
   readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
   readonly walletAuthorityStore: Pick<D1WalletAuthorityStore, 'readById'>;
 }): Promise<GoogleEmailRecoveryContinuityRead> {
-  const authority = await input.walletAuthorityStore.readById(input.anchor.walletAuthorityId);
+  const authority = await input.walletAuthorityStore.readById(input.anchor.authority.authorityId);
+  const expectedAuthority = authority
+    ? await googleEmailRecoveryContinuityAuthorityAfterActivation({
+        authority: input.anchor.authority,
+        manifest: input.manifest,
+        updatedAtMs: authority.updatedAtMs,
+      })
+    : null;
   if (
     !authority ||
+    !expectedAuthority ||
     authority.state !== 'active' ||
     authority.walletId !== input.walletId ||
-    String(authority.authorityDigestB64u) !== String(input.anchor.authorityDigestB64u) ||
-    authority.provenance.kind !== input.anchor.provenanceKind
+    alphabetizeStringify(authority) !== alphabetizeStringify(expectedAuthority)
   ) {
     return { kind: 'rejected', reason: 'the recovery continuity authority changed' };
   }
   const method = await input.walletCustodyCommits.readWalletAuthMethodById(
-    input.anchor.walletAuthMethodId,
+    input.anchor.method.walletAuthMethodId,
   );
   if (
     !method ||
@@ -854,16 +860,46 @@ async function readGoogleEmailRecoveryContinuityAnchor(input: {
   ) {
     return { kind: 'rejected', reason: 'the recovery continuity envelope changed' };
   }
+  const authorityDigest = parseWalletAuthorityBindingDigest(
+    String(input.anchor.authority.authorityDigestB64u),
+  );
+  if (!authorityDigest.ok) {
+    return { kind: 'rejected', reason: 'the recovery continuity authority changed' };
+  }
   return {
     kind: 'ready',
     authority,
     authorityRef: {
       kind: 'wallet_auth_authority_ref',
       walletId: input.walletId,
-      authorityDigest: input.anchor.authorityDigestB64u,
-      walletAuthMethodId: input.anchor.walletAuthMethodId,
+      authorityDigest: authorityDigest.value,
+      walletAuthMethodId: input.anchor.method.walletAuthMethodId,
     },
   };
+}
+
+async function googleEmailRecoveryContinuityAuthorityAfterActivation(input: {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly manifest: WalletRecoveryKeyManifestV1;
+  readonly updatedAtMs: number;
+}): Promise<ActiveWalletAuthorityV1> {
+  const signerActivations = googleEmailRecoverySignerActivations({
+    continuity: input.authority.signerActivations,
+    manifest: input.manifest,
+  });
+  const ed25519 = signerActivations.ed25519;
+  if (!ed25519) return input.authority;
+  return await replaceActiveWalletAuthorityEd25519MaterialActivationV1({
+    authority: input.authority,
+    materialActivation: ed25519.materialActivation,
+    updatedAtMs: input.updatedAtMs,
+  });
+}
+
+function googleEmailRecoveryAuthorityDigest(authority: ActiveWalletAuthorityV1) {
+  const parsed = parseWalletAuthorityBindingDigest(String(authority.authorityDigestB64u));
+  if (!parsed.ok) throw new Error('wallet recovery authority digest is invalid');
+  return parsed.value;
 }
 
 function googleEmailContinuityEnvelopeLocator(
@@ -903,7 +939,7 @@ function googleEmailContinuityEnvelopeMatchesAnchor(
     envelope.envelopeId !== anchor.envelope.envelopeId ||
     envelope.binding.kind !== 'wallet_custody_seed_v1' ||
     envelope.ownership.kind !== 'method_bound' ||
-    envelope.ownership.walletAuthMethodId !== anchor.walletAuthMethodId ||
+    envelope.ownership.walletAuthMethodId !== anchor.method.walletAuthMethodId ||
     envelope.envelopeRevision !== anchor.envelope.envelopeRevision ||
     envelope.updatedAtMs !== anchor.envelope.updatedAtMs
   ) {
@@ -1249,7 +1285,6 @@ function preparedAttemptFromIssued(
     target: attempt.target,
     continuityAnchor: attempt.continuityAnchor,
     recoverySetVersion: attempt.recoverySetVersion,
-    keyManifestDigestB64u: attempt.keyManifestDigestB64u,
     state: 'prepared',
     createdAtMs: attempt.createdAtMs,
     expiresAtMs: attempt.expiresAtMs,

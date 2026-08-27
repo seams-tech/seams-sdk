@@ -1421,15 +1421,25 @@ export async function handleWalletUnlockVerify(
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: ctx.service.walletUnlock,
-    resolveEmailOtpCustody: async ({ walletId, enrollmentId, enrollmentSealKeyVersion }) =>
-      await ctx.service.passkeyCustody.readVerifiedFactorCustody({
-        walletId: walletIdFromString(walletId),
+    resolveEmailOtpCustody: async (input) => {
+      const request = {
+        walletId: walletIdFromString(input.walletId),
         factor: {
-          kind: 'email_otp',
-          enrollmentId,
-          enrollmentSealKeyVersion,
+          kind: 'email_otp' as const,
+          enrollmentId: input.enrollmentId,
+          enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
         },
-      }),
+      };
+      switch (input.kind) {
+        case 'factor':
+          return await ctx.service.passkeyCustody.readVerifiedFactorCustody(request);
+        case 'wallet_auth_method':
+          return await ctx.service.passkeyCustody.readVerifiedEmailOtpMethodCustody({
+            ...request,
+            walletAuthMethodId: input.walletAuthMethodId,
+          });
+      }
+    },
     resolvePasskeyCustody: async ({ walletId, rpId, credentialIdB64u, ed25519 }) => {
       const parsedRpId = parseWebAuthnRpId(rpId);
       const parsedCredentialId = parseWebAuthnCredentialIdB64u(credentialIdB64u);
