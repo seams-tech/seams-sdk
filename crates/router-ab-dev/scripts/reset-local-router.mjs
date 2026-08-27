@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const manifestPath = 'crates/router-ab-dev/Cargo.toml';
-const protectedPorts = Object.freeze([9090, 9100, 9101, 9102, 9103]);
+const protectedPorts = Object.freeze([4100, 4101, 4102, 4103, 4104, 4105]);
 const portCheckTimeoutMs = 500;
 const stateDirectoryNames = Object.freeze(['gateway', 'router-ab']);
 

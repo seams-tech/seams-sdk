@@ -652,7 +652,7 @@ async function main() {
     port: Number(env.PORT || 3000),
     host,
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
-    expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
+    expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:4002', // Wallet origin (optional)
   };
   const startupHost = config.host || '0.0.0.0';
   console.log(`[web-server] startup target http://${startupHost}:${config.port}`);

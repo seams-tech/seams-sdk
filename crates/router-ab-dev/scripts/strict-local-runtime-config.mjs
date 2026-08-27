@@ -9,10 +9,10 @@ import {
 } from './router-ab-local-key-material.mjs';
 
 const STRICT_WORKER_ROLES = Object.freeze([
-  { role: 'router', port: 9100 },
+  { role: 'router', port: 4102 },
   {
     role: 'deriver-a',
-    port: 9101,
+    port: 4103,
     privateD1: {
       databaseName: 'router-ab-deriver-a-private',
       migrationsDirectory: 'deriver-a',
@@ -21,7 +21,7 @@ const STRICT_WORKER_ROLES = Object.freeze([
   },
   {
     role: 'deriver-b',
-    port: 9102,
+    port: 4104,
     privateD1: {
       databaseName: 'router-ab-deriver-b-private',
       migrationsDirectory: 'deriver-b',
@@ -30,7 +30,7 @@ const STRICT_WORKER_ROLES = Object.freeze([
   },
   {
     role: 'signing-worker',
-    port: 9103,
+    port: 4105,
     privateD1: {
       databaseName: 'router-ab-signing-worker-private',
       migrationsDirectory: 'signing-worker',

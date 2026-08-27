@@ -222,18 +222,18 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   const fixture = createRuntimeFixture();
   const runtime = prepareStrictRuntime(fixture);
 
-  expect(runtime.mpcRouterUrl).toBe('http://127.0.0.1:9100');
+  expect(runtime.mpcRouterUrl).toBe('http://127.0.0.1:4102');
   expect(runtime.workerUrls).toEqual({
-    mpcRouter: 'http://127.0.0.1:9100',
-    deriverA: 'http://127.0.0.1:9101',
-    deriverB: 'http://127.0.0.1:9102',
-    signingWorker: 'http://127.0.0.1:9103',
+    mpcRouter: 'http://127.0.0.1:4102',
+    deriverA: 'http://127.0.0.1:4103',
+    deriverB: 'http://127.0.0.1:4104',
+    signingWorker: 'http://127.0.0.1:4105',
   });
   expect(runtime.configs.map(({ role, port }) => ({ role, port }))).toEqual([
-    { role: 'router', port: 9100 },
-    { role: 'deriver-a', port: 9101 },
-    { role: 'deriver-b', port: 9102 },
-    { role: 'signing-worker', port: 9103 },
+    { role: 'router', port: 4102 },
+    { role: 'deriver-a', port: 4103 },
+    { role: 'deriver-b', port: 4104 },
+    { role: 'signing-worker', port: 4105 },
   ]);
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');

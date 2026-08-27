@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import dotenv from 'dotenv';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { tmpdir } from 'node:os';
@@ -11,10 +19,10 @@ import { fileURLToPath } from 'node:url';
 import { prepareRouterAbD1LocalRuntimeConfig } from '../../crates/router-ab-dev/scripts/d1-local-runtime-config.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-dotenv.config({ path: path.join(repoRoot, '.env.local'), override: true });
+dotenv.config({ path: path.join(repoRoot, '.env.local'), override: false });
 const checkOnly = process.argv.includes('--check');
-const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
-const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4004';
+const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001';
+const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4101';
 const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002';
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
@@ -35,6 +43,7 @@ const d1LocalWranglerConfigPath =
 const siteViteCacheDir =
   process.env.SEAMS_INTENDED_SITE_VITE_CACHE_DIR ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-vite-cache`);
+const sdkDistSnapshotRoot = path.join(repoRoot, '.local', 'intended-wallet-sdk-dist');
 const intendedServicesLockPath = path.join(
   tmpdir(),
   `${path.basename(repoRoot)}-intended-services.lock`,
@@ -103,6 +112,7 @@ async function main() {
     buildSdkArtifacts();
   }
   assertSdkDistArtifacts();
+  snapshotSdkDistArtifacts();
   assertD1LocalWasmArtifacts();
   clearTransientViteCaches();
   prepareD1LocalWranglerRuntimeConfig();
@@ -131,7 +141,7 @@ function assertLocalIntendedUrls() {
     'https://localhost',
     'https://localhost:9443',
   ]);
-  assertUrlOrigin('SEAMS_INTENDED_ROUTER_URL', routerUrl, 'https://localhost:4004');
+  assertUrlOrigin('SEAMS_INTENDED_ROUTER_URL', routerUrl, 'https://localhost:4101');
   assertUrlOrigin('SEAMS_INTENDED_WALLET_ORIGIN', walletOrigin, 'https://localhost:4002');
   assertUrlOrigin('SEAMS_INTENDED_DOCS_ORIGIN', docsOrigin, [
     'https://docs.localhost',
@@ -245,6 +255,12 @@ function removeAbsolutePath(absolutePath) {
   rmSync(absolutePath, { recursive: true, force: true });
 }
 
+function snapshotSdkDistArtifacts() {
+  removeAbsolutePath(sdkDistSnapshotRoot);
+  mkdirSync(path.dirname(sdkDistSnapshotRoot), { recursive: true });
+  cpSync(path.join(repoRoot, 'packages/wallet/dist'), sdkDistSnapshotRoot, { recursive: true });
+}
+
 function assertNoConflictingLocalProcesses() {
   const conflicts = collectManagedProcessLeaks();
   if (conflicts.length === 0) return;
@@ -338,6 +354,7 @@ function siteEnv() {
     VITE_RP_ID_BASE: 'localhost',
     VITE_ROR_ALLOWED_ORIGINS: docsOrigin,
     VITE_CACHE_DIR: siteViteCacheDir,
+    VITE_SEAMS_WALLET_DIST_ROOT: sdkDistSnapshotRoot,
     VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'local-signing-worker',
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: publishableKey,
@@ -357,7 +374,6 @@ function caddyEnv() {
 function routerEnv() {
   return {
     ...process.env,
-    LINKED_DEVICE_WEBAUTHN_ORIGIN: appUrl,
     SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
     SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
@@ -841,12 +857,12 @@ function isWranglerD1Command(command) {
   return (
     command.includes('wrangler dev') &&
     command.includes('wrangler.d1-local.toml') &&
-    command.includes('--port 9090')
+    command.includes('--port 4100')
   );
 }
 
 function isLocalWorkerdCommand(command) {
-  return command.includes('workerd serve') && command.includes('localhost:9090');
+  return command.includes('workerd serve') && command.includes('localhost:4100');
 }
 
 function isSiteViteCommand(command) {

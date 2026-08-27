@@ -23,18 +23,18 @@ const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
 dotenv.config({ path: join(repoRoot, '.env.local') });
 const gatewayHost = '127.0.0.1';
-const gatewayPort = 9090;
+const gatewayPort = 4100;
 const gatewayBaseUrl = `http://${gatewayHost}:${gatewayPort}`;
 const gatewayInternalWellKnownUrl = `${gatewayBaseUrl}/.well-known/webauthn`;
-const gatewayPublicUrl = 'https://localhost:9444';
+const gatewayPublicUrl = 'https://localhost:4101';
 const gatewayPublicWellKnownUrl = `${gatewayPublicUrl}/.well-known/webauthn`;
 const gatewayPublicHost = 'localhost';
-const gatewayPublicPort = 9444;
+const gatewayPublicPort = 4101;
 const productionWorkerEndpoints = Object.freeze([
-  { role: 'router', label: 'mpc-router', port: 9100, url: 'http://127.0.0.1:9100' },
-  { role: 'deriver-a', port: 9101, url: 'http://127.0.0.1:9101' },
-  { role: 'deriver-b', port: 9102, url: 'http://127.0.0.1:9102' },
-  { role: 'signing-worker', port: 9103, url: 'http://127.0.0.1:9103' },
+  { role: 'router', label: 'mpc-router', port: 4102, url: 'http://127.0.0.1:4102' },
+  { role: 'deriver-a', port: 4103, url: 'http://127.0.0.1:4103' },
+  { role: 'deriver-b', port: 4104, url: 'http://127.0.0.1:4104' },
+  { role: 'signing-worker', port: 4105, url: 'http://127.0.0.1:4105' },
 ]);
 
 const localEnvRoles = [
@@ -900,6 +900,14 @@ function gatewayD1HasConfiguredPublishableKey() {
   const appOrigin = new URL(
     String(process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001').trim(),
   ).origin;
+  const walletOrigin = new URL(
+    String(process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002').trim(),
+  ).origin;
+  const docsOrigin = new URL(
+    String(process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost:4003').trim(),
+  ).origin;
+  const requiredOrigins = [...new Set([appOrigin, walletOrigin, docsOrigin])];
+  const requiredOriginPlaceholders = requiredOrigins.map(() => '?').join(', ');
   const secretHash = `sha256:${createHash('sha256').update(publishableKey).digest('hex')}`;
   for (const path of sqliteFilesIn(d1LocalPersistPath)) {
     const database = new DatabaseSync(path, { readOnly: true });
@@ -912,19 +920,16 @@ function gatewayD1HasConfiguredPublishableKey() {
       if (Number(hasApiKeys?.present) !== 1) continue;
       const row = database
         .prepare(
-          `SELECT COUNT(*) AS present
+          `SELECT COUNT(DISTINCT origins.value) AS matching_origin_count
              FROM api_keys
+             JOIN json_each(allowed_origins_json) AS origins
             WHERE kind = 'publishable_key'
               AND status = 'ACTIVE'
               AND secret_hash = ?
-              AND EXISTS (
-                SELECT 1
-                  FROM json_each(allowed_origins_json)
-                 WHERE value = ?
-              )`,
+              AND origins.value IN (${requiredOriginPlaceholders})`,
         )
-        .get(secretHash, appOrigin);
-      if (Number(row?.present) === 1) return true;
+        .get(secretHash, ...requiredOrigins);
+      if (Number(row?.matching_origin_count) === requiredOrigins.length) return true;
     } finally {
       database.close();
     }
@@ -1732,8 +1737,8 @@ function usage() {
        pnpm router:build [-- --root <path>] [--fresh] [--no-init]
 
 Runs Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker in one terminal.
-Also starts the Gateway on 127.0.0.1:9090 when it is not already running.
-Reports whether the HTTPS proxy from pnpm site is available at https://localhost:9444/.well-known/webauthn.
+Also starts the Gateway on 127.0.0.1:4100 when it is not already running.
+Reports whether the HTTPS proxy from pnpm site is available at https://localhost:4101/.well-known/webauthn.
 
 Options:
   --root <path>      Local root containing generated env files. Defaults to repo root.
@@ -1741,7 +1746,7 @@ Options:
   --fresh           Regenerate env files before launch.
   --no-init         Require env files to already exist.
   --no-gateway
-                    Use an already-running external Gateway on 127.0.0.1:9090.
+                    Use an already-running external Gateway on 127.0.0.1:4100.
   --build-only      Build strict Worker artifacts and exit without starting services.
 
 Press Ctrl-C to stop all workers, stop the started Gateway, and restore the terminal.`;

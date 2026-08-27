@@ -220,9 +220,9 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     router.assert_wrangler("binding = \"SIGNING_WORKER\"");
     router.assert_wrangler_absent("[durable_objects]");
     router.assert_wrangler_absent("[[d1_databases]]");
-    router.assert_local("DERIVER_A_URL=http://127.0.0.1:9101");
-    router.assert_local("DERIVER_B_URL=http://127.0.0.1:9102");
-    router.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9103");
+    router.assert_local("DERIVER_A_URL=http://127.0.0.1:4103");
+    router.assert_local("DERIVER_B_URL=http://127.0.0.1:4104");
+    router.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:4105");
     router.assert_local_absent("STORAGE_PATH");
 
     let deriver_a = ManifestPair {
@@ -247,7 +247,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     );
     deriver_a
         .assert_wrangler("DERIVER_A_PEER_SIGNING_KEY_BINDING = \"DERIVER_A_PEER_SIGNING_KEY\"");
-    deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:9102");
+    deriver_a.assert_local("DERIVER_B_URL=http://127.0.0.1:4104");
     deriver_a.assert_local("DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_a.assert_local("DERIVER_A_ROOT_SHARE_WIRE_SECRET=");
     deriver_a.assert_local("DERIVER_A_PEER_SIGNING_KEY=");
@@ -280,7 +280,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     );
     deriver_b
         .assert_wrangler("DERIVER_B_PEER_SIGNING_KEY_BINDING = \"DERIVER_B_PEER_SIGNING_KEY\"");
-    deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:9101");
+    deriver_b.assert_local("DERIVER_A_URL=http://127.0.0.1:4103");
     deriver_b.assert_local("DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=");
     deriver_b.assert_local("DERIVER_B_ROOT_SHARE_WIRE_SECRET=");
     deriver_b.assert_local("DERIVER_B_PEER_SIGNING_KEY=");
@@ -311,7 +311,7 @@ fn local_env_templates_match_wrangler_startup_manifests() {
     signing_worker.assert_wrangler(
         "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = \"x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010\"",
     );
-    signing_worker.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:9103");
+    signing_worker.assert_local("SIGNING_WORKER_URL=http://127.0.0.1:4105");
     signing_worker.assert_local("SIGNING_WORKER_ID=local-signing-worker");
     signing_worker.assert_local("SIGNING_WORKER_KEY_EPOCH=epoch-1");
     signing_worker.assert_local(

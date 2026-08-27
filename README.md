@@ -35,10 +35,10 @@ pnpm router
 - If SDK wallet assets or Router A/B Worker artifacts are missing or stale,
   refresh them explicitly with `pnpm build:sdk`. After browser WASM changes,
   run `pnpm build:sdk-full`.
-- `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:9090` is not already ready.
-- Primary local endpoints: app `http://localhost:4001`, wallet `https://localhost:8443`, Gateway base `https://localhost:9444`.
-- Docs default origin: `https://docs.localhost:9447`.
-- Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:9090`, and MPCRouter on `http://127.0.0.1:9100`.
+- `pnpm router` starts Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker. It starts Gateway through `pnpm gateway:server` when `127.0.0.1:4100` is not already ready.
+- Primary local endpoints: app `http://localhost:4001`, wallet `https://localhost:4002`, Gateway base `https://localhost:4101`.
+- Docs default origin: `https://docs.localhost:4003`.
+- Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:4100`, and MPCRouter on `http://127.0.0.1:4102`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
 - Keep all human-edited local configuration in the ignored root `.env.local`.
@@ -88,7 +88,7 @@ the existing domain type.
 
 These commands launch Router A/B protocol harnesses. Browser account creation at
 `http://localhost:4001` still needs the local site; `pnpm router` and
-`pnpm router:multiplex` start Gateway at `127.0.0.1:9090` when it is
+`pnpm router:multiplex` start Gateway at `127.0.0.1:4100` when it is
 not already running. Run `pnpm build:sdk` after SDK or Router A/B Rust changes.
 Run `pnpm build:sdk-full` after browser WASM changes. `pnpm router` validates
 the existing strict Worker artifacts and starts services without rebuilding.

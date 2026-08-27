@@ -20,17 +20,17 @@ state hosting, and secret custody differ from deployed Cloudflare.
 
 | Service        | Local origin             | Runtime                                      |
 | -------------- | ------------------------ | -------------------------------------------- |
-| Gateway        | `http://127.0.0.1:9090`  | TypeScript Cloudflare Worker under `workerd` |
-| MPCRouter      | `http://127.0.0.1:9100`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| Deriver A      | `http://127.0.0.1:9101`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| Deriver B      | `http://127.0.0.1:9102`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| SigningWorker  | `http://127.0.0.1:9103`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| Public Gateway | `https://localhost:9444` | Caddy reverse proxy to `9090`                |
-| Wallet origin  | `https://localhost:8443` | Caddy static file server                     |
+| Gateway        | `http://127.0.0.1:4100`  | TypeScript Cloudflare Worker under `workerd` |
+| MPCRouter      | `http://127.0.0.1:4102`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| Deriver A      | `http://127.0.0.1:4103`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| Deriver B      | `http://127.0.0.1:4104`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| SigningWorker  | `http://127.0.0.1:4105`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| Public Gateway | `https://localhost:4101` | Caddy reverse proxy to `4100`                |
+| Wallet origin  | `https://localhost:4002` | Caddy static file server                     |
 | App origin     | `https://localhost`      | Caddy reverse proxy to Vite on `3600`        |
 
 Ports `9091-9093` are obsolete. The four production-shaped Router A/B Workers
-own `9100-9103`.
+own `4102-4105`.
 
 ```mermaid
 flowchart TB
@@ -38,18 +38,18 @@ flowchart TB
 
   subgraph Caddy["Caddy: local TLS and public origins"]
     AppIngress["https://localhost"]
-    WalletIngress["https://localhost:8443"]
-    ApiIngress["https://localhost:9444"]
+    WalletIngress["https://localhost:4002"]
+    ApiIngress["https://localhost:4101"]
   end
 
   App["Vite app :3600"]
   Wallet["Wallet iframe and SDK assets"]
-  Api["Gateway :9090<br/>TypeScript on Wrangler/workerd"]
+  Api["Gateway :4100<br/>TypeScript on Wrangler/workerd"]
 
-  Router["MPCRouter :9100<br/>Rust/WASM on workerd"]
-  A["Deriver A :9101<br/>Rust/WASM and Yao DO"]
-  B["Deriver B :9102<br/>Rust/WASM and Yao DO"]
-  Signing["SigningWorker :9103<br/>Rust/WASM and Yao/signing DO"]
+  Router["MPCRouter :4102<br/>Rust/WASM on workerd"]
+  A["Deriver A :4103<br/>Rust/WASM and Yao DO"]
+  B["Deriver B :4104<br/>Rust/WASM and Yao DO"]
+  Signing["SigningWorker :4105<br/>Rust/WASM and Yao/signing DO"]
 
   D1["Local D1 SQLite<br/>console and signer databases"]
   ApiDO["Threshold/API Durable Objects"]
@@ -88,11 +88,11 @@ flowchart TB
 
 ### Browser ingress
 
-The browser calls `https://localhost:9444`. Caddy terminates local TLS, applies
+The browser calls `https://localhost:4101`. Caddy terminates local TLS, applies
 the local Router CORS policy, and forwards every Router request to
-`http://127.0.0.1:9090`.
+`http://127.0.0.1:4100`.
 
-Caddy does not route public requests directly to `9100-9103`. Those ports are
+Caddy does not route public requests directly to `4102-4105`. Those ports are
 private local worker origins used by Gateway and Wrangler service
 bindings.
 
@@ -101,9 +101,9 @@ bindings.
 Gateway owns the public registration, recovery, export, refresh, and
 normal-signing routes. For a Yao ceremony it orchestrates requests to:
 
-- Deriver A on `9101`;
-- Deriver B on `9102`;
-- SigningWorker on `9103`.
+- Deriver A on `4103`;
+- Deriver B on `4104`;
+- SigningWorker on `4105`.
 
 The local Gateway uses HTTP origins and the
 `x-router-ab-internal-service-auth` header. In Cloudflare, the production Router
@@ -116,14 +116,14 @@ Ed25519 signing.
 
 ### Strict ECDSA
 
-Gateway sends strict ECDSA work to MPCRouter on `9100`. MPCRouter reaches
+Gateway sends strict ECDSA work to MPCRouter on `4102`. MPCRouter reaches
 Deriver A, Deriver B, and SigningWorker through the same
 named service bindings declared by the deployment Wrangler manifests.
 
 ### Normal signing
 
 Gateway sends active normal-signing requests directly to
-SigningWorker on `9103`. Deriver A and Deriver B remain outside the normal
+SigningWorker on `4105`. Deriver A and Deriver B remain outside the normal
 signing hot path.
 
 ## Cloudflare Production Parity
@@ -275,7 +275,7 @@ Wrangler receives the role file through an explicit `--env-file` argument.
 
 This generated `0600` file contains:
 
-- worker origins `9100-9103`;
+- worker origins `4102-4105`;
 - public HPKE and peer-verification keys;
 - the local internal-auth value;
 - the ECDSA registration topology;
@@ -337,21 +337,21 @@ unless the associated state is intentionally migrated.
 
 `pnpm router` performs these steps:
 
-1. Stop an existing repository-owned Wrangler topology on ports `9100-9103`.
+1. Stop an existing repository-owned Wrangler topology on ports `4102-4105`.
 2. Load launcher environment.
 3. Validate or generate local role material.
 4. Generate four strict Worker Wrangler configs and secret files.
 5. Generate the Gateway D1 Wrangler config.
 6. Verify that all strict Worker artifacts exist and match the selected build
    profile.
-7. Verify that ports `9100-9103` are available.
+7. Verify that ports `4102-4105` are available.
 8. Start the four Wrangler Worker processes.
 9. Wait for the Worker origins and MPCRouter keyset route.
-10. Start Gateway on `9090`.
+10. Start Gateway on `4100`.
 11. Apply and seed the local D1 databases through `gateway:server`.
 12. Verify the internal Router health and WebAuthn metadata routes.
 13. Reuse a healthy Caddy process or start `pnpm caddy`.
-14. Verify `https://localhost:9444/.well-known/webauthn`.
+14. Verify `https://localhost:4101/.well-known/webauthn`.
 
 The stale-topology cleanup matches exact generated Wrangler config, persistence,
 and fixed-port arguments. An unrelated process on a reserved port is left
@@ -361,7 +361,7 @@ Run `pnpm build:sdk` after SDK or strict Router A/B Rust changes. Run
 `pnpm build:sdk-full` after browser WASM changes. The lower-level
 `pnpm router:build` command is available when only the strict Workers changed.
 Stop the running Router topology before rebuilding; the build command refuses
-to replace watched Worker artifacts while ports `9100-9103` are active.
+to replace watched Worker artifacts while ports `4102-4105` are active.
 
 Stopping the launcher terminates the Worker processes, Gateway process,
 and Caddy process that it started. An independently running healthy Caddy
