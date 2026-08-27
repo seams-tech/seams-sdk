@@ -2581,6 +2581,7 @@ export function createCloudflareD1RouterApiAuthService(
     nearFunding: createD1NearFundingRouteService(assembly),
     router: createD1RouterAccountRouteService(assembly),
     passkeyCustody: createD1PasskeyCustodyRouteService({
+      orgId: assembly.options.orgId,
       passkeyCustodyEnvelopes: assembly.passkeyCustodyEnvelopes,
       walletCustodyCommits: assembly.walletCustodyCommitStore,
       walletStore: assembly.walletStore,

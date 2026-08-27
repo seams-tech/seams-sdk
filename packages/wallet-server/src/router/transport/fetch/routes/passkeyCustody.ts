@@ -48,12 +48,23 @@ import {
   parseEmailOtpChallengeId,
   parseOrgId,
   parseProviderSubject,
+  parseWalletAuthMethodId,
+  parseWalletAuthorityId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   parseWalletId,
+  parseWalletRecoveryOperationId,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
+  type WalletRecoveryOperationId,
   type WebAuthnRpId,
   type WalletId,
 } from '@shared/utils/domainIds';
+import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
+import {
+  parseWalletRecoveryTargetV1,
+  type WalletRecoveryTargetV1,
+} from '@shared/wallet-recovery/walletRecoveryTarget';
 import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
 import { parseWebAuthnAuthenticationCredential } from '../../../auth/webAuthnCredentialCodecs';
 import {
@@ -951,7 +962,7 @@ export async function handleWalletRecoveryPrepare(
   const body = await readJsonObject(ctx.request);
   let parsed:
     | {
-        readonly rpId: WebAuthnRpId;
+        readonly target: WalletRecoveryTargetV1;
         readonly recoveryCodeB64u: string;
         readonly reservationId: RecoveryCodeReservationId;
       }
@@ -960,16 +971,16 @@ export async function handleWalletRecoveryPrepare(
     if (!body) throw new Error('wallet recovery preparation body is required');
     requireExactObjectFields(
       body,
-      ['rpId', 'recoveryCodeB64u', 'reservationId'],
+      ['target', 'recoveryCodeB64u', 'reservationId'],
       'wallet recovery preparation',
     );
-    const rpId = parseWebAuthnRpId(body.rpId);
+    const target = parseWalletRecoveryTargetV1(body.target);
     const recoveryCodeB64u = parseRequiredString(body.recoveryCodeB64u, 'recoveryCodeB64u');
-    if (!rpId.ok || !/^[A-Za-z0-9_-]+$/.test(recoveryCodeB64u)) {
+    if (!/^[A-Za-z0-9_-]+$/.test(recoveryCodeB64u)) {
       throw new Error('wallet recovery preparation is invalid');
     }
     parsed = {
-      rpId: rpId.value,
+      target,
       recoveryCodeB64u,
       reservationId: parseRecoveryCodeReservationId(body.reservationId),
     };
@@ -985,7 +996,11 @@ export async function handleWalletRecoveryPrepare(
   }
 
   const origin = trimmed(ctx.request.headers.get('origin'));
-  if (!origin || !isHostWithinRpId(originHostnameOrEmpty(origin), parsed.rpId)) {
+  if (
+    !origin ||
+    (parsed.target.kind === 'passkey' &&
+      !isHostWithinRpId(originHostnameOrEmpty(origin), parsed.target.rpId))
+  ) {
     return toFetchRouteResponse({
       status: 400,
       body: {
@@ -1006,7 +1021,7 @@ export async function handleWalletRecoveryPrepare(
 
   try {
     const result = await ctx.service.passkeyCustody.prepareRecovery({
-      rpId: parsed.rpId,
+      target: parsed.target,
       origin,
       recoveryCodeBytes,
       reservationId: parsed.reservationId,
@@ -1021,7 +1036,12 @@ export async function handleWalletRecoveryPrepare(
             wrap: result.wrap,
             entries: result.entries,
             keyManifest: result.keyManifest,
-            registration: result.registration,
+            target: result.target,
+            recoveryOperationId: result.recoveryOperationId,
+            targetDeviceId: result.targetDeviceId,
+            targetAuthorityId: result.targetAuthorityId,
+            targetWalletAuthMethodId: result.targetWalletAuthMethodId,
+            ...(result.target.kind === 'passkey' ? { registration: result.registration } : {}),
             reservationId: result.reservationId,
             reservationExpiresAtMs: result.reservationExpiresAtMs,
             storeVersion: result.storeVersion,
@@ -1208,6 +1228,10 @@ export async function handleWalletRecoveryFinalize(
   const result = await ctx.service.passkeyCustody.finalizeRecovery({
     walletId: requestBody.walletId,
     reservationId: requestBody.reservationId,
+    recoveryOperationId: requestBody.recoveryOperationId,
+    targetDeviceId: requestBody.targetDeviceId,
+    targetAuthorityId: requestBody.targetAuthorityId,
+    targetWalletAuthMethodId: requestBody.targetWalletAuthMethodId,
     challengeId: requestBody.challengeId,
     replacementId: requestBody.replacementId,
     webauthnRegistration: requestBody.webauthnRegistration,
@@ -1244,6 +1268,10 @@ export async function handleWalletRecoveryFinalize(
 type WalletRecoveryFinalizeBody = {
   readonly walletId: WalletId;
   readonly reservationId: RecoveryCodeReservationId;
+  readonly recoveryOperationId: WalletRecoveryOperationId;
+  readonly targetDeviceId: DeviceId;
+  readonly targetAuthorityId: WalletAuthorityId;
+  readonly targetWalletAuthMethodId: WalletAuthMethodId;
   readonly challengeId: string;
   readonly replacementId: string;
   readonly webauthnRegistration: Record<string, unknown>;
@@ -1261,6 +1289,10 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
     [
       'walletId',
       'reservationId',
+      'recoveryOperationId',
+      'targetDeviceId',
+      'targetAuthorityId',
+      'targetWalletAuthMethodId',
       'challengeId',
       'replacementId',
       'webauthnRegistration',
@@ -1270,13 +1302,29 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
     'wallet recovery finalization',
   );
   const walletId = parseWalletId(value.walletId);
-  if (!walletId.ok) throw new Error('wallet recovery finalization wallet is invalid');
+  const recoveryOperationId = parseWalletRecoveryOperationId(value.recoveryOperationId);
+  const targetDeviceId = parseDeviceId(value.targetDeviceId);
+  const targetAuthorityId = parseWalletAuthorityId(value.targetAuthorityId);
+  const targetWalletAuthMethodId = parseWalletAuthMethodId(value.targetWalletAuthMethodId);
+  if (
+    !walletId.ok ||
+    !recoveryOperationId.ok ||
+    !targetDeviceId.ok ||
+    !targetAuthorityId.ok ||
+    !targetWalletAuthMethodId.ok
+  ) {
+    throw new Error('wallet recovery finalization identity is invalid');
+  }
   if (!isObject(value.webauthnRegistration)) {
     throw new Error('wallet recovery finalization registration is invalid');
   }
   return {
     walletId: walletId.value,
     reservationId: parseRecoveryCodeReservationId(value.reservationId),
+    recoveryOperationId: recoveryOperationId.value,
+    targetDeviceId: targetDeviceId.value,
+    targetAuthorityId: targetAuthorityId.value,
+    targetWalletAuthMethodId: targetWalletAuthMethodId.value,
     challengeId: parseRequiredString(value.challengeId, 'challengeId'),
     replacementId: parseRequiredString(value.replacementId, 'replacementId'),
     webauthnRegistration: value.webauthnRegistration,

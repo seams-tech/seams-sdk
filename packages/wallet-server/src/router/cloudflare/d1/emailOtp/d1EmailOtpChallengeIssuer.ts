@@ -4,6 +4,7 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
@@ -48,6 +49,10 @@ export type EmailOtpChallengeIssueInput =
   | (EmailOtpChallengeIssueBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceLink;
       readonly operation: typeof WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION;
+    })
+  | (EmailOtpChallengeIssueBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
+      readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     });
 
 export type EmailOtpChallengeIssueResult =
@@ -157,7 +162,10 @@ export class CloudflareD1EmailOtpChallengeIssuer {
       }
 
       let challengeEmail = email;
-      if (action !== WALLET_EMAIL_OTP_ACTIONS.registration) {
+      if (
+        action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
+        action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
+      ) {
         const enrollment = await this.readActiveEnrollment({
           walletId,
           orgId,

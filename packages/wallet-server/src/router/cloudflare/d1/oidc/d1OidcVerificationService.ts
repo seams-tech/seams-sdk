@@ -71,6 +71,22 @@ export class CloudflareD1OidcVerificationService {
     });
   }
   async verifyGoogleLogin(input: VerifyGoogleLoginInput): Promise<VerifyGoogleLoginResult> {
+    return await this.verifyGoogleIdToken(input, true);
+  }
+
+  /**
+   * Recovery verifies a Google credential before an Email enrollment exists.
+   * It must not create or relink a generic identity as a side effect of that
+   * factor check; the recovery finalizer owns the eventual enrollment link.
+   */
+  async verifyGoogleLoginForRecovery(input: VerifyGoogleLoginInput): Promise<VerifyGoogleLoginResult> {
+    return await this.verifyGoogleIdToken(input, false);
+  }
+
+  private async verifyGoogleIdToken(
+    input: VerifyGoogleLoginInput,
+    linkIdentity: boolean,
+  ): Promise<VerifyGoogleLoginResult> {
     try {
       const clientId = toOptionalTrimmedString(this.googleOidcClientId);
       if (!clientId) {
@@ -130,11 +146,13 @@ export class CloudflareD1OidcVerificationService {
       const claims = validateGoogleIdTokenClaims({ payload: jwt.payload, clientId });
       if (!claims.ok) return claims;
       const providerSubject = `google:${claims.sub}`;
-      const linkedUserId = await this.linkGoogleIdentity(providerSubject);
+      const userId = linkIdentity
+        ? await this.linkGoogleIdentity(providerSubject)
+        : providerSubject;
       return {
         ok: true,
         verified: true,
-        userId: linkedUserId,
+        userId,
         providerSubject,
         sub: claims.sub,
         ...(claims.email ? { email: claims.email } : {}),
