@@ -55,6 +55,10 @@ import {
   parseListConsoleWalletsRequest,
   parseSearchConsoleWalletsRequest,
 } from '@seams-internal/wallet-console-server/wallets/requests';
+import {
+  hasWalletBalanceRefresh,
+  parseRefreshConsoleWalletBalancesRequest,
+} from '@seams-internal/wallet-console-server/wallets/balances';
 import type { ConsolePolicyService } from '@seams-internal/wallet-console-server/policies/service';
 import { isConsolePolicyError } from '@seams-internal/wallet-console-server/policies/errors';
 import {
@@ -3334,6 +3338,22 @@ async function handleConsoleWallets(ctx: CloudflareConsoleContext): Promise<Resp
   };
 
   try {
+    if (ctx.method === 'POST' && ctx.pathname === '/console/wallets/balances/refresh') {
+      if (!hasWalletBalanceRefresh(wallets)) {
+        return json(
+          {
+            ok: false,
+            code: 'service_unavailable',
+            message: 'Wallet balance refresh is unavailable on this Console deployment',
+          },
+          { status: 503 },
+        );
+      }
+      const request = parseRefreshConsoleWalletBalancesRequest(await readJson(ctx.request));
+      const result = await wallets.refreshBalances(walletCtx, request);
+      return json({ ok: true, ...result }, { status: 200 });
+    }
+
     if (ctx.method === 'GET' && ctx.pathname === '/console/wallets') {
       const request = parseListConsoleWalletsRequest(query);
       const page = await wallets.listWallets(walletCtx, request);

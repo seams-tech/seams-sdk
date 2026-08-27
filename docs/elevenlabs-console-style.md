@@ -231,8 +231,8 @@ needs the API env the launcher provides, or it falls back to
 `window.location.origin` and every Console call lands on the marketing site:
 
 ```
-VITE_CONSOLE_BASE_URL=https://localhost:9444 VITE_RELAYER_URL=https://localhost:9444 \
-VITE_WALLET_ORIGIN=https://localhost:8443 pnpm -C apps/seams-console dev
+VITE_CONSOLE_BASE_URL=https://localhost:4101 VITE_RELAYER_URL=https://localhost:4101 \
+VITE_WALLET_ORIGIN=https://localhost:4002 pnpm -C apps/seams-console dev
 ```
 
 For visual work, drive it headlessly and assert computed styles rather than

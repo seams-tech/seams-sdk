@@ -942,9 +942,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                             {formatCredentialKindChip(apiKey.kind)}
                           </DashboardTableBadge>
                         </span>
-                        {preview ? (
-                          <code className="dashboard-lead__sub">{preview}</code>
-                        ) : null}
+                        {preview ? <code className="dashboard-lead__sub">{preview}</code> : null}
                       </span>
                     </div>
                   </DashboardTableCell>

@@ -137,6 +137,7 @@ const PROJECT_VIEW_ROUTES: readonly ConsoleRouteTuple[] = [
   ['console_wallets_list', 'GET', '/console/wallets'],
   ['console_wallets_search', 'GET', '/console/wallets/search'],
   ['console_wallets_get', 'GET', '/console/wallets/:id'],
+  ['console_wallet_balances_refresh', 'POST', '/console/wallets/balances/refresh'],
   ['console_policies_list', 'GET', '/console/policies'],
   ['console_policy_versions_list', 'GET', '/console/policies/:id/versions'],
   ['console_policy_assignments_list', 'GET', '/console/policies/assignments'],

@@ -610,7 +610,6 @@ test('Cloudflare D1 full linked-device session composition exposes session and m
       linkedDevice: {
         session: {
           readOwnerSourceChildV1: async () => null,
-          targetPasskeyOrigin: 'https://wallet.example.test',
           targetPasskeyRpId: 'wallet.example.test',
           targetCredential: () => ({
             getTargetPreparationV1: async () => {

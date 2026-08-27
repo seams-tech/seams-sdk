@@ -18,6 +18,8 @@ import type {
   RouterApiPublishableKeyAuthResult,
   RouterApiUsageMeterAdapter,
   RouterApiUsageMeterEvent,
+  RouterApiWalletProjectionAdapter,
+  RouterApiWalletProjectionEvent,
 } from '@seams/wallet-server/cloud-host';
 
 function toPrincipal(apiKey: ConsoleApiKey): RouterApiKeyPrincipal {
@@ -49,6 +51,44 @@ function toRouterApiPublishableAuthResult(
     };
   }
   return result;
+}
+
+async function upsertProjectedWallet(input: {
+  readonly wallets: ConsoleWalletService;
+  readonly orgId: string;
+  readonly actorUserId: string;
+  readonly projectId: string;
+  readonly environmentId: string;
+  readonly walletId: string;
+  readonly occurredAt: string;
+}): Promise<void> {
+  if (!input.wallets.upsertWallet) {
+    throw new Error('Console wallet projection is not configured');
+  }
+  await input.wallets.upsertWallet(
+    {
+      orgId: input.orgId,
+      actorUserId: input.actorUserId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+    },
+    {
+      id: input.walletId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      userId: input.walletId,
+      externalRefId: input.walletId,
+      address: input.walletId,
+      chain: 'Multichain',
+      walletType: 'EOA',
+      status: 'ACTIVE',
+      policyId: null,
+      balanceMinor: 0,
+      lastActivityAt: input.occurredAt,
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    },
+  );
 }
 
 class ConsoleRouterApiKeyAuthAdapter implements RouterApiKeyAuthAdapter {
@@ -136,30 +176,49 @@ class ConsoleRouterApiBillingUsageMeterAdapter implements RouterApiUsageMeterAda
     const environment = envs.find((entry) => entry.id === input.environmentId) || null;
     if (!environment) return;
     const nowIso = String(input.occurredAt || '').trim() || new Date().toISOString();
-    await walletService.upsertWallet(
-      {
-        orgId: input.orgId,
-        actorUserId: 'relay-api-key',
-        projectId: environment.projectId,
-        environmentId: environment.id,
-      },
-      {
-        id: input.walletId,
-        projectId: environment.projectId,
-        environmentId: environment.id,
-        userId: input.walletId,
-        externalRefId: input.walletId,
-        address: input.walletId,
-        chain: 'NEAR',
-        walletType: 'EOA',
-        status: 'ACTIVE',
-        policyId: null,
-        balanceMinor: 0,
-        lastActivityAt: nowIso,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      },
+    await upsertProjectedWallet({
+      wallets: walletService,
+      orgId: input.orgId,
+      actorUserId: 'relay-api-key',
+      projectId: environment.projectId,
+      environmentId: environment.id,
+      walletId: input.walletId,
+      occurredAt: nowIso,
+    });
+  }
+}
+
+class ConsoleRouterApiWalletProjectionAdapter implements RouterApiWalletProjectionAdapter {
+  constructor(
+    private readonly orgProjectEnv: ConsoleOrgProjectEnvService,
+    private readonly wallets: ConsoleWalletService,
+  ) {}
+
+  async recordCreatedWallet(input: RouterApiWalletProjectionEvent): Promise<void> {
+    const environments = await this.orgProjectEnv.listEnvironments({
+      orgId: input.orgId,
+      actorUserId: 'wallet-registration-projection',
+      projectId: input.runtimePolicyScope.projectId,
+    });
+    const environment = environments.find(
+      (entry) =>
+        entry.projectId === input.runtimePolicyScope.projectId &&
+        entry.key === input.runtimePolicyScope.envId,
     );
+    if (!environment) {
+      throw new Error(
+        `Wallet projection environment ${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId} was not found`,
+      );
+    }
+    await upsertProjectedWallet({
+      wallets: this.wallets,
+      orgId: input.orgId,
+      actorUserId: 'wallet-registration-projection',
+      projectId: environment.projectId,
+      environmentId: environment.id,
+      walletId: input.walletId,
+      occurredAt: input.occurredAt,
+    });
   }
 }
 
@@ -183,4 +242,11 @@ export function createRouterApiBillingUsageMeterAdapter(
   } = {},
 ): RouterApiUsageMeterAdapter {
   return new ConsoleRouterApiBillingUsageMeterAdapter(billing, options);
+}
+
+export function createRouterApiWalletProjectionAdapter(
+  orgProjectEnv: ConsoleOrgProjectEnvService,
+  wallets: ConsoleWalletService,
+): RouterApiWalletProjectionAdapter {
+  return new ConsoleRouterApiWalletProjectionAdapter(orgProjectEnv, wallets);
 }

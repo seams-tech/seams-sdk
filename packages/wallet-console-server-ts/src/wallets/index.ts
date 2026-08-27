@@ -11,9 +11,12 @@ export type {
 } from './types';
 
 export type {
+  ConsoleWalletBalanceRefreshFailure,
+  ConsoleWalletBalanceRefreshResult,
   ConsoleWalletsContext,
   ConsoleWalletService,
   InMemoryConsoleWalletServiceOptions,
+  RefreshConsoleWalletBalancesRequest,
   UpsertConsoleWalletRequest,
 } from './service';
 export { createInMemoryConsoleWalletService } from './service';
@@ -32,9 +35,9 @@ export {
   createD1ConsoleWalletService,
 } from './d1';
 
-export {
-  parseListConsoleWalletsRequest,
-  parseSearchConsoleWalletsRequest,
-} from './requests';
+export type { D1ConsoleWalletBalanceReaderOptions } from './balances';
+export { hasWalletBalanceRefresh, parseRefreshConsoleWalletBalancesRequest } from './balances';
+
+export { parseListConsoleWalletsRequest, parseSearchConsoleWalletsRequest } from './requests';
 
 export { ConsoleWalletError, isConsoleWalletError } from './errors';

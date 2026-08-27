@@ -37,6 +37,22 @@ export interface ConsoleWalletsContext {
   environmentId?: string;
 }
 
+export interface RefreshConsoleWalletBalancesRequest {
+  readonly walletIds: readonly string[];
+}
+
+export interface ConsoleWalletBalanceRefreshFailure {
+  readonly walletId: string;
+  readonly message: string;
+}
+
+export interface ConsoleWalletBalanceRefreshResult {
+  readonly wallets: readonly ConsoleWallet[];
+  readonly refreshedWalletIds: readonly string[];
+  readonly freshWalletIds: readonly string[];
+  readonly failures: readonly ConsoleWalletBalanceRefreshFailure[];
+}
+
 export interface ConsoleWalletService {
   listWallets(
     ctx: ConsoleWalletsContext,
@@ -46,14 +62,15 @@ export interface ConsoleWalletService {
     ctx: ConsoleWalletsContext,
     request: SearchConsoleWalletsRequest,
   ): Promise<ConsoleWalletPage>;
-  getWallet(
-    ctx: ConsoleWalletsContext,
-    walletId: string,
-  ): Promise<ConsoleWallet | null>;
+  getWallet(ctx: ConsoleWalletsContext, walletId: string): Promise<ConsoleWallet | null>;
   upsertWallet?(
     ctx: ConsoleWalletsContext,
     request: UpsertConsoleWalletRequest,
   ): Promise<ConsoleWallet>;
+  refreshBalances?(
+    ctx: ConsoleWalletsContext,
+    request: RefreshConsoleWalletBalancesRequest,
+  ): Promise<ConsoleWalletBalanceRefreshResult>;
 }
 
 export interface InMemoryConsoleWalletServiceOptions {
@@ -191,7 +208,11 @@ function normalizeUpsertRequest(
   const externalRefId = String(request.externalRefId || '').trim();
   const address = String(request.address || '').trim();
   if (!id || !projectId || !environmentId || !userId || !externalRefId || !address) {
-    throw new ConsoleWalletError('invalid_body', 400, 'Wallet upsert requires id/project/environment/user/ref/address');
+    throw new ConsoleWalletError(
+      'invalid_body',
+      400,
+      'Wallet upsert requires id/project/environment/user/ref/address',
+    );
   }
   return {
     id,
@@ -209,7 +230,9 @@ function normalizeUpsertRequest(
       ? Number(request.balanceMinor)
       : (existing?.balanceMinor ?? 0),
     lastActivityAt:
-      request.lastActivityAt === undefined ? (existing?.lastActivityAt ?? nowIso) : request.lastActivityAt,
+      request.lastActivityAt === undefined
+        ? (existing?.lastActivityAt ?? nowIso)
+        : request.lastActivityAt,
     createdAt: String(request.createdAt || existing?.createdAt || nowIso),
     updatedAt: String(request.updatedAt || nowIso),
   };
@@ -227,37 +250,38 @@ function applyPage(
   const cursor = request.cursor ? decodeCursor(request.cursor) : null;
   const cursorAware = cursor
     ? sorted.filter((wallet) => {
-      if (cursor.sortBy !== sortBy || cursor.sortOrder !== sortOrder) {
-        throw new ConsoleWalletError(
-          'invalid_query',
-          400,
-          'Cursor does not match requested sortBy/sortOrder',
-        );
-      }
-      const walletSortValue = sortValueFor(wallet, sortBy);
-      if (sortOrder === 'asc') {
-        if (walletSortValue > cursor.sortValue) return true;
-        if (walletSortValue < cursor.sortValue) return false;
-        return wallet.id.localeCompare(cursor.id) > 0;
-      }
-      if (walletSortValue < cursor.sortValue) return true;
-      if (walletSortValue > cursor.sortValue) return false;
-      return wallet.id.localeCompare(cursor.id) < 0;
-    })
+        if (cursor.sortBy !== sortBy || cursor.sortOrder !== sortOrder) {
+          throw new ConsoleWalletError(
+            'invalid_query',
+            400,
+            'Cursor does not match requested sortBy/sortOrder',
+          );
+        }
+        const walletSortValue = sortValueFor(wallet, sortBy);
+        if (sortOrder === 'asc') {
+          if (walletSortValue > cursor.sortValue) return true;
+          if (walletSortValue < cursor.sortValue) return false;
+          return wallet.id.localeCompare(cursor.id) > 0;
+        }
+        if (walletSortValue < cursor.sortValue) return true;
+        if (walletSortValue > cursor.sortValue) return false;
+        return wallet.id.localeCompare(cursor.id) < 0;
+      })
     : sorted;
 
   const rows = cursorAware.slice(0, limit + 1);
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(cloneWallet);
   const last = items[items.length - 1];
-  const nextCursor = hasMore && last
-    ? encodeCursor({
-      sortBy,
-      sortOrder,
-      sortValue: sortValueFor(last, sortBy),
-      id: last.id,
-    })
-    : undefined;
+  const nextCursor =
+    hasMore && last
+      ? encodeCursor({
+          sortBy,
+          sortOrder,
+          sortValue: sortValueFor(last, sortBy),
+          id: last.id,
+        })
+      : undefined;
   return { items, ...(nextCursor ? { nextCursor } : {}) };
 }
 
@@ -308,10 +332,7 @@ export function createInMemoryConsoleWalletService(
       return applyPage(filtered, request);
     },
 
-    async getWallet(
-      ctx: ConsoleWalletsContext,
-      walletId: string,
-    ): Promise<ConsoleWallet | null> {
+    async getWallet(ctx: ConsoleWalletsContext, walletId: string): Promise<ConsoleWallet | null> {
       const store = getOrgStore(ctx);
       if (!store) return null;
       const wallet = store.wallets.get(walletId);

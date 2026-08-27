@@ -15,6 +15,7 @@ import type {
 } from './types';
 
 const WALLET_CHAINS: Set<ConsoleWalletChain> = new Set([
+  'Multichain',
   'Ethereum',
   'Base',
   'Tempo',

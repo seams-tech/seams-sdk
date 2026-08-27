@@ -1,4 +1,9 @@
-import { d1Integer as toNumber, formatD1ExecStatement, type D1Row } from '@seams/wallet-server/cloud-host';
+import {
+  d1Integer as toNumber,
+  formatD1ExecStatement,
+  parseD1JsonColumn,
+  type D1Row,
+} from '@seams/wallet-server/cloud-host';
 import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { ConsoleWalletError } from './errors';
 import {
@@ -7,13 +12,16 @@ import {
   normalizeWalletSortOrder as normalizeSortOrder,
 } from './normalization';
 import type {
+  ConsoleWalletBalanceRefreshResult,
   ConsoleWalletService,
   ConsoleWalletsContext,
+  RefreshConsoleWalletBalancesRequest,
   UpsertConsoleWalletRequest,
 } from './service';
 import type {
   ConsoleWallet,
   ConsoleWalletChain,
+  ConsoleWalletGasBalances,
   ConsoleWalletPage,
   ConsoleWalletSortBy,
   ConsoleWalletSortOrder,
@@ -22,12 +30,16 @@ import type {
   ListConsoleWalletsRequest,
   SearchConsoleWalletsRequest,
 } from './types';
-
+import {
+  refreshD1ConsoleWalletBalances,
+  type D1ConsoleWalletBalanceReaderOptions,
+} from './balances';
 
 interface D1ConsoleWalletState {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly now: () => Date;
+  readonly balanceReader: D1ConsoleWalletBalanceReaderOptions | null;
 }
 
 interface WalletCursorPayload {
@@ -68,6 +80,32 @@ interface NormalizedWalletUpsert {
   readonly updatedAtMs: number;
 }
 
+const WALLET_INDEX_SELECT_SQL = `wallet_index.*,
+  COALESCE(
+    (
+      SELECT wallet_balance_snapshots.funded
+        FROM wallet_balance_snapshots
+       WHERE wallet_balance_snapshots.namespace = wallet_index.namespace
+         AND wallet_balance_snapshots.org_id = wallet_index.org_id
+         AND wallet_balance_snapshots.wallet_id = wallet_index.id
+    ),
+    CASE WHEN wallet_index.balance_minor > 0 THEN 1 ELSE 0 END
+  ) AS funded_snapshot,
+  (
+    SELECT json_object(
+      'observedAtMs', wallet_balance_snapshots.observed_at_ms,
+      'nearAccountId', wallet_balance_snapshots.near_account_id,
+      'nearBalanceYocto', wallet_balance_snapshots.near_balance_yocto,
+      'evmAddress', wallet_balance_snapshots.evm_address,
+      'tempoAlphaUsdRaw', wallet_balance_snapshots.tempo_alpha_usd_raw,
+      'arcUsdcRaw', wallet_balance_snapshots.arc_balance_wei
+    )
+      FROM wallet_balance_snapshots
+     WHERE wallet_balance_snapshots.namespace = wallet_index.namespace
+       AND wallet_balance_snapshots.org_id = wallet_index.org_id
+       AND wallet_balance_snapshots.wallet_id = wallet_index.id
+  ) AS gas_balances_json`;
+
 export const CONSOLE_WALLETS_D1_RUNTIME = Symbol('consoleWalletsD1Runtime');
 
 export interface ConsoleWalletsD1Runtime {
@@ -89,6 +127,7 @@ export interface D1ConsoleWalletServiceOptions {
   readonly namespace?: string;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
+  readonly balanceReader?: D1ConsoleWalletBalanceReaderOptions | null;
 }
 
 export const CONSOLE_WALLETS_D1_SCHEMA_SQL = Object.freeze([
@@ -112,7 +151,7 @@ export const CONSOLE_WALLETS_D1_SCHEMA_SQL = Object.freeze([
       updated_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
       UNIQUE (namespace, org_id, address),
-      CHECK (chain IN ('Ethereum', 'Base', 'Tempo', 'Arc Circle', 'NEAR')),
+      CHECK (chain IN ('Multichain', 'Ethereum', 'Base', 'Tempo', 'Arc Circle', 'NEAR')),
       CHECK (wallet_type IN ('EOA', 'SMART')),
       CHECK (status IN ('ACTIVE', 'FROZEN', 'ARCHIVED'))
     )
@@ -145,6 +184,31 @@ export const CONSOLE_WALLETS_D1_SCHEMA_SQL = Object.freeze([
     CREATE INDEX IF NOT EXISTS wallet_index_org_external_ref_idx
       ON wallet_index (namespace, org_id, external_ref_id)
   `,
+  `
+    CREATE TABLE IF NOT EXISTS wallet_balance_snapshots (
+      namespace TEXT NOT NULL,
+      org_id TEXT NOT NULL,
+      wallet_id TEXT NOT NULL,
+      near_account_id TEXT NOT NULL,
+      evm_address TEXT NOT NULL,
+      near_balance_yocto TEXT NOT NULL,
+      tempo_alpha_usd_raw TEXT NOT NULL,
+      arc_balance_wei TEXT NOT NULL,
+      stablecoin_balance_minor INTEGER NOT NULL,
+      funded INTEGER NOT NULL,
+      observed_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (namespace, org_id, wallet_id),
+      FOREIGN KEY (namespace, org_id, wallet_id)
+        REFERENCES wallet_index(namespace, org_id, id)
+        ON DELETE CASCADE,
+      CHECK (funded IN (0, 1)),
+      CHECK (observed_at_ms > 0)
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS wallet_balance_snapshots_stale_idx
+      ON wallet_balance_snapshots (namespace, org_id, observed_at_ms)
+  `,
 ] as const);
 
 export async function ensureConsoleWalletsD1Schema(
@@ -169,6 +233,7 @@ export async function createD1ConsoleWalletService(
     database: options.database,
     namespace: ensureNamespace(options.namespace),
     now: options.now || defaultNow,
+    balanceReader: options.balanceReader || null,
   };
   if (options.ensureSchema !== false) {
     await ensureConsoleWalletsD1Schema({ database: state.database });
@@ -194,7 +259,6 @@ function toNullableString(raw: unknown): string | null {
   return value || null;
 }
 
-
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
@@ -203,6 +267,37 @@ function toNullableIso(raw: unknown): string | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const parsed = toNumber(raw, NaN);
   return Number.isFinite(parsed) ? toIso(parsed) : null;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function parseGasBalances(raw: unknown): ConsoleWalletGasBalances | undefined {
+  const parsed = parseD1JsonColumn(raw);
+  if (!isJsonRecord(parsed)) return undefined;
+  const observedAtMs = toNumber(parsed.observedAtMs, NaN);
+  const nearAccountId = normalizeString(parsed.nearAccountId);
+  const nearBalanceYocto = normalizeString(parsed.nearBalanceYocto);
+  const evmAddress = normalizeString(parsed.evmAddress);
+  const tempoAlphaUsdRaw = normalizeString(parsed.tempoAlphaUsdRaw);
+  const arcUsdcRaw = normalizeString(parsed.arcUsdcRaw);
+  if (
+    !Number.isFinite(observedAtMs) ||
+    !nearAccountId ||
+    !nearBalanceYocto ||
+    !evmAddress ||
+    !tempoAlphaUsdRaw ||
+    !arcUsdcRaw
+  ) {
+    return undefined;
+  }
+  return {
+    observedAt: toIso(observedAtMs),
+    near: { accountId: nearAccountId, balanceYocto: nearBalanceYocto },
+    tempo: { address: evmAddress, alphaUsdRaw: tempoAlphaUsdRaw },
+    arc: { address: evmAddress, usdcRaw: arcUsdcRaw },
+  };
 }
 
 function toMsFromIso(value: string | null | undefined, fallbackMs: number): number {
@@ -214,6 +309,7 @@ function toMsFromIso(value: string | null | undefined, fallbackMs: number): numb
 function parseWalletChain(raw: unknown): ConsoleWalletChain {
   const value = normalizeString(raw);
   switch (value) {
+    case 'Multichain':
     case 'Ethereum':
     case 'Base':
     case 'Tempo':
@@ -252,6 +348,7 @@ function parseWalletStatus(raw: unknown): ConsoleWalletStatus {
 function normalizeUpsertChain(raw: unknown): ConsoleWalletChain {
   const value = normalizeString(raw);
   switch (value) {
+    case 'Multichain':
     case 'Ethereum':
     case 'Base':
     case 'Tempo':
@@ -286,7 +383,8 @@ function normalizeUpsertStatus(raw: unknown): ConsoleWalletStatus {
   }
 }
 
-function parseWalletRow(row: D1Row): ConsoleWallet {
+export function parseD1ConsoleWalletRow(row: D1Row): ConsoleWallet {
+  const gasBalances = parseGasBalances(row.gas_balances_json);
   return {
     id: normalizeString(row.id),
     orgId: normalizeString(row.org_id),
@@ -300,6 +398,8 @@ function parseWalletRow(row: D1Row): ConsoleWallet {
     status: parseWalletStatus(row.status),
     policyId: toNullableString(row.policy_id),
     balanceMinor: toNumber(row.balance_minor),
+    funded: toNumber(row.funded_snapshot) === 1,
+    ...(gasBalances ? { gasBalances } : {}),
     lastActivityAt: toNullableIso(row.last_activity_at_ms),
     createdAt: toIso(toNumber(row.created_at_ms)),
     updatedAt: toIso(toNumber(row.updated_at_ms)),
@@ -401,15 +501,12 @@ function directionSql(sortOrder: ConsoleWalletSortOrder): 'ASC' | 'DESC' {
 
 function walletSortValue(wallet: ConsoleWallet, sortBy: ConsoleWalletSortBy): number {
   if (sortBy === 'balance') return wallet.balanceMinor;
-  if (sortBy === 'lastActivity') return wallet.lastActivityAt ? toMsFromIso(wallet.lastActivityAt, 0) : 0;
+  if (sortBy === 'lastActivity')
+    return wallet.lastActivityAt ? toMsFromIso(wallet.lastActivityAt, 0) : 0;
   return toMsFromIso(wallet.createdAt, 0);
 }
 
-function appendEqualsFilter(
-  input: WalletFilterAccumulator,
-  column: string,
-  raw: unknown,
-): void {
+function appendEqualsFilter(input: WalletFilterAccumulator, column: string, raw: unknown): void {
   const value = normalizeString(raw);
   if (!value) return;
   input.clauses.push(`${column} = ?`);
@@ -496,9 +593,11 @@ function buildWalletPage(input: {
   readonly sortOrder: ConsoleWalletSortOrder;
 }): ConsoleWalletPage {
   const hasMore = input.wallets.length > input.limit;
-  const items = (hasMore ? input.wallets.slice(0, input.limit) : [...input.wallets]).map((wallet) => ({
-    ...wallet,
-  }));
+  const items = (hasMore ? input.wallets.slice(0, input.limit) : [...input.wallets]).map(
+    (wallet) => ({
+      ...wallet,
+    }),
+  );
   const last = items[items.length - 1];
   const nextCursor =
     hasMore && last
@@ -518,11 +617,7 @@ function buildWalletPage(input: {
 function normalizeRequiredWalletField(raw: unknown, field: string): string {
   const value = normalizeString(raw);
   if (!value) {
-    throw new ConsoleWalletError(
-      'invalid_body',
-      400,
-      `Wallet upsert requires ${field}`,
-    );
+    throw new ConsoleWalletError('invalid_body', 400, `Wallet upsert requires ${field}`);
   }
   return value;
 }
@@ -577,6 +672,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     this.searchWallets = this.searchWallets.bind(this);
     this.getWallet = this.getWallet.bind(this);
     this.upsertWallet = this.upsertWallet.bind(this);
+    this.refreshBalances = this.refreshBalances.bind(this);
   }
 
   async listWallets(
@@ -593,13 +689,10 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     return await this.queryWalletPage(ctx, request, request.q);
   }
 
-  async getWallet(
-    ctx: ConsoleWalletsContext,
-    walletId: string,
-  ): Promise<ConsoleWallet | null> {
+  async getWallet(ctx: ConsoleWalletsContext, walletId: string): Promise<ConsoleWallet | null> {
     const row = await this.state.database
       .prepare(
-        `SELECT *
+        `SELECT ${WALLET_INDEX_SELECT_SQL}
            FROM wallet_index
           WHERE namespace = ?
             AND org_id = ?
@@ -607,7 +700,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
       )
       .bind(this.state.namespace, ctx.orgId, walletId)
       .first<D1Row>();
-    return row ? parseWalletRow(row) : null;
+    return row ? parseD1ConsoleWalletRow(row) : null;
   }
 
   async upsertWallet(
@@ -689,6 +782,36 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     return wallet;
   }
 
+  async refreshBalances(
+    ctx: ConsoleWalletsContext,
+    request: RefreshConsoleWalletBalancesRequest,
+  ): Promise<ConsoleWalletBalanceRefreshResult> {
+    if (!this.state.balanceReader) {
+      throw new ConsoleWalletError(
+        'service_unavailable',
+        503,
+        'Wallet balance refresh is unavailable on this Console deployment',
+      );
+    }
+    const requestedWallets = await Promise.all(
+      request.walletIds.map((walletId) => this.getWallet(ctx, walletId)),
+    );
+    const wallets = requestedWallets.filter(
+      (wallet): wallet is ConsoleWallet =>
+        wallet !== null &&
+        (!ctx.projectId || wallet.projectId === ctx.projectId) &&
+        (!ctx.environmentId || wallet.environmentId === ctx.environmentId),
+    );
+    return await refreshD1ConsoleWalletBalances({
+      consoleDatabase: this.state.database,
+      namespace: this.state.namespace,
+      now: this.state.now,
+      reader: this.state.balanceReader,
+      ctx,
+      wallets,
+    });
+  }
+
   private async queryWalletPage(
     ctx: ConsoleWalletsContext,
     request: ListConsoleWalletsRequest,
@@ -702,7 +825,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
     });
     const out = await this.state.database
       .prepare(
-        `SELECT *
+        `SELECT ${WALLET_INDEX_SELECT_SQL}
            FROM wallet_index
           WHERE ${query.whereSql}
           ORDER BY ${query.orderBySql}
@@ -710,7 +833,7 @@ class D1ConsoleWalletServiceImpl implements ConsoleWalletService {
       )
       .bind(...query.values, query.limit + 1)
       .all<D1Row>();
-    const wallets = (out.results || []).map((row) => parseWalletRow(row));
+    const wallets = (out.results || []).map((row) => parseD1ConsoleWalletRow(row));
     return buildWalletPage({
       wallets,
       limit: query.limit,

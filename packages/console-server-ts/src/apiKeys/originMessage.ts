@@ -14,8 +14,8 @@ export function buildPublishableKeyOriginBlockedMessage(args: {
     : [];
   const allowedText = allowedOrigins.length > 0 ? allowedOrigins.join(', ') : '(none configured)';
   const localhostWalletHint =
-    origin === 'https://localhost:8443' || allowedOrigins.includes('http://localhost:4001')
-      ? ' Managed registration runs from the wallet origin; in local dev also allow https://localhost:8443.'
+    origin === 'https://localhost:4002' || allowedOrigins.includes('http://localhost:4001')
+      ? ' Managed registration runs from the wallet origin; in local dev also allow https://localhost:4002.'
       : '';
   return `Origin ${origin} is not allowed for this publishable key. Allowed origins: ${allowedText}.${localhostWalletHint}`;
 }

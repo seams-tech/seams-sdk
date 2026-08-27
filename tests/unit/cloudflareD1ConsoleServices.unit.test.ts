@@ -4,6 +4,9 @@ import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
 } from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleServices';
+import { createRouterApiWalletProjectionAdapter } from '../../packages/wallet-console-server-ts/src/router/routerApiKeyAuth';
+import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv';
+import { createInMemoryConsoleWalletService } from '../../packages/wallet-console-server-ts/src/wallets';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -32,7 +35,7 @@ const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
 
 test('local Router binding rewrites the origin and preserves authenticated POST requests', async () => {
   const request = buildLocalRouterRequest(
-    'http://127.0.0.1:9090',
+    'http://127.0.0.1:4100',
     new Request('https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1', {
       method: 'POST',
       headers: {
@@ -43,7 +46,7 @@ test('local Router binding rewrites the origin and preserves authenticated POST 
     }),
   );
 
-  expect(request.url).toBe('http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1');
+  expect(request.url).toBe('http://127.0.0.1:4100/router-ab/ecdsa-derivation/register?attempt=1');
   expect(request.method).toBe('POST');
   expect(request.headers.get('authorization')).toBe('Bearer ceremony-token');
   expect(request.headers.get('content-type')).toBe('application/json');
@@ -284,14 +287,14 @@ test('local Console sign-out clears the session and refresh stays unauthorized',
   const ctx = createFakeExecutionContext();
 
   const missingSession = await localD1DevWorker.fetch(
-    new Request('https://localhost:4004/console/session'),
+    new Request('https://localhost:4101/console/session'),
     env,
     ctx,
   );
   expect(missingSession.status).toBe(401);
 
   const invalidGoogleLogin = await localD1DevWorker.fetch(
-    new Request('https://localhost:4004/console/auth/google', {
+    new Request('https://localhost:4101/console/auth/google', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
@@ -306,7 +309,7 @@ test('local Console sign-out clears the session and refresh stays unauthorized',
   });
 
   const revoke = await localD1DevWorker.fetch(
-    new Request('https://localhost:4004/console/auth/revoke', { method: 'POST' }),
+    new Request('https://localhost:4101/console/auth/revoke', { method: 'POST' }),
     env,
     ctx,
   );
@@ -315,7 +318,7 @@ test('local Console sign-out clears the session and refresh stays unauthorized',
   expect(revoke.headers.get('set-cookie')).toContain('Max-Age=0');
 
   const refreshed = await localD1DevWorker.fetch(
-    new Request('https://localhost:4004/console/session'),
+    new Request('https://localhost:4101/console/session'),
     env,
     ctx,
   );
@@ -445,6 +448,9 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
     expect(typeof bundle.routerApiRouterOptions.apiKeyAuth.authenticate).toBe('function');
     expect(typeof bundle.routerApiRouterOptions.publishableKeyAuth.authenticate).toBe('function');
     expect(typeof bundle.routerApiRouterOptions.apiKeyUsageMeter.recordEvent).toBe('function');
+    expect(typeof bundle.routerApiRouterOptions.walletProjection.recordCreatedWallet).toBe(
+      'function',
+    );
     expect(bundle.routerApiRouterOptions).not.toHaveProperty('wallets');
     expect(bundle.routerApiRouterOptions.routeExtensions.length).toBeGreaterThan(0);
     expect(
@@ -455,6 +461,54 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
   } finally {
     cleanupTemporaryD1Database(signer.tempDir);
   }
+});
+
+test('wallet registration projection resolves the Console environment and upserts its wallet', async () => {
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService({
+    now: () => new Date('2026-08-26T00:00:00.000Z'),
+  });
+  const wallets = createInMemoryConsoleWalletService();
+  const adminContext = {
+    orgId: 'org-wallets',
+    actorUserId: 'test-admin',
+  };
+  await orgProjectEnv.upsertOrganization(adminContext, { name: 'Wallets' });
+  await orgProjectEnv.createProject(adminContext, {
+    id: 'project-wallets',
+    name: 'Wallets Project',
+  });
+  await orgProjectEnv.updateEnvironment(adminContext, 'project-wallets:dev', {
+    signingRootVersion: 'root-v1',
+  });
+  const projection = createRouterApiWalletProjectionAdapter(orgProjectEnv, wallets);
+
+  await projection.recordCreatedWallet({
+    orgId: 'org-wallets',
+    runtimePolicyScope: {
+      orgId: 'org-wallets',
+      projectId: 'project-wallets',
+      envId: 'dev',
+      signingRootVersion: 'root-v1',
+    },
+    walletId: 'wallet-new',
+    occurredAt: '2026-08-26T00:00:00.000Z',
+  });
+
+  await expect(
+    wallets.getWallet(
+      {
+        ...adminContext,
+        projectId: 'project-wallets',
+        environmentId: 'project-wallets:dev',
+      },
+      'wallet-new',
+    ),
+  ).resolves.toMatchObject({
+    id: 'wallet-new',
+    projectId: 'project-wallets',
+    environmentId: 'project-wallets:dev',
+    status: 'ACTIVE',
+  });
 });
 
 test('Cloudflare D1 console-only bundle omits signer custody bindings', async () => {
@@ -614,9 +668,9 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
       allowedOrigins: [
         'https://localhost',
         'https://localhost:4002',
-        'https://localhost:4004',
-        'http://127.0.0.1:9090',
-        'http://localhost:9090',
+        'https://localhost:4101',
+        'http://127.0.0.1:4100',
+        'http://localhost:4100',
         'http://127.0.0.1:8787',
         'http://localhost:8787',
       ],
@@ -850,7 +904,7 @@ test('local D1 Worker serves console routes through D1 console services', async 
 test('local D1 Worker serves dashboard Google options at the root auth path', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:9090/auth/google/options', {
+    new Request('http://127.0.0.1:4100/auth/google/options', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
@@ -885,7 +939,7 @@ test('local D1 Worker routes dashboard session exchange and state at root paths'
   const ctx = createFakeExecutionContext();
 
   const exchange = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:9090/session/exchange', {
+    new Request('http://127.0.0.1:4100/session/exchange', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -908,7 +962,7 @@ test('local D1 Worker routes dashboard session exchange and state at root paths'
   });
 
   const state = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:9090/session/state'),
+    new Request('http://127.0.0.1:4100/session/state'),
     env,
     ctx,
   );
