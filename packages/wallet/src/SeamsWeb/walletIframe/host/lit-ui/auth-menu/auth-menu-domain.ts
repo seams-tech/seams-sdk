@@ -157,6 +157,7 @@ export type AuthMenuLinkDeviceState =
     }
   | { readonly kind: 'activating'; readonly message: string }
   | { readonly kind: 'expired'; readonly message: string }
+  | { readonly kind: 'cancelled'; readonly message: string }
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'activation_error'; readonly message: string };
 

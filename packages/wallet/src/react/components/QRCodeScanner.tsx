@@ -591,14 +591,14 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
             </div>
           ) : scannerState.kind === 'linking' ? (
             <div className="qr-scanner-progress" aria-labelledby="qr-scanner-progress-title">
+              <h2 id="qr-scanner-progress-title" ref={progressTitleRef} tabIndex={-1}>
+                Linking device
+              </h2>
               <div className="qr-scanner-progress-dots" aria-hidden="true">
                 <span />
                 <span />
                 <span />
               </div>
-              <h2 id="qr-scanner-progress-title" ref={progressTitleRef} tabIndex={-1}>
-                Linking device
-              </h2>
               <p className="qr-scanner-progress-message" role="status" aria-live="polite">
                 Continue linking on your other device.
               </p>

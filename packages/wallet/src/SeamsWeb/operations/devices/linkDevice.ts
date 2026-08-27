@@ -856,6 +856,16 @@ export class LinkDeviceFlow {
         return;
       }
       case 'cancelled':
+        this.cancelled = true;
+        this.emit({
+          phase: LinkDeviceEventPhase.CANCELLED,
+          status: 'cancelled',
+          message: 'The other device cancelled this linking request.',
+          interaction: { kind: 'qr_display', overlay: 'show' },
+        });
+        this.runEpoch += 1;
+        await this.cleanupLocalResources();
+        return;
       case 'failed_before_commit':
         this.cancelled = true;
         this.runEpoch += 1;

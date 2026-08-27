@@ -375,6 +375,38 @@ test.describe('hosted auth-menu passkey continuation', () => {
     });
   });
 
+  test('shows a terminal state when the other device cancels linking', async () => {
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (_targetFactor, callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+    });
+
+    openAndStartPasskeyDeviceLinking(session);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-owner-cancelled-test',
+        phase: LinkDeviceEventPhase.CANCELLED,
+        status: 'cancelled',
+        message: 'The other device cancelled this linking request.',
+      }),
+    );
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: {
+          kind: 'cancelled',
+          message:
+            'The other device cancelled this linking request. Return to sign in to try again.',
+        },
+      },
+    });
+  });
+
   test('does not return to the QR screen after linked passkey creation starts', async () => {
     let callbacks: StartDeviceLinkingCallbacks | null = null;
     let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;

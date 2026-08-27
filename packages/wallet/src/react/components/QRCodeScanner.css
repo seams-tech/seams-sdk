@@ -64,10 +64,6 @@
   letter-spacing: -0.02em;
 }
 
-.qr-scanner-progress-dots + h2 {
-  margin-top: 22px;
-}
-
 .qr-scanner-progress-message {
   margin: 12px 0 0;
   color: var(--w3a-colors-textSecondary);
@@ -80,6 +76,7 @@
   justify-content: center;
   gap: 7px;
   min-height: 16px;
+  margin-top: 14px;
   color: var(--w3a-colors-textPrimary);
 }
 
