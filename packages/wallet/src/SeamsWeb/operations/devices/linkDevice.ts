@@ -39,7 +39,10 @@ import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
-import { scanAndLinkDevice as scanAndLinkDeviceDevice1 } from '@/SeamsWeb/operations/devices/scanDevice';
+import {
+  scanAndLinkDevice as scanAndLinkDeviceDevice1,
+  type Device1OwnerLinkCancellationV1,
+} from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   Device2LinkingFlowPortsV1,
   DeviceLinkingAuthenticatedTransportPortV1,
@@ -2262,6 +2265,7 @@ function isFinishedDeviceLinkFlow(flow: LinkDeviceFlow): boolean {
 export class DeviceLinkingDomain {
   private readonly deps: DeviceLinkingDomainDeps;
   private activeDeviceLinkFlow: LinkDeviceFlow | null = null;
+  private activeOwnerLinkCancellation: Device1OwnerLinkCancellationV1 | null = null;
 
   constructor(deps: DeviceLinkingDomainDeps) {
     this.deps = deps;
@@ -2292,8 +2296,21 @@ export class DeviceLinkingDomain {
 
   async cancelDeviceLinking(): Promise<void> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
-      await this.activeDeviceLinkFlow?.cancel();
-      this.activeDeviceLinkFlow = null;
+      if (this.activeDeviceLinkFlow && isFinishedDeviceLinkFlow(this.activeDeviceLinkFlow)) {
+        this.activeDeviceLinkFlow = null;
+      }
+      if (this.activeDeviceLinkFlow) {
+        await this.activeDeviceLinkFlow.cancel();
+        this.activeDeviceLinkFlow = null;
+        return;
+      }
+      const ownerCancellation = this.activeOwnerLinkCancellation;
+      if (ownerCancellation) {
+        await this.deps.ports.transport.cancelClaimedSessionV1(ownerCancellation);
+        if (this.activeOwnerLinkCancellation === ownerCancellation) {
+          this.activeOwnerLinkCancellation = null;
+        }
+      }
       return;
     }
     const router = await this.deps.walletIframe.requireRouter();
@@ -2310,9 +2327,16 @@ export class DeviceLinkingDomain {
         qrData,
         options,
         this.deps.ports,
+        this.registerOwnerLinkCancellationV1.bind(this),
       );
     }
     const router = await this.deps.walletIframe.requireRouter();
     return await router.scanAndLinkDevice({ qrData, options });
+  }
+
+  private registerOwnerLinkCancellationV1(
+    cancellation: Device1OwnerLinkCancellationV1 | null,
+  ): void {
+    this.activeOwnerLinkCancellation = cancellation;
   }
 }

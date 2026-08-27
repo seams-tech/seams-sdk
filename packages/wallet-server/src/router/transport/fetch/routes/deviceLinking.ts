@@ -868,18 +868,17 @@ async function handleOwnerCancel(
   const linkSessionId = parseSessionId(rawLinkSessionId);
   const authenticated = await authenticateOwnerForSession(ctx, service, linkSessionId, nowMs);
   if (authenticated.kind !== 'authorized') return ownerSessionResponse(authenticated);
-  const request = parseBoundary(() => parseOwnerCancelRequest(authenticated.body));
+  parseBoundary(() => parseOwnerCancelRequest(authenticated.body));
   const session = authenticated.session;
   const ownerMismatch = requireOwnerMatchesClaimedWallet(authenticated.owner, session);
   if (ownerMismatch) return ownerMismatch;
   if (session.state.state === 'cancelled') {
     return sessionProjectionResponse(session, 'replayed');
   }
-  if (session.state.state !== 'claimed') return invalidStateResponse(session);
   return sessionResultResponse(
     await service.sessionService.cancelSessionV1({
       linkSessionId,
-      expectedRevision: request.expectedRevision,
+      expectedRevision: session.revision,
       nowMs,
     }),
   );

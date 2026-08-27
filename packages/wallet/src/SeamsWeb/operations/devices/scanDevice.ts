@@ -48,6 +48,16 @@ type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 
   readonly accountId?: string;
 };
 
+export type Device1OwnerLinkCancellationV1 = {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly expectedRevision: number;
+  readonly authentication: LinkSessionAuthenticationV1;
+};
+
+export type RegisterDevice1OwnerLinkCancellationV1 = (
+  cancellation: Device1OwnerLinkCancellationV1 | null,
+) => void;
+
 function createFlowId(qrData: QrLinkedDeviceSessionPayloadV5 | null): string {
   return qrData ? String(qrData.linkSessionId) : 'link-device-scan';
 }
@@ -132,6 +142,7 @@ export async function scanAndLinkDevice(
   qrData: QrLinkedDeviceSessionPayloadV5,
   options: ScanAndLinkDeviceOptionsDevice1,
   ports: Device1LinkingFlowPortsV1,
+  registerCancellation?: RegisterDevice1OwnerLinkCancellationV1,
 ): Promise<LinkDeviceResult> {
   let parsedQrData: QrLinkedDeviceSessionPayloadV5 | null = null;
   let claimedSessionCancellation: ClaimedSessionCancellationV1 | null = null;
@@ -165,6 +176,7 @@ export async function scanAndLinkDevice(
       expectedRevision: claim.sessionRevision,
       authentication: owner.authentication,
     };
+    registerCancellation?.(claimedSessionCancellation);
     const targetFactor = await resolveApprovedTargetFactorV1({
       targetFactor: parsedQrData.targetFactor,
       targetEmail:
@@ -235,6 +247,7 @@ export async function scanAndLinkDevice(
     return result;
   } catch (error: unknown) {
     await cancelClaimedSessionAfterOwnerAbortV1(ports.transport, claimedSessionCancellation);
+    registerCancellation?.(null);
     const failure = classifyFailure(error);
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.FAILED,

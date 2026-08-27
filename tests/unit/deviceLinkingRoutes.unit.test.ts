@@ -155,7 +155,7 @@ test('claims and records owner approval through the linear route surface', async
   ]);
 });
 
-test('owner cancellation is idempotent only while a claimed session is pre-approval', async () => {
+test('owner cancellation reaches the target throughout pre-commit linking', async () => {
   temporary = await openDatabase();
   const fixture = buildR103DeviceLinkFixture({
     linkSessionId: 'link-session:route-owner-cancel',
@@ -176,6 +176,16 @@ test('owner cancellation is idempotent only while a claimed session is pre-appro
   const claim = await claimed.json();
   const request = { expectedRevision: claim.sessionRevision };
   const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/owner-cancel`;
+
+  const approved = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/approval`,
+    body: fixture.approval,
+  });
+  expect(await approved.json()).toMatchObject({
+    outcome: 'pending',
+    state: { state: 'awaiting_target_factor' },
+  });
 
   const cancelled = await invoke(routeService, { method: 'POST', pathname, body: request });
   expect(await cancelled.json()).toMatchObject({
