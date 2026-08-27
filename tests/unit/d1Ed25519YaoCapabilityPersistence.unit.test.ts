@@ -8,13 +8,19 @@ import {
   CloudflareD1RouterAbEd25519YaoCapabilityPersistence,
   ROUTER_AB_ED25519_YAO_CAPABILITY_REPLACEMENT_TABLE_V1,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
+import { prepareD1WalletAuthorityPutStatement } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
 
 const TEST_SCOPE = {
@@ -181,9 +187,29 @@ async function seedWalletSigner(database: D1DatabaseLike): Promise<D1WalletStore
       signingRootVersion: fixture.previous.admissionRequest.scope.root_share_epoch,
       runtimePolicyScope: fixture.previous.runtimePolicyScope,
       activeYaoCapability: fixture.previous,
+      custodyKeyManifestDigestB64u: Buffer.alloc(32, 21).toString('base64url'),
       now: 1_900_000_000_000,
     }),
   );
+  const authorityFixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'capability-replacement',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(
+      fixture.previous.activationResult.binding.material_activation,
+    ),
+    identity: {
+      walletId: fixture.walletId,
+      authorityId: 'wallet-authority:capability-replacement',
+      walletAuthMethodId: 'wallet-auth-method:capability-replacement',
+      rpId: 'capability-replacement.example.test',
+    },
+  });
+  await prepareD1WalletAuthorityPutStatement({
+    database,
+    scope: TEST_SCOPE,
+    authority: authorityFixture.authority,
+  }).run();
   return walletStore;
 }
 
@@ -205,6 +231,7 @@ function replacementOperation(operationFingerprint: string) {
     kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1' as const,
     operationId: 'recovery-request-scoped-1',
     operationFingerprint,
+    authorityProjection: { kind: 'replace_active_authority_projection' as const },
   };
 }
 

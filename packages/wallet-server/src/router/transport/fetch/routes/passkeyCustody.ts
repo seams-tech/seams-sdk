@@ -1201,6 +1201,9 @@ export async function handleWalletRecoveryEmailOtpRelease(
             kind: result.kind,
             recoveryOperationId: String(result.recovery.recoveryOperationId),
             reservationId: String(result.recovery.reservationId),
+            challengeId: String(result.recovery.challengeId),
+            providerSubject: result.recovery.providerSubject,
+            verifiedEmail: result.recovery.verifiedEmail,
             enrollmentId: result.enrollment.enrollmentId,
             enrollmentSealKeyVersion: result.enrollment.enrollmentSealKeyVersion,
             serverEphemeralPublicKey65B64u: result.serverEphemeralPublicKey65B64u,
@@ -1216,7 +1219,11 @@ export async function handleWalletRecoveryEmailOtpRelease(
             kind: result.kind,
             recoveryOperationId: String(result.recovery.recoveryOperationId),
             reservationId: String(result.recovery.reservationId),
-            enrollment: { kind: 'create' },
+            enrollment: {
+              kind: 'create',
+              providerSubject: result.enrollment.providerSubject,
+              verifiedEmail: result.enrollment.verifiedEmail,
+            },
           },
         });
     }
@@ -1667,6 +1674,7 @@ export async function handleWalletRecoveryFinalize(
     replacementEnvelope: requestBody.replacementEnvelope,
     ecdsaMaterialPossessionProofs: requestBody.ecdsaMaterialPossessionProofs,
   });
+
 
   switch (result.kind) {
     case 'promoted':

@@ -239,6 +239,7 @@ export type {
   GoogleEmailOtpWalletAuthFailure,
   GoogleEmailOtpWalletAuthFailureCode,
   GoogleEmailOtpWalletAuthFlow,
+  GoogleEmailOtpWalletAuthLoginTarget,
   GoogleEmailOtpWalletAuthLoginFlow,
   GoogleEmailOtpWalletAuthPromptCopy,
   GoogleEmailOtpWalletAuthRegistrationCompleted,

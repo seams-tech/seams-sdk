@@ -29,6 +29,7 @@ import { json, readJson } from '../../../framework/http';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   buildWarmRecoveryBootstrapResponse,
+  recoveryAuthorityProjection,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
   type RouterAbEd25519YaoRecoveryActivationClaimV1,
   type RouterAbEd25519YaoRecoveryAdmissionClaimV1,
@@ -305,7 +306,10 @@ class RecoveryActivationRequestRun {
       body: this.request,
     });
     if (!authorized.ok) return { kind: 'rejected', value: authorized };
-    const prepared = this.service(state).prepareActivateRecovery(this.request);
+    const prepared = this.service(state).prepareActivateRecovery(
+      this.request,
+      recoveryAuthorityProjection(authorized.authorization),
+    );
     switch (prepared.kind) {
       case 'claimed':
         return { kind: 'claimed', state, claim: prepared.claim };

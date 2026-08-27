@@ -747,36 +747,42 @@ export type GoogleEmailOtpWalletAuthFlow =
   | GoogleEmailOtpWalletAuthRegistrationFlow
   | GoogleEmailOtpWalletAuthLoginFlow;
 
-export type GoogleEmailOtpWalletAuthStartInput = {
+type GoogleEmailOtpWalletAuthStartBaseInput = {
   idToken: string;
-  mode: GoogleEmailOtpWalletAuthRequestedMode;
-  /**
-   * Register-mode only: start a fresh wallet even when this Google account
-   * already holds an Email OTP wallet. Completing the new registration retires
-   * the previous wallet's email factor, so this is always an explicit choice —
-   * without it, register mode continues by unlocking the existing wallet.
-   */
-  replaceExistingWallet?: boolean;
   relayUrl?: string;
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
-  /**
-   * Register-mode only: the exact signer set to provision.
-   *
-   * Omitted, the flow builds the set from configuration and `ecdsaTargets`,
-   * which is what an application wants. Supplied, it registers exactly this
-   * set - the way to obtain a wallet that owns one signer family rather than
-   * whatever the environment happens to configure.
-   */
-  signerSelection?: RegistrationSignerSetSelection;
-  /** Register-mode only: choose how the wallet's recovery codes are backed up. */
-  recoveryCodeBackup?: Extract<
-    RegistrationHooksOptions['recoveryCodeBackup'],
-    { readonly kind: 'defer_to_account_menu' | 'show_builtin_dialog' }
-  >;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   onDemoOtp?: (response: DemoEmailOtpCodeResponse) => void;
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
 };
+
+export type GoogleEmailOtpWalletAuthLoginTarget =
+  | { readonly kind: 'discoverable' }
+  | { readonly kind: 'wallet'; readonly walletId: WalletId | string };
+
+export type GoogleEmailOtpWalletAuthStartInput = GoogleEmailOtpWalletAuthStartBaseInput &
+  (
+    | {
+        mode: 'login';
+        loginTarget: GoogleEmailOtpWalletAuthLoginTarget;
+        replaceExistingWallet?: never;
+        signerSelection?: never;
+        recoveryCodeBackup?: never;
+      }
+    | {
+        mode: 'register';
+        loginTarget?: never;
+        /** Start a fresh wallet even when this Google account already holds one. */
+        replaceExistingWallet?: boolean;
+        /** The exact signer set to provision when configuration defaults are insufficient. */
+        signerSelection?: RegistrationSignerSetSelection;
+        /** Choose how the wallet's recovery codes are backed up. */
+        recoveryCodeBackup?: Extract<
+          RegistrationHooksOptions['recoveryCodeBackup'],
+          { readonly kind: 'defer_to_account_menu' | 'show_builtin_dialog' }
+        >;
+      }
+  );
 export interface AuthCapability {
   unlock(walletId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;

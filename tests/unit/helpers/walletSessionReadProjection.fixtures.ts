@@ -47,6 +47,7 @@ export type ResolvedWalletSessionAppIdentityFixtureInput = {
 export type ReusableWalletSessionFixtureInput = ResolvedWalletSessionAppIdentityFixtureInput & {
   readonly authorizationId?: string;
   readonly walletSessionId?: string;
+  readonly walletAuthMethodId?: string;
   readonly authMethod?: WalletAuthMethod;
   readonly expiresAtMs?: number;
 };
@@ -57,14 +58,19 @@ function fixtureAuthorizationId(value?: string): WalletSessionAuthorizationId {
   return parsed.value;
 }
 
+function fixtureWalletAuthMethodId(value?: string) {
+  const parsed = parseWalletAuthMethodId(value ?? 'wallet-auth-method:session-fixture');
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function defaultPasskeyBinding(walletId: WalletId): WalletAuthMethodBinding {
   const rpId = parseRpId('wallet.example.localhost');
-  const walletAuthMethodId = parseWalletAuthMethodId('wallet-auth-method:session-fixture');
-  if (!rpId.ok || !walletAuthMethodId.ok) {
+  if (!rpId.ok) {
     throw new Error('Wallet Session fixture method identity must be valid');
   }
   return buildPasskeyWalletAuthMethodBinding({
-    walletAuthMethodId: walletAuthMethodId.value,
+    walletAuthMethodId: fixtureWalletAuthMethodId(),
     scope: buildPasskeyAuthScope({
       wallet: buildWalletIdentity({ walletId }),
       rpId: rpId.value,
@@ -107,6 +113,7 @@ export function activeWalletSessionFixture(
       walletId: appIdentity.walletId,
       authorizationId: fixtureAuthorizationId(input.authorizationId),
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
+      walletAuthMethodId: fixtureWalletAuthMethodId(input.walletAuthMethodId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: input.remainingUses ?? 3,
       expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,

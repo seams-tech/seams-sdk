@@ -215,16 +215,22 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
       activeYaoCapability: input.next,
       now,
     });
-    const authorityReplacement = await this.prepareActiveAuthorityReplacement({
+    const authorityReplacements = await this.prepareActiveAuthorityReplacements({
       walletId: String(walletId.value),
       previous: input.previous,
       next: input.next,
       now,
+      selection:
+        input.operation.authorityProjection.kind === 'replace_active_authority_projection'
+          ? 'exactly_one'
+          : 'all_matching',
     });
-    if (!authorityReplacement) {
+    if (!authorityReplacements) {
       return persistenceFailure(
         'authority_conflict',
-        'promoted Yao capability does not resolve one exact active Wallet Authority',
+        input.operation.authorityProjection.kind === 'replace_active_authority_projection'
+          ? 'promoted Yao capability does not resolve one exact active Wallet Authority'
+          : 'promoted Yao capability does not resolve active continuity authorities',
       );
     }
     const previousJson = JSON.stringify(signer);
@@ -258,15 +264,17 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
             signer.signerId,
             previousJson,
           ),
-        this.prepareAuthorityReplacementStatement(authorityReplacement),
       ];
-      for (const session of authorityReplacement.sessions) {
-        statements.push(
-          this.prepareSessionAuthorityProjectionReplacementStatement({
-            previous: session,
-            authority: authorityReplacement.next,
-          }),
-        );
+      for (const authorityReplacement of authorityReplacements) {
+        statements.push(this.prepareAuthorityReplacementStatement(authorityReplacement));
+        for (const session of authorityReplacement.sessions) {
+          statements.push(
+            this.prepareSessionAuthorityProjectionReplacementStatement({
+              previous: session,
+              authority: authorityReplacement.next,
+            }),
+          );
+        }
       }
       statements.push(
         this.database
@@ -323,12 +331,13 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
     this.schemaReady = true;
   }
 
-  private async prepareActiveAuthorityReplacement(input: {
+  private async prepareActiveAuthorityReplacements(input: {
     readonly walletId: string;
     readonly previous: WalletEd25519YaoActiveCapabilityRecord;
     readonly next: WalletEd25519YaoActiveCapabilityRecord;
     readonly now: number;
-  }): Promise<ActiveAuthorityReplacement | null> {
+    readonly selection: 'exactly_one' | 'all_matching';
+  }): Promise<readonly ActiveAuthorityReplacement[] | null> {
     const rows = await this.database
       .prepare(
         `SELECT record_json
@@ -366,41 +375,46 @@ export class CloudflareD1RouterAbEd25519YaoCapabilityPersistence implements Rout
         matches.push(parsed.value);
       }
     }
-    const [previousAuthority] = matches;
-    if (matches.length !== 1 || !previousAuthority) return null;
-    const nextAuthority = await replaceActiveWalletAuthorityEd25519MaterialActivationV1({
-      authority: previousAuthority,
-      materialActivation: routerAbMpcMaterialActivationRefFromWire(
-        input.next.activationResult.binding.material_activation,
-      ),
-      updatedAtMs: input.now,
-    });
-    const sessionRows = await this.database
-      .prepare(
-        `SELECT record_json
-           FROM wallet_session_authorizations_v2
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_id = ?
-            AND authority_id = ?
-            AND retired_at_ms IS NULL`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        input.walletId,
-        String(previousAuthority.authorityId),
-      )
-      .all<RecordJsonRow>();
-    const sessions: WalletSessionAuthorizationV2[] = [];
-    for (const row of sessionRows.results ?? []) {
-      sessions.push(parseWalletSessionAuthorizationV2(parseRecordJson(row.record_json)));
+    if (matches.length === 0 || (input.selection === 'exactly_one' && matches.length !== 1)) {
+      return null;
     }
-    return { previous: previousAuthority, next: nextAuthority, sessions };
+    const replacements: ActiveAuthorityReplacement[] = [];
+    for (const previousAuthority of matches) {
+      const nextAuthority = await replaceActiveWalletAuthorityEd25519MaterialActivationV1({
+        authority: previousAuthority,
+        materialActivation: routerAbMpcMaterialActivationRefFromWire(
+          input.next.activationResult.binding.material_activation,
+        ),
+        updatedAtMs: input.now,
+      });
+      const sessionRows = await this.database
+        .prepare(
+          `SELECT record_json
+             FROM wallet_session_authorizations_v2
+            WHERE namespace = ?
+              AND org_id = ?
+              AND project_id = ?
+              AND env_id = ?
+              AND wallet_id = ?
+              AND authority_id = ?
+              AND retired_at_ms IS NULL`,
+        )
+        .bind(
+          this.scope.namespace,
+          this.scope.orgId,
+          this.scope.projectId,
+          this.scope.envId,
+          input.walletId,
+          String(previousAuthority.authorityId),
+        )
+        .all<RecordJsonRow>();
+      const sessions: WalletSessionAuthorizationV2[] = [];
+      for (const row of sessionRows.results ?? []) {
+        sessions.push(parseWalletSessionAuthorizationV2(parseRecordJson(row.record_json)));
+      }
+      replacements.push({ previous: previousAuthority, next: nextAuthority, sessions });
+    }
+    return replacements;
   }
 
   private prepareAuthorityReplacementStatement(
@@ -554,6 +568,8 @@ function validateReplacementOperation(
   const operationFingerprint = operation.operationFingerprint;
   if (
     operation.kind !== 'router_ab_ed25519_yao_capability_replacement_operation_v1' ||
+    (operation.authorityProjection.kind !== 'replace_continuity_authority_projections' &&
+      operation.authorityProjection.kind !== 'replace_active_authority_projection') ||
     !operationId ||
     operationId.length > 256 ||
     !/^[\x21-\x7e]+$/u.test(operationId) ||
@@ -573,6 +589,7 @@ function validateReplacementOperation(
       kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1',
       operationId,
       operationFingerprint,
+      authorityProjection: operation.authorityProjection,
     },
   };
 }

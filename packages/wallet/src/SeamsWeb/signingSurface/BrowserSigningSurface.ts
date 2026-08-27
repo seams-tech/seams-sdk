@@ -982,7 +982,12 @@ function resolveSelectedEmailOtpEd25519ExportRootV1(args: {
       `[SigningEngine][ed25519-export] selected Wallet Authority is ${selected.kind}${detail}`,
     );
   }
-  if (selected.authority.provenance.kind === 'wallet_registration') return null;
+  if (
+    selected.authority.provenance.kind === 'wallet_registration' ||
+    selected.authority.provenance.kind === 'wallet_recovery'
+  ) {
+    return null;
+  }
 
   const { selection, authMethod, authority, signerMaterials, exportRoot } = selected;
   const signer = args.subject.signer;
@@ -1444,7 +1449,10 @@ async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
     authorityId: authority.authorityId,
     authMethodId: authMethod.walletAuthMethodId,
   });
-  if (!exactSession && authority.provenance.kind === 'wallet_registration') {
+  if (
+    authority.provenance.kind === 'wallet_registration' ||
+    authority.provenance.kind === 'wallet_recovery'
+  ) {
     const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
     const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
     let factorAuthorityMatches = false;
@@ -1453,6 +1461,8 @@ async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
         getWalletAuthMethodV2: IndexedDBManager.getWalletAuthMethodV2.bind(IndexedDBManager),
         listWalletAuthMethodsForWallet:
           IndexedDBManager.listWalletAuthMethodsForWallet.bind(IndexedDBManager),
+        readEmailOtpProviderSubjectForWallet: (walletId) =>
+          readEmailOtpProviderSubjectForWalletV1(IndexedDBManager, walletId),
       });
       factorAuthorityMatches = true;
     } catch {
@@ -2869,7 +2879,10 @@ export class BrowserSigningSurface {
       ) {
         throw new Error('[SigningEngine] selected Wallet Authority is inactive or locked');
       }
-      if (authority.provenance.kind === 'wallet_registration') {
+      if (
+        authority.provenance.kind === 'wallet_registration' ||
+        authority.provenance.kind === 'wallet_recovery'
+      ) {
         const registrationSession = await walletSessionAuthorizations.readActiveForWallet(
           parsedWalletId.value,
         );

@@ -1,5 +1,7 @@
 import React from 'react';
 import type {
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuOutcome,
   NearProvisioningState,
   NearProvisioningStateChangedEvent,
   WalletSession,
@@ -469,6 +471,21 @@ type IntendedPageControllerArgs = {
   refreshLoginState: ReturnType<typeof useSeams>['refreshLoginState'];
   dispatch: React.Dispatch<IntendedPageAction>;
 };
+
+type IntendedSeams = IntendedPageControllerArgs['seams'];
+
+async function resolveIntendedGoogleExternalAuth(
+  seams: IntendedSeams,
+  idToken: string,
+  request: HostedAuthMenuExternalAuthRequest,
+): Promise<void> {
+  await seams.resolveHostedAuthMenuExternalAuth({
+    kind: 'hosted_auth_menu_external_auth_resolution_v1',
+    authMenuSessionId: request.authMenuSessionId,
+    externalAuthRequestId: request.externalAuthRequestId,
+    evidence: { kind: 'google_id_token', idToken },
+  });
+}
 
 type IntendedEmailOtpCodeRequest =
   | {
@@ -1682,18 +1699,27 @@ class IntendedPageController {
         '[data-testid="intended-recover-google-email-otp"]',
       );
       if (!anchorElement) throw new Error('Google Email OTP recovery anchor is unavailable');
-      const outcome = await this.seams.openHostedAuthMenu(
-        buildHostedAuthMenuOpenRequest({
-          authMenuSessionId,
-          initialMode: 'login',
-          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
-          registrationAccountInput: 'implicit_wallet',
-          showRegistrationInput: false,
-          showProgress: true,
-          enabledExternalProviders: ['google'],
-        }),
-        anchorElement,
+      const idToken = requireGoogleIdToken(this.googleIdToken);
+      const unsubscribeExternalAuth = this.seams.onHostedAuthMenuExternalAuthRequest(
+        resolveIntendedGoogleExternalAuth.bind(null, this.seams, idToken),
       );
+      let outcome: HostedAuthMenuOutcome;
+      try {
+        outcome = await this.seams.openHostedAuthMenu(
+          buildHostedAuthMenuOpenRequest({
+            authMenuSessionId,
+            initialMode: 'login',
+            loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+            registrationAccountInput: 'implicit_wallet',
+            showRegistrationInput: false,
+            showProgress: true,
+            enabledExternalProviders: ['google'],
+          }),
+          anchorElement,
+        );
+      } finally {
+        unsubscribeExternalAuth();
+      }
       if (outcome.kind !== 'authenticated') {
         throw new Error(`Google Email OTP recovery ended with ${outcome.kind}`);
       }
@@ -1947,6 +1973,7 @@ class IntendedPageController {
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'login',
+      loginTarget: { kind: 'wallet', walletId: this.walletId },
       ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,

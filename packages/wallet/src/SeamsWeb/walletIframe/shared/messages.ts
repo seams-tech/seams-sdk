@@ -1049,9 +1049,8 @@ export interface PMRevokeAuthMethodPayload {
   walletAuthMethodId: string;
 }
 
-export type PMGoogleEmailOtpWalletAuthStartPayload = {
+type PMGoogleEmailOtpWalletAuthStartBasePayload = {
   idToken: string;
-  mode: GoogleEmailOtpWalletAuthRequestedMode;
   relayUrl?: string;
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   /** Register-mode only; see the public start input. */
@@ -1062,6 +1061,16 @@ export type PMGoogleEmailOtpWalletAuthStartPayload = {
     registrationBenchmarkTimings: boolean;
   };
 };
+
+export type PMGoogleEmailOtpWalletAuthStartPayload =
+  PMGoogleEmailOtpWalletAuthStartBasePayload &
+    (
+      | {
+          mode: 'login';
+          loginTarget: import('@/SeamsWeb/publicApi/types').GoogleEmailOtpWalletAuthLoginTarget;
+        }
+      | { mode: 'register'; loginTarget?: never }
+    );
 
 export type PMGoogleEmailOtpWalletAuthHandlePayload = {
   flowHandleId: string;

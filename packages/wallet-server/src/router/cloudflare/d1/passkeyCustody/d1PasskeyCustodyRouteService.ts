@@ -40,8 +40,6 @@ import {
 } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
 import { isHostWithinRpId, originHostnameOrEmpty } from '../../../../core/authService/webauthnOidcHelpers';
-import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -90,10 +88,7 @@ import type {
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import type { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
-import type {
-  ActiveWalletAuthorityV1,
-  WalletAuthorityProvenanceV1,
-} from '@shared/authorization/walletAuthority';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 import {
   projectWalletUnlockKeyManifestV1,
@@ -191,6 +186,11 @@ export interface RouterApiPasskeyCustodyService {
     | Exclude<PasskeyCustodyEnvelopeFactorLookupResult, { readonly kind: 'active' }>
     | { readonly kind: 'manifest_unavailable'; readonly reason: string }
   >;
+  readVerifiedEmailOtpMethodCustody(request: {
+    readonly walletId: WalletId;
+    readonly factor: Extract<WalletCustodyFactorRef, { readonly kind: 'email_otp' }>;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): ReturnType<RouterApiPasskeyCustodyService['readVerifiedFactorCustody']>;
   /**
    * Fetch a wallet's custody envelope for a browser that has none locally.
    *
@@ -378,10 +378,7 @@ type ActiveWalletAuthMethodRecordV2 = Extract<
 
 export type WalletRecoveryContinuityAnchor = {
   readonly kind: 'wallet_recovery_continuity_anchor_v1';
-  readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly walletAuthorityId: WalletAuthorityId;
-  readonly authorityDigestB64u: WalletAuthorityBindingDigest;
-  readonly provenanceKind: WalletAuthorityProvenanceV1['kind'];
+  readonly authority: ActiveWalletAuthorityV1;
   readonly method: ActiveWalletAuthMethodRecordV2;
   readonly envelope: ActivePasskeyCustodyEnvelopeRecord;
 };
@@ -393,13 +390,7 @@ type ActivePasskeyCustodyEnvelopeRecord = Omit<
   readonly lifecycle: Extract<PasskeyCustodyEnvelopeRecord['lifecycle'], { readonly state: 'active' }>;
 };
 
-export type WalletRecoveryAuthoritySelection = {
-  readonly walletId: WalletId;
-  readonly authorityId: WalletAuthorityId;
-  readonly authorityDigestB64u: WalletAuthorityBindingDigest;
-  readonly state: 'active';
-  readonly provenanceKind: WalletAuthorityProvenanceV1['kind'];
-};
+export type WalletRecoveryAuthoritySelection = ActiveWalletAuthorityV1;
 
 /**
  * Finds the one existing custody path that can authenticate a recovery code.
@@ -441,10 +432,7 @@ export function selectWalletRecoveryContinuityAnchor(input: {
     if (!envelope) continue;
     candidates.push({
       kind: 'wallet_recovery_continuity_anchor_v1',
-      walletAuthMethodId: method.walletAuthMethodId,
-      walletAuthorityId: method.walletAuthorityId,
-      authorityDigestB64u: authority.authorityDigestB64u,
-      provenanceKind: authority.provenanceKind,
+      authority,
       method,
       envelope,
     });
@@ -458,8 +446,8 @@ function compareContinuityAnchors(
   right: WalletRecoveryContinuityAnchor,
   targetFamily: 'passkey' | 'email_otp',
 ): number {
-  const leftRegistration = left.provenanceKind === 'wallet_registration' ? 0 : 1;
-  const rightRegistration = right.provenanceKind === 'wallet_registration' ? 0 : 1;
+  const leftRegistration = left.authority.provenance.kind === 'wallet_registration' ? 0 : 1;
+  const rightRegistration = right.authority.provenance.kind === 'wallet_registration' ? 0 : 1;
   if (leftRegistration !== rightRegistration) return leftRegistration - rightRegistration;
   const leftFamily = left.method.kind === targetFamily ? 0 : 1;
   const rightFamily = right.method.kind === targetFamily ? 0 : 1;
@@ -518,19 +506,17 @@ async function readWalletRecoveryAuthoritySelections(input: {
     ) {
       continue;
     }
-    const authorityDigestB64u = parseWalletAuthorityBindingDigest(
-      String(authority.authorityDigestB64u),
-    );
-    if (!authorityDigestB64u.ok) continue;
-    selections.push({
-      walletId: authority.walletId,
-      authorityId: authority.authorityId,
-      authorityDigestB64u: authorityDigestB64u.value,
-      state: 'active',
-      provenanceKind: authority.provenance.kind,
-    });
+    selections.push(authority);
   }
   return selections;
+}
+
+function walletRecoveryAuthorityDigest(
+  authority: ActiveWalletAuthorityV1,
+): WalletAuthorityBindingDigest {
+  const parsed = parseWalletAuthorityBindingDigest(String(authority.authorityDigestB64u));
+  if (!parsed.ok) throw new Error('wallet recovery authority digest is invalid');
+  return parsed.value;
 }
 
 export type WalletRecoveryRoutePreparationResult =
@@ -636,12 +622,6 @@ function isOriginWithinRpId(origin: string, rpId: WebAuthnRpId): boolean {
   return isHostWithinRpId(originHostnameOrEmpty(origin), rpId);
 }
 
-async function walletRecoveryKeyManifestDigest(
-  manifest: Parameters<typeof projectWalletRecoveryPreparationKeyManifestV1>[0],
-): Promise<DigestB64u> {
-  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(manifest))));
-}
-
 async function unavailableWalletRecoveryGoogleVerify(
   _request: Parameters<CloudflareD1WalletRecoveryGoogleEmailOtpService['verifyGoogle']>[0],
 ) {
@@ -707,6 +687,28 @@ export function createD1PasskeyCustodyRouteService(assembly: {
             })
             .catch(() => undefined);
         }
+        return {
+          ...envelope,
+          keyManifest: projectWalletUnlockKeyManifestV1(manifest),
+        };
+      } catch (error: unknown) {
+        return {
+          kind: 'manifest_unavailable',
+          reason:
+            error instanceof Error ? error.message : 'wallet custody key manifest is unavailable',
+        };
+      }
+    },
+    readVerifiedEmailOtpMethodCustody: async (request) => {
+      const envelope = await assembly.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod(
+        request,
+      );
+      if (envelope.kind !== 'active') return envelope;
+      try {
+        const manifest = await resolveWalletRecoveryKeyManifestV1({
+          registry: assembly.walletStore,
+          walletId: request.walletId,
+        });
         return {
           ...envelope,
           keyManifest: projectWalletUnlockKeyManifestV1(manifest),
@@ -1138,7 +1140,6 @@ async function prepareRecoveryForRoute(
       walletId,
     });
     const continuityAnchorRecord = buildWebAuthnRecoveryContinuityAnchorRecord(continuityAnchor);
-    const keyManifestDigestB64u = await walletRecoveryKeyManifestDigest(manifest);
     const keyManifest = projectWalletRecoveryPreparationKeyManifestV1(
       manifest,
       await buildEcdsaPossessionChallenges({
@@ -1146,7 +1147,7 @@ async function prepareRecoveryForRoute(
         walletId,
         reservationId: request.reservationId,
         replacementId: String(targetIdentity.recoveryOperationId),
-        sourceAuthorityDigestB64u: continuityAnchor.authorityDigestB64u,
+        sourceAuthorityDigestB64u: walletRecoveryAuthorityDigest(continuityAnchor.authority),
         challengeB64u: String(targetIdentity.recoveryOperationId),
         expiresAtMs: prepared.reservationExpiresAtMs,
       }),
@@ -1169,7 +1170,6 @@ async function prepareRecoveryForRoute(
           targetWalletAuthMethodId: targetIdentity.targetWalletAuthMethodId,
           continuityAnchor: continuityAnchorRecord,
           recoverySetVersion: prepared.storeVersion,
-          keyManifestDigestB64u,
           createdAtMs: nowMsForAssembly(assembly),
           expiresAtMs: prepared.reservationExpiresAtMs,
         }),
@@ -1210,7 +1210,7 @@ async function prepareRecoveryForRoute(
       walletId,
       reservationId: request.reservationId,
       replacementId: registration.options.replacementId,
-      sourceAuthorityDigestB64u: continuityAnchor.authorityDigestB64u,
+      sourceAuthorityDigestB64u: walletRecoveryAuthorityDigest(continuityAnchor.authority),
       challengeB64u: registration.options.challengeB64u,
       expiresAtMs: prepared.reservationExpiresAtMs,
     });

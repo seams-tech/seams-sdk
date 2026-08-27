@@ -733,6 +733,32 @@ export interface EmailOtpWorkerOperationMap {
       };
     };
   };
+  releaseWalletRecoveryEmailOtpFactor: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      recoveryOperationId: string;
+      reservationId: string;
+    };
+    result:
+      | {
+          kind: 'existing';
+          recoveryOperationId: string;
+          reservationId: string;
+          providerSubject: string;
+          verifiedEmail: string;
+          enrollmentId: string;
+          enrollmentSealKeyVersion: string;
+          factorSecret32: ArrayBuffer;
+        }
+      | {
+          kind: 'create';
+          recoveryOperationId: string;
+          reservationId: string;
+          providerSubject: string;
+          verifiedEmail: string;
+        };
+  };
   createEmailOtpEd25519YaoSigningShare: {
     payload: {
       activeClientHandle: string;

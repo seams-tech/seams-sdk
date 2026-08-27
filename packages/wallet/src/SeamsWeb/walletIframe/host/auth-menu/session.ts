@@ -6,6 +6,7 @@ import {
   type AuthMenuIntent,
   type AuthMenuGoogleLoginViewModel,
   type AuthMenuGoogleRegistrationViewModel,
+  type AuthMenuLoginViewModel,
   type AuthMenuLinkDeviceViewModel,
   type AuthMenuRecoveryViewModel,
   type AuthMenuViewModel,
@@ -29,6 +30,7 @@ import {
 import type {
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthLoginFlow,
+  GoogleEmailOtpWalletAuthLoginTarget,
   GoogleEmailOtpWalletAuthRegistrationFlow,
 } from '@/SeamsWeb/publicApi/types';
 import type { ChildToParentEnvelope } from '../../shared/messages';
@@ -70,8 +72,11 @@ import type {
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
 import type {
+  HostedRecoveryEmailOtpVerified,
   HostedRecoveryCredentialCreated,
   HostedRecoveryFailure,
+  HostedRecoveryFinalizationOperation,
+  HostedRecoveryGoogleVerified,
   HostedRecoveryPort,
   HostedRecoveryPrepared,
   HostedRecoveryTargetKind,
@@ -107,6 +112,12 @@ function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared)
 
 function ignoreRecoveryCancellationFailure(): void {}
 
+function isPasskeyRecoveryPrepared(
+  operation: HostedRecoveryPrepared,
+): operation is Extract<HostedRecoveryPrepared, { readonly target: { readonly kind: 'passkey' } }> {
+  return operation.target.kind === 'passkey';
+}
+
 export type AuthMenuSessionIdentity = {
   readonly authMenuSessionId: HostedAuthMenuSessionId;
   readonly requestId: WalletIframeRequestId;
@@ -121,6 +132,9 @@ type AuthMenuReturnState =
       readonly kind: 'awaiting_external_auth';
       readonly viewModel: AuthMenuViewModel;
       readonly request: HostedAuthMenuExternalAuthRequest;
+      readonly authTarget:
+        | { readonly mode: 'register' }
+        | { readonly mode: 'login'; readonly loginTarget: GoogleEmailOtpWalletAuthLoginTarget };
     }
   | {
       readonly kind: 'ready';
@@ -154,21 +168,55 @@ type AuthMenuRecoveryState =
   | {
       readonly kind: 'recovery';
       readonly stage: 'passkey_ready';
-      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly viewModel: Extract<AuthMenuRecoveryViewModel, { readonly stage: 'passkey_ready' }>;
       readonly returnState: AuthMenuReturnState;
-      readonly operation: HostedRecoveryPrepared;
+      readonly operation: Extract<
+        HostedRecoveryPrepared,
+        { readonly target: { readonly kind: 'passkey' } }
+      >;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'google_ready';
+      readonly viewModel: Extract<AuthMenuRecoveryViewModel, { readonly stage: 'google_ready' }>;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation: Extract<
+        HostedRecoveryPrepared,
+        { readonly target: { readonly kind: 'google_email_otp' } }
+      >;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'google_external_auth';
+      readonly viewModel: Extract<AuthMenuRecoveryViewModel, { readonly stage: 'finalizing' }>;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation: Extract<
+        HostedRecoveryPrepared,
+        { readonly target: { readonly kind: 'google_email_otp' } }
+      >;
+      readonly request: HostedAuthMenuExternalAuthRequest;
+    }
+  | {
+      readonly kind: 'recovery';
+      readonly stage: 'email_code_required';
+      readonly viewModel: Extract<
+        AuthMenuRecoveryViewModel,
+        { readonly stage: 'email_code_required' }
+      >;
+      readonly returnState: AuthMenuReturnState;
+      readonly operation: HostedRecoveryGoogleVerified;
     }
   | {
       readonly kind: 'recovery';
       readonly stage: 'finalizing';
-      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly viewModel: Extract<AuthMenuRecoveryViewModel, { readonly stage: 'finalizing' }>;
       readonly returnState: AuthMenuReturnState;
-      readonly operation: HostedRecoveryPrepared | HostedRecoveryCredentialCreated;
+      readonly operation: HostedRecoveryPrepared | HostedRecoveryFinalizationOperation;
     }
   | {
       readonly kind: 'recovery';
       readonly stage: 'sign_in_ready';
-      readonly viewModel: AuthMenuRecoveryViewModel;
+      readonly viewModel: Extract<AuthMenuRecoveryViewModel, { readonly stage: 'sign_in_ready' }>;
       readonly returnState: AuthMenuReturnState;
       readonly operation?: never;
     };
@@ -177,12 +225,13 @@ function isIrreversibleRecoveryState(state: AuthMenuSessionState): state is Extr
   AuthMenuRecoveryState,
   { readonly stage: 'finalizing' }
 > & {
-  readonly operation: HostedRecoveryCredentialCreated;
+  readonly operation: HostedRecoveryFinalizationOperation;
 } {
   return (
     state.kind === 'recovery' &&
     state.stage === 'finalizing' &&
-    state.operation.kind === 'hosted_recovery_credential_created'
+    (state.operation.kind === 'hosted_recovery_credential_created' ||
+      state.operation.kind === 'hosted_recovery_email_otp_verified')
   );
 }
 
@@ -209,7 +258,9 @@ type PrepareRegistration = (
 ) => Promise<HostedPasskeyMenuPrepared>;
 type BeginGoogleEmailOtp = (args: {
   readonly idToken: string;
-  readonly mode: HostedAuthMenuOpenRequest['initialMode'];
+  readonly authTarget:
+    | { readonly mode: 'register' }
+    | { readonly mode: 'login'; readonly loginTarget: GoogleEmailOtpWalletAuthLoginTarget };
   readonly signal: AbortSignal;
 }) => Promise<GoogleEmailOtpWalletAuthFlow>;
 type PrepareLoginPasskey = (
@@ -295,6 +346,18 @@ function createPreparingViewModel(args: {
     : { ...common, mode, accountOptions: [], selectedAccount: null };
 }
 
+function createLoginPreparingViewModel(args: {
+  readonly request: HostedAuthMenuOpenRequest;
+  readonly appearance: AppearanceConfig;
+  readonly hostname: string;
+}): AuthMenuLoginViewModel {
+  const viewModel = createPreparingViewModel({ ...args, mode: 'login' });
+  if (viewModel.kind !== 'passkey' || viewModel.mode !== 'login') {
+    throw new Error('login view model construction failed');
+  }
+  return viewModel;
+}
+
 async function settleAfterMinimumBusy<T>(work: Promise<T>): Promise<T> {
   const [outcome] = await Promise.allSettled([
     work,
@@ -357,6 +420,10 @@ function googleLoginViewModel(args: {
   error?: string;
   status?: AuthMenuViewModel['status'];
 }): AuthMenuGoogleLoginViewModel {
+  const challengePrefix = `google-email-otp-login:${args.flow.walletId}:`;
+  if (!args.flow.flowId.startsWith(challengePrefix)) {
+    throw new Error('Google Email OTP login flow identity is invalid');
+  }
   return {
     ...googleViewModelBase({
       base: args.base,
@@ -367,6 +434,7 @@ function googleLoginViewModel(args: {
     mode: 'login',
     emailHint: args.flow.emailHint,
     walletId: String(args.flow.walletId),
+    challengeId: args.flow.flowId.slice(challengePrefix.length),
     prompt: args.flow.prompt,
     delivery: args.flow.delivery,
     otpCode: args.otpCode ?? '',
@@ -485,6 +553,28 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
         >['status'];
       }
     | {
+        readonly stage: 'google_ready';
+        readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'google_email_otp' }>;
+        readonly walletId: string;
+        readonly status?: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'google_ready' }
+        >['status'];
+      }
+    | {
+        readonly stage: 'email_code_required';
+        readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'google_email_otp' }>;
+        readonly walletId: string;
+        readonly challengeId: string;
+        readonly emailHint: string;
+        readonly delivery: HostedRecoveryGoogleVerified['delivery'];
+        readonly otpCode?: string;
+        readonly status?: Extract<
+          AuthMenuRecoveryViewModel,
+          { readonly stage: 'email_code_required' }
+        >['status'];
+      }
+    | {
         readonly stage: 'finalizing';
         readonly target: WalletRecoveryTargetV1;
         readonly walletId: string;
@@ -504,6 +594,27 @@ type RecoveryViewModelArgs = RecoveryViewModelArgsBase &
       }
   );
 
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage?: 'enter_code' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'enter_code' }>;
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage: 'preparing' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'preparing' }>;
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage: 'passkey_ready' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'passkey_ready' }>;
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage: 'google_ready' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'google_ready' }>;
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage: 'email_code_required' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'email_code_required' }>;
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage: 'finalizing' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'finalizing' }>;
+function recoveryViewModel(
+  args: Extract<RecoveryViewModelArgs, { readonly stage: 'sign_in_ready' }>,
+): Extract<AuthMenuRecoveryViewModel, { readonly stage: 'sign_in_ready' }>;
 function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewModel {
   const common = {
     kind: 'recovery',
@@ -516,13 +627,19 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
     ctaLabel:
       args.stage === 'passkey_ready'
         ? 'Create new passkey'
-        : args.stage === 'sign_in_ready'
-          ? 'Sign in with new passkey'
-          : args.stage === 'preparing'
-            ? args.target.kind === 'google_email_otp'
-              ? 'Recover with Google'
-              : 'Recover with Passkey'
-          : 'Continue',
+        : args.stage === 'google_ready'
+          ? 'Continue with Google'
+          : args.stage === 'email_code_required'
+            ? 'Verify email code'
+            : args.stage === 'sign_in_ready'
+              ? args.target.kind === 'google_email_otp'
+                ? 'Sign in with Google'
+                : 'Sign in with new passkey'
+              : args.stage === 'preparing'
+                ? args.target.kind === 'google_email_otp'
+                  ? 'Recover with Google'
+                  : 'Recover with Passkey'
+                : 'Continue',
     showProgress: args.base.showProgress,
     enabledExternalProviders: args.base.enabledExternalProviders,
     recoveryCode: args.recoveryCode ?? '',
@@ -545,6 +662,26 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
         walletId: args.walletId,
         stage: args.stage,
         status: args.status ?? { kind: 'idle', interaction: 'actionable' },
+      };
+    case 'google_ready':
+      return {
+        ...common,
+        target: args.target,
+        walletId: args.walletId,
+        stage: args.stage,
+        status: args.status ?? { kind: 'idle', interaction: 'actionable' },
+      };
+    case 'email_code_required':
+      return {
+        ...common,
+        target: args.target,
+        walletId: args.walletId,
+        stage: args.stage,
+        challengeId: args.challengeId,
+        emailHint: args.emailHint,
+        delivery: args.delivery,
+        otpCode: args.otpCode ?? '',
+        status: args.status ?? { kind: 'idle', interaction: 'awaiting_input' },
       };
     case 'finalizing':
       return {
@@ -1045,7 +1182,12 @@ export class AuthMenuSession {
     }, delayMs);
   }
 
-  private startGoogleFlow(idToken: string, mode: HostedAuthMenuOpenRequest['initialMode']): void {
+  private startGoogleFlow(
+    idToken: string,
+    authTarget:
+      | { readonly mode: 'register' }
+      | { readonly mode: 'login'; readonly loginTarget: GoogleEmailOtpWalletAuthLoginTarget },
+  ): void {
     this.invalidatePreparation();
     const generation = ++this.googleGeneration;
     const cancellation = new AbortController();
@@ -1069,7 +1211,7 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
-    void this.beginGoogleEmailOtp({ idToken, mode, signal: cancellation.signal }).then(
+    void this.beginGoogleEmailOtp({ idToken, authTarget, signal: cancellation.signal }).then(
       (flow) => {
         if (
           generation !== this.googleGeneration ||
@@ -1136,6 +1278,16 @@ export class AuthMenuSession {
     provider: HostedAuthMenuExternalAuthRequest['provider'],
   ): HostedAuthMenuExternalAuthRequest | null {
     if (this.stateValue.kind === 'complete') return null;
+    if (this.stateValue.kind === 'recovery' && this.stateValue.stage === 'google_ready') {
+      return this.requestRecoveryGoogleVerification(provider, this.stateValue);
+    }
+    if (
+      this.stateValue.kind === 'recovery' &&
+      this.stateValue.stage === 'sign_in_ready' &&
+      this.stateValue.viewModel.target.kind === 'google_email_otp'
+    ) {
+      return this.requestRecoveredGoogleSignIn(provider, this.stateValue);
+    }
     const viewModel = this.currentViewModel();
     if (viewModel.kind !== 'passkey') return null;
     if (!this.request.enabledExternalProviders.includes(provider)) return null;
@@ -1166,6 +1318,16 @@ export class AuthMenuSession {
         },
       },
       request,
+      authTarget:
+        request.mode === 'register'
+          ? { mode: 'register' }
+          : {
+              mode: 'login',
+              loginTarget:
+                this.request.loginTarget.kind === 'discoverable'
+                  ? { kind: 'discoverable' }
+                  : { kind: 'wallet', walletId: this.request.loginTarget.walletId },
+            },
     };
     this.updateElement();
     this.sendToParent({
@@ -1178,6 +1340,39 @@ export class AuthMenuSession {
 
   acceptExternalAuthResolution(resolution: HostedAuthMenuExternalAuthResolution): boolean {
     const state = this.stateValue;
+    if (state.kind === 'recovery' && state.stage === 'google_external_auth') {
+      if (
+        state.request.authMenuSessionId !== resolution.authMenuSessionId ||
+        state.request.externalAuthRequestId !== resolution.externalAuthRequestId ||
+        this.identity.requestId !== resolution.requestId
+      ) {
+        return false;
+      }
+      this.externalAuthResolution = resolution;
+      if (resolution.evidence.kind === 'google_id_token') {
+        this.startRecoveryGoogleVerification(state, resolution.evidence.idToken);
+        return true;
+      }
+      const message =
+        resolution.evidence.kind === 'cancelled'
+          ? 'Google sign-in was cancelled'
+          : resolution.evidence.message;
+      this.stateValue = {
+        kind: 'recovery',
+        stage: 'google_ready',
+        operation: state.operation,
+        returnState: state.returnState,
+        viewModel: recoveryViewModel({
+          base: state.viewModel,
+          walletId: recoveryWalletId(state.viewModel),
+          stage: 'google_ready',
+          target: state.operation.target,
+          status: { kind: 'recoverable', reason: 'error', message },
+        }),
+      };
+      this.updateElement();
+      return true;
+    }
     if (
       state.kind !== 'awaiting_external_auth' ||
       state.viewModel.kind !== 'passkey' ||
@@ -1190,7 +1385,7 @@ export class AuthMenuSession {
     this.externalAuthResolution = resolution;
     switch (resolution.evidence.kind) {
       case 'google_id_token':
-        this.startGoogleFlow(resolution.evidence.idToken, state.request.mode);
+        this.startGoogleFlow(resolution.evidence.idToken, state.authTarget);
         return true;
       case 'cancelled':
       case 'failed': {
@@ -1211,6 +1406,94 @@ export class AuthMenuSession {
       default:
         return assertNeverHostedExternalAuthEvidence(resolution.evidence);
     }
+  }
+
+  private requestRecoveryGoogleVerification(
+    provider: HostedAuthMenuExternalAuthRequest['provider'],
+    state: Extract<AuthMenuRecoveryState, { readonly stage: 'google_ready' }>,
+  ): HostedAuthMenuExternalAuthRequest | null {
+    if (!this.request.enabledExternalProviders.includes(provider)) return null;
+    const externalAuthRequestId = hostedAuthMenuExternalAuthRequestIdFromBoundary(
+      randomExternalAuthRequestId(),
+    );
+    if (!externalAuthRequestId) return null;
+    const request: HostedAuthMenuExternalAuthRequest = {
+      kind: 'hosted_auth_menu_external_auth_request_v1',
+      authMenuSessionId: this.identity.authMenuSessionId,
+      externalAuthRequestId,
+      provider,
+      mode: 'login',
+    };
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'google_external_auth',
+      operation: state.operation,
+      returnState: state.returnState,
+      request,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: recoveryWalletId(state.viewModel),
+        stage: 'finalizing',
+        target: state.operation.target,
+        status: {
+          kind: 'busy',
+          headline: 'Waiting for Google SSO authentication…',
+          detail: 'Waiting for Google sign-in',
+        },
+      }),
+    };
+    this.updateElement();
+    this.sendToParent({
+      type: 'AUTH_MENU_EXTERNAL_AUTH_REQUEST',
+      requestId: this.identity.requestId,
+      payload: request,
+    });
+    return request;
+  }
+
+  private requestRecoveredGoogleSignIn(
+    provider: HostedAuthMenuExternalAuthRequest['provider'],
+    state: Extract<AuthMenuRecoveryState, { readonly stage: 'sign_in_ready' }>,
+  ): HostedAuthMenuExternalAuthRequest | null {
+    if (!this.request.enabledExternalProviders.includes(provider)) return null;
+    const externalAuthRequestId = hostedAuthMenuExternalAuthRequestIdFromBoundary(
+      randomExternalAuthRequestId(),
+    );
+    if (!externalAuthRequestId) return null;
+    const request: HostedAuthMenuExternalAuthRequest = {
+      kind: 'hosted_auth_menu_external_auth_request_v1',
+      authMenuSessionId: this.identity.authMenuSessionId,
+      externalAuthRequestId,
+      provider,
+      mode: 'login',
+    };
+    this.stateValue = {
+      kind: 'awaiting_external_auth',
+      request,
+      authTarget: {
+        mode: 'login',
+        loginTarget: { kind: 'wallet', walletId: recoveryWalletId(state.viewModel) },
+      },
+      viewModel: {
+        ...createLoginPreparingViewModel({
+          request: this.request,
+          appearance: state.viewModel.appearance,
+          hostname: state.viewModel.hostname,
+        }),
+        status: {
+          kind: 'busy',
+          headline: 'Waiting for Google SSO authentication…',
+          detail: 'Waiting for Google sign-in',
+        },
+      },
+    };
+    this.updateElement();
+    this.sendToParent({
+      type: 'AUTH_MENU_EXTERNAL_AUTH_REQUEST',
+      requestId: this.identity.requestId,
+      payload: request,
+    });
+    return request;
   }
 
   cleanup(): void {
@@ -1297,6 +1580,12 @@ export class AuthMenuSession {
         return;
       case 'recovery_google_selected':
         this.prepareRecovery('google_email_otp');
+        return;
+      case 'recovery_google_otp_code_changed':
+        this.changeRecoveryGoogleOtpCode(intent.code);
+        return;
+      case 'recovery_google_otp_submit':
+        this.submitRecoveryGoogleOtp();
         return;
       case 'recovery_create_passkey':
         this.createRecoveryPasskey();
@@ -1610,34 +1899,33 @@ export class AuthMenuSession {
       this.updateElement();
       return;
     }
-    if (result.target.kind !== 'passkey') {
-      void this.recoveryPort.cancel(result).catch(ignoreRecoveryCancellationFailure);
-      this.stateValue = {
-        kind: 'recovery',
-        stage: 'enter_code',
-        returnState: state.returnState,
-        viewModel: recoveryViewModel({
-          base: state.viewModel,
-          recoveryCode: state.viewModel.recoveryCode,
-          status: recoveryFailureStatus({ kind: 'refused' }),
-        }),
-      };
-      this.updateElement();
-      return;
-    }
-    this.stateValue = {
-      kind: 'recovery',
-      stage: 'passkey_ready',
-      operation: result,
-      returnState: state.returnState,
-      viewModel: recoveryViewModel({
-        base: state.viewModel,
-        walletId: String(result.walletId),
-        recoveryCode: '',
-        stage: 'passkey_ready',
-        target: result.target,
-      }),
-    };
+    this.stateValue = isPasskeyRecoveryPrepared(result)
+      ? {
+          kind: 'recovery',
+          stage: 'passkey_ready',
+          operation: result,
+          returnState: state.returnState,
+          viewModel: recoveryViewModel({
+            base: state.viewModel,
+            walletId: String(result.walletId),
+            recoveryCode: '',
+            stage: 'passkey_ready',
+            target: result.target,
+          }),
+        }
+      : {
+          kind: 'recovery',
+          stage: 'google_ready',
+          operation: result,
+          returnState: state.returnState,
+          viewModel: recoveryViewModel({
+            base: state.viewModel,
+            walletId: String(result.walletId),
+            recoveryCode: '',
+            stage: 'google_ready',
+            target: result.target,
+          }),
+        };
     this.updateElement();
   }
 
@@ -1653,6 +1941,201 @@ export class AuthMenuSession {
         base: state.viewModel,
         recoveryCode: state.viewModel.recoveryCode,
         status: recoveryFailureStatus({ kind: 'transport_uncertain' }),
+      }),
+    };
+    this.updateElement();
+  }
+
+  private startRecoveryGoogleVerification(
+    state: Extract<AuthMenuRecoveryState, { readonly stage: 'google_external_auth' }>,
+    idToken: string,
+  ): void {
+    const generation = ++this.recoveryGeneration;
+    const verification = this.recoveryPort.verifyGoogle(state.operation, idToken);
+    void verification.then(
+      this.completeRecoveryGoogleVerification.bind(this, generation),
+      this.rejectRecoveryGoogleVerification.bind(this, generation),
+    );
+  }
+
+  private completeRecoveryGoogleVerification(
+    generation: number,
+    result: Awaited<ReturnType<HostedRecoveryPort['verifyGoogle']>>,
+  ): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'google_external_auth'
+    ) {
+      if (result.kind === 'hosted_recovery_google_verified') {
+        void this.recoveryPort.cancel(result).catch(ignoreRecoveryCancellationFailure);
+      }
+      return;
+    }
+    if (result.kind !== 'hosted_recovery_google_verified') {
+      this.showRecoveryGoogleVerificationFailure(state, result);
+      return;
+    }
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'email_code_required',
+      operation: result,
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(result.walletId),
+        stage: 'email_code_required',
+        target: result.target,
+        challengeId: result.challengeId,
+        emailHint: result.delivery.emailHint,
+        delivery: result.delivery,
+      }),
+    };
+    this.updateElement();
+  }
+
+  private rejectRecoveryGoogleVerification(generation: number): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'google_external_auth'
+    ) {
+      return;
+    }
+    this.showRecoveryGoogleVerificationFailure(state, { kind: 'transport_uncertain' });
+  }
+
+  private showRecoveryGoogleVerificationFailure(
+    state: Extract<AuthMenuRecoveryState, { readonly stage: 'google_external_auth' }>,
+    failure: HostedRecoveryFailure,
+  ): void {
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'google_ready',
+      operation: state.operation,
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: recoveryWalletId(state.viewModel),
+        stage: 'google_ready',
+        target: state.operation.target,
+        status: recoveryFailureStatus(failure),
+      }),
+    };
+    this.updateElement();
+  }
+
+  private changeRecoveryGoogleOtpCode(code: string): void {
+    const state = this.stateValue;
+    if (state.kind !== 'recovery' || state.stage !== 'email_code_required') return;
+    this.stateValue = {
+      ...state,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: recoveryWalletId(state.viewModel),
+        stage: 'email_code_required',
+        target: state.operation.target,
+        challengeId: state.operation.challengeId,
+        emailHint: state.operation.delivery.emailHint,
+        delivery: state.operation.delivery,
+        otpCode: code.replace(/\D/g, '').slice(0, 6),
+      }),
+    };
+    this.updateElement();
+  }
+
+  private submitRecoveryGoogleOtp(): void {
+    const state = this.stateValue;
+    if (
+      state.kind === 'recovery' &&
+      state.stage === 'finalizing' &&
+      state.operation.kind === 'hosted_recovery_email_otp_verified' &&
+      state.viewModel.status.kind === 'recoverable'
+    ) {
+      this.finishRecovery(state.operation);
+      return;
+    }
+    if (state.kind !== 'recovery' || state.stage !== 'email_code_required') return;
+    const otpCode = state.viewModel.otpCode.trim();
+    if (!/^\d{6}$/.test(otpCode)) return;
+    const generation = ++this.recoveryGeneration;
+    this.stateValue = {
+      ...state,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: recoveryWalletId(state.viewModel),
+        stage: 'email_code_required',
+        target: state.operation.target,
+        challengeId: state.operation.challengeId,
+        emailHint: state.operation.delivery.emailHint,
+        delivery: state.operation.delivery,
+        otpCode,
+        status: { kind: 'busy', headline: 'Verifying email code…' },
+      }),
+    };
+    this.updateElement();
+    const verification = this.recoveryPort.verifyEmailOtp(state.operation, {
+      challengeId: state.operation.challengeId,
+      otpCode,
+    });
+    void verification.then(
+      this.completeRecoveryEmailOtpVerification.bind(this, generation),
+      this.rejectRecoveryEmailOtpVerification.bind(this, generation),
+    );
+  }
+
+  private completeRecoveryEmailOtpVerification(
+    generation: number,
+    result: Awaited<ReturnType<HostedRecoveryPort['verifyEmailOtp']>>,
+  ): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'email_code_required'
+    ) {
+      if (result.kind === 'hosted_recovery_email_otp_verified') {
+        void this.recoveryPort.cancel(result).catch(ignoreRecoveryCancellationFailure);
+      }
+      return;
+    }
+    if (result.kind !== 'hosted_recovery_email_otp_verified') {
+      this.showRecoveryEmailOtpFailure(state, result);
+      return;
+    }
+    this.finishRecovery(result);
+  }
+
+  private rejectRecoveryEmailOtpVerification(generation: number): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.recoveryGeneration ||
+      state.kind !== 'recovery' ||
+      state.stage !== 'email_code_required'
+    ) {
+      return;
+    }
+    this.showRecoveryEmailOtpFailure(state, { kind: 'transport_uncertain' });
+  }
+
+  private showRecoveryEmailOtpFailure(
+    state: Extract<AuthMenuRecoveryState, { readonly stage: 'email_code_required' }>,
+    failure: HostedRecoveryFailure,
+  ): void {
+    this.stateValue = {
+      ...state,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: recoveryWalletId(state.viewModel),
+        stage: 'email_code_required',
+        target: state.operation.target,
+        challengeId: state.operation.challengeId,
+        emailHint: state.operation.delivery.emailHint,
+        delivery: state.operation.delivery,
+        otpCode: state.viewModel.otpCode,
+        status: recoveryFailureStatus(failure),
       }),
     };
     this.updateElement();
@@ -1754,7 +2237,7 @@ export class AuthMenuSession {
     },
     failure: HostedRecoveryFailure,
   ): void {
-    if (state.operation.target.kind !== 'passkey') {
+    if (!isPasskeyRecoveryPrepared(state.operation)) {
       void this.recoveryPort.cancel(state.operation).catch(ignoreRecoveryCancellationFailure);
       this.stateValue = {
         kind: 'recovery',
@@ -1800,7 +2283,7 @@ export class AuthMenuSession {
     this.updateElement();
   }
 
-  private finishRecovery(operation: HostedRecoveryCredentialCreated): void {
+  private finishRecovery(operation: HostedRecoveryFinalizationOperation): void {
     const state = this.stateValue;
     if (state.kind !== 'recovery') return;
     const generation = ++this.recoveryGeneration;
@@ -1840,7 +2323,8 @@ export class AuthMenuSession {
       generation !== this.recoveryGeneration ||
       state.kind !== 'recovery' ||
       state.stage !== 'finalizing' ||
-      state.operation.kind !== 'hosted_recovery_credential_created'
+      (state.operation.kind !== 'hosted_recovery_credential_created' &&
+        state.operation.kind !== 'hosted_recovery_email_otp_verified')
     ) {
       return;
     }
@@ -1871,7 +2355,22 @@ export class AuthMenuSession {
       this.updateElement();
       return;
     }
-    this.prepareRecoveredPasskeyLogin(result.walletId, state.returnState);
+    if (state.operation.target.kind === 'passkey') {
+      this.prepareRecoveredPasskeyLogin(result.walletId, state.returnState);
+      return;
+    }
+    this.stateValue = {
+      kind: 'recovery',
+      stage: 'sign_in_ready',
+      returnState: state.returnState,
+      viewModel: recoveryViewModel({
+        base: state.viewModel,
+        walletId: String(result.walletId),
+        stage: 'sign_in_ready',
+        target: state.operation.target,
+      }),
+    };
+    this.updateElement();
   }
 
   private rejectRecoveryFinalization(generation: number): void {
@@ -1880,7 +2379,8 @@ export class AuthMenuSession {
       generation !== this.recoveryGeneration ||
       state.kind !== 'recovery' ||
       state.stage !== 'finalizing' ||
-      state.operation.kind !== 'hosted_recovery_credential_created'
+      (state.operation.kind !== 'hosted_recovery_credential_created' &&
+        state.operation.kind !== 'hosted_recovery_email_otp_verified')
     ) {
       return;
     }
@@ -1992,6 +2492,10 @@ export class AuthMenuSession {
   private signInRecoveredWallet(): void {
     const state = this.stateValue;
     if (state.kind !== 'recovery' || state.stage !== 'sign_in_ready') return;
+    if (state.viewModel.target.kind === 'google_email_otp') {
+      this.requestExternalAuth('google');
+      return;
+    }
     const prepared = this.recoveryLoginPrepared;
     if (!prepared) {
       const walletId = parseWalletId(recoveryWalletId(state.viewModel));
@@ -3030,12 +3534,12 @@ export class AuthMenuSession {
         kind: 'recovery',
         stage: 'sign_in_ready',
         returnState,
-          viewModel: recoveryViewModel({
-            base: viewModel,
-            walletId: recoveryWalletId(viewModel),
-            stage: 'sign_in_ready',
-            target: recoveryTarget(viewModel),
-            status:
+        viewModel: recoveryViewModel({
+          base: viewModel,
+          walletId: recoveryWalletId(viewModel),
+          stage: 'sign_in_ready',
+          target: recoveryTarget(viewModel),
+          status:
             failure.kind === 'dismissed'
               ? { kind: 'idle', interaction: 'actionable' }
               : {

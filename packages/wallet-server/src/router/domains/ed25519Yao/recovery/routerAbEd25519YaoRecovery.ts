@@ -123,6 +123,10 @@ export type RouterAbEd25519YaoRecoveryBackendResult =
   | { readonly ok: true; readonly body: unknown }
   | RouterAbEd25519YaoRecoveryBackendFailure;
 
+export type RouterAbEd25519YaoRecoveryAuthorityProjectionV1 =
+  | { readonly kind: 'replace_continuity_authority_projections' }
+  | { readonly kind: 'replace_active_authority_projection' };
+
 export interface RouterAbEd25519YaoRecoveryBackend {
   admitRecovery(
     request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -149,6 +153,7 @@ export interface RouterAbEd25519YaoRecoveryService {
   ): Promise<RouterAbEd25519YaoRecoveryServiceResult<RecoveryExecutionResult>>;
   activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
@@ -239,6 +244,7 @@ export type RouterAbEd25519YaoRecoveryActivationClaimV1 = {
   readonly recoveryKey: string;
   readonly sessionId: string;
   readonly activationFingerprint: string;
+  readonly authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1;
   readonly disposition: 'initial' | 'reconciliation';
 };
 
@@ -278,6 +284,7 @@ export type RouterAbEd25519YaoRecoveryActivationCommitResultV1 =
 export interface RouterAbEd25519YaoRecoveryActivationBoundaryV1 {
   prepareActivateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1,
   ): RouterAbEd25519YaoRecoveryActivationPreparationV1;
   commitActivateRecovery(
     input: RouterAbEd25519YaoRecoveryActivationCommitInputV1,
@@ -343,6 +350,17 @@ export type RouterAbEd25519YaoRecoveryAuthorizationResult =
       readonly message: string;
     };
 
+export function recoveryAuthorityProjection(
+  authorization: Extract<
+    RouterAbEd25519YaoRecoveryAuthorizationResult,
+    { readonly ok: true }
+  >['authorization'],
+): RouterAbEd25519YaoRecoveryAuthorityProjectionV1 {
+  return authorization.kind === 'wallet_recovery'
+    ? { kind: 'replace_continuity_authority_projections' }
+    : { kind: 'replace_active_authority_projection' };
+}
+
 export interface RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   authorize(
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
@@ -395,6 +413,7 @@ export type RouterAbEd25519YaoCapabilityReplacementOperationV1 = {
   readonly kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1';
   readonly operationId: string;
   readonly operationFingerprint: string;
+  readonly authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1;
 };
 
 export type RouterAbEd25519YaoCapabilityPersistenceResultV1 =
@@ -1991,11 +2010,12 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   async activateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<
     RouterAbEd25519YaoRecoveryServiceResult<RouterAbEd25519YaoRecoveryActivationReceiptV1>
   > {
-    const preparation = this.prepareActivateRecovery(request);
+    const preparation = this.prepareActivateRecovery(request, authorityProjection);
     switch (preparation.kind) {
       case 'completed':
         return { ok: true, status: 200, value: preparation.value };
@@ -2023,6 +2043,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   prepareActivateRecovery(
     request: RouterAbEd25519YaoRecoveryActivationRequestV1,
+    authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1,
   ): RouterAbEd25519YaoRecoveryActivationPreparationV1 {
     const parsed = parseRouterAbEd25519YaoRecoveryActivationRequestV1(request);
     if (!parsed.ok) {
@@ -2082,7 +2103,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
         this.recoveries.set(state.context.recoveryKey, activating);
         return {
           kind: 'claimed',
-          claim: this.activationClaim(activating, 'initial'),
+          claim: this.activationClaim(activating, authorityProjection, 'initial'),
         };
       }
       case 'activating': {
@@ -2098,7 +2119,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
         }
         return {
           kind: 'claimed',
-          claim: this.activationClaim(state, 'reconciliation'),
+          claim: this.activationClaim(state, authorityProjection, 'reconciliation'),
         };
       }
       case 'activation_failed': {
@@ -2208,7 +2229,11 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       operation: {
         kind: 'router_ab_ed25519_yao_capability_replacement_operation_v1',
         operationId: input.claim.lifecycleId,
-        operationFingerprint: input.claim.activationFingerprint,
+        operationFingerprint: canonicalFingerprint({
+          activationFingerprint: input.claim.activationFingerprint,
+          authorityProjection: input.claim.authorityProjection,
+        }),
+        authorityProjection: input.claim.authorityProjection,
       },
       previous: promoted.previousIdentity.persisted,
       next: promoted.identity.persisted,
@@ -2247,6 +2272,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
 
   private activationClaim(
     state: RecoveryActivatingState,
+    authorityProjection: RouterAbEd25519YaoRecoveryAuthorityProjectionV1,
     disposition: RouterAbEd25519YaoRecoveryActivationClaimV1['disposition'],
   ): RouterAbEd25519YaoRecoveryActivationClaimV1 {
     return {
@@ -2255,6 +2281,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
       recoveryKey: state.context.recoveryKey,
       sessionId: bytesToHex(state.admissionReceipt.binding.session_id),
       activationFingerprint: state.activationFingerprint,
+      authorityProjection,
       disposition,
     };
   }
@@ -2609,7 +2636,11 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    const result = await this.service.activateRecovery(parsed.value, traceContext.value);
+    const result = await this.service.activateRecovery(
+      parsed.value,
+      recoveryAuthorityProjection(authorization.authorization),
+      traceContext.value,
+    );
     if (!result.ok) return routeFailureResponse(result);
     return json(result.value, { status: result.status });
   }

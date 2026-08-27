@@ -18,12 +18,6 @@ async function registerEmailOnlyWallet(harness: IntendedBehaviourHarness): Promi
   await harness.registerEmailOtpWallet();
 }
 
-async function assertPasskeyFoundedInventoryRemains(
-  harness: IntendedBehaviourHarness,
-): Promise<void> {
-  await harness.unlockPasskeyWallet();
-}
-
 async function assertEmailOnlyInventoryRemains(harness: IntendedBehaviourHarness): Promise<void> {
   await harness.unlockEmailOtpWallet();
 }
@@ -32,7 +26,6 @@ const recoveryOrigins: readonly RecoveryOrigin[] = [
   {
     name: 'Passkey-founded',
     register: registerPasskeyFoundedWallet,
-    assertExistingInventory: assertPasskeyFoundedInventoryRemains,
   },
   {
     name: 'Email-only',

@@ -102,7 +102,7 @@ function recoverySignerActivationsMatchContinuity(input: {
   return (
     alphabetizeStringify(recoveryEd25519.signer) ===
       alphabetizeStringify(continuityEd25519.signer) &&
-    alphabetizeStringify(recoveryEd25519.materialActivation) !==
+    alphabetizeStringify(recoveryEd25519.materialActivation) ===
       alphabetizeStringify(continuityEd25519.materialActivation)
   );
 }

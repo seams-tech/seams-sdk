@@ -1,7 +1,6 @@
 import {
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
-  parseWalletAuthorityBindingDigest,
   parseWalletId,
   parseWalletRecoveryOperationId,
   parsePasskeyEnvelopeId,
@@ -10,14 +9,16 @@ import {
   parseWebAuthnRpId,
   type WalletAuthorityId,
   type WalletAuthMethodId,
-  type WalletAuthorityBindingDigest,
   type WalletId,
   type WalletRecoveryOperationId,
   type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
-import type { WalletAuthorityProvenanceV1 } from '@shared/authorization/walletAuthority';
+import {
+  parseWalletAuthorityV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
 import {
   parseEnvelopeRevision,
   type EnvelopeRevision,
@@ -129,10 +130,7 @@ export type WebAuthnSyncChallengeRecord = {
  */
 export type WebAuthnRecoveryContinuityAnchorRecord = {
   readonly kind: 'wallet_recovery_continuity_anchor_v1';
-  readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly walletAuthorityId: WalletAuthorityId;
-  readonly authorityDigestB64u: WalletAuthorityBindingDigest;
-  readonly provenanceKind: WalletAuthorityProvenanceV1['kind'];
+  readonly authority: ActiveWalletAuthorityV1;
   readonly method: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly envelope: WebAuthnRecoveryContinuityEnvelopeAnchorRecord;
 };
@@ -330,10 +328,7 @@ function parseWebAuthnRecoveryContinuityAnchor(
   if (!record) return null;
   const expectedFields = [
     'kind',
-    'walletAuthMethodId',
-    'walletAuthorityId',
-    'authorityDigestB64u',
-    'provenanceKind',
+    'authority',
     'method',
     'envelope',
   ] as const;
@@ -345,22 +340,17 @@ function parseWebAuthnRecoveryContinuityAnchor(
     return null;
   }
   if (record.kind !== 'wallet_recovery_continuity_anchor_v1') return null;
-  const walletAuthMethodId = parseWalletAuthMethodId(record.walletAuthMethodId);
-  const walletAuthorityId = parseWalletAuthorityId(record.walletAuthorityId);
-  const authorityDigestB64u = parseWalletAuthorityBindingDigest(record.authorityDigestB64u);
-  const provenanceKind = parseWalletAuthorityProvenanceKind(record.provenanceKind);
+  const authority = parseWalletAuthorityV1(record.authority);
   const method = parseWalletAuthMethodRecordV2(record.method);
   const envelope = parseWebAuthnRecoveryContinuityEnvelopeAnchor(record.envelope);
   if (
-    !walletAuthMethodId.ok ||
-    !walletAuthorityId.ok ||
-    !authorityDigestB64u.ok ||
-    !provenanceKind ||
+    !authority.ok ||
+    authority.value.state !== 'active' ||
     !method ||
     method.status !== 'active' ||
     !envelope ||
-    method.walletAuthMethodId !== walletAuthMethodId.value ||
-    method.walletAuthorityId !== walletAuthorityId.value
+    method.walletId !== authority.value.walletId ||
+    method.walletAuthorityId !== authority.value.authorityId
   ) {
     return null;
   }
@@ -377,31 +367,26 @@ function parseWebAuthnRecoveryContinuityAnchor(
   }
   return {
     kind: 'wallet_recovery_continuity_anchor_v1',
-    walletAuthMethodId: walletAuthMethodId.value,
-    walletAuthorityId: walletAuthorityId.value,
-    authorityDigestB64u: authorityDigestB64u.value,
-    provenanceKind,
+    authority: authority.value,
     method,
     envelope,
   };
 }
 
 export function buildWebAuthnRecoveryContinuityAnchorRecord(input: {
-  readonly walletAuthMethodId: WalletAuthMethodId;
-  readonly walletAuthorityId: WalletAuthorityId;
-  readonly authorityDigestB64u: WalletAuthorityBindingDigest;
-  readonly provenanceKind: WalletAuthorityProvenanceV1['kind'];
+  readonly authority: ActiveWalletAuthorityV1;
   readonly method: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
   readonly envelope: PasskeyCustodyEnvelopeRecord;
 }): WebAuthnRecoveryContinuityAnchorRecord {
   if (
-    input.method.walletAuthMethodId !== input.walletAuthMethodId ||
-    input.method.walletAuthorityId !== input.walletAuthorityId ||
+    input.authority.state !== 'active' ||
+    input.authority.walletId !== input.method.walletId ||
+    input.method.walletAuthorityId !== input.authority.authorityId ||
     input.envelope.walletId !== input.method.walletId ||
     input.envelope.lifecycle.state !== 'active' ||
     input.envelope.binding.kind !== 'wallet_custody_seed_v1' ||
     input.envelope.ownership.kind !== 'method_bound' ||
-    input.envelope.ownership.walletAuthMethodId !== input.walletAuthMethodId
+    input.envelope.ownership.walletAuthMethodId !== input.method.walletAuthMethodId
   ) {
     throw new Error('continuity anchor method and envelope identities do not match');
   }
@@ -419,10 +404,7 @@ export function buildWebAuthnRecoveryContinuityAnchorRecord(input: {
   }
   return {
     kind: 'wallet_recovery_continuity_anchor_v1',
-    walletAuthMethodId: input.walletAuthMethodId,
-    walletAuthorityId: input.walletAuthorityId,
-    authorityDigestB64u: input.authorityDigestB64u,
-    provenanceKind: input.provenanceKind,
+    authority: input.authority,
     method: input.method,
     envelope,
   };
@@ -551,19 +533,6 @@ function hasExactFields(record: Record<string, unknown>, expectedFields: readonl
     fields.length === expectedFields.length &&
     expectedFields.every((field) => fields.includes(field))
   );
-}
-
-function parseWalletAuthorityProvenanceKind(
-  input: unknown,
-): WalletAuthorityProvenanceV1['kind'] | null {
-  switch (input) {
-    case 'wallet_registration':
-    case 'device_link':
-    case 'wallet_recovery':
-      return input;
-    default:
-      return null;
-  }
 }
 
 export function parseWebAuthnAuthenticator(

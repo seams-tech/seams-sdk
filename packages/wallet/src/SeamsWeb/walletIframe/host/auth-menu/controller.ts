@@ -39,8 +39,11 @@ import type {
 import { listLocalPasskeyWalletIds } from '@/SeamsWeb/operations/auth/login';
 import { preloadWalletHostRegistrationSurface } from '../runtimeLoader';
 import type {
+  HostedRecoveryEmailOtpVerified,
   HostedRecoveryCredentialCreated,
   HostedRecoveryFailure,
+  HostedRecoveryFinalizationOperation,
+  HostedRecoveryGoogleVerified,
   HostedRecoveryPort,
   HostedRecoveryPrepared,
   HostedRecoveryTargetKind,
@@ -84,7 +87,21 @@ class LazyHostedRecoveryPort implements HostedRecoveryPort {
     return await (await this.port()).createPasskey(operation);
   }
 
-  async finalize(operation: HostedRecoveryCredentialCreated): Promise<
+  async verifyGoogle(
+    operation: HostedRecoveryPrepared,
+    idToken: string,
+  ): Promise<HostedRecoveryGoogleVerified | HostedRecoveryFailure> {
+    return await (await this.port()).verifyGoogle(operation, idToken);
+  }
+
+  async verifyEmailOtp(
+    operation: HostedRecoveryGoogleVerified,
+    input: { readonly challengeId: string; readonly otpCode: string },
+  ): Promise<HostedRecoveryEmailOtpVerified | HostedRecoveryFailure> {
+    return await (await this.port()).verifyEmailOtp(operation, input);
+  }
+
+  async finalize(operation: HostedRecoveryFinalizationOperation): Promise<
     | { readonly kind: 'ready_for_sign_in'; readonly walletId: HostedRecoveryCredentialCreated['walletId'] }
     | HostedRecoveryFailure
   > {
@@ -92,7 +109,11 @@ class LazyHostedRecoveryPort implements HostedRecoveryPort {
   }
 
   async cancel(
-    operation: HostedRecoveryPrepared | HostedRecoveryCredentialCreated,
+    operation:
+      | HostedRecoveryPrepared
+      | HostedRecoveryCredentialCreated
+      | HostedRecoveryGoogleVerified
+      | HostedRecoveryEmailOtpVerified,
   ): Promise<void> {
     await (await this.port()).cancel(operation);
   }
@@ -166,8 +187,8 @@ export class AuthMenuController {
       requestId,
       appearance: this.deps.getAppearance(),
       hostname: trustedHostHostname(),
-      beginGoogleEmailOtp: async ({ idToken, mode, signal }) =>
-        await this.beginGoogleEmailOtp({ idToken, mode, signal }),
+      beginGoogleEmailOtp: async ({ idToken, authTarget, signal }) =>
+        await this.beginGoogleEmailOtp({ idToken, authTarget, signal }),
       startDeviceLinking: this.startDeviceLinking,
       cancelDeviceLinking: this.cancelDeviceLinking,
       recoveryPort: new LazyHostedRecoveryPort(this.deps.getSeamsWeb),
@@ -324,13 +345,18 @@ export class AuthMenuController {
 
   private async beginGoogleEmailOtp(args: {
     idToken: string;
-    mode: HostedAuthMenuOpenRequest['initialMode'];
+    authTarget:
+      | { readonly mode: 'register' }
+      | {
+          readonly mode: 'login';
+          readonly loginTarget: import('@/SeamsWeb/publicApi/types').GoogleEmailOtpWalletAuthLoginTarget;
+        };
     signal: AbortSignal;
   }): Promise<GoogleEmailOtpWalletAuthFlow> {
     if (args.signal.aborted) throw new Error('Google sign-in was cancelled');
     const result = await this.deps.getSeamsWeb().auth.beginGoogleEmailOtpWalletAuth({
       idToken: args.idToken,
-      mode: args.mode,
+      ...args.authTarget,
     });
     if (!result.ok) throw new Error(result.error.message);
     const flow = result.value;

@@ -3369,7 +3369,10 @@ export class SeamsWalletRepositories {
         reason: 'auth method authority reference does not resolve exactly',
       };
     }
-    if (authority.record.provenance.kind === 'wallet_registration') {
+    if (
+      authority.record.provenance.kind === 'wallet_registration' ||
+      authority.record.provenance.kind === 'wallet_recovery'
+    ) {
       if (!(await walletAuthorityDigestsMatchV1(authority.record))) {
         return { kind: 'integrity_error', reason: 'selected wallet authority digest is invalid' };
       }

@@ -127,7 +127,10 @@ import type {
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
 import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
-import type { RecoveredWalletCustodyManifestV1 } from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
+import type {
+  RecoveredWalletCustodyManifestV1,
+  WalletRecoveryReplacementFactorInput,
+} from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
 import type { WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import type {
   LoadedWalletCustodyEd25519MaterialV1,
@@ -403,8 +406,8 @@ export interface WalletCustodyCeremonySurface {
     prepared: PreparedWalletRecovery;
     custodyJson: string;
     recoveryCodeBytes: Uint8Array;
-    replacementCredentialIdB64u: WebAuthnCredentialIdB64u;
-    replacementFactorSecret: ArrayBuffer;
+    replacementFactor: WalletRecoveryReplacementFactorInput;
+    recoveryChallengeId: string;
     relayUrl: string;
   }): Promise<RecoveredWalletCustodyManifestV1>;
 
@@ -941,9 +944,22 @@ export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurfac
 
 export type WalletRecoverySigningSurface = AccountSyncSigningSurface &
   Ed25519YaoCapabilityActivationSurface &
+  EmailOtpRegistrationEnrollmentSurface &
   WebAuthnRegistrationConfirmationSurface &
-  Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
-  Pick<EcdsaRegistrationSurface, 'storeWalletEcdsaRecoverySignerRecords'>;
+  Pick<
+    RegistrationAccountSurface,
+    | 'storeWalletEd25519RecoveryRegistrationData'
+    | 'storeWalletEmailOtpEd25519RegistrationData'
+    | 'upsertEd25519YaoPublicCapabilityReference'
+  > &
+  Pick<
+    EcdsaRegistrationSurface,
+    'storeWalletEcdsaRecoverySignerRecords' | 'storeWalletEmailOtpEcdsaRegistrationData'
+  > &
+  Pick<
+    EmailOtpRegistrationEnrollmentSurface,
+    'prepareEmailOtpRegistrationEnrollmentMaterialInternal'
+  >;
 
 export type WalletRecoveryWebContext = SeamsWebBaseContext<WalletRecoverySigningSurface>;
 

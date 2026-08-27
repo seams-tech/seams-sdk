@@ -184,6 +184,8 @@ const ROUTER_AB_ED25519_YAO_EXPORT_PATHS = [
 
 const ROUTER_AB_WALLET_BUDGET_STATUS_PATH = '/wallet/session/status';
 const ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH = '/wallets/recovery/finalize';
+const ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH =
+  '/wallets/recovery/google-email-otp/finalize';
 
 type IntendedHarnessConfig = {
   appUrl: string;
@@ -2622,7 +2624,8 @@ export class IntendedBehaviourHarness {
     }
     if (
       url.origin !== new URL(this.config.routerUrl).origin ||
-      url.pathname !== ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH
+      (url.pathname !== ROUTER_AB_WALLET_RECOVERY_FINALIZE_PATH &&
+        url.pathname !== ROUTER_AB_WALLET_RECOVERY_GOOGLE_EMAIL_OTP_FINALIZE_PATH)
     ) {
       return;
     }
@@ -2966,7 +2969,7 @@ export const intendedTest = base.extend<{
 
 function intendedHarnessConfigFromEnv(): IntendedHarnessConfig {
   return {
-    appUrl: process.env.SEAMS_INTENDED_APP_URL || 'https://localhost',
+    appUrl: process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001',
     routerUrl: process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4101',
     walletOrigin: process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002',
     projectEnvironmentId: process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env',
@@ -5249,30 +5252,36 @@ async function fillWalletIframeEmailOtpIfAvailable(
 ): Promise<boolean> {
   const timeoutMs = Math.max(50, Math.floor(opts?.timeoutMs ?? 500));
   const input = frame
-    .locator('#email-otp-confirm-code, #drawer-email-otp-confirm-code, #w3a-auth-menu-google-otp')
+    .locator(
+      '#email-otp-confirm-code, #drawer-email-otp-confirm-code, #w3a-auth-menu-google-otp, #w3a-recovery-google-otp',
+    )
     .first();
   const visible = await input
     .waitFor({ state: 'visible', timeout: timeoutMs })
     .then(() => true)
     .catch(() => false);
   if (!visible) return false;
+  const currentValue = await input.inputValue().catch(() => '');
+  if (/^\d{6}$/.test(currentValue)) return true;
   recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstOtpInputVisibleMs');
-  let challengeId: string | null = null;
+  let otpIdentity: { challengeId: string; walletId: string } | null = null;
   try {
-    challengeId = await input.evaluate(readWalletIframeEmailOtpChallengeId);
+    otpIdentity = await input.evaluate(readWalletIframeEmailOtpIdentity);
   } catch (error) {
     if (opts?.diagnostics) {
       opts.diagnostics.lastOtpError = `challenge probe failed: ${compactUnknownErrorForDiagnostics(error)}`;
     }
   }
-  const walletId = await page.getByTestId('intended-e2e-page').getAttribute('data-wallet-id');
+  const walletId =
+    otpIdentity?.walletId ||
+    (await page.getByTestId('intended-e2e-page').getAttribute('data-wallet-id'));
   if (!walletId) {
     throw new Error('Email OTP auto-confirm requires current intended wallet id');
   }
-  const otpLookup: IntendedEmailOtpCodeRequestForPage = challengeId
+  const otpLookup: IntendedEmailOtpCodeRequestForPage = otpIdentity
     ? {
         kind: 'challenge',
-        challengeId,
+        challengeId: otpIdentity.challengeId,
         walletId,
       }
     : {
@@ -5291,7 +5300,7 @@ async function fillWalletIframeEmailOtpIfAvailable(
     }
     return false;
   }
-  if (!challengeId && opts?.diagnostics) {
+  if (!otpIdentity && opts?.diagnostics) {
     opts.diagnostics.otpChallengeMissing = true;
   }
   recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstOtpCodeResolvedMs');
@@ -5307,6 +5316,13 @@ async function fillWalletIframeEmailOtpIfAvailable(
     opts.diagnostics.otpFilled = true;
   }
   recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstOtpFillDispatchMs');
+  const recoveryOtp = frame.locator('#w3a-recovery-google-otp').first();
+  if (await recoveryOtp.isVisible().catch(() => false)) {
+    await frame.locator('[data-auth-menu-primary]').first().click({ timeout: timeoutMs });
+    if (opts?.diagnostics) {
+      opts.diagnostics.clicked = true;
+    }
+  }
   return true;
 }
 
@@ -5315,24 +5331,12 @@ function compactUnknownErrorForDiagnostics(error: unknown): string {
   return text.replace(/\s+/g, ' ').slice(0, 300);
 }
 
-function readWalletIframeEmailOtpChallengeId(anchor: Element): string | null {
-  const roots: Array<Document | ShadowRoot> = [anchor.ownerDocument];
-  for (let rootIndex = 0; rootIndex < roots.length; rootIndex += 1) {
-    const root = roots[rootIndex];
-    const elements = Array.from(root.querySelectorAll('*'));
-    for (const element of elements) {
-      const promptElement = element as HTMLElement & {
-        emailOtpPrompt?: { challengeId?: unknown };
-      };
-      const challengeId = String(promptElement.emailOtpPrompt?.challengeId || '').trim();
-      if (challengeId) return challengeId;
-      const shadowRoot = (element as HTMLElement).shadowRoot;
-      if (shadowRoot) {
-        roots.push(shadowRoot);
-      }
-    }
-  }
-  return null;
+function readWalletIframeEmailOtpIdentity(
+  anchor: Element,
+): { challengeId: string; walletId: string } | null {
+  const challengeId = String(anchor.getAttribute('data-email-otp-challenge-id') || '').trim();
+  const walletId = String(anchor.getAttribute('data-email-otp-wallet-id') || '').trim();
+  return challengeId && walletId ? { challengeId, walletId } : null;
 }
 
 async function readIntendedEmailOtpCodeFromPage(

@@ -1,24 +1,35 @@
 import {
   WalletRecoveryCoordinator,
+  type WalletRecoveryEmailOtpVerifiedHandle,
   type WalletRecoveryCredentialCreatedHandle,
+  type WalletRecoveryGoogleVerifiedHandle,
   type WalletRecoveryPreparedHandle,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import type { WalletRecoveryWebContext } from '@/SeamsWeb/signingSurface/ports';
 import type {
+  HostedRecoveryEmailOtpVerified,
   HostedRecoveryCredentialCreated,
   HostedRecoveryFailure,
+  HostedRecoveryFinalizationOperation,
+  HostedRecoveryGoogleVerified,
   HostedRecoveryPort,
   HostedRecoveryPrepared,
   HostedRecoveryTargetKind,
 } from './recovery-port';
-import {
-  parseWebAuthnRpId,
-  type WebAuthnRpId,
-} from '@shared/utils/domainIds';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
+import {
+  finalizeWalletRecoveryGoogleEmailOtp,
+  verifyWalletRecoveryEmailOtp,
+  verifyWalletRecoveryGoogle,
+} from '@/core/rpcClients/relayer/walletRecoveryGoogleEmailOtp';
 
 class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
-  readonly #coordinator = new WalletRecoveryCoordinator();
+  readonly #coordinator = new WalletRecoveryCoordinator({
+    verifyGoogle: verifyWalletRecoveryGoogle,
+    verifyEmailOtp: verifyWalletRecoveryEmailOtp,
+    finalizeEmailOtp: finalizeWalletRecoveryGoogleEmailOtp,
+  });
 
   constructor(
     private readonly context: WalletRecoveryWebContext,
@@ -53,6 +64,14 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
       signal: input.signal,
     });
     if (result.kind !== 'prepared') return result;
+    if (result.target.kind === 'passkey') {
+      return {
+        kind: 'hosted_recovery_prepared',
+        recoveryOperationId: result.recoveryOperationId,
+        walletId: result.walletId,
+        target: result.target,
+      };
+    }
     return {
       kind: 'hosted_recovery_prepared',
       recoveryOperationId: result.recoveryOperationId,
@@ -72,25 +91,97 @@ class CoordinatorHostedRecoveryPort implements HostedRecoveryPort {
     });
   }
 
-  async finalize(operation: HostedRecoveryCredentialCreated): Promise<
+  async verifyGoogle(
+    operation: HostedRecoveryPrepared,
+    idToken: string,
+  ): Promise<HostedRecoveryGoogleVerified | HostedRecoveryFailure> {
+    const result = await this.#coordinator.verifyGoogle({
+      relayUrl: this.relayUrl,
+      operation: {
+        kind: 'prepared',
+        recoveryOperationId: operation.recoveryOperationId,
+        walletId: operation.walletId,
+        target: operation.target,
+      },
+      idToken,
+    });
+    if (result.kind !== 'google_verified') return result;
+    return {
+      kind: 'hosted_recovery_google_verified',
+      recoveryOperationId: result.recoveryOperationId,
+      walletId: result.walletId,
+      target: result.target,
+      challengeId: result.challengeId,
+      delivery: result.delivery,
+      expiresAtMs: result.expiresAtMs,
+    };
+  }
+
+  async verifyEmailOtp(
+    operation: HostedRecoveryGoogleVerified,
+    input: { readonly challengeId: string; readonly otpCode: string },
+  ): Promise<HostedRecoveryEmailOtpVerified | HostedRecoveryFailure> {
+    const result = await this.#coordinator.verifyEmailOtp({
+      context: this.context,
+      operation: {
+        kind: 'google_verified',
+        recoveryOperationId: operation.recoveryOperationId,
+        walletId: operation.walletId,
+        target: operation.target,
+        challengeId: operation.challengeId,
+        delivery: operation.delivery,
+        expiresAtMs: operation.expiresAtMs,
+      },
+      challengeId: input.challengeId,
+      otpCode: input.otpCode,
+    });
+    if (result.kind !== 'email_otp_verified') return result;
+    return {
+      kind: 'hosted_recovery_email_otp_verified',
+      recoveryOperationId: result.recoveryOperationId,
+      walletId: result.walletId,
+      target: result.target,
+      challengeId: result.challengeId,
+    };
+  }
+
+  async finalize(operation: HostedRecoveryFinalizationOperation): Promise<
     | {
         readonly kind: 'ready_for_sign_in';
         readonly walletId: HostedRecoveryCredentialCreated['walletId'];
       }
     | HostedRecoveryFailure
   > {
+    if (operation.kind === 'hosted_recovery_credential_created') {
+      return await this.#coordinator.finalize({
+        context: this.context,
+        operation: {
+          kind: 'credential_created',
+          recoveryOperationId: operation.recoveryOperationId,
+          walletId: operation.walletId,
+          target: operation.target,
+        },
+      });
+    }
     return await this.#coordinator.finalize({
       context: this.context,
       operation: {
-        kind: 'credential_created',
+        kind: 'email_otp_verified',
         recoveryOperationId: operation.recoveryOperationId,
         walletId: operation.walletId,
         target: operation.target,
+        challengeId: operation.challengeId,
       },
     });
   }
 
-  async cancel(operation: HostedRecoveryPrepared | HostedRecoveryCredentialCreated): Promise<void> {
+  async cancel(
+    operation:
+      | HostedRecoveryPrepared
+      | HostedRecoveryCredentialCreated
+      | HostedRecoveryGoogleVerified
+      | HostedRecoveryEmailOtpVerified,
+  ): Promise<void> {
     this.#coordinator.cancel(operation.recoveryOperationId);
   }
 

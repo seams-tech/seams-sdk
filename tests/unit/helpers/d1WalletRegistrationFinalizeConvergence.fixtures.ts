@@ -718,10 +718,14 @@ function buildCeremony(input: {
     ...TEST_SCOPE,
     signingRootVersion: 'root-finalize-v1',
   };
+  const foundingWalletAuthMethodId = parsedDomainValue(
+    parseWalletAuthMethodId('wallet-auth-method:registration-finalize-convergence'),
+  );
   const intent = buildRegistrationIntent({
     walletId: input.walletId,
     authMethod: { kind: 'passkey', rpId: testRpId() },
     signerSelection,
+    foundingWalletAuthMethodId,
     runtimePolicyScope,
   });
   return {
@@ -732,9 +736,7 @@ function buildCeremony(input: {
     foundingDeviceId: parsedDomainValue(
       parseDeviceId('device:registration-finalize-convergence'),
     ),
-    foundingWalletAuthMethodId: parsedDomainValue(
-      parseWalletAuthMethodId('wallet-auth-method:registration-finalize-convergence'),
-    ),
+    foundingWalletAuthMethodId,
     intent,
     digestB64u: 'finalize-convergence-intent-digest',
     signerPlan: signerPlan.value,
