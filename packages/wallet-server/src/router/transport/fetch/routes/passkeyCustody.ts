@@ -1223,9 +1223,8 @@ export async function handleWalletRecoveryFinalize(
         body: {
           ok: true,
           storeVersion: result.storeVersion,
-          credential: result.credential,
-          walletAuthMethodId: result.walletAuthMethodId,
-          walletAuthorityId: result.walletAuthorityId,
+          authority: result.authority,
+          authMethod: result.authMethod,
         },
       });
     case 'conflict':

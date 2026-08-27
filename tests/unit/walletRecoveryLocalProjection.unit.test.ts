@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
@@ -13,7 +16,20 @@ const WALLET_ID = 'alice.testnet';
 const RP_ID = 'wallet.example.localhost';
 const NEAR_ACCOUNT_ID = 'recovery-alice.testnet';
 const SOURCE_CREDENTIAL_ID_B64U = 'c291cmNl';
-const REPLACEMENT_CREDENTIAL_ID_B64U = 'cmVwbGFjZW1lbnQ';
+
+async function recoveryAuthorityProjectionFixture(label: string) {
+  return await buildLinkedDeviceManagementAuthorityFixture({
+    label,
+    permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
+    provenance: 'wallet_registration',
+    identity: {
+      walletId: WALLET_ID,
+      authorityId: 'wallet-authority:recovery',
+      walletAuthMethodId: 'wallet-auth-method:replacement',
+      rpId: RP_ID,
+    },
+  });
+}
 
 test.describe('wallet recovery local continuity', () => {
   test.beforeEach(async ({ page }) => {
@@ -23,13 +39,14 @@ test.describe('wallet recovery local continuity', () => {
   test('replaces the exact local passkey auth-method projection after durable NEAR continuity', async ({
     page,
   }) => {
+    const projection = await recoveryAuthorityProjectionFixture('recovery-near');
     const result = await page.evaluate(
       async ({
         paths,
         walletId,
         rpId,
         sourceCredentialId,
-        replacementCredentialId,
+        projection,
         nearAccountId,
       }) => {
         const { IndexedDBManager, createSeamsTestWalletDbName, seamsWalletDB } = await import(
@@ -93,14 +110,12 @@ test.describe('wallet recovery local continuity', () => {
 
         await persistRecoveredPasskeyAuthMethodProjectionV1({
           kind: 'near',
-          walletId,
-          walletAuthMethodId: 'wallet-auth-method:replacement',
-          walletAuthorityId: 'wallet-authority:recovery',
-          rpId,
-          credentialIdB64u: replacementCredentialId,
-          credentialPublicKeyB64u: 'BAUG',
-          counter: 0,
-          credential: { id: replacementCredentialId, rawId: replacementCredentialId },
+          authority: projection.authority,
+          authMethod: projection.authMethod,
+          credential: {
+            id: projection.authMethod.credentialIdB64u,
+            rawId: projection.authMethod.credentialIdB64u,
+          },
         });
 
         const profile = await IndexedDBManager.getProfile(walletId);
@@ -108,6 +123,11 @@ test.describe('wallet recovery local continuity', () => {
         const authenticators = await IndexedDBManager.listProfileAuthenticators(walletId);
         const methods = await IndexedDBManager.listWalletAuthMethodsForWallet(walletId);
         const methodsV2 = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(walletId);
+        const selections = await IndexedDBManager.listWalletSelections();
+        const authority = await IndexedDBManager.getWalletAuthority(
+          projection.authority.authorityId,
+        );
+        const resolvedAuthority = await IndexedDBManager.resolveSelectedWalletAuthority(walletId);
         const signers = await IndexedDBManager.listAccountSignersByProfile({
           profileId: nearProfileId,
         });
@@ -134,6 +154,9 @@ test.describe('wallet recovery local continuity', () => {
             credentialIdB64u: method.kind === 'passkey' ? method.credentialIdB64u : null,
             status: method.status,
           })),
+          selections,
+          authority,
+          resolvedAuthorityKind: resolvedAuthority.kind,
           signers: signers.map((signer) => ({
             signerId: signer.signerId,
             signerSlot: signer.signerSlot,
@@ -146,7 +169,7 @@ test.describe('wallet recovery local continuity', () => {
         walletId: WALLET_ID,
         rpId: RP_ID,
         sourceCredentialId: SOURCE_CREDENTIAL_ID_B64U,
-        replacementCredentialId: REPLACEMENT_CREDENTIAL_ID_B64U,
+        projection,
         nearAccountId: NEAR_ACCOUNT_ID,
       },
     );
@@ -172,8 +195,10 @@ test.describe('wallet recovery local continuity', () => {
     expect(result.authenticators[0]).toMatchObject({
       profileId: WALLET_ID,
       signerSlot: 3,
-      credentialId: REPLACEMENT_CREDENTIAL_ID_B64U,
-      credentialPublicKey: [4, 5, 6],
+      credentialId: projection.authMethod.credentialIdB64u,
+      credentialPublicKey: Array.from(
+        base64UrlDecode(projection.authMethod.credentialPublicKeyB64u),
+      ),
     });
     expect(result.methods).toEqual(
       expect.arrayContaining([
@@ -184,8 +209,8 @@ test.describe('wallet recovery local continuity', () => {
           status: 'revoked',
         },
         {
-          credentialIdB64u: REPLACEMENT_CREDENTIAL_ID_B64U,
-          credentialPublicKeyB64u: 'BAUG',
+          credentialIdB64u: projection.authMethod.credentialIdB64u,
+          credentialPublicKeyB64u: projection.authMethod.credentialPublicKeyB64u,
           counter: 0,
           status: 'active',
         },
@@ -195,8 +220,25 @@ test.describe('wallet recovery local continuity', () => {
       {
         walletAuthMethodId: 'wallet-auth-method:replacement',
         walletAuthorityId: 'wallet-authority:recovery',
-        credentialIdB64u: REPLACEMENT_CREDENTIAL_ID_B64U,
+        credentialIdB64u: projection.authMethod.credentialIdB64u,
         status: 'active',
+      },
+    ]);
+    expect(result.authority).toMatchObject({
+      authorityId: projection.authority.authorityId,
+      walletId: projection.authority.walletId,
+      authorityDigestB64u: projection.authority.authorityDigestB64u,
+      state: 'active',
+    });
+    expect(result.resolvedAuthorityKind).toBe('resolved');
+    expect(result.selections).toEqual([
+      {
+        kind: 'wallet_selection_v1',
+        walletId: WALLET_ID,
+        walletAuthMethodId: 'wallet-auth-method:replacement',
+        lockGeneration: 0,
+        lockState: 'locked',
+        updatedAtMs: expect.any(Number),
       },
     ]);
     expect(result.signers).toEqual(
@@ -254,8 +296,9 @@ test.describe('wallet recovery local continuity', () => {
   });
 
   test('creates the ECDSA-only wallet projection on a fresh browser', async ({ page }) => {
+    const projection = await recoveryAuthorityProjectionFixture('recovery-wallet-only');
     const result = await page.evaluate(
-      async ({ paths, walletId, rpId, replacementCredentialId }) => {
+      async ({ paths, walletId, projection }) => {
         const { IndexedDBManager, createSeamsTestWalletDbName, seamsWalletDB } = await import(
           paths.indexedDB
         );
@@ -269,21 +312,24 @@ test.describe('wallet recovery local continuity', () => {
 
         await persistRecoveredPasskeyAuthMethodProjectionV1({
           kind: 'wallet_only',
-          walletId,
-          walletAuthMethodId: 'wallet-auth-method:replacement',
-          walletAuthorityId: 'wallet-authority:recovery',
+          authority: projection.authority,
+          authMethod: projection.authMethod,
           signerSlot: 1,
-          rpId,
-          credentialIdB64u: replacementCredentialId,
-          credentialPublicKeyB64u: 'BAUG',
-          counter: 0,
-          credential: { id: replacementCredentialId, rawId: replacementCredentialId },
+          credential: {
+            id: projection.authMethod.credentialIdB64u,
+            rawId: projection.authMethod.credentialIdB64u,
+          },
         });
 
         const profile = await IndexedDBManager.getProfile(walletId);
         const authenticators = await IndexedDBManager.listProfileAuthenticators(walletId);
         const methods = await IndexedDBManager.listWalletAuthMethodsForWallet(walletId);
         const methodsV2 = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(walletId);
+        const selections = await IndexedDBManager.listWalletSelections();
+        const authority = await IndexedDBManager.getWalletAuthority(
+          projection.authority.authorityId,
+        );
+        const resolvedAuthority = await IndexedDBManager.resolveSelectedWalletAuthority(walletId);
         return {
           profile,
           authenticators: authenticators.map((authenticator) => ({
@@ -305,13 +351,15 @@ test.describe('wallet recovery local continuity', () => {
             credentialIdB64u: method.kind === 'passkey' ? method.credentialIdB64u : null,
             status: method.status,
           })),
+          selections,
+          authority,
+          resolvedAuthorityKind: resolvedAuthority.kind,
         };
       },
       {
         paths: IMPORT_PATHS,
         walletId: WALLET_ID,
-        rpId: RP_ID,
-        replacementCredentialId: REPLACEMENT_CREDENTIAL_ID_B64U,
+        projection,
       },
     );
 
@@ -319,21 +367,23 @@ test.describe('wallet recovery local continuity', () => {
       profileId: WALLET_ID,
       defaultSignerSlot: 1,
       passkeyCredential: {
-        id: REPLACEMENT_CREDENTIAL_ID_B64U,
-        rawId: REPLACEMENT_CREDENTIAL_ID_B64U,
+        id: projection.authMethod.credentialIdB64u,
+        rawId: projection.authMethod.credentialIdB64u,
       },
     });
     expect(result.authenticators).toHaveLength(1);
     expect(result.authenticators[0]).toMatchObject({
       profileId: WALLET_ID,
       signerSlot: 1,
-      credentialId: REPLACEMENT_CREDENTIAL_ID_B64U,
-      credentialPublicKey: [4, 5, 6],
+      credentialId: projection.authMethod.credentialIdB64u,
+      credentialPublicKey: Array.from(
+        base64UrlDecode(projection.authMethod.credentialPublicKeyB64u),
+      ),
     });
     expect(result.methods).toEqual([
       {
-        credentialIdB64u: REPLACEMENT_CREDENTIAL_ID_B64U,
-        credentialPublicKeyB64u: 'BAUG',
+        credentialIdB64u: projection.authMethod.credentialIdB64u,
+        credentialPublicKeyB64u: projection.authMethod.credentialPublicKeyB64u,
         counter: 0,
         status: 'active',
       },
@@ -342,8 +392,25 @@ test.describe('wallet recovery local continuity', () => {
       {
         walletAuthMethodId: 'wallet-auth-method:replacement',
         walletAuthorityId: 'wallet-authority:recovery',
-        credentialIdB64u: REPLACEMENT_CREDENTIAL_ID_B64U,
+        credentialIdB64u: projection.authMethod.credentialIdB64u,
         status: 'active',
+      },
+    ]);
+    expect(result.authority).toMatchObject({
+      authorityId: projection.authority.authorityId,
+      walletId: projection.authority.walletId,
+      authorityDigestB64u: projection.authority.authorityDigestB64u,
+      state: 'active',
+    });
+    expect(result.resolvedAuthorityKind).toBe('resolved');
+    expect(result.selections).toEqual([
+      {
+        kind: 'wallet_selection_v1',
+        walletId: WALLET_ID,
+        walletAuthMethodId: 'wallet-auth-method:replacement',
+        lockGeneration: 0,
+        lockState: 'locked',
+        updatedAtMs: expect.any(Number),
       },
     ]);
   });

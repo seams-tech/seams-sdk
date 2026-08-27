@@ -12,14 +12,16 @@ import {
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { WalletRecoveryAttemptFailure } from './walletRecoveryPrepare';
 import {
-  parseWalletAuthMethodId,
-  parseWalletAuthorityId,
-  parseWebAuthnCredentialIdB64u,
-  type WalletAuthMethodId,
-  type WalletAuthorityId,
-  type WebAuthnCredentialIdB64u,
+  parseWalletId,
 } from '@shared/utils/domainIds';
-import { base64UrlDecode } from '@shared/utils/encoders';
+import {
+  parseWalletAuthMethodRecordV2,
+  type WalletAuthMethodRecordV2,
+} from '@shared/utils/registrationIntent';
+import {
+  parseWalletAuthorityV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
 
 /**
  * Installing the replacement credential a recovery enrolled.
@@ -44,13 +46,11 @@ export type WalletRecoveryFinalizeResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
-      readonly walletAuthMethodId: WalletAuthMethodId;
-      readonly walletAuthorityId: WalletAuthorityId;
-      readonly credential: {
-        readonly credentialIdB64u: WebAuthnCredentialIdB64u;
-        readonly credentialPublicKeyB64u: string;
-        readonly counter: number;
-      };
+      readonly authority: ActiveWalletAuthorityV1;
+      readonly authMethod: Extract<
+        WalletAuthMethodRecordV2,
+        { readonly kind: 'passkey'; readonly status: 'active' }
+      >;
     }
   | WalletRecoveryAttemptFailure;
 
@@ -141,43 +141,32 @@ export async function finalizeWalletRecovery(args: {
     try {
       rejectUnknownFields(
         body,
-        ['ok', 'storeVersion', 'credential', 'walletAuthMethodId', 'walletAuthorityId'],
+        ['ok', 'storeVersion', 'authority', 'authMethod'],
         'walletRecoveryFinalize',
       );
       const storeVersion = String(body.storeVersion || '').trim();
       if (!storeVersion) throw new Error('missing store version');
-      const walletAuthMethodId = parseWalletAuthMethodId(body.walletAuthMethodId);
-      if (!walletAuthMethodId.ok) throw new Error('missing replacement auth-method id');
-      const walletAuthorityId = parseWalletAuthorityId(body.walletAuthorityId);
-      if (!walletAuthorityId.ok) throw new Error('missing replacement wallet authority id');
-      if (!isRecord(body.credential)) throw new Error('missing replacement credential');
-      rejectUnknownFields(
-        body.credential,
-        ['credentialIdB64u', 'credentialPublicKeyB64u', 'counter'],
-        'walletRecoveryFinalize.credential',
-      );
-      const credentialId = parseWebAuthnCredentialIdB64u(body.credential.credentialIdB64u);
-      const credentialPublicKeyB64u = String(body.credential.credentialPublicKeyB64u || '').trim();
-      const counter = body.credential.counter;
-      if (!credentialId.ok || !credentialPublicKeyB64u) {
-        throw new Error('missing replacement credential material');
-      }
-      if (base64UrlDecode(credentialPublicKeyB64u).byteLength === 0) {
-        throw new Error('empty replacement credential public key');
-      }
-      if (!Number.isSafeInteger(counter) || Number(counter) < 0) {
-        throw new Error('invalid replacement credential counter');
+      const authority = parseWalletAuthorityV1(body.authority);
+      const authMethod = parseWalletAuthMethodRecordV2(body.authMethod);
+      const walletId = parseWalletId(args.walletId);
+      if (
+        !walletId.ok ||
+        !authority.ok ||
+        authority.value.state !== 'active' ||
+        !authMethod ||
+        authMethod.kind !== 'passkey' ||
+        authMethod.status !== 'active' ||
+        authority.value.walletId !== walletId.value ||
+        authMethod.walletId !== authority.value.walletId ||
+        authMethod.walletAuthorityId !== authority.value.authorityId
+      ) {
+        throw new Error('recovery authority projection is invalid');
       }
       return {
         kind: 'promoted',
         storeVersion,
-        walletAuthMethodId: walletAuthMethodId.value,
-        walletAuthorityId: walletAuthorityId.value,
-        credential: {
-          credentialIdB64u: credentialId.value,
-          credentialPublicKeyB64u,
-          counter: Number(counter),
-        },
+        authority: authority.value,
+        authMethod,
       };
     } catch {
       return { kind: 'transport_uncertain' };

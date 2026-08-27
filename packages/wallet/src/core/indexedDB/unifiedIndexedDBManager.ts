@@ -51,6 +51,7 @@ import {
   type LocalAuthorityActivationFinalizationInputV1,
   type LocalAuthorityActivationFinalizationResultV1,
   type WalletLockGenerationAdvanceInputV1,
+  type RecoveredWalletAuthorityProjectionInputV1,
   type ResolveSelectedWalletAuthorityResultV1,
 } from './seamsWalletDB/repositories';
 
@@ -449,6 +450,12 @@ export class UnifiedIndexedDBManager {
     readonly unlockedAtMs: number;
   }): Promise<void> {
     await this.seamsWalletRepositories.markWalletSelectionUnlocked(input);
+  }
+
+  async persistRecoveredWalletAuthority(
+    input: RecoveredWalletAuthorityProjectionInputV1,
+  ): Promise<void> {
+    await this.seamsWalletRepositories.persistRecoveredWalletAuthority(input);
   }
 
   async getLocalAuthorityInstallationReceipt(
