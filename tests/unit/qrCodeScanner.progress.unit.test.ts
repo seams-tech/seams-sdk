@@ -199,27 +199,19 @@ test.describe('QRCodeScanner progress state', () => {
     await expect(page.locator('.qr-scanner-modal')).toBeVisible();
   });
 
-  test('morphs into polite progress and restores a minimized status', async ({ page }) => {
+  test('morphs into a focused progress card after scanning', async ({ page }) => {
     await detectValidQr(page);
 
     await expect(page.getByRole('status')).toHaveText('Continue linking on your other device.');
     await expect(page.getByRole('button', { name: 'Cancel linking' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Minimize' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Minimize' })).toHaveCount(0);
+    await expect(page.locator('.qr-scanner-progress-dots span')).toHaveCount(3);
     await expect(page.locator('video')).toHaveCount(0);
     await expect(page.locator('.qr-scanner-modal')).toHaveAttribute('role', 'region');
+    await expect(page.locator('#qr-scanner-progress-title')).toBeFocused();
 
     const stopCalls = await page.evaluate(() => globalThis.__qrScannerHarness.stopCalls);
     expect(stopCalls).toBeGreaterThan(0);
-
-    await page.getByRole('button', { name: 'Minimize' }).click();
-    await expect(page.locator('.qr-scanner-linking-toast')).toBeVisible();
-    await expect(page.locator('.qr-scanner-modal')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Restore linking' })).toBeFocused();
-
-    await page.getByRole('button', { name: 'Restore linking' }).click();
-    await expect(page.locator('.qr-scanner-modal')).toBeVisible();
-    await expect(page.getByText('Continue linking on your other device.')).toBeVisible();
-    await expect(page.locator('#qr-scanner-progress-title')).toBeFocused();
   });
 
   test('cancel linking invokes owner abort and returns focus to the opener', async ({ page }) => {
@@ -228,7 +220,6 @@ test.describe('QRCodeScanner progress state', () => {
 
     await page.getByRole('button', { name: 'Cancel linking' }).first().click();
     await expect(page.locator('.qr-scanner-modal')).toHaveCount(0);
-    await expect(page.locator('.qr-scanner-linking-toast')).toHaveCount(0);
     await expect(page.locator('#qr-scanner-opener')).toBeFocused();
 
     const state = await page.evaluate(() => ({
