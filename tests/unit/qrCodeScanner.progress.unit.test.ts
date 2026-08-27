@@ -212,6 +212,9 @@ test.describe('QRCodeScanner progress state', () => {
     await expect(page.getByRole('button', { name: 'Cancel linking' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Minimize' })).toHaveCount(0);
     await expect(page.locator('.qr-scanner-progress-dots span')).toHaveCount(3);
+    await expect(
+      page.locator('#qr-scanner-progress-title + .qr-scanner-progress-dots'),
+    ).toBeVisible();
     await expect(page.locator('video')).toHaveCount(0);
     await expect(page.locator('.qr-scanner-modal')).toHaveAttribute('role', 'region');
     await expect(page.locator('#qr-scanner-progress-title')).toBeFocused();

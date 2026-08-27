@@ -2082,6 +2082,22 @@ export class AuthMenuSession {
         }
         break;
       case 'cancelled':
+        this.targetPasskeyActivation = null;
+        this.targetEmailOtpActivation = null;
+        this.linkedDeviceEmailOtpSendStarted = false;
+        this.stateValue = {
+          ...state,
+          viewModel: {
+            ...state.viewModel,
+            linkDevice: {
+              kind: 'cancelled',
+              message:
+                'The other device cancelled this linking request. Return to sign in to try again.',
+            },
+          },
+        };
+        this.updateElement();
+        return;
       case 'pending':
         break;
       default:

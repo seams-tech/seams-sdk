@@ -1233,6 +1233,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     }
     if (linkDevice.kind === 'activating') return this.renderLinkedDeviceActivation(linkDevice);
     if (linkDevice.kind === 'expired') return this.renderLinkDeviceExpired(linkDevice);
+    if (linkDevice.kind === 'cancelled') return this.renderLinkDeviceCancelled(linkDevice);
     if (linkDevice.kind === 'error' || linkDevice.kind === 'activation_error') {
       return this.renderLinkDeviceFailure(linkDevice);
     }
@@ -1518,6 +1519,27 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           @click=${this.onBackClick}
         >
           Try again
+        </button>
+      </div>
+    `;
+  }
+
+  private renderLinkDeviceCancelled(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'cancelled' }>,
+  ): TemplateResult {
+    return html`
+      <div class="w3a-link-device-confirmation w3a-link-device-failure">
+        <div class="w3a-link-device-failure-icon">${linkFailedIcon()}</div>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Linking cancelled</h2>
+        <p class="w3a-link-device-failure-detail" role="alert">${linkDevice.message}</p>
+        <button
+          class="w3a-link-device-btn"
+          type="button"
+          data-auth-menu-primary
+          data-link-device-cancelled-dismiss
+          @click=${this.onBackClick}
+        >
+          Return to sign in
         </button>
       </div>
     `;

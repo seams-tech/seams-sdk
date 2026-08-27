@@ -292,6 +292,30 @@ test.describe('wallet-host Lit auth menu surface', () => {
     expect(reflow.scrollWidth).toBeLessThanOrEqual(reflow.clientWidth);
   });
 
+  test('centers the recovery header across the card at full width', async ({ page }) => {
+    await page.setViewportSize({ width: 420, height: 720 });
+    await mountAuthMenu(page, recoveryEntryViewModel());
+
+    const geometry = await page.locator(`${AUTH_MENU_TAG} .w3a-header`).evaluate((header) => {
+      const root = header.closest('.w3a-signup-menu-root');
+      const title = header.querySelector('.w3a-title');
+      const subhead = header.querySelector('.w3a-subhead');
+      const center = (element: Element): number => {
+        const rect = element.getBoundingClientRect();
+        return rect.left + rect.width / 2;
+      };
+      if (!root || !title || !subhead) throw new Error('Recovery header geometry is incomplete');
+      return {
+        cardCenter: center(root),
+        titleCenter: center(title),
+        subheadCenter: center(subhead),
+      };
+    });
+
+    expect(Math.abs(geometry.titleCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.subheadCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
+  });
+
   test('locks Back and Escape while recovery finalization is irreversible', async ({ page }) => {
     await mountAuthMenu(page, recoveryFinalizingViewModel());
     await page.evaluate((tagName) => {
