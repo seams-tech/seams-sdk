@@ -39,6 +39,7 @@ type IntendedActionName =
   | 'awaitNearReady'
   | 'syncPasskeyWallet'
   | 'recoverPasskeyWallet'
+  | 'recoverGoogleEmailOtpWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -391,6 +392,13 @@ type PasskeyRecoveryResultSummary = {
   totalRecoveryCodeCount: number;
 };
 
+type GoogleEmailOtpRecoveryResultSummary = {
+  kind: 'google_email_otp_recovery_success';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
 type IntendedActionResult =
   | PasskeyRegistrationResultSummary
   | Ed25519AddSignerResultSummary
@@ -399,6 +407,7 @@ type IntendedActionResult =
   | EmailOtpRegistrationResultSummary
   | NearProvisioningReadySummary
   | PasskeyRecoveryResultSummary
+  | GoogleEmailOtpRecoveryResultSummary
   | NearSigningResultSummary
   | PasskeySyncResultSummary
   | PasskeyUnlockResultSummary
@@ -746,6 +755,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-recover-google-email-otp"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runRecoverGoogleEmailOtpWallet}
+            style={buttonStyle}
+          >
+            Recover Google Email OTP
+          </button>
+          <button
+            type="button"
             data-testid="intended-unlock-passkey"
             disabled={state.action.status === 'running'}
             onClick={controller.runUnlockPasskeyWallet}
@@ -911,6 +929,10 @@ class IntendedPageController {
 
   runRecoverPasskeyWallet = (): void => {
     void this.recoverPasskeyWallet();
+  };
+
+  runRecoverGoogleEmailOtpWallet = (): void => {
+    void this.recoverGoogleEmailOtpWallet();
   };
 
   runUnlockEmailOtpWallet = (): void => {
@@ -1646,6 +1668,60 @@ class IntendedPageController {
     }
   }
 
+  private async recoverGoogleEmailOtpWallet(): Promise<void> {
+    const action: IntendedActionName = 'recoverGoogleEmailOtpWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-google-email-otp-recovery-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) {
+        throw new Error('Google Email OTP recovery auth-menu identity is invalid');
+      }
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-recover-google-email-otp"]',
+      );
+      if (!anchorElement) throw new Error('Google Email OTP recovery anchor is unavailable');
+      const outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: ['google'],
+        }),
+        anchorElement,
+      );
+      if (outcome.kind !== 'authenticated') {
+        throw new Error(`Google Email OTP recovery ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId || outcome.method !== 'google_email_otp') {
+        throw new Error('Google Email OTP recovery returned the wrong wallet or auth method');
+      }
+      await this.refreshLoginState(String(outcome.walletId));
+      const recoveryStatus = await this.seams.recovery.getWalletRecoveryCodeStatus({
+        walletId: String(outcome.walletId),
+      });
+      if (recoveryStatus.kind !== 'ready') {
+        throw new Error(`Recovery-code status is ${recoveryStatus.kind}`);
+      }
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'google_email_otp_recovery_success',
+          walletId: String(outcome.walletId),
+          activeRecoveryCodeCount: recoveryStatus.activeCodeCount,
+          totalRecoveryCodeCount: recoveryStatus.totalCodeCount,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
   private async unlockEmailOtpWallet(): Promise<void> {
     const action: IntendedActionName = 'unlockEmailOtpWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -2146,6 +2222,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'passkey_unlock_success':
     case 'passkey_sync_success':
     case 'passkey_recovery_success':
+    case 'google_email_otp_recovery_success':
     case 'email_otp_unlock_success':
     case 'added_email_otp_unlock_success':
     case 'revoke_auth_method_success':
@@ -2182,6 +2259,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'arc_evm_sign_success':
     case 'ecdsa_export_success':
     case 'passkey_recovery_success':
+    case 'google_email_otp_recovery_success':
       return null;
     default:
       return assertNever(result);
@@ -2204,6 +2282,7 @@ function intendedActionResultNearSignerSlot(
     case 'passkey_unlock_success':
     case 'passkey_sync_success':
     case 'passkey_recovery_success':
+    case 'google_email_otp_recovery_success':
     case 'email_otp_unlock_success':
     case 'added_email_otp_unlock_success':
     case 'revoke_auth_method_success':
