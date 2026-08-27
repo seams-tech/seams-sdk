@@ -1,5 +1,6 @@
 import type { AppearanceConfig } from '@/core/types/seams';
 import type { AuthMenuRecoveryViewModel } from './auth-menu-domain';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 declare const appearance: AppearanceConfig;
 
@@ -21,6 +22,7 @@ const recoveryCommon = {
 const preparing: AuthMenuRecoveryViewModel = {
   ...recoveryCommon,
   stage: 'preparing',
+  target: { kind: 'google_email_otp', googleProvider: 'google' } satisfies WalletRecoveryTargetV1,
   status: { kind: 'busy', headline: 'Checking recovery code…' },
 };
 

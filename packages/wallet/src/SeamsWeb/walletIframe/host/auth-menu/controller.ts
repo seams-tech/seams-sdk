@@ -43,7 +43,9 @@ import type {
   HostedRecoveryFailure,
   HostedRecoveryPort,
   HostedRecoveryPrepared,
+  HostedRecoveryTargetKind,
 } from '../recovery-port';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 type GetSeamsWeb = () => SeamsWeb;
 
@@ -61,8 +63,16 @@ class LazyHostedRecoveryPort implements HostedRecoveryPort {
 
   constructor(private readonly getSeamsWeb: GetSeamsWeb) {}
 
+  targetFor(kind: HostedRecoveryTargetKind): WalletRecoveryTargetV1 {
+    if (kind === 'google_email_otp') return { kind, googleProvider: 'google' };
+    const rpId = parseWebAuthnRpId(this.getSeamsWeb().getContext().signingEngine.getRpId());
+    if (!rpId.ok) throw new Error(`wallet recovery RP ID ${rpId.error.message}`);
+    return { kind, rpId: rpId.value };
+  }
+
   async prepare(input: {
     readonly recoveryCode: string;
+    readonly target: WalletRecoveryTargetV1;
     readonly signal: AbortSignal;
   }): Promise<HostedRecoveryPrepared | HostedRecoveryFailure> {
     return await (await this.port()).prepare(input);

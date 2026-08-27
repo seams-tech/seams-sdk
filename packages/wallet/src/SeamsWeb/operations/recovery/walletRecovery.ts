@@ -25,6 +25,7 @@ import {
   type WalletId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 import {
   walletAuthAuthorityRef,
   type PasskeyWalletAuthAuthority,
@@ -47,12 +48,14 @@ export type WalletRecoveryPreparedHandle = {
   readonly kind: 'prepared';
   readonly recoveryOperationId: string;
   readonly walletId: WalletId;
+  readonly target: WalletRecoveryTargetV1;
 };
 
 export type WalletRecoveryCredentialCreatedHandle = {
   readonly kind: 'credential_created';
   readonly recoveryOperationId: string;
   readonly walletId: WalletId;
+  readonly target: WalletRecoveryTargetV1;
 };
 
 export type WalletRecoveryCoordinatorResult<T> = T | WalletRecoveryAttemptFailure;
@@ -70,6 +73,7 @@ type RecoveryOperationCommon = {
   readonly recoveryOperationId: string;
   readonly walletId: WalletId;
   readonly relayUrl: string;
+  readonly target: WalletRecoveryTargetV1;
   readonly prepared: PreparedWalletRecovery;
   readonly custodyJson: string;
   readonly recoveryCodeBytes: Uint8Array;
@@ -112,8 +116,11 @@ function createReservationId(): RecoveryCodeReservationId {
   );
 }
 
-function pendingPrepareKey(recoveryCodeDigestB64u: string): string {
-  return recoveryCodeDigestB64u;
+function pendingPrepareKey(
+  recoveryCodeDigestB64u: string,
+  target: WalletRecoveryTargetV1,
+): string {
+  return `${target.kind}:${target.kind === 'passkey' ? target.rpId : target.googleProvider}:${recoveryCodeDigestB64u}`;
 }
 
 function zeroizeBuffer(buffer: ArrayBuffer | null): void {
@@ -144,6 +151,7 @@ function credentialCreatedOperation(
     recoveryOperationId: current.recoveryOperationId,
     walletId: current.walletId,
     relayUrl: current.relayUrl,
+    target: current.target,
     prepared: current.prepared,
     custodyJson: current.custodyJson,
     recoveryCodeBytes: current.recoveryCodeBytes,
@@ -160,6 +168,7 @@ function manifestRecoveredOperation(
     recoveryOperationId: current.recoveryOperationId,
     walletId: current.walletId,
     relayUrl: current.relayUrl,
+    target: current.target,
     prepared: current.prepared,
     custodyJson: current.custodyJson,
     recoveryCodeBytes: current.recoveryCodeBytes,
@@ -177,6 +186,7 @@ function promotedPendingContinuityOperation(
     recoveryOperationId: current.recoveryOperationId,
     walletId: current.walletId,
     relayUrl: current.relayUrl,
+    target: current.target,
     prepared: current.prepared,
     custodyJson: current.custodyJson,
     recoveryCodeBytes: current.recoveryCodeBytes,
@@ -340,17 +350,20 @@ export class WalletRecoveryCoordinator {
     readonly context: WalletRecoveryWebContext;
     readonly relayUrl: string;
     readonly recoveryCode: string;
+    readonly target: WalletRecoveryTargetV1;
     readonly signal: AbortSignal;
   }): Promise<WalletRecoveryCoordinatorResult<WalletRecoveryPreparedHandle>> {
     this.#pruneExpired();
+    if (input.signal.aborted) return refused();
+    if (input.target.kind !== 'passkey') return refused();
     const rpId = parseWebAuthnRpId(input.context.signingEngine.getRpId());
-    if (!rpId.ok || input.signal.aborted) return refused();
+    if (!rpId.ok || rpId.value !== input.target.rpId) return refused();
 
     let recoveryCodeBytes: Uint8Array | null = null;
     try {
       recoveryCodeBytes = decodeWalletRecoveryCode(input.recoveryCode);
       const recoveryCodeDigestB64u = base64UrlEncode(await sha256Bytes(recoveryCodeBytes));
-      const retryKey = pendingPrepareKey(recoveryCodeDigestB64u);
+      const retryKey = pendingPrepareKey(recoveryCodeDigestB64u, input.target);
       const pending = this.#pendingPrepareReservations.get(retryKey);
       const reservationId =
         pending?.expiresAtMs && pending.expiresAtMs > Date.now()
@@ -358,7 +371,7 @@ export class WalletRecoveryCoordinator {
           : createReservationId();
       const prepared = await prepareWalletRecoveryWithCode({
         relayUrl: input.relayUrl,
-        rpId: rpId.value,
+        target: input.target,
         recoveryCodeB64u: base64UrlEncode(recoveryCodeBytes),
         reservationId,
       });
@@ -386,6 +399,7 @@ export class WalletRecoveryCoordinator {
         recoveryOperationId,
         walletId: prepared.walletId,
         relayUrl: input.relayUrl,
+        target: input.target,
         prepared,
         custodyJson: buildWalletRecoveryCeremonyCustodyJson({
           walletId: prepared.walletId,
@@ -394,7 +408,12 @@ export class WalletRecoveryCoordinator {
         recoveryCodeBytes,
       });
       recoveryCodeBytes = null;
-      return { kind: 'prepared', recoveryOperationId, walletId: prepared.walletId };
+      return {
+        kind: 'prepared',
+        recoveryOperationId,
+        walletId: prepared.walletId,
+        target: input.target,
+      };
     } catch {
       return refused();
     } finally {
@@ -412,6 +431,9 @@ export class WalletRecoveryCoordinator {
       !current ||
       current.stage !== 'prepared' ||
       current.walletId !== input.operation.walletId ||
+      current.target.kind !== 'passkey' ||
+      input.operation.target.kind !== 'passkey' ||
+      current.target.rpId !== input.operation.target.rpId ||
       this.#credentialPrompts.has(current.recoveryOperationId)
     ) {
       return Promise.resolve({ kind: 'refused' });
@@ -439,7 +461,15 @@ export class WalletRecoveryCoordinator {
   }): Promise<WalletRecoveryFinalizeCoordinatorResult> {
     this.#pruneExpired();
     let current = this.#operations.get(input.operation.recoveryOperationId);
-    if (!current || current.stage === 'prepared' || current.walletId !== input.operation.walletId) {
+    if (
+      !current ||
+      current.stage === 'prepared' ||
+      current.walletId !== input.operation.walletId ||
+      current.target.kind !== input.operation.target.kind ||
+      (current.target.kind === 'passkey' &&
+        input.operation.target.kind === 'passkey' &&
+        current.target.rpId !== input.operation.target.rpId)
+    ) {
       return refused();
     }
 
@@ -534,6 +564,7 @@ export class WalletRecoveryCoordinator {
         kind: 'credential_created',
         recoveryOperationId: next.recoveryOperationId,
         walletId: next.walletId,
+        target: next.target,
       };
     } catch (error: unknown) {
       if (input.promptController.signal.aborted || isCredentialDismissal(error)) {

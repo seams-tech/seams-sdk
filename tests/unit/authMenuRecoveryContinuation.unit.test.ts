@@ -12,6 +12,7 @@ import {
 import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
 import type { AppearanceConfig } from '@/core/types/seams';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
 
@@ -20,16 +21,28 @@ const APPEARANCE = {
   palette: 'default',
 } as const satisfies AppearanceConfig;
 
+const PASSKEY_TARGET = {
+  kind: 'passkey',
+  rpId: 'wallet.example.test',
+} as const satisfies WalletRecoveryTargetV1;
+
 class SuccessfulRecoveryPort implements HostedRecoveryPort {
   readonly calls: string[] = [];
+  readonly targets: WalletRecoveryTargetV1[] = [];
   readonly walletId = walletIdFromString('recovered-wallet.test');
+
+  targetFor(kind: WalletRecoveryTargetV1['kind']): WalletRecoveryTargetV1 {
+    return kind === 'passkey' ? PASSKEY_TARGET : { kind, googleProvider: 'google' };
+  }
 
   async prepare(input: Parameters<HostedRecoveryPort['prepare']>[0]) {
     this.calls.push(`prepare:${input.recoveryCode}`);
+    this.targets.push(input.target);
     return {
       kind: 'hosted_recovery_prepared' as const,
       recoveryOperationId: 'recovery-operation-1',
       walletId: this.walletId,
+      target: input.target,
     };
   }
 
@@ -39,6 +52,7 @@ class SuccessfulRecoveryPort implements HostedRecoveryPort {
       kind: 'hosted_recovery_credential_created' as const,
       recoveryOperationId: operation.recoveryOperationId,
       walletId: operation.walletId,
+      target: operation.target,
     };
   }
 
@@ -53,6 +67,10 @@ class SuccessfulRecoveryPort implements HostedRecoveryPort {
 }
 
 class RefusingRecoveryPort implements HostedRecoveryPort {
+  targetFor(kind: WalletRecoveryTargetV1['kind']): WalletRecoveryTargetV1 {
+    return kind === 'passkey' ? PASSKEY_TARGET : { kind, googleProvider: 'google' };
+  }
+
   async prepare(): Promise<{ readonly kind: 'refused' }> {
     return { kind: 'refused' };
   }
@@ -192,6 +210,30 @@ test.describe('hosted auth-menu recovery continuation', () => {
       kind: 'recoverable',
       reason: 'error',
       message: 'Your account was recovered. Prepare sign in again to continue.',
+    });
+    session.cleanup();
+  });
+
+  test('keeps the selected Google target at the prepare boundary without falling back to Passkey', async () => {
+    const recoveryPort = new SuccessfulRecoveryPort();
+    const session = sessionWithRecovery({
+      recoveryPort,
+      prepareRecoveredLogin: rejectRecoveredLogin,
+    });
+
+    invoke(session, 'openRecovery');
+    invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
+    invoke(session, 'prepareRecovery', 'google_email_otp');
+
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('enter_code');
+    expect(recoveryPort.targets).toEqual([{ kind: 'google_email_otp', googleProvider: 'google' }]);
+    if (session.state.kind !== 'recovery') throw new Error('recovery state was lost');
+    expect(session.state.viewModel.status).toEqual({
+      kind: 'recoverable',
+      reason: 'error',
+      message: 'That recovery code can’t be used. Check the code and try again.',
     });
     session.cleanup();
   });

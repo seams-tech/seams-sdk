@@ -26,6 +26,7 @@ import type { GoogleEmailOtpWalletAuthLoginFlow } from '@/SeamsWeb/publicApi/typ
 import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { HostedRecoveryPort } from '@/SeamsWeb/walletIframe/host/recovery-port';
+import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
 type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[1];
@@ -36,6 +37,10 @@ const APPEARANCE = {
 } as const satisfies AppearanceConfig;
 
 const UNAVAILABLE_RECOVERY_PORT: HostedRecoveryPort = {
+  targetFor: (kind: WalletRecoveryTargetV1['kind']) =>
+    kind === 'passkey'
+      ? { kind, rpId: 'wallet.example.test' }
+      : { kind, googleProvider: 'google' },
   prepare: async () => ({ kind: 'refused' }),
   createPasskey: async () => ({ kind: 'refused' }),
   finalize: async () => ({ kind: 'refused' }),

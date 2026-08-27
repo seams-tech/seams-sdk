@@ -1835,6 +1835,7 @@ class IntendedPageController {
       replaceExistingWallet: true,
       ecdsaTargets: effectiveEcdsaProfile.sdkTargets,
       ...(signerSelection ? { signerSelection } : {}),
+      recoveryCodeBackup: { kind: 'show_builtin_dialog' },
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
     });

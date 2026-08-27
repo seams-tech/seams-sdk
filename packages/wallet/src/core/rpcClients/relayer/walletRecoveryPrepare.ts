@@ -69,6 +69,10 @@ import {
   parseRecoveryCodeReservationId,
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
+import {
+  parseWalletRecoveryTargetV1,
+  type WalletRecoveryTargetV1,
+} from '@shared/wallet-recovery/walletRecoveryTarget';
 
 /**
  * Preparing an admitted wallet recovery.
@@ -216,6 +220,7 @@ export type WalletRecoveryPrepareResult =
   | {
       readonly kind: 'prepared';
       readonly walletId: WalletId;
+      readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
       readonly wrap: {
         readonly nonceB64u: EnvelopeNonceB64u;
         readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
@@ -258,23 +263,24 @@ export function buildWalletRecoveryCeremonyCustodyJson(args: {
 
 export async function prepareWalletRecoveryWithCode(args: {
   readonly relayUrl: string;
-  readonly rpId: WebAuthnRpId;
+  readonly target: WalletRecoveryTargetV1;
   readonly recoveryCodeB64u: string;
   readonly reservationId: RecoveryCodeReservationId;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryPrepareResult> {
+  if (args.target.kind !== 'passkey') return { kind: 'refused' };
   const requested = await requestWalletRecoveryPrepare(args);
   if (!requested.ok) return { kind: requested.kind };
   return await parseWalletRecoveryPrepareResponse({
     response: requested.response,
-    rpId: args.rpId,
+    target: args.target,
     reservationId: args.reservationId,
   });
 }
 
 async function requestWalletRecoveryPrepare(args: {
   readonly relayUrl: string;
-  readonly rpId: WebAuthnRpId;
+  readonly target: WalletRecoveryTargetV1;
   readonly recoveryCodeB64u: string;
   readonly reservationId: RecoveryCodeReservationId;
   readonly fetchImpl?: typeof fetch;
@@ -290,9 +296,9 @@ async function requestWalletRecoveryPrepare(args: {
       url,
       buildRelayerJsonPostRequestInit({
         body: {
-          rpId: args.rpId,
           recoveryCodeB64u: args.recoveryCodeB64u,
           reservationId: args.reservationId,
+          target: args.target,
         },
       }),
     );
@@ -304,7 +310,7 @@ async function requestWalletRecoveryPrepare(args: {
 
 async function parseWalletRecoveryPrepareResponse(args: {
   readonly response: Response;
-  readonly rpId: WebAuthnRpId;
+  readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'passkey' }>;
   readonly reservationId: RecoveryCodeReservationId;
 }): Promise<WalletRecoveryPrepareResult> {
   const response = args.response;
@@ -317,6 +323,7 @@ async function parseWalletRecoveryPrepareResponse(args: {
         [
           'ok',
           'walletId',
+          'target',
           'wrap',
           'entries',
           'keyManifest',
@@ -332,11 +339,17 @@ async function parseWalletRecoveryPrepareResponse(args: {
       const walletIdResult = parseWalletId(body.walletId);
       if (!walletIdResult.ok) throw new Error('walletRecoveryPrepare.walletId is invalid');
       const walletId = walletIdResult.value;
+      if (body.target !== undefined) {
+        const target = parseWalletRecoveryTargetV1(body.target);
+        if (target.kind !== 'passkey' || target.rpId !== args.target.rpId) {
+          throw new Error('wallet recovery preparation changed the recovery target');
+        }
+      }
       const keyManifest = parseWalletRecoveryPreparationKeyManifest(body.keyManifest, walletId);
       const registration = parseWalletRecoveryRegistrationOptions(
         body.registration,
         String(walletId),
-        args.rpId,
+        args.target.rpId,
       );
       const reservationId = parseRecoveryCodeReservationId(body.reservationId);
       const reservationExpiresAtMs = parseUnixMs(
@@ -350,6 +363,7 @@ async function parseWalletRecoveryPrepareResponse(args: {
       return {
         kind: 'prepared',
         walletId,
+        target: args.target,
         wrap,
         entries,
         keyManifest,

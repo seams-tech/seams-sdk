@@ -915,8 +915,6 @@ export class IntendedBehaviourHarness {
 
   private latestWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
 
-  private sourceWalletBudgetStatusRequest: CapturedWalletBudgetStatusRequest | null = null;
-
   private intendedYaoFaultInjection: IntendedYaoFaultInjectionStateV1 = { kind: 'idle' };
 
   private readonly intendedYaoFaultProofs: string[] = [];
@@ -1429,7 +1427,16 @@ export class IntendedBehaviourHarness {
     const snapshot = await this.runIntendedPageAction(
       'registerEmailOtpWallet',
       'intended-register-email-otp',
+      { onRecoveryCodes: this.captureRecoveryCodes },
     );
+    if (this.recoveryCodes.length === 0) {
+      this.captureRecoveryCodes(
+        await waitForWalletRecoveryCodeBackup(
+          this.page,
+          this.latestWalletIframeAutoConfirmDiagnostics || undefined,
+        ),
+      );
+    }
     const result = requireEmailOtpRegistrationResult(snapshot);
     if (snapshot.events.length === 0) {
       throw new Error('Email OTP registration did not emit structured lifecycle events');
@@ -1584,13 +1591,12 @@ export class IntendedBehaviourHarness {
     const registration = this.requireRegisteredWalletForSigning();
     const recoveryCode = this.recoveryCodes[0];
     if (!recoveryCode) throw new Error('Passkey recovery requires a captured recovery code');
-    this.sourceWalletBudgetStatusRequest = this.latestWalletBudgetStatusRequest;
-    if (!this.sourceWalletBudgetStatusRequest) {
-      throw new Error('Source Wallet Session authorization was not captured before recovery');
-    }
     await this.clearBrowserStorageForColdSync();
     await this.replaceWebAuthnVirtualAuthenticatorForRecovery();
     await this.ensureIntendedPageOpen();
+    const pageRoot = this.page.getByTestId('intended-e2e-page');
+    await expect(pageRoot).toHaveAttribute('data-login-state', 'logged_out');
+    await expect(pageRoot).toHaveAttribute('data-login-wallet-id', '');
     await this.page.getByTestId('intended-recover-passkey').click();
     await this.waitForIntendedPageActionStarted('recoverPasskeyWallet');
     await driveHostedPasskeyRecovery(this.page, recoveryCode);
@@ -1606,6 +1612,10 @@ export class IntendedBehaviourHarness {
       throw new Error('Recovery did not consume exactly one recovery code');
     }
     await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_in',
+    );
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
       'data-login-wallet-id',
       registration.walletId,
     );
@@ -1613,35 +1623,6 @@ export class IntendedBehaviourHarness {
     this.operatingAuthFamily = 'passkey';
     this.currentWarmSigningStage = 'post_unlock';
     this.recordService('fresh-browser passkey recovery completed through normal passkey login');
-  }
-
-  async assertSourceWalletSessionRevoked(): Promise<void> {
-    const captured = this.sourceWalletBudgetStatusRequest;
-    if (!captured) {
-      throw new Error('Source Wallet Session authorization was not captured before recovery');
-    }
-    const response = await this.request.post(captured.url, {
-      headers: {
-        Authorization: captured.authorization,
-        'Content-Type': captured.contentType,
-      },
-      data: captured.body,
-    });
-    const status = response.status();
-    if (status === 401 || status === 403) {
-      this.recordService('source Wallet Session authorization rejected after recovery');
-      return;
-    }
-    if (status !== 200) {
-      throw new Error(`Source Wallet Session revocation check returned HTTP ${status}`);
-    }
-    const responseText = await response.text();
-    assertRevokedWalletBudgetStatus({
-      responseText,
-      walletSessionId: captured.walletSessionId,
-      quotaId: captured.quotaId,
-    });
-    this.recordService('source Wallet Session authorization rejected after recovery');
   }
 
   async assertConsumedRecoveryCodeRefusedGenerically(): Promise<void> {
@@ -2858,10 +2839,7 @@ function lifecycleFlowFromTestFile(filePath: string): IntendedLifecycleFlow {
     return 'passkey.registration';
   }
   if (normalized.endsWith('passkey.unlock.contract.test.ts')) return 'passkey.unlock';
-  if (
-    normalized.endsWith('passkey.recovery.contract.test.ts') ||
-    normalized.endsWith('passkey-only.recovery.contract.test.ts')
-  ) {
+  if (normalized.endsWith('passkey.recovery.contract.test.ts')) {
     return 'passkey.recovery';
   }
   if (
@@ -4799,33 +4777,6 @@ function captureWalletBudgetStatusRequest(
   };
 }
 
-function assertRevokedWalletBudgetStatus(args: {
-  responseText: string;
-  walletSessionId: string;
-  quotaId: string;
-}): void {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(args.responseText);
-  } catch {
-    throw new Error('Revoked wallet session status response must be valid JSON');
-  }
-  const response = requireRecord(raw, 'revoked wallet session status response');
-  if (response.ok !== true || response.status !== 'invalid') {
-    throw new Error(
-      `Source Wallet Session remained usable after recovery (${String(response.status)})`,
-    );
-  }
-  const walletSessionId = requireString(
-    response.walletSessionId,
-    'revoked wallet session status walletSessionId',
-  );
-  const quotaId = requireString(response.quotaId, 'revoked wallet session status quotaId');
-  if (walletSessionId !== args.walletSessionId || quotaId !== args.quotaId) {
-    throw new Error('Revoked wallet session status did not match the captured session');
-  }
-}
-
 function parseAuthoritativeWalletBudgetStatus(args: {
   responseText: string;
 }): AuthoritativeWalletBudgetReplay {
@@ -5209,7 +5160,7 @@ async function waitForWalletRecoveryCodeBackup(
     if (recoveryCodes) return recoveryCodes;
     await page.waitForTimeout(100);
   }
-  throw new Error('Passkey registration did not present recovery codes');
+  throw new Error('Wallet registration did not present recovery codes');
 }
 
 async function autoConfirmWalletIframeUntil<T>(

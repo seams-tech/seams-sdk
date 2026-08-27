@@ -750,7 +750,14 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
 
   private onRecoverySubmit = (event: SubmitEvent): void => {
     event.preventDefault();
-    this.emitIntent({ kind: 'recovery_submit' });
+  };
+
+  private onRecoveryPasskeySelected = (): void => {
+    this.emitIntent({ kind: 'recovery_passkey_selected' });
+  };
+
+  private onRecoveryGoogleSelected = (): void => {
+    this.emitIntent({ kind: 'recovery_google_selected' });
   };
 
   private onRecoveryCreatePasskey = (): void => {
@@ -1144,13 +1151,24 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
               @input=${this.onRecoveryCodeInput}
             />
           </div>
-          <button
-            class="w3a-link-device-btn w3a-link-device-btn-primary"
-            type="submit"
-            data-auth-menu-primary
-          >
-            Continue
-          </button>
+          <div class="w3a-secondary-actions">
+            <button
+              class="w3a-link-device-btn w3a-link-device-btn-primary"
+              type="button"
+              data-recovery-target="passkey"
+              @click=${this.onRecoveryPasskeySelected}
+            >
+              Recover with Passkey
+            </button>
+            <button
+              class="w3a-link-device-btn w3a-link-device-btn-primary"
+              type="button"
+              data-recovery-target="google_email_otp"
+              @click=${this.onRecoveryGoogleSelected}
+            >
+              Recover with Google
+            </button>
+          </div>
         </form>
       `;
     }
