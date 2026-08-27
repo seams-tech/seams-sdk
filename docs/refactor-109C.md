@@ -2,7 +2,7 @@
 
 Date created: August 22, 2026
 
-Status: COMPLETE on `codex/refactor-109c`. Both transitions are accepted through
+Status: COMPLETE and merged into `dev`. Both transitions are accepted through
 the real browser operating path. Depends on Refactor 103E.
 
 R109C is the sole implementation authority for same-device auth-method
@@ -61,7 +61,7 @@ beside the contract in `packages/shared-ts/src/utils/`, which
 `packages/wallet/tsconfig.json` does include and `pnpm type-check:sdk`
 therefore enforces.
 
-### Phase 3 — inventory, explicit selection, and removal — IN PROGRESS
+### Phase 3 — inventory, explicit selection, and removal — COMPLETE
 
 - [x] Inventory projects every exact active method instead of truncating each
       authority to its first method. Owner entries carry `walletAuthorityId`;
@@ -85,7 +85,7 @@ therefore enforces.
       post-reload UI remains logged out and the freshly read reusable Wallet
       Session remains non-active. The Email-OTP-to-Passkey intended contract
       passes with this check before unlocking through the added Passkey.
-- [ ] Run both browser transitions, explicitly lock and unlock with each method,
+- [x] Run both browser transitions, explicitly lock and unlock with each method,
       then prove step-up and Wallet Session issuance remain bound to the exact
       method selected by the user.
 
@@ -723,9 +723,9 @@ a credential binding, or an identity could be addressed without saying which
 method was asking. That is the shape to look for in anything R109C has not yet
 touched.
 
-This ledger separates code checkpoints from product acceptance. Work on the
-implementation branch is not complete or ready to merge until both transitions
-pass through the real browser operating path.
+This ledger separates code checkpoints from product acceptance. Both
+transitions pass through the real browser operating path and the implementation
+is merged.
 
 - [x] Add the two-branch internal contract and negative type fixtures.
 - [x] Bind the exact source proof, source method, source session, target method,
@@ -751,9 +751,9 @@ pass through the real browser operating path.
       operation and operating path: unlock, both signer families, both key
       exports, step-up under the selected method, sibling removal in both
       directions, the final-method guard, and a locked reload.
-- [ ] Finish inventory-driven addition, explicit method selection, and exact
+- [x] Finish inventory-driven addition, explicit method selection, and exact
       sibling removal in the product UI.
-- [ ] Delete obsolete single-family fixtures and duplicate persistence paths,
+- [x] Delete obsolete single-family fixtures and duplicate persistence paths,
       update the intended-behaviour contract, and run the six-cell browser
       matrix plus one interruption case per branch.
 
@@ -817,10 +817,10 @@ exact added method, sign NEAR, export Ed25519 under a fresh step-up, sign Tempo,
 export ECDSA. Green together with `email-otp.add-passkey.contract.test.ts` and
 the four `auth-method-addition.matrix.contract.test.ts` cells: 6 passed.
 
-**Deliberately not done here.** The product UI for inventory-driven addition and
-exact sibling removal is Codex's lane. Phase 4 deletion of obsolete single-family
-fixtures and duplicate persistence paths was never unblocked and is not part of
-this closure. The shared `router-ab-yao:router-ab-ed25519-yao:shared` recovery
+**Follow-on cleanup.** The product UI for inventory-driven addition and exact
+sibling removal, plus Phase 4 deletion of obsolete single-family fixtures and
+duplicate persistence paths, were completed in subsequent checkpoints. The
+shared `router-ab-yao:router-ab-ed25519-yao:shared` recovery
 row that grows one entry per wallet until D1 rejects it is a separate defect,
 recorded in `docs/defect-shared-ed25519-yao-recovery-row.md`.
 
@@ -1104,7 +1104,7 @@ method is refused.
 
 ## Implementation phases
 
-### Phase 0 — Prove the revocation prerequisite — in progress
+### Phase 0 — Prove the revocation prerequisite — complete
 
 - run exact method revocation through the composed server and IndexedDB path;
 - prove each method can revoke its sibling with fresh proof;
@@ -1112,7 +1112,7 @@ method is refused.
 - prove authority-ID and batch revocation requests are rejected;
 - block R109C product exposure until these checks pass.
 
-### Phase 1 — Shared internal contract and thin SDK entry points — mostly implemented
+### Phase 1 — Shared internal contract and thin SDK entry points — complete
 
 - add the two-branch verified internal input;
 - retain `registration.addPasskey` and add `registration.addEmailOtp`;
@@ -1129,7 +1129,7 @@ Primary locations:
 - `packages/wallet/src/SeamsWeb/publicApi/createPublicApi.ts`
 - `tests/typecheck/`
 
-### Phase 2 — Both cross-family paths — partially implemented
+### Phase 2 — Both cross-family paths — complete
 
 - implement Passkey source to Email OTP target with the short security note;
 - implement Email OTP source to Passkey target through the same operation;
@@ -1144,7 +1144,7 @@ Primary locations:
 - `packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService.ts`
 - existing add-auth-method routes and IndexedDB stores
 
-### Phase 3 — Inventory, selection, and removal — partially implemented
+### Phase 3 — Inventory, selection, and removal — complete
 
 - derive the missing-family action from exact active inventory;
 - hide the add action once both families are active;
@@ -1158,7 +1158,7 @@ Primary locations:
 - `packages/wallet/src/react/components/AccountMenuButton/`
 - `packages/wallet/src/SeamsWeb/walletIframe/host/auth-menu/`
 
-### Phase 4 — Delete and verify — pending
+### Phase 4 — Delete and verify — complete
 
 - delete the Email-OTP-source rejection and duplicated branch persistence;
 - delete fixtures and mocks that assume one factor family;

@@ -2,8 +2,8 @@
 
 Date created: August 20, 2026
 
-Status: implementation in progress. R109C is merged and browser-accepted;
-R109D Phase 0 is complete.
+Status: COMPLETE and merged into `dev`. All four source/target auth-method
+combinations use the ordinary linked-device operating path.
 
 ## Goal
 
@@ -92,18 +92,15 @@ R109D product implementation may proceed.
       the source credential.
 - [x] Add the owner-authenticated cancel path for the claimed, pre-approval
       state and make terminal cancellation replay idempotent.
-- [ ] Complete the four source/target factor operating paths from genuine
+- [x] Complete the four source/target factor operating paths from genuine
       single-method source inventories and their focused intended-browser
       contracts.
 
-The operating contract enumerates all twelve factor/profile cases. Its former
-Passkey-to-Email setup added an Email OTP method to Device 1 before linking, so
-it proved an existing-enrollment path rather than the required transition from
-a Passkey-only wallet. Manual acceptance exposed the missing first-Email
-target enrollment. R109D remains open until that shortcut is removed and the
-genuine Passkey-only-to-Email path completes link, activation, reload, unlock,
-signing, export, revocation, revoked-method rejection, and surviving-owner
-operation.
+The operating contract enumerates all twelve factor/profile cases. The former
+Passkey-to-Email setup shortcut was removed: the path now starts from a genuine
+Passkey-only wallet and creates the first Email target enrollment. The four
+factor combinations complete link and ordinary post-link activation without a
+lock/unlock workaround. Cancellation and expiry propagate to both devices.
 
 ## Successful result
 
@@ -603,8 +600,8 @@ Focused coverage also includes:
   commit without duplicates;
 - the `0022` migration.
 
-## Ready to begin
+## Completion
 
-Implementation may begin when Phase 0 is merged and green. Completion requires
-the twelve browser cases and no linked-device `step_up`, lane, same-factor,
-source-RP-copying, legacy auth-method, or compatibility path.
+Phase 0 and the twelve browser cases are complete. Device linking has no
+linked-device `step_up`, lane, same-factor, source-RP-copying, legacy
+auth-method, or compatibility path.
