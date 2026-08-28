@@ -376,6 +376,70 @@ test.describe('partitioned Gateway product-state composition', () => {
     expect(rereadActive.identity.nearAccountId).toBe('mutated-after-load.testnet');
   });
 
+  test('bounds the shared recovery capability cache before a D1 commit', async () => {
+    const backend = new MemoryPartitionRecordStore();
+    const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);
+    const loaded = await store.load('lifecycle-bounded-capabilities');
+    const recoveryService = new InMemoryRouterAbEd25519YaoRecoveryService(
+      {
+        admitRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+        executeRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+        activateRecovery: async () => ({
+          ok: false as const,
+          status: 503 as const,
+          code: 'test_unavailable',
+          message: 'test backend unavailable',
+        }),
+      },
+      loaded.state.recovery,
+    );
+
+    for (let index = 0; index < 40; index += 1) {
+      const fixture = buildEd25519YaoCapabilityFixture({
+        walletId: walletIdFromString(`wallet-bounded-${index}`),
+        nearAccountId: `wallet-bounded-${index}.testnet`,
+        nearEd25519SigningKeyId: `near-ed25519-bounded-${index}`,
+        thresholdSessionId: `threshold-bounded-${index}`,
+        signerSlot: 1,
+        signingWorkerId: 'signing-worker-bounded',
+        participantIds: [1, 2],
+        runtimePolicyScope: {
+          orgId: 'org-bounded',
+          projectId: 'project-bounded',
+          envId: 'env-bounded',
+          signingRootVersion: 'root-bounded-v1',
+        },
+        seed: index + 1,
+      });
+      const installed = recoveryService.installPersistedActiveCapability(fixture.capability);
+      if (!installed.ok) throw new Error(installed.message);
+    }
+
+    await expect(
+      store.commit({
+        lifecycleId: 'lifecycle-bounded-capabilities',
+        state: loaded.state,
+        sharedState: loaded.sharedState,
+        sharedVersion: loaded.sharedVersion,
+        ceremonyVersion: loaded.ceremonyVersion,
+      }),
+    ).resolves.toMatchObject({ kind: 'stored' });
+
+    const reread = await store.load('lifecycle-bounded-capabilities');
+    expect(reread.state.recovery.capabilities.size).toBe(32);
+    expect(reread.state.recovery.identityCapabilities.size).toBe(32);
+  });
+
   test('preserves another ceremony while committing a separate lifecycle', async () => {
     const backend = new MemoryPartitionRecordStore();
     const store = createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1(backend);

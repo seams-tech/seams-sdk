@@ -351,7 +351,8 @@ test.describe('request-scoped recovery persistence', () => {
         d1.store,
         d1.runtime,
       );
-      expect(activation.status).toBe(200);
+      const activationResponseBody = await activation.clone().json();
+      expect(activation.status, JSON.stringify(activationResponseBody)).toBe(200);
       const activationBody = await activation.clone().text();
       const activationReplay = await runRecoveryRequest(
         fixture,
@@ -384,6 +385,38 @@ test.describe('request-scoped recovery persistence', () => {
         executionCalls: backend.executeCalls,
         activationCalls: backend.activateCalls,
       }).toEqual({ admissionCalls: 1, executionCalls: 1, activationCalls: 1 });
+    } finally {
+      d1.cleanup();
+    }
+  });
+
+  test('rehydrates a pruned capability during direct recovery admission', async () => {
+    const capability = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+    const fixture = await buildRouterAbEd25519YaoRecoveryRequestScopedFixture();
+    const d1 = await createRouterAbEd25519YaoExistingWalletD1Fixture({
+      namespace: `${EXISTING_WALLET_NAMESPACE}-direct-admission`,
+      capability: capability.previous,
+    });
+    try {
+      const initial = await d1.store.load(fixture.lifecycleId);
+      expect(initial.state.recovery.capabilities.size).toBe(0);
+      expect(fixture.admission.active_capability_binding).toEqual(
+        capability.previous.activeCapabilityBinding,
+      );
+
+      const admission = await runRecoveryRequest(
+        fixture,
+        new SuccessfulRecoveryBackend(fixture),
+        ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
+        fixture.admission,
+        new AppliedCapabilityPersistence(),
+        d1.store,
+        d1.runtime,
+      );
+
+      const body = await admission.clone().json();
+      expect(admission.status, JSON.stringify(body)).toBe(200);
+      expect(d1.persistedCapabilityLoadCount()).toBe(1);
     } finally {
       d1.cleanup();
     }
