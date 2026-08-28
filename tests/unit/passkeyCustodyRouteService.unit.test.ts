@@ -51,6 +51,7 @@ function serviceWith(store: ReturnType<typeof storeStub>, seen: unknown[]) {
         seen.push(args);
         return null;
       },
+      listWalletCredentialActivity: async () => [],
     } as never,
     walletCustodyCommits: {} as never,
     walletStore: {} as never,
