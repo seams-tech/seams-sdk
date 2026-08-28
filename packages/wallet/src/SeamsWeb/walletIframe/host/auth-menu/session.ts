@@ -781,6 +781,7 @@ export class AuthMenuSession {
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginAccount: AuthMenuAccountOption | null = null;
+  private modeSelectionSource: 'initial' | 'user' = 'initial';
   private readonly sendToParent: (message: ChildToParentEnvelope) => void;
   private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
   private preparationGeneration = 0;
@@ -879,6 +880,14 @@ export class AuthMenuSession {
     ) {
       this.activateSelectedLoginMethod();
     }
+  }
+
+  defaultToLoginForDetectedLocalWallet(): void {
+    if (this.modeSelectionSource !== 'initial') return;
+    if (this.stateValue.kind === 'complete') return;
+    const viewModel = this.currentViewModel();
+    if (viewModel.kind !== 'passkey' || viewModel.mode !== 'register') return;
+    this.showPasskeyMode('login');
   }
 
   private prepareSelectedLogin = (
@@ -1742,6 +1751,7 @@ export class AuthMenuSession {
     if (state.kind === 'complete' || state.kind === 'performing' || state.kind === 'link_device') {
       return;
     }
+    this.modeSelectionSource = 'user';
     const currentViewModel = this.currentViewModel();
     if (currentViewModel.mode === mode) return;
     this.showPasskeyMode(mode);

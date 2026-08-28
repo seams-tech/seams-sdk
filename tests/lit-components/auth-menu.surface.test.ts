@@ -898,21 +898,61 @@ test.describe('wallet-host Lit auth menu surface', () => {
       selectedAccount: walletA,
     });
 
-    const selected = await page.evaluate(async (tagName) => {
-      const element = document.querySelector(tagName) as HTMLElement;
-      const received: unknown[] = [];
-      element.addEventListener('w3a-auth-menu-intent', (event) => {
-        received.push((event as CustomEvent<unknown>).detail);
-      });
-      (element.querySelector('.w3a-account-menu-trigger') as HTMLButtonElement).click();
-      await (element as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete;
-      (element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement).click();
-      return received;
-    }, AUTH_MENU_TAG);
+    const selectedAccount = page.locator(`${AUTH_MENU_TAG} .w3a-selected-account`);
+    await expect(selectedAccount.locator('.w3a-account-menu-account-primary')).toHaveText(
+      'wallet-a',
+    );
+    await expect(selectedAccount.locator('.w3a-account-menu-account-secondary')).toHaveCount(0);
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-account-menu-trigger`)).toHaveAttribute(
+      'aria-label',
+      'Saved accounts. Selected wallet-a',
+    );
+
+    const selected = await page.evaluate(
+      async ({ tagName, selectedAccount }) => {
+        const element = document.querySelector(tagName) as HTMLElement & {
+          viewModel: Record<string, unknown>;
+          updateComplete?: Promise<unknown>;
+        };
+        const received: unknown[] = [];
+        element.addEventListener('w3a-auth-menu-intent', (event) => {
+          received.push((event as CustomEvent<unknown>).detail);
+        });
+        (element.querySelector('.w3a-account-menu-trigger') as HTMLButtonElement).click();
+        await element.updateComplete;
+        (element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement).click();
+        element.viewModel = { ...element.viewModel, selectedAccount };
+        await element.updateComplete;
+        return received;
+      },
+      { tagName: AUTH_MENU_TAG, selectedAccount: walletB },
+    );
 
     expect(selected).toEqual([
       { kind: 'login_account_selected', walletId: 'wallet-b', authMethod: 'email_otp' },
     ]);
+    await expect(selectedAccount.locator('.w3a-account-menu-account-primary')).toHaveText(
+      'Wallet B',
+    );
+    await expect(selectedAccount.locator('.w3a-account-menu-account-secondary')).toHaveText(
+      'wallet-b',
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-account-menu-trigger`)).toHaveAttribute(
+      'aria-label',
+      'Saved accounts. Selected Wallet B, wallet ID wallet-b',
+    );
+    const selectedAccountLayout = await selectedAccount.evaluate((account) => ({
+      clientHeight: account.clientHeight,
+      clientWidth: account.clientWidth,
+      scrollHeight: account.scrollHeight,
+      scrollWidth: account.scrollWidth,
+    }));
+    expect(selectedAccountLayout.scrollHeight).toBeLessThanOrEqual(
+      selectedAccountLayout.clientHeight,
+    );
+    expect(selectedAccountLayout.scrollWidth).toBeLessThanOrEqual(
+      selectedAccountLayout.clientWidth,
+    );
   });
 
   test('shows a dual-method wallet in both groups and enables both methods', async ({ page }) => {
@@ -970,6 +1010,25 @@ test.describe('wallet-host Lit auth menu surface', () => {
     );
     await expect(emailOtpOption.locator('.w3a-account-menu-account-secondary')).toHaveText(
       'jade-brook',
+    );
+    const idleBackground = await emailOtpOption.evaluate(
+      (option) => getComputedStyle(option).backgroundColor,
+    );
+    const dropdownBackground = await page
+      .locator(`${AUTH_MENU_TAG} .w3a-account-menu-popover`)
+      .evaluate((popover) => getComputedStyle(popover).backgroundColor);
+    await emailOtpOption.hover();
+    const hoverBackground = await emailOtpOption.evaluate(async (option) => {
+      await Promise.all(option.getAnimations().map((animation) => animation.finished));
+      return getComputedStyle(option).backgroundColor;
+    });
+    expect(hoverBackground).not.toBe(idleBackground);
+    expect(hoverBackground).not.toBe(dropdownBackground);
+
+    await emailOtpOption.focus();
+    await expect(emailOtpOption).toBeFocused();
+    expect(await emailOtpOption.evaluate((option) => getComputedStyle(option).outlineStyle)).toBe(
+      'solid',
     );
   });
 

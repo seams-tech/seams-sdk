@@ -652,6 +652,43 @@ test.describe('hosted auth-menu passkey continuation', () => {
     session.cleanup();
   });
 
+  test('defaults a register-first menu to login when a local wallet is detected', () => {
+    const session = authMenuSession({ mode: 'register' });
+    const localAccount = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [localAccount],
+      selectedAccount: localAccount,
+      prepare: pendingLoginPreparation,
+    });
+
+    session.defaultToLoginForDetectedLocalWallet();
+
+    expect(session.state).toMatchObject({
+      viewModel: {
+        kind: 'passkey',
+        mode: 'login',
+        selectedAccount: localAccount,
+      },
+    });
+    session.cleanup();
+  });
+
+  test('keeps a user-selected registration page after local wallet detection completes', () => {
+    const session = authMenuSession();
+    Reflect.apply(Reflect.get(session, 'selectMode'), session, ['register']);
+
+    session.defaultToLoginForDetectedLocalWallet();
+
+    expect(session.state).toMatchObject({
+      viewModel: { kind: 'passkey', mode: 'register' },
+    });
+    session.cleanup();
+  });
+
   test('selects the exact Email OTP option for a dual-method wallet', () => {
     const session = authMenuSession({ providers: ['google'] });
     const passkeyAccount = {

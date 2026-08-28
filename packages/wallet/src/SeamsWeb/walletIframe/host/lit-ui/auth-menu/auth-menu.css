@@ -1025,10 +1025,14 @@ seams-auth-menu-surface {
     color 140ms ease;
 }
 
-.w3a-account-menu-option:hover,
+.w3a-account-menu-option:hover {
+  background: var(--w3a-colors-surface2);
+}
+
 .w3a-account-menu-option:focus-visible {
-  background: var(--w3a-colors-surface);
-  outline: none;
+  background: var(--w3a-colors-surface2);
+  outline: 2px solid var(--w3a-colors-focus, var(--w3a-colors-primary));
+  outline-offset: -2px;
 }
 
 .w3a-account-menu-option.is-selected {
@@ -1073,6 +1077,17 @@ seams-auth-menu-surface {
   font-size: 0.72rem;
   font-weight: 650;
   line-height: 1.2;
+}
+
+.w3a-selected-account {
+  width: 100%;
+  align-content: center;
+}
+
+.w3a-selected-account .w3a-account-menu-account-primary {
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.15;
 }
 
 /* Waiting state */
