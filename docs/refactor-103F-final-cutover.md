@@ -1874,9 +1874,15 @@ Intended-behaviour and operating-path inventory:
 - [ ] `tests/e2e/intended-behaviours/email-otp.unlock.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/passkey.recovery.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/google-email-otp.recovery.contract.test.ts`;
-- [ ] `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts`
-      registration replay assertion: replace byte-identical terminal output with
-      stable committed projection plus a valid parsed adapter response;
+- [x] Audit
+      `tests/e2e/intended-behaviours/refactor93-staging-cohort.staging.test.ts`:
+      its captured route is the low-level Ed25519 Yao execution protocol, which
+      carries no Wallet Session credential. Preserve its byte-identical replay
+      invariant; it does not own the registration terminal adapter contract.
+- [ ] Add the staging registration-adapter assertion at the actual
+      `/wallets/register/activate` boundary: require a stable committed
+      projection plus a valid parsed legacy response while allowing fresh V1
+      bearer bytes;
 - [ ] `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`;
 - [ ] `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`; and
@@ -2065,9 +2071,10 @@ Documentation:
       deployed; final replay then maps the same projection to
       `already_committed`.
 - [ ] In that same compatibility release, update the Route 3 contract and service
-      comments and replace the staging byte-identical replay assertion. Preserve
-      idempotency/fingerprint and committed-projection identity while explicitly
-      allowing fresh adapter bearer bytes.
+      comments and add the staging assertion at `/wallets/register/activate`.
+      Preserve idempotency/fingerprint and committed-projection identity while
+      explicitly allowing fresh adapter bearer bytes. Keep the unrelated
+      low-level Yao execution replay assertion byte-identical.
 - [ ] Deploy that compatibility release independently of the wider exact Wallet
       Session cutover. Prove that no old completion writer revision is serving,
       wait the maximum in-flight request window, and only then run the bounded D1
