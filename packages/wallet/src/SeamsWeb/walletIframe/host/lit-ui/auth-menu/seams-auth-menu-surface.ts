@@ -6,8 +6,10 @@ import {
   dispatchAuthMenuIntent,
   isAuthMenuActionReady,
   isAuthMenuActionable,
+  isAuthMenuGoogleActionReady,
   isAuthMenuLoadingStatus,
   isAuthMenuReady,
+  resolveAuthMenuLoginAccount,
   type AuthMenuAccountOption,
   type AuthMenuIntent,
   type AuthMenuLinkDeviceState,
@@ -389,15 +391,8 @@ function rerollIcon(): TemplateResult {
 }
 
 function selectedLoginAccount(viewModel: AuthMenuLoginViewModel) {
-  return (
-    viewModel.accountOptions.find(
-      (account) =>
-        account.walletId === viewModel.selectedAccount?.walletId &&
-        account.authMethod === viewModel.selectedAccount.authMethod,
-    ) ??
-    viewModel.accountOptions[0] ??
-    null
-  );
+  return resolveAuthMenuLoginAccount(viewModel.accountOptions, viewModel.selectedAccount)
+    .selectedAccount;
 }
 
 type AuthMenuAccountGroup = Readonly<{
@@ -1091,10 +1086,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
                 <div class="w3a-auth-method-stack w3a-social-stack">
                   <div class="w3a-social-provider">
                     <button
-                      class="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+                      class="w3a-auth-method-btn w3a-auth-method-btn-primary"
                       type="button"
                       data-auth-menu-provider="google"
-                      ?disabled=${!isAuthMenuActionable(viewModel)}
+                      ?disabled=${!isAuthMenuGoogleActionReady(viewModel)}
                       @click=${this.onGoogleClick}
                     >
                       ${googleIcon()}

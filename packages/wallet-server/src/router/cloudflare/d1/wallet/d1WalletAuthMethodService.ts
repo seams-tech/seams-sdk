@@ -1013,6 +1013,7 @@ export class CloudflareD1WalletAuthMethodService {
         const registration = this.createPasskeyRegistrationOptions({
           walletId,
           rpId: passkeyIntent.authMethod.rpId,
+          sourceWalletAuthorityId: sourceMethod.walletAuthorityId,
           walletMethods: await this.getWalletAuthMethodStore().listForWalletV2({ walletId }),
         });
         await store.putAddAuthMethodCeremony({
@@ -2449,6 +2450,7 @@ export class CloudflareD1WalletAuthMethodService {
   private createPasskeyRegistrationOptions(input: {
     readonly walletId: WalletId;
     readonly rpId: string;
+    readonly sourceWalletAuthorityId: WalletAuthorityId;
     readonly walletMethods: readonly WalletAuthMethodRecordV2[];
   }): WalletAddAuthMethodRegistrationOptions {
     const challengeId = secureRandomBase64Url(16, 'add-auth-method registration challenge id');
@@ -2481,16 +2483,17 @@ export class CloudflareD1WalletAuthMethodService {
           },
         },
       },
-      /* Active credentials only. The exclude list exists to stop a second
-         credential for an account the authenticator already holds one for; a
-         revoked credential is not one of those, and listing it means an
-         authenticator that still physically holds it refuses to create a
-         replacement - so revoking a passkey would permanently prevent adding
-         another on that device. */
+      /* Only active credentials on the authority receiving the new method.
+         A recovery authority is additive, so a passkey on an older sibling
+         authority remains a valid way into the wallet without blocking a new
+         passkey for the recovered authority. */
       excludeCredentials: input.walletMethods
         .filter(
           (method): method is Extract<WalletAuthMethodRecordV2, { kind: 'passkey' }> =>
-            method.kind === 'passkey' && method.status === 'active' && method.rpId === input.rpId,
+            method.kind === 'passkey' &&
+            method.status === 'active' &&
+            method.walletAuthorityId === input.sourceWalletAuthorityId &&
+            method.rpId === input.rpId,
         )
         .map((method) => ({ type: 'public-key' as const, id: method.credentialIdB64u })),
     });

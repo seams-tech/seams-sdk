@@ -51,7 +51,7 @@ function loginViewModel(status: unknown = { kind: 'idle', interaction: 'actionab
     kind: 'passkey' as const,
     mode: 'login' as const,
     accountOptions: [],
-    selectedWalletId: null,
+    selectedAccount: null,
     status,
   };
 }
@@ -131,6 +131,53 @@ async function mountAuthMenu(page: Page, viewModel: unknown) {
     props: { viewModel },
   });
   await page.waitForSelector(`${AUTH_MENU_TAG} [data-auth-menu-close]`, { state: 'attached' });
+}
+
+type AuthMethodAccountOption = Readonly<{
+  walletId: string;
+  displayName: string;
+  authMethod: 'passkey' | 'email_otp';
+}>;
+
+async function readAuthMethodButtonStates(args: {
+  tagName: string;
+  passkeyOption: AuthMethodAccountOption;
+  emailOtpOption: AuthMethodAccountOption;
+}) {
+  const element = document.querySelector(args.tagName) as HTMLElement & {
+    viewModel: Record<string, unknown>;
+    updateComplete?: Promise<unknown>;
+  };
+  const snapshots = [
+    {
+      passkey: !(element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).disabled,
+      emailOtp: !(element.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement)
+        .disabled,
+    },
+  ];
+  element.viewModel = {
+    ...element.viewModel,
+    accountOptions: [args.emailOtpOption],
+    selectedAccount: args.emailOtpOption,
+  };
+  await element.updateComplete;
+  snapshots.push({
+    passkey: !(element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).disabled,
+    emailOtp: !(element.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement)
+      .disabled,
+  });
+  element.viewModel = {
+    ...element.viewModel,
+    accountOptions: [args.passkeyOption, args.emailOtpOption],
+    selectedAccount: args.passkeyOption,
+  };
+  await element.updateComplete;
+  snapshots.push({
+    passkey: !(element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).disabled,
+    emailOtp: !(element.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement)
+      .disabled,
+  });
+  return snapshots;
 }
 
 test.describe('wallet-host Lit auth menu surface', () => {
@@ -328,20 +375,32 @@ test.describe('wallet-host Lit auth menu surface', () => {
       const root = header.closest('.w3a-signup-menu-root');
       const title = header.querySelector('.w3a-title');
       const subhead = header.querySelector('.w3a-subhead');
-      const center = (element: Element): number => {
+      const backButton = root?.querySelector('.w3a-back-button');
+      const inlineCenter = (element: Element): number => {
         const rect = element.getBoundingClientRect();
         return rect.left + rect.width / 2;
       };
-      if (!root || !title || !subhead) throw new Error('Recovery header geometry is incomplete');
+      const blockCenter = (element: Element): number => {
+        const rect = element.getBoundingClientRect();
+        return rect.top + rect.height / 2;
+      };
+      if (!root || !title || !subhead || !backButton) {
+        throw new Error('Recovery header geometry is incomplete');
+      }
       return {
-        cardCenter: center(root),
-        titleCenter: center(title),
-        subheadCenter: center(subhead),
+        backButtonBlockCenter: blockCenter(backButton),
+        cardCenter: inlineCenter(root),
+        titleBlockCenter: blockCenter(title),
+        titleCenter: inlineCenter(title),
+        subheadCenter: inlineCenter(subhead),
       };
     });
 
     expect(Math.abs(geometry.titleCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.subheadCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.backButtonBlockCenter - geometry.titleBlockCenter)).toBeLessThanOrEqual(
+      1,
+    );
   });
 
   test('renders recovered Google sign-in as one ready message with the Google icon', async ({
@@ -819,14 +878,21 @@ test.describe('wallet-host Lit auth menu surface', () => {
   });
 
   test('renders a multi-wallet login selector and emits the selected wallet', async ({ page }) => {
+    const walletA = {
+      walletId: 'wallet-a',
+      displayName: 'Wallet A',
+      authMethod: 'passkey',
+    } as const;
+    const walletB = {
+      walletId: 'wallet-b',
+      displayName: 'Wallet B',
+      authMethod: 'email_otp',
+    } as const;
     await mountAuthMenu(page, {
       ...loginViewModel(),
       kind: 'passkey',
-      accountOptions: [
-        { walletId: 'wallet-a', displayName: 'Wallet A' },
-        { walletId: 'wallet-b', displayName: 'Wallet B' },
-      ],
-      selectedWalletId: 'wallet-a',
+      accountOptions: [walletA, walletB],
+      selectedAccount: walletA,
     });
 
     const selected = await page.evaluate(async (tagName) => {
@@ -841,7 +907,67 @@ test.describe('wallet-host Lit auth menu surface', () => {
       return received;
     }, AUTH_MENU_TAG);
 
-    expect(selected).toEqual([{ kind: 'login_account_selected', walletId: 'wallet-b' }]);
+    expect(selected).toEqual([
+      { kind: 'login_account_selected', walletId: 'wallet-b', authMethod: 'email_otp' },
+    ]);
+  });
+
+  test('shows a dual-method wallet in both groups and enables both methods', async ({ page }) => {
+    const passkey = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    const emailOtp = {
+      ...passkey,
+      displayName: 'n637805@gmail.com',
+      authMethod: 'email_otp',
+    } as const;
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      enabledExternalProviders: ['google'],
+      accountOptions: [passkey],
+      selectedAccount: passkey,
+    });
+
+    const states = await page.evaluate(readAuthMethodButtonStates, {
+      tagName: AUTH_MENU_TAG,
+      passkeyOption: passkey,
+      emailOtpOption: emailOtp,
+    });
+
+    expect(states).toEqual([
+      { passkey: true, emailOtp: false },
+      { passkey: false, emailOtp: true },
+      { passkey: true, emailOtp: true },
+    ]);
+
+    const buttonBackgrounds = await page
+      .locator(`${AUTH_MENU_TAG} .w3a-auth-methods`)
+      .evaluate((methods) => ({
+        passkey: getComputedStyle(
+          methods.querySelector('[data-auth-menu-primary]') as HTMLButtonElement,
+        ).backgroundColor,
+        google: getComputedStyle(
+          methods.querySelector('[data-auth-menu-provider="google"]') as HTMLButtonElement,
+        ).backgroundColor,
+      }));
+    expect(buttonBackgrounds.google).toBe(buttonBackgrounds.passkey);
+
+    await page.locator(`${AUTH_MENU_TAG} .w3a-account-menu-trigger`).click();
+    await expect(
+      page.locator(`${AUTH_MENU_TAG} [data-wallet-id="jade-brook"][data-auth-method="passkey"]`),
+    ).toHaveCount(1);
+    const emailOtpOption = page.locator(
+      `${AUTH_MENU_TAG} [data-wallet-id="jade-brook"][data-auth-method="email_otp"]`,
+    );
+    await expect(emailOtpOption).toHaveCount(1);
+    await expect(emailOtpOption.locator('.w3a-account-menu-account-primary')).toHaveText(
+      'n637805@gmail.com',
+    );
+    await expect(emailOtpOption.locator('.w3a-account-menu-account-secondary')).toHaveText(
+      'jade-brook',
+    );
   });
 
   test('starts a ready login intent from the primary CTA and closes on Escape', async ({

@@ -10,8 +10,11 @@ import {
 import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
 import { AuthMenuSession } from '@/SeamsWeb/walletIframe/host/auth-menu/session';
 import {
+  authMenuLoginAllowsEmailOtp,
+  authMenuLoginAllowsPasskey,
   isAuthMenuActionable,
   isAuthMenuActionReady,
+  resolveAuthMenuLoginAccount,
 } from '@/SeamsWeb/walletIframe/host/lit-ui/auth-menu/auth-menu-domain';
 import {
   buildHostedAuthMenuExternalAuthResolution,
@@ -57,11 +60,7 @@ function authMenuSession(
     registrationAccountInput?: 'implicit_wallet' | 'sponsored_named_near_account';
     showRegistrationInput?: boolean;
     providers?: readonly 'google'[];
-    beginGoogleEmailOtp?: (args: {
-      idToken: string;
-      mode: 'login' | 'register';
-      signal: AbortSignal;
-    }) => Promise<GoogleEmailOtpWalletAuthLoginFlow>;
+    beginGoogleEmailOtp?: AuthMenuSessionArgs['beginGoogleEmailOtp'];
     sendToParent?: (message: unknown) => void;
     startDeviceLinking?: AuthMenuSessionArgs['startDeviceLinking'];
   } = {},
@@ -552,32 +551,99 @@ test.describe('hosted auth-menu passkey continuation', () => {
   });
 
   test('keeps passkey and Email OTP accounts in their exact selector branches', () => {
-    const options = loginAccountOptions({
-      walletIds: ['wallet-passkey', 'wallet-email'],
-      accountIds: [],
-      accounts: [
+    const options = loginAccountOptions(
+      {
+        walletIds: ['wallet-passkey', 'wallet-email'],
+        accountIds: [],
+        accounts: [
+          {
+            walletId: 'wallet-passkey',
+            nearAccountId: 'passkey.testnet',
+            displayName: 'Passkey wallet',
+            signerSlot: 0,
+            authMethod: 'passkey',
+          },
+          {
+            walletId: 'wallet-email',
+            nearAccountId: 'email.testnet',
+            displayName: 'email@example.com',
+            signerSlot: 0,
+            authMethod: 'email_otp',
+          },
+        ],
+        lastUsedAccount: null,
+      },
+      [
+        { walletId: 'wallet-passkey', authMethod: 'passkey' },
         {
           walletId: 'wallet-passkey',
-          nearAccountId: 'passkey.testnet',
-          displayName: 'Passkey wallet',
-          signerSlot: 0,
-          authMethod: 'passkey',
+          authMethod: 'email_otp',
+          emailAddress: 'n637805@gmail.com',
         },
         {
           walletId: 'wallet-email',
-          nearAccountId: 'email.testnet',
-          displayName: 'Email wallet',
-          signerSlot: 0,
           authMethod: 'email_otp',
+          emailAddress: null,
         },
       ],
-      lastUsedAccount: null,
-    });
+    );
 
     expect(options).toEqual([
       { walletId: 'wallet-passkey', displayName: 'Passkey wallet', authMethod: 'passkey' },
-      { walletId: 'wallet-email', displayName: 'Email wallet', authMethod: 'email_otp' },
+      { walletId: 'wallet-email', displayName: 'email@example.com', authMethod: 'email_otp' },
+      { walletId: 'wallet-passkey', displayName: 'n637805@gmail.com', authMethod: 'email_otp' },
     ]);
+
+    const both = resolveAuthMenuLoginAccount(options, options[0] ?? null);
+    expect(both.kind).toBe('passkey_and_email_otp');
+    expect(authMenuLoginAllowsPasskey(both)).toBe(true);
+    expect(authMenuLoginAllowsEmailOtp(both)).toBe(true);
+
+    const emailOnly = resolveAuthMenuLoginAccount(options, options[1] ?? null);
+    expect(emailOnly.kind).toBe('email_otp');
+    expect(authMenuLoginAllowsPasskey(emailOnly)).toBe(false);
+    expect(authMenuLoginAllowsEmailOtp(emailOnly)).toBe(true);
+
+    const passkeyOnly = resolveAuthMenuLoginAccount(
+      [{ walletId: 'passkey-only', displayName: 'Passkey only', authMethod: 'passkey' }],
+      null,
+    );
+    expect(passkeyOnly.kind).toBe('passkey');
+    expect(authMenuLoginAllowsPasskey(passkeyOnly)).toBe(true);
+    expect(authMenuLoginAllowsEmailOtp(passkeyOnly)).toBe(false);
+  });
+
+  test('targets Google login to the selected wallet', () => {
+    const session = authMenuSession({
+      providers: ['google'],
+    });
+    const selectedAccount = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    const emailOtpAccount = {
+      ...selectedAccount,
+      displayName: 'n637805@gmail.com',
+      authMethod: 'email_otp',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [selectedAccount, emailOtpAccount],
+      selectedAccount,
+      prepare: async () => {
+        throw new Error('passkey preparation is unused by this assertion');
+      },
+    });
+    const request = session.requestExternalAuth('google');
+    if (!request) throw new Error('external auth request fixture is invalid');
+    expect(session.state).toMatchObject({
+      kind: 'awaiting_external_auth',
+      authTarget: {
+        mode: 'login',
+        loginTarget: { kind: 'wallet', walletId: 'jade-brook' },
+      },
+    });
+    session.cleanup();
   });
 
   test('keeps Google actionable without preparing passkey login for an Email OTP account', () => {

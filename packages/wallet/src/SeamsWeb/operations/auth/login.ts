@@ -56,6 +56,7 @@ import type {
 } from '@shared/device-linking';
 import {
   mpcMaterialActivationRefsEqual,
+  parseVerifiedEmailAddress,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseWalletId,
@@ -7841,18 +7842,52 @@ export async function getRecentUnlocks(
   };
 }
 
-export async function listLocalPasskeyWalletIds(): Promise<WalletId[]> {
+export type LocalLoginAuthMethod =
+  | {
+      readonly walletId: WalletId;
+      readonly authMethod: 'passkey';
+      readonly emailAddress?: never;
+    }
+  | {
+      readonly walletId: WalletId;
+      readonly authMethod: 'email_otp';
+      readonly emailAddress: string | null;
+    };
+
+function localLoginAuthMethod(record: WalletAuthMethodRecordV2): LocalLoginAuthMethod | null {
+  if (record.status !== 'active') return null;
+  switch (record.kind) {
+    case 'passkey':
+      return { walletId: record.walletId, authMethod: 'passkey' };
+    case 'email_otp': {
+      const emailAddress = parseVerifiedEmailAddress(record.registrationAuthorityId);
+      return {
+        walletId: record.walletId,
+        authMethod: 'email_otp',
+        emailAddress: emailAddress.ok ? String(emailAddress.value) : null,
+      };
+    }
+    default:
+      return assertNeverLoginState(record);
+  }
+}
+
+async function localLoginAuthMethodsForWallet(walletId: WalletId): Promise<LocalLoginAuthMethod[]> {
+  const records = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(walletId);
+  const methods: LocalLoginAuthMethod[] = [];
+  for (const record of records) {
+    const method = localLoginAuthMethod(record);
+    if (method) methods.push(method);
+  }
+  return methods;
+}
+
+export async function listLocalLoginAuthMethods(): Promise<LocalLoginAuthMethod[]> {
   const walletIds = await IndexedDBManager.listWalletSelectionWalletIds();
-  const passkeyWalletIds = await Promise.all(
-    [...new Set(walletIds)].map(async (walletId) => {
-      const authMethods = await IndexedDBManager.listWalletAuthMethodsV2ForWallet(walletId);
-      const hasActivePasskey = authMethods.some(
-        (authMethod) => authMethod.kind === 'passkey' && authMethod.status === 'active',
-      );
-      return hasActivePasskey ? walletId : null;
-    }),
+  const methodsByWallet = await Promise.all(
+    [...new Set(walletIds)].map(localLoginAuthMethodsForWallet),
   );
-  return passkeyWalletIds.filter((walletId): walletId is WalletId => walletId !== null);
+  return methodsByWallet.flat();
 }
 
 /** Lock clears authentication and volatile signing material. */

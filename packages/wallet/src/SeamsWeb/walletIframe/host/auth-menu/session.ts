@@ -11,7 +11,10 @@ import {
   type AuthMenuRecoveryViewModel,
   type AuthMenuViewModel,
   isAuthMenuIntent,
+  authMenuLoginAllowsEmailOtp,
+  authMenuLoginAllowsPasskey,
   passkeyCeremonyHeadline,
+  resolveAuthMenuLoginAccount,
 } from '../lit-ui/auth-menu/auth-menu-domain';
 import { SeamsAuthMenuSurfaceElement } from '../lit-ui/auth-menu/seams-auth-menu-surface';
 import {
@@ -123,6 +126,10 @@ export type AuthMenuSessionIdentity = {
   readonly requestId: WalletIframeRequestId;
 };
 
+type GoogleEmailOtpAuthTarget =
+  | { readonly mode: 'register' }
+  | { readonly mode: 'login'; readonly loginTarget: GoogleEmailOtpWalletAuthLoginTarget };
+
 type AuthMenuReturnState =
   | {
       readonly kind: 'preparing';
@@ -132,9 +139,7 @@ type AuthMenuReturnState =
       readonly kind: 'awaiting_external_auth';
       readonly viewModel: AuthMenuViewModel;
       readonly request: HostedAuthMenuExternalAuthRequest;
-      readonly authTarget:
-        | { readonly mode: 'register' }
-        | { readonly mode: 'login'; readonly loginTarget: GoogleEmailOtpWalletAuthLoginTarget };
+      readonly authTarget: GoogleEmailOtpAuthTarget;
     }
   | {
       readonly kind: 'ready';
@@ -258,9 +263,7 @@ type PrepareRegistration = (
 ) => Promise<HostedPasskeyMenuPrepared>;
 type BeginGoogleEmailOtp = (args: {
   readonly idToken: string;
-  readonly authTarget:
-    | { readonly mode: 'register' }
-    | { readonly mode: 'login'; readonly loginTarget: GoogleEmailOtpWalletAuthLoginTarget };
+  readonly authTarget: GoogleEmailOtpAuthTarget;
   readonly signal: AbortSignal;
 }) => Promise<GoogleEmailOtpWalletAuthFlow>;
 type PrepareLoginPasskey = (
@@ -864,14 +867,25 @@ export class AuthMenuSession {
     cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
   ): Promise<HostedPasskeyMenuPrepared> => {
     if (!this.loginPreparation) throw new Error('Hosted login preparation is unavailable');
-    if (this.selectedLoginAccount?.authMethod === 'email_otp') {
+    const resolution = resolveAuthMenuLoginAccount(
+      this.loginAccountOptions,
+      this.selectedLoginAccount,
+    );
+    if (!authMenuLoginAllowsPasskey(resolution)) {
       throw new Error('Email OTP accounts require Google sign-in');
     }
-    return this.loginPreparation(this.selectedLoginAccount?.walletId ?? null, cancellation);
+    return this.loginPreparation(
+      resolution.kind === 'discoverable' ? null : resolution.walletId,
+      cancellation,
+    );
   };
 
   private activateSelectedLoginMethod(): void {
-    if (this.selectedLoginAccount?.authMethod !== 'email_otp') {
+    const resolution = resolveAuthMenuLoginAccount(
+      this.loginAccountOptions,
+      this.selectedLoginAccount,
+    );
+    if (authMenuLoginAllowsPasskey(resolution)) {
       this.setPasskeyPreparation(this.prepareSelectedLogin);
       return;
     }
@@ -1297,6 +1311,17 @@ export class AuthMenuSession {
     if (viewModel.kind !== 'passkey') return null;
     if (!this.request.enabledExternalProviders.includes(provider)) return null;
     if (this.stateValue.kind === 'awaiting_external_auth') return null;
+    let authTarget: GoogleEmailOtpAuthTarget;
+    if (viewModel.mode === 'register') {
+      authTarget = { mode: 'register' };
+    } else {
+      const loginResolution = resolveAuthMenuLoginAccount(
+        viewModel.accountOptions,
+        viewModel.selectedAccount,
+      );
+      if (!authMenuLoginAllowsEmailOtp(loginResolution)) return null;
+      authTarget = { mode: 'login', loginTarget: loginResolution.loginTarget };
+    }
     this.invalidatePreparation();
     const externalAuthRequestId = hostedAuthMenuExternalAuthRequestIdFromBoundary(
       randomExternalAuthRequestId(),
@@ -1323,16 +1348,7 @@ export class AuthMenuSession {
         },
       },
       request,
-      authTarget:
-        request.mode === 'register'
-          ? { mode: 'register' }
-          : {
-              mode: 'login',
-              loginTarget:
-                this.request.loginTarget.kind === 'discoverable'
-                  ? { kind: 'discoverable' }
-                  : { kind: 'wallet', walletId: this.request.loginTarget.walletId },
-            },
+      authTarget,
     };
     this.updateElement();
     this.sendToParent({
@@ -3007,12 +3023,7 @@ export class AuthMenuSession {
     const selected = this.loginAccountOptions.find(
       (account) => account.walletId === walletId && account.authMethod === authMethod,
     );
-    if (
-      !selected ||
-      (selected.walletId === this.selectedLoginAccount?.walletId &&
-        selected.authMethod === this.selectedLoginAccount.authMethod)
-    )
-      return;
+    if (!selected || selected.walletId === this.selectedLoginAccount?.walletId) return;
     const state = this.stateValue;
     if (
       (state.kind !== 'preparing' && state.kind !== 'ready') ||

@@ -1,5 +1,5 @@
 import type { AppearanceConfig } from '@/core/types/seams';
-import type { AuthMenuRecoveryViewModel } from './auth-menu-domain';
+import type { AuthMenuLoginAccountResolution, AuthMenuRecoveryViewModel } from './auth-menu-domain';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
 
 declare const appearance: AppearanceConfig;
@@ -48,7 +48,39 @@ const invalidFinalization: AuthMenuRecoveryViewModel = {
   status: { kind: 'idle', interaction: 'actionable' },
 };
 
+const discoverableLogin: AuthMenuLoginAccountResolution = {
+  kind: 'discoverable',
+  selectedAccount: null,
+  loginTarget: { kind: 'discoverable' },
+};
+
+// @ts-expect-error A discoverable login cannot carry a selected wallet.
+const invalidDiscoverableLogin: AuthMenuLoginAccountResolution = {
+  kind: 'discoverable',
+  selectedAccount: {
+    walletId: 'wallet.test',
+    displayName: 'Wallet',
+    authMethod: 'passkey' as const,
+  },
+  loginTarget: { kind: 'discoverable' },
+};
+
+// @ts-expect-error A resolved auth-method branch requires its exact wallet target.
+const invalidResolvedLogin: AuthMenuLoginAccountResolution = {
+  kind: 'passkey_and_email_otp',
+  selectedAccount: {
+    walletId: 'wallet.test',
+    displayName: 'Wallet',
+    authMethod: 'passkey' as const,
+  },
+  walletId: 'wallet.test',
+  loginTarget: { kind: 'discoverable' },
+};
+
 void preparing;
 void invalidEntryWalletIdentity;
 void invalidCodeEntry;
 void invalidFinalization;
+void discoverableLogin;
+void invalidDiscoverableLogin;
+void invalidResolvedLogin;

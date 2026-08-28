@@ -2,6 +2,7 @@ import type { AppearanceConfig } from '@/core/types/seams';
 import type { HostedAuthMenuExternalProvider } from '../../../shared/messages';
 import type {
   GoogleEmailOtpWalletAuthDelivery,
+  GoogleEmailOtpWalletAuthLoginTarget,
   GoogleEmailOtpWalletAuthPromptCopy,
 } from '@/SeamsWeb/publicApi/types';
 import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
@@ -103,6 +104,80 @@ export type AuthMenuAccountOption = Readonly<{
   readonly displayName: string;
   readonly authMethod: WalletAuthMethod;
 }>;
+
+type ResolvedAuthMenuLoginAccount = Readonly<{
+  selectedAccount: AuthMenuAccountOption;
+  walletId: string;
+  loginTarget: Extract<GoogleEmailOtpWalletAuthLoginTarget, { kind: 'wallet' }>;
+}>;
+
+export type AuthMenuLoginAccountResolution =
+  | {
+      readonly kind: 'discoverable';
+      readonly selectedAccount: null;
+      readonly loginTarget: Extract<GoogleEmailOtpWalletAuthLoginTarget, { kind: 'discoverable' }>;
+    }
+  | (ResolvedAuthMenuLoginAccount & { readonly kind: 'passkey' })
+  | (ResolvedAuthMenuLoginAccount & { readonly kind: 'email_otp' })
+  | (ResolvedAuthMenuLoginAccount & { readonly kind: 'passkey_and_email_otp' });
+
+export function resolveAuthMenuLoginAccount(
+  accountOptions: readonly AuthMenuAccountOption[],
+  selectedAccount: AuthMenuAccountOption | null,
+): AuthMenuLoginAccountResolution {
+  const exactSelection = selectedAccount
+    ? accountOptions.find(
+        (account) =>
+          account.walletId === selectedAccount.walletId &&
+          account.authMethod === selectedAccount.authMethod,
+      )
+    : null;
+  const sameWalletSelection = selectedAccount
+    ? accountOptions.find((account) => account.walletId === selectedAccount.walletId)
+    : null;
+  const selected = exactSelection ?? sameWalletSelection ?? accountOptions[0];
+  if (!selected) {
+    return {
+      kind: 'discoverable',
+      selectedAccount: null,
+      loginTarget: { kind: 'discoverable' },
+    };
+  }
+  const walletMethods = accountOptions.filter((account) => account.walletId === selected.walletId);
+  const hasPasskey = walletMethods.some((account) => account.authMethod === 'passkey');
+  const hasEmailOtp = walletMethods.some((account) => account.authMethod === 'email_otp');
+  const resolved = {
+    selectedAccount: selected,
+    walletId: selected.walletId,
+    loginTarget: { kind: 'wallet' as const, walletId: selected.walletId },
+  };
+  if (hasPasskey && hasEmailOtp) return { kind: 'passkey_and_email_otp', ...resolved };
+  if (hasPasskey) return { kind: 'passkey', ...resolved };
+  if (hasEmailOtp) return { kind: 'email_otp', ...resolved };
+  throw new Error('Selected auth-menu account has no supported authentication method');
+}
+
+export function authMenuLoginAllowsPasskey(resolution: AuthMenuLoginAccountResolution): boolean {
+  switch (resolution.kind) {
+    case 'discoverable':
+    case 'passkey':
+    case 'passkey_and_email_otp':
+      return true;
+    case 'email_otp':
+      return false;
+  }
+}
+
+export function authMenuLoginAllowsEmailOtp(resolution: AuthMenuLoginAccountResolution): boolean {
+  switch (resolution.kind) {
+    case 'discoverable':
+    case 'email_otp':
+    case 'passkey_and_email_otp':
+      return true;
+    case 'passkey':
+      return false;
+  }
+}
 
 export type AuthMenuGoogleLoginViewModel = AuthMenuViewModelCommon & {
   readonly kind: 'google_otp_login';
@@ -478,7 +553,17 @@ export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
       );
     case 'passkey':
       return viewModel.mode === 'login'
-        ? viewModel.selectedAccount?.authMethod !== 'email_otp'
+        ? authMenuLoginAllowsPasskey(
+            resolveAuthMenuLoginAccount(viewModel.accountOptions, viewModel.selectedAccount),
+          )
         : !viewModel.showRegistrationInput || viewModel.passkeyName.trim().length > 0;
   }
+}
+
+export function isAuthMenuGoogleActionReady(viewModel: AuthMenuViewModel): boolean {
+  if (!isAuthMenuActionable(viewModel)) return false;
+  if (viewModel.kind !== 'passkey' || viewModel.mode !== 'login') return true;
+  return authMenuLoginAllowsEmailOtp(
+    resolveAuthMenuLoginAccount(viewModel.accountOptions, viewModel.selectedAccount),
+  );
 }
