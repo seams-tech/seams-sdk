@@ -103,3 +103,18 @@ test('D1 local dev launcher loads the root .env.local file', async () => {
     `SEAMS_LOCAL_CONSOLE_ORG_ID:${command.localConsoleOrganizationId}`,
   ]);
 });
+
+test('D1 local dev launcher can isolate a managed test stack from root secrets', async () => {
+  const module = await launcherModulePromise;
+  const tree = createTempLocalDevTree();
+  writeRootLocalEnv(tree.root);
+
+  const command = module.buildD1LocalDevWranglerArgs({
+    repoRoot: tree.root,
+    packageRoot: tree.consolePackageRoot,
+    env: { SEAMS_D1_LOCAL_SKIP_ENV_FILE: '1' },
+  });
+
+  expect(command.envFiles).toEqual([]);
+  expect(envFilesFromArgs(command.args)).toEqual([]);
+});
