@@ -86,6 +86,26 @@ function surfaceMorphKeyframes(
   ];
 }
 
+function surfaceResizeKeyframes(
+  origin: SurfaceMorphRect,
+  destination: SurfaceMorphRect,
+): Keyframe[] {
+  return [
+    {
+      top: `${origin.top}px`,
+      left: `${origin.left}px`,
+      width: `${origin.width}px`,
+      height: `${origin.height}px`,
+    },
+    {
+      top: `${destination.top}px`,
+      left: `${destination.left}px`,
+      width: `${destination.width}px`,
+      height: `${destination.height}px`,
+    },
+  ];
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled wallet iframe overlay mode: ${String(value)}`);
 }
@@ -310,7 +330,7 @@ export class OverlayController {
     setDialogAuthMenu(dialog, authMenu, animateAuthMenuResize);
     dialog.setAttribute('aria-modal', authMenu ? 'false' : 'true');
     if (geometryChanged || authMenuScaleChanged) {
-      if (requestResizeOrigin) this.cancelSurfaceMorph();
+      if (geometryChanged) this.cancelSurfaceMorph();
       setDialogGeometry(dialog, mode.geometry, authMenu ? this.authMenuVisualScale : 1);
       this.lastAppliedGeometry = mode.geometry;
       this.lastAppliedAuthMenuVisualScale = authMenu ? this.authMenuVisualScale : 1;
@@ -318,7 +338,7 @@ export class OverlayController {
         ? finiteSurfaceMorphRect(dialog.getBoundingClientRect())
         : null;
       if (requestResizeOrigin && requestResizeDestination) {
-        this.startSurfaceMorph(requestResizeOrigin, requestResizeDestination);
+        this.startSurfaceResize(requestResizeOrigin, requestResizeDestination);
       }
     }
     iframe.setAttribute('aria-hidden', 'false');
@@ -369,9 +389,22 @@ export class OverlayController {
   private startSurfaceMorph(origin: SurfaceMorphRect, destination: SurfaceMorphRect): void {
     const dialog = this.dialog;
     if (!dialog) return;
+    this.cancelSurfaceMorph();
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const animation = dialog.animate(surfaceMorphKeyframes(origin, destination, reducedMotion), {
       duration: reducedMotion ? SURFACE_REDUCED_MOTION_DURATION_MS : SURFACE_MORPH_DURATION_MS,
+      easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
+    });
+    this.surfaceMorphAnimation = animation;
+    animation.addEventListener('finish', this.handleSurfaceMorphFinished, { once: true });
+  }
+
+  private startSurfaceResize(origin: SurfaceMorphRect, destination: SurfaceMorphRect): void {
+    const dialog = this.dialog;
+    if (!dialog || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    this.cancelSurfaceMorph();
+    const animation = dialog.animate(surfaceResizeKeyframes(origin, destination), {
+      duration: SURFACE_MORPH_DURATION_MS,
       easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
     });
     this.surfaceMorphAnimation = animation;

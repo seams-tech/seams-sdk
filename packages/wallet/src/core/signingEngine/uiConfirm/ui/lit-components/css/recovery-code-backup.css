@@ -99,6 +99,12 @@ dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet
   w3a-recovery-code-backup-viewer[data-w3a-recovery-entry='account_menu'][data-w3a-recovery-stage='recovery_codes'] {
     animation: w3a-recovery-codes-content-in 160ms ease-out both;
   }
+
+  [data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close {
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out;
+  }
 }
 
 [data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close {
@@ -113,11 +119,19 @@ dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet
   padding: 0;
   border: 0;
   border-radius: 999px;
+  appearance: none;
   background: transparent;
+  box-shadow: none;
   color: var(--w3a-colors-textMuted, oklch(0.53 0.02 240));
-  font: inherit;
-  font-size: 1.25rem;
   cursor: pointer;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close svg {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 
 [data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close:hover {

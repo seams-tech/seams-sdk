@@ -228,7 +228,7 @@ export class RecoveryCodeBackupViewer extends LitElementWithProps {
     switch (this.viewState.kind) {
       case 'summary':
       case 'opening':
-        this.querySelector<HTMLButtonElement>('.recovery-summary-close')?.focus();
+        this.querySelector<HTMLElement>('#w3a-wallet-recovery-title')?.focus();
         return;
       case 'recovery_codes':
         this.querySelector<HTMLElement>('#w3a-wallet-recovery-title')?.focus();
@@ -453,9 +453,13 @@ export class RecoveryCodeBackupViewer extends LitElementWithProps {
         aria-label="Close recovery codes"
         @click=${this.closeSummary}
       >
-        <span aria-hidden="true">×</span>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M6 6l12 12M18 6 6 18"></path>
+        </svg>
       </button>
-      <h1 id="w3a-wallet-recovery-title" class="recovery-backup-title">Wallet recovery codes</h1>
+      <h1 id="w3a-wallet-recovery-title" class="recovery-backup-title" tabindex="-1">
+        Wallet recovery codes
+      </h1>
       <p id="w3a-wallet-recovery-description" class="recovery-backup-description">
         View and save the recovery codes retained by this wallet after registration.
       </p>

@@ -51,6 +51,11 @@ export function buildWalletServiceHtml(
   );
   const componentsCss = withAssetVersion(`${sdkBasePath}/w3a-components.css`, assetVersion);
   const txConfirmerCss = withAssetVersion(`${sdkBasePath}/tx-confirmer.css`, assetVersion);
+  const recoveryCodeBackupCss = withAssetVersion(
+    `${sdkBasePath}/recovery-code-backup.css`,
+    assetVersion,
+  );
+  const copyIconCss = withAssetVersion(`${sdkBasePath}/copy-icon.css`, assetVersion);
   const walletShimsJs = withAssetVersion(`${sdkBasePath}/wallet-shims.js`, assetVersion);
   const walletHostScript = withAssetVersion(
     `${sdkBasePath}/${walletHostScriptFileForVariant(normalizeWalletHostVariant(walletHostVariant))}`,
@@ -75,6 +80,8 @@ export function buildWalletServiceHtml(
     <link rel="stylesheet" href="${drawerCss}" />
     <link rel="stylesheet" href="${txTreeCss}" />
     <link rel="stylesheet" href="${txConfirmerCss}" />
+    <link rel="stylesheet" href="${recoveryCodeBackupCss}" data-w3a-recovery-code-backup-css />
+    <link rel="stylesheet" href="${copyIconCss}" data-w3a-copy-icon-css />
     <!-- Minimal shims some ESM bundles expect (externalized to enable strict CSP) -->
     <script src="${walletShimsJs}"></script>
     <!-- Hint the browser to fetch the host script earlier -->

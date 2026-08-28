@@ -101,6 +101,17 @@ test.describe('plugins/vite hosted wallet helper headers', () => {
     expect(buildWalletServiceHtml('/sdk')).toContain('/sdk/wallet-iframe-host-runtime.js');
   });
 
+  test('wallet-service HTML loads recovery modal styles before the first request', async () => {
+    const html = buildWalletServiceHtml('/sdk', 'test-version');
+
+    expect(html).toContain(
+      '<link rel="stylesheet" href="/sdk/recovery-code-backup.css?v=test-version" data-w3a-recovery-code-backup-css />',
+    );
+    expect(html).toContain(
+      '<link rel="stylesheet" href="/sdk/copy-icon.css?v=test-version" data-w3a-copy-icon-css />',
+    );
+  });
+
   test('dev wallet-service serves the selected host variant', async () => {
     const plugin = seamsWalletService({
       walletServicePath: '/wallet-service',
