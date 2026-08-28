@@ -3023,7 +3023,13 @@ export class AuthMenuSession {
     const selected = this.loginAccountOptions.find(
       (account) => account.walletId === walletId && account.authMethod === authMethod,
     );
-    if (!selected || selected.walletId === this.selectedLoginAccount?.walletId) return;
+    if (
+      !selected ||
+      (selected.walletId === this.selectedLoginAccount?.walletId &&
+        selected.authMethod === this.selectedLoginAccount.authMethod)
+    ) {
+      return;
+    }
     const state = this.stateValue;
     if (
       (state.kind !== 'preparing' && state.kind !== 'ready') ||
@@ -3032,7 +3038,13 @@ export class AuthMenuSession {
     ) {
       return;
     }
+    const walletChanged = selected.walletId !== this.selectedLoginAccount?.walletId;
     this.selectedLoginAccount = selected;
+    if (!walletChanged) {
+      this.updateLoginSelectionViewModel();
+      this.updateElement();
+      return;
+    }
     this.invalidatePreparation();
     this.stateValue = {
       kind: 'preparing',

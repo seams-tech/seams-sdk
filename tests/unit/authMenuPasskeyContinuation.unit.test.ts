@@ -39,6 +39,12 @@ const APPEARANCE = {
   palette: 'default',
 } as const satisfies AppearanceConfig;
 
+const PENDING_LOGIN_PREPARATION = new Promise<never>(() => {});
+
+function pendingLoginPreparation(): Promise<never> {
+  return PENDING_LOGIN_PREPARATION;
+}
+
 const UNAVAILABLE_RECOVERY_PORT: HostedRecoveryPort = {
   targetFor: (kind: WalletRecoveryTargetV1['kind']) =>
     kind === 'passkey'
@@ -642,6 +648,35 @@ test.describe('hosted auth-menu passkey continuation', () => {
         mode: 'login',
         loginTarget: { kind: 'wallet', walletId: 'jade-brook' },
       },
+    });
+    session.cleanup();
+  });
+
+  test('selects the exact Email OTP option for a dual-method wallet', () => {
+    const session = authMenuSession({ providers: ['google'] });
+    const passkeyAccount = {
+      walletId: 'cobalt-brook',
+      displayName: 'cobalt-brook',
+      authMethod: 'passkey',
+    } as const;
+    const emailOtpAccount = {
+      ...passkeyAccount,
+      displayName: 'cobalt@example.test',
+      authMethod: 'email_otp',
+    } as const;
+    session.setLoginPreparation({
+      accountOptions: [passkeyAccount, emailOtpAccount],
+      selectedAccount: passkeyAccount,
+      prepare: pendingLoginPreparation,
+    });
+
+    Reflect.apply(Reflect.get(session, 'selectLoginAccount'), session, [
+      emailOtpAccount.walletId,
+      emailOtpAccount.authMethod,
+    ]);
+
+    expect(session.state).toMatchObject({
+      viewModel: { selectedAccount: emailOtpAccount },
     });
     session.cleanup();
   });
