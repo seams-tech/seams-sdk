@@ -97,7 +97,7 @@ test('account-menu recovery codes use one Lit dialog for summary, opening, and c
   await expect(dialog).toHaveAttribute('data-w3a-recovery-stage', 'summary');
   await expect(dialog.getByRole('heading', { name: 'Wallet recovery codes' })).toBeVisible();
   await expect(dialog.getByText('Could not load')).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Close recovery codes' })).toBeFocused();
+  await expect(dialog.getByRole('heading', { name: 'Wallet recovery codes' })).toBeFocused();
   const summaryBox = await dialog.boundingBox();
   await page.evaluate(() => {
     (

@@ -399,7 +399,7 @@ test.describe('OverlayController', () => {
     expect(result.firstKeyframe.opacity).toBeUndefined();
   });
 
-  test('morphs one measured request modal when its content size changes', async ({ page }) => {
+  test('resizes one measured request modal when its content size changes', async ({ page }) => {
     const result = await page.evaluate(
       async ({ path }) => {
         const mod = await import(path);
@@ -486,7 +486,13 @@ test.describe('OverlayController', () => {
       width: 560,
       height: 580,
     });
-    expect(result.firstKeyframe.transform).toContain('translate(50px, 70px)');
+    expect(result.firstKeyframe).toMatchObject({
+      top: '164px',
+      left: '282px',
+      width: '460px',
+      height: '360px',
+    });
+    expect(result.firstKeyframe.transform).toBeUndefined();
     expect(result.firstKeyframe.opacity).toBeUndefined();
   });
 
