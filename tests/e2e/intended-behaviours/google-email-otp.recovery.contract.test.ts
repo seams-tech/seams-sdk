@@ -22,6 +22,25 @@ async function assertEmailOnlyInventoryRemains(harness: IntendedBehaviourHarness
   await harness.unlockEmailOtpWallet();
 }
 
+async function verifyGoogleRecoveryCanAddPasskey(
+  harness: IntendedBehaviourHarness,
+  register: (harness: IntendedBehaviourHarness) => Promise<void>,
+): Promise<void> {
+  await register(harness);
+  await harness.awaitNearReady();
+  await harness.recoverGoogleEmailOtpWalletFromFreshBrowser();
+  await harness.assertRecoveryAuthorityIsAdditive('google_email_otp');
+  await harness.addPasskeyAuthMethod();
+  await harness.assertLockedPageReloadStaysLocked();
+  await harness.unlockWithAddedPasskey();
+  await harness.signTempoTransaction('post_unlock');
+  await harness.signNearTransaction('post_unlock');
+  await harness.exportEcdsaKey();
+  await harness.exportEd25519Key();
+  await harness.exhaustSigningBudget();
+  await harness.signNearTransaction('step_up_required');
+}
+
 const recoveryOrigins: readonly RecoveryOrigin[] = [
   {
     name: 'Passkey-founded',
@@ -70,20 +89,14 @@ test('a committed Google recovery survives a lost finalization response', async 
   await harness.assertConsumedRecoveryCodeReportedAsUsed(recoveryTarget);
 });
 
-test('a Google-recovered wallet can add a passkey from its unlocked authority', async ({
+test('an Email-founded wallet recovers with Google, adds Passkey, then signs, exports, and steps up through it', async ({
   harness,
 }) => {
-  await harness.registerEmailOtpWallet();
-  await harness.awaitNearReady();
-  await harness.recoverGoogleEmailOtpWalletFromFreshBrowser();
-  await harness.addPasskeyAuthMethod();
+  await verifyGoogleRecoveryCanAddPasskey(harness, registerEmailOnlyWallet);
 });
 
-test('an older passkey does not block adding a passkey to a Google recovery authority', async ({
+test('a Passkey-founded wallet recovers with Google, adds Passkey despite the older passkey, then signs, exports, and steps up through it', async ({
   harness,
 }) => {
-  await harness.registerPasskeyWallet();
-  await harness.awaitNearReady();
-  await harness.recoverGoogleEmailOtpWalletFromFreshBrowser();
-  await harness.addPasskeyAuthMethod();
+  await verifyGoogleRecoveryCanAddPasskey(harness, registerPasskeyFoundedWallet);
 });
