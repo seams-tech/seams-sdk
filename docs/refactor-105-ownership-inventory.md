@@ -2,6 +2,8 @@
 
 Date frozen: August 18, 2026
 
+Current addenda reconciled: August 29, 2026
+
 Status: historical snapshot. It records the pre-closeout classification and is
 not an extraction manifest or evidence that the current tree satisfies the
 Refactor 105 boundary. Refactor 105B Phase 0 must regenerate and reconcile the
@@ -440,14 +442,27 @@ Cross-boundary UI leaks to fix in Phase 5:
 Console operating paths run under `tests/playwright.console.config.ts` against
 the managed Caddy, Console frontend, local Cloudflare worker, and D1 stack.
 Focused unit and integration tests retain their owning shared configurations.
+Refactor 117 has replaced the three mocked dashboard browser files with five
+real-service Console operating tests and added the `pnpm test:console` CI gate.
+
+Wallet intended-behaviour tests now run case-by-case through
+`tests/scripts/run-intended-isolated.mjs`, giving each case fresh managed D1
+state. Runtime ownership is still coupled: both
+`tests/playwright.console.config.ts` and
+`tests/playwright.intended.ci.config.ts` invoke
+`tests/scripts/start-intended-services.mjs`, which starts the site, Console
+frontend, combined local Worker, Wallet services, Caddy, and both D1 schemas.
+R105B must split that manager into a public Wallet-only service manager and a
+private Console/composed service manager before the intended-behaviour suite
+can move.
 
 | Group                                                                                                                           | Files                                                                                                                                                                                                                                                                                                                                                                                                                          | Owner          |
 | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
 | dashboard UI                                                                                                                    | `tests/e2e/console/*.operating.test.ts`; `tests/unit/dashboard.*` (4 files)                                                                                                                                                                                                                                                                                                                                                  | console-core   |
 | console server/router                                                                                                           | `tests/unit/router.consoleRouteSurface.unit.test.ts`, `cloudflareD1ConsoleServices.unit.test.ts`, `consoleApiKeys.secretFormat.unit.test.ts`, `consoleServer.stripeBillingProvider.unit.test.ts`, `webServer.consoleConfig.unit.test.ts`, `githubOAuth.unit.test.ts`                                                                                                                                                           | console-core   |
 | sponsorship (wallet feature implemented in console package)                                                                     | `tests/unit/sponsorship.*.unit.test.ts`, `sponsorshipPricing.d1.unit.test.ts`, `router.sponsoredEvmCallCloudflare.unit.test.ts`                                                                                                                                                                                                                                                                                                | wallet-console |
-| mixed — split later                                                                                                             | `tests/e2e/pricing.checkout.apiWiring.test.ts`, `tests/unit/packageExports.contract.unit.test.ts`, `frontendRuntimeState.unit.test.ts`, the `d1Staging*`/`d1LocalDev*`/`d1HostedGatewayRouting`/`migrationFingerprint`/`signingRootScope`/`intendedYaoFault` script tests (import console-server-ts while testing wallet/signer behavior), OTP provider tests, shared fixtures (`tests/helpers/sqliteD1.ts`, staging fixtures) | composition    |
-| everything else (~460 files: `wallet-iframe/`, `lit-components/`, `e2e/intended-behaviours/`, `relayer/`, wallet unit families) |                                                                                                                                                                                                                                                                                                                                                                                                                                | wallet         |
+| mixed — split later                                                                                                             | `tests/scripts/start-intended-services.mjs`; `tests/e2e/pricing.checkout.apiWiring.test.ts`, `tests/unit/packageExports.contract.unit.test.ts`, `frontendRuntimeState.unit.test.ts`, the `d1Staging*`/`d1LocalDev*`/`d1HostedGatewayRouting`/`migrationFingerprint`/`signingRootScope`/`intendedYaoFault` script tests (import console-server-ts while testing wallet/signer behavior), OTP provider tests, shared fixtures (`tests/helpers/sqliteD1.ts`, staging fixtures) | composition    |
+| Wallet suites | `tests/wallet-iframe/`, `tests/lit-components/`, `tests/e2e/intended-behaviours/`, Wallet relayer/unit families, `tests/scripts/run-intended-isolated.mjs`, intended Playwright configs after they use the Wallet-only manager | wallet |
 
 Boundary guards needing updates at each split: `tests/scripts/check-signer-console-module-boundaries.mjs`, `check-workspace-package-boundaries.mjs`, and the new `check-console-core-wallet-import-boundaries.mjs`.
 
@@ -465,6 +480,7 @@ repositories:
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | Router A/B Worker and `router_ab_local_*` source, role-private D1 schema, and generic runtime behavior                                                                              | wallet (public local reference runtime)                                                                                        |
 | Combined local worker (`d1LocalDevWorker.ts`), console+signer migration chaining (`d1:local:prepare`), Caddy topology, `gateway:server`, seeding (`seed-intended-local-console.mjs`) | composition (private composed development)                                                                                     |
+| Current `start-intended-services.mjs` manager | composition until split; its Console startup/readiness/seeding moves private and its Wallet runtime/startup path becomes the public intended-behaviour manager |
 | `apps/web-server` Express in-memory console server (`gateway:server:threshold-3nodes`, `gateway:server:iphone`)                                                                      | composition (console-in-the-loop dev path)                                                                                     |
 | State-preserving startup (canonical-schema SHA check renames drifted state; `router:reset` renames, never deletes; `d1:local:reset` is the explicit destructive command)             | split: the Wallet-only local runtime keeps the preserve/reset semantics per the plan; the console halves move with composition |
 
@@ -523,6 +539,10 @@ neither pipeline write access to the other's environments.
 - Private deployment is split into Console and Wallet-system pipelines. Each
   pipeline owns disjoint GitHub environments and secret/variable names, and no
   command generates or applies both ownership sets.
+- `tests/playwright.console.config.ts`, its five real-service operating paths,
+  and the Console/composed half of the managed service stack remain private.
+  The isolated intended runner and Wallet lifecycle cases move public after
+  their web-server command starts only the generic Wallet runtime.
 - Rust crates remain co-located implementation inputs with `publish = false`.
   Refactor 105 publishes no crate and creates no Rust repository.
 - The private monorepo deploys exact-pinned npm artifacts and has no Cargo,

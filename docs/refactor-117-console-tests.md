@@ -1,6 +1,8 @@
 # Refactor 117 — High-Impact Console Operating Tests
 
-Status: planned.
+Status: complete. The five operating paths, dedicated Playwright configuration,
+CI gate, and deletion of the three mocked browser suites landed on August 29,
+2026.
 
 Date created: August 28, 2026
 

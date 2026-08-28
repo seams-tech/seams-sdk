@@ -2,7 +2,7 @@
 
 Date created: August 11, 2026
 
-Last reconciled: August 27, 2026 (closeout confirmation run)
+Last reconciled: August 29, 2026 (Refactor 117 and isolated Wallet test runners)
 
 Status: planned closeout. Phases 0–6 define the required in-monorepo Console
 boundary. The pre-Phase-7 tree confirmation ran on August 27, 2026; its
@@ -246,6 +246,20 @@ Refactor 99B's route and authorization movement must be classified before the
 Phase 8 source reference is frozen and before this plan deletes mixed
 observability or platform-support paths. The work itself remains private and
 does not add a public Wallet dependency.
+
+### `refactor-117-console-tests.md`
+
+[Refactor 117](./refactor-117-console-tests.md) landed the private Console
+browser authority on August 29, 2026. `pnpm test:console` now runs five
+real-service operating paths through the dedicated Console Playwright config;
+the three large mocked dashboard suites are gone.
+
+The Wallet intended-behaviour runner also now isolates each case with fresh
+managed state. Both suites still invoke `start-intended-services.mjs`, which
+starts Console and Wallet services together. Refactor 105B must split that
+service manager before extraction: the Wallet-only manager moves public with
+the isolated intended runner, while the Console/composed manager and
+`pnpm test:console` remain private and consume installed Wallet packages.
 
 ### `refactor-107.md`
 
@@ -791,6 +805,9 @@ confirm the following against the current tree:
 - `apps/seams-console` is independently buildable and the main-site dashboard
   extraction has one explicit remaining cutover owner;
 - Console core and Wallet Console build and their focused boundary checks pass;
+- the landed `pnpm test:console` operating suite is the private Console browser
+  authority and no deleted mocked dashboard suite is treated as required
+  coverage;
 - packed packages resolve without workspace, Git, source-path, or sibling
   checkout fallbacks.
 
@@ -858,6 +875,9 @@ deployment. The required outcome is:
       signer migrations, Wallet-owned tests and type fixtures, SDK/protocol
       docs, public examples, the minimal `SeamsAuthMenu` example, generic local
       runtime, public CI, and npm release workflows in `seams-wallet`.
+- [ ] Split `start-intended-services.mjs`: move the isolated Wallet intended
+      runner and Wallet-only manager public; keep `pnpm test:console`, its five
+      operating paths, and the Console/composed manager private.
 - [ ] Keep Console/Admin/product/deployment docs, Console and Wallet Console
       tests, staging and production GitHub Actions, environment values,
       Cloudflare topology, secrets, provider configuration, operational
@@ -904,7 +924,9 @@ Run only the checks needed for the moved boundary:
 - type-check and build the public Wallet packages from the public candidate;
 - start the generic Wallet runtime and build the `SeamsAuthMenu` example once;
 - type-check and build Console against the packed, exact-version packages;
-- run one focused composed Wallet flow from the private monorepo;
+- run the existing isolated Wallet intended runner without Console startup;
+- run `pnpm test:console` from the private monorepo against the installed
+  packages;
 - confirm Console, Wallet Gateway, and Admin reject one another's credentials
   and route namespaces;
 - inspect the public tree and npm packages for private configuration or secrets.
@@ -1018,6 +1040,9 @@ other authority's environment.
 - the public repository builds, tests, and runs the real Wallet lifecycle with
   no private repository access, preserves local state on normal restart, and
   exposes reset as an explicit operation;
+- the public Wallet intended-behaviour runner starts no Console/site service,
+  and the private `pnpm test:console` suite runs its five real-service paths
+  against exact installed Wallet packages;
 - public validation is credential-free, npm releases use trusted publishing,
   and all Rust crates remain `publish = false` with no crates.io release;
 - the private repository consumes exact-pinned npm package versions and

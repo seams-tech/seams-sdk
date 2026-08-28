@@ -7,11 +7,20 @@ four matrix cases, an admitted Passkey finalization retry, and Google
 post-commit response-loss replay passed locally. Commit `b5507d7ae` corrected
 recovery-authority Email OTP dispatch to ordinary unlock and landed four
 recovery-to-sibling-method operating contracts across both founding families
-and both recovery targets. Those new contracts still need an independently
-recorded run. Combined-inventory, preservation of pre-existing linked
-authorities, direct recovered-target step-up/export, dual-target
-cancellation/conflict/replay, and post-promotion reload acceptance remain in
-the worklist below.
+and both recovery targets. Commit `a8bc2606f` then made recovered Email OTP
+unlock fail closed unless the exact recovery authority and method are already
+installed locally, added combined-inventory variants to both recovery target
+contracts, and made the default intended-contract runner give every case fresh
+managed D1 state. The combined-inventory and sibling-method coverage has
+landed, but still needs an independently recorded run. Preservation of
+pre-existing linked authorities, direct recovered-target step-up/export,
+dual-target cancellation/conflict/replay, and post-promotion reload acceptance
+remain in the worklist below.
+
+Reconciled through `be8fcbaf7` on August 29. That commit consolidates recovery
+code backup and account-menu presentation in the iframe modal; it does not
+change R115 recovery admission, reservation, promotion, authority installation,
+or post-recovery unlock semantics.
 
 ## Goal
 
@@ -193,6 +202,14 @@ Every method later added to a recovery authority inherits ordinary unlock. A
 recovery authority has no linked-device installation package or link session,
 so routing it through linked unlock creates an unreachable prerequisite rather
 than a recovery path.
+
+Ordinary unlock consumes the recovery projection already installed by
+finalization. For Email OTP it resolves the exact local authority and method,
+then fail-closed compares authority ID and digest, method and authority IDs,
+active lifecycle, Email hash, and registration-authority identity with the
+verified server projection. Unlock never repairs or hydrates missing recovery
+state. Post-promotion resume must finish the local installation before normal
+unlock can succeed.
 
 ## User Flow
 
@@ -483,6 +500,9 @@ prerequisite one terminal publish boundary.
 20. A recovery authority and every sibling method added to it use ordinary
     unlock. Only `device_link` provenance may enter linked unlock or consult
     linked-device installation state.
+21. Normal unlock never installs or repairs a recovered authority. It accepts
+    only the exact active authority and method durably installed by recovery
+    finalization or its post-promotion resume path.
 
 ## Implementation Phases
 
@@ -572,6 +592,9 @@ either target moves.
 - [x] Continue through normal Passkey or Google/Email login.
 - [x] Dispatch `wallet_recovery` authorities through ordinary unlock and keep
       linked unlock exclusive to `device_link` provenance.
+- [x] Make recovered Email OTP ordinary unlock require the exact active local
+      authority and method projection. Remove unlock-time recovery persistence;
+      missing or mismatched local state fails closed.
 - [ ] Persist a redacted, non-discoverable post-promotion resume record before
       the in-memory operation can be lost. Resume the same committed recovery
       operation after reload without consuming another code.
@@ -583,7 +606,10 @@ either target moves.
 
 - [x] Run the complete 2x2 contract from fresh browser storage: Passkey-only
       and Email-only origins through both Passkey and Google/Email targets.
-- [ ] Run both recovery targets against a combined Passkey + Email inventory.
+- [x] Add a combined Passkey + Email inventory variant to both recovery target
+      contracts.
+- [ ] Run and record both combined-inventory recovery cases with the isolated
+      intended-contract runner.
 - [ ] Prove reload remains locked before normal login, including interruption
       immediately after server promotion and at every local publication
       boundary.
@@ -710,8 +736,12 @@ boundary.
   4.
 - `googleEmailOtpUnlockExecution` dispatches `wallet_registration` and
   `wallet_recovery` provenance to ordinary unlock and reserves linked unlock
-  for `device_link`. The intended recovery contracts now cover adding and
-  operating the sibling method on a recovered authority.
+  for `device_link`. `persistVerifiedEmailOtpAuthorityAfterUnlock` accepts a
+  recovery projection only when the exact active authority and Email OTP method
+  are already installed locally; it performs no unlock-time recovery
+  persistence. The intended recovery contracts now cover combined source
+  inventory and adding and operating the sibling method on a recovered
+  authority.
 - Device linking's signer-material reservation is not a reuse candidate. It is
   built on a source-device re-share contribution, and recovery has no source
   device. Registration's founding-authority builder is the closer model.
@@ -754,6 +784,12 @@ changing:
 - The active-authority uniqueness index is per device, which is what makes the
   fresh device ID load-bearing rather than cosmetic.
 
+Run intended-browser acceptance with `pnpm test:intended`. Since
+`a8bc2606f`, that command enumerates the selected cases and runs each with a
+fresh managed D1 root and Vite cache. Use `pnpm test:intended:external` only
+when deliberately testing against an already-running composed service stack;
+do not mix evidence from the two execution models in one recorded baseline.
+
 The V2 durable recovery attempt uses existing versioned JSON/challenge storage.
 R114 attempts were short-lived; the old decoder and source-replacement commit
 path have been removed. Future migrations, including R103F, allocate after
@@ -770,6 +806,8 @@ R115 is complete when:
 - recovery creates a fresh authority and method without revoking anything;
 - the recovery authority and methods added to it use ordinary unlock, while
   linked unlock remains exclusive to linked-device authorities;
+- normal unlock accepts only the exact recovered authority and method already
+  installed by finalization or durable resume;
 - both targets preserve public wallet and signer identities;
 - a post-promotion reload resumes the same redacted operation and keeps the
   wallet hidden until local continuity is complete;
