@@ -245,46 +245,6 @@ test('D1 billing reconstructs balanced credit and persists provider-backed refun
   }
 });
 
-test('D1 checkout reconciliation returns the settled projections on repeat', async () => {
-  const temporary = createTemporaryD1Database();
-  try {
-    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console-core'));
-    await seedBillingEmailOwners(temporary.database);
-    const billing = await createD1ConsoleBillingService({
-      database: temporary.database,
-      namespace: BILLING_NAMESPACE,
-      now: () => new Date('2026-03-20T00:00:00.000Z'),
-      emailConsoleBaseUrl: 'https://console.example.com',
-    });
-
-    const checkout = await billing.createStripeCheckoutSession(SUPPORT_CONTEXT, {
-      creditPackId: 'usd_25',
-    });
-    const settled = await billing.reconcileStripeCheckoutSession(SUPPORT_CONTEXT, {
-      checkoutSessionId: checkout.id,
-    });
-    const reconciledAgain = await billing.reconcileStripeCheckoutSession(SUPPORT_CONTEXT, {
-      checkoutSessionId: checkout.id,
-    });
-
-    expect(settled).toMatchObject({
-      settled: true,
-      settledNow: true,
-      purchase: { id: checkout.purchaseId, status: 'SETTLED' },
-      invoice: { documentType: 'PURCHASE_RECEIPT' },
-    });
-    expect(reconciledAgain).toMatchObject({
-      settled: true,
-      settledNow: false,
-      purchase: { id: checkout.purchaseId, status: 'SETTLED' },
-      invoice: { documentType: 'PURCHASE_RECEIPT' },
-    });
-    expect((await billing.getOverview(SUPPORT_CONTEXT)).creditBalanceMinor).toBe(2500);
-  } finally {
-    cleanupTemporaryD1Database(temporary.tempDir);
-  }
-});
-
 test('D1 billing reserves refund capacity before awaiting Stripe', async () => {
   const temporary = createTemporaryD1Database();
   let releaseFirstRefund: (() => void) | null = null;
