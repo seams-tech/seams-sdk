@@ -44,6 +44,8 @@ import {
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
 import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
+import type { ActiveWalletAuthorityV1 } from '../../packages/shared-ts/src/authorization/walletAuthority';
+import { extendFixtureAuthorityWithEcdsaSigner } from './helpers/linkedDeviceManagement.fixtures';
 import {
   RecordingDurableObjectNamespace,
   requireSingleEcdsaPrepare,
@@ -76,6 +78,42 @@ function requiredDomainValue<T>(
 ): T {
   if (!result.ok) throw new Error(`Test ${field} is invalid`);
   return result.value;
+}
+
+async function persistActiveAuthorityAdvance(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: {
+    readonly namespace: string;
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly envId: string;
+  };
+  readonly expected: ActiveWalletAuthorityV1;
+  readonly next: ActiveWalletAuthorityV1;
+}): Promise<void> {
+  const result = await input.database
+    .prepare(
+      `UPDATE wallet_authorities
+          SET signer_activations_json = ?, signer_activation_set_digest_b64u = ?,
+              authority_digest_b64u = ?, record_json = ?, updated_at_ms = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND authority_id = ? AND authority_digest_b64u = ?`,
+    )
+    .bind(
+      JSON.stringify(input.next.signerActivations),
+      String(input.next.signerActivationSetDigestB64u),
+      String(input.next.authorityDigestB64u),
+      JSON.stringify(input.next),
+      input.next.updatedAtMs,
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      String(input.next.authorityId),
+      String(input.expected.authorityDigestB64u),
+    )
+    .run();
+  expect(result.meta?.changes).toBe(1);
 }
 
 async function reopenAddSignerFinalizeCompletionAsStaleClaim(input: {
@@ -560,6 +598,19 @@ test('Cloudflare D1 Router API auth service adds Email OTP wallet auth methods t
     if (!intent.ok) throw new Error(intent.message);
     expect(Object.prototype.hasOwnProperty.call(intent.intent, 'rpId')).toBe(false);
     const runtimePolicyScope = normalizeRuntimePolicyScope(intent.intent.runtimePolicyScope);
+
+    const advancedAuthority = await extendFixtureAuthorityWithEcdsaSigner(founding.authority);
+    await persistActiveAuthorityAdvance({
+      database,
+      scope,
+      expected: founding.authority,
+      next: advancedAuthority,
+    });
+    expect(advancedAuthority.authorityDigestB64u).not.toBe(
+      intent.intent.caller === 'same_device_addition'
+        ? intent.intent.source.authorityDigestB64u
+        : '',
+    );
 
     const challenge = await service.emailOtp.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,

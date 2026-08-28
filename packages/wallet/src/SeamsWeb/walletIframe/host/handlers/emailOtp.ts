@@ -203,7 +203,6 @@ function parseWalletCustodyEmailOtpChallengePayload(value: unknown): {
   if (
     operation !== 'credentials_list' &&
     operation !== 'credential_label' &&
-    operation !== 'recovery_acknowledge' &&
     operation !== 'recovery_rotate' &&
     operation !== 'recovery_read'
   ) {

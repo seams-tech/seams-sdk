@@ -348,6 +348,7 @@ export type WalletIframeOverlayState = {
 type WalletIframeRequestSurfaceKind =
   | 'auth_menu'
   | 'registration'
+  | 'email_otp_enrollment'
   | 'transaction'
   | 'key_export_near'
   | 'key_export_threshold'
@@ -417,6 +418,8 @@ function requestSurfaceKindForMessage(
     case 'PM_ADD_PASSKEY':
     case 'PM_ROTATE_WALLET_RECOVERY_CODES':
       return 'registration';
+    case 'PM_ADD_EMAIL_OTP':
+      return 'email_otp_enrollment';
     case 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP':
       return 'recovery_codes';
     case 'PM_SIGN_TX_WITH_ACTIONS':
@@ -521,6 +524,10 @@ function requestSurfacePresentationFor(
       return authMenuWalletIframeSurfacePresentation('Sign in or create an account');
     case 'registration':
       return modalWalletIframeSurfacePresentation('Confirm passkey registration');
+    case 'email_otp_enrollment':
+      return confirmationUiModeForRequest('PM_ADD_EMAIL_OTP', payload, fallbackUiMode) === 'drawer'
+        ? drawerWalletIframeSurfacePresentation('Enter email code')
+        : modalWalletIframeSurfacePresentation('Enter email code');
     case 'transaction':
       return effectiveTransactionSurfaceUiMode(payload, fallbackUiMode) === 'drawer'
         ? drawerWalletIframeSurfacePresentation('Confirm transaction')
@@ -1801,6 +1808,18 @@ export class WalletIframeRouter {
         });
         break;
       }
+      case 'email_otp_enrollment':
+        result = this.transitionWalletIframeSurface({
+          kind: 'transaction_modal_request_started',
+          connectionId,
+          identity,
+          presentation: requestSurfacePresentationFor(
+            'email_otp_enrollment',
+            args.payload,
+            this.mirroredConfirmationUiMode ?? undefined,
+          ),
+        });
+        break;
       case 'transaction':
         result = this.transitionWalletIframeSurface({
           kind: 'transaction_modal_request_started',
@@ -2677,17 +2696,20 @@ export class WalletIframeRouter {
     payload: Parameters<RegistrationCapability['addEmailOtp']>[0],
   ): Promise<AddEmailOtpResult> {
     const safeOptions = removeFunctionsFromOptions(payload.options);
-    const res = await this.post<AddEmailOtpResult>({
-      type: 'PM_ADD_EMAIL_OTP',
-      payload: {
-        walletId: payload.walletId,
-        emailAddress: payload.emailAddress,
-        options: safeOptions,
+    const res = await this.post<AddEmailOtpResult>(
+      {
+        type: 'PM_ADD_EMAIL_OTP',
+        payload: {
+          walletId: payload.walletId,
+          emailAddress: payload.emailAddress,
+          options: safeOptions,
+        },
+        options: {
+          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+        },
       },
-      options: {
-        onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
-      },
-    });
+      { timeout: 'interactive' },
+    );
     return res.result;
   }
 
@@ -4085,7 +4107,7 @@ export class WalletIframeRouter {
     const deadlineAtMs = timeoutPolicy.kind === 'deadline' ? timeoutPolicy.deadlineAtMs : null;
     const surfaceKind = requestSurfaceKindForMessage(envelope.type, full.payload);
     let transactionSurfaceLease: WalletIframeTransactionSurfaceLease | null = null;
-    if (surfaceKind === 'transaction') {
+    if (surfaceKind === 'transaction' || surfaceKind === 'email_otp_enrollment') {
       const queueDeadline: WalletIframeTransactionSurfaceDeadline =
         timeoutPolicy.kind === 'deadline'
           ? { kind: 'deadline', atMs: timeoutPolicy.deadlineAtMs }

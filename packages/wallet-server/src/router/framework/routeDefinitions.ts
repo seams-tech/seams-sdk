@@ -617,10 +617,10 @@ export function createRouterApiRouteDefinitions(
       'Record that the owner saved their recovery codes',
       {
         plane: 'public',
-        proof: 'webauthn',
-        rationale: 'Fresh operation-bound owner proof is required.',
+        rationale:
+          'Acknowledgement only clears backup-reminder state after the client displays its locally retained codes.',
       },
-      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+      ['passkeyCustody'],
     ),
     publicRoute(
       'wallet_recovery_finalize',

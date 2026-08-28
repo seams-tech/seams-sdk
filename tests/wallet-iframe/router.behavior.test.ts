@@ -288,6 +288,53 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
+  test('addEmailOtp shows an interactive wallet surface while awaiting the OTP', async ({
+    page,
+  }) => {
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 100,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+
+        let settled = false;
+        const request = router
+          .addEmailOtp({ walletId: 'alice.testnet', emailAddress: 'alice@example.test' })
+          .then(
+            () => {
+              settled = true;
+            },
+            () => {
+              settled = true;
+            },
+          );
+        const shown = await waitFor(() => router.getOverlayState().visible, 3000);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        const state = router.getOverlayState();
+        const remainedInteractive = !settled && state.visible;
+
+        router.dispose();
+        await request;
+        return { shown, remainedInteractive, mode: state.mode };
+      },
+      { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, routerPath },
+    );
+
+    expect(result.shown).toBe(true);
+    expect(result.remainedInteractive).toBe(true);
+    expect(result.mode).toBe('compact_modal');
+  });
+
   test('executeAction shows overlay then hides it after request timeout', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(

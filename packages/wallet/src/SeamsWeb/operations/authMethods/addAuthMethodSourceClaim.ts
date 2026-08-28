@@ -23,11 +23,12 @@ export type AddAuthMethodSourceClaimResultV1 =
   | {
       readonly kind: 'resolved';
       readonly source: AddAuthMethodIntentSourceV1;
-      /* Alongside the claim, never inside it: the claim is hashed into the
-         intent digest, and the family is already implied by the method id the
-         server resolves. It rides here so the operation can pick its source
-         proof without reading the method record twice. */
-      readonly sourceFamily: WalletAuthMethodRecordV2['kind'];
+      /* Kept alongside the hashed claim so the proof uses the exact method
+         named by that claim. */
+      readonly sourceAuthMethod: Extract<
+        WalletAuthMethodRecordV2,
+        { readonly status: 'active' }
+      >;
     }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
@@ -63,7 +64,7 @@ export async function resolveAddAuthMethodSourceClaimV1(
   }
   return {
     kind: 'resolved',
-    sourceFamily: selected.authMethod.kind,
+    sourceAuthMethod: selected.authMethod,
     source: {
       walletAuthorityId: selected.authMethod.walletAuthorityId,
       walletAuthMethodId: selected.authMethod.walletAuthMethodId,

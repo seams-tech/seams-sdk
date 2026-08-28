@@ -188,7 +188,6 @@ export type WalletRecoveryBackupAcknowledgementResult =
 export async function acknowledgeWalletRecoveryBackup(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly factorProof: WalletCustodyFactorProof;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryBackupAcknowledgementResult> {
   let response: Response;
@@ -196,7 +195,7 @@ export async function acknowledgeWalletRecoveryBackup(args: {
     response = await postWalletRecoveryRoute({
       relayUrl: args.relayUrl,
       path: WALLET_RECOVERY_ACK_PATH,
-      body: { walletId: args.walletId, factorProof: args.factorProof },
+      body: { walletId: args.walletId },
       fetchImpl: args.fetchImpl,
     });
   } catch (error: unknown) {

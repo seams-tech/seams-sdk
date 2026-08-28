@@ -1124,12 +1124,7 @@ export interface RecoveryCapability {
   requestWalletCustodyEmailOtpChallenge(args: {
     walletId: string;
     providerSubjectId: string;
-    operation:
-      | 'credentials_list'
-      | 'credential_label'
-      | 'recovery_acknowledge'
-      | 'recovery_rotate'
-      | 'recovery_read';
+    operation: 'credentials_list' | 'credential_label' | 'recovery_rotate' | 'recovery_read';
     payload: Record<string, unknown>;
     requestOrigin?: string;
   }): Promise<WalletCustodyEmailOtpChallengeResult>;
