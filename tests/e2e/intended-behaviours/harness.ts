@@ -1320,6 +1320,7 @@ export class IntendedBehaviourHarness {
   async unlockWithAddedPasskey(): Promise<void> {
     this.recordStage('unlock_with_added_passkey');
     const registration = this.requireRegisteredWalletForSigning();
+    const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction(
       'unlockPasskeyWallet',
       'intended-unlock-passkey',
@@ -1358,6 +1359,13 @@ export class IntendedBehaviourHarness {
       label: 'added passkey',
       sessionWalletAuthMethodId: result.sessionWalletAuthMethodId,
     });
+    const observedPaths = this.trace
+      .slice(traceStartIndex)
+      .map((entry) => routePathAtRouter(entry.url, this.config.routerUrl))
+      .filter((path): path is string => path !== null);
+    if (!observedPaths.includes('/wallet/unlock/verify')) {
+      throw new Error('Added passkey unlock did not traverse /wallet/unlock/verify');
+    }
     this.passkeyPromptCount += 1;
     this.operatingAuthFamily = 'passkey';
     this.recordService(`added passkey unlocked wallet=${String(registration.walletId)}`);
@@ -1535,6 +1543,7 @@ export class IntendedBehaviourHarness {
     this.recordStage('unlock_with_added_email_otp');
     const registration = this.requireRegisteredWalletForSigning();
     await this.resetRuntimeOnlyState();
+    const traceStartIndex = this.trace.length;
     const snapshot = await this.runIntendedPageAction(
       'unlockWithAddedEmailOtp',
       'intended-unlock-added-email-otp',
@@ -1562,6 +1571,22 @@ export class IntendedBehaviourHarness {
       label: 'added email code',
       sessionWalletAuthMethodId: result.sessionWalletAuthMethodId,
     });
+    const observedPaths = new Set(
+      this.trace
+        .slice(traceStartIndex)
+        .map((entry) => routePathAtRouter(entry.url, this.config.routerUrl))
+        .filter((path): path is string => path !== null),
+    );
+    for (const expectedPath of [
+      '/auth/google/verify',
+      '/wallet/email-otp/challenge',
+      '/wallet/email-otp/factor-release',
+      '/wallet/unlock/verify',
+    ]) {
+      if (!observedPaths.has(expectedPath)) {
+        throw new Error(`Added Email OTP unlock did not traverse ${expectedPath}`);
+      }
+    }
     this.currentWarmSigningStage = 'post_unlock';
     this.emailOtpVerificationCount += 1;
     this.operatingAuthFamily = 'email_otp';
@@ -3195,10 +3220,26 @@ function enableRegistrationBenchmarkDiagnosticsInFrame(): void {
   ).__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS = true;
 }
 
+function scheduleServiceReadinessRetry(resolve: () => void): void {
+  setTimeout(resolve, 250);
+}
+
 async function assertHttpOk(request: APIRequestContext, url: string, label: string): Promise<void> {
-  const response = await request.get(url, { ignoreHTTPSErrors: true, timeout: 5_000 });
-  if (response.ok()) return;
-  throw new Error(`${label} is not ready at ${url}: HTTP ${response.status()}`);
+  const deadline = Date.now() + 20_000;
+  let lastStatus = 0;
+  while (Date.now() < deadline) {
+    try {
+      const response = await request.get(url, { ignoreHTTPSErrors: true, timeout: 5_000 });
+      lastStatus = response.status();
+      if (response.ok()) return;
+    } catch {
+      lastStatus = 0;
+    }
+    await new Promise<void>(scheduleServiceReadinessRetry);
+  }
+  throw new Error(
+    `${label} is not ready at ${url}${lastStatus > 0 ? `: HTTP ${lastStatus}` : ''}`,
+  );
 }
 
 function isExternalStubHost(hostname: string): boolean {
@@ -5583,6 +5624,44 @@ async function clickWalletIframeConfirm(
           opts.diagnostics.clicked = true;
         }
         return true;
+      }
+    }
+
+    if (intendedAction === 'unlockPasskeyWallet') {
+      const primary = frame.locator('[data-auth-menu-primary]').first();
+      const primaryEnabled = await primary.isEnabled().catch(() => false);
+      if (!primaryEnabled) {
+        const walletId = await page
+          .getByTestId('intended-e2e-page')
+          .getAttribute('data-wallet-id');
+        if (!walletId) {
+          throw new Error('Passkey auto-confirm requires current intended wallet id');
+        }
+        const accountMenuTrigger = frame.locator('.w3a-account-menu-trigger').first();
+        const triggerVisible = await accountMenuTrigger.isVisible().catch(() => false);
+        if (triggerVisible) {
+          await accountMenuTrigger.click({ timeout: timeoutMs });
+          const passkeyAccount = frame
+            .locator(
+              `.w3a-account-menu-option[data-wallet-id=${JSON.stringify(
+                walletId,
+              )}][data-auth-method="passkey"]`,
+            )
+            .first();
+          const passkeyAccountVisible = await passkeyAccount.isVisible().catch(() => false);
+          if (passkeyAccountVisible) {
+            const selected = await passkeyAccount
+              .getAttribute('aria-selected')
+              .then((value) => value === 'true')
+              .catch(() => false);
+            if (!selected) {
+              await passkeyAccount.click({ timeout: timeoutMs });
+            } else {
+              await accountMenuTrigger.click({ timeout: timeoutMs });
+            }
+            return true;
+          }
+        }
       }
     }
 

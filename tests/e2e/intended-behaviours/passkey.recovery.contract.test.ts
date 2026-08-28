@@ -18,6 +18,25 @@ async function assertEmailOnlyInventoryRemains(harness: IntendedBehaviourHarness
   await harness.unlockEmailOtpWallet();
 }
 
+async function verifyPasskeyRecoveryCanAddEmailOtp(
+  harness: IntendedBehaviourHarness,
+  register: (harness: IntendedBehaviourHarness) => Promise<void>,
+): Promise<void> {
+  await register(harness);
+  await harness.awaitNearReady();
+  await harness.recoverPasskeyWalletFromFreshBrowser();
+  await harness.assertRecoveryAuthorityIsAdditive('passkey');
+  await harness.addEmailOtpAuthMethod();
+  await harness.assertLockedPageReloadStaysLocked();
+  await harness.unlockWithAddedEmailOtp();
+  await harness.signTempoTransaction('post_unlock');
+  await harness.signNearTransaction('post_unlock');
+  await harness.exportEcdsaKey();
+  await harness.exportEd25519Key();
+  await harness.exhaustSigningBudget();
+  await harness.signNearTransaction('step_up_required');
+}
+
 const recoveryOrigins: readonly RecoveryOrigin[] = [
   { name: 'Passkey-founded', register: registerPasskeyFoundedWallet },
   {
@@ -56,15 +75,14 @@ test('a failed finalization leaves its admitted recovery code reusable', async (
   await harness.assertConsumedRecoveryCodeReportedAsUsed();
 });
 
-test('a recovered passkey wallet adds Email OTP, locks, unlocks with Google, and signs both families', async ({
+test('a Passkey-founded wallet recovers with Passkey, adds Email OTP, then signs, exports, and steps up through it', async ({
   harness,
 }) => {
-  await harness.registerPasskeyWallet();
-  await harness.awaitNearReady();
-  await harness.recoverPasskeyWalletFromFreshBrowser();
-  await harness.addEmailOtpAuthMethod();
-  await harness.assertLockedPageReloadStaysLocked();
-  await harness.unlockWithAddedEmailOtp();
-  await harness.signTempoTransaction('post_unlock');
-  await harness.signNearTransaction('post_unlock');
+  await verifyPasskeyRecoveryCanAddEmailOtp(harness, registerPasskeyFoundedWallet);
+});
+
+test('an Email-founded wallet recovers with Passkey, adds Email OTP to the recovery authority, then signs, exports, and steps up through it', async ({
+  harness,
+}) => {
+  await verifyPasskeyRecoveryCanAddEmailOtp(harness, registerEmailOnlyWallet);
 });

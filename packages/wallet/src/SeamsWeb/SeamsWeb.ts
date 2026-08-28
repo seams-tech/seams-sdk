@@ -257,9 +257,9 @@ function googleEmailOtpUnlockExecution(
 ): 'ordinary' | 'linked' {
   switch (provenance.kind) {
     case 'wallet_registration':
+    case 'wallet_recovery':
       return 'ordinary';
     case 'device_link':
-    case 'wallet_recovery':
       return 'linked';
   }
   provenance satisfies never;
