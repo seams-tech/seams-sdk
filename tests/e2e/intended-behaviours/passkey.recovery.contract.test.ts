@@ -41,6 +41,30 @@ for (const origin of recoveryOrigins) {
     await harness.signNearTransaction('post_unlock');
     await harness.signTempoAndArcEvmConcurrently('post_unlock');
     await origin.assertExistingInventory?.(harness);
-    await harness.assertConsumedRecoveryCodeRefusedGenerically();
+    await harness.assertConsumedRecoveryCodeReportedAsUsed();
   });
 }
+
+test('a failed finalization leaves its admitted recovery code reusable', async ({
+  harness,
+}) => {
+  await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
+  await harness.signTempoTransaction('post_registration');
+  await harness.recoverPasskeyWalletAfterFailedFinalization();
+  await harness.assertRecoveryAuthorityIsAdditive('passkey');
+  await harness.assertConsumedRecoveryCodeReportedAsUsed();
+});
+
+test('a recovered passkey wallet adds Email OTP, locks, unlocks with Google, and signs both families', async ({
+  harness,
+}) => {
+  await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
+  await harness.recoverPasskeyWalletFromFreshBrowser();
+  await harness.addEmailOtpAuthMethod();
+  await harness.assertLockedPageReloadStaysLocked();
+  await harness.unlockWithAddedEmailOtp();
+  await harness.signTempoTransaction('post_unlock');
+  await harness.signNearTransaction('post_unlock');
+});

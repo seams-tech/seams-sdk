@@ -86,11 +86,9 @@ import {
  * it opens. The code never leaves this call, and the server cannot open what
  * it returns — it only matched a derived identifier against stored wraps.
  *
- * **`rejected` says nothing about why.** The server answers identically for an
- * unknown wallet, an unknown code, a spent code and a malformed one, so that
- * the route cannot be used to count how many of a user's ten codes remain.
- * This keeps that: no client-side guess at which case it was, however helpful
- * a "you already used this one" would be to show.
+ * Unknown and malformed codes remain generic. A consumed code has a durable
+ * locator tombstone and receives the distinct `consumed` result used by the
+ * recovery menu.
  *
  * `conflict` is the exception worth distinguishing, because it is the one
  * failure where the same code is still worth trying again.
@@ -230,7 +228,8 @@ export type WalletRecoveryPrepareResult =
       readonly target: Extract<WalletRecoveryTargetV1, { readonly kind: 'google_email_otp' }>;
       readonly registration?: never;
     })
-  | WalletRecoveryAttemptFailure;
+  | WalletRecoveryAttemptFailure
+  | { readonly kind: 'consumed' };
 
 type WalletRecoveryPrepareResultCommon = {
   readonly kind: 'prepared';
@@ -425,6 +424,9 @@ async function parseWalletRecoveryPrepareResponse(args: {
 
   if (response.status === 409) {
     return { kind: 'retryable_conflict' };
+  }
+  if (response.status === 401 && body.code === 'recovery_code_used') {
+    return { kind: 'consumed' };
   }
   if (response.status === 401 || response.status === 400) {
     return { kind: 'refused' };

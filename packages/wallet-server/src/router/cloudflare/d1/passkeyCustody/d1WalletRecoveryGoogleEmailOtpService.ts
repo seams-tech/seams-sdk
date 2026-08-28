@@ -479,6 +479,15 @@ export class CloudflareD1WalletRecoveryGoogleEmailOtpService {
 
     const stored = await this.attempts.read(recovery.recoveryOperationId);
     if (stored.kind === 'missing') {
+      return { kind: 'conflict', reason: 'the recovery operation is unavailable or incomplete' };
+    }
+    if (stored.value.state === 'finalized') {
+      if (
+        alphabetizeStringify(walletRecoveryGoogleEmailOtpFinalizationInput(stored.value)) !==
+        alphabetizeStringify(recovery)
+      ) {
+        return recoveryAttemptConflictForFinalization();
+      }
       const currentEnrollment = await this.enrollments.readEnrollment(String(recovery.walletId));
       if (!currentEnrollment) {
         return { kind: 'conflict', reason: 'the recovery operation is unavailable or incomplete' };

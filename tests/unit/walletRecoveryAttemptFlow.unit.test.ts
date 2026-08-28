@@ -7,8 +7,7 @@ import { deriveWalletRecoveryKeyIdFromBytes } from '../../packages/shared-ts/src
  *
  * Three properties, each of which fails silently if it regresses:
  *
- * - a spent code and an unknown code answer identically, so the route is not
- *   an oracle for how many of a user's ten codes remain;
+ * - a spent code receives the terminal consumed result;
  * - the reservation is written before the payload is returned;
  * - the write is version-guarded, so two concurrent attempts cannot both
  *   commit and quietly restore each other's spent code.
@@ -19,7 +18,7 @@ const B64U_32 = 'A'.repeat(43);
 const CODE = new Uint8Array(20).fill(7);
 const OTHER_CODE = new Uint8Array(20).fill(9);
 
-async function recoverySet(lifecycleState: 'active' | 'consumed' = 'active') {
+async function recoverySet(lifecycleState: 'active' | 'reserved' | 'consumed' = 'active') {
   const recoveryKeyId = await deriveWalletRecoveryKeyIdFromBytes({
     codeBytes: CODE,
     walletId: WALLET_ID,
@@ -36,12 +35,20 @@ async function recoverySet(lifecycleState: 'active' | 'consumed' = 'active') {
         lifecycle:
           lifecycleState === 'active'
             ? { state: 'active' }
-            : {
-                state: 'consumed',
-                issuedAtMs: 1,
-                reservationId: 'prior-recovery',
-                consumedAtMs: 1_000,
-              },
+            : lifecycleState === 'reserved'
+              ? {
+                  state: 'reserved',
+                  issuedAtMs: 1,
+                  reservationId: 'prior-recovery',
+                  reservedAtMs: 1_000,
+                  reservationExpiresAtMs: 60_000,
+                }
+              : {
+                  state: 'consumed',
+                  issuedAtMs: 1,
+                  reservationId: 'prior-recovery',
+                  consumedAtMs: 1_000,
+                },
       },
     ],
     entries: [
@@ -95,7 +102,7 @@ test('a valid code returns the wrapped payload and records only a reservation', 
   expect(written.record.manifestKekWraps[0].lifecycle.state).toBe('reserved');
 });
 
-test('an unknown code and a spent code are indistinguishable', async () => {
+test('a spent code is distinguished from an unknown code', async () => {
   const unknown = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes: [] }),
     walletId: WALLET_ID as never,
@@ -115,8 +122,22 @@ test('an unknown code and a spent code are indistinguishable', async () => {
     reservationTtlMs: 60_000,
   });
 
-  // Byte-identical: anything else counts how many codes remain.
-  expect(unknown).toEqual(spent);
+  expect(unknown).toEqual({ kind: 'refused', reason: 'that recovery code cannot be used' });
+  expect(spent).toEqual({ kind: 'consumed' });
+});
+
+test('a code held by another recovery is reported as already used', async () => {
+  const held = await prepareWalletRecoveryWithCodeV1({
+    store: storeStub(await recoverySet('reserved'), { writes: [] }),
+    walletId: WALLET_ID as never,
+    expectedRecoveryKeyId: await expectedRecoveryKeyId(),
+    recoveryCodeBytes: CODE,
+    reservationId: 'reservation-2' as never,
+    nowMs: 2_000,
+    reservationTtlMs: 60_000,
+  });
+
+  expect(held).toEqual({ kind: 'reserved' });
 });
 
 test('a wallet with no recovery set answers like a wrong code', async () => {

@@ -108,6 +108,19 @@ class RetryablePasskeyCreationRecoveryPort extends SuccessfulRecoveryPort {
   }
 }
 
+class RetryableFinalizationRecoveryPort extends SuccessfulRecoveryPort {
+  private shouldFail = true;
+
+  override async finalize(operation: HostedRecoveryFinalizationOperation) {
+    this.calls.push(`finalize:${operation.recoveryOperationId}`);
+    if (this.shouldFail) {
+      this.shouldFail = false;
+      return { kind: 'transport_uncertain' as const };
+    }
+    return { kind: 'ready_for_sign_in' as const, walletId: operation.walletId };
+  }
+}
+
 class RefusingRecoveryPort implements HostedRecoveryPort {
   targetFor(kind: WalletRecoveryTargetV1['kind']): WalletRecoveryTargetV1 {
     return kind === 'passkey' ? PASSKEY_TARGET : { kind, googleProvider: 'google' };
@@ -134,6 +147,12 @@ class RefusingRecoveryPort implements HostedRecoveryPort {
   }
 
   async cancel(): Promise<void> {}
+}
+
+class ConsumedRecoveryPort extends RefusingRecoveryPort {
+  override async prepare(): Promise<{ readonly kind: 'consumed' }> {
+    return { kind: 'consumed' };
+  }
 }
 
 class DeferredFinalizationRecoveryPort extends SuccessfulRecoveryPort {
@@ -299,6 +318,51 @@ test.describe('hosted auth-menu recovery continuation', () => {
     session.cleanup();
   });
 
+  test('submits Google recovery automatically when the sixth OTP digit is entered', async () => {
+    const recoveryPort = new SuccessfulRecoveryPort();
+    const session = sessionWithRecovery({
+      recoveryPort,
+      prepareRecoveredLogin: rejectRecoveredLogin,
+    });
+
+    invoke(session, 'openRecovery');
+    invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
+    invoke(session, 'prepareRecovery', 'google_email_otp');
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('google_external_auth');
+    if (session.state.kind !== 'recovery' || session.state.stage !== 'google_external_auth') {
+      throw new Error('Google recovery did not start');
+    }
+    session.acceptExternalAuthResolution({
+      kind: 'hosted_auth_menu_external_auth_resolution_v1',
+      authMenuSessionId: session.state.request.authMenuSessionId,
+      externalAuthRequestId: session.state.request.externalAuthRequestId,
+      requestId: AUTH_MENU_REQUEST_ID,
+      evidence: { kind: 'google_id_token', idToken: 'google-id-token-1' },
+    });
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('email_code_required');
+
+    invoke(session, 'changeRecoveryGoogleOtpCode', '123456');
+
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('sign_in_ready');
+    if (session.state.kind !== 'recovery' || session.state.stage !== 'sign_in_ready') {
+      throw new Error('Google recovery did not reach sign-in');
+    }
+    expect(session.state.viewModel.subtitle).toBe('Your Google account is ready to sign in.');
+    expect(recoveryPort.calls).toEqual([
+      'prepare:ABCD-EFGH',
+      'verify-google:recovery-operation-1:google-id-token-1',
+      'verify-email:recovery-operation-1',
+      'finalize:recovery-operation-1',
+    ]);
+    session.cleanup();
+  });
+
   test('cancels a prepared operation when Back leaves a passkey retry', async () => {
     const recoveryPort = new RetryablePasskeyCreationRecoveryPort();
     const session = sessionWithRecovery({
@@ -311,6 +375,12 @@ test.describe('hosted auth-menu recovery continuation', () => {
     await expect
       .poll(() => session.state.kind === 'recovery' && session.state.stage)
       .toBe('passkey_ready');
+    if (session.state.kind !== 'recovery') throw new Error('recovery state was lost');
+    expect(session.state.viewModel.status).toEqual({
+      kind: 'recoverable',
+      reason: 'error',
+      message: 'A passkey couldn’t be created. Try again.',
+    });
 
     invoke(session, 'back');
 
@@ -346,6 +416,35 @@ test.describe('hosted auth-menu recovery continuation', () => {
     session.cleanup();
   });
 
+  test('keeps finalization retryable without blaming the recovery code', async () => {
+    const recoveryPort = new RetryableFinalizationRecoveryPort();
+    const session = sessionWithRecovery({
+      recoveryPort,
+      prepareRecoveredLogin: rejectRecoveredLogin,
+    });
+    invoke(session, 'openRecovery');
+    invoke(session, 'changeRecoveryCode', 'ABCD-EFGH');
+    invoke(session, 'prepareRecovery');
+
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.viewModel.status)
+      .toEqual({
+        kind: 'recoverable',
+        reason: 'error',
+        message: 'Recovery couldn’t be completed. Try again.',
+      });
+    expect(recoveryPort.calls).toEqual([
+      'prepare:ABCD-EFGH',
+      'create:recovery-operation-1',
+      'finalize:recovery-operation-1',
+    ]);
+
+    invoke(session, 'createRecoveryPasskey');
+    await expect.poll(() => recoveryPort.calls.length).toBe(4);
+    expect(recoveryPort.calls.at(-1)).toBe('finalize:recovery-operation-1');
+    session.cleanup();
+  });
+
   test('maps code refusal to one generic recovery message', async () => {
     const session = sessionWithRecovery({
       recoveryPort: new RefusingRecoveryPort(),
@@ -363,6 +462,27 @@ test.describe('hosted auth-menu recovery continuation', () => {
       kind: 'recoverable',
       reason: 'error',
       message: 'That recovery code can’t be used. Check the code and try again.',
+    });
+    session.cleanup();
+  });
+
+  test('identifies a recovery code this client already consumed', async () => {
+    const session = sessionWithRecovery({
+      recoveryPort: new ConsumedRecoveryPort(),
+      prepareRecoveredLogin: rejectRecoveredLogin,
+    });
+    invoke(session, 'openRecovery');
+    invoke(session, 'changeRecoveryCode', 'USED-CODE');
+    invoke(session, 'prepareRecovery');
+
+    await expect
+      .poll(() => session.state.kind === 'recovery' && session.state.stage)
+      .toBe('enter_code');
+    if (session.state.kind !== 'recovery') throw new Error('recovery state was lost');
+    expect(session.state.viewModel.status).toEqual({
+      kind: 'recoverable',
+      reason: 'error',
+      message: 'That recovery code has already been used. Use another code.',
     });
     session.cleanup();
   });

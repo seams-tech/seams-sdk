@@ -6,6 +6,7 @@ export type HostedRecoveryTargetKind = WalletRecoveryTargetV1['kind'];
 
 export type HostedRecoveryFailure =
   | { readonly kind: 'dismissed' }
+  | { readonly kind: 'consumed' }
   | { readonly kind: 'refused' }
   | { readonly kind: 'retryable_conflict' }
   | { readonly kind: 'transport_uncertain' };

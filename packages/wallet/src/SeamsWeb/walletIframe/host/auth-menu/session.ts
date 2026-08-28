@@ -104,6 +104,8 @@ type PresentedAuthMenuError = {
 };
 
 const RECOVERY_REFUSAL_MESSAGE = 'That recovery code can’t be used. Check the code and try again.';
+const RECOVERY_CODE_CONSUMED_MESSAGE =
+  'That recovery code has already been used. Use another code.';
 
 function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared): void {
   if (prepared.kind === 'hosted_passkey_registration_prepared_v1') {
@@ -731,7 +733,8 @@ function recoveryFailureStatus(
   return {
     kind: 'recoverable',
     reason: 'error',
-    message: RECOVERY_REFUSAL_MESSAGE,
+    message:
+      failure.kind === 'consumed' ? RECOVERY_CODE_CONSUMED_MESSAGE : RECOVERY_REFUSAL_MESSAGE,
   };
 }
 
@@ -739,7 +742,22 @@ function recoveryRetryStatus(): Extract<
   AuthMenuRecoveryViewModel['status'],
   { readonly kind: 'recoverable' }
 > {
-  return { kind: 'recoverable', reason: 'error', message: RECOVERY_REFUSAL_MESSAGE };
+  return {
+    kind: 'recoverable',
+    reason: 'error',
+    message: 'Recovery couldn’t be completed. Try again.',
+  };
+}
+
+function recoveryPasskeyCreationFailureStatus(
+  failure: HostedRecoveryFailure,
+): Extract<AuthMenuRecoveryViewModel['status'], { readonly kind: 'idle' | 'recoverable' }> {
+  if (failure.kind === 'dismissed') return { kind: 'idle', interaction: 'actionable' };
+  return {
+    kind: 'recoverable',
+    reason: 'error',
+    message: 'A passkey couldn’t be created. Try again.',
+  };
 }
 
 export class AuthMenuSession {
@@ -2074,6 +2092,7 @@ export class AuthMenuSession {
   private changeRecoveryGoogleOtpCode(code: string): void {
     const state = this.stateValue;
     if (state.kind !== 'recovery' || state.stage !== 'email_code_required') return;
+    const otpCode = code.replace(/\D/g, '').slice(0, 6);
     this.stateValue = {
       ...state,
       viewModel: recoveryViewModel({
@@ -2084,10 +2103,11 @@ export class AuthMenuSession {
         challengeId: state.operation.challengeId,
         emailHint: state.operation.delivery.emailHint,
         delivery: state.operation.delivery,
-        otpCode: code.replace(/\D/g, '').slice(0, 6),
+        otpCode,
       }),
     };
     this.updateElement();
+    if (/^\d{6}$/.test(otpCode)) this.submitRecoveryGoogleOtp();
   }
 
   private submitRecoveryGoogleOtp(): void {
@@ -2321,7 +2341,7 @@ export class AuthMenuSession {
         walletId: recoveryWalletId(state.viewModel),
         stage: 'passkey_ready',
         target: state.operation.target,
-        status: recoveryFailureStatus(failure),
+        status: recoveryPasskeyCreationFailureStatus(failure),
       }),
     };
     this.updateElement();

@@ -23,10 +23,8 @@ import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/p
  * is a read-modify-write on the wallet's shared recovery set. The
  * version-guard ensures two simultaneous attempts cannot both hold it.
  *
- * **An unknown code and a spent code answer alike.** Both come back `refused`
- * with no detail about which wraps exist. Distinguishing them would turn the
- * route into an oracle for which of a user's ten codes remain — useful to
- * exactly one kind of caller.
+ * A consumed locator remains as a tombstone so a caller presenting that exact
+ * secret receives a useful terminal result. Unknown codes remain opaque.
  */
 
 export type WalletRecoveryPreparationResult =
@@ -44,8 +42,10 @@ export type WalletRecoveryPreparationResult =
       readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
     }
-  /** No such wallet, no such code, or a code already spent. Deliberately one shape. */
+  /** No such wallet or no such code. */
   | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'reserved' }
+  | { readonly kind: 'consumed' }
   /** Another attempt changed the shared set first. The caller may retry. */
   | { readonly kind: 'conflict' };
 
@@ -74,6 +74,7 @@ export async function prepareWalletRecoveryWithCodeV1(input: {
   if (index < 0) return refused();
 
   const wrap = stored.record.manifestKekWraps[index] as WalletRecoveryManifestKekWrap;
+  if (wrap.lifecycle.state === 'consumed') return { kind: 'consumed' };
 
   const reserved = reserveRecoveryCode({
     lifecycle: wrap.lifecycle,
@@ -81,7 +82,11 @@ export async function prepareWalletRecoveryWithCodeV1(input: {
     nowMs: input.nowMs,
     reservationTtlMs: input.reservationTtlMs,
   });
-  if (!reserved.ok || reserved.lifecycle.state !== 'reserved') return refused();
+  if (!reserved.ok) {
+    if (reserved.code === 'already_reserved') return { kind: 'reserved' };
+    return refused();
+  }
+  if (reserved.lifecycle.state !== 'reserved') return refused();
 
   const next: WalletRecoveryEnvelopeSetRecord = {
     ...stored.record,

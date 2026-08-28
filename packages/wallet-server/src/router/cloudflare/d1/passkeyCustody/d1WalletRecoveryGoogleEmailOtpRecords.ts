@@ -115,6 +115,11 @@ export type OtpVerifiedWalletRecoveryGoogleEmailOtpAttempt = Extract<
   { readonly state: 'otp_verified' }
 >;
 
+export type FinalizableWalletRecoveryGoogleEmailOtpAttempt = Extract<
+  WalletRecoveryGoogleEmailOtpAttemptRecord,
+  { readonly state: 'otp_verified' | 'finalized' }
+>;
+
 export type WalletRecoveryGoogleEmailOtpFinalizationInput = {
   readonly kind: 'wallet_recovery_google_email_otp_finalization_v1';
   readonly walletId: WalletId;
@@ -194,7 +199,7 @@ export function markWalletRecoveryGoogleEmailOtpAttemptVerified(
 }
 
 export function walletRecoveryGoogleEmailOtpFinalizationInput(
-  attempt: OtpVerifiedWalletRecoveryGoogleEmailOtpAttempt,
+  attempt: FinalizableWalletRecoveryGoogleEmailOtpAttempt,
 ): WalletRecoveryGoogleEmailOtpFinalizationInput {
   return {
     kind: 'wallet_recovery_google_email_otp_finalization_v1',

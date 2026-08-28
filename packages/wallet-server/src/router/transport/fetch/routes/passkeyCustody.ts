@@ -1069,6 +1069,16 @@ export async function handleWalletRecoveryPrepare(
         });
       case 'refused':
         return toFetchRouteResponse(refusedSpend());
+      case 'reserved':
+      case 'consumed':
+        return toFetchRouteResponse({
+          status: 401,
+          body: {
+            ok: false,
+            code: 'recovery_code_used',
+            message: 'that recovery code has already been used',
+          },
+        });
       case 'manifest_unavailable':
       case 'registration_unavailable':
         return toFetchRouteResponse({
@@ -1673,7 +1683,6 @@ export async function handleWalletRecoveryFinalize(
     replacementEnvelope: requestBody.replacementEnvelope,
     ecdsaMaterialPossessionProofs: requestBody.ecdsaMaterialPossessionProofs,
   });
-
 
   switch (result.kind) {
     case 'promoted':
