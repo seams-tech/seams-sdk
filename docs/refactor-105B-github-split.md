@@ -2,7 +2,7 @@
 
 Date created: August 18, 2026
 
-Last reconciled: August 24, 2026
+Last reconciled: August 29, 2026 (Console and Wallet test-runtime ownership)
 
 Status: planned. This plan executes Refactor 105 Phase 8 after the in-monorepo
 Console boundary is complete.
@@ -158,6 +158,22 @@ staging/production topology, deployment behavior, or composed product flows.
 Split mixed files by behavior. Avoid a cross-repository test package or any
 test helper that recreates a source dependency between the repositories.
 
+Recent test refactors establish two useful authorities:
+
+- `pnpm test:console`, `tests/playwright.console.config.ts`, and
+  `tests/e2e/console/*.operating.test.ts` are the private Console/composed
+  operating suite;
+- `tests/scripts/run-intended-isolated.mjs` gives each Wallet intended-behaviour
+  case fresh managed state and moves with the public Wallet tests.
+
+They still share `tests/scripts/start-intended-services.mjs`. That manager now
+starts the site, Console frontend, combined Worker/D1 stack, and Wallet
+services, so it cannot move public as written. Split it once: the public Wallet
+manager starts only the generic Wallet runtime and Wallet test surface; the
+private Console manager starts Console/Caddy/composed services from installed
+Wallet packages. Point the intended and Console Playwright configs at their
+respective managers.
+
 The required checks are intentionally small:
 
 - public: install, build both packages and required Wasm, run the Wallet-owned
@@ -192,6 +208,8 @@ concrete owner.
       GitHub environment, and Cloudflare token as Console or Wallet-system.
 - [ ] Confirm the public docs, examples, tests, Rust/Wasm inputs, and package
       artifacts required for an independent Wallet build.
+- [ ] Record the landed Refactor 117 Console suite as private and classify
+      `start-intended-services.mjs` as a mixed manager that must be split.
 - [ ] Choose the extraction commit, initial npm versions, public license, and
       required third-party notices.
 
@@ -219,6 +237,9 @@ only the intended Wallet source.
 - [ ] Make `@seams/wallet-server` package the Worker, Wasm, migrations, types,
       and generic runtime artifacts consumed by private deployment.
 - [ ] Add credential-free CI and npm trusted-publishing workflows.
+- [ ] Move `run-intended-isolated.mjs` and the Wallet intended Playwright
+      configs to a Wallet-only service manager with no Console, site, or
+      Console-D1 startup.
 - [ ] Install, build, run the Wallet-owned tests, start the generic runtime,
       and build `examples/seams-auth-menu` from a clean public checkout.
 
@@ -251,6 +272,9 @@ Exit: the public source and both npm packages are independently consumable.
       `DEPLOYMENT_SECRETS_JSON` input.
 - [ ] Remove Cargo, `wasm-pack`, and public-source build steps from private
       deployment workflows.
+- [ ] Keep `pnpm test:console` and its five operating tests private, point them
+      at the private composed manager, and run that manager against the exact
+      installed Wallet packages.
 - [ ] Run the private build and one composed Wallet flow before deleting moved
       source.
 
@@ -297,6 +321,8 @@ overwriting or unpublishing one.
   environments, Cloudflare tokens, and deployment workflows are disjoint;
 - neither private pipeline can generate, apply, rotate, or deploy the other
   authority's configuration;
+- the public intended-behaviour runner starts no Console service, while the
+  private `test:console` suite runs against exact installed Wallet packages;
 - no compatibility package or duplicate repository remains.
 
 ## Related Plans

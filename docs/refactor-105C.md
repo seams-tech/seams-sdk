@@ -2,7 +2,7 @@
 
 Date created: August 21, 2026
 
-Last reconciled: August 24, 2026
+Last reconciled: August 29, 2026 (landed Console operating suite)
 
 Status: planned. This is private `seams-monorepo` work and begins after
 Refactors 105B and 99B complete.
@@ -321,6 +321,9 @@ database.
       environments, Cloudflare tokens, and every secret/variable name as
       Console, Wallet-system, or site/docs.
 - [ ] Confirm ownership of both production lane data sets and staging data.
+- [ ] Record the landed Refactor 117 `pnpm test:console` suite as the private
+      operating baseline; update that suite rather than creating another
+      Console browser harness.
 
 Exit: every current authority has one canonical destination.
 
@@ -353,6 +356,9 @@ private deployment has one explicit Console authority per stage.
       login.
 - [ ] Complete one staging flow covering organization/project/environment
       selection and a Wallet administration operation.
+- [ ] Update `pnpm test:console` for the canonical same-origin Console routes
+      and run its existing five operating paths against the private composed
+      manager.
 
 Exit: staging uses only `staging.console.seams.sh` and its exact testnet target.
 
@@ -389,6 +395,9 @@ source, data, configuration, and deployment remain private.
 Keep verification proportional to the cutover:
 
 - type-check and build the Console and its four Console packages;
+- use the existing Refactor 117 `pnpm test:console` suite as the Console
+  browser authority, updating its Caddy/origin assumptions as R105C removes the
+  main-site mount;
 - complete the staging operating flow before production;
 - confirm production testnet and mainnet resolve through one authenticated
   Console session;
@@ -470,5 +479,7 @@ path exist.
   write credentials;
 - Console consumes only a non-secret Wallet service handoff and cannot
   overwrite Wallet-system configuration;
+- the existing five-test `pnpm test:console` operating suite targets the
+  canonical Console topology and runs from the private composed manager;
 - old lane Console authorities, derived origins, inactive product placeholders,
   and compatibility paths are deleted.

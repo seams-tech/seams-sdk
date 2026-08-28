@@ -8,10 +8,12 @@ deletion ledger are reconciled against the landed tree.
 
 Design safety audit incorporated: August 26, 2026.
 
-Claude critique and repeated working-tree reconciliation incorporated through
-commit `67bac04e9`, including landed R115 additive multi-auth recovery in
-`7310b703f` and hosted recovery continuation in `d3c242eac`, on August 28,
-2026.
+Claude critique and repeated tree reconciliation incorporated through commit
+`be8fcbaf7` on August 29, 2026. This includes landed R115 additive multi-auth
+recovery in `7310b703f`, hosted recovery continuation in `d3c242eac`, ordinary
+recovery-authority unlock in `b5507d7ae`, and the isolated intended-contract
+runner plus fail-closed recovered Email OTP local-state validation in
+`a8bc2606f`.
 
 ## Goal
 
@@ -105,7 +107,7 @@ R103F depends on:
 - R107's opaque, server-resolved Wallet Session model;
 - R103E's exact authority, auth-method, capability-subject, quota, and operation
   credential records;
-- R109C's multiple auth methods and method-bound custody; and
+- R109C's multiple auth methods and method-bound custody;
 - R109D's exact ordinary Wallet Session for linked authorities; and
 - R115's additive recovery authority, exact continuity-anchor selection, and
   Passkey/Google-Email target installation.
@@ -150,19 +152,19 @@ boundary. Neither belongs to this cutover.
 ## Preparatory code shaping
 
 The current R103F surface includes several large production files. At the
-August 28 working-tree checkpoint, the most relevant are:
+committed `be8fcbaf7` checkpoint on August 29, the most relevant are:
 
 | File | Lines | R103F seam |
 | --- | ---: | --- |
-| `packages/wallet/src/SeamsWeb/operations/auth/login.ts` | 7,908 | exact-method unlock and local discovery |
-| `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts` | 6,697 | exact browser-record readers and replacement |
+| `packages/wallet/src/SeamsWeb/operations/auth/login.ts` | 7,973 | exact-method unlock and local discovery |
+| `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts` | 6,699 | exact browser-record readers and replacement |
 | `packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts` | 5,750 | linked and recovery local-install transactions |
 | `packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts` | 5,557 | direct issuance and registration replay |
 | `packages/wallet/src/SeamsWeb/operations/registration/registration.ts` | 4,667 | pending registration commit and terminal persistence |
 | `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts` | 4,010 | terminal registration response boundary |
 | `packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts` | 4,633 | exact operation admission |
 | `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts` | 3,608 | exact ECDSA session issuance/admission |
-| `packages/wallet/src/SeamsWeb/operations/recovery/walletRecovery.ts` | 1,347 | additive recovery finalization, local continuity, and resume gap |
+| `packages/wallet/src/SeamsWeb/operations/recovery/walletRecovery.ts` | 1,442 | additive recovery finalization, local continuity, and resume gap |
 
 R103F begins with a bounded liveness and code-shaping pass at the seams it will
 change. It does not run a repository-wide “split every large file” campaign.
@@ -763,7 +765,10 @@ authority or method state never become HTTP 500/503 errors.
     relationships. Local recovery publishes the returned authority/method,
     locked selection, profile/authenticator, account state, and recovered signer
     continuity before normal login. Finalization creates no session; normal
-    post-recovery sign-in uses the direct exact issuer.
+    post-recovery sign-in uses the direct exact issuer. Ordinary unlock accepts
+    only the exact active recovery authority and method already installed
+    locally; it never repairs missing recovery state. Only `device_link`
+    provenance may enter linked unlock.
 12. No runtime compatibility branch reads `reusable_wallet_sessions` or
     `opaque_wallet_session_tokens` after the cutover deployment.
 13. A hosted child credential is audience-bound, resolves only its exact parent
@@ -1131,6 +1136,12 @@ the operating cutover is complete.
       lifecycle relationships at the response boundary; keep Google/Email
       enrollment validation inside the atomic server commit and reject loose or
       cross-wallet identity fragments.
+- [ ] Preserve the landed recovery provenance dispatch. `wallet_registration`
+      and `wallet_recovery` use ordinary exact unlock; only `device_link` uses
+      linked unlock. Recovered Email OTP unlock must validate the exact active
+      authority ID/digest and method identity already installed locally and
+      fail closed on absence or mismatch. It must not call recovery persistence
+      as an unlock-time repair path.
 - [ ] Close the post-promotion recovery crash window before converting its
       session consumers. Today `promoted_pending_continuity` exists only in the
       coordinator's in-memory map, while authority/method/selection, profile,
@@ -1426,7 +1437,7 @@ Convert every reader and legacy writer to the exact browser record:
 - [ ] `walletHostOwnerAuthority.ts`; and
 - [ ] `publicApi/near.ts`.
 
-The post-`67bac04e9` August 28 checkpoint contains 44
+The committed `be8fcbaf7` August 29 checkpoint contains 44
 `readActiveForWallet` call sites across 18 production consumer files.
 `registration.ts` and recovery `syncAccount.ts` remain in the inventory as
 legacy writers and are outside that reader count. Before replacing the
@@ -1958,22 +1969,23 @@ Documentation:
       for each embed.
 - [ ] Run one current intended path for Passkey and one for Email OTP, including
       signing immediately after unlock or linking, and save the command/result.
-      Start services through the current post-`67bac04e9`
-      `tests/scripts/start-intended-services.mjs` configuration. The site,
-      console, and docs development ports are now `4004`, `4005`, and `4006`;
-      the two legacy Caddy cosigner listeners are `4301` and `4302`. Do not
-      reuse historical hard-coded ports from older evidence.
+      Use `pnpm test:intended`, whose `a8bc2606f` runner enumerates cases and
+      gives each one a fresh managed D1 root and Vite cache. Use
+      `pnpm test:intended:external` only when deliberately validating an
+      already-running composed service stack, and label that evidence
+      separately.
 - [ ] Establish a green focused baseline for
-      `tests/unit/authMenuPasskeyContinuation.unit.test.ts`. At the
-      post-`67bac04e9` checkpoint, 13 of 17 cases pass. Triage the four
-      pre-existing mismatches before R103F production changes: the local-wallet
-      account-sync case expects a wallet ID while the discoverable sync branch
-      deliberately uses `walletId: null`; the Email OTP device-link fixture does
-      not reach callback publication under the current target requirements; and
-      two Google OTP fixtures use flow IDs rejected by the exact login-flow
-      identity parser. Classify each against intended behavior, then update or
-      delete stale assertions and fixtures instead of adding a compatibility
-      branch to production.
+      `tests/unit/authMenuPasskeyContinuation.unit.test.ts`. The last recorded
+      baseline at `67bac04e9` was 13 of 17. Commit `8856e0c98` added selected
+      account-display coverage, so rerun the current committed test inventory
+      before recording R103F evidence. Triage the four previously known
+      mismatches: the local-wallet account-sync case expects a wallet ID while
+      the discoverable sync branch deliberately uses `walletId: null`; the
+      Email OTP device-link fixture does not reach callback publication under
+      the current target requirements; and two Google OTP fixtures use flow IDs
+      rejected by the exact login-flow identity parser. Classify each against
+      intended behavior, then update or delete stale assertions and fixtures
+      instead of adding a compatibility branch to production.
 - [x] Record a green focused baseline for
       `tests/unit/authMenuRecoveryContinuation.unit.test.ts`: six of six cases
       pass at `67bac04e9`, covering automatic Passkey/Google continuation,
@@ -1986,12 +1998,10 @@ Documentation:
       active authority and reads `authority.provenance.kind`. Classification:
       `valid_test_needs_update`; use the current shared authority builder and do
       not weaken the production comparator.
-- [ ] Reconcile the intended recovery harness with `d3c242eac` before treating
-      its next green run as evidence. `driveHostedPasskeyRecovery` still clicks
-      **Create new passkey** unconditionally after the production session has
-      already started creation. After the real-browser activation decision,
-      make that control either a retry-only action or the single owned
-      post-prepare action and prove the selected transition directly.
+- [x] Reconcile the intended recovery harness with `d3c242eac`.
+      `driveHostedPasskeyRecovery` now waits for automatic continuation and
+      uses **Retry finalization** only after an injected retryable finalization
+      failure. Real-browser activation remains a separate acceptance item.
 - [ ] Prove `d3c242eac` with real browser activation boundaries. Its Google path
       crosses an async prepare result and iframe-to-host message before invoking
       the app broker, so the focused in-process unit cannot establish that a
@@ -1999,12 +2009,16 @@ Documentation:
       WebAuthn and the configured Google broker in every supported browser; if a
       target requires fresh activation, retain its target-ready CTA as the
       required post-prepare action.
-- [ ] Run both current R115 recovery intended contracts from fresh storage,
-      across their Passkey-origin and Email-origin variants. Add combined
-      Passkey+Email inventory coverage and an interruption checkpoint
-      immediately after server promotion and before complete local continuity
-      publication; reload must resume the same additive commit and reach normal
-      exact-method login with no second recovery code.
+- [x] Add combined Passkey+Email inventory variants to both current R115
+      recovery intended contracts alongside their Passkey-only and Email-only
+      origins.
+- [ ] Run and record both current R115 recovery contracts with the isolated
+      intended runner. Add an interruption checkpoint immediately after server
+      promotion and before complete local continuity publication; reload must
+      resume the same additive commit, finish the exact local authority/method
+      installation, and reach normal exact-method login with no second recovery
+      code. Missing local recovery state must fail closed during ordinary
+      unlock rather than being repaired there.
 - [ ] Repair the valid stale fixture in
       `tests/unit/passkeyCustodyRouteService.unit.test.ts` before using it as a
       recovery baseline. Its inline envelope-store stub predates
@@ -2017,7 +2031,10 @@ Documentation:
       classification so Phase 7 can distinguish baseline failure from cutover
       regression; no green composed-run baseline is assumed. Record whether each
       cross-factor case starts from the genuine single-method inventory required
-      by R109D, especially Passkey-only to first-Email enrollment.
+      by R109D, especially Passkey-only to first-Email enrollment. Use
+      `pnpm test:linked-device` for fresh managed D1 state; use
+      `pnpm test:linked-device:external` only for an explicitly composed-stack
+      baseline.
 - [ ] Capture D1 counts for active V1 rows, usable V2 rows, V2 rows with null
       credential digests, opaque tokens, pending V1-authorized operations,
       hosted exchanges, V1-only quotas, and credential-bearing completion rows
@@ -2143,7 +2160,7 @@ boundaries until Phase 6 drains existing V1 credentials and pending claims.
       `upgrade_required` state without enabling `record_version: 6` writes. Make
       it parse the direct exact issuer response into V5 and add the temporary
       client capability at every boundary in the issuance matrix.
-- [ ] Convert every `readActiveForWallet` caller from the frozen 40-call-site
+- [ ] Convert every `readActiveForWallet` caller from the frozen 44-call-site
       ledger. Require its declared tuple, current selection, credential-bound
       identity, or intentional multi-record result and delete the wallet-wide
       singleton reader after the zero-reference check.
@@ -2331,9 +2348,11 @@ Run only the verification needed to prove the operating contract first:
     → terminate the page before complete local continuity publication → reload
     resumes the same committed target projection without another recovery code
     → authority, method, locked selection, profile/authenticator, account state,
-    and signer continuity publish → normal
-    target login issues one exact session and signs. Run both Passkey and
-    Google/Email targets from Passkey-only and Email-only origins as well.
+    and signer continuity publish → ordinary unlock validates that exact local
+    recovery projection without consulting linked-device state or repairing a
+    missing installation → normal target login issues one exact session and
+    signs. Run both Passkey and Google/Email targets from Passkey-only and
+    Email-only origins as well.
 17. Key export → fresh exact-method step-up.
 18. Hosted exchange redemption → nominal child credential works only across its
     stored app-issue, wallet-redeem/use, and iframe-parent origins while the
