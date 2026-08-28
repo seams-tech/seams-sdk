@@ -2619,6 +2619,10 @@ function createD1AuthorizationSessionRouteService(
   }
   return {
     tenantId: tenantId.value,
+    issueDirectWalletSessionAuthorizationV2:
+      assembly.authorizationService.issueDirectWalletSessionAuthorizationV2.bind(
+        assembly.authorizationService,
+      ),
     issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
       assembly.authorizationService,
     ),
