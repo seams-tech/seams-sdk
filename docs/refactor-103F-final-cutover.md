@@ -2086,27 +2086,27 @@ pass.
 
 ### Phase 1 — Land additive schema support
 
-- [ ] Bind and validate the existing authorized-operation scope columns, then
+- [x] Bind and validate the existing authorized-operation scope columns, then
       add the dual V1/V2 trigger boundary in a new forward migration.
-- [ ] Add V2 hosted child-credential and exchange storage.
-- [ ] Add the linked credential-delivery table with its recipient, sealed
+- [x] Add V2 hosted child-credential and exchange storage.
+- [x] Add the linked credential-delivery table with its recipient, sealed
       envelope, exact-session, acknowledgement, and digest constraints.
-- [ ] Move `linked_device_authority_allocations` to migration-owned schema and
+- [x] Move `linked_device_authority_allocations` to migration-owned schema and
       preserve immutable `0018` as the only definition of
       `linked_device_authority_installations`.
-- [ ] Add the hosted-child composite V2 foreign key and unique credential
+- [x] Add the hosted-child composite V2 foreign key and unique credential
       digest, including rebuild-safe foreign-key verification.
-- [ ] Add migration counters and abort conditions.
-- [ ] Make duplicate cleanup deterministic: retire only null-credential or
+- [x] Add migration counters and abort conditions.
+- [x] Make duplicate cleanup deterministic: retire only null-credential or
       logically expired rows and abort if multiple usable credential-bearing
       rows remain for an exact tuple.
-- [ ] Assert in the migration harness that the foreign-key check result set is
+- [x] Assert in the migration harness that the foreign-key check result set is
       empty after the ordered parent/child rebuild.
-- [ ] Apply the migration to a clean database and a database produced by every
+- [x] Apply the migration to a clean database and a database produced by every
       immutable historical migration in order.
-- [ ] Prove the migration leaves the current worker operational during rolling
+- [x] Prove the migration leaves the current worker operational during rolling
       deploy and does not mutate applied migration fingerprints.
-- [ ] Delete runtime linked-installation `CREATE TABLE` strings once the forward
+- [x] Delete runtime linked-installation `CREATE TABLE` strings once the forward
       migration is authoritative, then prove clean and historical databases use
       the same schema.
 
