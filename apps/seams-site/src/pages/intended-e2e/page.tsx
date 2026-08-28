@@ -1203,7 +1203,7 @@ class IntendedPageController {
     try {
       const walletId = this.walletId;
       if (!walletId) throw new Error('add-email-code requires a registered wallet');
-      const emailAddress = intendedAddEmailOtpAddress(walletId);
+      const emailAddress = intendedGoogleEmailAddress(requireGoogleIdToken(this.googleIdToken));
       intendedEmailOtpChallengeSubjectOverride = emailAddress;
       const result = await this.seams.registration.addEmailOtp({
         walletId: toWalletId(walletId),
@@ -1288,10 +1288,9 @@ class IntendedPageController {
   /**
    * Refactor 109C: unlock through the Email OTP method the wallet just added.
    *
-   * Deliberately not `unlockEmailOtpWallet`, which resolves the wallet from a
-   * Google subject. An added method carries the verified address as its own
-   * provider identity, so there is no subject to discover from - the wallet is
-   * named, the address is the identity, and the code proves control of it.
+   * This uses the same Google menu path as the product. The selected wallet is
+   * sent to `/auth/google/verify`, which resolves its verified-address factor
+   * before the one-use code opens the exact added method.
    */
   private async unlockWithAddedEmailOtp(): Promise<void> {
     const action: IntendedActionName = 'unlockWithAddedEmailOtp';
@@ -1299,7 +1298,7 @@ class IntendedPageController {
     try {
       const walletId = this.walletId;
       if (!walletId) throw new Error('added email-code unlock requires a registered wallet');
-      const emailAddress = intendedAddEmailOtpAddress(walletId);
+      const emailAddress = intendedGoogleEmailAddress(requireGoogleIdToken(this.googleIdToken));
       intendedEmailOtpChallengeSubjectOverride = emailAddress;
       /* Read before locking: the unlock names the exact method it opens, and
          once the wallet is locked there is no session left to ask. */
@@ -1316,37 +1315,8 @@ class IntendedPageController {
           `added email-code unlock needs one email method, found ${emailBindings.length}`,
         );
       }
-      const addedMethodId = String(addedBinding.walletAuthMethodId);
       await this.seams.auth.lock();
-      const challenge = await this.seams.auth.requestEmailOtpChallenge({
-        walletId,
-        onEvent: this.recordLifecycleEvent,
-      });
-      const otpCode = await this.readEmailOtpCodeForChallenge({
-        kind: 'challenge',
-        challengeId: challenge.challengeId,
-        walletId,
-      });
-      /* One code, every family the authority owns. Naming the exact method is
-         what makes that true: without it the wallet falls back to whichever
-         method it has selected, and invariant 9 keeps that the source. The
-         named method resolves its own authority, its Ed25519 activation, and
-         its ECDSA capability from the single verification below. */
-      const sdkTargets = this.emailOtpEcdsaTargetProfile.sdkTargets;
-      if (sdkTargets.kind !== 'explicit') {
-        throw new Error('added email-code unlock requires a configured ECDSA target');
-      }
-      const [chainTarget] = sdkTargets.targets;
-      await this.seams.auth.loginWithEmailOtpEcdsaCapability({
-        walletSession: { walletId: toWalletId(walletId), walletSessionUserId: walletId },
-        walletAuthMethodId: addedMethodId,
-        chainTarget,
-        providerIdentity: { provider: 'email', providerSubjectId: emailAddress },
-        emailOtpAuthorityEmail: emailAddress,
-        challengeId: challenge.challengeId,
-        otpCode,
-        onEvent: this.recordLifecycleEvent,
-      });
+      await this.unlockEmailOtpWalletWithHostedMenu('intended-unlock-added-email-otp');
       await this.refreshLoginState(walletId);
       const unlockedSession = await this.seams.auth.getWalletSession(walletId);
       const reusable = unlockedSession.reusableWalletSession;
@@ -1556,15 +1526,38 @@ class IntendedPageController {
     this.dispatch({ kind: 'action_started', action });
     try {
       await this.seams.auth.lock();
-      const result = await this.seams.auth.unlock(this.walletId, {
-        onEvent: this.recordLifecycleEvent,
-      });
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-passkey-unlock-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) throw new Error('Passkey unlock auth-menu identity is invalid');
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-unlock-passkey"]',
+      );
+      if (!anchorElement) throw new Error('Passkey unlock anchor is unavailable');
+      const outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: [],
+        }),
+        anchorElement,
+      );
+      if (outcome.kind !== 'authenticated') {
+        throw new Error(`Passkey unlock ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId || outcome.method !== 'passkey') {
+        throw new Error('Passkey unlock returned the wrong wallet or auth method');
+      }
       /* R109C: which credential the session names is the point of an added
          method - the family alone cannot tell it from the method that added it. */
       const unlockedSession = await this.seams.auth.getWalletSession(this.walletId);
       const reusable = unlockedSession.reusableWalletSession;
       const summary = assertPasskeyUnlockSucceeded(
-        result,
+        unlockedSession,
         this.walletId,
         reusable.kind === 'active' ? String(reusable.walletAuthMethodId) : null,
       );
@@ -1753,7 +1746,7 @@ class IntendedPageController {
     this.dispatch({ kind: 'action_started', action });
     try {
       await this.seams.auth.lock();
-      const unlock = await this.unlockEmailOtpWalletWithPublicSdk();
+      const unlock = await this.unlockEmailOtpWalletWithHostedMenu('intended-unlock-email-otp');
       await this.refreshLoginState(unlock.walletId);
       const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
       const ecdsa = assertEcdsaTargetKeysForSession({
@@ -1968,40 +1961,49 @@ class IntendedPageController {
     });
   }
 
-  private async unlockEmailOtpWalletWithPublicSdk(): Promise<EmailOtpUnlockCoreSummary> {
+  private async unlockEmailOtpWalletWithHostedMenu(
+    anchorTestId: 'intended-unlock-added-email-otp' | 'intended-unlock-email-otp',
+  ): Promise<EmailOtpUnlockCoreSummary> {
+    const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+      `intended-google-email-otp-unlock-${crypto.randomUUID()}`,
+    );
+    if (!authMenuSessionId) {
+      throw new Error('Google Email OTP unlock auth-menu identity is invalid');
+    }
+    const anchorElement = document.querySelector<HTMLElement>(
+      `[data-testid="${anchorTestId}"]`,
+    );
+    if (!anchorElement) throw new Error('Google Email OTP unlock anchor is unavailable');
     const idToken = requireGoogleIdToken(this.googleIdToken);
-    const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
-      idToken,
-      mode: 'login',
-      loginTarget: { kind: 'wallet', walletId: this.walletId },
-      ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
-      emailOtpAuthPolicy: 'session',
-      onEvent: this.recordLifecycleEvent,
-    });
-    if (!flowResult.ok) {
-      throw new Error(flowResult.error.message);
+    const unsubscribeExternalAuth = this.seams.onHostedAuthMenuExternalAuthRequest(
+      resolveIntendedGoogleExternalAuth.bind(null, this.seams, idToken),
+    );
+    let outcome: HostedAuthMenuOutcome;
+    try {
+      outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: ['google'],
+        }),
+        anchorElement,
+      );
+    } finally {
+      unsubscribeExternalAuth();
     }
-    if (flowResult.value.mode !== 'login') {
-      throw new Error(`Email OTP unlock resolved unexpected mode: ${flowResult.value.mode}`);
+    if (outcome.kind !== 'authenticated') {
+      throw new Error(`Google Email OTP unlock ended with ${outcome.kind}`);
     }
-    if (flowResult.value.walletId !== this.walletId) {
-      throw new Error(`Email OTP unlock wallet mismatch: ${flowResult.value.walletId}`);
+    if (String(outcome.walletId) !== this.walletId || outcome.method !== 'google_email_otp') {
+      throw new Error('Google Email OTP unlock returned the wrong wallet or auth method');
     }
-    const challengeId = googleEmailOtpLoginFlowChallengeId({
-      flowId: flowResult.value.flowId,
-      walletId: this.walletId,
-    });
-    const otpCode = await this.readEmailOtpCodeForChallenge({
-      kind: 'challenge',
-      challengeId,
-      walletId: this.walletId,
-    });
-    const submitted = await flowResult.value.submit({ otpCode });
-    if (!submitted.ok) {
-      throw new Error(submitted.error.message);
-    }
+    const session = await this.seams.auth.getWalletSession(this.walletId);
     return assertEmailOtpUnlockSucceeded({
-      result: submitted.value,
+      result: { walletId: String(outcome.walletId), session },
       expectedWalletId: this.walletId,
       ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
     });
@@ -3024,27 +3026,30 @@ function assertEmailOtpUnlockSucceeded(args: {
 }
 
 function assertPasskeyUnlockSucceeded(
-  result: Awaited<ReturnType<ReturnType<typeof useSeams>['seams']['auth']['unlock']>>,
+  session: WalletSession,
   expectedWalletId: string,
   sessionWalletAuthMethodId: string | null,
 ): PasskeyUnlockResultSummary {
-  if (!result.success) {
-    throw new Error(result.error || 'Passkey unlock failed');
+  if (session.appIdentity.kind !== 'resolved') {
+    throw new Error(`Passkey unlock did not resolve app identity: ${session.appIdentity.kind}`);
   }
-  const nearAccountId = String(result.nearAccountId || '').trim();
-  const operationalPublicKey = String(result.operationalPublicKey || '').trim();
-  const signingSessionStatus = String(result.signingSession?.status || '').trim();
-  if (signingSessionStatus !== 'active') {
+  if (String(session.appIdentity.walletId) !== expectedWalletId) {
+    throw new Error('Passkey unlock session wallet mismatch');
+  }
+  const reusable = session.reusableWalletSession;
+  if (reusable.kind !== 'active') {
     throw new Error(
-      `Passkey unlock did not return an active signing session: ${signingSessionStatus}`,
+      `Passkey unlock did not return an active signing session: ${reusable.kind}`,
     );
   }
+  const nearAccountId = String(session.appIdentity.nearAccountId || '').trim();
+  const operationalPublicKey = String(session.appIdentity.nearOperationalPublicKey || '').trim();
   const common = {
     kind: 'passkey_unlock_success' as const,
     walletId: expectedWalletId,
     sessionWalletAuthMethodId,
-    signingSessionStatus,
-    remainingUses: normalizeOptionalNumber(result.signingSession?.remainingUses),
+    signingSessionStatus: reusable.kind,
+    remainingUses: normalizeOptionalNumber(reusable.remainingUses),
   };
   if (nearAccountId && operationalPublicKey) {
     return {
@@ -3126,7 +3131,7 @@ function emailOtpDevOutboxUrl(input: { relayerUrl: string }): string {
 }
 
 /**
- * The subject the dev outbox should read, when it is not the Google identity.
+ * The subject the dev outbox should read for a factor added by verified address.
  *
  * Module scope, not controller state: the controller is rebuilt on every
  * render, so the instance the page installed on `window` is not necessarily
@@ -3137,14 +3142,33 @@ function emailOtpDevOutboxUrl(input: { relayerUrl: string }): string {
 let intendedEmailOtpChallengeSubjectOverride: string | null = null;
 
 /**
- * The address an added Email OTP method enrols under in this harness.
- *
- * Derived from the wallet so repeated runs against a persistent local stack do
- * not fight over one provider identity, and shared by the action and the dev
- * outbox reader so both name the same subject.
+ * An added Email OTP method must use the same verified email that the hosted
+ * Google sign-in flow can prove. The selected wallet disambiguates repeated
+ * runs that use the fixed intended-test Google identity.
  */
-function intendedAddEmailOtpAddress(walletId: string): string {
-  return `add-auth-${walletId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}@example.test`;
+function intendedGoogleEmailAddress(idToken: string): string {
+  const payloadSegment = idToken.split('.')[1];
+  if (!payloadSegment) throw new Error('Google ID token payload is unavailable');
+  const payload = JSON.parse(decodeBase64UrlUtf8(payloadSegment)) as unknown;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Google ID token payload is invalid');
+  }
+  const email = String((payload as Record<string, unknown>).email || '')
+    .trim()
+    .toLowerCase();
+  if (!email) throw new Error('Google ID token email is unavailable');
+  return email;
+}
+
+function decodeBase64UrlUtf8(value: string): string {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCodeLookup {
@@ -3161,14 +3185,6 @@ function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCo
     default:
       return assertNever(input);
   }
-}
-
-function googleEmailOtpLoginFlowChallengeId(input: { flowId: string; walletId: string }): string {
-  const prefix = `google-email-otp-login:${input.walletId}:`;
-  if (!input.flowId.startsWith(prefix)) {
-    throw new Error(`Email OTP login flow id does not match wallet ${input.walletId}`);
-  }
-  return requireEmailOtpChallengeId(input.flowId.slice(prefix.length));
 }
 
 function parseEmailOtpOutboxSuccess(raw: unknown): IntendedEmailOtpOutboxSuccess {

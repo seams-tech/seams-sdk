@@ -23,6 +23,8 @@ export type GoogleLoginVerifyRequest = {
   idToken: string;
   accountMode: 'login' | 'register';
   projectEnvironmentId: string;
+  /** Exact locally selected wallet for login. Register mode is discoverable only. */
+  loginWalletId?: string;
   /**
    * Register-mode only: start a fresh registration offer even when this Google
    * subject already holds an Email OTP wallet. Completing that registration
@@ -78,6 +80,7 @@ const GOOGLE_VERIFY_KEYS = [
   'id_token',
   'project_environment_id',
   'restart_registration_offer',
+  'wallet_id',
 ] as const;
 const AUTH_LINK_KEYS = [
   'provider',
@@ -249,6 +252,13 @@ export function parseGoogleLoginVerifyRequest(
   if (restartRaw === true && accountMode.request !== 'register') {
     return invalidAuthBody('restart_registration_offer is only valid with account_mode register');
   }
+  const loginWalletId = toOptionalTrimmedString(body.request.wallet_id);
+  if (body.request.wallet_id !== undefined && !loginWalletId) {
+    return invalidAuthBody('wallet_id must be a non-empty string when present');
+  }
+  if (loginWalletId && accountMode.request !== 'login') {
+    return invalidAuthBody('wallet_id is only valid with account_mode login');
+  }
   return {
     ok: true,
     request: {
@@ -256,6 +266,7 @@ export function parseGoogleLoginVerifyRequest(
       accountMode: accountMode.request,
       projectEnvironmentId: projectEnvironmentId.request,
       restartRegistrationOffer: restartRaw === true,
+      ...(loginWalletId ? { loginWalletId } : {}),
     },
   };
 }

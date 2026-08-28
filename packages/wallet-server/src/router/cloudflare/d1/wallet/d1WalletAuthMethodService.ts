@@ -747,6 +747,7 @@ export class CloudflareD1WalletAuthMethodService {
    */
   async verifyAddAuthMethodEmailOtpSourceProof(input: {
     readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly challengeId: string;
     readonly otpCode: string;
     readonly expectedDigestB64u: string;
@@ -784,8 +785,9 @@ export class CloudflareD1WalletAuthMethodService {
     if (!verified.ok) {
       return { ok: false, code: verified.code, message: verified.message };
     }
-    const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+    const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedMethod({
       walletId: String(input.walletId),
+      walletAuthMethodId: String(input.walletAuthMethodId),
       providerUserId: enrollment.providerUserId,
     });
     if (!authority.ok) return authority;
@@ -999,15 +1001,17 @@ export class CloudflareD1WalletAuthMethodService {
           }
         }
         const custodyFactor = custodyFactorFromAddAuthMethodAuth(storedAuth.auth);
-        const envelopeLookup = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
-          walletId,
-          factor: custodyFactor,
-        });
+        const envelopeLookup =
+          await this.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod({
+            walletId,
+            factor: custodyFactor,
+            walletAuthMethodId: sourceMethod.walletAuthMethodId,
+          });
         if (envelopeLookup.kind !== 'active') {
           return {
             ok: false,
             code: 'invalid_state',
-            message: 'Authenticated passkey custody envelope is unavailable',
+            message: 'Authenticated wallet custody envelope is unavailable',
           };
         }
         const registration = this.createPasskeyRegistrationOptions({
@@ -1068,10 +1072,12 @@ export class CloudflareD1WalletAuthMethodService {
          envelope exactly as the Passkey branch above does. The lookup is by the
          source factor, which is what makes an addition impossible on a wallet
          whose source method has no live custody. */
-      const emailOtpSourceEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
-        walletId,
-        factor: custodyFactorFromAddAuthMethodAuth(storedAuth.auth),
-      });
+      const emailOtpSourceEnvelope =
+        await this.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod({
+          walletId,
+          factor: custodyFactorFromAddAuthMethodAuth(storedAuth.auth),
+          walletAuthMethodId: sourceMethod.walletAuthMethodId,
+        });
       if (emailOtpSourceEnvelope.kind !== 'active') {
         return {
           ok: false,
@@ -1272,10 +1278,12 @@ export class CloudflareD1WalletAuthMethodService {
               message: 'custodyEnvelope is not bound to the verified passkey',
             };
           }
-          const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
-            walletId,
-            factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
-          });
+          const currentEnvelope =
+            await this.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod({
+              walletId,
+              factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
+              walletAuthMethodId: ceremony.sourceWalletAuthMethodId,
+            });
           if (
             currentEnvelope.kind !== 'active' ||
             currentEnvelope.envelope.envelopeId !== ceremony.custodyEnvelope.envelopeId
@@ -1466,10 +1474,12 @@ export class CloudflareD1WalletAuthMethodService {
       /* The source envelope must still be the one the ceremony resealed from,
          so a custody change between start and finalize cannot commit a seed
          sealed against superseded material. */
-      const currentSourceEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
-        walletId,
-        factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
-      });
+      const currentSourceEnvelope =
+        await this.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod({
+          walletId,
+          factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
+          walletAuthMethodId: ceremony.sourceWalletAuthMethodId,
+        });
       if (
         currentSourceEnvelope.kind !== 'active' ||
         currentSourceEnvelope.envelope.envelopeId !== ceremony.custodyEnvelope.envelopeId

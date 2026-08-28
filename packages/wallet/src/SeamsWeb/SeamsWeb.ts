@@ -2142,6 +2142,7 @@ export class SeamsWeb {
       relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
       idToken: args.idToken,
       accountMode: args.accountMode,
+      ...(args.loginWalletId ? { loginWalletId: args.loginWalletId } : {}),
       projectEnvironmentId: this.configs.registration.projectEnvironmentId,
       publishableKey: this.configs.registration.publishableKey,
       ...(args.restartRegistrationOffer === true ? { restartRegistrationOffer: true } : {}),
@@ -2151,13 +2152,14 @@ export class SeamsWeb {
   private async resolveLinkedEmailOtpWalletAuthDomain(args: {
     walletId: string;
     email: string;
+    provider: 'google' | 'email';
     providerSubjectId: string;
   }): Promise<GoogleEmailOtpLinkedUnlockSelection> {
     const emailHashHex = await this.emailOtpEmailHashHex(args.email);
     const resolution = await resolveLinkedDeviceEmailOtpAuthoritySelection({
       walletIdInput: args.walletId,
       emailHashHex,
-      provider: 'google',
+      provider: args.provider,
       providerSubjectId: args.providerSubjectId,
     });
     switch (resolution.kind) {

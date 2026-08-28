@@ -2766,6 +2766,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
     const verified = await input.services.walletRegistration.verifyAddAuthMethodEmailOtpSourceProof(
       {
         walletId: walletIdFromString(walletId),
+        walletAuthMethodId: parsedRequest.intent.source.walletAuthMethodId,
         challengeId: sourceProof.challengeId,
         otpCode: sourceProof.otpCode,
         expectedDigestB64u: sourceProof.expectedChallengeDigestB64u,

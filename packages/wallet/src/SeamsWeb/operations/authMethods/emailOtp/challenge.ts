@@ -222,6 +222,7 @@ export async function resolveGoogleEmailOtpProvider(args: {
   accountMode: 'login' | 'register';
   projectEnvironmentId: string;
   publishableKey: string;
+  loginWalletId?: string;
   /** Register-mode only: replace this subject's existing Email OTP wallet. */
   restartRegistrationOffer?: boolean;
   fetchImpl?: FetchLike;
@@ -237,6 +238,9 @@ export async function resolveGoogleEmailOtpProvider(args: {
       id_token: readString(args.idToken, 'idToken'),
       account_mode: args.accountMode,
       project_environment_id: readString(args.projectEnvironmentId, 'projectEnvironmentId'),
+      ...(args.loginWalletId
+        ? { wallet_id: readString(args.loginWalletId, 'loginWalletId') }
+        : {}),
       ...(args.restartRegistrationOffer === true ? { restart_registration_offer: true } : {}),
     },
   });
