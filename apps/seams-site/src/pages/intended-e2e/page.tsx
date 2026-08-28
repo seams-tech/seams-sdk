@@ -331,11 +331,9 @@ type EmailOtpUnlockResultSummary = EmailOtpUnlockCoreSummary & IntendedEcdsaSumm
 /**
  * Refactor 109C: the Email OTP method just added opened its wallet.
  *
- * Leaner than the registered-wallet unlock summary on purpose. That one comes
- * from the Google flow, which discovers the wallet and reports its NEAR
- * identity on the way. An added method is enrolled under the address itself, so
- * the wallet is named directly and what this proves is narrower: this wallet
- * opened, under an active session, through the added method.
+ * The hosted Google flow names the selected wallet and returns through its
+ * address-backed Email OTP method. This summary keeps the exact method id so
+ * the contract proves the added credential issued the active session.
  */
 type RevokeAuthMethodResultSummary = {
   kind: 'revoke_auth_method_success';
