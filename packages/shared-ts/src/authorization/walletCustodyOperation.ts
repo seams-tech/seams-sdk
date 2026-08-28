@@ -5,7 +5,6 @@ import { base64UrlEncode } from '../utils/encoders';
 export type WalletCustodyAdminOperation =
   | 'credentials_list'
   | 'credential_label'
-  | 'recovery_acknowledge'
   | 'recovery_rotate'
   | 'recovery_read';
 

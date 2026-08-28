@@ -917,15 +917,16 @@ export class CloudflareD1WalletAuthMethodService {
       const targetWalletAuthMethodId = storedIntent.intent.targetWalletAuthMethodId;
       /* The intent claims which source it was minted for; this is where that
          claim is checked against the source actually resolved from the
-         presented credential. A proof is only as good as the identities its
-         digest names, so a mismatch fails closed rather than proceeding on the
-         resolved source. */
+         presented credential. The authority digest is a snapshot and can
+         advance when deferred signer activation completes while the user is
+         entering the Email code. Stable identity and revocation epoch remain
+         exact here; the ceremony snapshots the current digest below and every
+         later mutation revalidates it. */
       if (storedIntent.intent.caller === 'same_device_addition') {
         const claimed = storedIntent.intent.source;
         if (
           claimed.walletAuthorityId !== sourceMethod.walletAuthorityId ||
           claimed.walletAuthMethodId !== sourceMethod.walletAuthMethodId ||
-          claimed.authorityDigestB64u !== String(sourceAuthority.authorityDigestB64u) ||
           claimed.revocationEpoch !== sourceAuthority.revocationEpoch
         ) {
           return {

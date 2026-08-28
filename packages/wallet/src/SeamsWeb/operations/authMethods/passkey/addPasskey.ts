@@ -25,7 +25,6 @@ import {
   persistAddedCrossFamilyPasskeyV1,
   persistFinalizedPasskeyAuthMethodV1,
 } from './localPasskeyProjection';
-import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   passkeyCredentialIdB64uFromAuthentication,
   requirePasskeyPrfFirstB64u,
@@ -38,6 +37,7 @@ import { readUnlockedWalletEd25519ExportRootCapabilityV1 } from '@/core/signingE
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { copyWalletCustodyEcdsaContinuityToAuthMethod } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { addAuthMethodSourcePasskeyAllowCredentials } from '../sourcePasskeyProof';
 export type AddPasskeyAuthorization =
   | { readonly kind: 'existing_passkey' }
   | { readonly kind: 'email_otp'; readonly challengeId: string; readonly otpCode: string };
@@ -86,43 +86,6 @@ async function persistAddedPasskey(args: {
     walletAuthMethodId: args.walletAuthMethodId,
     authMethod: { kind: 'passkey', status: 'active' },
   };
-}
-
-function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((transport): transport is AuthenticatorTransport => {
-    switch (transport) {
-      case 'ble':
-      case 'hybrid':
-      case 'internal':
-      case 'nfc':
-      case 'smart-card':
-      case 'usb':
-        return true;
-      default:
-        return false;
-    }
-  });
-}
-
-function requireExistingPasskeyCredentials(
-  records: readonly { credentialId: string; transports?: unknown }[],
-): WebAuthnAllowCredential[] {
-  const allowCredentials: WebAuthnAllowCredential[] = [];
-  for (const record of records) {
-    const id = String(record.credentialId || '').trim();
-    if (id) {
-      allowCredentials.push({
-        id,
-        type: 'public-key',
-        transports: webAuthnTransportsFromRaw(record.transports),
-      });
-    }
-  }
-  if (allowCredentials.length === 0) {
-    throw new Error('Wallet add-passkey requires an existing passkey credential');
-  }
-  return allowCredentials;
 }
 
 function walletCustodyWorkerTransport(
@@ -200,7 +163,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
      rather than an assertion. The seed itself is not re-released — the Email
      unlock that opened this session left its factor secret in the worker, and
      the reseal draws from that handle. */
-  if (sourceClaim.sourceFamily === 'email_otp') {
+  if (sourceClaim.sourceAuthMethod.kind === 'email_otp') {
     return await addPasskeyFromEmailOtpSource({
       context: args.context,
       walletId: args.walletId,
@@ -213,8 +176,9 @@ async function addPasskeyWalletAuthMethodInternal(args: {
       ...(args.options ? { options: args.options } : {}),
     });
   }
-  const authenticators = await IndexedDBManager.listProfileAuthenticators(String(args.walletId));
-  const allowCredentials = requireExistingPasskeyCredentials(authenticators);
+  const allowCredentials = addAuthMethodSourcePasskeyAllowCredentials(
+    sourceClaim.sourceAuthMethod,
+  );
   const credential = await args.context.signingEngine.getAuthenticationCredentialsSerialized({
     subjectId: String(args.walletId),
     challengeB64u: intentResponse.addAuthMethodIntentDigestB64u,

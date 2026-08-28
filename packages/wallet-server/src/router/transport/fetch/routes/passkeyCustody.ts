@@ -623,7 +623,6 @@ function parseWalletCustodyEmailOtpChallengeRequest(
   if (
     operation !== 'credentials_list' &&
     operation !== 'credential_label' &&
-    operation !== 'recovery_acknowledge' &&
     operation !== 'recovery_rotate' &&
     operation !== 'recovery_read'
   ) {
@@ -1826,40 +1825,32 @@ export async function handleWalletRecoveryBackupAcknowledge(
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
   const body = await readJsonObject(ctx.request);
-  const walletId = trimmed(body?.walletId);
-  if (!walletId) {
+  let walletId = '';
+  try {
+    if (!body) throw new Error('acknowledgement body is required');
+    requireExactObjectFields(body, ['walletId'], 'recovery backup acknowledgement');
+    walletId = parseRequiredString(body.walletId, 'walletId');
+  } catch {
     return toFetchRouteResponse({
       status: 400,
       body: { ok: false, code: 'invalid_request', message: 'an acknowledgement needs a wallet' },
     });
   }
 
-  const authorized = await authorizeWalletCustodyOperation({
-    ctx,
-    walletId,
-    operation: 'recovery_acknowledge',
-    payload: { walletId },
-    factorProof: body?.factorProof,
-  });
-  if (!authorized.ok) return authorized.response;
-
   const result = await ctx.service.passkeyCustody.acknowledgeRecoveryBackup({ walletId });
   if (result.kind === 'no_recovery_set') {
-    return await completeWalletCustodyOperation(
-      ctx,
-      authorized.operation,
-      404,
-      {
+    return toFetchRouteResponse({
+      status: 404,
+      body: {
         ok: false,
         code: 'no_recovery_set',
         message: 'this wallet has no issued recovery codes to acknowledge',
       },
-      'failed_before_side_effect',
-    );
+    });
   }
-  return await completeWalletCustodyOperation(ctx, authorized.operation, 200, {
-    ok: true,
-    issuedAtMs: result.issuedAtMs,
+  return toFetchRouteResponse({
+    status: 200,
+    body: { ok: true, issuedAtMs: result.issuedAtMs },
   });
 }
 

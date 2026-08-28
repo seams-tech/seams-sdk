@@ -24,12 +24,13 @@ The current direct flow performs its sensitive actions in this order:
 1. `pendingWalletRecoveryCodeBackupRepository.read(walletId)` decrypts the
    local recovery codes.
 2. The wallet surface renders the plaintext codes.
-3. The SDK collects a fresh factor proof for `recovery_acknowledge`.
-4. The server records backup acknowledgement.
-5. The SDK deletes the pending local record.
+3. The server records backup acknowledgement from the wallet ID.
+4. The SDK deletes the pending local record.
 
-The factor protects acknowledgement after the plaintext has already appeared.
-The same ordering is reachable through the wallet iframe.
+Acknowledgement deliberately has no factor prompt because it only clears the
+backup reminder and deletes the local pending record. The sensitive reveal
+still happens before any fresh factor verification. The same ordering is
+reachable through the wallet iframe.
 
 ## Target Flow
 

@@ -37,11 +37,11 @@ import {
   requirePasskeyPrfFirstB64u,
 } from '../passkey/ecdsaBootstrap';
 import { linkWalletEmailOtpCustody } from '@/core/signingEngine/walletCustody/emailOtpLink';
-import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { persistFinalizedEmailOtpAuthMethodV1 } from './localEmailOtpProjection';
 import { walletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { copyWalletCustodyEcdsaContinuityToAuthMethod } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { addAuthMethodSourcePasskeyAllowCredentials } from '../sourcePasskeyProof';
 
 export type AddEmailOtpResult = {
   readonly ok: true;
@@ -58,43 +58,6 @@ export type AddEmailOtpResult = {
 export type AddEmailOtpHooksOptions = Omit<RegistrationHooksOptions, 'afterCall'> & {
   readonly afterCall?: AfterCall<AddEmailOtpResult>;
 };
-
-function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((transport): transport is AuthenticatorTransport => {
-    switch (transport) {
-      case 'ble':
-      case 'hybrid':
-      case 'internal':
-      case 'nfc':
-      case 'smart-card':
-      case 'usb':
-        return true;
-      default:
-        return false;
-    }
-  });
-}
-
-function requireExistingPasskeyCredentials(
-  records: readonly { credentialId: string; transports?: unknown }[],
-): WebAuthnAllowCredential[] {
-  const allowCredentials: WebAuthnAllowCredential[] = [];
-  for (const record of records) {
-    const id = String(record.credentialId || '').trim();
-    if (id) {
-      allowCredentials.push({
-        id,
-        type: 'public-key',
-        transports: webAuthnTransportsFromRaw(record.transports),
-      });
-    }
-  }
-  if (allowCredentials.length === 0) {
-    throw new Error('Wallet add-email-code requires an existing passkey credential');
-  }
-  return allowCredentials;
-}
 
 function walletCustodyWorkerTransport(
   context: RegistrationWebContext,
@@ -163,6 +126,9 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
       `Wallet add-email-code requires a selected active source: ${sourceClaim.reason}`,
     );
   }
+  if (sourceClaim.sourceAuthMethod.kind !== 'passkey') {
+    throw new Error('Wallet add-email-code requires a selected active passkey source');
+  }
   const intentResponse = await createWalletAddAuthMethodIntent({
     relayerUrl,
     walletId: args.walletId,
@@ -201,8 +167,9 @@ async function addEmailOtpWalletAuthMethodInternal(args: {
   /* The source proof. Taken over the intent digest, so it authorizes exactly
      this addition and exactly this target method id — and it carries PRF.first,
      which is the only thing that opens the wallet's existing envelope. */
-  const authenticators = await IndexedDBManager.listProfileAuthenticators(String(args.walletId));
-  const allowCredentials = requireExistingPasskeyCredentials(authenticators);
+  const allowCredentials = addAuthMethodSourcePasskeyAllowCredentials(
+    sourceClaim.sourceAuthMethod,
+  );
   const credential = await args.context.signingEngine.getAuthenticationCredentialsSerialized({
     subjectId: String(args.walletId),
     challengeB64u: intentResponse.addAuthMethodIntentDigestB64u,

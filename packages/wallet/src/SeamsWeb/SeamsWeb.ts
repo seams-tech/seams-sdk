@@ -204,10 +204,7 @@ import {
   resolveLinkedDeviceEmailOtpAuthoritySelection,
   unlockLinkedDeviceEmailOtpWallet,
 } from '@/SeamsWeb/operations/auth/login';
-import {
-  buildWalletCustodyPasskeyFactorProof,
-  rotateWalletRecoveryCodes,
-} from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
 import { pendingWalletRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/pendingWalletRecoveryCodeBackup';
 import {
@@ -2325,16 +2322,9 @@ export class SeamsWeb {
         throw new Error('Pending wallet recovery-code backup was not completed');
       }
     }
-    const factorProof = await buildWalletCustodyPasskeyFactorProof({
-      context: this.getContext(),
-      walletId: args.walletId,
-      operation: 'recovery_acknowledge',
-      payload: { walletId: args.walletId },
-    });
     const result = await acknowledgeWalletRecoveryBackup({
       relayUrl,
       walletId: args.walletId,
-      factorProof,
     });
     if (pending && result.kind === 'acknowledged') {
       await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
