@@ -285,6 +285,9 @@ export class AuthMenuController {
           loginTarget,
         ),
     });
+    if (localAuthMethods.length > 0) {
+      session.defaultToLoginForDetectedLocalWallet();
+    }
   }
 
   private async prepareLogin(

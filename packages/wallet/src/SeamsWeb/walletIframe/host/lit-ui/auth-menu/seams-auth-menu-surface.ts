@@ -395,6 +395,29 @@ function selectedLoginAccount(viewModel: AuthMenuLoginViewModel) {
     .selectedAccount;
 }
 
+function selectedAccountPrimaryText(account: AuthMenuAccountOption): string {
+  switch (account.authMethod) {
+    case 'passkey':
+      return account.walletId;
+    case 'email_otp':
+      return account.displayName;
+  }
+  account.authMethod satisfies never;
+  throw new Error('Selected auth-menu account method is invalid');
+}
+
+function selectedAccountShowsWalletId(account: AuthMenuAccountOption): boolean {
+  return account.authMethod === 'email_otp' && account.walletId !== account.displayName;
+}
+
+function savedAccountsTriggerLabel(account: AuthMenuAccountOption | null): string {
+  if (!account) return 'Saved accounts';
+  const primary = selectedAccountPrimaryText(account);
+  return selectedAccountShowsWalletId(account)
+    ? `Saved accounts. Selected ${primary}, wallet ID ${account.walletId}`
+    : `Saved accounts. Selected ${primary}`;
+}
+
 type AuthMenuAccountGroup = Readonly<{
   authMethod: AuthMenuAccountOption['authMethod'];
   label: 'Passkey' | 'Email OTP';
@@ -925,21 +948,36 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         <div class="w3a-passkey-row">
           <div class="w3a-input-pill">
             <div class="w3a-input-wrap">
-              <input
-                id="w3a-auth-menu-login-account"
-                class="w3a-input"
-                data-auth-menu-input
-                type="text"
-                name="passkey"
-                aria-label="Saved account"
-                autocomplete="off"
-                autocapitalize="none"
-                autocorrect="off"
-                spellcheck="false"
-                placeholder="Enter your username"
-                .value=${selected?.displayName ?? ''}
-                readonly
-              />
+              ${selected
+                ? html`
+                    <div class="w3a-account-menu-account w3a-selected-account" aria-hidden="true">
+                      <span class="w3a-account-menu-account-primary"
+                        >${selectedAccountPrimaryText(selected)}</span
+                      >
+                      ${selectedAccountShowsWalletId(selected)
+                        ? html`<span class="w3a-account-menu-account-secondary"
+                            >${selected.walletId}</span
+                          >`
+                        : null}
+                    </div>
+                  `
+                : html`
+                    <input
+                      id="w3a-auth-menu-login-account"
+                      class="w3a-input"
+                      data-auth-menu-input
+                      type="text"
+                      name="passkey"
+                      aria-label="Saved account"
+                      autocomplete="off"
+                      autocapitalize="none"
+                      autocorrect="off"
+                      spellcheck="false"
+                      placeholder="Enter your username"
+                      value=""
+                      readonly
+                    />
+                  `}
             </div>
             ${hasAccounts
               ? html`
@@ -947,7 +985,8 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
                     <button
                       class="w3a-account-menu-trigger"
                       type="button"
-                      aria-label="Saved accounts"
+                      data-auth-menu-input
+                      aria-label=${savedAccountsTriggerLabel(selected)}
                       aria-haspopup="listbox"
                       aria-expanded=${this.accountMenuOpen ? 'true' : 'false'}
                       aria-controls=${AUTH_MENU_ACCOUNT_LIST_ID}
