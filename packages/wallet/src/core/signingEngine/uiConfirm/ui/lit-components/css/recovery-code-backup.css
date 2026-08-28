@@ -16,6 +16,7 @@ w3a-recovery-code-backup-viewer {
 }
 
 dialog[data-w3a-wallet-recovery-backup-dialog] {
+  position: relative;
   box-sizing: border-box;
   overflow: auto;
   /* Suppress rubber-band bounce: the card can measure fractionally taller
@@ -38,9 +39,17 @@ dialog[data-w3a-wallet-recovery-backup-dialog] {
 }
 
 dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone'] {
-  width: min(44rem, calc(100vw - 1.5rem));
   max-height: calc(100vh - 1.5rem);
   box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, 0.24);
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone'][data-w3a-recovery-stage='summary'],
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone'][data-w3a-recovery-stage='opening'] {
+  width: min(30rem, calc(100vw - 1.5rem));
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone'][data-w3a-recovery-stage='recovery_codes'] {
+  width: min(44rem, calc(100vw - 1.5rem));
 }
 
 dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone']::backdrop {
@@ -55,15 +64,153 @@ dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standa
    frame. The host dims the page; this surface must paint nothing outside the
    card — no shadow, no ::backdrop tint. */
 dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe'] {
-  width: 100%;
-  max-width: 100%;
   margin: 0;
   max-height: 100vh;
   box-shadow: none;
 }
 
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe'][data-w3a-recovery-stage='summary'],
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe'][data-w3a-recovery-stage='opening'] {
+  width: min(30rem, 100vw);
+  max-width: 100vw;
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe'][data-w3a-recovery-stage='recovery_codes'] {
+  width: 35rem;
+  max-width: none;
+}
+
+@media (max-width: 29rem) {
+  dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe'][data-w3a-recovery-stage='recovery_codes'] {
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
+
 dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe']::backdrop {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone'] {
+    transition: width 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  w3a-recovery-code-backup-viewer[data-w3a-recovery-entry='account_menu'][data-w3a-recovery-stage='recovery_codes'] {
+    animation: w3a-recovery-codes-content-in 160ms ease-out both;
+  }
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close {
+  position: absolute;
+  inset-block-start: 0.75rem;
+  inset-inline-end: 0.75rem;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--w3a-colors-textMuted, oklch(0.53 0.02 240));
+  font: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close:hover {
+  background: var(--w3a-colors-surface2, oklch(0.25 0.0175 240));
+  color: var(--w3a-colors-textPrimary, oklch(0.97 0.002 240));
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-close:focus-visible {
+  outline: 2px solid var(--w3a-colors-focus, #3b82f6);
+  outline-offset: 2px;
+}
+
+w3a-recovery-code-backup-viewer[data-w3a-recovery-stage='summary'] .recovery-backup-title,
+w3a-recovery-code-backup-viewer[data-w3a-recovery-stage='opening'] .recovery-backup-title {
+  padding-inline-end: 2.75rem;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-row {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--w3a-colors-borderPrimary, oklch(0.35 0.018 240));
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface, oklch(0.23 0.015 240));
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-label {
+  color: var(--w3a-colors-textSecondary, oklch(0.53 0.02 240));
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-value {
+  color: var(--w3a-colors-textPrimary, oklch(0.97 0.002 240));
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-open {
+  width: 100%;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-ellipsis {
+  display: inline-flex;
+  width: 1.1em;
+  margin-inline-start: 0.08em;
+  text-align: start;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-w3a-wallet-recovery-backup-dialog] .recovery-summary-ellipsis > span {
+    opacity: 0.28;
+    animation: w3a-recovery-codes-ellipsis-dot 1.2s ease-in-out infinite;
+  }
+
+  [data-w3a-wallet-recovery-backup-dialog] .recovery-summary-ellipsis > span:nth-child(2) {
+    animation-delay: 160ms;
+  }
+
+  [data-w3a-wallet-recovery-backup-dialog] .recovery-summary-ellipsis > span:nth-child(3) {
+    animation-delay: 320ms;
+  }
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-live-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-summary-error {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, oklch(0.58 0.18 25), transparent 75%);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, oklch(0.58 0.18 25), transparent 93%);
+  color: oklch(0.65 0.16 25);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 [data-w3a-wallet-recovery-backup-dialog] .recovery-backup-title {
@@ -162,6 +309,11 @@ dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet
   border-color: var(--w3a-colors-borderHover, oklch(0.4 0.02 240));
 }
 
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 [data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button:focus-visible {
   outline: 2px solid var(--w3a-colors-focus, #3b82f6);
   outline-offset: 2px;
@@ -221,4 +373,24 @@ dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet
   gap: 0.5rem;
   padding-top: 0.5rem;
   background: var(--w3a-colors-colorBackground, oklch(0.2 0.01 240));
+}
+
+@keyframes w3a-recovery-codes-content-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes w3a-recovery-codes-ellipsis-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.28;
+  }
+  30% {
+    opacity: 1;
+  }
 }

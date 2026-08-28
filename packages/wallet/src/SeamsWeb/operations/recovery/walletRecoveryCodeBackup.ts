@@ -17,8 +17,16 @@ import {
   type RecoveryBackupCloseDetail,
 } from '../../../core/signingEngine/uiConfirm/ui/lit-components/RecoveryCodeBackup/events';
 import type RecoveryCodeBackupHost from '../../../core/signingEngine/uiConfirm/ui/lit-components/RecoveryCodeBackup/host';
+import type { RecoveryCodeBackupExperience } from '../../../core/signingEngine/uiConfirm/ui/lit-components/RecoveryCodeBackup/viewer';
 
-const CANCELLED_MESSAGE = 'Wallet registration was cancelled before recovery-code backup';
+const CANCELLED_MESSAGE = 'Recovery-code backup was cancelled before acknowledgement';
+
+type AccountMenuRecoveryCodeExperience = Extract<
+  RecoveryCodeBackupExperience,
+  { readonly kind: 'account_menu' }
+>;
+
+export type WalletRecoveryCodesUiRequest = Omit<AccountMenuRecoveryCodeExperience, 'kind'>;
 
 /**
  * The lit host/viewer pair loads on demand: this module sits in the static
@@ -41,8 +49,8 @@ async function createRecoveryCodeBackupHost(): Promise<RecoveryCodeBackupHost> {
  * backed-up, an unacknowledged close defers during registration and cancels
  * from the account menu, and Escape always cancels.
  */
-export async function showWalletRecoveryCodeBackupUi(
-  request: WalletRecoveryCodeBackupRequestV1,
+async function showRecoveryCodeExperience(
+  experience: RecoveryCodeBackupExperience,
   measurementBinding: UiConfirmSurfaceMeasurementBinding = { kind: 'disabled' },
 ): Promise<WalletRecoveryCodeBackupAcknowledgementV1> {
   if (typeof document === 'undefined') {
@@ -52,9 +60,7 @@ export async function showWalletRecoveryCodeBackupUi(
   const previousFocus =
     document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const host = await createRecoveryCodeBackupHost();
-  host.walletId = request.walletId;
-  host.recoveryCodes = request.recoveryCodes;
-  host.continuation = request.continuation;
+  host.experience = experience;
   host.surface = measurementBinding.kind === 'wallet_iframe' ? 'wallet-iframe' : 'standalone';
 
   let measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
@@ -78,15 +84,25 @@ export async function showWalletRecoveryCodeBackupUi(
 
     host.addEventListener(RECOVERY_BACKUP_CLOSE_EVENT, (event) => {
       const detail = (event as CustomEvent<RecoveryBackupCloseDetail>).detail;
-      if (detail?.acknowledged) {
-        settle({ kind: 'wallet_recovery_codes_backed_up_v1' });
-        return;
+      switch (detail.kind) {
+        case 'dismissed':
+          settle(new Error(CANCELLED_MESSAGE));
+          return;
+        case 'recovery_codes':
+          if (detail.acknowledged) {
+            settle({ kind: 'wallet_recovery_codes_backed_up_v1' });
+            return;
+          }
+          if (
+            experience.kind === 'direct_backup' &&
+            experience.request.continuation === 'registration_may_defer'
+          ) {
+            settle({ kind: 'wallet_recovery_code_backup_deferred_v1' });
+            return;
+          }
+          settle(new Error(CANCELLED_MESSAGE));
+          return;
       }
-      if (request.continuation === 'registration_may_defer') {
-        settle({ kind: 'wallet_recovery_code_backup_deferred_v1' });
-        return;
-      }
-      settle(new Error(CANCELLED_MESSAGE));
     });
 
     host.addEventListener(RECOVERY_BACKUP_CANCEL_EVENT, () => {
@@ -105,4 +121,18 @@ export async function showWalletRecoveryCodeBackupUi(
       });
     });
   });
+}
+
+export async function showWalletRecoveryCodeBackupUi(
+  request: WalletRecoveryCodeBackupRequestV1,
+  measurementBinding: UiConfirmSurfaceMeasurementBinding = { kind: 'disabled' },
+): Promise<WalletRecoveryCodeBackupAcknowledgementV1> {
+  return await showRecoveryCodeExperience({ kind: 'direct_backup', request }, measurementBinding);
+}
+
+export async function showWalletRecoveryCodesUi(
+  request: WalletRecoveryCodesUiRequest,
+  measurementBinding: UiConfirmSurfaceMeasurementBinding = { kind: 'disabled' },
+): Promise<WalletRecoveryCodeBackupAcknowledgementV1> {
+  return await showRecoveryCodeExperience({ kind: 'account_menu', ...request }, measurementBinding);
 }

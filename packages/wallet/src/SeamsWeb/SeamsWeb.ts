@@ -175,6 +175,7 @@ import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine
 import type { TempoChainTarget } from '@/core/platform/types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { WalletRecoveryCodeBackupRequestV1 } from '@/core/types/sdkSentEvents';
 import {
   requireTempoFeeTokenPreferenceSigningRequest,
   type TempoFeeTokenPreferenceSigningRequest,
@@ -205,7 +206,10 @@ import {
   unlockLinkedDeviceEmailOtpWallet,
 } from '@/SeamsWeb/operations/auth/login';
 import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
-import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
+import {
+  showWalletRecoveryCodeBackupUi,
+  showWalletRecoveryCodesUi,
+} from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
 import { pendingWalletRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/pendingWalletRecoveryCodeBackup';
 import {
   acknowledgeWalletRecoveryBackup,
@@ -2309,29 +2313,42 @@ export class SeamsWeb {
         walletId: args.walletId,
       });
     }
-    const pending = await pendingWalletRecoveryCodeBackupRepository.read(args.walletId);
-    if (pending) {
-      const acknowledgement = await showWalletRecoveryCodeBackupUi(
-        {
-          kind: 'wallet_recovery_code_backup_request_v1',
-          walletId: pending.walletId,
-          recoveryCodes: pending.recoveryCodes,
-          continuation: 'pending_backup_must_finish',
-        },
-        this.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
-      );
-      if (acknowledgement.kind !== 'wallet_recovery_codes_backed_up_v1') {
-        throw new Error('Pending wallet recovery-code backup was not completed');
-      }
+    const acknowledgement = await showWalletRecoveryCodesUi(
+      {
+        walletId: args.walletId,
+        loadStatus: this.getWalletRecoveryCodeStatusDomain.bind(this, args),
+        loadPendingBackup: this.loadPendingWalletRecoveryCodeBackupRequest.bind(
+          this,
+          args.walletId,
+        ),
+      },
+      this.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
+    );
+    if (acknowledgement.kind !== 'wallet_recovery_codes_backed_up_v1') {
+      throw new Error('Pending wallet recovery-code backup was not completed');
     }
     const result = await acknowledgeWalletRecoveryBackup({
       relayUrl,
       walletId: args.walletId,
     });
-    if (pending && result.kind === 'acknowledged') {
+    if (result.kind === 'acknowledged') {
       await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
     }
     return result;
+  }
+
+  private async loadPendingWalletRecoveryCodeBackupRequest(
+    walletId: string,
+  ): Promise<WalletRecoveryCodeBackupRequestV1 | null> {
+    const pending = await pendingWalletRecoveryCodeBackupRepository.read(walletId);
+    return pending
+      ? {
+          kind: 'wallet_recovery_code_backup_request_v1',
+          walletId: pending.walletId,
+          recoveryCodes: pending.recoveryCodes,
+          continuation: 'pending_backup_must_finish',
+        }
+      : null;
   }
 
   private async requestWalletCustodyEmailOtpChallengeDomain(

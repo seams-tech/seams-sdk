@@ -12,8 +12,13 @@ import {
 } from '../../registry';
 // BINDING import, not a side-effect import: the per-file ESM build honors
 // sideEffects and would drop a bare `import './viewer'`.
-import RecoveryCodeBackupViewer, { type RecoveryCodeBackupContinuation } from './viewer';
-import { RECOVERY_BACKUP_CANCEL_EVENT, type RecoveryBackupSurface } from './events';
+import RecoveryCodeBackupViewer, { type RecoveryCodeBackupExperience } from './viewer';
+import {
+  RECOVERY_BACKUP_CANCEL_EVENT,
+  RECOVERY_BACKUP_STAGE_EVENT,
+  type RecoveryBackupStageDetail,
+  type RecoveryBackupSurface,
+} from './events';
 
 if (
   typeof customElements !== 'undefined' &&
@@ -24,15 +29,11 @@ if (
 
 export class RecoveryCodeBackupHost extends LitElementWithProps {
   static properties = {
-    walletId: { type: String, attribute: 'wallet-id' },
-    recoveryCodes: { attribute: false },
-    continuation: { type: String },
+    experience: { attribute: false },
     surface: { type: String },
   } as const;
 
-  declare walletId: string;
-  declare recoveryCodes: readonly string[];
-  declare continuation: RecoveryCodeBackupContinuation;
+  declare experience: RecoveryCodeBackupExperience;
   declare surface: RecoveryBackupSurface;
 
   private dialogEl: HTMLDialogElement | null = null;
@@ -41,11 +42,23 @@ export class RecoveryCodeBackupHost extends LitElementWithProps {
   private readonly dialogShown: Promise<HTMLDialogElement>;
   private resolveDialogShown!: (dialog: HTMLDialogElement) => void;
 
+  private readonly handleCancel = (event: Event): void => {
+    event.preventDefault();
+    this.dispatchEvent(
+      new CustomEvent(RECOVERY_BACKUP_CANCEL_EVENT, { bubbles: true, composed: true }),
+    );
+  };
+
+  private readonly handleStageChange = (event: Event): void => {
+    const dialog = event.currentTarget;
+    if (!(dialog instanceof HTMLDialogElement)) return;
+    const detail = (event as CustomEvent<RecoveryBackupStageDetail>).detail;
+    dialog.dataset.w3aRecoveryStage = detail.stage;
+  };
+
   constructor() {
     super();
-    this.walletId = '';
-    this.recoveryCodes = [];
-    this.continuation = 'pending_backup_must_finish';
+    this.experience = { kind: 'unconfigured' };
     this.surface = 'standalone';
     this.dialogShown = new Promise((resolve) => {
       this.resolveDialogShown = resolve;
@@ -74,20 +87,16 @@ export class RecoveryCodeBackupHost extends LitElementWithProps {
     if (!dialog || !dialog.isConnected) {
       dialog = document.createElement('dialog');
       dialog.setAttribute('data-w3a-wallet-recovery-backup-dialog', '');
-      dialog.setAttribute('aria-labelledby', 'w3a-wallet-recovery-backup-title');
-      dialog.setAttribute('aria-describedby', 'w3a-wallet-recovery-backup-description');
+      dialog.setAttribute('aria-labelledby', 'w3a-wallet-recovery-title');
+      dialog.setAttribute('aria-describedby', 'w3a-wallet-recovery-description');
       // The app-palette override rules in the wallet-iframe host target this
       // class; keep it so appearance colors keep applying.
       dialog.className = 'w3a-host-themed-dialog';
       dialog.tabIndex = -1;
-      dialog.addEventListener('cancel', (event) => {
-        // Escape: surface the cancellation as an event; the mount decides what
-        // rejecting means. preventDefault keeps the dialog under our control.
-        event.preventDefault();
-        this.dispatchEvent(
-          new CustomEvent(RECOVERY_BACKUP_CANCEL_EVENT, { bubbles: true, composed: true }),
-        );
-      });
+      // Escape is surfaced to the mount; preventDefault keeps the dialog under
+      // the recovery experience's single lifecycle owner.
+      dialog.addEventListener('cancel', this.handleCancel);
+      dialog.addEventListener(RECOVERY_BACKUP_STAGE_EVENT, this.handleStageChange);
       this.appendChild(dialog);
       this.dialogEl = dialog;
       this.viewerEl = null;
@@ -97,10 +106,25 @@ export class RecoveryCodeBackupHost extends LitElementWithProps {
       viewer = document.createElement(
         W3A_RECOVERY_CODE_BACKUP_VIEWER_ID,
       ) as RecoveryCodeBackupViewer;
+      viewer.configure(this.experience);
       dialog.appendChild(viewer);
       this.viewerEl = viewer;
     }
     return { dialog, viewer };
+  }
+
+  private async showDialogWhenReady(viewer: RecoveryCodeBackupViewer): Promise<void> {
+    await viewer.updateComplete;
+    await viewer.whenStylesReady();
+    // Style readiness queues the viewer's gated content render. Cross one
+    // frame boundary so layout and updateComplete both reflect that update.
+    await new Promise<number>(requestAnimationFrame);
+    await viewer.updateComplete;
+    const currentDialog = this.dialogEl;
+    if (this.viewerEl !== viewer || !currentDialog?.isConnected || currentDialog.open) return;
+    currentDialog.showModal();
+    viewer.focusInitialTarget();
+    this.resolveDialogShown(currentDialog);
   }
 
   protected updated(changed: PropertyValues): void {
@@ -110,23 +134,12 @@ export class RecoveryCodeBackupHost extends LitElementWithProps {
       'data-w3a-recovery-surface',
       this.surface === 'wallet-iframe' ? 'wallet-iframe' : 'standalone',
     );
-    viewer.walletId = this.walletId;
-    viewer.recoveryCodes = this.recoveryCodes;
-    viewer.continuation = this.continuation;
+    viewer.configure(this.experience);
+    const stage = viewer.currentStage();
+    if (stage) dialog.dataset.w3aRecoveryStage = stage;
     if (!this.shown) {
       this.shown = true;
-      // Hold showModal until the stylesheets applied: the dialog is a measured
-      // surface in the wallet iframe, and an unstyled first layout would post
-      // a wrong height before the real one.
-      void viewer.whenStylesReady().then(() => {
-        const currentDialog = this.dialogEl;
-        if (!currentDialog?.isConnected || currentDialog.open) return;
-        currentDialog.showModal();
-        // The dialog itself takes programmatic focus on open, so the reading
-        // order starts at the title rather than the first button.
-        currentDialog.focus();
-        this.resolveDialogShown(currentDialog);
-      });
+      void this.showDialogWhenReady(viewer);
     }
   }
 

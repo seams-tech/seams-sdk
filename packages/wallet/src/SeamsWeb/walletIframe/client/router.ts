@@ -550,7 +550,7 @@ function requestSurfacePresentationFor(
         ? drawerWalletIframeSurfacePresentation('Unlock wallet')
         : modalWalletIframeSurfacePresentation('Unlock wallet');
     case 'recovery_codes':
-      return modalWalletIframeSurfacePresentation('Back up recovery codes');
+      return modalWalletIframeSurfacePresentation('Wallet recovery codes');
     case 'device_link':
     case 'device_link_qr':
       return modalWalletIframeSurfacePresentation('Link a device');

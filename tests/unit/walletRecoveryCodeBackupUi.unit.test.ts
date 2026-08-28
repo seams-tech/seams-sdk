@@ -3,8 +3,7 @@ import { injectImportMap } from '../setup/bootstrap';
 import { SDK_ESM_BASE_PATH } from '../setup/sdkEsmPaths';
 
 // Built dist, not raw source over /@fs: the dialog is a lit component whose
-// import graph relies on the SDK's path aliases, which only the build
-// resolves. Same module the sibling RecoveryCodesModal test loads.
+// import graph relies on the SDK's path aliases, which only the build resolves.
 const MODULE_URL = '/_test-sdk/esm/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.js';
 
 function request(
@@ -55,6 +54,89 @@ async function readResult(page: Page): Promise<unknown> {
   });
 }
 
+async function openAccountMenuRecoveryDialog(page: Page): Promise<void> {
+  await page.route('**/_test-sdk/esm/sdk/recovery-code-backup.css', async (route) => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await route.fallback();
+  });
+  await page.goto('/');
+  await injectImportMap(page);
+  await page.evaluate((base) => {
+    (window as unknown as { __W3A_WALLET_SDK_BASE__?: string }).__W3A_WALLET_SDK_BASE__ = base;
+  }, `${SDK_ESM_BASE_PATH}/sdk/`);
+  await page.evaluate(
+    async ({ moduleUrl, backupRequest }) => {
+      const module = await import(moduleUrl);
+      const result = module.showWalletRecoveryCodesUi({
+        walletId: backupRequest.walletId,
+        loadStatus: async () => ({
+          kind: 'transport_failed' as const,
+          message: 'Recovery status is temporarily unavailable',
+        }),
+        loadPendingBackup: async () => {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+          return backupRequest;
+        },
+      });
+      (
+        window as unknown as { walletRecoveryBackupResult: Promise<unknown> }
+      ).walletRecoveryBackupResult = result;
+    },
+    { moduleUrl: MODULE_URL, backupRequest: request('pending_backup_must_finish') },
+  );
+}
+
+test('account-menu recovery codes use one Lit dialog for summary, opening, and codes', async ({
+  page,
+}) => {
+  await openAccountMenuRecoveryDialog(page);
+  const dialog = page.locator('[data-w3a-wallet-recovery-backup-dialog]');
+  const viewer = dialog.locator('w3a-recovery-code-backup-viewer');
+
+  await expect(dialog).toHaveCount(1);
+  await expect(dialog).toHaveAttribute('data-w3a-recovery-stage', 'summary');
+  await expect(dialog.getByRole('heading', { name: 'Wallet recovery codes' })).toBeVisible();
+  await expect(dialog.getByText('Could not load')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Close recovery codes' })).toBeFocused();
+  const summaryBox = await dialog.boundingBox();
+  await page.evaluate(() => {
+    (
+      window as typeof window & { recoveryDialogAtSummary?: HTMLDialogElement | null }
+    ).recoveryDialogAtSummary = document.querySelector('[data-w3a-wallet-recovery-backup-dialog]');
+  });
+
+  await dialog.getByRole('button', { name: 'View recovery codes' }).click();
+  await expect(dialog).toHaveAttribute('data-w3a-recovery-stage', 'opening');
+  const openingButton = dialog.getByRole('button', { name: 'Opening recovery codes' });
+  await expect(openingButton.locator('.recovery-summary-ellipsis')).toHaveAttribute(
+    'aria-hidden',
+    'true',
+  );
+  await expect(openingButton.locator('.recovery-summary-ellipsis > span')).toHaveCount(3);
+
+  await expect(dialog).toHaveAttribute('data-w3a-recovery-stage', 'recovery_codes');
+  await expect(
+    dialog.getByRole('heading', { name: 'Save your wallet recovery codes' }),
+  ).toBeFocused();
+  await expect(dialog.getByRole('listitem')).toHaveCount(10);
+  await expect(viewer).toHaveCSS('animation-name', 'w3a-recovery-codes-content-in');
+  await page.waitForTimeout(250);
+  const recoveryCodesBox = await dialog.boundingBox();
+  const sameDialog = await page.evaluate(() => {
+    const initial = (
+      window as typeof window & { recoveryDialogAtSummary?: HTMLDialogElement | null }
+    ).recoveryDialogAtSummary;
+    return initial === document.querySelector('[data-w3a-wallet-recovery-backup-dialog]');
+  });
+
+  expect(sameDialog).toBe(true);
+  expect(summaryBox).not.toBeNull();
+  expect(recoveryCodesBox).not.toBeNull();
+  expect(recoveryCodesBox!.width).toBeGreaterThan(summaryBox!.width);
+  expect(recoveryCodesBox!.height).toBeGreaterThan(summaryBox!.height);
+  await expect(dialog).toHaveCount(1);
+});
+
 test('wallet recovery backup completes only through the acknowledged close control', async ({
   page,
 }) => {
@@ -88,7 +170,9 @@ test('wallet recovery backup starts at the top with reachable actions and is key
   const acknowledgement = page.getByRole('checkbox', {
     name: 'I saved these recovery codes (these codes will not be shown again).',
   });
-  await expect(dialog).toBeFocused();
+  await expect(
+    dialog.getByRole('heading', { name: 'Save your wallet recovery codes' }),
+  ).toBeFocused();
   await expect(acknowledgement).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Back up later' })).toBeInViewport();
   await page.keyboard.press('Tab');
