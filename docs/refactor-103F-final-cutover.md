@@ -953,7 +953,7 @@ Primary files:
 - [ ] Keep `mint_id` unique across historical V2 rows. Give every replacement a
       fresh mint ID and delete policy-derived mint helpers that cannot identify
       one issuance attempt.
-- [ ] Make the V2-by-mint persistence reader accept the narrow replay key and
+- [x] Make the V2-by-mint persistence reader accept the narrow replay key and
       return the committed exact identity without requiring the caller to
       reconstruct the entire expected session record.
 - [ ] Make server-issued replay return the already committed result without
@@ -1941,7 +1941,7 @@ Documentation:
       appear earlier in the same clean-database migration batch.
 - [ ] Record the exact V2 issue, persistence, read, admission, retirement, and
       replay functions that remain after the cutover.
-- [ ] Freeze mint semantics and the narrow full-scope V2 replay lookup. Prove a
+- [x] Freeze mint semantics and the narrow full-scope V2 replay lookup. Prove a
       same-mint retry returns one committed identity and replacement requires a
       fresh mint.
 - [ ] Freeze `PendingWalletRegistrationCommitV1` and the credential-free
@@ -2115,7 +2115,7 @@ bounded rollout through request- and persistence-boundary compatibility.
 
 ### Phase 2 — Issue exact server authorizations atomically
 
-- [ ] Create one direct server issuer returning the persisted V2 record, quota,
+- [x] Create one direct server issuer returning the persisted V2 record, quota,
       and primary credential after their atomic commit.
 - [ ] Add a prepared linked-activation path that generates the credential,
       seals it to the authenticated dedicated Device 2 credential recipient,
