@@ -10,7 +10,7 @@ import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletHostRuntimeState } from './runtimeContext';
-import { loadWalletHostRuntime } from './runtimeLoader';
+import { loadWalletHostRuntime, preloadWalletHostRecoveryCodeSurface } from './runtimeLoader';
 import {
   type RuntimeWalletHostRoute,
   routeRequiresRuntime,
@@ -47,6 +47,9 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
   initialized = true;
 
   bootstrapTransparentHost();
+  if (!options.supportedRuntimeRouteKinds || options.supportedRuntimeRouteKinds.has('email_otp')) {
+    void preloadWalletHostRecoveryCodeSurface().catch(() => undefined);
+  }
 
   const cancelledRequests = new Set<string>();
   const state: WalletHostRuntimeState = {
