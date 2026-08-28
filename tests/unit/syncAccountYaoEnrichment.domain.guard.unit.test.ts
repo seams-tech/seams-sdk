@@ -11,11 +11,8 @@ import {
   type ThresholdEd25519SessionId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import {
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
-} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
 import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
@@ -54,6 +51,7 @@ import {
   createTemporaryD1Database,
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
+import { seedFoundingPasskeyAuthority } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { StaticWalletSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -64,7 +62,7 @@ const NEAR_SIGNING_KEY_ID = 'ed25519ks_sync_1';
 const SIGNING_WORKER_ID = 'signing-worker-sync-1';
 const RP_ID = 'wallet.example.test';
 const ORIGIN = `https://${RP_ID}`;
-const CREDENTIAL_ID = 'credential-sync-1';
+const CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(36));
 const PARTICIPANT_IDS = [11, 22] as const;
 
 type SyncVerificationInput = Parameters<RouterApiWebAuthnService['verifyWebAuthnSyncAccount']>[0];
@@ -411,6 +409,19 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
@@ -447,54 +458,38 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         participantIds: PARTICIPANT_IDS,
       },
     ]);
-    expect(runtime.mintCalls).toHaveLength(1);
-    const mintCall = runtime.mintCalls[0];
-    expect(mintCall).toMatchObject({
-      kind: 'verified_wallet_unlock_v1',
-      walletId: walletIdFromString(WALLET_ID),
-      nearAccountId: NEAR_ACCOUNT_ID,
-      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-      authority: buildPasskeyWalletAuthAuthority({
-        walletId: WALLET_ID,
-        rpId: RP_ID,
-        credentialIdB64u: CREDENTIAL_ID,
-      }),
-      thresholdSessionId: 'active-threshold-session-2',
-      participantIds: PARTICIPANT_IDS,
-      remainingUses: 3,
-      runtimePolicyScope: {
-        orgId: 'org-active',
-        projectId: 'project-active',
-        envId: 'env-active',
-        signingRootVersion: 'root-active-v2',
-      },
-    });
-    expect(String(mintCall?.walletSessionId)).not.toBe(String(mintCall?.thresholdSessionId));
-    const expectedAuthorityRef = await walletAuthAuthorityRef({
-      authority: buildPasskeyWalletAuthAuthority({
-        walletId: WALLET_ID,
-        rpId: RP_ID,
-        credentialIdB64u: CREDENTIAL_ID,
-      }),
-    });
+    expect(runtime.mintCalls).toEqual([]);
     const responseBody = await response.json();
     expect(responseBody).toMatchObject({
       ok: true,
       verified: true,
       thresholdEd25519: {
         session: {
-          thresholdSessionId: mintCall?.thresholdSessionId,
-          walletSessionId: mintCall?.walletSessionId,
-          quotaId: mintCall?.quotaId,
+          thresholdSessionId: 'active-threshold-session-2',
           remainingUses: 3,
+          walletSessionToken: expect.stringMatching(/^wst_/),
         },
       },
       ed25519YaoRecovery: {
         kind: 'router_ab_ed25519_yao_sync_recovery_v1',
-        authorityRef: expectedAuthorityRef,
+        authorityRef: {
+          walletAuthMethodId: 'wallet-auth-method:sync-account',
+        },
         capability: activeCapabilityFixture(),
       },
     });
+
+    const replayResponse = await router(syncAccountVerifyRequest());
+    expect(replayResponse.status).toBe(409);
+    const replayBody = await replayResponse.json();
+    expect(replayBody).toMatchObject({
+      ok: false,
+      code: 'already_committed',
+      kind: 'already_committed',
+      walletId: WALLET_ID,
+      next: 'unlock_exact_method',
+    });
+    expect(replayBody).not.toHaveProperty('walletSessionToken');
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
@@ -503,6 +498,20 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
 async function syncAccountFailsClosedWithoutYaoRuntime(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
@@ -529,6 +538,20 @@ async function syncAccountFailsClosedWithoutYaoRuntime(): Promise<void> {
 async function syncAccountRejectsCapabilityForAnotherNearAccount(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    await seedFoundingPasskeyAuthority({
+      database: temporary.database,
+      namespace: 'sync-account-yao-test',
+      orgId: 'org-active',
+      projectId: 'project-active',
+      envId: 'env-active',
+      identity: {
+        walletId: WALLET_ID,
+        authorityId: 'wallet-authority:sync-account',
+        walletAuthMethodId: 'wallet-auth-method:sync-account',
+        rpId: RP_ID,
+      },
+    });
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,

@@ -3,14 +3,12 @@ import {
   parsePrincipalId,
   type ReusableWalletSessionMintId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-} from '@shared/utils/domainIds';
+import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   WalletAuthAuthority,
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -20,13 +18,17 @@ import {
   parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import { deriveSigningRootId, type RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { isPlainObject } from '@shared/utils/validation';
-import type { VerifiedOwnerProof } from '../../../../authorization/domain';
+import type { DirectV2IssueResult, VerifiedOwnerProof } from '../../../../authorization/domain';
 import type { FetchRouterApiContext } from '../createFetchRouter';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../../core/ThresholdService/validation';
 import { authorWalletUnlockEcdsaRequest } from './sessions';
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
-import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { WebAuthnSyncAccountVerificationResult } from '../../../../core/authService/webauthn';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../../core/registrationContracts';
 
 export type VerifiedSyncAccountResultV1 = Extract<
   WebAuthnSyncAccountVerificationResult,
@@ -37,6 +39,8 @@ export type SyncAccountBootstrapInputV1 = {
   readonly ctx: FetchRouterApiContext;
   readonly result: VerifiedSyncAccountResultV1;
   readonly authority: WalletAuthAuthority;
+  readonly activeAuthority: ActiveWalletAuthorityV1;
+  readonly walletAuthMethodId: WalletAuthMethodId;
   readonly authorityRef: WalletAuthAuthorityRef;
   readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   readonly mintId: ReusableWalletSessionMintId;
@@ -53,7 +57,51 @@ export type SyncAccountBootstrapInputV1 = {
 
 export type SyncAccountBootstrapResultV1 =
   | { readonly kind: 'ok'; readonly body: Record<string, unknown> }
-  | { readonly kind: 'error'; readonly code: string; readonly message: string; readonly status: number };
+  | {
+      readonly kind: 'already_committed';
+      readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
+    }
+  | {
+      readonly kind: 'error';
+      readonly code: string;
+      readonly message: string;
+      readonly status: number;
+    };
+
+function buildDirectSyncWalletSession(input: {
+  readonly issued: Extract<DirectV2IssueResult, { readonly kind: 'issued' }>;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly authority: WalletAuthAuthority;
+  readonly thresholdSessionId: string;
+  readonly signingWorkerId: string;
+  readonly participantIds: readonly [number, number];
+  readonly runtimePolicyScope: RuntimePolicyScope;
+}): WalletRegistrationEd25519YaoBootstrapSession {
+  const routerAbNormalSigning = {
+    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+    signingWorkerId: input.signingWorkerId,
+  } as const;
+  return {
+    sessionKind: 'opaque',
+    walletSessionToken: input.issued.operationCredential.token,
+    walletId: input.issued.session.walletId,
+    nearAccountId: input.nearAccountId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(input.authority),
+    thresholdSessionId: input.thresholdSessionId,
+    authorizationId: input.issued.session.authorizationId,
+    walletSessionId: input.issued.session.walletSessionId,
+    quotaId: input.issued.session.quotaId,
+    expiresAtMs: input.issued.session.expiresAtMs,
+    participantIds: input.participantIds,
+    remainingUses: input.issued.quota.remainingUses,
+    signingRootId: deriveSigningRootId(input.runtimePolicyScope),
+    signingRootVersion: input.runtimePolicyScope.signingRootVersion,
+    runtimePolicyScope: input.runtimePolicyScope,
+    routerAbNormalSigning,
+  };
+}
 
 export async function issueSyncAccountBootstrapV1(
   input: SyncAccountBootstrapInputV1,
@@ -72,14 +120,14 @@ export async function issueSyncAccountBootstrapV1(
   const firstParticipantId = thresholdEd25519?.participantIds?.[0];
   const secondParticipantId = thresholdEd25519?.participantIds?.[1];
   if (!custodyKeyManifestDigestB64u) {
-    return bootstrapError('internal', 'Sync verification did not resolve the wallet key manifest', 500);
-  }
-  if (!yaoRuntime) {
     return bootstrapError(
       'internal',
-      'Ed25519 Yao product registration is not configured',
+      'Sync verification did not resolve the wallet key manifest',
       500,
     );
+  }
+  if (!yaoRuntime) {
+    return bootstrapError('internal', 'Ed25519 Yao product registration is not configured', 500);
   }
   if (
     thresholdEd25519?.participantIds?.length !== 2 ||
@@ -134,7 +182,9 @@ export async function issueSyncAccountBootstrapV1(
   if (custodyEnvelope.kind !== 'active') {
     const manifestUnavailable = custodyEnvelope.kind === 'manifest_unavailable';
     return bootstrapError(
-      manifestUnavailable ? 'custody_manifest_unavailable' : `custody_envelope_${custodyEnvelope.kind}`,
+      manifestUnavailable
+        ? 'custody_manifest_unavailable'
+        : `custody_envelope_${custodyEnvelope.kind}`,
       manifestUnavailable
         ? 'Wallet custody key manifest is unavailable'
         : 'Verified passkey has no unique active wallet custody envelope',
@@ -146,42 +196,34 @@ export async function issueSyncAccountBootstrapV1(
   if (!principalId.ok) {
     return bootstrapError('internal', 'Verified passkey Wallet Session identity is invalid', 500);
   }
-  const reusableWalletSession =
-    await ctx.service.authorizationSessions.issueReusableWalletSession({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      principalId: principalId.value,
-      walletId: walletIdFromString(walletId),
-      authority: input.authorityRef,
-      mintId: input.mintId,
-      remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-      issuedAtMs: input.issuedAtMs,
-      expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
-    });
-  const walletSession = await mintRouterAbEd25519YaoWalletSessionV1({
-    opaqueWalletSessions: ctx.service.authorizationSessions,
-    tenantId: ctx.service.authorizationSessions.tenantId,
-    signingWorkerId: yaoRuntime.signingWorkerId,
-    sessionInput: {
-      kind: 'verified_wallet_unlock_v1',
-      proof: input.proof,
-      walletId: walletIdFromString(walletId),
-      nearAccountId,
-      nearEd25519SigningKeyId,
-      authority: input.authority,
-      thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
-      authorizationId: reusableWalletSession.session.authorizationId,
-      walletSessionId: reusableWalletSession.quota.walletSessionId,
-      quotaId: reusableWalletSession.quota.quotaId,
-      participantIds: [firstParticipantId, secondParticipantId],
-      runtimePolicyScope: capability.capability.runtimePolicyScope,
-      keyManifestDigestB64u: custodyKeyManifestDigestB64u,
-      expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
-      remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-    },
-  });
-  if (!walletSession.ok) {
-    return bootstrapError(walletSession.code, walletSession.message, 500);
+  const issueDirect = ctx.service.authorizationSessions.issueDirectWalletSessionAuthorizationV2;
+  if (!issueDirect) {
+    return bootstrapError('internal', 'Direct Wallet Session issuance is not configured', 500);
   }
+  const directIssue = await issueDirect({
+    tenantId: ctx.service.authorizationSessions.tenantId,
+    principalId: principalId.value,
+    walletId: walletIdFromString(walletId),
+    authority: input.activeAuthority,
+    walletAuthMethodId: input.walletAuthMethodId,
+    mintId: input.mintId,
+    remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
+  });
+  if (directIssue.kind === 'already_committed') {
+    return { kind: 'already_committed', committed: directIssue };
+  }
+  const walletSession = buildDirectSyncWalletSession({
+    issued: directIssue,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    authority: input.authority,
+    thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
+    signingWorkerId: yaoRuntime.signingWorkerId,
+    participantIds: [firstParticipantId, secondParticipantId],
+    runtimePolicyScope: capability.capability.runtimePolicyScope,
+  });
 
   const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
     walletId,
@@ -207,7 +249,7 @@ export async function issueSyncAccountBootstrapV1(
       ctx,
       body: authored.value.request,
       source: 'verified_ed25519_wallet_session',
-      walletSessionToken: walletSession.session.walletSessionToken,
+      walletSessionToken: walletSession.walletSessionToken,
       proof: input.proof,
     });
     const activatedBody: unknown = await activatedResponse.json();
@@ -219,9 +261,8 @@ export async function issueSyncAccountBootstrapV1(
         activatedResponse.status,
       );
     }
-    ecdsaSessionActivation = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
-      activatedBody,
-    );
+    ecdsaSessionActivation =
+      parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(activatedBody);
     ecdsaActivationReceipt = authored.value.activationReceipt;
   }
 
@@ -231,7 +272,7 @@ export async function issueSyncAccountBootstrapV1(
       ...result,
       thresholdEd25519: {
         ...thresholdEd25519,
-        session: walletSession.session,
+        session: walletSession,
       },
       ed25519YaoRecovery: {
         kind: 'router_ab_ed25519_yao_sync_recovery_v1',
