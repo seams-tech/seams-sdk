@@ -2096,7 +2096,7 @@ pass.
       `linked_device_authority_installations`.
 - [x] Add the hosted-child composite V2 foreign key and unique credential
       digest, including rebuild-safe foreign-key verification.
-- [x] Add migration counters and abort conditions.
+- [ ] Add migration counters and abort conditions.
 - [x] Make duplicate cleanup deterministic: retire only null-credential or
       logically expired rows and abort if multiple usable credential-bearing
       rows remain for an exact tuple.
