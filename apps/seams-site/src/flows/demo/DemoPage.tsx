@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useSeams } from '@seams/wallet/react';
@@ -15,12 +15,15 @@ import {
   canStartDemoNearTransaction,
   demoNearFundingStatusText,
 } from './demoNearAccountFundingState';
+import { useDemoArcFundingStatus } from './hooks/useDemoArcFundingStatus';
 import { useDemoNearAccountFundingStatus } from './hooks/useDemoNearAccountFundingStatus';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
 import { useDemoTempoFundingStatus } from './hooks/useDemoTempoFundingStatus';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
 import { useIntendedEmailOtpUnlockBridge } from './useIntendedEmailOtpUnlockBridge';
+
+const CIRCLE_FAUCET_URL = 'https://faucet.circle.com/';
 
 export const DemoPage: React.FC = () => {
   const {
@@ -95,6 +98,29 @@ export const DemoPage: React.FC = () => {
     thresholdOwnerAddress: thresholdSigners.thresholdOwnerAddress,
   });
 
+  const { status: arcFundingStatus, refresh: refreshArcFunding } = useDemoArcFundingStatus({
+    isLoggedIn,
+    thresholdOwnerAddress: thresholdSigners.thresholdOwnerAddress,
+    enabled: selectedChainId === 'arc',
+  });
+
+  const handleFundArcWallet = useCallback(async () => {
+    const address = thresholdSigners.thresholdOwnerAddress;
+    if (!address) return;
+
+    const copyPromise = navigator.clipboard?.writeText(address);
+    window.open(CIRCLE_FAUCET_URL, '_blank', 'noopener,noreferrer');
+    try {
+      if (!copyPromise) throw new Error('Clipboard API unavailable');
+      await copyPromise;
+      toast.success('Wallet address copied. Paste it into Circle Faucet.');
+    } catch {
+      toast.error('Circle Faucet opened, but the wallet address could not be copied.');
+    } finally {
+      refreshArcFunding();
+    }
+  }, [refreshArcFunding, thresholdSigners.thresholdOwnerAddress]);
+
   if (!isLoggedIn || !walletId) {
     return null;
   }
@@ -133,7 +159,7 @@ export const DemoPage: React.FC = () => {
         : null,
       onSign: thresholdSigners.handleSignEvmThresholdTx,
       signLoading: thresholdSigners.evmThresholdSignLoading,
-      canSign: thresholdSigners.canSignEvm,
+      canSign: thresholdSigners.canSignEvm && arcFundingStatus === 'ready',
       signLabel: 'Sign on Arc',
     },
     {
@@ -174,6 +200,7 @@ export const DemoPage: React.FC = () => {
           canSignDelegate={nearActions.canSignDelegate}
           nearSignerAvailable={Boolean(nearPublicKey)}
           thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
+          onFundArcWallet={handleFundArcWallet}
           onCopyThresholdOwnerAddress={() => {
             toast.success('Address copied');
           }}

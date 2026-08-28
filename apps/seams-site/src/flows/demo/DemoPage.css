@@ -394,6 +394,14 @@
   line-height: 1.45;
 }
 
+.demo-funding__link {
+  color: var(--site-brand);
+}
+
+.demo-funding__link:hover {
+  color: var(--site-brand-hover);
+}
+
 /* ---------- motion (transitions, not keyframes, so they stay interruptible;
    easing per easeOutQuad, cubic-bezier(0.25, 0.46, 0.45, 0.94)) ---------- */
 
