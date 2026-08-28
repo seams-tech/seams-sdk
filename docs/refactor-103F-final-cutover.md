@@ -935,28 +935,28 @@ Primary files:
 - [ ] Delete `issueWalletSessionAuthorizationV2FromReusableSession`.
 - [ ] Delete `refreshWalletSessionAuthorizationV2FromReusableSession`.
 - [ ] Delete `projectReusableWalletSessionV2` and its projection types.
-- [ ] Replace separate session and credential writers with one direct issuer
+- [x] Replace separate session and credential writers with one direct issuer
       that prepares `{ session, quota, primaryCredential, credentialDigest }`.
 - [ ] Delete `putWalletSessionAuthorizationV2OperationCredential` and
       `issueWalletSessionAuthorizationV2OperationCredential`. No production API
       may update `operation_credential_hash` after session insertion.
-- [ ] Persist session, quota, and primary credential digest in one batch or the
+- [x] Persist session, quota, and primary credential digest in one batch or the
       owning authority-activation CAS before returning success.
 - [ ] Rebuild the V2 table in a forward migration so every active row requires
       a non-null primary credential digest.
-- [ ] Make same-method replacement retire the previous exact V2 session and
+- [x] Make same-method replacement retire the previous exact V2 session and
       exhaust its quota in the same transaction that installs the new session.
 - [ ] Add a partial unique index enforcing at most one non-retired V2 session
       per full scope and exact `(wallet, authority, authMethod)` tuple. The
       issuer retires an expired/exhausted predecessor before inserting its
       replacement.
-- [ ] Keep `mint_id` unique across historical V2 rows. Give every replacement a
+- [x] Keep `mint_id` unique across historical V2 rows. Give every replacement a
       fresh mint ID and delete policy-derived mint helpers that cannot identify
       one issuance attempt.
 - [x] Make the V2-by-mint persistence reader accept the narrow replay key and
       return the committed exact identity without requiring the caller to
       reconstruct the entire expected session record.
-- [ ] Make server-issued replay return the already committed result without
+- [x] Make server-issued replay return the already committed result without
       rotating its credential. A flow that cannot reproduce the plaintext
       returns an explicit retry/unlock result.
 - [ ] Add `PendingWalletRegistrationCommitV1` before the terminal request. Make
