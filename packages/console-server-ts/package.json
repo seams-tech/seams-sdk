@@ -44,6 +44,7 @@
     "d1:staging:r2-restore-drill": "node ./scripts/d1-staging-r2-restore-drill.mjs",
     "d1:staging:runbook": "node ./scripts/d1-staging-runbook.mjs",
     "d1:staging:signer-custody": "node ./scripts/d1-staging-signer-custody.mjs",
+    "d1:staging:signer-phase1-inventory": "node ./scripts/d1-staging-signer-phase1-inventory.mjs",
     "d1:staging:smoke": "node ./scripts/d1-staging-smoke.mjs",
     "type-check": "tsc --noEmit"
   },

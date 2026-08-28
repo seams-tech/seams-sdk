@@ -1,5 +1,9 @@
 import { basename, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
+import {
+  buildSignerD1Phase1InventoryQuery,
+  normalizeSignerD1Phase1InventoryRow,
+} from '../../packages/console-server-ts/scripts/d1-staging-signer-phase1-inventory.mjs';
 import { digestMigrations, readMigrationFiles } from '../../scripts/migration-fingerprint.mjs';
 import {
   applyD1MigrationFiles,
@@ -391,65 +395,8 @@ async function readBridgeCounters(
   readonly activationCredentialRows: number;
   readonly provisioningCredentialRows: number;
 }> {
-  const row = await database
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM reusable_wallet_sessions
-           WHERE lifecycle_kind = 'active' AND expires_at_ms > ?) AS active_v1,
-         (SELECT COUNT(*) FROM wallet_session_authorizations_v2
-           WHERE retired_at_ms IS NULL AND operation_credential_hash IS NOT NULL
-             AND expires_at_ms > ?) AS active_usable_v2,
-         (SELECT COUNT(*) FROM wallet_session_authorizations_v2
-           WHERE retired_at_ms IS NULL AND operation_credential_hash IS NULL
-             AND expires_at_ms > ?) AS active_v2_without_credential,
-         (SELECT COUNT(*) FROM authorized_operations
-           WHERE lifecycle_kind = 'claimed'
-             AND authorization_source_kind = 'authorization_grant'
-             AND authorization_grant_kind = 'wallet_session_authorization'
-             AND linked_scope_org_id IS NULL
-             AND linked_scope_project_id IS NULL
-             AND linked_scope_env_id IS NULL) AS pending_v1_authorized_operations,
-         (SELECT COUNT(*) FROM hosted_wallet_session_exchange_codes
-           WHERE lifecycle_kind = 'issued' AND expires_at_ms > ?) AS unconsumed_hosted_exchange_codes,
-         (SELECT COUNT(*) FROM authorization_wallet_session_quotas AS quota
-           WHERE NOT EXISTS (
-             SELECT 1 FROM wallet_session_authorizations_v2 AS session
-              WHERE session.namespace = quota.namespace
-                AND session.tenant_id = quota.tenant_id
-                AND session.quota_id = quota.quota_id
-           )) AS v1_only_quotas,
-         (SELECT COUNT(*) FROM router_ab_yao_versioned_json_records
-           WHERE record_key LIKE 'wallet-registration-activate:%'
-             AND (json_extract(record_json, '$.walletSessionToken') IS NOT NULL
-               OR json_extract(record_json, '$.operationCredential') IS NOT NULL))
-           AS activation_credential_rows,
-         (SELECT COUNT(*) FROM router_ab_yao_versioned_json_records
-           WHERE record_key LIKE 'wallet-registration-near-provisioning:%'
-             AND (json_extract(record_json, '$.walletSessionToken') IS NOT NULL
-               OR json_extract(record_json, '$.operationCredential') IS NOT NULL))
-           AS provisioning_credential_rows`,
-    )
-    .bind(nowMs, nowMs, nowMs, nowMs)
-    .first<{
-      readonly active_v1?: unknown;
-      readonly active_usable_v2?: unknown;
-      readonly active_v2_without_credential?: unknown;
-      readonly pending_v1_authorized_operations?: unknown;
-      readonly unconsumed_hosted_exchange_codes?: unknown;
-      readonly v1_only_quotas?: unknown;
-      readonly activation_credential_rows?: unknown;
-      readonly provisioning_credential_rows?: unknown;
-    }>();
-  return {
-    activeV1: Number(row?.active_v1 ?? 0),
-    activeUsableV2: Number(row?.active_usable_v2 ?? 0),
-    activeV2WithoutCredential: Number(row?.active_v2_without_credential ?? 0),
-    pendingV1AuthorizedOperations: Number(row?.pending_v1_authorized_operations ?? 0),
-    unconsumedHostedExchangeCodes: Number(row?.unconsumed_hosted_exchange_codes ?? 0),
-    v1OnlyQuotas: Number(row?.v1_only_quotas ?? 0),
-    activationCredentialRows: Number(row?.activation_credential_rows ?? 0),
-    provisioningCredentialRows: Number(row?.provisioning_credential_rows ?? 0),
-  };
+  const row = await database.prepare(buildSignerD1Phase1InventoryQuery(nowMs)).first();
+  return normalizeSignerD1Phase1InventoryRow(row);
 }
 
 test('R103F Phase 1 applies cleanly and after every immutable signer migration', async () => {
@@ -1247,7 +1194,7 @@ test('R103F bridge inventory counters and applied migration fingerprint stay sta
         SCOPE.envId,
         'wallet-registration-activate:counter',
         1,
-        '{"walletSessionToken":"token"}',
+        '{"response":{"registrationEstablishedSession":{"tokens":{"ed25519":{"walletSessionToken":"token"}}}}}',
         1,
         1,
       )
@@ -1266,7 +1213,7 @@ test('R103F bridge inventory counters and applied migration fingerprint stay sta
         SCOPE.envId,
         'wallet-registration-near-provisioning:counter',
         1,
-        '{"operationCredential":"credential"}',
+        '{"response":{"registrationEstablishedSession":{"tokens":{"ecdsa":{"operationCredential":"credential"}}}}}',
         1,
         1,
       )
