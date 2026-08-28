@@ -1,8 +1,13 @@
 # Refactor 115 — Recover Multi-Auth Wallets
 
 Status: the Passkey/Email-origin by Passkey/Google-target 2x2 recovery contract
-is implemented and passing. Combined-inventory, linked-authority, step-up,
-export, and precommit-failure acceptance remain in the worklist below.
+landed in `7310b703f`. Commit `d3c242eac` subsequently made successful
+preparation continue directly into the selected target flow. On 2026-08-28 the
+four matrix cases, an admitted Passkey finalization retry, and Google
+post-commit response-loss replay passed locally.
+Combined-inventory, linked-authority, step-up, export, dual-target
+cancellation/conflict/replay, and post-promotion reload acceptance remain in
+the worklist below.
 
 ## Goal
 
@@ -18,38 +23,35 @@ method, custody envelope, authority, linked device, and Wallet Session.
 Recovery restores access to the wallet; it does not replace or revoke the
 wallet's existing access paths.
 
-R115 supersedes the current selected-Passkey replacement policy. It retains
+R115 supersedes R114's selected-Passkey replacement policy. It retains
 R114's code-only wallet lookup, reservation lifecycle, complete key-manifest
 verification, recovery-code cryptography, possession proofs, retry model, and
 normal-login continuation.
 
-## Current Failure
+## Landed State and Remaining Failure
 
-The current path resolves the wallet from the recovery-code locator, then
-selects the oldest active Passkey bound to the requested RP, with auth-method ID
-as the stable tie-breaker. Active sibling methods no longer block preparation.
-Its durable challenge stores that selected source Passkey method, credential,
-authority digest, and method update timestamp. Finalization requires the source
-WebAuthn binding and custody envelope, installs a replacement Passkey on the
-same authority, revokes the selected Passkey and its Wallet Sessions, and
-retires its envelope. Sibling methods remain active. Finalization now reads the
-committed active authority and replacement Passkey method back from server
-state, returns both as the strict response projection, and the client persists
-that authority, method, and a locked exact selection before normal login.
+The landed path resolves the wallet from the recovery-code locator, selects an
+exact active Passkey or Email OTP continuity anchor, and installs a fresh
+`wallet_recovery` authority plus the selected Passkey or Google/Email method.
+The continuity anchor and every pre-existing method, authority, envelope,
+linked device, and Wallet Session remain active. Finalization creates no Wallet
+Session; normal target login mints it.
 
-Consequences:
+The server commit and replay path read back the committed active recovery
+authority and target method. The client strictly validates their relationship,
+then persists the exact authority, method, and locked selection before building
+the remaining local login continuity. Migrations
+`0026_r115_wallet_recovery_authority_provenance.sql` and
+`0027_r115_email_otp_recovery_bootstrap.sql` are landed and immutable.
 
-- an Email-OTP-only wallet cannot recover;
-- the user cannot recover with Google SSO and Email OTP; and
-- a wallet with no active Passkey for the requested RP cannot recover even when
-  another exact active custody anchor exists;
-- recovery still revokes one existing Passkey and its Wallet Sessions; and
-- a valid, active, unused code receives `recovery_code_rejected` when the
-  wallet has no RP-matching Passkey.
-
-The recovery code and recovery set are already wallet-scoped. The remaining
-Passkey-target and selected-source replacement restrictions are ceremony and
-persistence policy.
+One crash boundary remains unresolved. After the server consumes the recovery
+code, `promoted_pending_continuity` lives only in the coordinator's in-memory
+map while the rest of local continuity is published. Reload at that point loses
+the operation needed to resume installation. The remaining work must add a
+redacted, non-discoverable durable receipt or equivalent bounded resume record,
+then publish the wallet only after every fail-closed login prerequisite is
+durable. It must never persist a recovery code, factor secret, custody seed, or
+signer root in plaintext.
 
 ## Dependencies and Ownership
 
@@ -193,8 +195,11 @@ enter recovery code
 2. Prepare resolves the wallet, chooses the continuity anchor, reserves the
    code, allocates the recovery authority, and returns Passkey registration
    options.
-3. A separate **Create passkey** action invokes
-   `navigator.credentials.create()` with active user activation.
+3. Successful preparation continues directly into
+   `navigator.credentials.create()`. The **Create new passkey** state remains
+   available as the retry surface when creation is cancelled or uncertain.
+   Phase 5 must prove this async continuation is admitted by every supported
+   browser; otherwise this state becomes the required post-prepare action.
 4. The client reconstructs the custody seed, verifies the complete key
    manifest, provisions the recovery authority, and seals a method-bound
    Passkey envelope.
@@ -207,9 +212,13 @@ enter recovery code
 1. The user enters a recovery code and selects **Recover with Google**.
 2. Prepare resolves the wallet, chooses the continuity anchor, reserves the
    code, and allocates the recovery authority.
-3. The Google action obtains a Google credential. The server verifies it and
-   binds provider subject and normalized email identity to the recovery
-   attempt.
+3. Successful preparation immediately opens the Google action. The
+   **Continue with Google** state remains available as the retry surface when
+   the popup cannot start or is cancelled. The server verifies the resulting
+   credential and binds provider subject and normalized email identity to the
+   recovery attempt. Phase 5 must prove the configured broker works after the
+   async iframe-to-host continuation. A broker that requires transient user
+   activation uses **Continue with Google** as the required post-prepare action.
 4. The server sends an Email OTP. The user submits it through the existing
    first-party prompt.
 5. OTP verification yields the target factor material required to seal the
@@ -245,7 +254,7 @@ type WalletRecoveryAttemptCommonV2 = {
 };
 ```
 
-The Passkey branch requires RP, origin, WebAuthn challenge, and replacement
+The Passkey branch requires RP, origin, WebAuthn challenge, and target
 credential facts. The Google/Email branch requires verified provider identity,
 OTP state, and exact enrollment/factor-release identity. Each branch rejects
 the other branch's fields with `never`.
@@ -360,7 +369,7 @@ type WalletRecoveryAuthorityInstallCommitV2 =
 Every successful branch atomically:
 
 - consumes the reserved recovery-code wrap;
-- deletes the consumed code locator;
+- retains the consumed code locator as a non-secret tombstone;
 - inserts the fresh active recovery authority;
 - inserts the fresh target auth method;
 - inserts the method-bound target custody envelope;
@@ -371,15 +380,17 @@ Every successful branch atomically:
 
 Extend the landed recovery-finalize committed projection rather than creating a
 parallel loose-ID response. The server reads the committed active recovery
-authority, target method, envelope, and activation set after promotion/replay;
-the client boundary parser proves their wallet, authority, method, factor, and
-lifecycle relationships before any local write.
+authority and target method after promotion/replay; the owning commit/replay
+path separately verifies the target envelope, activation set, and Email
+enrollment where applicable. The client boundary parser proves the returned
+wallet, authority, method, factor, and lifecycle relationships before any local
+write.
 
 The transaction does not update or delete existing auth methods, authorities,
 envelopes, sessions, authenticators, or linked-device records.
 
 Replay succeeds only when readback proves the same recovery authority, method,
-factor, activations, envelope, consumed code, and deleted challenges. A
+factor, activations, envelope, consumed-code locator, and deleted challenges. A
 wallet-wide active method never proves replay success.
 
 ## Client and Hosted UI
@@ -412,10 +423,13 @@ the operation and zeroize code, seed, factor, and worker material. The hosted UI
 receives handles, masked email display data, and generic errors. It never
 receives custody material, provider subjects, or server diagnostics.
 
-After finalization, IndexedDB atomically receives the fresh authority, target
-method, method-bound envelope, signer activations, account projections, and
-exact selection. The page remains locked until publication completes and
-normal target login succeeds.
+After finalization, the landed IndexedDB transaction receives the fresh
+authority, target method, and exact locked selection. Profile/authenticator,
+legacy local method projection, account, and signer continuity currently publish
+through subsequent writes. The page remains locked until those writes complete
+and normal target login succeeds. Phase 4 still has to make that post-promotion
+publication resumable across reload and give every fail-closed local
+prerequisite one terminal publish boundary.
 
 ## Security Invariants
 
@@ -442,6 +456,14 @@ normal target login succeeds.
 17. Raw codes, OTPs, Google credentials, factor secrets, custody seed, and
     signer roots never enter logs, errors, hosted outcomes, or durable
     plaintext state.
+18. A committed server promotion remains resumable after page reload. Local
+    wallet discovery remains hidden until authority, method, locked selection,
+    profile/authenticator, account, and signer continuity are durable.
+19. Passkey creation and external-auth brokering start with whatever browser
+    user activation their real implementation requires. Async preparation and
+    iframe-to-host messaging cannot turn a supported target into a popup-blocked
+    or activation-denied dead end.
+
 ## Implementation Phases
 
 ### Phase 0 — Freeze the additive contract
@@ -461,7 +483,7 @@ The retirement worklist, resolved against the landed R114 code:
 
 | Surface                                                                               | Action                                                        |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `tests/unit/walletRecoverySourceSelection.unit.test.ts`                               | Delete. The whole file asserts the multi-method refusal.      |
+| `tests/unit/walletRecoverySourceSelection.unit.test.ts`                               | Rewrite for exact continuity-anchor ranking.                  |
 | `assertSourceWalletSessionRevoked()` in `tests/e2e/intended-behaviours/harness.ts`    | Delete, with its call in `passkey.recovery.contract.test.ts`. |
 | `tests/unit/walletRecoveryFinalization.unit.test.ts`                                  | Rewrite the source-replacement guards as additive readback.   |
 | `docs/intended-behaviours.md` — the Account Recovery sections and their coverage rows | Supersede the replacement policy.                             |
@@ -472,7 +494,9 @@ The retirement worklist, resolved against the landed R114 code:
 - [x] Select and persist an exact Passkey or Email continuity anchor.
 - [x] Allocate fresh recovery device, authority, method, and activation IDs.
 - [x] Persist `WalletRecoveryAttemptV2` with an immutable target branch.
-- [x] Keep generic refusal and secret zeroization at the request boundary.
+- [x] Keep generic refusal for malformed and unknown codes, report an exact
+      consumed-code locator as already used, and preserve secret zeroization at
+      the request boundary.
 
 ### Phase 1.5 — The fresh recovery authority
 
@@ -511,26 +535,53 @@ either target moves.
 ### Phase 4 — Client, worker, and local installation
 
 - [x] Add target actions and target-specific hosted lifecycle states.
-- [x] Keep Passkey and Google user activation inside dedicated clicks.
+- [x] Make the explicit target action begin preparation and continue
+      immediately into Passkey creation or Google verification. Keep the
+      target-ready states as retry surfaces for cancellation and uncertainty.
+- [ ] Validate the automatic continuation with real WebAuthn and the configured
+      external-auth broker in every supported browser. The current focused unit
+      uses an in-process broker and cannot prove popup or transient-activation
+      behavior. If either target requires a fresh activation, make its
+      target-ready CTA the required post-prepare action.
 - [x] Extend the coordinator with exact target branches.
 - [x] Reconstruct and verify custody once, then provision the new authority.
 - [x] Extend `persistRecoveredWalletAuthority` and the strict finalize parser;
       do not synthesize authority or method state from prepared client inputs.
-- [x] Install exact IndexedDB authority, method, envelope, activation, account,
-      and selection projections atomically.
+- [x] Install the exact IndexedDB authority, method, and locked selection in one
+      transaction.
 - [x] Continue through normal Passkey or Google/Email login.
+- [ ] Persist a redacted, non-discoverable post-promotion resume record before
+      the in-memory operation can be lost. Resume the same committed recovery
+      operation after reload without consuming another code.
+- [ ] Publish the wallet only after every fail-closed login prerequisite is
+      durable, and delete the resume record only after normal-login
+      continuation can be reconstructed.
 
 ### Phase 5 — Operating acceptance
 
 - [x] Run the complete 2x2 contract from fresh browser storage: Passkey-only
       and Email-only origins through both Passkey and Google/Email targets.
 - [ ] Run both recovery targets against a combined Passkey + Email inventory.
-- [ ] Prove reload remains locked before normal login.
+- [ ] Prove reload remains locked before normal login, including interruption
+      immediately after server promotion and at every local publication
+      boundary.
 - [x] Prove NEAR, Tempo, and Arc/EVM signing after login.
 - [ ] Prove step-up and Ed25519/ECDSA export under the recovered method.
 - [ ] Prove every pre-existing method and linked device still operates.
-- [x] Prove a consumed code receives the generic refusal under both targets.
+- [x] Prove both targets reject a consumed code and report that it has already
+      been used.
 - [ ] Prove cancellation, conflict, and replay behavior under both targets.
+- [x] Prove successful preparation automatically enters the selected target,
+      target failures expose a retry state, and irreversible finalization
+      ignores Back/Close cancellation.
+- [x] Prove a pre-commit Passkey finalization failure retains the admitted
+      operation, and a lost successful Google finalization response replays the
+      committed result without consuming another code.
+- [x] Align `driveHostedPasskeyRecovery` with automatic Passkey continuation.
+      The harness now waits for continuation and clicks **Retry finalization**
+      only after an injected retryable finalization failure. The four matrix
+      cases, the failed-finalization retry, and the Google post-commit replay
+      contract pass locally.
 
 ### Phase 6 — Cleanup
 
@@ -538,6 +589,12 @@ either target moves.
 - [ ] Delete duplicate target sealing, Google verification, and OTP helpers.
 - [x] Delete or rewrite stale replacement and single-method fixtures and source
       guards.
+- [ ] Repair `walletRecoverySourceSelection.unit.test.ts` through the current
+      active-authority fixture builder. Classification:
+      `valid_test_needs_update`; three cases still construct the retired flat
+      `provenanceKind` selection even though production and the exported input
+      type now require `authority.provenance.kind`. Do not weaken the production
+      continuity-anchor comparator.
 - [x] Mark R114's replacement policy as superseded by R115.
 - [ ] Record exact commits and acceptance evidence in this ledger.
 
@@ -569,15 +626,16 @@ Each target's intended-browser contract proves:
 8. NEAR, Tempo, and Arc/EVM transactions sign;
 9. step-up and Ed25519/ECDSA export work;
 10. all existing methods, sessions, and linked devices still work; and
-11. the consumed code receives the generic refusal on reuse.
+11. a consumed code cannot authorize recovery and is reported as already used.
 
 Use one focused Passkey contract and one Google/Email contract with inventory
 variants as data. Focused D1 tests own atomicity and replay edge cases.
 
 ## Failure Classification
 
-- Malformed, unknown, consumed, revoked, or mismatched code: `refused` with the
-  generic message.
+- Consumed code: `consumed` with the already-used message.
+- Malformed, unknown, revoked, or mismatched code: `refused` with the generic
+  message.
 - No exact active continuity anchor or contradictory custody state: `refused`
   without inventory details.
 - Anchor or manifest changes after prepare: `retryable_conflict`.
@@ -607,36 +665,36 @@ If a phase creates a second Google verifier, OTP issuer, custody ceremony,
 authority store, or signer activation path, stop and reuse the established
 boundary.
 
-### What R115 changes in the landed R114 code
+### Landed R115 code map
 
-- The D1 Passkey-custody route service currently selects the oldest active
-  RP-matching Passkey through `selectWalletRecoverySourcePasskey`. Phase 1
-  replaces that target-coupled source selection with the target-independent
-  exact continuity-anchor policy above.
-- The replacement policy lives in two files. `walletRecoveryFinalization.ts`
-  retires the source envelope, revokes the source method, and installs the
-  replacement on `sourceAuthMethod.walletAuthorityId`. `commitRecoveryPromotion`
-  in the wallet-custody commit store then _requires_ that shape: its
-  `inconsistent` guards reject a commit whose source envelope is not retired.
-  Under R115 those guards invert — an unchanged anchor envelope is the
-  correct state, and a retired one is the fault.
-- `d1PasskeyCustodyRouteService.ts` now reads the committed active authority and
-  Passkey method after promotion/replay, `walletRecoveryFinalize.ts` strictly
-  parses that projection, and `persistRecoveredWalletAuthority` installs its
-  authority/method/locked-selection core. R115 extends these boundaries with the
-  fresh authority's envelope and activations. It does not restore the former
-  loose IDs/credential fragment or add a second local projection path.
+- `d1PasskeyCustodyRouteService.ts` selects a target-independent exact
+  continuity anchor through `selectWalletRecoveryContinuityAnchor`.
+- `walletRecoveryFinalization.ts` and the wallet-custody commit store install a
+  fresh recovery authority, target method, envelope, and activations. Their
+  replay guards require the continuity anchor to remain unchanged.
+- `d1PasskeyCustodyRouteService.ts` and the Google/Email recovery service read
+  the committed active authority and target method after promotion/replay. The
+  Passkey and Google/Email client parsers strictly validate those projections.
+- `persistRecoveredWalletAuthority` installs the fresh exact authority state.
+  The coordinator still owns a separate in-memory
+  `promoted_pending_continuity` stage, which is the reload gap tracked in Phase
+  4.
 - Device linking's signer-material reservation is not a reuse candidate. It is
   built on a source-device re-share contribution, and recovery has no source
   device. Registration's founding-authority builder is the closer model.
 
 ## Persistence and Deployment
 
-Adding `wallet_recovery` authority provenance requires a new forward D1
-migration for authority provenance checks and indexes. Applied migrations remain
-byte-for-byte unchanged.
+R115 landed two forward D1 migrations. Applied migrations remain byte-for-byte
+unchanged:
 
-Three details decide how large that migration is:
+- `0026_r115_wallet_recovery_authority_provenance.sql` rebuilds
+  `wallet_authorities`, adds recovery provenance, recreates its indexes, and
+  recreates the exact Wallet Session authorized-operation trigger; and
+- `0027_r115_email_otp_recovery_bootstrap.sql` admits the recovery-bound Email
+  OTP challenge purpose.
+
+Three details govern the landed authority migration:
 
 - **The constraint has two copies.** `provenance_kind IN ('wallet_registration',
 'device_link')` is written both in the applied authority-baseline migration
@@ -664,11 +722,10 @@ changing:
   fresh device ID load-bearing rather than cosmetic.
 
 The V2 durable recovery attempt uses existing versioned JSON/challenge storage.
-R114 attempts are short-lived. Deployment may let them expire before deleting
-the old parser; core logic carries no permanent compatibility branch.
-
-Deploy server acceptance before the client sends V2 requests. After the maximum
-R114 attempt lifetime, remove its decoder and source-replacement commit path.
+R114 attempts were short-lived; the old decoder and source-replacement commit
+path have been removed. Future migrations, including R103F, allocate after
+`0027` and must preserve the recovery provenance columns and recreate any
+dependent trigger they intentionally replace.
 
 ## Definition of Done
 
@@ -679,6 +736,8 @@ R115 is complete when:
 - recovery binds to an exact existing method and custody envelope;
 - recovery creates a fresh authority and method without revoking anything;
 - both targets preserve public wallet and signer identities;
+- a post-promotion reload resumes the same redacted operation and keeps the
+  wallet hidden until local continuity is complete;
 - normal target login restores signing, step-up, export, and reload;
 - obsolete R114 replacement logic and tests are deleted; and
 - both intended-browser target contracts pass from clean storage.

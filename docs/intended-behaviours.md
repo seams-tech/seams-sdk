@@ -244,12 +244,16 @@ Expected behaviour:
 - Recovery completion proceeds through normal login with the newly installed
   method. That login creates the fresh Wallet Session.
 - A consumed code cannot authorize a second recovery.
+- Re-entering a consumed code, or entering a code held by another active
+  recovery, reports that it has already been used and directs the owner to
+  another code. An abandoned reservation becomes reusable after it expires.
 
 Failure behaviour:
 
-- Unknown wallets, malformed or spent codes, target-policy mismatches,
-  unsupported auth shapes, and conflicting attempts receive the same generic
-  hosted refusal.
+- The unauthenticated server boundary identifies an exact consumed code through
+  its non-secret locator tombstone. Unknown wallets, malformed or unknown codes,
+  target-policy mismatches, unsupported auth shapes, and unrelated conflicts
+  retain the generic refusal.
 - Precommit cancellation and definite failure leave the recovery code
   unconsumed.
 - Recovery material, server diagnostics, and code values never enter hosted
@@ -457,15 +461,19 @@ Expected behaviour:
   method-bound custody envelope while consuming one code. Existing methods,
   envelopes, authorities, linked devices, and Wallet Sessions stay active.
 - Recovery restores local continuity against the fresh recovery authority.
+- An existing synced Passkey on a sibling authority does not block creation of
+  the fresh recovery authority's Passkey.
 - The menu reports authentication only after normal login through the new
   Passkey or Google/Email method creates a fresh Wallet Session.
-- The remaining recovery codes stay active. Reusing the consumed code receives
-  the same generic refusal as every other invalid recovery attempt.
+- The remaining recovery codes stay active. Reusing the consumed code reports
+  that it has already been used and directs the owner to another code.
 
 Failure behaviour:
 
 - Cancellation before finalization leaves the code usable after its reservation
   expires and clears client-held recovery material.
+- A different attempt presenting the code during that reservation receives the
+  already-used response.
 - A failed atomic finalization leaves all existing methods active and the code
   unconsumed. Transport uncertainty may replay the same exact additive
   finalization.
@@ -585,7 +593,7 @@ restore, lane selection, or budget handling.
 | Page refresh restores only exact valid lanes                             | Page-refresh session test or manual browser note                             |
 | Adding a method reuses the authority and creates no new signer material  | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
 | An added Passkey unlocks, signs, and exports both families               | `tests/e2e/intended-behaviours/email-otp.add-passkey.contract.test.ts`       |
-| An added Email OTP method reaches every family its authority owns        | Pending: ECDSA proven; Ed25519 awaits owner-path signer access               |
+| An added Email OTP method unlocks through hosted Google and signs both families | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts` |
 | Addition works on wallets owning one signer family                       | `tests/e2e/intended-behaviours/auth-method-addition.matrix.contract.test.ts` |
 | Repeating an addition answers already_configured before sending a code   | `tests/e2e/intended-behaviours/passkey.add-email-otp.contract.test.ts`       |
 | Either sibling revokes the other; the last method cannot be revoked      | `tests/unit/r109cSiblingRevocation.unit.test.ts`                             |
