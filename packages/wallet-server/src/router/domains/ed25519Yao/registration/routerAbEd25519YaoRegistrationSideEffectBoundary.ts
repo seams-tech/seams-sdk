@@ -71,14 +71,176 @@ export type RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P> =
 export interface RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
   read(
     key: string,
-  ): Promise<
-    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
-  >;
+  ): Promise<VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>>;
   put(
     key: string,
     value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
     expectedVersion: string | null,
   ): Promise<VersionedJsonRecordPutResult>;
+}
+
+/**
+ * Registration completion rows carry a committed credential-free receipt. The
+ * claim remains shared with the older journal shape because it contains no
+ * response or bearer material.
+ */
+export type RouterAbEd25519YaoRegistrationSideEffectCompletionV2<C, P> = {
+  readonly kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v2';
+  readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
+  readonly requestFingerprint: string;
+  readonly preparedArtifactFingerprint: string;
+  readonly claimedAtMs: number;
+  readonly completedAtMs: number;
+  readonly prepared: P;
+  readonly receipt: C;
+};
+
+export type RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<C, P> =
+  | RouterAbEd25519YaoRegistrationSideEffectClaimV1<P>
+  | RouterAbEd25519YaoRegistrationSideEffectCompletionV2<C, P>;
+
+export type RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P, T = never> =
+  | RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<C, P>
+  | RouterAbEd25519YaoRegistrationSideEffectCompletionV1<T, P>;
+
+export interface RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, T = never> {
+  read(
+    key: string,
+  ): Promise<
+    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P, T>>
+  >;
+  put(
+    key: string,
+    value: RouterAbEd25519YaoRegistrationSideEffectWritableRecordV2<C, P>,
+    expectedVersion: string | null,
+  ): Promise<VersionedJsonRecordPutResult>;
+}
+
+export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<T, C, P>(
+  raw: unknown,
+  input: {
+    readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
+    readonly parsePrepared: (value: unknown) => P | null;
+    readonly parseReceipt: (value: unknown) => C | null;
+    readonly parseLegacyResponse: (value: unknown) => T | null;
+  },
+): RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P, T> | null {
+  if (
+    isRecord(raw) &&
+    raw.kind === 'router_ab_ed25519_yao_registration_side_effect_completion_v1'
+  ) {
+    const requestFingerprint = parseFingerprint(raw.requestFingerprint);
+    const preparedArtifactFingerprint = parsePreparedFingerprint(raw.preparedArtifactFingerprint);
+    const claimedAtMs = parseTimestamp(raw.claimedAtMs);
+    const completedAtMs = parseTimestamp(raw.completedAtMs);
+    const prepared = input.parsePrepared(raw.prepared);
+    const response = input.parseLegacyResponse(raw.response);
+    if (
+      raw.operation !== input.operation ||
+      !hasExactKeys(raw, [
+        'kind',
+        'operation',
+        'requestFingerprint',
+        'preparedArtifactFingerprint',
+        'claimedAtMs',
+        'completedAtMs',
+        'prepared',
+        'response',
+      ]) ||
+      requestFingerprint === null ||
+      preparedArtifactFingerprint === null ||
+      claimedAtMs === null ||
+      completedAtMs === null ||
+      prepared === null ||
+      response === null
+    ) {
+      return null;
+    }
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs,
+      completedAtMs,
+      prepared,
+      response,
+    };
+  }
+  return parseRouterAbEd25519YaoRegistrationSideEffectRecordV2(raw, input);
+}
+
+export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P>(
+  raw: unknown,
+  input: {
+    readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
+    readonly parsePrepared: (value: unknown) => P | null;
+    readonly parseReceipt: (value: unknown) => C | null;
+  },
+): RouterAbEd25519YaoRegistrationSideEffectRecordV2<C, P> | null {
+  if (!isRecord(raw) || raw.operation !== input.operation) return null;
+  const requestFingerprint = parseFingerprint(raw.requestFingerprint);
+  const preparedArtifactFingerprint = parsePreparedFingerprint(raw.preparedArtifactFingerprint);
+  const claimedAtMs = parseTimestamp(raw.claimedAtMs);
+  const prepared = input.parsePrepared(raw.prepared);
+  if (
+    requestFingerprint === null ||
+    preparedArtifactFingerprint === null ||
+    claimedAtMs === null ||
+    prepared === null
+  ) {
+    return null;
+  }
+  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
+    if (
+      !hasExactKeys(raw, [
+        'kind',
+        'operation',
+        'requestFingerprint',
+        'preparedArtifactFingerprint',
+        'claimedAtMs',
+        'prepared',
+      ])
+    ) {
+      return null;
+    }
+    return {
+      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
+      operation: input.operation,
+      requestFingerprint,
+      preparedArtifactFingerprint,
+      claimedAtMs,
+      prepared,
+    };
+  }
+  if (raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v2') return null;
+  if (
+    !hasExactKeys(raw, [
+      'kind',
+      'operation',
+      'requestFingerprint',
+      'preparedArtifactFingerprint',
+      'claimedAtMs',
+      'completedAtMs',
+      'prepared',
+      'receipt',
+    ])
+  ) {
+    return null;
+  }
+  const completedAtMs = parseTimestamp(raw.completedAtMs);
+  const receipt = input.parseReceipt(raw.receipt);
+  if (completedAtMs === null || receipt === null) return null;
+  return {
+    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v2',
+    operation: input.operation,
+    requestFingerprint,
+    preparedArtifactFingerprint,
+    claimedAtMs,
+    completedAtMs,
+    prepared,
+    receipt,
+  };
 }
 
 export function parseRouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>(
@@ -342,6 +504,151 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV1<T, P>(
   };
 }
 
+export type RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L = T> = {
+  readonly kind: 'prepared_resumable';
+  readonly operation: RouterAbEd25519YaoRegistrationSideEffectOperationV1;
+  readonly key: string;
+  readonly requestFingerprint: string;
+  readonly resumeAfterMs: number;
+  readonly nowMs: () => number;
+  readonly prepare: () => Promise<P>;
+  readonly derivePreparedArtifactFingerprint: (prepared: P) => Promise<string>;
+  readonly execute: (
+    prepared: P,
+    attempt: RouterAbEd25519YaoRegistrationSideEffectAttemptV1,
+  ) => Promise<T>;
+  readonly projectReceipt: (response: T) => Promise<C> | C;
+  readonly replay: (receipt: C) => Promise<T>;
+  readonly adaptLegacyResponse: (response: L) => T;
+};
+
+export type RouterAbEd25519YaoRegistrationSideEffectRunResultV2<T, P> =
+  RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P>;
+
+/**
+ * Registration-only journal runner. Completion CAS stores a receipt instead
+ * of the public response; replay is responsible for minting any ephemeral
+ * bearer after the durable receipt has been read.
+ */
+export async function runRouterAbEd25519YaoRegistrationSideEffectV2<T, C, P, L = T>(
+  store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, L>,
+  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L>,
+): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV2<T, P>> {
+  const adaptedStore = new RegistrationV2StoreAdapter(
+    store,
+    input.projectReceipt,
+    input.replay,
+    input.adaptLegacyResponse,
+  );
+  const adaptedInput: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P> = {
+    kind: input.kind,
+    operation: input.operation,
+    key: input.key,
+    requestFingerprint: input.requestFingerprint,
+    resumeAfterMs: input.resumeAfterMs,
+    nowMs: input.nowMs,
+    prepare: input.prepare,
+    derivePreparedArtifactFingerprint: input.derivePreparedArtifactFingerprint,
+    execute: input.execute,
+  };
+  return await runRouterAbEd25519YaoRegistrationSideEffectV1(adaptedStore, adaptedInput);
+}
+
+class RegistrationV2StoreAdapter<
+  T,
+  C,
+  P,
+  L,
+> implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
+  public constructor(
+    private readonly store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, L>,
+    private readonly projectReceipt: (response: T) => Promise<C> | C,
+    private readonly replay: (receipt: C) => Promise<T>,
+    private readonly adaptLegacyResponse: (response: L) => T,
+  ) {}
+
+  public async read(
+    key: string,
+  ): Promise<
+    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
+  > {
+    const result = await this.store.read(key);
+    if (result.kind === 'missing') return { kind: 'missing' };
+    switch (result.value.kind) {
+      case 'router_ab_ed25519_yao_registration_side_effect_claim_v1':
+        return {
+          kind: 'present',
+          version: result.version,
+          value: result.value,
+        };
+      case 'router_ab_ed25519_yao_registration_side_effect_completion_v2': {
+        const response = await this.replay(result.value.receipt);
+        return {
+          kind: 'present',
+          version: result.version,
+          value: {
+            kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+            operation: result.value.operation,
+            requestFingerprint: result.value.requestFingerprint,
+            preparedArtifactFingerprint: result.value.preparedArtifactFingerprint,
+            claimedAtMs: result.value.claimedAtMs,
+            completedAtMs: result.value.completedAtMs,
+            prepared: result.value.prepared,
+            response,
+          },
+        };
+      }
+      case 'router_ab_ed25519_yao_registration_side_effect_completion_v1':
+        return {
+          kind: 'present',
+          version: result.version,
+          value: {
+            kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+            operation: result.value.operation,
+            requestFingerprint: result.value.requestFingerprint,
+            preparedArtifactFingerprint: result.value.preparedArtifactFingerprint,
+            claimedAtMs: result.value.claimedAtMs,
+            completedAtMs: result.value.completedAtMs,
+            prepared: result.value.prepared,
+            response: this.adaptLegacyResponse(result.value.response),
+          },
+        };
+      default:
+        return assertNever(result.value);
+    }
+  }
+
+  public async put(
+    key: string,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
+    expectedVersion: string | null,
+  ): Promise<VersionedJsonRecordPutResult> {
+    switch (value.kind) {
+      case 'router_ab_ed25519_yao_registration_side_effect_claim_v1':
+        return await this.store.put(key, value, expectedVersion);
+      case 'router_ab_ed25519_yao_registration_side_effect_completion_v1': {
+        const receipt = requireReceipt(await this.projectReceipt(value.response));
+        return await this.store.put(
+          key,
+          {
+            kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v2',
+            operation: value.operation,
+            requestFingerprint: value.requestFingerprint,
+            preparedArtifactFingerprint: value.preparedArtifactFingerprint,
+            claimedAtMs: value.claimedAtMs,
+            completedAtMs: value.completedAtMs,
+            prepared: value.prepared,
+            receipt,
+          },
+          expectedVersion,
+        );
+      }
+      default:
+        return assertNever(value);
+    }
+  }
+}
+
 type ExistingDisposition<T, P> =
   | { readonly kind: 'fresh' }
   | Exclude<
@@ -363,9 +670,7 @@ async function readDisposition<T, P>(
 }
 
 async function existingDisposition<T, P>(
-  record: VersionedJsonRecordReadResult<
-    RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>
-  >,
+  record: VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>,
   requestFingerprint: string,
   derivePreparedArtifactFingerprint: (prepared: P) => Promise<string>,
 ): Promise<ExistingDisposition<T, P>> {
@@ -424,6 +729,13 @@ function requirePrepared<P>(value: P): P {
   return value;
 }
 
+function requireReceipt<C>(value: C): C {
+  if (value === undefined || value === null) {
+    throw new Error('registration side-effect commit receipt is missing');
+  }
+  return value;
+}
+
 function requireTimestamp(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`registration side-effect ${label} is invalid`);
@@ -440,6 +752,14 @@ function requirePositiveDuration(value: number, label: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(record: Record<string, unknown>, expectedKeys: readonly string[]): boolean {
+  const actualKeys = Object.keys(record);
+  return (
+    actualKeys.length === expectedKeys.length &&
+    expectedKeys.every((key) => Object.prototype.hasOwnProperty.call(record, key))
+  );
 }
 
 function parseFingerprint(value: unknown): string | null {

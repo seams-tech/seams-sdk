@@ -722,10 +722,30 @@ export type WalletRegistrationFinalizeSignerWork =
     };
 
 export type WalletRegistrationRouteTimingName =
+  | 'registrationIntentLoadMs'
+  | 'registrationIntentDigestMs'
+  | 'registrationIntentConsumeMs'
+  | 'registrationAttemptGateMs'
+  | 'registrationPreparationPersistMs'
+  | 'registrationPreparationLoadMs'
+  | 'registrationPreparationConsumeMs'
+  | 'registrationPreparationScopeCheckMs'
+  | 'registrationAuthorityVerifyMs'
+  | 'registrationEcdsaPrepareMs'
+  | 'registrationCeremonyPersistMs'
+  | 'registerPrepareTotalMs'
+  | 'registerStartTotalMs'
+  | 'registrationEcdsaRespondMs'
+  | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
   | 'registrationEcdsaBootstrapVerifyMs'
+  | 'sponsoredNearAccountCreateMs'
+  | 'registrationKeygenMs'
+  | 'relaySessionMintMs'
+  | 'relayGoogleEmailOtpActivationPlanMs'
   | 'registrationEmailOtpEnrollmentPlanMs'
   | 'relayPersistenceMs'
+  | 'registrationFinalizeReplayCacheMs'
   | 'registerFinalizeTotalMs'
   /* 94C setup: the ceremony insert is the route's only D1 write, so it gets
      its own mark rather than being folded into a persistence total. */
