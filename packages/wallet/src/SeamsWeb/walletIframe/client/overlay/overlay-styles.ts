@@ -105,6 +105,9 @@ const BASE_CSS = `
   dialog.${CLASS_DIALOG}.${CLASS_MODAL} iframe.${CLASS_IFRAME}:focus-visible {
     outline: none;
   }
+  dialog.${CLASS_DIALOG}.${CLASS_MODAL} {
+    transform-origin: top left;
+  }
   /* The iframe clips the child's box shadow at its layout edge. Paint the
      compact modal elevation in the host compositor so it can extend beyond
      that edge without changing the measured hit region. */
@@ -176,9 +179,6 @@ const BASE_CSS = `
   dialog.${CLASS_DIALOG}.${CLASS_REVEAL_PENDING} {
     visibility: hidden;
     pointer-events: none;
-  }
-  dialog.${CLASS_DIALOG}.${CLASS_HAS_TRANSITION_ORIGIN} {
-    transform-origin: top left;
   }
   iframe.${CLASS_IFRAME} {
     display: block;

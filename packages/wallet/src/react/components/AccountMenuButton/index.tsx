@@ -14,7 +14,6 @@ import { useSeams } from '../../context';
 import type { AccountMenuButtonProps, AccountsSectionRow, ExportChain, MenuItem } from './types';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
-import { RecoveryCodesModal } from './RecoveryCodesModal';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
 import { AuthenticationMethodsModal } from './AuthenticationMethodsModal';
 import TouchIcon from './icons/TouchIcon';
@@ -35,6 +34,10 @@ function formatExportKeyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   const message = String(error || '').trim();
   return message || 'Key export is unavailable for this wallet.';
+}
+
+function isRecoveryCodeDialogDismissal(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('cancelled before acknowledgement');
 }
 
 async function resolveNearAccountIdForExport(input: {
@@ -139,7 +142,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [showAuthenticationMethods, setShowAuthenticationMethods] = useState(false);
-  const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
+  const [recoveryCodesOpen, setRecoveryCodesOpen] = useState(false);
   const [exportKeysOpen, setExportKeysOpen] = useState(false);
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
@@ -161,12 +164,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     setShowQRScanner(false);
     handleClose();
   }, [handleClose]);
-
-  useEffect(() => {
-    if (!canShowRecoveryCodes) {
-      setShowRecoveryCodes(false);
-    }
-  }, [canShowRecoveryCodes]);
 
   useEffect(() => {
     if (!canManageLinkedDevices) {
@@ -322,6 +319,29 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     ],
   );
 
+  const startRecoveryCodesFlow = useCallback(async () => {
+    if (recoveryCodesOpen || !walletId) return;
+    setRecoveryCodesOpen(true);
+    try {
+      const result = await recovery.acknowledgeWalletRecoveryCodeBackup({ walletId });
+      switch (result.kind) {
+        case 'acknowledged':
+          return;
+        case 'no_recovery_set':
+        case 'unauthorized':
+        case 'transport_failed':
+          console.error('[AccountMenuButton] Recovery-code backup failed:', result.message);
+          return;
+      }
+    } catch (error: unknown) {
+      if (!isRecoveryCodeDialogDismissal(error)) {
+        console.error('[AccountMenuButton] Recovery-code backup failed:', error);
+      }
+    } finally {
+      setRecoveryCodesOpen(false);
+    }
+  }, [recovery, recoveryCodesOpen, walletId]);
+
   // Chain rows for the Accounts expander: one per configured chain with a
   // known account/address and explorer URL, linking to the account page.
   const accountsRows: AccountsSectionRow[] = useMemo(() => {
@@ -394,11 +414,13 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     if (canShowRecoveryCodes) {
       items.push({
         id: PROFILE_MENU_ITEM_IDS.RECOVERY_CODES,
-        icon: <RecoveryCodesIcon />,
+        icon: recoveryCodesOpen ? <SpinnerIcon /> : <RecoveryCodesIcon />,
         label: 'Recovery Codes',
         description: 'Back up wallet recovery codes',
-        disabled: false,
-        onClick: () => setShowRecoveryCodes(true),
+        disabled: recoveryCodesOpen,
+        onClick: () => {
+          void startRecoveryCodesFlow();
+        },
         keepOpenOnClick: true,
       });
     }
@@ -454,6 +476,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     canShowRecoveryCodes,
     exportLoadingChain,
     loginState.isLoggedIn,
+    recoveryCodesOpen,
+    startRecoveryCodesFlow,
   ]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
@@ -552,18 +576,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               handleClose();
             }}
             onEvent={(event) => deviceLinkingScannerParams?.onEvent?.(event)}
-          />,
-          portalHost!,
-        )}
-
-      {/* Recovery Codes Modal (portaled to the resolved root so it stays inside shadow-hosted surfaces) */}
-      {canPortal &&
-        createPortal(
-          <RecoveryCodesModal
-            walletId={walletId!}
-            isOpen={showRecoveryCodes}
-            onClose={() => setShowRecoveryCodes(false)}
-            recovery={recovery}
           />,
           portalHost!,
         )}

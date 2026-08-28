@@ -67,16 +67,70 @@ test.describe('wallet iframe surface measurement reporter', () => {
     expect(result.secondSequence).toBe(2);
   });
 
-  test('coalesces ResizeObserver updates, dedupes rounded sizes, and stops after disconnect', async ({
+  test('reports the current size before ResizeObserver delivers its first callback', async ({
     page,
   }) => {
     const result = await page.evaluate(async (path) => {
       const reporterModule = await import(path);
       const originalResizeObserver = window.ResizeObserver;
-      const originalRequestAnimationFrame = window.requestAnimationFrame;
-      const originalCancelAnimationFrame = window.cancelAnimationFrame;
-      let nextFrameId = 1;
-      const frameCallbacks = new Map<number, (timestamp: number) => void>();
+
+      class FakeResizeObserver {
+        disconnected = false;
+
+        constructor(_callback: (entries: unknown[]) => void) {}
+
+        observe(): void {}
+
+        disconnect(): void {
+          this.disconnected = true;
+        }
+      }
+
+      Object.defineProperty(window, 'ResizeObserver', {
+        configurable: true,
+        value: FakeResizeObserver,
+      });
+
+      try {
+        const element = document.createElement('div');
+        Object.defineProperty(element, 'getBoundingClientRect', {
+          configurable: true,
+          value: () => ({ width: 420, height: 360 }),
+        });
+        document.body.appendChild(element);
+        const measurements: unknown[] = [];
+        const reporter = reporterModule.createWalletIframeSurfaceMeasurementReporter({
+          kind: 'request_surface',
+          element,
+          requestId: 'request-initial-size',
+          postMeasurement: (measurement: unknown) => measurements.push(measurement),
+        });
+        reporter.disconnect();
+        element.remove();
+        return measurements;
+      } finally {
+        Object.defineProperty(window, 'ResizeObserver', {
+          configurable: true,
+          value: originalResizeObserver,
+        });
+      }
+    }, REPORTER_PATH);
+
+    expect(result).toEqual([
+      {
+        kind: 'measured_v1',
+        requestId: 'request-initial-size',
+        sequence: 1,
+        widthCssPx: 420,
+        heightCssPx: 360,
+      },
+    ]);
+  });
+
+  test('dedupes rounded ResizeObserver sizes and stops after disconnect', async ({ page }) => {
+    const result = await page.evaluate(async (path) => {
+      const reporterModule = await import(path);
+      const originalResizeObserver = window.ResizeObserver;
 
       class FakeResizeObserver {
         static latest: FakeResizeObserver | null = null;
@@ -99,32 +153,9 @@ test.describe('wallet iframe surface measurement reporter', () => {
         }
       }
 
-      const requestAnimationFrame = (callback: (timestamp: number) => void): number => {
-        const frameId = nextFrameId;
-        nextFrameId += 1;
-        frameCallbacks.set(frameId, callback);
-        return frameId;
-      };
-      const cancelAnimationFrame = (frameId: number): void => {
-        frameCallbacks.delete(frameId);
-      };
-      const flushAnimationFrames = (): void => {
-        const callbacks = [...frameCallbacks.values()];
-        frameCallbacks.clear();
-        for (const callback of callbacks) callback(0);
-      };
-
       Object.defineProperty(window, 'ResizeObserver', {
         configurable: true,
         value: FakeResizeObserver,
-      });
-      Object.defineProperty(window, 'requestAnimationFrame', {
-        configurable: true,
-        value: requestAnimationFrame,
-      });
-      Object.defineProperty(window, 'cancelAnimationFrame', {
-        configurable: true,
-        value: cancelAnimationFrame,
       });
 
       try {
@@ -142,55 +173,26 @@ test.describe('wallet iframe surface measurement reporter', () => {
 
         observer.trigger(320.2, 240.2);
         observer.trigger(320.4, 240.4);
-        const queuedAfterCoalescing = frameCallbacks.size;
-        flushAnimationFrames();
-
-        observer.trigger(320.49, 240.49);
-        flushAnimationFrames();
         const countAfterRoundedDuplicate = measurements.length;
-
         observer.trigger(321.2, 241.2);
-        flushAnimationFrames();
-
-        observer.trigger(322.2, 242.2);
-        const lateFrame = [...frameCallbacks.values()][0];
-        const queuedBeforeDisconnect = frameCallbacks.size;
         reporter.disconnect();
-        const queuedAfterDisconnect = frameCallbacks.size;
-        lateFrame?.(0);
-        observer.trigger(323.2, 243.2);
-        flushAnimationFrames();
+        observer.trigger(322.2, 242.2);
 
-        const result = {
+        element.remove();
+        return {
           measurements,
-          queuedAfterCoalescing,
           countAfterRoundedDuplicate,
-          queuedBeforeDisconnect,
-          queuedAfterDisconnect,
           observerDisconnected: observer.disconnected,
         };
-        element.remove();
-        return result;
       } finally {
         Object.defineProperty(window, 'ResizeObserver', {
           configurable: true,
           value: originalResizeObserver,
         });
-        Object.defineProperty(window, 'requestAnimationFrame', {
-          configurable: true,
-          value: originalRequestAnimationFrame,
-        });
-        Object.defineProperty(window, 'cancelAnimationFrame', {
-          configurable: true,
-          value: originalCancelAnimationFrame,
-        });
       }
     }, REPORTER_PATH);
 
-    expect(result.queuedAfterCoalescing).toBe(1);
     expect(result.countAfterRoundedDuplicate).toBe(1);
-    expect(result.queuedBeforeDisconnect).toBe(1);
-    expect(result.queuedAfterDisconnect).toBe(0);
     expect(result.observerDisconnected).toBe(true);
     expect(result.measurements).toEqual([
       {

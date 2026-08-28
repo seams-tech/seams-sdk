@@ -13,7 +13,7 @@
   padding: var(--w3a-spacing-sm, 12px);
   box-sizing: border-box;
   overflow: auto;
-  animation: w3a-linked-devices-backdrop-opacity 32ms ease-in;
+  animation: w3a-linked-devices-backdrop-opacity 160ms ease-out;
 }
 
 .w3a-linked-devices-modal-backdrop.theme-light {
@@ -39,6 +39,13 @@
   border-radius: var(--w3a-shape-card, 1.5rem);
   background: var(--w3a-colors-colorBackground);
   box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .w3a-linked-devices-modal-content {
+    transform-origin: center;
+    animation: w3a-linked-devices-modal-content-enter 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
 }
 
 .w3a-auth-methods-modal-content {
@@ -372,6 +379,17 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes w3a-linked-devices-modal-content-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

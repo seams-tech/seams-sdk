@@ -118,6 +118,7 @@ class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReport
     if (typeof ResizeObserver === 'function') {
       this.observer = new ResizeObserver(this.onResize);
       this.observer.observe(options.element);
+      this.reportLatestSize();
       return;
     }
     this.observer = null;
