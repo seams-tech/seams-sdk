@@ -24,6 +24,8 @@ const CLASS_PROVISIONAL = 'is-provisional';
 const CLASS_AUTH_MENU = 'is-auth-menu';
 const CLASS_HAS_GEOMETRY = 'has-geometry';
 const CLASS_RESIZE_ANIMATED = 'is-resize-animated';
+const CLASS_REVEAL_PENDING = 'is-reveal-pending';
+const CLASS_HAS_TRANSITION_ORIGIN = 'has-transition-origin';
 const DIALOG_ID_PREFIX = 'w3a-wallet-overlay-dialog-';
 
 const BASE_CSS = `
@@ -82,9 +84,16 @@ const BASE_CSS = `
   dialog.${CLASS_DIALOG}.${CLASS_MODAL}::backdrop {
     background: transparent;
   }
-  dialog.${CLASS_DIALOG}.${CLASS_MODAL}:not(.${CLASS_PROVISIONAL}):not(.${CLASS_FALLBACK}):not(.${CLASS_AUTH_MENU})::backdrop {
+  dialog.${CLASS_DIALOG}.${CLASS_MODAL}:not(.${CLASS_PROVISIONAL}):not(.${CLASS_FALLBACK}):not(.${CLASS_AUTH_MENU}):not(.${CLASS_REVEAL_PENDING}):not(.${CLASS_HAS_TRANSITION_ORIGIN})::backdrop {
     background: rgb(0 0 0 / 0.26);
     animation: w3a-wallet-overlay-backdrop-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  /* A modal launched from an existing wallet card reuses that card's backdrop
+     while the host surface morphs from its bounds. A second backdrop would
+     darken the page midway through the transition and read as a flash. */
+  dialog.${CLASS_DIALOG}.${CLASS_HAS_TRANSITION_ORIGIN}::backdrop {
+    background: transparent;
+    animation: none;
   }
   /* The host owns the modal frame. Keep the focused dialog and iframe from
      adding a user-agent outline around the rounded card. */
@@ -160,6 +169,16 @@ const BASE_CSS = `
      Request modals remain hidden until their measured bounds are ready. */
   dialog.${CLASS_DIALOG}.${CLASS_PROVISIONAL}.${CLASS_MODAL}:not(.${CLASS_AUTH_MENU}) {
     visibility: hidden;
+  }
+  /* Measured geometry is installed one frame before a request modal is
+     revealed. This prevents the native dialog's fallback position from ever
+     reaching the screen while its dynamic geometry rule settles. */
+  dialog.${CLASS_DIALOG}.${CLASS_REVEAL_PENDING} {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  dialog.${CLASS_DIALOG}.${CLASS_HAS_TRANSITION_ORIGIN} {
+    transform-origin: top left;
   }
   iframe.${CLASS_IFRAME} {
     display: block;
@@ -265,6 +284,8 @@ export function setHidden(el: HTMLElement): void {
     CLASS_FALLBACK,
     CLASS_PROVISIONAL,
     CLASS_RESIZE_ANIMATED,
+    CLASS_REVEAL_PENDING,
+    CLASS_HAS_TRANSITION_ORIGIN,
   );
 }
 
@@ -387,6 +408,8 @@ export const OverlayStyleClasses = {
   AUTH_MENU: CLASS_AUTH_MENU,
   HAS_GEOMETRY: CLASS_HAS_GEOMETRY,
   RESIZE_ANIMATED: CLASS_RESIZE_ANIMATED,
+  REVEAL_PENDING: CLASS_REVEAL_PENDING,
+  HAS_TRANSITION_ORIGIN: CLASS_HAS_TRANSITION_ORIGIN,
 };
 
 export const WALLET_IFRAME_DIALOG_ID_PREFIX = DIALOG_ID_PREFIX;
