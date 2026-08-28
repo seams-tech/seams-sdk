@@ -623,7 +623,12 @@ function recoveryViewModel(args: RecoveryViewModelArgs): AuthMenuRecoveryViewMod
     hostname: args.base.hostname,
     closeLabel: args.base.closeLabel,
     heading: 'Recover account',
-    subtitle: 'Enter a recovery code to recover your wallet.',
+    subtitle:
+      args.stage === 'sign_in_ready'
+        ? args.target.kind === 'google_email_otp'
+          ? 'Your Google account is ready to sign in.'
+          : 'Your account is ready, login again with your Passkey'
+        : 'Enter a recovery code to recover your wallet.',
     ctaLabel:
       args.stage === 'passkey_ready'
         ? 'Create new passkey'

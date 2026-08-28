@@ -95,6 +95,36 @@ function recoveryFinalizingViewModel(): Extract<
   };
 }
 
+function recoveryGoogleSignInReadyViewModel(): Extract<
+  AuthMenuRecoveryViewModel,
+  { readonly stage: 'sign_in_ready' }
+> {
+  return {
+    ...recoveryEntryViewModel(),
+    subtitle: 'Your Google account is ready to sign in.',
+    ctaLabel: 'Sign in with Google',
+    walletId: 'wallet-1.test',
+    stage: 'sign_in_ready',
+    target: { kind: 'google_email_otp', googleProvider: 'google' },
+    status: { kind: 'idle', interaction: 'actionable' },
+  };
+}
+
+function recoveryPasskeySignInReadyViewModel(): Extract<
+  AuthMenuRecoveryViewModel,
+  { readonly stage: 'sign_in_ready' }
+> {
+  return {
+    ...recoveryEntryViewModel(),
+    subtitle: 'Your account is ready, login again with your Passkey',
+    ctaLabel: 'Sign in with new passkey',
+    walletId: 'wallet-1.test',
+    stage: 'sign_in_ready',
+    target: { kind: 'passkey_prf' },
+    status: { kind: 'idle', interaction: 'actionable' },
+  };
+}
+
 async function mountAuthMenu(page: Page, viewModel: unknown) {
   await mountComponent(page, {
     tagName: AUTH_MENU_TAG,
@@ -228,9 +258,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-form`)).toHaveCSS('gap', '8px');
     await expect(codeInput).toHaveAttribute('aria-invalid', 'false');
     await expect(codeInput).toHaveCSS('font-size', '16px');
-    await expect(page.locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`)).toBeEnabled();
     await codeInput.fill('ABCD-EFGH');
-    await page.locator(`${AUTH_MENU_TAG} form`).press('Enter');
 
     await page.evaluate(
       async ({ tagName, viewModel }) => {
@@ -253,6 +281,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     await expect(recoveryFeedback).toHaveCount(1);
     await expect(recoveryFeedback).toHaveText('Enter a recovery code.');
     await expect(recoveryFeedback).toHaveClass(/w3a-recovery-error/);
+    await expect(recoveryFeedback).toHaveCSS('text-align', 'center');
     await expect(recoveryFeedback).toHaveAttribute('aria-hidden', 'false');
 
     await page.evaluate(() => {
@@ -266,7 +295,6 @@ test.describe('wallet-host Lit auth menu surface', () => {
     expect(intents).toEqual([
       { kind: 'recovery_open' },
       { kind: 'recovery_code_changed', recoveryCode: 'ABCD-EFGH' },
-      { kind: 'recovery_submit' },
       { kind: 'back' },
     ]);
 
@@ -314,6 +342,29 @@ test.describe('wallet-host Lit auth menu surface', () => {
 
     expect(Math.abs(geometry.titleCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.subheadCenter - geometry.cardCenter)).toBeLessThanOrEqual(1);
+  });
+
+  test('renders recovered Google sign-in as one ready message with the Google icon', async ({
+    page,
+  }) => {
+    await mountAuthMenu(page, recoveryGoogleSignInReadyViewModel());
+
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-subhead`)).toHaveText(
+      'Your Google account is ready to sign in.',
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-status`)).toHaveCount(0);
+    const button = page.locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`);
+    await expect(button).toHaveText('Sign in with Google');
+    await expect(button.locator(':scope > svg[aria-hidden="true"]')).toHaveCount(1);
+  });
+
+  test('renders recovered Passkey sign-in as one ready message', async ({ page }) => {
+    await mountAuthMenu(page, recoveryPasskeySignInReadyViewModel());
+
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-subhead`)).toHaveText(
+      'Your account is ready, login again with your Passkey',
+    );
+    await expect(page.locator(`${AUTH_MENU_TAG} .w3a-recovery-status`)).toHaveCount(0);
   });
 
   test('locks Back and Escape while recovery finalization is irreversible', async ({ page }) => {

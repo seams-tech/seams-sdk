@@ -1958,6 +1958,7 @@ seams-auth-menu-surface {
 
 .w3a-recovery-error {
   color: var(--w3a-colors-error);
+  text-align: center;
 }
 
 #w3a-recovery-code-feedback {
