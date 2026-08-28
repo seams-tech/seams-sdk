@@ -181,7 +181,7 @@ customer still needs compatible signing backend state. The earlier
 shared-master-secret migration approach is retired. Managed deployment roots,
 role KEKs, environment secrets, and raw databases never enter a tenant export.
 
-[Refactor 121](../refactor-121-deployment-portability.md) owns the current
+[Refactor 122](../refactor-122-deployment-portability.md) owns the current
 design. It moves tenant-scoped wallet server participants through
 curve-specific handoff capsules, creates fresh destination deployment secrets,
 and verifies that every wallet public key and address remains unchanged.
