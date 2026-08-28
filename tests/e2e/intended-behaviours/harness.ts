@@ -30,6 +30,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  describeUsableGoogleIdToken,
+  resolveGoogleClientId,
+} from '../../scripts/intended-google-oidc-env.mjs';
+import {
   getAddress,
   parseTransaction,
   recoverAddress,
@@ -102,6 +106,15 @@ type IntendedHarnessAction =
   | 'signArcEvmTransaction'
   | 'exportEd25519Key'
   | 'exportEcdsaKey';
+
+const GOOGLE_ID_TOKEN_ACTIONS: ReadonlySet<IntendedHarnessAction> = new Set([
+  'addEmailOtpAuthMethod',
+  'registerEmailOtpWallet',
+  'registerEmailOtpEd25519OnlyWallet',
+  'registerEmailOtpEcdsaOnlyWallet',
+  'unlockWithAddedEmailOtp',
+  'unlockEmailOtpWallet',
+]);
 
 type TraceEntry = {
   atMs: number;
@@ -197,6 +210,7 @@ type IntendedHarnessConfig = {
   publishableKey: string;
   emailOtpAddress: string;
   googleProviderSubjectPrefix: string;
+  googleClientId: string;
   googleIdToken: string;
   passkeyEcdsaTargetProfile: EcdsaTargetProfileName;
   emailOtpEcdsaTargetProfile: EcdsaTargetProfileName;
@@ -790,14 +804,6 @@ async function persistIntendedLifecycleTrace(args: {
   const filePath = intendedLifecycleTraceFilePath(args);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(args.payload, null, 2), 'utf8');
-}
-
-function intendedPageActionIsRunning(expectedAction: string): boolean {
-  const status = document.querySelector('[data-testid="intended-action-status"]');
-  if (!status) return false;
-  const state = status.getAttribute('data-state');
-  const actionName = status.getAttribute('data-action');
-  return actionName === expectedAction && state === 'running';
 }
 
 function intendedPageActionIsComplete(expectedAction: string): boolean {
@@ -1721,6 +1727,7 @@ export class IntendedBehaviourHarness {
 
   async recoverGoogleEmailOtpWalletFromFreshBrowser(): Promise<void> {
     this.recordStage('recover_google_email_otp_wallet_from_fresh_browser');
+    requireUsableIntendedGoogleIdToken(this.config);
     const { registration, recoveryCode } = await this.beginFreshBrowserRecovery({
       action: recoveryActionForTarget('google_email_otp'),
     });
@@ -1748,6 +1755,7 @@ export class IntendedBehaviourHarness {
 
   async recoverGoogleEmailOtpWalletAfterLostFinalizationResponse(): Promise<void> {
     this.recordStage('recover_google_email_otp_wallet_after_lost_finalization_response');
+    requireUsableIntendedGoogleIdToken(this.config);
     const action = recoveryActionForTarget('google_email_otp');
     const { registration, recoveryCode } = await this.beginFreshBrowserRecovery({ action });
     const finalizeFailure: RecoveryFinalizeFailure = { injected: false };
@@ -2248,6 +2256,16 @@ export class IntendedBehaviourHarness {
       if (remainingUses === 0) {
         return;
       }
+      if (this.latestWalletBudgetStatusRequest) {
+        const replay = await this.replayLatestWalletBudgetStatus();
+        if (replay.kind === 'exhausted') {
+          this.latestSigningRemainingUses = 0;
+          this.recordService(
+            `signing remaining spend authoritatively exhausted walletSessionId=${replay.walletSessionId} quotaId=${replay.quotaId}`,
+          );
+          return;
+        }
+      }
     }
     throw new Error(
       `NEAR remaining spend did not exhaust within ${MAX_BUDGET_EXHAUSTION_SIGNS} warm signs`,
@@ -2471,6 +2489,9 @@ export class IntendedBehaviourHarness {
   ): Promise<IntendedPageSnapshot> {
     if (opts?.nearAccountId && !this.registeredWallet) {
       throw new Error('NEAR signing requires a registered wallet');
+    }
+    if (GOOGLE_ID_TOKEN_ACTIONS.has(action)) {
+      requireUsableIntendedGoogleIdToken(this.config);
     }
     await this.ensureIntendedPageOpen();
     await this.page.getByTestId(buttonTestId).click();
@@ -2703,7 +2724,11 @@ export class IntendedBehaviourHarness {
         `Authoritative wallet budget status returned HTTP ${response.status()}: ${responseText}`,
       );
     }
-    return parseAuthoritativeWalletBudgetStatus({ responseText });
+    return parseAuthoritativeWalletBudgetStatus({
+      responseText,
+      expectedWalletSessionId: captured.walletSessionId,
+      expectedQuotaId: captured.quotaId,
+    });
   }
 
   private handleResponse(response: Response): void {
@@ -3097,6 +3122,7 @@ export const intendedTest = base.extend<{
 });
 
 function intendedHarnessConfigFromEnv(): IntendedHarnessConfig {
+  const googleClientId = resolveGoogleClientId({ processEnv: process.env });
   return {
     appUrl: process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001',
     routerUrl: process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4101',
@@ -3106,6 +3132,7 @@ function intendedHarnessConfigFromEnv(): IntendedHarnessConfig {
     emailOtpAddress: process.env.SEAMS_INTENDED_EMAIL || 'alice@example.test',
     googleProviderSubjectPrefix:
       process.env.SEAMS_INTENDED_GOOGLE_SUBJECT_PREFIX || 'intended-google-subject',
+    googleClientId,
     googleIdToken: process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN || '',
     passkeyEcdsaTargetProfile: ecdsaTargetProfileFromEnv({
       raw: process.env.SEAMS_INTENDED_PASSKEY_ECDSA_TARGET_PROFILE,
@@ -3116,6 +3143,22 @@ function intendedHarnessConfigFromEnv(): IntendedHarnessConfig {
     ),
     signingSessionDebug: process.env.SEAMS_INTENDED_SIGNING_SESSION_DEBUG === '1',
   };
+}
+
+function requireUsableIntendedGoogleIdToken(
+  config: Pick<IntendedHarnessConfig, 'googleClientId' | 'googleIdToken'>,
+): void {
+  const result = describeUsableGoogleIdToken({
+    token: config.googleIdToken,
+    clientId: config.googleClientId,
+  });
+  if (result.status === 'usable') return;
+  throw new Error(
+    [
+      `SEAMS_INTENDED_GOOGLE_ID_TOKEN is ${result.reason}.`,
+      'Run pnpm -C tests ensure:intended-google-token before invoking Google-backed intended actions.',
+    ].join(' '),
+  );
 }
 
 export function requireLocalIntendedYaoFaultRouterOrigin(routerUrl: string): void {
@@ -5153,7 +5196,9 @@ function captureWalletBudgetStatusRequest(
 }
 
 function parseAuthoritativeWalletBudgetStatus(args: {
-  responseText: string;
+  readonly responseText: string;
+  readonly expectedWalletSessionId: string;
+  readonly expectedQuotaId: string;
 }): AuthoritativeWalletBudgetReplay {
   let raw: unknown;
   try {
@@ -5170,6 +5215,9 @@ function parseAuthoritativeWalletBudgetStatus(args: {
     'authoritative wallet session status walletSessionId',
   );
   const quotaId = requireString(response.quotaId, 'authoritative wallet session status quotaId');
+  if (walletSessionId !== args.expectedWalletSessionId || quotaId !== args.expectedQuotaId) {
+    throw new Error('Authoritative wallet budget status returned a different session or quota');
+  }
   if (response.status === 'active') {
     return { kind: 'active', walletSessionId, quotaId };
   }

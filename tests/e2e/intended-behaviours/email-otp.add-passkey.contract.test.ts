@@ -22,6 +22,8 @@ test('an Email OTP wallet can add a passkey as a second way in', async ({ harnes
      An added method that can only reach one of them is not a second way in. */
   await harness.signTempoTransaction('post_unlock');
   await harness.signNearTransaction('post_unlock');
+  await harness.exhaustSigningBudget();
+  await harness.signNearTransaction('step_up_required');
   await harness.exportEcdsaKey();
   await harness.exportEd25519Key();
   /* Removing the method that did the adding is the case that matters: the

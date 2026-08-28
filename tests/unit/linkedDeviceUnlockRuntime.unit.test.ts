@@ -155,6 +155,7 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   const originalWriteExactWithOperationCredential =
     walletSessionAuthorizations.writeExactWithOperationCredential;
   const originalUpsertActiveWithCurveMerge = walletSessionAuthorizations.upsertActiveWithCurveMerge;
+  const originalReadActiveForWallet = walletSessionAuthorizations.readActiveForWallet;
   const originalFetch = globalThis.fetch;
   const writtenSessions: unknown[] = [];
   const projectionWrites: unknown[] = [];
@@ -197,6 +198,10 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
   walletSessionAuthorizations.upsertActiveWithCurveMerge = async (args) => {
     projectionWrites.push(args.incoming);
     return args.incoming;
+  };
+  walletSessionAuthorizations.readActiveForWallet = async () => {
+    const projection = projectionWrites.at(-1);
+    return projection ? { kind: 'found', projection } : { kind: 'missing' };
   };
   globalThis.fetch = async (input) => {
     const path = new URL(String(input)).pathname;
@@ -247,6 +252,7 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
 
   try {
     const first = await unlockLinkedDevicePasskey(context, String(fixture.walletId), undefined);
+    expect(first.success, first.success ? undefined : first.error).toBe(true);
     expect(first).toMatchObject({
       success: true,
       kind: 'near_wallet_unlocked',
@@ -337,6 +343,7 @@ test('linked V2 unlock installs live owners, lock retires them, and exact re-unl
     walletSessionAuthorizations.writeExactWithOperationCredential =
       originalWriteExactWithOperationCredential;
     walletSessionAuthorizations.upsertActiveWithCurveMerge = originalUpsertActiveWithCurveMerge;
+    walletSessionAuthorizations.readActiveForWallet = originalReadActiveForWallet;
     globalThis.fetch = originalFetch;
   }
 });
@@ -358,6 +365,7 @@ test('failed holder disposal retains the exact runtime for retry', async () => {
     walletId,
     authorityId: fixture.authority.authorityId,
     walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+    factorAuthority: fixture.factorAuthority,
     materialActivation: ecdsaActivation.materialActivation,
     holderHandleId,
     ecdsaThresholdKeyId: ecdsaMaterial.ecdsaThresholdKeyId,

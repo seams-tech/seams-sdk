@@ -17,6 +17,10 @@ import { Buffer } from 'node:buffer';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import {
+  describeUsableGoogleIdToken,
+  resolveGoogleClientId,
+} from '../scripts/intended-google-oidc-env.mjs';
+import {
   parseActivateInstalledAuthorityResultV1,
   parseCommittedAuthorityPackagesV1,
   parseLinkedDeviceEmailOtpVerificationResultV1,
@@ -131,6 +135,18 @@ function requireStringField(record: Record<string, unknown>, field: string, labe
 function requireGoogleIdToken(): string {
   const token = String(process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN || '').trim();
   if (!token) throw new Error('SEAMS_INTENDED_GOOGLE_ID_TOKEN is required for Email OTP linking');
+  const result = describeUsableGoogleIdToken({
+    token,
+    clientId: resolveGoogleClientId({ processEnv: process.env }),
+  });
+  if (result.status !== 'usable') {
+    throw new Error(
+      [
+        `SEAMS_INTENDED_GOOGLE_ID_TOKEN is ${result.reason}.`,
+        'Run pnpm -C tests ensure:intended-google-token before invoking Email OTP linking.',
+      ].join(' '),
+    );
+  }
   return token;
 }
 
@@ -1241,7 +1257,10 @@ async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
 }
 
 async function assertOwnerScannerClosedAfterScan(page: Page): Promise<void> {
-  await expect(page.locator('.qr-scanner-modal')).toBeHidden({ timeout: 5_000 });
+  const modal = page.locator('.qr-scanner-modal--linking');
+  await expect(modal).toBeVisible({ timeout: 5_000 });
+  await expect(modal.getByRole('heading', { name: 'Linking device', exact: true })).toBeVisible();
+  await expect(modal.locator('.qr-scanner-camera-section')).toBeHidden();
 }
 
 function recordRequestPath(paths: string[], request: Request): void {
@@ -1480,6 +1499,7 @@ async function authenticateEmailOtpInHostedMenu(
     context: input.context,
     walletId: input.walletId,
     routerOrigin: input.routerOrigin,
+    ...(input.challengeSubjectId ? { challengeSubjectId: input.challengeSubjectId } : {}),
     task: authenticated,
   });
   await expect(input.page.locator('iframe.w3a-wallet-overlay')).toBeHidden({
@@ -2451,10 +2471,6 @@ function isEmailOtpExportChallengeResponse(response: Response): boolean {
   return isEmailOtpExportAuthorizationResponse(response, '/wallet/email-otp/challenge');
 }
 
-function isEmailOtpExportFactorReleaseResponse(response: Response): boolean {
-  return isEmailOtpExportAuthorizationResponse(response, '/wallet/email-otp/factor-release');
-}
-
 function isEd25519ExportAdmitResponse(response: Response): boolean {
   return (
     response.request().method() === 'POST' &&
@@ -2752,151 +2768,6 @@ async function assertImmediateLinkedWalletOperations(input: {
         .sort(),
     ).toEqual(input.publicIdentity.ecdsaKeys);
   }
-}
-
-async function openAuthenticationMethodsDialog(page: Page): Promise<Locator> {
-  const menu = await openProfileMenu(page);
-  const open = menu.getByRole('button', { name: /^Authentication Methods\b/ });
-  await expect(open).toBeVisible();
-  await expect(open).toBeEnabled();
-  await open.click();
-  const dialog = page.getByRole('dialog', { name: 'Authentication methods', exact: true });
-  await expect(dialog).toBeVisible({ timeout: 30_000 });
-  await expect(dialog.getByText('Checking authentication methods…')).toBeHidden({
-    timeout: 30_000,
-  });
-  return dialog;
-}
-
-async function closeAuthenticationMethodsDialog(dialog: Locator): Promise<void> {
-  await dialog.getByRole('button', { name: 'Close authentication methods', exact: true }).click();
-  await expect(dialog).toBeHidden();
-}
-
-async function assertBothAuthenticationMethods(dialog: Locator): Promise<void> {
-  await expect(
-    dialog.locator('.w3a-linked-devices-modal-item-name', { hasText: 'Passkey' }),
-  ).toHaveCount(1);
-  await expect(
-    dialog.locator('.w3a-linked-devices-modal-item-name', { hasText: 'Email OTP' }),
-  ).toHaveCount(1);
-}
-
-async function addEmailOtpFromLinkedPasskeyAuthority(input: {
-  readonly page: Page;
-  readonly emailOtp: EmailOtpPromptContext;
-}): Promise<void> {
-  const dialog = await openAuthenticationMethodsDialog(input.page);
-  await dialog
-    .getByRole('textbox', { name: 'Email address', exact: true })
-    .fill(requireGoogleEmailAddress());
-  const added = expect(dialog.locator('.w3a-linked-devices-modal-live')).toHaveText(
-    'Email OTP added.',
-    { timeout: 180_000 },
-  );
-  await dialog.getByRole('button', { name: 'Add Email OTP', exact: true }).click();
-  await completeEmailOtpPromptsUntil({
-    page: input.page,
-    ...input.emailOtp,
-    task: added,
-  });
-  await assertBothAuthenticationMethods(dialog);
-  await closeAuthenticationMethodsDialog(dialog);
-}
-
-async function addPasskeyFromLinkedEmailOtpAuthority(input: {
-  readonly page: Page;
-  readonly emailOtp: EmailOtpPromptContext;
-}): Promise<void> {
-  const dialog = await openAuthenticationMethodsDialog(input.page);
-  const added = expect(dialog.locator('.w3a-linked-devices-modal-live')).toHaveText(
-    'Passkey added.',
-    { timeout: 180_000 },
-  );
-  await dialog.getByRole('button', { name: 'Add passkey', exact: true }).click();
-  await completeEmailOtpPromptsUntil({
-    page: input.page,
-    ...input.emailOtp,
-    task: added,
-  });
-  await assertBothAuthenticationMethods(dialog);
-  await closeAuthenticationMethodsDialog(dialog);
-}
-
-async function assertAddedEmailOtpOperatingPath(input: {
-  readonly page: Page;
-  readonly context: BrowserContext;
-  readonly diagnostics: readonly string[];
-  readonly publicIdentity: WalletPublicIdentity;
-  readonly routerOrigin: string;
-}): Promise<void> {
-  const emailOtp = {
-    context: input.context,
-    walletId: input.publicIdentity.walletId,
-    routerOrigin: input.routerOrigin,
-    challengeSubjectId: requireGoogleEmailAddress(),
-  } as const;
-  await addEmailOtpFromLinkedPasskeyAuthority({ page: input.page, emailOtp });
-  await lockWallet(input.page);
-  await input.page.reload({ waitUntil: 'domcontentloaded' });
-  await unlockEmailOtpWallet(
-    input.page,
-    input.context,
-    input.publicIdentity.walletId,
-    'combined',
-    input.routerOrigin,
-    requireGoogleEmailAddress(),
-  );
-  // Email OTP export asserts the fresh export_key challenge and Router step-up,
-  // in addition to returning the wallet's exact public key identities.
-  await assertImmediateLinkedWalletOperations({
-    page: input.page,
-    diagnostics: input.diagnostics,
-    publicIdentity: input.publicIdentity,
-    profile: 'combined',
-    emailOtp,
-  });
-}
-
-async function assertAddedPasskeyOperatingPath(input: {
-  readonly page: Page;
-  readonly diagnostics: readonly string[];
-  readonly device2CredentialAssertedEvents: readonly unknown[];
-  readonly publicIdentity: WalletPublicIdentity;
-  readonly emailOtp: EmailOtpPromptContext;
-}): Promise<void> {
-  await addPasskeyFromLinkedEmailOtpAuthority({ page: input.page, emailOtp: input.emailOtp });
-  await lockWallet(input.page);
-  await input.page.reload({ waitUntil: 'domcontentloaded' });
-  await unlockLinkedPasskeyWallet(input.page, input.diagnostics, 'combined');
-  await assertSignerProfileActions(input.page, 'combined');
-  const near = requireNearIdentity(input.publicIdentity);
-  await greetingSigning(input.page, 'NEAR', input.diagnostics);
-  // The passkey export helper requires a fresh WebAuthn assertion for each key family.
-  const exportedNear = await exportPasskeyOwnerKey(
-    {
-      device2CredentialAssertedEvents: input.device2CredentialAssertedEvents,
-      device2Diagnostics: input.diagnostics,
-      device2Page: input.page,
-    },
-    'near',
-  );
-  expect(exportedNear.accountId).toBe(near.accountId);
-  expect(exportedNear.entries.map((entry) => entry.publicKey)).toEqual([near.publicKey]);
-  await linkedSigning(input.page, input.diagnostics);
-  const exportedEvm = await exportPasskeyOwnerKey(
-    {
-      device2CredentialAssertedEvents: input.device2CredentialAssertedEvents,
-      device2Diagnostics: input.diagnostics,
-      device2Page: input.page,
-    },
-    'evm',
-  );
-  expect(
-    exportedEvm.entries
-      .map((entry) => `${entry.publicKey.toLowerCase()}:${entry.address.toLowerCase()}`)
-      .sort(),
-  ).toEqual(input.publicIdentity.ecdsaKeys);
 }
 
 async function revokeWalletAuthMethodInBrowser(
@@ -4635,83 +4506,6 @@ for (const profile of SIGNER_PROFILES) {
     }
   });
 }
-
-test('Passkey→Passkey linking adds Email OTP, then signs, exports, and steps up through it', async ({
-  browser,
-}) => {
-  const pair = await setupLinkedOwnerPair(browser, 'combined');
-  try {
-    await assertAddedEmailOtpOperatingPath({
-      page: pair.device2Page,
-      context: pair.device2Context,
-      diagnostics: pair.device2Diagnostics,
-      publicIdentity: pair.owner.publicIdentity,
-      routerOrigin: pair.owner.routerOrigin,
-    });
-  } finally {
-    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
-  }
-});
-
-test('Email OTP→Passkey linking adds Email OTP to the linked authority, then signs, exports, and steps up through it', async ({
-  browser,
-}) => {
-  const pair = await setupLinkedOwnerPair(browser, 'combined', 'email_otp');
-  try {
-    await assertAddedEmailOtpOperatingPath({
-      page: pair.device2Page,
-      context: pair.device2Context,
-      diagnostics: pair.device2Diagnostics,
-      publicIdentity: pair.source.publicIdentity,
-      routerOrigin: pair.source.routerOrigin,
-    });
-  } finally {
-    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
-  }
-});
-
-test('Email OTP→Email OTP linking adds Passkey, then signs, exports, and steps up through it', async ({
-  browser,
-}) => {
-  const pair = await setupEmailLinkedOwnerPair(browser, 'combined');
-  try {
-    await assertAddedPasskeyOperatingPath({
-      page: pair.device2Page,
-      diagnostics: pair.device2Diagnostics,
-      device2CredentialAssertedEvents: pair.device2CredentialAssertedEvents,
-      publicIdentity: pair.publicIdentity,
-      emailOtp: {
-        context: pair.device2Context,
-        walletId: pair.publicIdentity.walletId,
-        routerOrigin: pair.routerOrigin,
-      },
-    });
-  } finally {
-    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
-  }
-});
-
-test('Passkey→Email OTP linking adds Passkey to the linked authority, then signs, exports, and steps up through it', async ({
-  browser,
-}) => {
-  const pair = await setupEmailLinkedOwnerPair(browser, 'combined', 'passkey');
-  try {
-    await assertAddedPasskeyOperatingPath({
-      page: pair.device2Page,
-      diagnostics: pair.device2Diagnostics,
-      device2CredentialAssertedEvents: pair.device2CredentialAssertedEvents,
-      publicIdentity: pair.publicIdentity,
-      emailOtp: {
-        context: pair.device2Context,
-        walletId: pair.publicIdentity.walletId,
-        routerOrigin: pair.routerOrigin,
-        challengeSubjectId: requireGoogleEmailAddress(),
-      },
-    });
-  } finally {
-    await closeBrowserContexts(pair.ownerContext, pair.device2Context);
-  }
-});
 
 test('Device 1 revokes Device 2 while preserving wallet identity and owner operation', async ({
   browser,

@@ -30,16 +30,29 @@ export async function persistVerifiedEmailOtpAuthorityAfterUnlock(args: {
     case 'wallet_registration':
       await IndexedDBManager.persistFoundingWalletAuthority({ authority, authMethod });
       return;
-    case 'wallet_recovery':
+    case 'wallet_recovery': {
       if (!isActiveRecoveredWalletAuthorityV1(authority)) {
         throw new Error('Recovered Email OTP authority provenance is invalid');
       }
-      await IndexedDBManager.persistRecoveredWalletAuthority({
-        authority,
-        authMethod,
-        recoveredAtMs: Date.now(),
-      });
+      const local = await IndexedDBManager.resolveWalletAuthorityForMethod(
+        args.walletId,
+        args.walletAuthMethodId,
+      );
+      if (
+        local.kind !== 'resolved' ||
+        String(local.authority.authorityId) !== String(authority.authorityId) ||
+        String(local.authority.authorityDigestB64u) !== String(authority.authorityDigestB64u) ||
+        local.authMethod.kind !== 'email_otp' ||
+        local.authMethod.status !== 'active' ||
+        String(local.authMethod.walletAuthMethodId) !== String(authMethod.walletAuthMethodId) ||
+        String(local.authMethod.walletAuthorityId) !== String(authMethod.walletAuthorityId) ||
+        local.authMethod.emailHashHex !== authMethod.emailHashHex ||
+        local.authMethod.registrationAuthorityId !== authMethod.registrationAuthorityId
+      ) {
+        throw new Error('Verified recovered Email OTP authority is not installed on this device');
+      }
       return;
+    }
     case 'device_link': {
       const local = await IndexedDBManager.resolveWalletAuthorityForMethod(
         args.walletId,
