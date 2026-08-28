@@ -24,6 +24,8 @@ const checkOnly = process.argv.includes('--check');
 const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001';
 const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:4101';
 const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:4002';
+const consoleOrigin = 'http://localhost:4005';
+const consoleStaticUrl = `${consoleOrigin}/dashboard-static/`;
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
 const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
@@ -59,7 +61,10 @@ let ownsIntendedServicesLock = false;
 let webServerReadyServer;
 let localConsoleOrganizationId = '';
 let d1LocalRuntimeConfig;
-const transientViteCachePaths = ['apps/seams-site/node_modules/.vite'];
+const transientViteCachePaths = [
+  'apps/seams-site/node_modules/.vite',
+  'apps/seams-console/node_modules/.vite',
+];
 const requiredSdkDistArtifacts = [
   'packages/wallet/dist/esm/advanced.js',
   'packages/wallet/dist/esm/core/config/chains.js',
@@ -122,17 +127,26 @@ async function main() {
   const router = startRouter();
   await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);
   await waitForHttpOk(`${routerUrl}/readyz`, 'router readyz', 180_000);
+  await waitForHttpOk(`${routerUrl}/console/readyz`, 'console readyz', 180_000);
   seedLocalConsole();
 
   const site = startSite();
+  const consoleApp = startConsole();
   await waitForHttpOk(appUrl, 'site', 120_000);
+  await waitForHttpOk(consoleStaticUrl, 'console frontend', 120_000);
+  await waitForConsoleDocument(
+    new URL('/dashboard/login', appUrl).href,
+    'public console login',
+    120_000,
+  );
+  await waitForAuthenticatedConsoleOverview();
   await waitForSiteModuleGraphArtifacts();
   await waitForHttpOk(intendedPageSmokeUrl(), 'intended page', 60_000);
   await waitForRouterStability();
   await startWebServerReadyServer();
 
-  console.log('[intended-services] site and router are ready');
-  await waitUntilStopped(site, router);
+  console.log('[intended-services] console, site, and router are ready');
+  await waitUntilStopped(site, router, consoleApp);
 }
 
 function assertLocalIntendedUrls() {
@@ -274,6 +288,10 @@ function startSite() {
   return spawnManaged('site', ['-C', 'apps/seams-site', 'run', 'vite'], siteEnv());
 }
 
+function startConsole() {
+  return spawnManaged('console', ['-C', 'apps/seams-console', 'run', 'vite'], consoleEnv());
+}
+
 function startCaddy() {
   return spawnManaged('caddy', ['-C', 'apps/seams-site', 'run', 'caddy'], caddyEnv());
 }
@@ -363,6 +381,19 @@ function siteEnv() {
   };
 }
 
+function consoleEnv() {
+  return {
+    ...process.env,
+    VITE_SITE_ORIGIN: appUrl,
+    VITE_CONSOLE_BASE_URL: routerUrl,
+    VITE_RELAYER_URL: routerUrl,
+    VITE_WALLET_ORIGIN: walletOrigin,
+    VITE_DOCS_ORIGIN: docsOrigin,
+    VITE_RP_ID_BASE: 'localhost',
+    VITE_ENABLE_INTENDED_E2E: '1',
+  };
+}
+
 function caddyEnv() {
   return {
     ...process.env,
@@ -377,6 +408,7 @@ function routerEnv() {
     SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
     SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
+    SEAMS_D1_LOCAL_SKIP_ENV_FILE: '1',
     SEAMS_LOCAL_CONSOLE_ORG_ID: requireLocalConsoleOrganizationId(),
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'local-smoke-project',
     SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: projectEnvironmentKey,
@@ -557,16 +589,68 @@ function intendedPageSmokeUrl() {
   return url.href;
 }
 
-async function waitForHttpOk(url, label, timeoutMs) {
+async function waitForHttpOk(url, label, timeoutMs, headers = {}) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (await httpOk(url)) {
+    if (await httpOk(url, headers)) {
       console.log(`[intended-services] ${label} ready at ${url}`);
       return;
     }
     await delay(500);
   }
   throw new Error(`${label} did not become ready at ${url}`);
+}
+
+async function waitForConsoleDocument(url, label, timeoutMs, headers = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await requestText(url, 1_000, headers);
+      if (
+        response.statusCode >= 200 &&
+        response.statusCode < 300 &&
+        isConsoleDocument(response.body)
+      ) {
+        console.log(`[intended-services] ${label} ready at ${url}`);
+        return;
+      }
+    } catch {}
+    await delay(500);
+  }
+  throw new Error(`${label} did not return the Console application at ${url}`);
+}
+
+async function waitForAuthenticatedConsoleOverview() {
+  const headers = localConsoleAuthHeaders();
+  const overviewUrl = new URL('/dashboard/overview', appUrl).href;
+  await waitForConsoleDocument(overviewUrl, 'authenticated console overview', 120_000, headers);
+  for (const path of [
+    '/console/session',
+    '/console/onboarding/state',
+    '/console/account/organizations',
+    '/console/projects?status=ACTIVE',
+    '/console/environments',
+  ]) {
+    await waitForHttpOk(
+      new URL(path, routerUrl).href,
+      `authenticated console request ${path}`,
+      60_000,
+      headers,
+    );
+  }
+}
+
+function localConsoleAuthHeaders() {
+  return {
+    'X-Console-User-Id': process.env.SEAMS_LOCAL_CONSOLE_USER_ID || 'local-console-user',
+    'X-Console-Org-Id': requireLocalConsoleOrganizationId(),
+    'X-Console-Project-Id': process.env.SEAMS_LOCAL_CONSOLE_PROJECT_ID || 'local-smoke-project',
+    'X-Console-Environment-Id': projectEnvironmentId,
+  };
+}
+
+function isConsoleDocument(body) {
+  return body.includes('<title>Seams Console</title>') && body.includes('id="root"');
 }
 
 async function waitForSiteModuleGraphArtifacts() {
@@ -589,16 +673,16 @@ function siteModuleGraphUrl(relativePath) {
   return url.href;
 }
 
-async function httpOk(url) {
+async function httpOk(url, headers = {}) {
   try {
-    const status = await requestStatus(url, 1_000);
+    const status = await requestStatus(url, 1_000, headers);
     return status >= 200 && status < 300;
   } catch {
     return false;
   }
 }
 
-function requestStatus(urlValue, timeoutMs) {
+function requestStatus(urlValue, timeoutMs, headers = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlValue);
     const transport = url.protocol === 'https:' ? https : http;
@@ -607,12 +691,44 @@ function requestStatus(urlValue, timeoutMs) {
       {
         timeout: timeoutMs,
         rejectUnauthorized: false,
+        headers,
       },
       handleStatusResponse(resolve),
     );
     req.once('timeout', handleTimeout(req));
     req.once('error', reject);
   });
+}
+
+function requestText(urlValue, timeoutMs, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlValue);
+    const transport = url.protocol === 'https:' ? https : http;
+    const req = transport.get(
+      url,
+      {
+        timeout: timeoutMs,
+        rejectUnauthorized: false,
+        headers,
+      },
+      handleTextResponse(resolve),
+    );
+    req.once('timeout', handleTimeout(req));
+    req.once('error', reject);
+  });
+}
+
+function handleTextResponse(resolve) {
+  return function onTextResponse(response) {
+    let body = '';
+    response.setEncoding('utf8');
+    response.on('data', (chunk) => {
+      body += chunk;
+    });
+    response.on('end', () => {
+      resolve({ statusCode: response.statusCode || 0, body });
+    });
+  };
 }
 
 function handleStatusResponse(resolve) {
@@ -844,6 +960,7 @@ function isManagedProcessCommand(command) {
     isWranglerD1Command(command) ||
     isLocalWorkerdCommand(command) ||
     isSiteViteCommand(command) ||
+    isConsoleViteCommand(command) ||
     isSiteCaddyCommand(command) ||
     isDocsVitepressCommand(command)
   );
@@ -870,6 +987,14 @@ function isSiteViteCommand(command) {
     command.includes(path.join(repoRoot, 'apps/seams-site')) &&
     command.includes('vite') &&
     command.includes('--port 4004')
+  );
+}
+
+function isConsoleViteCommand(command) {
+  return (
+    command.includes(path.join(repoRoot, 'apps/seams-console')) &&
+    command.includes('vite') &&
+    command.includes('--port 4005')
   );
 }
 
