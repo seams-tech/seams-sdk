@@ -36,7 +36,7 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
-import { listLocalPasskeyWalletIds } from '@/SeamsWeb/operations/auth/login';
+import { listLocalLoginAuthMethods } from '@/SeamsWeb/operations/auth/login';
 import { preloadWalletHostRegistrationSurface } from '../runtimeLoader';
 import type {
   HostedRecoveryEmailOtpVerified,
@@ -217,34 +217,22 @@ export class AuthMenuController {
           cancellation,
         ),
       );
-      session.setLoginPreparation({
-        accountOptions: requestedWalletId
-          ? [
-              {
-                walletId: requestedWalletId,
-                displayName: requestedWalletId,
-                authMethod: WALLET_AUTH_METHODS.passkey,
-              },
-            ]
-          : [],
-        selectedAccount: requestedWalletId
-          ? {
-              walletId: requestedWalletId,
-              displayName: requestedWalletId,
-              authMethod: WALLET_AUTH_METHODS.passkey,
-            }
-          : null,
-        prepare: (walletId, cancellation) =>
-          this.prepareLogin(
-            requestId,
-            session.identity.authMenuSessionId,
-            cancellation,
-            walletId,
-            null,
-            args.request.loginTarget,
-          ),
-      });
-      if (!requestedWalletId) {
+      if (requestedWalletId) {
+        await this.bootstrapLoginAccounts(session, requestId, args.request.loginTarget);
+      } else {
+        session.setLoginPreparation({
+          accountOptions: [],
+          selectedAccount: null,
+          prepare: (walletId, cancellation) =>
+            this.prepareLogin(
+              requestId,
+              session.identity.authMenuSessionId,
+              cancellation,
+              walletId,
+              null,
+              args.request.loginTarget,
+            ),
+        });
         void this.bootstrapLoginAccounts(session, requestId, args.request.loginTarget);
       }
       return await outcomePromise;
@@ -259,18 +247,34 @@ export class AuthMenuController {
     requestId: WalletIframeRequestId,
     loginTarget: HostedAuthMenuLoginTarget,
   ): Promise<void> {
-    const [recentUnlocks, localPasskeyWalletIds] = await Promise.all([
+    const [recentUnlocks, localAuthMethods] = await Promise.all([
       this.deps
         .getSeamsWeb()
         .auth.getRecentUnlocks()
         .catch(() => null),
-      listLocalPasskeyWalletIds().catch(() => []),
+      listLocalLoginAuthMethods().catch(() => []),
     ]);
     if (session.state.kind === 'complete') return;
-    const accountOptions = loginAccountOptions(recentUnlocks, localPasskeyWalletIds);
+    const requestedWalletId = requestedWalletIdForLoginTarget(loginTarget);
+    const discoveredOptions = loginAccountOptions(recentUnlocks, localAuthMethods);
+    const accountOptions = requestedWalletId
+      ? discoveredOptions.filter((option) => option.walletId === requestedWalletId)
+      : discoveredOptions;
+    const resolvedAccountOptions =
+      accountOptions.length > 0 || !requestedWalletId
+        ? accountOptions
+        : [
+            {
+              walletId: requestedWalletId,
+              displayName: requestedWalletId,
+              authMethod: WALLET_AUTH_METHODS.passkey,
+            },
+          ];
     session.setLoginPreparation({
-      accountOptions,
-      selectedAccount: defaultLoginAccount(recentUnlocks, accountOptions),
+      accountOptions: resolvedAccountOptions,
+      selectedAccount: requestedWalletId
+        ? (resolvedAccountOptions[0] ?? null)
+        : defaultLoginAccount(recentUnlocks, resolvedAccountOptions),
       prepare: (walletId, cancellation) =>
         this.prepareLogin(
           requestId,
@@ -298,9 +302,12 @@ export class AuthMenuController {
         .getSeamsWeb()
         .auth.getRecentUnlocks()
         .catch(() => null));
-    const localPasskeyWalletIds = await listLocalPasskeyWalletIds().catch(() => []);
+    const localAuthMethods = await listLocalLoginAuthMethods().catch(() => []);
+    const localPasskey = localAuthMethods.find(
+      (method) => method.authMethod === WALLET_AUTH_METHODS.passkey,
+    );
     const selectedWalletId =
-      walletId || passkeyRecentWalletId(localUnlocks) || localPasskeyWalletIds[0] || null;
+      walletId || passkeyRecentWalletId(localUnlocks) || localPasskey?.walletId || null;
     if (loginTarget.kind === 'wallet_sync') {
       return await prepareHostedPasskeyLogin({
         context,

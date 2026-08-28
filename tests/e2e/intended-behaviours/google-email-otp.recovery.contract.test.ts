@@ -53,3 +53,12 @@ for (const origin of recoveryOrigins) {
     await harness.assertConsumedRecoveryCodeRefusedGenerically(recoveryTarget);
   });
 }
+
+test('an older passkey does not block adding a passkey to a Google recovery authority', async ({
+  harness,
+}) => {
+  await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
+  await harness.recoverGoogleEmailOtpWalletFromFreshBrowser();
+  await harness.addPasskeyAuthMethod();
+});

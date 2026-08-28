@@ -1,4 +1,5 @@
 import type { GetRecentUnlocksResult } from '@/core/types/seams';
+import type { LocalLoginAuthMethod } from '@/SeamsWeb/operations/auth/login';
 import { WALLET_AUTH_METHODS } from '@shared/utils';
 import type { AuthMenuAccountOption } from '../lit-ui/auth-menu/auth-menu-domain';
 
@@ -6,21 +7,23 @@ function accountOptionKey(option: AuthMenuAccountOption): string {
   return `${option.walletId}:${option.authMethod}`;
 }
 
+function localAuthMethodDisplayName(
+  method: LocalLoginAuthMethod,
+  existingOption: AuthMenuAccountOption | undefined,
+): string {
+  switch (method.authMethod) {
+    case 'passkey':
+      return existingOption?.displayName ?? String(method.walletId);
+    case 'email_otp':
+      return method.emailAddress ?? existingOption?.displayName ?? String(method.walletId);
+  }
+}
+
 export function loginAccountOptions(
   recentUnlocks: GetRecentUnlocksResult | null,
-  localPasskeyWalletIds: readonly string[] = [],
+  localAuthMethods: readonly LocalLoginAuthMethod[] = [],
 ): AuthMenuAccountOption[] {
   const byWalletAuthMethod = new Map<string, AuthMenuAccountOption>();
-  for (const walletIdValue of localPasskeyWalletIds) {
-    const walletId = String(walletIdValue || '').trim();
-    if (!walletId) continue;
-    const option: AuthMenuAccountOption = {
-      walletId,
-      displayName: walletId,
-      authMethod: WALLET_AUTH_METHODS.passkey,
-    };
-    byWalletAuthMethod.set(accountOptionKey(option), option);
-  }
   for (const account of recentUnlocks?.accounts ?? []) {
     if (
       account.authMethod !== WALLET_AUTH_METHODS.passkey &&
@@ -36,6 +39,17 @@ export function loginAccountOptions(
       authMethod: account.authMethod,
     };
     byWalletAuthMethod.set(accountOptionKey(option), option);
+  }
+  for (const localMethod of localAuthMethods) {
+    const walletId = String(localMethod.walletId || '').trim();
+    if (!walletId) continue;
+    const key = `${walletId}:${localMethod.authMethod}`;
+    const option: AuthMenuAccountOption = {
+      walletId,
+      displayName: localAuthMethodDisplayName(localMethod, byWalletAuthMethod.get(key)),
+      authMethod: localMethod.authMethod,
+    };
+    byWalletAuthMethod.set(key, option);
   }
   return [...byWalletAuthMethod.values()];
 }

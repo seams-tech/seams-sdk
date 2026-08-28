@@ -39,12 +39,9 @@ export const DemoPage: React.FC = () => {
   } = useSeams();
   useIntendedEmailOtpUnlockBridge(seams);
 
-  /* the section heading names the credential that will actually confirm the
-     signature: passkey accounts prompt WebAuthn, email-OTP accounts prompt a
-     one-time code */
   const signingHeading =
     currentAuthMethod.kind === 'selected' && currentAuthMethod.binding.kind === 'email_otp'
-      ? 'Sign a transaction with a one-time password (email)'
+      ? 'Sign a transaction'
       : 'Sign a transaction with your passkey';
 
   const [selectedChainId, setSelectedChainId] = useState<DemoChainId>('tempo');

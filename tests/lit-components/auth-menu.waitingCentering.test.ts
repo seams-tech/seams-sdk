@@ -47,7 +47,7 @@ test.describe('auth menu waiting view centering', () => {
           kind: 'passkey',
           mode: 'login',
           accountOptions: [],
-          selectedWalletId: null,
+          selectedAccount: null,
           status: { kind: 'busy', headline: 'Signing in…' },
         },
       },
