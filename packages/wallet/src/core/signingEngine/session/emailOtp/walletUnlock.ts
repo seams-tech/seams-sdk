@@ -1,6 +1,9 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { ActiveWalletSessionV1, WalletSessionOperationCredentialV1 } from '@shared/device-linking';
+import type {
+  ActiveWalletSessionV1,
+  WalletSessionOperationCredentialV1,
+} from '@shared/device-linking';
 import type {
   EmailOtpEcdsaWalletUnlockAuthorization,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -47,10 +50,7 @@ export type EmailOtpWalletUnlockResult = {
       ecdsaCustody: EmailOtpEcdsaCustodyRestoreV1;
     }
   | {
-      operation: Exclude<
-        EmailOtpEcdsaSessionBootstrapHandleBinding['operation'],
-        'wallet_unlock'
-      >;
+      operation: Exclude<EmailOtpEcdsaSessionBootstrapHandleBinding['operation'], 'wallet_unlock'>;
       ecdsaSession?: never;
     }
 );

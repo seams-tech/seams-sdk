@@ -910,6 +910,19 @@ export interface EmailOtpWorkerOperationMap {
       readonly operationCredential: WalletSessionOperationCredentialV1;
       readonly verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
       /**
+       * Owner authorities unlock the wallet custody seed envelope. A linked
+       * authority opens its separately provisioned signer material instead.
+       */
+      readonly walletCustodySeed:
+        | {
+            readonly kind: 'owner_authority_seed_envelope';
+            readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+          }
+        | {
+            readonly kind: 'linked_device_seed_unavailable';
+            readonly existingEnvelope?: never;
+          };
+      /**
        * Either the runtime is ready and every part of it is present, or there
        * is none. Three optional fields would let a caller hold a handle with no
        * metadata to check it against.

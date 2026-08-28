@@ -2537,7 +2537,9 @@ export class SeamsWeb {
               });
             break;
           case 'cache_absent':
-            throw new Error('Email OTP Ed25519 custody rejoin did not return active material');
+            throw new Error(
+              'Email OTP wallet custody material is unavailable; recover with a recovery code',
+            );
           case 'not_requested':
             throw new Error('Email OTP capability unlock omitted Ed25519 Yao session material');
           default:

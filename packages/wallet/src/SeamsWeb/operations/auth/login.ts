@@ -45,6 +45,7 @@ import {
 } from '@shared/utils/errors';
 import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { isWalletCustodySeedBinding } from '@shared/passkey-custody/custodySecretBinding';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
@@ -3278,6 +3279,19 @@ async function unlockOwnerAuthorityEmailOtpEd25519(input: {
   });
 }
 
+function ownerAuthorityWalletCustodySeedEnvelope(
+  unlocked: EmailOtpAuthorityWalletUnlockResult,
+): PasskeyCustodyEnvelopeRecord {
+  switch (unlocked.walletCustodySeed.kind) {
+    case 'owner_authority_seed_envelope':
+      return unlocked.walletCustodySeed.existingEnvelope;
+    case 'linked_device_seed_unavailable':
+      throw new Error('[login] owner Email OTP unlock returned linked-device custody state');
+    default:
+      return assertNeverLoginState(unlocked.walletCustodySeed);
+  }
+}
+
 export async function unlockLinkedDeviceEmailOtpWallet(args: {
   readonly context: LoginWebContext;
   readonly walletIdInput: string;
@@ -3353,6 +3367,22 @@ export async function unlockLinkedDeviceEmailOtpWallet(args: {
         emailHashHex: args.emailHashHex,
       });
       ownedActiveClientHandle = null;
+      if (!factorSecret32) {
+        throw new Error('[login] owner Email OTP factor secret ownership was lost');
+      }
+      await establishUnlockedExportRootCapabilityV1(
+        walletCustodyCeremonyTransportFromWorkerContextV1(
+          args.context.signingEngine.getSignerWorkerContext(),
+        ),
+        {
+          existingEnvelope: ownerAuthorityWalletCustodySeedEnvelope(unlocked),
+          existingFactorSecret: factorSecret32,
+          walletId: String(selection.walletId),
+          walletAuthMethodId: String(selection.authMethod.walletAuthMethodId),
+          walletSessionId: String(unlocked.operationCredential.walletSessionId),
+          expiresAtMs: unlocked.walletSession.expiresAtMs,
+        },
+      );
       await args.context.signingEngine.markWalletSelectionUnlocked({
         walletId: selection.walletId,
         walletAuthMethodId: selection.authMethod.walletAuthMethodId,
