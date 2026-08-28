@@ -1472,7 +1472,7 @@ export async function signRouterAbEcdsaDerivationDigestWithPool(
     return firstAttempt;
   }
 
-  const refill = await refillRouterAbEcdsaDerivationClientPresignaturePool({
+  const refillInput: RouterAbEcdsaDerivationClientPresignatureRefillInput = {
     relayerUrl: args.relayerUrl,
     keyHandle: args.keyHandle,
     ecdsaThresholdKeyId: signingIdentity.ecdsaThresholdKeyId,
@@ -1488,7 +1488,11 @@ export async function signRouterAbEcdsaDerivationDigestWithPool(
     },
     workerCtx: args.workerCtx,
     ...ecdsaPoolFillAuthorization(args),
-  });
+  };
+  let refill = await refillRouterAbEcdsaDerivationClientPresignaturePool(refillInput);
+  if (!refill.ok && refill.code === 'invalidated') {
+    refill = await refillRouterAbEcdsaDerivationClientPresignaturePool(refillInput);
+  }
   if (!refill.ok) return refill;
 
   return await signRouterAbEcdsaDerivationDigestWithPoolHit({
