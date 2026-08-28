@@ -34,13 +34,16 @@ the same entries more slowly and hits the same ceiling, and it fails for
 everyone simultaneously rather than degrading. Recovering needs an operator to
 edit a shared record.
 
-## What was done, and what was not
+## Resolution
 
-Clearing that record's `entries` restored provisioning immediately and without a
-restart, which was the right move to unblock a test run. It is not the fix: it
-discards recovery capability for every wallet already in the environment, and
-the row starts growing again from the next registration.
+The shared recovery-capability map is now a bounded 32-entry request cache.
+In-progress recovery capabilities are retained first. Older active capabilities
+can leave the cache because each wallet's signer row remains the canonical
+durable record, and the existing capability resolver rehydrates a cache miss
+from that signer.
 
-The fix belongs where the record is written - partitioning per wallet, or
-bounding and pruning what the shared record retains. Both are outside Refactor
-109C.
+Bounding happens only at the D1 write boundary. Historical oversized rows still
+decode with their original fingerprint, then the next successful mutation
+rewrites the row in bounded form. This repaired the local 2.18 MB row in place,
+reducing it to about 706 KB without clearing the database or discarding canonical
+wallet capability data.
