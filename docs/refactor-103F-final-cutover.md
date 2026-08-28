@@ -968,17 +968,19 @@ Primary files:
       atomically publish every local discovery and signer prerequisite, and then
       unlock so a lost response reaches a fresh exact browser record and
       signing.
-- [ ] Replace registration activation and deferred NEAR provisioning completion
-      records with `WalletRegistrationSessionCommitReceiptV2`. The generic
+- [x] Replace registration activation and deferred NEAR provisioning completion
+      writes with `WalletRegistrationSessionCommitReceiptV2`. The generic
       side-effect store persists only the credential-free receipt and public
-      committed installation projection; the first public response attaches the
-      ephemeral issued credential after the receipt CAS, while final-cutover
-      replay maps the receipt to `already_committed`.
+      committed installation projection; the first public response is returned
+      only after the receipt CAS. Replay validation runs before the compatibility
+      credential is minted.
+- [ ] Map final-cutover registration replay from that receipt to
+      `already_committed` after the pending local commit path is authoritative.
 - [ ] Use that one committed installation projection for both compatibility
       replay and final pending-commit recovery. The adapter may attach only its
       fresh in-memory V1 bearer; add no second receipt/projection shape or
       intermediate receipt migration.
-- [ ] Keep one Phase 0 request-boundary adapter for clients without the pending
+- [x] Keep one Phase 0 request-boundary adapter for clients without the pending
       commit parser. It reconstructs the current credential-free public
       projection and signs a short-lived V1 bearer only in memory. Delete the
       adapter before enabling the final replay contract and direct exact
@@ -987,7 +989,7 @@ Primary files:
       plus every byte-identical terminal replay assertion. Require a stable
       fingerprint and committed projection with a valid parsed legacy response;
       bearer bytes are deliberately fresh during the adapter window.
-- [ ] Make the receipt parser reject `walletSessionToken`, primary or child
+- [x] Make the receipt parser reject `walletSessionToken`, primary or child
       operation credentials, credential-bearing signer bootstraps, and generic
       persisted response payloads.
 - [ ] Count, redact, or delete historical credential-bearing rows under both
@@ -1929,7 +1931,11 @@ Documentation:
       existing verification after each movement.
   - [x] Extract the behavior-neutral client terminal-commit seam from
         `registration.ts` into `registrationTerminalCommit.ts`.
-  - [ ] Extract the server registration issuer and credential-free receipt.
+  - [ ] Extract the server registration issuer.
+  - [x] Extract the credential-free registration receipt boundary into
+        `walletRegistrationSessionCommitReceipt.ts`. Commits `681af5e62` and
+        `c21f843e7` add the strict projection/parser, V1 read-only drain,
+        receipt-first replay validation, and post-receipt ceremony cleanup.
   - [x] Extract the terminal response parser from `walletRegistration.ts`.
 - [ ] Record the landed migration directory plus every pending migration from
       concurrent workstreams. Treat landed `0023`, `0024`, and `0025` as consumed
@@ -2046,13 +2052,17 @@ Documentation:
       credential digests, opaque tokens, pending V1-authorized operations,
       hosted exchanges, V1-only quotas, and credential-bearing completion rows
       under each registration side-effect prefix.
-- [ ] Replace registration activation and deferred NEAR provisioning journals
-      with the credential-free receipt shape. Assemble an issued credential only
-      in live response memory. Deploy the receipt writer, strict receipt parser,
-      and bounded V1 replay adapter as one compatibility release; never expose an
-      `already_committed` body to a client that still parses only the legacy
-      terminal shape. Keep the adapter until the pending-commit client and direct
-      exact issuer are deployed; final replay then maps the same projection to
+- [x] Replace registration activation and deferred NEAR provisioning journal
+      writes with the credential-free receipt shape. Assemble the issued
+      response only after the receipt CAS and keep plaintext bearer bytes out of
+      the receipt. The strict reader accepts historical V1 completions only at
+      the persistence boundary, validates receipt/journal identity before
+      replay, and leaves the ceremony resumable until the receipt commits.
+- [ ] Deploy the receipt writer, strict receipt parser, and bounded V1 replay
+      adapter as one compatibility release; never expose an `already_committed`
+      body to a client that still parses only the legacy terminal shape. Keep
+      the adapter until the pending-commit client and direct exact issuer are
+      deployed; final replay then maps the same projection to
       `already_committed`.
 - [ ] In that same compatibility release, update the Route 3 contract and service
       comments and replace the staging byte-identical replay assertion. Preserve
