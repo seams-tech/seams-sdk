@@ -955,6 +955,28 @@ test.describe('wallet-host Lit auth menu surface', () => {
     );
   });
 
+  test('keeps the account field tall and close to the auth buttons', async ({ page }) => {
+    const account = {
+      walletId: 'jade-brook',
+      displayName: 'jade-brook',
+      authMethod: 'passkey',
+    } as const;
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      accountOptions: [account],
+      selectedAccount: account,
+    });
+
+    const fieldBox = await page.locator(`${AUTH_MENU_TAG} .w3a-input-pill`).boundingBox();
+    const buttonBox = await page
+      .locator(`${AUTH_MENU_TAG} [data-auth-menu-primary]`)
+      .boundingBox();
+    if (!fieldBox || !buttonBox) throw new Error('Auth menu controls were not laid out');
+
+    expect(fieldBox.height).toBe(48);
+    expect(buttonBox.y - (fieldBox.y + fieldBox.height)).toBe(6);
+  });
+
   test('shows a dual-method wallet in both groups and enables both methods', async ({ page }) => {
     const passkey = {
       walletId: 'jade-brook',

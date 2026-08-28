@@ -331,6 +331,10 @@ seams-auth-menu-surface {
   margin-top: 12px;
 }
 
+.w3a-passkey-row + .w3a-auth-methods {
+  margin-top: 6px;
+}
+
 .w3a-auth-method-stack {
   display: flex;
   flex-direction: column;
@@ -809,7 +813,7 @@ seams-auth-menu-surface {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0;
   z-index: 4;
 }
 
@@ -820,7 +824,7 @@ seams-auth-menu-surface {
   flex: 1;
   align-items: center;
   padding: 0rem 1rem;
-  height: var(--w3a-shape-fieldHeight, 44px);
+  height: calc(var(--w3a-shape-fieldHeight, 44px) + 4px);
   gap: 8px;
   /* field treatment comes from the shape preset: square is a bordered
      surface (border carries the affordance), rounded is a tinted pill */
