@@ -248,6 +248,9 @@ test.describe('hosted auth-menu recovery continuation', () => {
     ]);
     expect(loginWalletIds).toEqual(['recovered-wallet.test']);
     if (session.state.kind !== 'recovery') throw new Error('recovery state was lost');
+    expect(session.state.viewModel.subtitle).toBe(
+      'Your account is ready, login again with your Passkey',
+    );
     expect(session.state.viewModel.status).toEqual({
       kind: 'recoverable',
       reason: 'error',

@@ -1259,9 +1259,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
       viewModel.status.kind === 'recoverable'
         ? viewModel.status.message
         : signIn
-          ? googleTarget
-            ? 'Your Google account is ready to sign in.'
-            : 'Your new passkey is ready.'
+          ? null
           : viewModel.stage === 'google_ready'
             ? 'Continue with Google, then verify the code sent to your email.'
             : googleTarget
@@ -1277,13 +1275,14 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     return html`
       ${this.renderHeader(viewModel)}
       <div class="w3a-recovery-confirmation">
-        <p class="w3a-recovery-status">${message}</p>
+        ${message === null ? null : html`<p class="w3a-recovery-status">${message}</p>`}
         <button
           class="w3a-link-device-btn w3a-link-device-btn-primary"
           type="button"
           data-auth-menu-primary
           @click=${action}
         >
+          ${googleTarget && !finalizationRetry ? googleIcon() : null}
           ${signIn
             ? googleTarget
               ? 'Sign in with Google'
