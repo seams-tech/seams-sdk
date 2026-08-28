@@ -29,11 +29,6 @@ import {
   parseNearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import {
-  buildPasskeyWalletAuthAuthority,
-  walletAuthAuthorityRef,
-  type WalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -2258,25 +2253,6 @@ type ActiveWalletUnlockAuthorityResolution =
   | Extract<WalletUnlockPasskeyAuthorityResolution, { readonly kind: 'active_authority' }>
   | Extract<WalletUnlockEmailOtpAuthorityResolution, { readonly kind: 'active_authority' }>;
 
-async function walletAuthAuthorityRefForActiveUnlock(
-  resolved: ActiveWalletUnlockAuthorityResolution,
-): Promise<WalletAuthAuthorityRef> {
-  if ('walletAuthAuthority' in resolved) {
-    return await walletAuthAuthorityRef({ authority: resolved.walletAuthAuthority });
-  }
-  const authority = buildPasskeyWalletAuthAuthority({
-    walletId: resolved.authMethod.walletId,
-    rpId: resolved.authMethod.rpId,
-    credentialIdB64u: resolved.authMethod.credentialIdB64u,
-  });
-  return await walletAuthAuthorityRef({
-    authority: {
-      ...authority,
-      bindingId: resolved.authMethod.walletAuthMethodId,
-    },
-  });
-}
-
 async function resolveEmailOtpAuthorityForUnlock(input: {
   readonly walletAuthMethods: Pick<
     CloudflareD1WalletAuthMethodService,
@@ -2349,12 +2325,11 @@ async function issueWalletSessionForActiveAuthority(input: {
   const issuedAtMs = Date.now();
   const deviceLinked = input.resolved.authority.provenance.kind === 'device_link';
   try {
-    const authority = await walletAuthAuthorityRefForActiveUnlock(input.resolved);
     const directIssue = await input.authorizationService.issueDirectWalletSessionAuthorizationV2({
       tenantId: tenantId.value,
       principalId: principalId.value,
       walletId: input.resolved.authority.walletId,
-      authority,
+      authority: input.resolved.authority,
       walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
       mintId: mintId.value,
       remainingUses: deviceLinked
@@ -2390,8 +2365,7 @@ async function issueWalletSessionForActiveAuthority(input: {
     return {
       kind: 'rejected',
       code: 'internal',
-      message:
-        error instanceof Error ? error.message : 'Wallet Session issuance failed',
+      message: error instanceof Error ? error.message : 'Wallet Session issuance failed',
     };
   }
 }
