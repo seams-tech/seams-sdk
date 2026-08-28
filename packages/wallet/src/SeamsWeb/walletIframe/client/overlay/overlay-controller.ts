@@ -44,6 +44,48 @@ type OverlayControllerOptions = {
   onDismiss?: (event: OverlayDismissEvent) => void | Promise<void>;
 };
 
+type SurfaceMorphRect = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
+const SURFACE_MORPH_DURATION_MS = 220;
+const SURFACE_REDUCED_MOTION_DURATION_MS = 120;
+
+function finiteSurfaceMorphRect(rect: DOMRect): SurfaceMorphRect | null {
+  if (
+    !Number.isFinite(rect.top) ||
+    !Number.isFinite(rect.left) ||
+    !Number.isFinite(rect.width) ||
+    !Number.isFinite(rect.height) ||
+    rect.width <= 0 ||
+    rect.height <= 0
+  ) {
+    return null;
+  }
+  return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+}
+
+function surfaceMorphKeyframes(
+  origin: SurfaceMorphRect,
+  destination: SurfaceMorphRect,
+  reducedMotion: boolean,
+): Keyframe[] {
+  if (reducedMotion) return [{ opacity: 0 }, { opacity: 1 }];
+  const translateX = origin.left - destination.left;
+  const translateY = origin.top - destination.top;
+  const scaleX = origin.width / destination.width;
+  const scaleY = origin.height / destination.height;
+  return [
+    {
+      transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
+    },
+    { transform: 'none' },
+  ];
+}
+
 function assertNever(value: never): never {
   throw new Error(`Unhandled wallet iframe overlay mode: ${String(value)}`);
 }
@@ -144,6 +186,9 @@ export class OverlayController {
   private authMenuVisualScale = 1;
   private lastAppliedAuthMenuVisualScale = 1;
   private dialogDisplayMode: 'modal' | 'nonmodal' | null = null;
+  private transitionOrigin: SurfaceMorphRect | null = null;
+  private pendingRevealFrame: number | null = null;
+  private surfaceMorphAnimation: Animation | null = null;
 
   constructor(opts: OverlayControllerOptions) {
     this.ensureIframe = opts.ensureIframe;
@@ -210,6 +255,14 @@ export class OverlayController {
     const { dialog, iframe } = this.ensureDialog();
     const identityChanged = !sameIdentity(this.mode, mode);
     const authMenu = mode.kind === 'compact_auth_menu';
+    const previousGeometryKind = this.lastAppliedGeometry
+      ? geometryKind(this.lastAppliedGeometry)
+      : null;
+    const nextGeometryKind = geometryKind(mode.geometry);
+    const revealMeasuredRequestModal =
+      mode.kind === 'compact_request_modal' &&
+      previousGeometryKind === 'provisional' &&
+      nextGeometryKind !== 'provisional';
     const geometryChanged =
       !this.lastAppliedGeometry ||
       !walletIframeSurfaceGeometryEqual(this.lastAppliedGeometry, mode.geometry);
@@ -222,14 +275,28 @@ export class OverlayController {
       this.lastAppliedGeometry !== null &&
       geometryKind(this.lastAppliedGeometry) !== 'provisional' &&
       geometryKind(mode.geometry) !== 'provisional';
+    const authMenuTransitionOrigin =
+      mode.kind === 'compact_request_modal' && this.mode.kind === 'compact_auth_menu'
+        ? finiteSurfaceMorphRect(dialog.getBoundingClientRect())
+        : null;
     if (identityChanged) {
+      this.cancelPendingReveal();
+      this.cancelSurfaceMorph();
       this.generation += 1;
       this.pointerCapture = null;
+      this.transitionOrigin = authMenuTransitionOrigin;
       this.captureFocusForDialog();
     }
     this.mode = mode;
     this.visible = true;
 
+    if (revealMeasuredRequestModal) {
+      dialog.classList.add(OverlayStyleClasses.REVEAL_PENDING);
+    }
+    dialog.classList.toggle(
+      OverlayStyleClasses.HAS_TRANSITION_ORIGIN,
+      this.transitionOrigin !== null,
+    );
     setVisible(iframe);
     setDialogPresentation(dialog, presentationKind(mode), geometryKind(mode.geometry));
     setDialogAuthMenu(dialog, authMenu, animateAuthMenuResize);
@@ -246,13 +313,65 @@ export class OverlayController {
     dialog.classList.remove(OverlayStyleClasses.HIDDEN);
 
     const requestedDisplayMode = authMenu ? 'nonmodal' : 'modal';
+    const requestModalAwaitingMeasurement =
+      mode.kind === 'compact_request_modal' && nextGeometryKind === 'provisional';
     if (dialog.open && this.dialogDisplayMode !== requestedDisplayMode) {
       this.closeDialogProgrammatically(dialog);
       this.dialogDisplayMode = null;
     }
-    if (!dialog.open) {
+    if (!dialog.open && !requestModalAwaitingMeasurement) {
       this.showDialog(dialog, requestedDisplayMode);
     }
+    if (revealMeasuredRequestModal) {
+      this.scheduleMeasuredReveal();
+    }
+  }
+
+  private scheduleMeasuredReveal(): void {
+    this.cancelPendingReveal();
+    this.pendingRevealFrame = window.requestAnimationFrame(this.revealMeasuredSurface);
+  }
+
+  private readonly revealMeasuredSurface = (): void => {
+    this.pendingRevealFrame = null;
+    const dialog = this.dialog;
+    if (
+      !dialog ||
+      !this.visible ||
+      this.mode.kind !== 'compact_request_modal' ||
+      geometryKind(this.mode.geometry) === 'provisional'
+    ) {
+      return;
+    }
+    const destination = finiteSurfaceMorphRect(dialog.getBoundingClientRect());
+    const origin = this.transitionOrigin;
+    if (origin && destination) {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const animation = dialog.animate(surfaceMorphKeyframes(origin, destination, reducedMotion), {
+        duration: reducedMotion ? SURFACE_REDUCED_MOTION_DURATION_MS : SURFACE_MORPH_DURATION_MS,
+        easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
+      });
+      this.surfaceMorphAnimation = animation;
+      animation.addEventListener('finish', this.handleSurfaceMorphFinished, { once: true });
+    }
+    dialog.classList.remove(OverlayStyleClasses.REVEAL_PENDING);
+  };
+
+  private readonly handleSurfaceMorphFinished = (event: Event): void => {
+    if (event.currentTarget !== this.surfaceMorphAnimation) return;
+    this.surfaceMorphAnimation?.cancel();
+    this.surfaceMorphAnimation = null;
+  };
+
+  private cancelPendingReveal(): void {
+    if (this.pendingRevealFrame === null) return;
+    window.cancelAnimationFrame(this.pendingRevealFrame);
+    this.pendingRevealFrame = null;
+  }
+
+  private cancelSurfaceMorph(): void {
+    this.surfaceMorphAnimation?.cancel();
+    this.surfaceMorphAnimation = null;
   }
 
   private showDialog(dialog: HTMLDialogElement, displayMode: 'modal' | 'nonmodal'): void {
@@ -278,6 +397,8 @@ export class OverlayController {
 
   private hideOverlay(): void {
     const wasVisible = this.visible;
+    this.cancelPendingReveal();
+    this.cancelSurfaceMorph();
     this.generation += 1;
     this.pointerCapture = null;
     this.mode = { kind: 'hidden' };
@@ -285,6 +406,7 @@ export class OverlayController {
     this.lastAppliedGeometry = null;
     this.authMenuVisualScale = 1;
     this.lastAppliedAuthMenuVisualScale = 1;
+    this.transitionOrigin = null;
     if (!this.dialog) {
       return;
     }
@@ -297,6 +419,10 @@ export class OverlayController {
     }
     this.dialog.removeAttribute('aria-label');
     this.dialog.classList.add(OverlayStyleClasses.HIDDEN);
+    this.dialog.classList.remove(
+      OverlayStyleClasses.REVEAL_PENDING,
+      OverlayStyleClasses.HAS_TRANSITION_ORIGIN,
+    );
     clearDialogGeometry(this.dialog);
     if (this.dialog.open) {
       this.closeDialogProgrammatically(this.dialog);
@@ -400,11 +526,14 @@ export class OverlayController {
   }
 
   dispose(): void {
+    this.cancelPendingReveal();
+    this.cancelSurfaceMorph();
     this.generation += 1;
     this.pointerCapture = null;
     this.mode = { kind: 'hidden' };
     this.visible = false;
     this.lastAppliedGeometry = null;
+    this.transitionOrigin = null;
     this.dialogDisplayMode = null;
     this.restoreFocus = null;
     const dialog = this.dialog;

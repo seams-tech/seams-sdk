@@ -246,6 +246,7 @@ test.describe('OverlayController', () => {
           focusTrap: true,
           identity,
         });
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         const measuredAnimationName = getComputedStyle(dialog, '::backdrop').animationName;
         await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
         const measuredBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
@@ -264,6 +265,138 @@ test.describe('OverlayController', () => {
     expect(result.fallbackBackdrop).toBe('rgba(0, 0, 0, 0)');
     expect(result.measuredAnimationName).toBe('w3a-wallet-overlay-backdrop-in');
     expect(result.measuredBackdrop).toBe('rgba(0, 0, 0, 0.26)');
+  });
+
+  test('reveals a measured request modal from the existing wallet card geometry', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent) {
+              mountParent.appendChild(iframe);
+            }
+            return iframe;
+          },
+        });
+        overlay.apply({
+          kind: 'compact_auth_menu',
+          presentation: { kind: 'auth_menu_modal', title: 'Wallet recovery codes' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 460,
+            heightCssPx: 360,
+            topCssPx: 164,
+            leftCssPx: 282,
+          },
+          focusTrap: true,
+          identity: {
+            kind: 'request_surface_identity_v1',
+            surfaceId: 'auth-menu-surface',
+            requestId: 'auth-menu-request',
+          },
+          authMenuSessionId: 'auth-menu-session',
+        });
+        const identity = {
+          kind: 'request_surface_identity_v1' as const,
+          surfaceId: 'recovery-surface',
+          requestId: 'recovery-request',
+        };
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Back up recovery codes' },
+          geometry: {
+            kind: 'provisional_centered_modal',
+            widthCssPx: 560,
+            heightCssPx: 320,
+            topCssPx: 224,
+            leftCssPx: 232,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+        if (!(dialog instanceof HTMLDialogElement)) throw new Error('overlay dialog missing');
+        const provisional = {
+          open: dialog.open,
+          visibility: getComputedStyle(dialog).visibility,
+        };
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Back up recovery codes' },
+          geometry: {
+            kind: 'centered_modal',
+            widthCssPx: 560,
+            heightCssPx: 580,
+            topCssPx: 94,
+            leftCssPx: 232,
+          },
+          focusTrap: true,
+          identity,
+        });
+        const beforeReveal = {
+          open: dialog.open,
+          visibility: getComputedStyle(dialog).visibility,
+          pending: dialog.classList.contains('is-reveal-pending'),
+        };
+
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const animation = dialog
+          .getAnimations()
+          .find(
+            (candidate) =>
+              candidate.effect instanceof KeyframeEffect && candidate.effect.target === dialog,
+          );
+        if (!animation || !(animation.effect instanceof KeyframeEffect)) {
+          throw new Error('surface morph animation missing');
+        }
+        animation.pause();
+        animation.currentTime = 0;
+        const firstVisibleRect = dialog.getBoundingClientRect().toJSON();
+        const firstKeyframe = animation.effect.getKeyframes()[0];
+        const revealed = {
+          visibility: getComputedStyle(dialog).visibility,
+          pending: dialog.classList.contains('is-reveal-pending'),
+          transitionOrigin: dialog.classList.contains('has-transition-origin'),
+          backdrop: getComputedStyle(dialog, '::backdrop').backgroundColor,
+        };
+
+        animation.finish();
+        await Promise.resolve();
+        const finalRect = dialog.getBoundingClientRect().toJSON();
+        overlay.dispose();
+        return { provisional, beforeReveal, revealed, firstVisibleRect, finalRect, firstKeyframe };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.provisional).toEqual({ open: false, visibility: 'hidden' });
+    expect(result.beforeReveal).toEqual({ open: true, visibility: 'hidden', pending: true });
+    expect(result.revealed).toEqual({
+      visibility: 'visible',
+      pending: false,
+      transitionOrigin: true,
+      backdrop: 'rgba(0, 0, 0, 0)',
+    });
+    expect(result.firstVisibleRect).toMatchObject({
+      top: 164,
+      left: 282,
+      width: 460,
+      height: 360,
+    });
+    expect(result.finalRect).toMatchObject({
+      top: 94,
+      left: 232,
+      width: 560,
+      height: 580,
+    });
+    expect(result.firstKeyframe.transform).toContain('translate(50px, 70px)');
+    expect(result.firstKeyframe.opacity).toBeUndefined();
   });
 
   test('keeps a provisional drawer visible for the inner slide-in animation', async ({ page }) => {

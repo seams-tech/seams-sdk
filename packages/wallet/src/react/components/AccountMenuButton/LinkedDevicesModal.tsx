@@ -358,6 +358,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 }) => {
   const { seams, loginState } = useSeams();
   const [loadState, setLoadState] = React.useState<LinkedDevicesLoadState>({ kind: 'idle' });
+  const [initialContentReady, setInitialContentReady] = React.useState(false);
   const [revokeState, setRevokeState] = React.useState<RevokeState>({ kind: 'idle' });
   const [announcement, setAnnouncement] = React.useState('');
   /** Device IDs are identifiers, not secrets, but printing one in full by
@@ -382,6 +383,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     loadSeq.current = seq;
     if (!walletId) {
       setLoadState({ kind: 'error', message: 'Wallet identity is unavailable. Try again.' });
+      setInitialContentReady(true);
       return;
     }
     setLoadState({ kind: 'loading' });
@@ -394,10 +396,12 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           kind: 'loaded',
           devices: visibleWalletDevices(result.ownerDevices, result.devices),
         });
+        setInitialContentReady(true);
       }
     } catch (error: unknown) {
       if (loadSeq.current === seq) {
         setLoadState({ kind: 'error', message: linkedDevicesLoadErrorMessage(error) });
+        setInitialContentReady(true);
       }
     }
   }, [walletId]);
@@ -430,7 +434,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   );
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !initialContentReady) return;
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
@@ -440,12 +444,13 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       previousFocusRef.current?.focus();
       previousFocusRef.current = null;
     };
-  }, [handleDialogKeyDown, isOpen]);
+  }, [handleDialogKeyDown, initialContentReady, isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
       loadSeq.current += 1;
       setLoadState({ kind: 'idle' });
+      setInitialContentReady(false);
       setRevokeState({ kind: 'idle' });
       setAnnouncement('');
       setExpandedDeviceId(null);
@@ -590,9 +595,15 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           if (event.target === event.currentTarget) onClose();
         }}
       >
+        {!initialContentReady ? (
+          <div className="w3a-linked-devices-modal-live" role="status" aria-live="polite">
+            Checking your devices…
+          </div>
+        ) : null}
         <div
           ref={dialogRef}
           className="w3a-linked-devices-modal-content"
+          hidden={!initialContentReady}
           role="dialog"
           aria-modal="true"
           aria-labelledby="w3a-linked-devices-modal-title"
