@@ -316,7 +316,7 @@ function assertNeverRegistrationReplayAuthMethod(value: never): never {
   throw new Error(`Unsupported registration replay auth method: ${String(value)}`);
 }
 
-function registrationEstablishedMintId(
+export function registrationEstablishedMintId(
   registrationCeremonyId: string,
 ): ReusableWalletSessionMintId {
   const parsed = parseReusableWalletSessionMintId(
