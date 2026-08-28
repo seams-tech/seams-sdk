@@ -931,7 +931,7 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
     const namespace = 'authorized-operation-v2-claim';
     const fixture = await seedActiveAuthority(temporary.database, namespace, 'v2-claim');
     const service = createService(temporary.database, namespace);
-    const session = await service.issueWalletSessionAuthorizationV2({
+    const directIssue = await service.issueDirectWalletSessionAuthorizationV2({
       tenantId: requiredParsed(parseTenantId('tenant:v2-claim')),
       principalId: requiredParsed(parsePrincipalId('principal:v2-claim')),
       walletId: fixture.authority.walletId,
@@ -942,6 +942,13 @@ test('admits a V2 Wallet Session operation and replays against its exact source'
       issuedAtMs: 300,
       expiresAtMs: 400,
     });
+    if (directIssue.kind !== 'issued') {
+      throw new Error('V2 operation admission fixture did not issue its direct credential');
+    }
+    const session = {
+      session: directIssue.session,
+      quota: directIssue.quota,
+    };
     const operation = buildCapabilityOperationEnvelope({
       tenantId: session.session.tenantId,
       principalId: session.session.principalId,
