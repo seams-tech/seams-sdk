@@ -1355,6 +1355,7 @@ export async function insertEmailOtpEnrollment(input: {
     recoveryWrappedEnrollmentEscrowCount: 3,
     clientUnlockPublicKeyB64u: input.clientUnlockPublicKeyB64u || 'client-unlock-public-key',
     unlockKeyVersion: 'unlock-v1',
+    serverSealedFactorCiphertextB64u: 'server-sealed-factor-ciphertext',
     thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-verifying-share',
     createdAtMs: 600,
     updatedAtMs: 700,

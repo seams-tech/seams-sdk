@@ -412,6 +412,66 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
   }
 });
 
+test('Cloudflare D1 Google login resolves a selected wallet added under its verified email', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+    };
+    const walletId = 'selected-wallet.testnet';
+    const verifiedEmail = 'alice@example.test';
+    const googleSubject = 'google:selected-user';
+    await insertEmailOtpEnrollment({
+      database,
+      ...scope,
+      walletId,
+      providerUserId: verifiedEmail,
+      verifiedEmail,
+    });
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      relayerAccount: 'relay.local',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+    });
+    const resolved = await service.identity.resolveGoogleEmailOtpSession({
+      providerSubject: googleSubject,
+      email: verifiedEmail.toUpperCase(),
+      accountMode: 'login',
+      loginWalletId: walletId,
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: {
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+        signingRootVersion: 'root-v1',
+      },
+    });
+
+    expect(resolved).toEqual({
+      ok: true,
+      mode: 'existing_wallet',
+      walletId,
+      providerSubject: verifiedEmail,
+      email: verifiedEmail,
+      hasEmailOtpEnrollment: true,
+    });
+    await expect(service.identity.listIdentities({ userId: walletId })).resolves.toEqual({
+      ok: true,
+      subjects: [`wallet:${googleSubject}`],
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
 test('Cloudflare D1 Router API auth service issues and verifies login Email OTP challenges', async () => {
   const { database, tempDir } = createTemporaryD1Database();
   try {
