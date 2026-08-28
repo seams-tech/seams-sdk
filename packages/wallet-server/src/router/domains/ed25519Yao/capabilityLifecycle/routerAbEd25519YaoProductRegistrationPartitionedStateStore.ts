@@ -25,6 +25,7 @@ import {
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
 } from './routerAbEd25519YaoProductRegistrationPersistence';
 import {
+  boundedRouterAbEd25519YaoProductRegistrationSharedStateV1,
   mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationCeremonyStateV1,
@@ -201,11 +202,12 @@ export function routerAbEd25519YaoPartitionedStateAfterStoredCommitV1(input: {
 }): RouterAbEd25519YaoProductRegistrationPartitionedStateV1 {
   const lifecycleId = requireLifecycleId(input.lifecycleId);
   const partition = partitionRouterAbEd25519YaoProductRegistrationStateV1(input.state, lifecycleId);
+  const shared = boundedRouterAbEd25519YaoProductRegistrationSharedStateV1(partition.shared);
   const execution = registrationExecutionRecordFromState(input.state, lifecycleId);
   return {
     kind: 'router_ab_ed25519_yao_product_registration_partitioned_state_v1',
     state: input.state,
-    sharedState: partition.shared,
+    sharedState: shared,
     sharedVersion: input.commit.sharedVersion,
     ceremonyVersion: input.commit.ceremonyVersion,
     execution,
@@ -346,13 +348,14 @@ class RouterAbEd25519YaoProductRegistrationPartitionedStateStore implements Rout
       input.state,
       lifecycleId,
     );
+    const shared = boundedRouterAbEd25519YaoProductRegistrationSharedStateV1(partition.shared);
     const mutations: RouterAbEd25519YaoProductRegistrationPartitionMutationV1[] = [];
-    if (stateFingerprint(partition.shared) !== stateFingerprint(input.sharedState)) {
+    if (stateFingerprint(shared) !== stateFingerprint(input.sharedState)) {
       mutations.push({
         key: ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
         value: {
           kind: 'router_ab_ed25519_yao_product_registration_shared_record_v1',
-          value: partition.shared,
+          value: shared,
         },
         expectedVersion: input.sharedVersion,
       });

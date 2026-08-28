@@ -17,6 +17,8 @@ type RecoveryCapabilityState = MapValue<InMemoryRouterAbEd25519YaoRecoveryStateV
 type RecoveryLifecycleState = MapValue<InMemoryRouterAbEd25519YaoRecoveryStateV1['recoveries']>;
 type ExportLifecycleState = MapValue<InMemoryRouterAbEd25519YaoExportStateV1['exports']>;
 
+const MAX_SHARED_RECOVERY_CAPABILITIES = 32;
+
 export type RouterAbEd25519YaoProductRegistrationSharedStateV1 = {
   readonly kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1';
   readonly recoveryCapabilities: Map<string, RecoveryCapabilityState>;
@@ -224,6 +226,61 @@ function cloneMapValues<T>(source: Map<string, T>): Map<string, T> {
   const cloned = new Map<string, T>();
   for (const [key, value] of source) cloned.set(key, structuredClone(value));
   return cloned;
+}
+
+export function boundedRouterAbEd25519YaoProductRegistrationSharedStateV1(
+  source: RouterAbEd25519YaoProductRegistrationSharedStateV1,
+): RouterAbEd25519YaoProductRegistrationSharedStateV1 {
+  const recoveryCapabilities = boundedRecoveryCapabilities(source.recoveryCapabilities);
+  return {
+    kind: 'router_ab_ed25519_yao_product_registration_shared_state_v1',
+    recoveryCapabilities,
+    recoveryIdentityCapabilities: retainedRecoveryIdentityCapabilities(
+      source.recoveryIdentityCapabilities,
+      recoveryCapabilities,
+    ),
+    recoverySessions: new Map(source.recoverySessions),
+    exportAuthorizationNonces: new Set(source.exportAuthorizationNonces),
+    exportAuthorizationUncertain: new Set(source.exportAuthorizationUncertain),
+  };
+}
+
+function boundedRecoveryCapabilities(
+  source: Map<string, RecoveryCapabilityState>,
+): Map<string, RecoveryCapabilityState> {
+  if (source.size <= MAX_SHARED_RECOVERY_CAPABILITIES) return cloneMapValues(source);
+
+  // Durable signer rows are canonical. This shared map is a request cache, so
+  // retain active recovery ceremonies first and let older wallets rehydrate.
+  const entries = [...source.entries()];
+  const suspended = entries.filter(([, capability]) => capability.kind === 'suspended');
+  const retained = new Set<string>();
+  for (const [key] of suspended.slice(-MAX_SHARED_RECOVERY_CAPABILITIES)) retained.add(key);
+  for (
+    let index = entries.length - 1;
+    index >= 0 && retained.size < MAX_SHARED_RECOVERY_CAPABILITIES;
+    index -= 1
+  ) {
+    const entry = entries[index];
+    if (entry) retained.add(entry[0]);
+  }
+
+  const bounded = new Map<string, RecoveryCapabilityState>();
+  for (const [key, capability] of entries) {
+    if (retained.has(key)) bounded.set(key, structuredClone(capability));
+  }
+  return bounded;
+}
+
+function retainedRecoveryIdentityCapabilities(
+  source: Map<string, string>,
+  capabilities: Map<string, RecoveryCapabilityState>,
+): Map<string, string> {
+  const retained = new Map<string, string>();
+  for (const [identity, capabilityKey] of source) {
+    if (capabilities.has(capabilityKey)) retained.set(identity, capabilityKey);
+  }
+  return retained;
 }
 
 function registrationStateLifecycleId(state: RegistrationLifecycleState): string {

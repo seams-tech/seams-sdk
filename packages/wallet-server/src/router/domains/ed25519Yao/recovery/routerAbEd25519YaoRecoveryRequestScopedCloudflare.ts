@@ -544,8 +544,35 @@ async function runAdmissionRequest(
   context: RecoveryRequestScopedContext,
   request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 ): Promise<RecoveryResponse> {
+  const first = await runAdmissionTwoPhase(context, request);
+  if (first.kind !== 'rejected' || first.value.ok || first.value.code !== 'unknown_capability') {
+    return mapAdmissionResult(first);
+  }
+
+  const resolved = await context.input.capabilities.resolveActiveCapability({
+    kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+    walletId: request.application_binding.wallet_id,
+    nearEd25519SigningKeyId: request.application_binding.near_ed25519_signing_key_id,
+    signerSlot: request.application_binding.key_creation_signer_slot,
+    signingWorkerId: request.scope.signing_worker_id,
+    participantIds: request.participant_ids,
+  });
+  if (!resolved.ok) return activeCapabilityResolutionFailure(resolved);
+  return mapAdmissionResult(await runAdmissionTwoPhase(context, request));
+}
+
+async function runAdmissionTwoPhase(
+  context: RecoveryRequestScopedContext,
+  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+): Promise<
+  RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1<
+    RouterAbEd25519YaoRecoveryAdmissionClaimV1,
+    RecoveryResponse,
+    AuthorizationFailure | RouterAbEd25519YaoRecoveryFailure
+  >
+> {
   const run = new RecoveryAdmissionRequestRun(context, request);
-  const result = await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
+  return await runRouterAbEd25519YaoRegistrationTwoPhaseV1<
     RouterAbEd25519YaoRecoveryAdmissionClaimV1,
     RouterAbEd25519YaoRecoveryBackendResult,
     RecoveryResponse,
@@ -557,7 +584,22 @@ async function runAdmissionRequest(
     backend: run.backend.bind(run),
     complete: run.complete.bind(run),
   });
-  return mapAdmissionResult(result);
+}
+
+function activeCapabilityResolutionFailure(
+  resolution: Extract<
+    Awaited<ReturnType<RouterAbEd25519YaoActiveCapabilityResolverV1['resolveActiveCapability']>>,
+    { readonly ok: false }
+  >,
+): RouterAbEd25519YaoRecoveryFailure {
+  switch (resolution.code) {
+    case 'invalid_lookup':
+      return { ok: false, status: 400, code: 'invalid_request', message: resolution.message };
+    case 'unknown_capability':
+      return { ok: false, status: 404, code: 'unknown_capability', message: resolution.message };
+    case 'capability_conflict':
+      return { ok: false, status: 409, code: 'capability_conflict', message: resolution.message };
+  }
 }
 
 async function runExecutionRequest(
