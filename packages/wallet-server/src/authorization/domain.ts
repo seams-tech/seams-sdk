@@ -53,12 +53,13 @@ import type { ProviderSubject, WebAuthnCredentialIdB64u } from '@shared/utils/do
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import type {
-  AuthFactorIdentity,
-  WalletAuthAuthorityRef,
-} from '@shared/utils/walletAuthAuthority';
+import type { AuthFactorIdentity, WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
-import type { ActiveWalletAuthorityV1, WalletSignerActivationSetV1 } from '@shared/authorization/walletAuthority';
+import type {
+  ActiveWalletAuthorityV1,
+  WalletSignerActivationSetV1,
+} from '@shared/authorization/walletAuthority';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 
 /** A server-only identity for one consumed owner authentication result. */
 export type VerifiedOwnerProofId = DomainId<'VerifiedOwnerProofId'>;
@@ -272,6 +273,88 @@ export type IssuedWalletSessionAuthorizationV2 = {
   readonly quota: ActiveWalletSessionQuota;
 };
 
+/**
+ * The server-side aggregate that is safe to expose to persistence code after
+ * an exact Wallet Session commit. The credential digest never crosses the
+ * browser or wire response boundary.
+ */
+export type PersistedActiveWalletSessionAuthorizationV2 = {
+  readonly kind: 'persisted_active_wallet_session_authorization_v2';
+  readonly session: WalletSessionAuthorizationV2;
+  readonly quota: ActiveWalletSessionQuota;
+  readonly primaryOperationCredentialDigestB64u: DigestB64u;
+  readonly retiredAtMs?: never;
+};
+
+export type WalletSessionAuthorizationV2MintLookup = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly mintId: ReusableWalletSessionMintId;
+};
+
+/**
+ * A credential-free readback of one committed issuance attempt. It remains
+ * readable after retirement so a retry can identify the original commit.
+ */
+export type WalletSessionAuthorizationV2MintRead = {
+  readonly kind: 'committed';
+  readonly session: WalletSessionAuthorizationV2;
+  readonly primaryOperationCredentialDigestB64u: DigestB64u;
+  readonly retiredAtMs: number | null;
+};
+
+export type DirectV2CommitResult =
+  | { readonly kind: 'inserted' }
+  | {
+      readonly kind: 'already_committed';
+      readonly committed: WalletSessionAuthorizationV2MintRead;
+    };
+
+export type DirectV2IssueResult =
+  | {
+      readonly kind: 'issued';
+      readonly session: WalletSessionAuthorizationV2;
+      readonly quota: ActiveWalletSessionQuota;
+      readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly kind: 'already_committed';
+      readonly walletId: WalletId;
+      readonly authorityId: WalletAuthorityId;
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly mintId: ReusableWalletSessionMintId;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly next: 'unlock_exact_method';
+    };
+
+export function buildPersistedActiveWalletSessionAuthorizationV2(fields: {
+  readonly session: WalletSessionAuthorizationV2;
+  readonly quota: ActiveWalletSessionQuota;
+  readonly primaryOperationCredentialDigestB64u: DigestB64u;
+}): PersistedActiveWalletSessionAuthorizationV2 {
+  if (
+    fields.session.tenantId !== fields.quota.tenantId ||
+    fields.session.principalId !== fields.quota.principalId ||
+    fields.session.walletSessionId !== fields.quota.walletSessionId ||
+    fields.session.quotaId !== fields.quota.quotaId ||
+    fields.session.expiresAtMs !== fields.quota.expiresAtMs
+  ) {
+    throw new Error('V2 persisted active authorization and quota must have one exact identity');
+  }
+  parseDigestB64u(fields.primaryOperationCredentialDigestB64u);
+  return {
+    kind: 'persisted_active_wallet_session_authorization_v2',
+    session: fields.session,
+    quota: fields.quota,
+    primaryOperationCredentialDigestB64u: fields.primaryOperationCredentialDigestB64u,
+  };
+}
+
 type WalletSessionSignerSubjectKind = 'sign' | 'export_keys';
 
 function appendWalletSessionSignerSubjects(
@@ -448,7 +531,10 @@ export function walletSessionAuthorizationV2RecordsEqual(
   );
 }
 
-function hasExactFields(value: Record<string, unknown>, expectedFields: readonly string[]): boolean {
+function hasExactFields(
+  value: Record<string, unknown>,
+  expectedFields: readonly string[],
+): boolean {
   const fields = Object.keys(value).sort();
   const sortedExpectedFields = [...expectedFields].sort();
   return (
@@ -475,9 +561,7 @@ function parseWalletAuthMethodIdRequired(value: unknown): WalletAuthMethodId {
   return parsed.value;
 }
 
-function parseWalletSessionCapabilitySubject(
-  value: unknown,
-): WalletSessionCapabilitySubjectV1 {
+function parseWalletSessionCapabilitySubject(value: unknown): WalletSessionCapabilitySubjectV1 {
   if (!isRecord(value) || typeof value.kind !== 'string') {
     throw new Error('Wallet Session capability subject must be an object');
   }
@@ -499,7 +583,9 @@ function parseWalletSessionCapabilitySubject(
     case 'link_devices':
     case 'revoke_devices':
       if (!hasExactFields(value, ['kind', 'authorityId'])) {
-        throw new Error('Wallet Session administration capability subject contains unexpected fields');
+        throw new Error(
+          'Wallet Session administration capability subject contains unexpected fields',
+        );
       }
       return {
         kind: value.kind,
@@ -510,9 +596,7 @@ function parseWalletSessionCapabilitySubject(
   }
 }
 
-function parseWalletSessionCapabilitySubjects(
-  value: unknown,
-): WalletSessionCapabilitySubjectsV1 {
+function parseWalletSessionCapabilitySubjects(value: unknown): WalletSessionCapabilitySubjectsV1 {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error('Wallet Session capability subjects must be non-empty');
   }
@@ -525,9 +609,7 @@ function parseWalletSessionCapabilitySubjects(
   return [firstSubject, ...remainingSubjects];
 }
 
-export function parseWalletSessionAuthorizationV2(
-  value: unknown,
-): WalletSessionAuthorizationV2 {
+export function parseWalletSessionAuthorizationV2(value: unknown): WalletSessionAuthorizationV2 {
   if (
     !isRecord(value) ||
     !hasExactFields(value, [
@@ -974,9 +1056,6 @@ export function buildWalletSessionAuthorization(
   };
 }
 
-
-
-
 function parseAuthorizationDomainId<TName extends string>(
   value: unknown,
   fieldName: string,
@@ -1063,7 +1142,6 @@ function requireOrderedTimes(createdAtMs: number, expiresAtMs: number, label: st
     throw new Error(`${label} expiry must follow creation`);
   }
 }
-
 
 function requireDomainIdParse(
   result: { readonly ok: true } | { readonly ok: false; readonly error: { message: string } },

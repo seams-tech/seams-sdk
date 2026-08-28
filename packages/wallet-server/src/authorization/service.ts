@@ -1,4 +1,4 @@
-import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 import type {
   ActiveWalletSessionQuota,
   AuthorizedOperation,
@@ -16,6 +16,11 @@ import type {
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
   IssuedWalletSessionAuthorizationV2,
+  DirectV2CommitResult,
+  DirectV2IssueResult,
+  PersistedActiveWalletSessionAuthorizationV2,
+  WalletSessionAuthorizationV2MintLookup,
+  WalletSessionAuthorizationV2MintRead,
   WalletSessionAuthorization,
   WalletSessionAuthorizationV2,
   VerifiedOwnerProof,
@@ -26,6 +31,7 @@ import {
   buildWalletSessionAuthorization,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
+  buildPersistedActiveWalletSessionAuthorizationV2,
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
   parseMpcWalletSigningQuotaId,
@@ -61,12 +67,12 @@ import type {
 } from './capabilityPolicy';
 import type { AuthorizationEvidenceRequirement } from '@shared/authorization/capabilityKinds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { WalletId } from '@shared/utils/domainIds';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { ThresholdEd25519AuthorityScope } from '../core/types';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
@@ -142,10 +148,12 @@ export interface AuthorizationGrantPort {
     readonly session: WalletSessionAuthorizationV2;
     readonly quota: ActiveWalletSessionQuota;
   }): Promise<void>;
-  readWalletSessionAuthorizationV2ByMint(input: {
-    readonly expected: WalletSessionAuthorizationV2;
-    readonly nowMs: number;
-  }): Promise<IssuedWalletSessionAuthorizationV2 | null>;
+  readWalletSessionAuthorizationV2ByMint(
+    input: WalletSessionAuthorizationV2MintLookup,
+  ): Promise<WalletSessionAuthorizationV2MintRead | null>;
+  commitDirectWalletSessionAuthorizationV2(input: {
+    readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
+  }): Promise<DirectV2CommitResult>;
   readWalletSessionAuthorizationV2ByAuthorizationId(input: {
     readonly expected: WalletSessionAuthorizationV2;
     readonly nowMs: number;
@@ -785,7 +793,7 @@ export class AuthorizationService {
   ): Promise<IssuedWalletSessionAuthorizationV2> {
     const prepared = await this.prepareWalletSessionAuthorizationV2(input);
     await this.ports.grants.putWalletSessionAuthorizationV2(prepared);
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint({
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
       expected: prepared.session,
       nowMs: input.issuedAtMs,
     });
@@ -794,6 +802,62 @@ export class AuthorizationService {
       throw new Error('V2 Wallet Session issuance replay does not match');
     }
     return persisted;
+  }
+
+  /**
+   * Issues one exact Wallet Session and its primary credential in the same
+   * persistence transition. The replay branch is credential-free because a
+   * committed digest cannot reproduce plaintext.
+   */
+  async issueDirectWalletSessionAuthorizationV2(
+    input: IssueWalletSessionAuthorizationV2Input,
+  ): Promise<DirectV2IssueResult> {
+    if (input.authority.walletId !== input.walletId) {
+      throw new Error('Wallet Session authorization authority does not identify the wallet');
+    }
+    const lookup: WalletSessionAuthorizationV2MintLookup = {
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      walletId: input.walletId,
+      authorityId: input.authority.authorityId,
+      walletAuthMethodId: input.walletAuthMethodId,
+      mintId: input.mintId,
+    };
+    const alreadyCommitted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
+    if (alreadyCommitted) return directV2AlreadyCommitted(alreadyCommitted.session);
+
+    const prepared = await this.prepareWalletSessionAuthorizationV2(input);
+    const token = `wst_${secureRandomBase64Url(32, 'direct V2 Wallet Session operation credentials')}`;
+    const operationCredential = parseWalletSessionOperationCredentialV1({
+      kind: 'opaque_wallet_session_operation_credential_v1',
+      token,
+      walletSessionId: prepared.session.walletSessionId,
+    });
+    const persisted = buildPersistedActiveWalletSessionAuthorizationV2({
+      session: prepared.session,
+      quota: prepared.quota,
+      primaryOperationCredentialDigestB64u: await digestOpaqueValue(token),
+    });
+    const commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
+    if (commit.kind === 'already_committed') {
+      return directV2AlreadyCommitted(commit.committed.session);
+    }
+    const committed = await this.ports.grants.readWalletSessionAuthorizationV2ByMint(lookup);
+    if (!committed) {
+      throw new Error('Direct V2 Wallet Session authorization was not persisted');
+    }
+    if (
+      committed.primaryOperationCredentialDigestB64u !==
+      persisted.primaryOperationCredentialDigestB64u
+    ) {
+      throw new Error('Direct V2 Wallet Session credential digest does not match its commit');
+    }
+    return {
+      kind: 'issued',
+      session: prepared.session,
+      quota: prepared.quota,
+      operationCredential,
+    };
   }
 
   /**
@@ -828,7 +892,7 @@ export class AuthorizationService {
   }): Promise<IssuedWalletSessionAuthorizationV2> {
     const projected = projectReusableWalletSessionV2(input);
     await this.ports.grants.putWalletSessionAuthorizationV2(projected);
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint({
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
       expected: projected.session,
       nowMs: input.reusableWalletSession.session.createdAtMs,
     });
@@ -845,7 +909,7 @@ export class AuthorizationService {
   }): Promise<IssuedWalletSessionAuthorizationV2> {
     const projected = projectReusableWalletSessionV2(input);
     await this.ports.grants.replaceWalletSessionAuthorizationV2AuthorityProjection(projected);
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByMint({
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
       expected: projected.session,
       nowMs: input.reusableWalletSession.session.createdAtMs,
     });
@@ -900,10 +964,9 @@ export class AuthorizationService {
     return { session, quota };
   }
 
-  async readWalletSessionAuthorizationV2ByMint(input: {
-    readonly expected: WalletSessionAuthorizationV2;
-    readonly nowMs: number;
-  }): Promise<IssuedWalletSessionAuthorizationV2 | null> {
+  async readWalletSessionAuthorizationV2ByMint(
+    input: WalletSessionAuthorizationV2MintLookup,
+  ): Promise<WalletSessionAuthorizationV2MintRead | null> {
     return await this.ports.grants.readWalletSessionAuthorizationV2ByMint(input);
   }
 
@@ -1080,6 +1143,22 @@ async function deriveWalletSessionAuthorizationV2Id(
 
 async function digestOpaqueValue(value: string) {
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(value)));
+}
+
+function directV2AlreadyCommitted(
+  session: WalletSessionAuthorizationV2,
+): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
+  return {
+    kind: 'already_committed',
+    walletId: session.walletId,
+    authorityId: session.authorityId,
+    walletAuthMethodId: session.walletAuthMethodId,
+    mintId: session.mintId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    next: 'unlock_exact_method',
+  };
 }
 
 function parseRequired<T>(
