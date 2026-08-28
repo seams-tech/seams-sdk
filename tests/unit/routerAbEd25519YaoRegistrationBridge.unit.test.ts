@@ -113,6 +113,15 @@ class CredentialFreeRegistrationStore implements RouterAbEd25519YaoRegistrationS
   }
 }
 
+class CredentialFreeReplayProbe {
+  public calls = 0;
+
+  public replay(receipt: CredentialFreeReceipt): CredentialBearingResponse {
+    this.calls += 1;
+    return replayCredentialFreeTestReceipt(receipt);
+  }
+}
+
 function projectCredentialFreeTestReceipt(
   response: CredentialBearingResponse,
 ): CredentialFreeReceipt {
@@ -281,6 +290,7 @@ test.describe('registration side-effect persistence bridge', () => {
   test('stores only a credential-free receipt and rebuilds a fresh replay response', async () => {
     const store = new CredentialFreeRegistrationStore();
     let effectCalls = 0;
+    const replayProbe = new CredentialFreeReplayProbe();
     const input = {
       kind: 'prepared_resumable' as const,
       operation: 'registration_activate' as const,
@@ -299,7 +309,7 @@ test.describe('registration side-effect persistence bridge', () => {
         };
       },
       projectReceipt: projectCredentialFreeTestReceipt,
-      replay: replayCredentialFreeTestReceipt,
+      replay: replayProbe.replay.bind(replayProbe),
       adaptLegacyResponse: (response: CredentialBearingResponse) => response,
     };
 
@@ -344,6 +354,19 @@ test.describe('registration side-effect persistence bridge', () => {
       },
     });
     expect(effectCalls).toBe(1);
+    expect(replayProbe.calls).toBe(1);
+
+    await expect(
+      runRouterAbEd25519YaoRegistrationSideEffectV2<
+        CredentialBearingResponse,
+        CredentialFreeReceipt,
+        PreparedMarker
+      >(store, {
+        ...input,
+        requestFingerprint: 'B1f3l6f4R6TT7IqKCMGEjU0RiRkmphAMYj6QJfG5UvQ',
+      }),
+    ).resolves.toEqual({ kind: 'request_conflict' });
+    expect(replayProbe.calls).toBe(1);
   });
 
   test('reads a strict legacy completion row during the compatibility drain', async () => {
@@ -464,6 +487,7 @@ test.describe('registration side-effect persistence bridge', () => {
           ok: false,
           code: 'invalid_registration_state',
           message: 'Registration cannot be activated from this state',
+          retryAfterMs: 0,
         },
       },
     });

@@ -160,6 +160,9 @@ export function parseRegistrationEstablishedSessionProjectionV2(
     const walletSessionId = parseWalletSessionId(raw.walletSessionId);
     const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
     if (!walletId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok) return null;
+    if (new Set<string>([authorizationId.value, walletSessionId.value, quotaId.value]).size !== 3) {
+      return null;
+    }
     const expiresAtMs = parseNonNegativeSafeInteger(raw.expiresAtMs);
     const remainingUses = parseNonNegativeSafeInteger(raw.remainingUses);
     const tokens = parseRegistrationEstablishedSessionProjectionTokensV2(raw.tokens);

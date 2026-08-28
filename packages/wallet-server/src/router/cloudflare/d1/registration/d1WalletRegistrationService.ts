@@ -4161,6 +4161,10 @@ export class CloudflareD1WalletRegistrationService {
           nearProvisioning: { status: 'near_failed_retryable' },
         };
       }
+      await cleanupFinalizedRegistrationCeremony({
+        store: this.getRegistrationCeremonyIntentStore(),
+        registrationCeremonyId: input.registrationCeremonyId,
+      });
       return {
         ...committed,
         nearProvisioning: { status: 'near_ready' },
@@ -4569,8 +4573,15 @@ export class CloudflareD1WalletRegistrationService {
       });
       switch (run.kind) {
         case 'executed':
-        case 'exact_replay':
+        case 'exact_replay': {
+          if (run.value.response.ok && run.value.response.kind === 'evm_family_ecdsa') {
+            await cleanupFinalizedRegistrationCeremony({
+              store: this.getRegistrationCeremonyIntentStore(),
+              registrationCeremonyId: claims.registrationCeremonyId,
+            });
+          }
           return run.value.response;
+        }
         case 'request_conflict':
           return {
             ok: false,
@@ -5937,20 +5948,9 @@ export class CloudflareD1WalletRegistrationService {
         finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
         return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
       }
-      /* The commit above is irreversible, so a tombstone failure must not fail
-         the response — but it must not be silent either. `false` means the row
-         was already gone (a replayed finalize), which is benign; a throw means
-         D1 refused the delete and the ceremony survives until its TTL. The
-         activation owner binding keeps a surviving ceremony from re-running
-         custody, so the residue is a stale row, not a second wallet. */
-      try {
-        await store.deleteCeremony(ceremony.registrationCeremonyId);
-      } catch (error: unknown) {
-        console.warn('[wallet-registration] ceremony tombstone delete failed after commit', {
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          message: errorMessage(error),
-        });
-      }
+      /* The operation journal owns terminal durability. Its caller deletes the
+         ceremony only after the credential-free completion receipt commits, so
+         a crash before that CAS can resume from this ceremony and prepared row. */
       finishD1RegistrationRouteTiming(finalizeTiming, totalTiming);
       return withD1RegistrationRouteDiagnostics(response, finalizeTiming);
     } catch (error: unknown) {
