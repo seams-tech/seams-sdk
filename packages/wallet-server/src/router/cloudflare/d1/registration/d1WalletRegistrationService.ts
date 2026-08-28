@@ -1050,13 +1050,6 @@ function requireReusableWalletSessionMintId(value: string): ReusableWalletSessio
   return parsed.value;
 }
 
-async function walletSessionPolicyMintId(
-  policy: RouterAbEd25519YaoBudgetRefreshRequestV1['sessionPolicy'],
-): Promise<ReusableWalletSessionMintId> {
-  const digest = base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(policy)));
-  return requireReusableWalletSessionMintId(`wallet-session-policy:${digest}`);
-}
-
 async function registrationWalletAuthAuthorityRef(input: {
   readonly authority: WalletAuthAuthority;
 }): Promise<WalletAuthAuthorityRef> {
