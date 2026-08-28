@@ -324,6 +324,7 @@ test.describe('OverlayController', () => {
         const provisional = {
           open: dialog.open,
           visibility: getComputedStyle(dialog).visibility,
+          iframeRect: iframe.getBoundingClientRect().toJSON(),
         };
 
         overlay.apply({
@@ -375,7 +376,14 @@ test.describe('OverlayController', () => {
       { path: IMPORT_PATHS.overlay },
     );
 
-    expect(result.provisional).toEqual({ open: false, visibility: 'hidden' });
+    expect(result.provisional).toMatchObject({
+      open: true,
+      visibility: 'hidden',
+      iframeRect: {
+        width: 560,
+        height: 320,
+      },
+    });
     expect(result.beforeReveal).toEqual({ open: true, visibility: 'hidden', pending: true });
     expect(result.revealed).toEqual({
       visibility: 'visible',
