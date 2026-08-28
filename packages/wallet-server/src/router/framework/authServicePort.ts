@@ -87,7 +87,10 @@ import type {
 } from '../../core/registrationContracts';
 import type { WalletAuthMethodRevocationProof } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import type { IssuedWalletSessionAuthorizationV2 } from '../../authorization/domain';
+import type {
+  DirectV2IssueResult,
+  IssuedWalletSessionAuthorizationV2,
+} from '../../authorization/domain';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 
 export type WalletAuthMethodManagementSubject = Readonly<{
@@ -124,6 +127,11 @@ export type WalletUnlockPasskeySessionResolution =
       readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
       readonly walletSession: IssuedWalletSessionAuthorizationV2;
       readonly operationCredential: WalletSessionOperationCredentialV1;
+    }
+  | {
+      readonly kind: 'already_committed';
+      readonly authorityProvenanceKind: 'device_link' | 'wallet_recovery';
+      readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
     }
   | {
       readonly kind: 'wallet_registration';

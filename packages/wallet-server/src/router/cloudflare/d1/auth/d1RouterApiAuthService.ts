@@ -79,6 +79,10 @@ import type {
   WalletUnlockPasskeyAuthorityResolution,
   WalletUnlockPasskeySessionResolution,
 } from '../../../framework/authServicePort';
+import type {
+  DirectV2IssueResult,
+  IssuedWalletSessionAuthorizationV2,
+} from '../../../../authorization/domain';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
@@ -2206,11 +2210,13 @@ async function issueWalletSessionForActiveAuthority(input: {
   const issuedAtMs = Date.now();
   const deviceLinked = input.resolved.authority.provenance.kind === 'device_link';
   try {
-    const reusableWalletSession = await input.authorizationService.issueReusableWalletSession({
+    const authority = await walletAuthAuthorityRefForActiveUnlock(input.resolved);
+    const directIssue = await input.authorizationService.issueDirectWalletSessionAuthorizationV2({
       tenantId: tenantId.value,
       principalId: principalId.value,
       walletId: input.resolved.authority.walletId,
-      authority: await walletAuthAuthorityRefForActiveUnlock(input.resolved),
+      authority,
+      walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
       mintId: mintId.value,
       remainingUses: deviceLinked
         ? LINKED_DEVICE_WALLET_SESSION_REMAINING_USES
@@ -2220,16 +2226,6 @@ async function issueWalletSessionForActiveAuthority(input: {
         issuedAtMs +
         (deviceLinked ? LINKED_DEVICE_WALLET_SESSION_TTL_MS : DEFAULT_WALLET_SESSION_TTL_MS),
     });
-    const walletSession =
-      await input.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
-        reusableWalletSession,
-        authority: input.resolved.authority,
-        walletAuthMethodId: input.resolved.authMethod.walletAuthMethodId,
-      });
-    const operationCredential =
-      await input.authorizationService.issueWalletSessionAuthorizationV2OperationCredential({
-        session: walletSession.session,
-      });
     const authorityProvenanceKind = input.resolved.authority.provenance.kind;
     if (authorityProvenanceKind === 'wallet_registration') {
       return {
@@ -2238,20 +2234,36 @@ async function issueWalletSessionForActiveAuthority(input: {
         message: 'Founding authority entered additive Wallet Session issuance',
       };
     }
+    if (directIssue.kind === 'already_committed') {
+      return {
+        kind: 'already_committed',
+        authorityProvenanceKind,
+        committed: directIssue,
+      };
+    }
     return {
       kind: 'active_authority',
       authorityProvenanceKind,
-      walletSession,
-      operationCredential,
+      walletSession: issuedWalletSessionAuthorizationV2(directIssue),
+      operationCredential: directIssue.operationCredential,
     };
   } catch (error: unknown) {
     return {
       kind: 'rejected',
       code: 'internal',
       message:
-        error instanceof Error ? error.message : 'Linked-device Wallet Session issuance failed',
+        error instanceof Error ? error.message : 'Wallet Session issuance failed',
     };
   }
+}
+
+function issuedWalletSessionAuthorizationV2(
+  directIssue: Extract<DirectV2IssueResult, { readonly kind: 'issued' }>,
+): IssuedWalletSessionAuthorizationV2 {
+  return {
+    session: directIssue.session,
+    quota: directIssue.quota,
+  };
 }
 
 async function issueWalletSessionForPasskeyUnlock(input: {
