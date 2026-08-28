@@ -244,6 +244,9 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         providerSubject: result.providerSubject,
         email: result.email,
         accountMode: parsed.request.accountMode,
+        ...(parsed.request.loginWalletId
+          ? { loginWalletId: parsed.request.loginWalletId }
+          : {}),
         runtimePolicyScope: runtimePolicyScope.scope,
         restartRegistrationOffer: parsed.request.restartRegistrationOffer,
       });

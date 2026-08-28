@@ -817,6 +817,7 @@ export type RouterApiMethodTypes = {
       readonly sub?: string;
       readonly email?: string;
       readonly accountMode?: unknown;
+      readonly loginWalletId?: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly restartRegistrationOffer?: unknown;
     };
@@ -1264,6 +1265,7 @@ export interface RouterApiWalletAuthMethodService {
   /** Verifies the fresh Email OTP source proof and resolves the identity it proved. */
   verifyAddAuthMethodEmailOtpSourceProof(input: {
     readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
     readonly challengeId: string;
     readonly otpCode: string;
     readonly expectedDigestB64u: string;

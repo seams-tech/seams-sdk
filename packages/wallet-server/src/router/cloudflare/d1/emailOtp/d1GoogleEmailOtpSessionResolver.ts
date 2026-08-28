@@ -113,6 +113,11 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
     const runtimePolicyScope = requireRuntimePolicyScope(input.runtimePolicyScope);
     const restartRegistrationOffer = isTrueFlag(input.restartRegistrationOffer);
+    const loginWalletIdRaw = toOptionalTrimmedString(input.loginWalletId);
+    const loginWalletId = loginWalletIdRaw ? parseD1BoundaryWalletId(loginWalletIdRaw) : null;
+    if (loginWalletIdRaw && !loginWalletId) {
+      throw new Error('Google Email OTP login wallet id is invalid');
+    }
     const identitySubject = `wallet:${providerSubject.value}`;
     const linkedWalletId = parseD1BoundaryWalletId(
       await this.identityStore.getUserIdBySubject(identitySubject),
@@ -124,6 +129,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
         email,
         orgId: runtimePolicyScope.orgId,
         linkedWalletId,
+        loginWalletId,
       });
       if (loginSession) return loginSession;
       if (!email) {
@@ -420,7 +426,36 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     readonly email: string;
     readonly orgId: string;
     readonly linkedWalletId: string | null;
+    readonly loginWalletId: string | null;
   }): Promise<ResolveGoogleEmailOtpSessionResult | null> {
+    if (input.loginWalletId) {
+      const selectedEnrollment = await this.emailOtpEnrollments.readEnrollment(
+        input.loginWalletId,
+      );
+      const selectedEnrollmentMatchesGoogleAccount =
+        selectedEnrollment?.orgId === input.orgId &&
+        selectedEnrollment.verifiedEmail === input.email &&
+        (selectedEnrollment.providerUserId === input.providerSubject ||
+          selectedEnrollment.providerUserId === input.email);
+      if (selectedEnrollment && selectedEnrollmentMatchesGoogleAccount) {
+        const repaired = await this.repairWalletLink({
+          providerSubject: input.providerSubject,
+          walletId: selectedEnrollment.walletId,
+        });
+        if (!repaired.ok) throw codedError(repaired.code, repaired.message);
+        return {
+          ok: true,
+          mode: 'existing_wallet',
+          walletId: selectedEnrollment.walletId,
+          /* The Google token selects the wallet by its verified address. The
+             unlock itself must keep using the factor's canonical subject,
+             because that subject binds its envelope and signing material. */
+          providerSubject: selectedEnrollment.providerUserId,
+          email: selectedEnrollment.verifiedEmail,
+          hasEmailOtpEnrollment: true,
+        };
+      }
+    }
     if (input.linkedWalletId) {
       const enrollment = await this.readActiveEnrollment({
         walletId: input.linkedWalletId,

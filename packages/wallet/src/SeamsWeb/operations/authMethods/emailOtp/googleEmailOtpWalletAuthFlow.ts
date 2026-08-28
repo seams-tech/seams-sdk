@@ -85,6 +85,7 @@ type GoogleEmailOtpProviderResolutionRequest<
   relayUrl: string | undefined;
   /** Register-mode only: replace this subject's existing Email OTP wallet. */
   restartRegistrationOffer: boolean;
+  loginWalletId?: string;
 };
 
 export type GoogleEmailOtpLinkedUnlockSelection =
@@ -134,6 +135,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
   resolveLinkedEmailOtpWalletAuth?(args: {
     walletId: string;
     email: string;
+    provider: 'google' | 'email';
     providerSubjectId: string;
   }): Promise<GoogleEmailOtpLinkedUnlockSelection>;
   loginWithLinkedEmailOtpWallet?(args: {
@@ -324,7 +326,19 @@ function googleEmailOtpProviderResolutionRequest<
     accountMode,
     relayUrl: input.relayUrl,
     restartRegistrationOffer: accountMode === 'register' && input.replaceExistingWallet === true,
+    ...(input.mode === 'login' && input.loginTarget.kind === 'wallet'
+      ? { loginWalletId: String(input.loginTarget.walletId) }
+      : {}),
   };
+}
+
+function emailOtpProviderForResolvedSubject(input: {
+  readonly providerSubject: string;
+  readonly verifiedEmail: string;
+}): 'google' | 'email' {
+  return input.providerSubject.toLowerCase() === input.verifiedEmail.toLowerCase()
+    ? 'email'
+    : 'google';
 }
 
 async function resolveGoogleEmailOtpProviderForAuthFlow(args: {
@@ -390,6 +404,10 @@ async function selectLinkedEmailOtpWalletAuth(args: {
   const selection = await args.deps.resolveLinkedEmailOtpWalletAuth({
     walletId: String(args.state.walletId),
     email: args.state.emailHint,
+    provider: emailOtpProviderForResolvedSubject({
+      providerSubject: args.state.providerSubject,
+      verifiedEmail: args.state.emailHint,
+    }),
     providerSubjectId: args.state.providerSubject,
   });
   switch (selection.kind) {
@@ -542,7 +560,10 @@ async function loginWithConfiguredTargets(args: {
     walletSession,
     walletAuthMethodId: authoritySelector.walletAuthMethodId,
     providerIdentity: {
-      provider: 'google' as const,
+      provider: emailOtpProviderForResolvedSubject({
+        providerSubject: args.state.providerSubject,
+        verifiedEmail: args.state.emailHint,
+      }),
       providerSubjectId: args.state.providerSubject,
     },
     challengeId: args.challenge.challengeId,
