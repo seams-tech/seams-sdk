@@ -48,7 +48,10 @@ import {
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
-import { buildAuthorizedOperation } from '../../packages/wallet-server/src/authorization/domain';
+import {
+  buildAuthorizedOperation,
+  buildPersistedActiveWalletSessionAuthorizationV2,
+} from '../../packages/wallet-server/src/authorization/domain';
 import { D1WalletAuthorityStore } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
 import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
@@ -536,21 +539,119 @@ test('issues V2 Wallet Sessions only for exact active authority provenance', asy
         /V2 Wallet Session|provenance|replay/,
       );
     }
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
 
-    await temporary.database
-      .prepare(
-        `UPDATE wallet_session_authorizations_v2
-            SET retired_at_ms = ?
-          WHERE namespace = ? AND tenant_id = ? AND mint_id = ?`,
-      )
-      .bind(399, namespace, input.tenantId, input.mintId)
-      .run();
-    await expect(
-      service.readWalletSessionAuthorizationV2ByMint({
-        expected: issued.session,
-        nowMs: 301,
+test('direct V2 issuance is replay-stable and exhausts the same-method predecessor atomically', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'wallet-session-v2-direct-issuance';
+    const service = createService(temporary.database, namespace);
+    const fixture = await seedActiveAuthority(temporary.database, namespace, 'direct-issuance');
+    const firstInput = {
+      tenantId: requiredParsed(parseTenantId('tenant:v2-direct-issuance')),
+      principalId: requiredParsed(parsePrincipalId('principal:v2-direct-issuance')),
+      walletId: fixture.authority.walletId,
+      authority: fixture.authority,
+      walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+      mintId: requiredMintId('unlock:v2-direct-issuance:first'),
+      remainingUses: 3,
+      issuedAtMs: 300,
+      expiresAtMs: 500,
+    } as const;
+
+    const first = await service.issueDirectWalletSessionAuthorizationV2(firstInput);
+    expect(first.kind).toBe('issued');
+    if (first.kind !== 'issued') throw new Error('first direct issuance did not issue');
+
+    const replay = await service.issueDirectWalletSessionAuthorizationV2(firstInput);
+    expect(replay).toMatchObject({
+      kind: 'already_committed',
+      authorizationId: first.session.authorizationId,
+      walletSessionId: first.session.walletSessionId,
+      quotaId: first.session.quotaId,
+      next: 'unlock_exact_method',
+    });
+
+    const losingDigest = await digestOpaqueCredentialForTest('concurrent-losing-credential');
+    const concurrentLoser = await createAuthorizationStore(
+      temporary.database,
+      namespace,
+    ).commitDirectWalletSessionAuthorizationV2({
+      persisted: buildPersistedActiveWalletSessionAuthorizationV2({
+        session: first.session,
+        quota: first.quota,
+        primaryOperationCredentialDigestB64u: losingDigest,
       }),
-    ).rejects.toThrow(/retired/);
+    });
+    expect(concurrentLoser).toMatchObject({
+      kind: 'already_committed',
+      committed: {
+        session: first.session,
+        primaryOperationCredentialDigestB64u: await digestOpaqueCredentialForTest(
+          first.operationCredential.token,
+        ),
+      },
+    });
+
+    const replacement = await service.issueDirectWalletSessionAuthorizationV2({
+      ...firstInput,
+      mintId: requiredMintId('unlock:v2-direct-issuance:replacement'),
+      issuedAtMs: 350,
+      expiresAtMs: 550,
+    });
+    expect(replacement.kind).toBe('issued');
+    if (replacement.kind !== 'issued') throw new Error('replacement direct issuance did not issue');
+
+    const rows = await temporary.database
+      .prepare(
+        `SELECT
+           session.mint_id,
+           session.retired_at_ms,
+           quota.remaining_uses,
+           quota.lifecycle_kind
+         FROM wallet_session_authorizations_v2 AS session
+         JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = session.namespace
+          AND quota.tenant_id = session.tenant_id
+          AND quota.quota_id = session.quota_id
+        WHERE session.namespace = ?
+          AND session.tenant_id = ?
+          AND session.wallet_id = ?
+          AND session.authority_id = ?
+          AND session.wallet_auth_method_id = ?
+        ORDER BY session.issued_at_ms`,
+      )
+      .bind(
+        namespace,
+        firstInput.tenantId,
+        String(firstInput.walletId),
+        String(firstInput.authority.authorityId),
+        String(firstInput.walletAuthMethodId),
+      )
+      .all<{
+        readonly mint_id: string;
+        readonly retired_at_ms: number | null;
+        readonly remaining_uses: number;
+        readonly lifecycle_kind: string;
+      }>();
+    expect(rows.results).toEqual([
+      {
+        mint_id: String(firstInput.mintId),
+        retired_at_ms: 350,
+        remaining_uses: 0,
+        lifecycle_kind: 'exhausted',
+      },
+      {
+        mint_id: String(replacement.session.mintId),
+        retired_at_ms: null,
+        remaining_uses: 3,
+        lifecycle_kind: 'active',
+      },
+    ]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
