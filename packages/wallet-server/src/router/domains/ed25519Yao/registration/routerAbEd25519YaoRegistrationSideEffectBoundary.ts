@@ -525,6 +525,11 @@ export type RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L = T> =
 export type RouterAbEd25519YaoRegistrationSideEffectRunResultV2<T, P> =
   RouterAbEd25519YaoRegistrationSideEffectRunResultV1<T, P>;
 
+type RegistrationV2AdapterResponse<T, C, L> =
+  | { readonly kind: 'executed_response'; readonly response: T }
+  | { readonly kind: 'receipt_replay'; readonly receipt: C }
+  | { readonly kind: 'legacy_replay'; readonly response: L };
+
 /**
  * Registration-only journal runner. Completion CAS stores a receipt instead
  * of the public response; replay is responsible for minting any ephemeral
@@ -534,13 +539,11 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV2<T, C, P, L =
   store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, L>,
   input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L>,
 ): Promise<RouterAbEd25519YaoRegistrationSideEffectRunResultV2<T, P>> {
-  const adaptedStore = new RegistrationV2StoreAdapter(
-    store,
-    input.projectReceipt,
-    input.replay,
-    input.adaptLegacyResponse,
-  );
-  const adaptedInput: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<T, P> = {
+  const adaptedStore = new RegistrationV2StoreAdapter(store, input.projectReceipt);
+  const adaptedInput: RouterAbEd25519YaoRegistrationSideEffectRunInputV1<
+    RegistrationV2AdapterResponse<T, C, L>,
+    P
+  > = {
     kind: input.kind,
     operation: input.operation,
     key: input.key,
@@ -549,9 +552,54 @@ export async function runRouterAbEd25519YaoRegistrationSideEffectV2<T, C, P, L =
     nowMs: input.nowMs,
     prepare: input.prepare,
     derivePreparedArtifactFingerprint: input.derivePreparedArtifactFingerprint,
-    execute: input.execute,
+    execute: async (prepared, attempt) => ({
+      kind: 'executed_response',
+      response: await input.execute(prepared, attempt),
+    }),
   };
-  return await runRouterAbEd25519YaoRegistrationSideEffectV1(adaptedStore, adaptedInput);
+  const result = await runRouterAbEd25519YaoRegistrationSideEffectV1(adaptedStore, adaptedInput);
+  switch (result.kind) {
+    case 'executed':
+      if (result.value.kind !== 'executed_response') {
+        return {
+          kind: 'uncertain',
+          phase: 'terminal_commit',
+          message: 'registration side-effect executed with an invalid adapter response',
+        };
+      }
+      return { kind: 'executed', value: result.value.response };
+    case 'exact_replay':
+      try {
+        return {
+          kind: 'exact_replay',
+          value: await resolveRegistrationV2AdapterReplay(result.value, input),
+        };
+      } catch (error: unknown) {
+        return uncertainResult('claim', error);
+      }
+    case 'in_progress':
+    case 'request_conflict':
+    case 'uncertain':
+      return result;
+    default:
+      return assertNever(result);
+  }
+}
+
+async function resolveRegistrationV2AdapterReplay<T, C, P, L>(
+  value: RegistrationV2AdapterResponse<T, C, L>,
+  input: RouterAbEd25519YaoRegistrationSideEffectRunInputV2<T, C, P, L>,
+): Promise<T> {
+  switch (value.kind) {
+    case 'executed_response':
+      return value.response;
+    case 'receipt_replay':
+      return await input.replay(value.receipt);
+    case 'legacy_replay':
+      return input.adaptLegacyResponse(value.response);
+    default:
+      return assertNever(value);
+  }
 }
 
 class RegistrationV2StoreAdapter<
@@ -559,18 +607,21 @@ class RegistrationV2StoreAdapter<
   C,
   P,
   L,
-> implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<T, P> {
+> implements RouterAbEd25519YaoRegistrationSideEffectStoreV1<
+  RegistrationV2AdapterResponse<T, C, L>,
+  P
+> {
   public constructor(
     private readonly store: RouterAbEd25519YaoRegistrationSideEffectStoreV2<C, P, L>,
     private readonly projectReceipt: (response: T) => Promise<C> | C,
-    private readonly replay: (receipt: C) => Promise<T>,
-    private readonly adaptLegacyResponse: (response: L) => T,
   ) {}
 
   public async read(
     key: string,
   ): Promise<
-    VersionedJsonRecordReadResult<RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>>
+    VersionedJsonRecordReadResult<
+      RouterAbEd25519YaoRegistrationSideEffectRecordV1<RegistrationV2AdapterResponse<T, C, L>, P>
+    >
   > {
     const result = await this.store.read(key);
     if (result.kind === 'missing') return { kind: 'missing' };
@@ -582,7 +633,6 @@ class RegistrationV2StoreAdapter<
           value: result.value,
         };
       case 'router_ab_ed25519_yao_registration_side_effect_completion_v2': {
-        const response = await this.replay(result.value.receipt);
         return {
           kind: 'present',
           version: result.version,
@@ -594,7 +644,7 @@ class RegistrationV2StoreAdapter<
             claimedAtMs: result.value.claimedAtMs,
             completedAtMs: result.value.completedAtMs,
             prepared: result.value.prepared,
-            response,
+            response: { kind: 'receipt_replay', receipt: result.value.receipt },
           },
         };
       }
@@ -610,7 +660,7 @@ class RegistrationV2StoreAdapter<
             claimedAtMs: result.value.claimedAtMs,
             completedAtMs: result.value.completedAtMs,
             prepared: result.value.prepared,
-            response: this.adaptLegacyResponse(result.value.response),
+            response: { kind: 'legacy_replay', response: result.value.response },
           },
         };
       default:
@@ -620,14 +670,20 @@ class RegistrationV2StoreAdapter<
 
   public async put(
     key: string,
-    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<T, P>,
+    value: RouterAbEd25519YaoRegistrationSideEffectRecordV1<
+      RegistrationV2AdapterResponse<T, C, L>,
+      P
+    >,
     expectedVersion: string | null,
   ): Promise<VersionedJsonRecordPutResult> {
     switch (value.kind) {
       case 'router_ab_ed25519_yao_registration_side_effect_claim_v1':
         return await this.store.put(key, value, expectedVersion);
       case 'router_ab_ed25519_yao_registration_side_effect_completion_v1': {
-        const receipt = requireReceipt(await this.projectReceipt(value.response));
+        if (value.response.kind !== 'executed_response') {
+          throw new Error('registration side-effect cannot persist a replay adapter response');
+        }
+        const receipt = requireReceipt(await this.projectReceipt(value.response.response));
         return await this.store.put(
           key,
           {
