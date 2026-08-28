@@ -6448,7 +6448,9 @@ export class BrowserSigningSurface {
       }),
     });
     if (unlock.kind === 'wallet_custody_cache_absent') {
-      throw new Error('Email OTP wallet custody rejoin produced no active capability');
+      throw new Error(
+        'Email OTP wallet custody material is unavailable; recover with a recovery code',
+      );
     }
     try {
       await persistVerifiedEmailOtpAuthorityAfterUnlock({

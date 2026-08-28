@@ -2107,10 +2107,7 @@ async function releaseWalletRecoveryEmailOtpFactor(
       throw new Error('Email OTP recovery factor release returned an invalid response kind');
     }
     const challengeId = readString(released.challengeId, 'recovery factor release.challengeId');
-    const enrollmentId = readString(
-      released.enrollmentId,
-      'recovery factor release.enrollmentId',
-    );
+    const enrollmentId = readString(released.enrollmentId, 'recovery factor release.enrollmentId');
     const providerSubject = readString(
       released.providerSubject,
       'recovery factor release.providerSubject',
@@ -2394,6 +2391,20 @@ async function unlockEmailOtpAuthorityWallet(
       walletId,
       authoritySelector: { kind: 'wallet_auth_method', walletAuthMethodId },
     });
+    const walletCustody = ownerEmailOtpWalletCustodyProjection({
+      verifiedAuthorityProjection,
+      rawWalletCustody: verified.walletCustody,
+      walletId,
+      enrollmentId: released.enrollmentId,
+      enrollmentSealKeyVersion: released.enrollmentSealKeyVersion,
+    });
+    const walletCustodySeed: EmailOtpWorkerOperationMap['unlockEmailOtpAuthorityWallet']['result']['walletCustodySeed'] =
+      walletCustody
+        ? {
+            kind: 'owner_authority_seed_envelope',
+            existingEnvelope: walletCustody.envelope,
+          }
+        : { kind: 'linked_device_seed_unavailable' };
     const walletSession = parseActiveWalletSessionV1(verified.walletSession);
     const operationCredential = parseWalletSessionOperationCredentialV1(
       verified.operationCredential,
@@ -2417,12 +2428,9 @@ async function unlockEmailOtpAuthorityWallet(
            response above already carried the custody projection, so the runtime
            is built here from the seed this unlock already holds rather than by
            verifying the factor a second time somewhere else. */
-        const walletCustody = parseEmailOtpWalletCustodyUnlockProjection({
-          raw: verified.walletCustody,
-          walletId,
-          enrollmentId: released.enrollmentId,
-          enrollmentSealKeyVersion: released.enrollmentSealKeyVersion,
-        });
+        if (!walletCustody) {
+          throw new Error('Email OTP owner authority unlock omitted wallet custody');
+        }
         if (!factorSecret32) {
           throw new Error('Email OTP authority unlock lost its factor secret');
         }
@@ -2461,6 +2469,7 @@ async function unlockEmailOtpAuthorityWallet(
       walletSession,
       operationCredential,
       verifiedAuthorityProjection,
+      walletCustodySeed,
       ed25519Activation,
     };
   } finally {
@@ -2469,6 +2478,31 @@ async function unlockEmailOtpAuthorityWallet(
     zeroizeBytes(unlockPrivateKey32);
     zeroizeBytes(unlockPublicKey33);
     zeroizeBytes(unlockSignature65);
+  }
+}
+
+function ownerEmailOtpWalletCustodyProjection(args: {
+  readonly verifiedAuthorityProjection: EmailOtpVerifiedAuthorityProjection;
+  readonly rawWalletCustody: unknown;
+  readonly walletId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+}): EmailOtpWalletCustodyUnlockProjection | null {
+  switch (args.verifiedAuthorityProjection.authority.provenance.kind) {
+    case 'wallet_registration':
+    case 'wallet_recovery':
+      return parseEmailOtpWalletCustodyUnlockProjection({
+        raw: args.rawWalletCustody,
+        walletId: args.walletId,
+        enrollmentId: args.enrollmentId,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+      });
+    case 'device_link':
+      return null;
+    default:
+      return assertNeverEmailOtpWorker(
+        args.verifiedAuthorityProjection.authority.provenance,
+      );
   }
 }
 
@@ -3177,162 +3211,6 @@ function parseEmailOtpWalletCustodyRejoinCommitPayload(value: unknown): {
   };
 }
 
-function walletCustodyEd25519RejoinMaterial(args: {
-  payload: ReturnType<typeof parseEmailOtpWalletCustodyRejoinCommitPayload>;
-  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
-}): LoadedWalletCustodyEd25519MaterialV1 {
-  const capability = args.bootstrap.capability;
-  const nearAccountId = readString(
-    args.bootstrap.session.nearAccountId,
-    'wallet custody nearAccountId',
-  );
-  if (nearAccountId !== capability.nearAccountId) {
-    throw new Error('Email OTP wallet custody rejoin near account changed');
-  }
-  if (args.payload.walletId !== capability.applicationBinding.wallet_id) {
-    throw new Error('Email OTP wallet custody rejoin wallet changed');
-  }
-  const registeredPublicKeyB64u = base64UrlEncode(args.metadata.registeredPublicKey);
-  const expectedRegisteredPublicKeyB64u = base64UrlEncode(
-    Uint8Array.from(capability.registeredPublicKey),
-  );
-  if (registeredPublicKeyB64u !== expectedRegisteredPublicKeyB64u) {
-    throw new Error('Email OTP wallet custody rejoin registered key changed');
-  }
-  const participantIds: readonly [number, number] = [
-    args.metadata.participantIds[0],
-    args.metadata.participantIds[1],
-  ];
-  const binding: WalletCustodyEd25519MaterialBindingV1 = {
-    kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
-    applicationBindingDigestB64u: args.payload.ed25519ApplicationBindingDigestB64u,
-    registeredPublicKeyB64u,
-    participantIds,
-    stateEpoch: String(args.metadata.stateEpoch),
-    walletId: args.payload.walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId: capability.applicationBinding.near_ed25519_signing_key_id,
-    signerSlot: capability.applicationBinding.key_creation_signer_slot,
-    signingWorkerId: args.metadata.scope.signing_worker_id,
-    signingWorkerVerifyingShareB64u: base64UrlEncode(args.metadata.signingWorkerVerifyingShare),
-  };
-  const sealed: WalletCustodySealedEd25519MaterialV1 = {
-    ciphertextB64u: args.payload.ed25519LocalMaterialB64u,
-    nonceB64u: args.payload.ed25519LocalMaterialNonceB64u,
-  };
-  return { binding, sealed };
-}
-
-async function rejoinEmailOtpEd25519FromCustody(args: {
-  relayUrl: string;
-  walletId: string;
-  projection: EmailOtpWalletCustodyUnlockProjection;
-  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
-  clientSecret32: Uint8Array;
-}): Promise<{
-  activeClientHandle: string;
-  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  material: LoadedWalletCustodyEd25519MaterialV1;
-}> {
-  const capability = args.bootstrap.capability;
-  const custodyWire = joinCustodyWireFromEnvelopeRecord(args.projection.envelope);
-  if (!custodyWire.ok) {
-    throw new Error(`Email OTP wallet custody envelope is unusable: ${custodyWire.reason}`);
-  }
-  const participantIds: readonly [number, number] = [
-    capability.participantIds[0],
-    capability.participantIds[1],
-  ];
-  const registeredPublicKeyB64u = base64UrlEncode(Uint8Array.from(capability.registeredPublicKey));
-  const recoveryRequest = await buildWalletSessionEd25519RecoveryAdmissionRequestV1({
-    basis: capability,
-  });
-  const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
-    routerOrigin: new URL(args.relayUrl).origin,
-    authorization: {
-      kind: 'bearer',
-      value: `Bearer ${capabilitySessionWalletToken(args.bootstrap)}`,
-    },
-    fetch: globalThis.fetch,
-  });
-  const admitted = await admitWalletRecoveryEd25519V1({ request: recoveryRequest, transport });
-  const protocolInputsJson = JSON.stringify({
-    yaoAdmission: admitted.receipt,
-    yaoApplication: admitted.request.application_binding,
-    clientParticipantId: participantIds[0],
-    signingWorkerParticipantId: participantIds[1],
-    continuityRegisteredPublicKeyB64u: registeredPublicKeyB64u,
-  });
-  await ensureWalletCustodyCeremonyWasm();
-  const factorSecret32 = args.clientSecret32.slice();
-  let seedHeld: WasmCeremonySeedHeldV1 | null = null;
-  let prepared: WasmCeremonyProtocolPreparedV1 | null = null;
-  let completed: WasmCeremonyProtocolCompletedV1 | null = null;
-  let established: WasmCeremonyManifestEstablishedV1 | null = null;
-  try {
-    seedHeld = wallet_custody_ceremony_join_v1(factorSecret32, custodyWire.custodyJson);
-    prepared = seedHeld.prepare_near_ed25519(protocolInputsJson);
-    seedHeld = null;
-    const yaoExecuteRequestJson = prepared.yao_execute_request_json();
-    if (!yaoExecuteRequestJson) {
-      throw new Error('Email OTP wallet custody rejoin produced no Router request');
-    }
-    const activationResultJson = await executeWalletRecoveryEd25519RoundV1({
-      executeRequestJson: yaoExecuteRequestJson,
-      transport,
-    });
-    completed = prepared.complete_near_ed25519(activationResultJson);
-    prepared = null;
-    const activationReceipt = await activateWalletRecoveryEd25519V1({
-      request: recoveryRequest,
-      protocolResultJson: activationResultJson,
-      transport,
-    });
-    established = completed.establish_manifest(
-      'near_ed25519_v1',
-      capability.applicationBinding.near_ed25519_signing_key_id,
-    );
-    completed = null;
-    const payload = parseEmailOtpWalletCustodyRejoinCommitPayload(
-      established.finish_joining_custody(),
-    );
-    established = null;
-    if (payload.walletId !== args.walletId) {
-      throw new Error('Email OTP wallet custody rejoin returned another wallet');
-    }
-    const metadata = walletRecoveryEd25519ActiveClientMetadataV1({
-      admissionRequest: recoveryRequest,
-      activationResultJson,
-      activationReceipt,
-    });
-    const material = walletCustodyEd25519RejoinMaterial({
-      payload,
-      metadata,
-      bootstrap: args.bootstrap,
-    });
-    const activeClient = await openWalletCustodyEd25519ActiveClientV1({
-      material,
-      activation: walletCustodyActivationFactsFromActiveClientMetadataV1(metadata),
-      envelope: walletCustodyCacheEnvelopeFromRecordV1(args.projection.envelope),
-      ownedFactorSecret: args.clientSecret32.slice(),
-    });
-    try {
-      const activated = storeEmailOtpEd25519YaoActiveClient(activeClient);
-      return { ...activated, material };
-    } catch (error) {
-      activeClient.dispose();
-      throw error;
-    }
-  } finally {
-    factorSecret32.fill(0);
-    prepared?.free();
-    seedHeld?.free();
-    completed?.free();
-    established?.free();
-  }
-}
-
 function capabilitySessionWalletToken(
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1,
 ): ReturnType<typeof requireOpaqueWalletSessionToken> {
@@ -3346,7 +3224,6 @@ type EmailOtpEd25519WalletCustodyRestoreResult =
       kind: 'opened';
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      material?: LoadedWalletCustodyEd25519MaterialV1;
     }
   | { kind: 'cache_absent' };
 
@@ -3365,20 +3242,7 @@ async function restoreEmailOtpEd25519FromCustodyCache(args: {
       ? args.material.ed25519Yao.walletCustodyEd25519Material
       : args.material.walletCustodyEd25519Material;
   if (cacheRequest.kind === 'absent') {
-    if (args.material.kind !== 'ed25519_yao_recovery') return { kind: 'cache_absent' };
-    const rejoined = await rejoinEmailOtpEd25519FromCustody({
-      relayUrl: args.relayUrl,
-      walletId: args.walletId,
-      projection: args.projection,
-      bootstrap: args.bootstrap,
-      clientSecret32: args.clientSecret32,
-    });
-    return {
-      kind: 'opened',
-      activeClientHandle: rejoined.activeClientHandle,
-      metadata: rejoined.metadata,
-      material: rejoined.material,
-    };
+    return { kind: 'cache_absent' };
   }
   const activeClient = await openWalletCustodyEd25519ActiveClientV1({
     material: cacheRequest.material,
@@ -3464,7 +3328,6 @@ async function completeEmailOtpUnlockFromSecret32(args: {
   let unlockPublicKey33: Uint8Array | null = null;
   let unlockSignature65: Uint8Array | null = null;
   let openedEd25519Client: EmailOtpEd25519YaoWorkerActivationHandle | null = null;
-  let openedEd25519Material: LoadedWalletCustodyEd25519MaterialV1 | null = null;
   try {
     unlockPrivateKey32 = await deriveEmailOtpUnlockAuthSeedInWorker({
       clientSecret32: args.clientSecret32,
@@ -3560,7 +3423,6 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           activeClientHandle: restored.activeClientHandle,
           metadata: restored.metadata,
         };
-        openedEd25519Material = restored.material || null;
       }
     }
     const ecdsaSession =
@@ -3662,9 +3524,6 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             activeClientHandle: opened.activeClientHandle,
             metadata: opened.metadata,
             ed25519YaoCapability,
-            ...(openedEd25519Material
-              ? { walletCustodyEd25519Material: openedEd25519Material }
-              : {}),
             walletCustodyEnvelope: walletCustody.envelope,
           };
         }
@@ -7356,9 +7215,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const resolutionState: EmailOtpEd25519ExportCustodyResolutionState = {
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
           walletId: readString(msg.payload.lane.walletId, 'lane.walletId'),
-          walletAuthMethodId: requireWorkerWalletAuthMethodId(
-            msg.payload.lane.walletAuthMethodId,
-          ),
+          walletAuthMethodId: requireWorkerWalletAuthMethodId(msg.payload.lane.walletAuthMethodId),
           orgId: exportOrgId,
           providerSubjectId: readString(
             msg.payload.lane.providerSubjectId,
