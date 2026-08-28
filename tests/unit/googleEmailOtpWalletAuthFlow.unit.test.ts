@@ -117,12 +117,13 @@ function makeRegisterResolution(
 function makeExistingResolution(
   input: {
     walletId?: string;
+    providerSubject?: string;
   } = {},
 ): Extract<GoogleEmailOtpProviderResolution, { mode: 'existing_wallet' }> {
   return {
     mode: 'existing_wallet',
     walletId: input.walletId ?? 'alice.testnet',
-    providerSubject: 'google-subject-1',
+    providerSubject: input.providerSubject ?? 'google-subject-1',
     email: 'alice@example.com',
     hasEmailOtpEnrollment: true,
   };
@@ -301,6 +302,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       relayUrl: 'https://relay.example',
       ecdsaTargets: { kind: 'none' },
     });
@@ -327,6 +329,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       relayUrl: 'https://relay.example',
       ecdsaTargets: { kind: 'none' },
     });
@@ -471,6 +474,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       relayUrl: 'https://relay.example',
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
     });
@@ -505,11 +509,69 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     });
   });
 
+  test('wallet-targeted Google login opens an added verified-address Email OTP method', async () => {
+    const { deps, calls } = makeDeps({
+      resolveGoogleEmailOtpProvider: async (args) => {
+        calls.push({ type: 'resolveGoogleEmailOtpProvider', args });
+        return makeExistingResolution({
+          walletId: 'stale-discovery.testnet',
+          providerSubject: 'alice@example.com',
+        });
+      },
+      resolveLinkedEmailOtpWalletAuth: async (args) => {
+        calls.push({ type: 'resolveLinkedEmailOtpWalletAuth', args });
+        return { kind: 'none' };
+      },
+    });
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      loginTarget: { kind: 'wallet', walletId: 'target-wallet.testnet' },
+      relayUrl: 'https://relay.example',
+      ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+    expect(calls[0]).toMatchObject({
+      type: 'resolveGoogleEmailOtpProvider',
+      args: {
+        accountMode: 'login',
+        loginWalletId: 'target-wallet.testnet',
+      },
+    });
+    expect(calls.find((call) => call.type === 'resolveLinkedEmailOtpWalletAuth')).toMatchObject({
+      args: {
+        walletId: 'target-wallet.testnet',
+        email: 'alice@example.com',
+        provider: 'email',
+        providerSubjectId: 'alice@example.com',
+      },
+    });
+
+    const submitted = await started.value.submit({ otpCode: '123456' });
+
+    expect(submitted.ok).toBe(true);
+    expect(calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability')).toMatchObject({
+      args: {
+        walletSession: {
+          walletId: 'target-wallet.testnet',
+          walletSessionUserId: 'target-wallet.testnet',
+        },
+        providerIdentity: {
+          provider: 'email',
+          providerSubjectId: 'alice@example.com',
+        },
+      },
+    });
+  });
+
   test('login path submits one OTP-backed ECDSA capability call for multiple targets', async () => {
     const { deps, calls } = makeDeps();
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       relayUrl: 'https://relay.example',
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET, EVM_TARGET] },
     });
@@ -542,6 +604,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       relayUrl: 'https://relay.example',
       ecdsaTargets: { kind: 'none' },
     });
@@ -577,6 +640,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       relayUrl: 'https://relay.example',
     });
 
@@ -723,6 +787,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
     });
 
@@ -753,6 +818,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
       onDemoOtp: (response) => demoResponses.push(response),
       onEvent: (event) => events.push(event),
@@ -779,6 +845,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
       onDemoOtp: (response) => demoResponses.push(response),
     });
@@ -816,6 +883,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const started = await beginGoogleEmailOtpWalletAuth(deps, {
       idToken: 'google-id-token',
       mode: 'login',
+      loginTarget: { kind: 'discoverable' },
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
       onDemoOtp: (response) => demoResponses.push(response),
     });
