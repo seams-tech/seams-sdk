@@ -1930,7 +1930,7 @@ Documentation:
   - [x] Extract the behavior-neutral client terminal-commit seam from
         `registration.ts` into `registrationTerminalCommit.ts`.
   - [ ] Extract the server registration issuer and credential-free receipt.
-  - [ ] Extract the terminal response parser from `walletRegistration.ts`.
+  - [x] Extract the terminal response parser from `walletRegistration.ts`.
 - [ ] Record the landed migration directory plus every pending migration from
       concurrent workstreams. Treat landed `0023`, `0024`, and `0025` as consumed
       and immutable. Treat landed R115 migrations `0026` and `0027` the same way.
