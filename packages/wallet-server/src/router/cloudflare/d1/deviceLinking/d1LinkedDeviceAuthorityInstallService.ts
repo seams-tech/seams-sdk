@@ -85,7 +85,7 @@ import {
   type RouterAbEd25519YaoCeremonyBindingV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import { d1ChangedRows, formatD1ExecStatement, parseD1JsonColumn } from '../../../../storage/d1Sql';
+import { d1ChangedRows, parseD1JsonColumn } from '../../../../storage/d1Sql';
 import {
   D1WalletAuthorityStore,
   type D1WalletAuthorityStoreScope,
@@ -300,57 +300,8 @@ type ServerReservationRecordV1<F extends 'ed25519' | 'ecdsa_secp256k1'> = {
   >['preparation'];
 };
 
-const INSTALLATION_SCHEMA_SQL = `
-  CREATE TABLE IF NOT EXISTS linked_device_authority_installations (
-    namespace TEXT NOT NULL,
-    org_id TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    env_id TEXT NOT NULL,
-    link_session_id TEXT NOT NULL,
-    authority_id TEXT NOT NULL,
-    wallet_id TEXT NOT NULL,
-    auth_method_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    package_set_digest_b64u TEXT NOT NULL,
-    target_factor_verification_digest_b64u TEXT NOT NULL,
-    target_factor_verified_at_ms INTEGER NOT NULL,
-    source_manifest_digest_b64u TEXT NOT NULL,
-    packages_json TEXT NOT NULL,
-    server_reservation_ids_json TEXT NOT NULL,
-    installed_record_set_digest_b64u TEXT,
-    activated_at_ms INTEGER,
-    created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (namespace, org_id, project_id, env_id, link_session_id),
-    UNIQUE (namespace, org_id, project_id, env_id, authority_id),
-    CHECK (json_valid(packages_json)),
-    CHECK (json_valid(server_reservation_ids_json)),
-    CHECK (created_at_ms >= 0),
-    CHECK (updated_at_ms >= created_at_ms)
-  )
-`;
-
-const AUTHORITY_ALLOCATION_SCHEMA_SQL = `
-  CREATE TABLE IF NOT EXISTS linked_device_authority_allocations (
-    namespace TEXT NOT NULL,
-    org_id TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    env_id TEXT NOT NULL,
-    link_session_id TEXT NOT NULL,
-    authority_id TEXT NOT NULL,
-    wallet_id TEXT NOT NULL,
-    enrollment_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (namespace, org_id, project_id, env_id, link_session_id),
-    UNIQUE (namespace, org_id, project_id, env_id, authority_id),
-    CHECK (created_at_ms >= 0)
-  )
-`;
-
 export class D1LinkedDeviceAuthorityInstallServiceV1 {
   private readonly nowV1: () => number;
-  private schemaReady = false;
 
   constructor(private readonly options: D1LinkedDeviceAuthorityInstallServiceOptionsV1) {
     this.nowV1 = options.nowV1 ?? Date.now;
@@ -360,7 +311,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     input: CommitPendingAuthorityInputV1,
   ): Promise<CommitPendingAuthorityResultV1> {
     try {
-      await this.ensureSchema();
       const nowMs = requireTime(input.nowMs, 'nowMs');
       const session = await this.options.sessionService.getSessionV1({
         linkSessionId: input.linkSessionId,
@@ -523,7 +473,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
   }): Promise<ActivateInstalledAuthorityResultV1> {
     let stage: InstalledAuthorityActivationStageV1 = 'receipt_validation';
     try {
-      await this.ensureSchema();
       const nowMs = requireTime(input.nowMs ?? this.nowV1(), 'nowMs');
       const receipt = input.receipt;
       const stored = await this.readInstallationByAuthority(receipt.authorityId);
@@ -681,7 +630,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<CommittedAuthorityPackagesV1 | null> {
-    await this.ensureSchema();
     const nowMs = requireTime(input.requestedAtMs, 'requestedAtMs');
     if (
       input.session.state.state !== 'provisioning' &&
@@ -716,7 +664,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly walletAuthMethodId: WalletAuthMethodId;
   }): Promise<InstalledLinkedDeviceEd25519AuthorityProjectionV1 | null> {
     try {
-      await this.ensureSchema();
       const walletId = parseWalletId(input.walletId);
       const authorityId = parseWalletAuthorityId(input.authorityId);
       const walletAuthMethodId = parseWalletAuthMethodId(input.walletAuthMethodId);
@@ -742,7 +689,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly materialActivation: MpcMaterialActivationRef;
   }): Promise<InstalledLinkedDeviceEd25519AuthorityProjectionV1 | null> {
     try {
-      await this.ensureSchema();
       const walletId = parseWalletId(input.walletId);
       if (!walletId.ok) return null;
       const storedRows = await this.readInstallationsByWallet(walletId.value);
@@ -771,7 +717,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly walletAuthMethodId: WalletAuthMethodId;
   }): Promise<InstalledLinkedDeviceEcdsaAuthorityProjectionV1 | null> {
     try {
-      await this.ensureSchema();
       const walletId = parseWalletId(input.walletId);
       const authorityId = parseWalletAuthorityId(input.authorityId);
       const walletAuthMethodId = parseWalletAuthMethodId(input.walletAuthMethodId);
@@ -797,7 +742,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly materialActivation: MpcMaterialActivationRef;
   }): Promise<InstalledLinkedDeviceEcdsaAuthorityProjectionV1 | null> {
     try {
-      await this.ensureSchema();
       const walletId = parseWalletId(input.walletId);
       if (!walletId.ok) return null;
       const storedRows = await this.readInstallationsByWallet(walletId.value);
@@ -825,7 +769,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<void> {
-    await this.ensureSchema();
     const nowMs = requireTime(input.requestedAtMs, 'requestedAtMs');
     const acknowledgement = input.acknowledgement;
     const session = input.session;
@@ -1188,13 +1131,6 @@ export class D1LinkedDeviceAuthorityInstallServiceV1 {
         throw new Error('installation acknowledgement conflicts with a prior receipt');
       }
     }
-  }
-
-  private async ensureSchema(): Promise<void> {
-    if (this.schemaReady) return;
-    await this.options.database.exec(formatD1ExecStatement(AUTHORITY_ALLOCATION_SCHEMA_SQL));
-    await this.options.database.exec(formatD1ExecStatement(INSTALLATION_SCHEMA_SQL));
-    this.schemaReady = true;
   }
 
   private async prepareAuthorityAllocation(
