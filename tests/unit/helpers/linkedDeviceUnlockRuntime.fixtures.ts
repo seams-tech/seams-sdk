@@ -16,7 +16,6 @@ import {
 import {
   parseLinkedDeviceEnrollmentId,
   parseLinkDeviceSessionId,
-  parseWalletAuthMethodId,
   parseWalletAuthorityId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
@@ -44,6 +43,10 @@ import {
   buildWalletAuthMethodRecordV2,
   type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
+import {
+  buildPasskeyWalletAuthAuthority,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
@@ -347,6 +350,7 @@ export type LinkedDeviceUnlockRuntimeFixture = {
   readonly walletId: WalletId;
   readonly authority: ReturnType<typeof buildActiveWalletAuthorityV1>;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { kind: 'passkey'; status: 'active' }>;
+  readonly factorAuthority: PasskeyWalletAuthAuthority;
   readonly selection: {
     readonly kind: 'wallet_selection_v1';
     readonly walletId: WalletId;
@@ -365,7 +369,15 @@ export type LinkedDeviceUnlockRuntimeFixture = {
 export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDeviceUnlockRuntimeFixture> {
   const walletId = required(parseWalletId('wallet:linked-runtime'));
   const authorityId = required(parseWalletAuthorityId('authority:linked-runtime'));
-  const walletAuthMethodId = required(parseWalletAuthMethodId('auth-method:linked-runtime'));
+  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
+  const credentialIdB64u = base64UrlEncode(new Uint8Array(bytes(32, 21)));
+  const credentialId = required(parseWebAuthnCredentialIdB64u(credentialIdB64u));
+  const factorAuthority = buildPasskeyWalletAuthAuthority({
+    walletId,
+    rpId,
+    credentialIdB64u: credentialId,
+  });
+  const walletAuthMethodId = factorAuthority.bindingId;
   const deviceId = required(parseAuthorizationDeviceId('device:linked-runtime'));
   const packageSetDigestB64u = digest(11);
   const materialActivationEd25519 = buildMpcMaterialActivationRefFixture(
@@ -414,9 +426,6 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
     ...authorityDraft,
     authorityDigestB64u: await computeWalletAuthorityDigestB64u(authorityDraft),
   });
-  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
-  const credentialIdB64u = base64UrlEncode(new Uint8Array(bytes(32, 21)));
-  const credentialId = required(parseWebAuthnCredentialIdB64u(credentialIdB64u));
   const authMethod = buildWalletAuthMethodRecordV2({
     version: 'wallet_auth_method_v2',
     walletAuthMethodId,
@@ -544,6 +553,7 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
     walletId,
     authority,
     authMethod,
+    factorAuthority,
     selection: {
       kind: 'wallet_selection_v1',
       walletId,

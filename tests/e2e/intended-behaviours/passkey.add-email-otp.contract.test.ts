@@ -22,7 +22,9 @@ test('a passkey wallet can add an email code as a second way in', async ({ harne
      and reaching them costs one code, because the method names its own
      authority rather than inheriting whichever one the wallet has selected. */
   await harness.signNearTransaction('post_unlock');
-  await harness.exportEd25519Key();
   await harness.signTempoTransaction('post_unlock');
+  await harness.exhaustSigningBudget();
+  await harness.signNearTransaction('step_up_required');
+  await harness.exportEd25519Key();
   await harness.exportEcdsaKey();
 });

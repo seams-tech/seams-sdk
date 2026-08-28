@@ -39,6 +39,17 @@ function linkedEmailOtpDeps(args: {
         emailHint: 'linked@example.com',
         ownerProofBindingDigest: 'linked-owner-proof-binding',
         walletAuthMethodId: challengeArgs.walletAuthMethodId ?? 'email-otp:founding-method',
+        signerSelection: {
+          kind: 'ecdsa',
+          keyHandle: 'linked-ecdsa-key-handle',
+          runtimePolicyScope: {
+            orgId: 'linked-org',
+            projectId: 'linked-project',
+            envId: 'linked-env',
+            signingRootVersion: 'v1',
+          },
+          ed25519: { kind: 'absent' },
+        },
       };
     },
     prewarmEmailOtpYao: async () => undefined,
@@ -79,8 +90,8 @@ test('linked Email OTP login carries the exact selected sibling method into chal
   const started = await beginGoogleEmailOtpWalletAuth(deps, {
     idToken: 'google-id-token',
     mode: 'login',
+    loginTarget: { kind: 'discoverable' },
     relayUrl: 'https://relay.example',
-    sessionKind: 'jwt',
   });
   expect(started.ok).toBe(true);
   if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
@@ -108,8 +119,8 @@ test('linked Email OTP login keeps an exact sibling selection when method B is s
   const started = await beginGoogleEmailOtpWalletAuth(deps, {
     idToken: 'google-id-token',
     mode: 'login',
+    loginTarget: { kind: 'discoverable' },
     relayUrl: 'https://relay.example',
-    sessionKind: 'jwt',
   });
   expect(started.ok).toBe(true);
   if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
@@ -132,8 +143,8 @@ test('revoked selected Email OTP method rejects without falling back to a siblin
   const started = await beginGoogleEmailOtpWalletAuth(deps, {
     idToken: 'google-id-token',
     mode: 'login',
+    loginTarget: { kind: 'discoverable' },
     relayUrl: 'https://relay.example',
-    sessionKind: 'jwt',
   });
 
   expect(started.ok).toBe(false);
@@ -157,6 +168,7 @@ test('wallet-level discovery carries the server-selected founding method into EC
   const started = await beginGoogleEmailOtpWalletAuth(deps, {
     idToken: 'google-id-token',
     mode: 'login',
+    loginTarget: { kind: 'discoverable' },
     relayUrl: 'https://relay.example',
     ecdsaTargets: {
       kind: 'explicit',

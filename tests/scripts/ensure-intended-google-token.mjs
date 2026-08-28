@@ -3,14 +3,15 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import {
   defaultEnvFile,
-  defaultGoogleClientId,
+  defaultGoogleTokenMinimumTtlSeconds,
+  describeUsableGoogleIdToken,
   firstNonEmptyString,
   readEnvFile,
   repoRoot,
+  resolveGoogleClientId,
+  resolveGoogleIdToken,
   resolveRepoPath,
 } from './intended-google-oidc-env.mjs';
-
-const defaultMinimumTtlSeconds = 10 * 60;
 
 await main().catch(handleFatalError);
 
@@ -23,9 +24,18 @@ async function main() {
 
   const envFilePath = resolveRepoPath(args.envFile);
   const fileEnv = readEnvFile(envFilePath);
-  const clientId = resolveClientId(args, fileEnv);
-  const token = resolveGoogleIdToken(fileEnv);
-  const existingToken = describeUsableToken({
+  const clientId = resolveGoogleClientId({
+    explicitClientId: args.clientId,
+    processEnv: process.env,
+    fileEnv,
+  });
+  const token = resolveGoogleIdToken({
+    processToken: process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+    fileToken: fileEnv.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+    clientId,
+    minimumTtlSeconds: args.minimumTtlSeconds,
+  });
+  const existingToken = describeUsableGoogleIdToken({
     token,
     clientId,
     minimumTtlSeconds: args.minimumTtlSeconds,
@@ -81,7 +91,7 @@ function parseCliArgs(argv) {
     serviceAccount: '',
     clientId: '',
     envFile: process.env.SEAMS_INTENDED_ENV_FILE || defaultEnvFile,
-    minimumTtlSeconds: defaultMinimumTtlSeconds,
+    minimumTtlSeconds: defaultGoogleTokenMinimumTtlSeconds,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -158,25 +168,6 @@ function parsePositiveInteger(value, optionName) {
   throw new Error(`${optionName} must be a positive integer`);
 }
 
-function resolveClientId(args, fileEnv) {
-  return (
-    firstNonEmptyString([
-      args.clientId,
-      process.env.SEAMS_INTENDED_GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_OIDC_CLIENT_ID,
-      fileEnv.SEAMS_INTENDED_GOOGLE_CLIENT_ID,
-      fileEnv.GOOGLE_OIDC_CLIENT_ID,
-    ]) || defaultGoogleClientId
-  );
-}
-
-function resolveGoogleIdToken(fileEnv) {
-  return firstNonEmptyString([
-    process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
-    fileEnv.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
-  ]);
-}
-
 function resolveServiceAccount(args, fileEnv) {
   return firstNonEmptyString([
     args.serviceAccount,
@@ -185,37 +176,6 @@ function resolveServiceAccount(args, fileEnv) {
     fileEnv.SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT,
     fileEnv.SEAMS_INTENDED_GOOGLE_IMPERSONATE_SERVICE_ACCOUNT,
   ]);
-}
-
-function describeUsableToken(args) {
-  if (!args.token) return { status: 'unusable', reason: 'missing' };
-  const segments = args.token.split('.');
-  if (segments.length !== 3) return { status: 'unusable', reason: 'not a compact JWT' };
-  const payload = parseTokenPayload(segments[1]);
-  if (!payload) return { status: 'unusable', reason: 'not decodable' };
-  const aud = payload.aud;
-  const audiences = Array.isArray(aud) ? aud.map(String) : [String(aud || '')];
-  if (!audiences.includes(args.clientId)) {
-    return { status: 'unusable', reason: 'for a different audience' };
-  }
-  const exp = Number(payload.exp);
-  if (!Number.isFinite(exp)) return { status: 'unusable', reason: 'missing exp' };
-  const minimumExpiryMs = Date.now() + args.minimumTtlSeconds * 1000;
-  if (exp * 1000 <= minimumExpiryMs) {
-    return { status: 'unusable', reason: 'expired or near expiry' };
-  }
-  return {
-    status: 'usable',
-    expiresAtIso: new Date(exp * 1000).toISOString(),
-  };
-}
-
-function parseTokenPayload(segment) {
-  try {
-    return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'));
-  } catch {
-    return undefined;
-  }
 }
 
 function refreshGoogleIdToken(args) {

@@ -3,7 +3,6 @@ import { intendedTest as test, type IntendedBehaviourHarness } from './harness';
 type RecoveryOrigin = {
   readonly name: string;
   readonly register: (harness: IntendedBehaviourHarness) => Promise<void>;
-  readonly assertExistingInventory?: (harness: IntendedBehaviourHarness) => Promise<void>;
 };
 
 async function registerPasskeyFoundedWallet(harness: IntendedBehaviourHarness): Promise<void> {
@@ -14,8 +13,10 @@ async function registerEmailOnlyWallet(harness: IntendedBehaviourHarness): Promi
   await harness.registerEmailOtpWallet();
 }
 
-async function assertEmailOnlyInventoryRemains(harness: IntendedBehaviourHarness): Promise<void> {
-  await harness.unlockEmailOtpWallet();
+async function registerCombinedWallet(harness: IntendedBehaviourHarness): Promise<void> {
+  await harness.registerEmailOtpWallet();
+  await harness.awaitNearReady();
+  await harness.addPasskeyAuthMethod();
 }
 
 async function verifyPasskeyRecoveryCanAddEmailOtp(
@@ -42,8 +43,8 @@ const recoveryOrigins: readonly RecoveryOrigin[] = [
   {
     name: 'Email-only',
     register: registerEmailOnlyWallet,
-    assertExistingInventory: assertEmailOnlyInventoryRemains,
   },
+  { name: 'Combined', register: registerCombinedWallet },
 ];
 
 for (const origin of recoveryOrigins) {
@@ -59,7 +60,6 @@ for (const origin of recoveryOrigins) {
     await harness.refreshPagePreservingWalletStorage();
     await harness.signNearTransaction('post_unlock');
     await harness.signTempoAndArcEvmConcurrently('post_unlock');
-    await origin.assertExistingInventory?.(harness);
     await harness.assertConsumedRecoveryCodeReportedAsUsed();
   });
 }

@@ -144,6 +144,7 @@ test('active Wallet Authority V2 ECDSA runtime projects to a deferred lane candi
     walletId: fixture.walletId,
     authorityId: fixture.authority.authorityId,
     walletAuthMethodId: fixture.authMethod.walletAuthMethodId,
+    factorAuthority: fixture.factorAuthority,
     materialActivation: ecdsaActivation.materialActivation,
     holderHandleId: 'holder:active-authority',
     ecdsaThresholdKeyId: String(ecdsaMaterial.ecdsaThresholdKeyId),

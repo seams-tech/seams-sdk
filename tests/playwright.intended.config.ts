@@ -2,9 +2,29 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import {
+  readEnvFile,
+  resolveGoogleClientId,
+  resolveGoogleIdToken,
+} from './scripts/intended-google-oidc-env.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-dotenv.config({ path: path.join(repoRoot, '.env.local'), override: false });
+const intendedEnvFilePath = path.join(repoRoot, '.env.local');
+const intendedFileEnv = readEnvFile(intendedEnvFilePath);
+dotenv.config({ path: intendedEnvFilePath, override: false });
+
+const intendedGoogleClientId = resolveGoogleClientId({
+  processEnv: process.env,
+  fileEnv: intendedFileEnv,
+});
+const intendedGoogleIdToken = resolveGoogleIdToken({
+  processToken: process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+  fileToken: intendedFileEnv.SEAMS_INTENDED_GOOGLE_ID_TOKEN,
+  clientId: intendedGoogleClientId,
+});
+if (intendedGoogleIdToken) {
+  process.env.SEAMS_INTENDED_GOOGLE_ID_TOKEN = intendedGoogleIdToken;
+}
 
 const APP_URL = process.env.SEAMS_INTENDED_APP_URL || 'http://localhost:4001';
 
