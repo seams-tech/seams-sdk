@@ -39,6 +39,7 @@ type ChainSigningSectionProps = {
   nearSignerAvailable: boolean;
   /* testnet plumbing for the threshold-signer chains */
   thresholdOwnerAddress: string | null;
+  onFundArcWallet: () => void | Promise<void>;
   onCopyThresholdOwnerAddress: () => void;
   onPrepareTempoFeeToken: () => void | Promise<void>;
   tempoFeeTokenPrepareLoading: boolean;
@@ -151,6 +152,18 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
           </>
         ) : null}
 
+        {chain.id === 'arc' ? (
+          <LoadingButton
+            onClick={props.onFundArcWallet}
+            variant="primary"
+            size="medium"
+            style={{ width: '100%' }}
+            disabled={!props.thresholdOwnerAddress}
+          >
+            Fund wallet
+          </LoadingButton>
+        ) : null}
+
         <LoadingButton
           onClick={chain.onSign}
           loading={chain.signLoading}
@@ -182,7 +195,12 @@ export function ChainSigningSection(props: ChainSigningSectionProps) {
         <div className="demo-funding">
           <div className="demo-funding__hint">
             Fund this signer address with test gas from the{' '}
-            <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
+            <a
+              className="demo-funding__link"
+              href="https://faucet.circle.com/"
+              target="_blank"
+              rel="noreferrer"
+            >
               Circle Faucet
             </a>
             :
