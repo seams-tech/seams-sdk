@@ -5,8 +5,20 @@
  * response projection and the ECDSA wallet/session installation that follows it.
  */
 
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
-import type { RegistrationAuthMethodInput, WalletId } from '@shared/utils/registrationIntent';
+import {
+  parseEmailOtpChallengeId,
+  parseEmailOtpProviderUserId,
+  parseWalletAuthMethodId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  parseVerifiedEmailAddress,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import type {
+  RegistrationAuthMethodInput,
+  WalletEmailOtpEnrollmentMaterialV1,
+  WalletId,
+} from '@shared/utils/registrationIntent';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
@@ -42,6 +54,12 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { RegistrationTimingRecorder, assertNever, roundDurationMs } from './registrationTiming';
+import {
+  buildPendingWalletRegistrationCommitV1,
+  type PendingWalletRegistrationCommitAuthV1,
+  type PendingWalletRegistrationCommitV1,
+  type PendingWalletRegistrationLocalMaterialV1,
+} from '@/core/indexedDB/pendingWalletRegistrationCommit';
 
 export function requireWebAuthnRpId(value: string): WebAuthnRpId {
   const parsed = parseWebAuthnRpId(value);
@@ -282,6 +300,130 @@ export function buildRegistrationPersistencePlan(args: {
     foundingAuthority: args.foundingAuthority,
     foundingAuthMethod: args.foundingAuthMethod,
   };
+}
+
+type PendingRegistrationCommitBuilderInput = {
+  registrationCeremonyId: string;
+  idempotencyKey: string;
+  walletId: string;
+  walletAuthMethodId: string;
+  signedSetup: string;
+  auth:
+    | { kind: 'passkey'; rpId: string; credentialIdB64u: string }
+    | {
+        kind: 'email_otp';
+        email: string;
+        registrationAuthorityId: string;
+        providerSubject: string;
+        enrollment: WalletEmailOtpEnrollmentMaterialV1;
+      };
+  createdAtMs: number;
+  updatedAtMs: number;
+} & (
+  | {
+      operation: 'registration_activate';
+      localMaterial: PendingWalletRegistrationLocalMaterialV1;
+    }
+  | {
+      operation: 'near_provisioning';
+      localMaterial: Extract<
+        PendingWalletRegistrationLocalMaterialV1,
+        { readonly keyFamilies: readonly ['ed25519'] }
+      >;
+    }
+);
+
+export function buildPendingRegistrationCommit(
+  args: PendingRegistrationCommitBuilderInput,
+): PendingWalletRegistrationCommitV1 {
+  const walletId = toWalletId(args.walletId);
+  const walletAuthMethodId = parseWalletAuthMethodId(args.walletAuthMethodId);
+  if (!walletAuthMethodId.ok) throw new Error(walletAuthMethodId.error.message);
+  const auth = buildPendingRegistrationAuth(args.auth);
+  const common = {
+    kind: 'pending_wallet_registration_commit_v1' as const,
+    registrationCeremonyId: requireCanonicalRegistrationString(
+      args.registrationCeremonyId,
+      'registrationCeremonyId',
+    ),
+    idempotencyKey: requireCanonicalRegistrationString(args.idempotencyKey, 'idempotencyKey'),
+    walletId,
+    walletAuthMethodId: walletAuthMethodId.value,
+    signedSetup: requireCanonicalRegistrationString(args.signedSetup, 'signedSetup'),
+    auth,
+    createdAtMs: args.createdAtMs,
+    updatedAtMs: args.updatedAtMs,
+  };
+  if (args.operation === 'registration_activate') {
+    return buildPendingWalletRegistrationCommitV1({
+      ...common,
+      operation: args.operation,
+      localMaterial: args.localMaterial,
+    });
+  }
+  return buildPendingWalletRegistrationCommitV1({
+    ...common,
+    operation: args.operation,
+    localMaterial: args.localMaterial,
+  });
+}
+
+function buildPendingRegistrationAuth(
+  authInput:
+    | { kind: 'passkey'; rpId: string; credentialIdB64u: string }
+    | {
+        kind: 'email_otp';
+        email: string;
+        registrationAuthorityId: string;
+        providerSubject: string;
+        enrollment: WalletEmailOtpEnrollmentMaterialV1;
+      },
+): PendingWalletRegistrationCommitAuthV1 {
+  if (authInput.kind === 'passkey') {
+    const rpId = requireWebAuthnRpId(authInput.rpId);
+    const credentialIdB64u = parseWebAuthnCredentialIdB64u(authInput.credentialIdB64u);
+    if (!credentialIdB64u.ok) throw new Error(credentialIdB64u.error.message);
+    return { kind: 'passkey', rpId, credentialIdB64u: credentialIdB64u.value };
+  }
+  const email = parseVerifiedEmailAddress(authInput.email);
+  if (!email.ok) throw new Error(email.error.message);
+  const registrationAuthorityId = parseEmailOtpChallengeId(authInput.registrationAuthorityId);
+  if (!registrationAuthorityId.ok) {
+    throw new Error(registrationAuthorityId.error.message);
+  }
+  const providerSubject = parseEmailOtpProviderUserId(authInput.providerSubject);
+  if (!providerSubject.ok) throw new Error(providerSubject.error.message);
+  return {
+    kind: 'email_otp',
+    email: email.value,
+    registrationAuthorityId: registrationAuthorityId.value,
+    providerSubject: providerSubject.value,
+    enrollment: {
+      enrollmentSealKeyVersion: requireCanonicalRegistrationString(
+        authInput.enrollment.enrollmentSealKeyVersion,
+        'enrollment.enrollmentSealKeyVersion',
+      ),
+      serverSealedFactorCiphertextB64u: requireCanonicalRegistrationString(
+        authInput.enrollment.serverSealedFactorCiphertextB64u,
+        'enrollment.serverSealedFactorCiphertextB64u',
+      ),
+      clientUnlockPublicKeyB64u: requireCanonicalRegistrationString(
+        authInput.enrollment.clientUnlockPublicKeyB64u,
+        'enrollment.clientUnlockPublicKeyB64u',
+      ),
+      unlockKeyVersion: requireCanonicalRegistrationString(
+        authInput.enrollment.unlockKeyVersion,
+        'enrollment.unlockKeyVersion',
+      ),
+    },
+  };
+}
+
+function requireCanonicalRegistrationString(value: string, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new Error(`${label} must be a non-empty canonical string`);
+  }
+  return value;
 }
 
 async function registrationPersistenceWalletSessionAuthority(
