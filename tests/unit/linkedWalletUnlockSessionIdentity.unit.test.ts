@@ -3,6 +3,7 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
+  type DirectV2IssueResult,
   type IssuedWalletSessionAuthorizationV2,
 } from '../../packages/wallet-server/src/authorization/domain';
 import { buildVerifiedOwnerProof } from '../../packages/wallet-server/src/authorization/factorEvidence';
@@ -10,6 +11,7 @@ import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../pac
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../packages/wallet-server/src/core/registrationContracts';
 import {
   handleWalletUnlockVerifyRoute,
+  walletUnlockAlreadyCommittedRouteResponse,
   type WalletUnlockCapabilityContext,
 } from '../../packages/wallet-server/src/router/domains/walletUnlock/walletUnlockRouteHandlers';
 import type { RouterApiWalletUnlockService } from '../../packages/wallet-server/src/router/framework/authServicePort';
@@ -63,6 +65,22 @@ function buildLinkedWalletSession(
       remainingUses: fixture.ed25519Session.remainingUses,
       expiresAtMs: session.expiresAtMs,
     }),
+  };
+}
+
+function buildAlreadyCommittedUnlockResult(
+  session: IssuedWalletSessionAuthorizationV2,
+): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
+  return {
+    kind: 'already_committed',
+    walletId: session.session.walletId,
+    authorityId: session.session.authorityId,
+    walletAuthMethodId: session.session.walletAuthMethodId,
+    mintId: session.session.mintId,
+    authorizationId: session.session.authorizationId,
+    walletSessionId: session.session.walletSessionId,
+    quotaId: session.session.quotaId,
+    next: 'unlock_exact_method',
   };
 }
 
@@ -131,6 +149,13 @@ function buildEd25519Session(
 test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity', async () => {
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   const linkedWalletSession = buildLinkedWalletSession(fixture);
+  let sessionResolution: Awaited<
+    ReturnType<RouterApiWalletUnlockService['issueWalletSessionForPasskeyUnlock']>
+  > = {
+    kind: 'active_authority',
+    walletSession: linkedWalletSession,
+    operationCredential: fixture.operationCredential,
+  };
   const provisioningRequests: Parameters<
     Extract<
       WalletUnlockCapabilityContext,
@@ -172,11 +197,7 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     resolveEmailOtpAuthorityForUnlock: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
-    issueWalletSessionForPasskeyUnlock: async () => ({
-      kind: 'active_authority',
-      walletSession: linkedWalletSession,
-      operationCredential: fixture.operationCredential,
-    }),
+    issueWalletSessionForPasskeyUnlock: async () => sessionResolution,
     issueWalletSessionForEmailOtpUnlock: async () => {
       throw new Error('Email OTP is outside this Passkey test');
     },
@@ -240,4 +261,80 @@ test('linked Passkey Ed25519 unlock reuses the issued V2 Wallet Session identity
     walletSessionId: linkedWalletSession.session.walletSessionId,
     quotaId: linkedWalletSession.session.quotaId,
   });
+
+  sessionResolution = {
+    kind: 'already_committed',
+    authorityProvenanceKind: 'device_link',
+    committed: buildAlreadyCommittedUnlockResult(linkedWalletSession),
+  };
+  const replay = await handleWalletUnlockVerifyRoute({
+    body: {
+      unlockBackend: 'passkey',
+      challengeId: 'challenge:linked-runtime',
+      webauthn_authentication: {},
+      ed25519SessionRequest: { kind: 'requested', remainingUses: 7 },
+    },
+    origin: 'https://wallet.example.test',
+    service,
+    resolveEmailOtpCustody: async () => {
+      throw new Error('Email OTP is outside this Passkey test');
+    },
+    resolvePasskeyCustody: async () => {
+      throw new Error('already-committed linked Passkey replay must not load custody');
+    },
+    emitRouterApiWebhook: async () => {},
+    emitEmailOtpWebhook: async () => {},
+    capabilityContext,
+    ecdsaSession: { kind: 'no_ecdsa_session' },
+    tenantId: required(parseTenantId('tenant:linked-runtime')),
+    buildVerifiedOwnerProof,
+    resolveEmailOtpAuthority: async () => {
+      throw new Error('Email OTP is outside this Passkey test');
+    },
+  });
+
+  expect(replay).toMatchObject({
+    status: 409,
+    body: {
+      ok: false,
+      unlocked: false,
+      code: 'already_committed',
+      kind: 'already_committed',
+      next: 'unlock_exact_method',
+      walletSessionId: linkedWalletSession.session.walletSessionId,
+      quotaId: linkedWalletSession.session.quotaId,
+    },
+  });
+  expect(replay.body.operationCredential).toBeUndefined();
+  expect(provisioningRequests).toHaveLength(1);
+});
+
+test('Email OTP already-committed unlock response is credential-free and retryable', async () => {
+  const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
+  const committed = buildAlreadyCommittedUnlockResult(buildLinkedWalletSession(fixture));
+  const response = walletUnlockAlreadyCommittedRouteResponse({
+    unlockBackend: 'email_otp',
+    committed,
+  });
+
+  expect(response).toMatchObject({
+    status: 409,
+    body: {
+      ok: false,
+      unlocked: false,
+      unlockBackend: 'email_otp',
+      code: 'already_committed',
+      kind: 'already_committed',
+      next: 'unlock_exact_method',
+      walletId: committed.walletId,
+      authorityId: committed.authorityId,
+      walletAuthMethodId: committed.walletAuthMethodId,
+      mintId: committed.mintId,
+      authorizationId: committed.authorizationId,
+      walletSessionId: committed.walletSessionId,
+      quotaId: committed.quotaId,
+    },
+  });
+  expect(response.body.operationCredential).toBeUndefined();
+  expect(response.body.walletSession).toBeUndefined();
 });

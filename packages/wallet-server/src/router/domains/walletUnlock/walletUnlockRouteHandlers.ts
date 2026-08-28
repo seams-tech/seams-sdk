@@ -32,7 +32,10 @@ import {
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
-import type { IssuedWalletSessionAuthorizationV2 } from '../../../authorization/domain';
+import type {
+  DirectV2IssueResult,
+  IssuedWalletSessionAuthorizationV2,
+} from '../../../authorization/domain';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../core/registrationContracts';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
@@ -64,6 +67,14 @@ export type WalletUnlockRouteResponse = {
   status: number;
   body: Record<string, unknown>;
 };
+
+export type WalletUnlockAlreadyCommittedRouteBody = {
+  readonly ok: false;
+  readonly unlocked: false;
+  readonly unlockBackend: 'passkey' | typeof EMAIL_OTP_CHANNEL;
+  readonly code: 'already_committed';
+  readonly message: 'Wallet Session unlock is already committed; retry the exact method';
+} & Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
 
 export type EmitWalletUnlockRouterApiWebhook = (input: {
   eventType: string;
@@ -708,6 +719,21 @@ function projectActiveWalletSession(
   };
 }
 
+export function walletUnlockAlreadyCommittedRouteResponse(input: {
+  readonly unlockBackend: WalletUnlockAlreadyCommittedRouteBody['unlockBackend'];
+  readonly committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>;
+}): WalletUnlockRouteResponse {
+  const body: WalletUnlockAlreadyCommittedRouteBody = {
+    ok: false,
+    unlocked: false,
+    unlockBackend: input.unlockBackend,
+    code: 'already_committed',
+    message: 'Wallet Session unlock is already committed; retry the exact method',
+    ...input.committed,
+  };
+  return { status: 409, body };
+}
+
 export async function handleWalletUnlockChallengeRoute(input: {
   body: unknown;
   service: RouterApiWalletUnlockService;
@@ -1142,6 +1168,11 @@ export async function handleWalletUnlockVerifyRoute(input: {
           passkeyCustodyRequired =
             authorityResolution.authorityProvenanceKind === 'wallet_recovery';
           break;
+        case 'already_committed':
+          return walletUnlockAlreadyCommittedRouteResponse({
+            unlockBackend,
+            committed: authorityResolution.committed,
+          });
         case 'wallet_registration':
           passkeyCustodyRequired = true;
           break;
@@ -1432,6 +1463,11 @@ export async function handleWalletUnlockVerifyRoute(input: {
         activeWalletSession = sessionResolution.walletSession;
         activeOperationCredential = sessionResolution.operationCredential;
         break;
+      case 'already_committed':
+        return walletUnlockAlreadyCommittedRouteResponse({
+          unlockBackend,
+          committed: sessionResolution.committed,
+        });
       case 'wallet_registration':
         break;
       case 'rejected':
