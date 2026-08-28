@@ -348,13 +348,11 @@ export class OverlayController {
     dialog.classList.remove(OverlayStyleClasses.HIDDEN);
 
     const requestedDisplayMode = authMenu ? 'nonmodal' : 'modal';
-    const requestModalAwaitingMeasurement =
-      mode.kind === 'compact_request_modal' && nextGeometryKind === 'provisional';
     if (dialog.open && this.dialogDisplayMode !== requestedDisplayMode) {
       this.closeDialogProgrammatically(dialog);
       this.dialogDisplayMode = null;
     }
-    if (!dialog.open && !requestModalAwaitingMeasurement) {
+    if (!dialog.open) {
       this.showDialog(dialog, requestedDisplayMode);
     }
     if (revealMeasuredRequestModal) {
