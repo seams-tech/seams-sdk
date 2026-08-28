@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +122,18 @@ test('local Gateway startup projects the generated HPKE keyset into D1 Wrangler'
   });
 
   const config = readFileSync(fixture.outputConfigPath, 'utf8');
+  const resolvedWorkerPath = path.resolve(
+    path.dirname(fixture.outputConfigPath),
+    parseTomlStringAssignment(config, 'main'),
+  );
+  expect(realpathSync(resolvedWorkerPath)).toBe(
+    realpathSync(
+      path.join(
+        repoRoot(),
+        'packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
+      ),
+    ),
+  );
   expect(runtime.signingSessionPersistenceMode).toBe('sealed_refresh_v1');
   expect(runtime.signingSessionSealCurrentKeyVersion).toBe(
     parseTomlStringAssignment(config, 'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),

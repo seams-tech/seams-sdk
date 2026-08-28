@@ -58,6 +58,7 @@
     "test:intended:external": "pnpm run type-check:intended && pnpm run ensure:intended-google-token && SEAMS_LINKED_DEVICE_E2E=1 playwright test -c playwright.intended.config.ts --reporter=line",
     "test:intended:benchmark": "pnpm run ensure:intended-google-token && playwright test -c playwright.intended.benchmark.config.ts --reporter=line",
     "test:intended:benchmark:ci": "pnpm run ensure:intended-google-token && playwright test -c playwright.intended.benchmark.ci.config.ts --reporter=line",
+    "test:console": "playwright test -c playwright.console.config.ts --reporter=line",
     "test:refactor93:staging:check": "SEAMS_REF93_STAGING_MODE=check playwright test -c playwright.refactor93-staging.config.ts --reporter=line",
     "test:refactor93:staging": "SEAMS_REF93_STAGING_MODE=live playwright test -c playwright.refactor93-staging.config.ts --reporter=line",
     "test:unit": "pnpm -C ../packages/wallet-server run build && pnpm -C .. build:sdk-full && playwright test -c playwright.unit.config.ts",

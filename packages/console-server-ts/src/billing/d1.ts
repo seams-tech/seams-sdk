@@ -3530,6 +3530,35 @@ async function processStripeWebhookEventD1(input: {
     [input.state.namespace, eventId],
   );
   if (processed) {
+    if (
+      input.request.eventType === 'checkout.session.completed' ||
+      input.request.eventType === 'checkout.session.expired'
+    ) {
+      const resolved = await findCreditPurchaseForStripeEvent({
+        database: input.state.database,
+        namespace: input.state.namespace,
+        orgId: input.request.orgId,
+        checkoutSessionRef: input.request.checkoutSessionId,
+      });
+      const purchase = resolved?.purchase || null;
+      const invoice =
+        resolved && purchase?.relatedInvoiceId
+          ? await loadPersistedInvoiceById({
+              database: input.state.database,
+              namespace: input.state.namespace,
+              orgId: resolved.orgId,
+              invoiceId: purchase.relatedInvoiceId,
+            })
+          : null;
+      return {
+        accepted: false,
+        purchase,
+        invoice,
+        refunds: [],
+        dispute: null,
+        orgId: resolved?.orgId || normalizeOptionalString(processed.org_id),
+      };
+    }
     return {
       accepted: false,
       purchase: null,

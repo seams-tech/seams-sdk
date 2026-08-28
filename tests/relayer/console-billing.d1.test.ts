@@ -388,6 +388,8 @@ test('D1 billing matches the exact checkout session and retries an ambiguous ref
       paymentStatus: 'paid',
     });
     expect(replayed.accepted).toBe(false);
+    expect(replayed.purchase?.id).toBe(first.purchaseId);
+    expect(replayed.invoice?.documentType).toBe('PURCHASE_RECEIPT');
     expect(await billing.listPendingStripePostProcessingOutboxItems(10)).toHaveLength(1);
     await billing.recordStripePostProcessingFailure({
       eventId: 'evt_d1_exact_checkout',

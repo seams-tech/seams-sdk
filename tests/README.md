@@ -109,6 +109,8 @@ on the intended runner.
 
 - Root scripts:
   - `pnpm test` → `pnpm -C tests test` (full suite)
+  - `pnpm test:console` → five real-service Console operating paths on a fresh
+    managed local stack
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes the heavier wallet-iframe sticky-behavior coverage)
   - `pnpm test:inline` → line reporter
   - `pnpm test:linked-device` → two-browser Device 2 lifecycle with fresh managed state per case
@@ -226,8 +228,9 @@ pnpm build:sdk
   - `e2e/intended-behaviours/*.contract.test.ts` intended registration,
     unlock, signing, step-up, and export lifecycle contracts
   - `e2e/linked-device.operating-path.test.ts` opt-in Device 2 lifecycle contract
-  - `e2e/dashboard.*.apiWiring.test.ts` and
-    `e2e/pricing.checkout.apiWiring.test.ts` dashboard/API wiring smoke tests
+  - `e2e/console/*.operating.test.ts` real-service Console operating paths for
+    routing, onboarding, policy governance, webhooks, and billing
+  - `e2e/pricing.checkout.apiWiring.test.ts` pricing/API wiring smoke test
   - `e2e/cancel_overlay_specs.test.ts` cancel + overlay specs (cancel hides UI)
 
 - Unit
