@@ -17,6 +17,7 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 export function resolveD1LocalDevEnvFiles(input = {}) {
+  if (input.env?.SEAMS_D1_LOCAL_SKIP_ENV_FILE === '1') return [];
   const resolvedRepoRoot = input.repoRoot || repoRoot;
   const candidates = [path.join(resolvedRepoRoot, '.env.local')];
   const existing = [];

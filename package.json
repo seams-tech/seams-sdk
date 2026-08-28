@@ -89,6 +89,7 @@
     "test:intended": "pnpm -C tests test:intended",
     "test:intended:ci": "pnpm -C tests test:intended:ci",
     "test:intended:external": "pnpm -C tests test:intended:external",
+    "test:console": "pnpm -C tests test:console",
     "ensure:intended-google-token": "pnpm -C tests ensure:intended-google-token",
     "setup:intended-google-oidc": "pnpm -C tests setup:intended-google-oidc",
     "refresh:intended-google-token": "pnpm -C tests refresh:intended-google-token",
