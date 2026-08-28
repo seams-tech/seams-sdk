@@ -2,10 +2,11 @@ import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type {
-  RegistrationEstablishedEcdsaSession,
-  RegistrationEstablishedEd25519Session,
-  RegistrationEstablishedSession,
+import {
+  parseRegistrationEstablishedSessionProjectionV2,
+  type RegistrationEstablishedEcdsaSession,
+  type RegistrationEstablishedEd25519Session,
+  type RegistrationEstablishedSession,
 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseDeviceId,
@@ -40,7 +41,11 @@ import {
 } from '@shared/threshold/sessionPolicy';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
+import type {
+  WalletRegistrationActivateResponseV2,
+  WalletRegistrationSessionCommitReceiptV2,
+} from '../../../../core/threeRouteRegistrationContracts';
+import type { WalletRegistrationFinalizeResponse } from '../../../../core/registrationContracts';
 import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
@@ -88,7 +93,7 @@ import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
-import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
+import { isRecordValue, sha256BytesPortable, toRecordValue } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import { parseWebAuthnAuthenticationCredential } from '../../../auth/webAuthnCredentialCodecs';
@@ -123,8 +128,10 @@ import {
 } from '../registration/d1WalletRegistrationService';
 import {
   parseD1EcdsaDerivationServerBootstrapResponse,
+  parseD1WalletRegistrationFinalizeReplayResponse,
   parseD1WalletRegistrationFinalizeTerminalResponse,
 } from '../registration/d1RegistrationCeremonyRecords';
+import { parseWalletRegistrationSessionCommitReceiptV2 } from '../registration/walletRegistrationSessionCommitReceipt';
 import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletCustodyCommitStore } from '../passkeyCustody/d1WalletCustodyCommitStore';
 import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
@@ -149,8 +156,10 @@ import {
   type PreparedSponsoredNearAccountCreationV1,
 } from '../../../../core/nearRelayerAccountProvisioning';
 import {
+  parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy,
   runRouterAbEd25519YaoRegistrationSideEffectV1,
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
+  type RouterAbEd25519YaoRegistrationSideEffectRecordV2,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../../../domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 import { createCloudflareD1VersionedJsonRecordStore } from '../versionedJson/d1VersionedJsonRecordStore';
@@ -906,6 +915,10 @@ function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): 
   return Object.keys(record).every((key) => allowed.has(key));
 }
 
+function hasExactKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(record).length === keys.length && hasOnlyKeys(record, keys);
+}
+
 function parseOpaqueWalletSessionToken(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const token = raw.trim();
@@ -1165,50 +1178,180 @@ function parseD1WalletRegistrationActivateTerminalResponse(
   };
 }
 
+function parseWalletRegistrationSessionCommitReceipt(
+  raw: unknown,
+): WalletRegistrationSessionCommitReceiptV2 | null {
+  const record = toRecordValue(raw);
+  if (!record) return null;
+  return parseWalletRegistrationSessionCommitReceiptV2(record, (committed) =>
+    parseWalletRegistrationSessionCommitReceiptCommitted(committed, record),
+  );
+}
+
+type WalletRegistrationEcdsaSessionCommitReceipt = Extract<
+  WalletRegistrationSessionCommitReceiptV2,
+  { readonly committed: { readonly kind: 'ecdsa_ready' } }
+>['committed'];
+
+type WalletRegistrationNearSessionCommitReceipt = Extract<
+  WalletRegistrationSessionCommitReceiptV2,
+  { readonly committed: { readonly kind: 'near_ready' } }
+>['committed'];
+
+function parseWalletRegistrationSessionCommitReceiptCommitted(
+  raw: unknown,
+  receipt: Record<string, unknown>,
+): WalletRegistrationSessionCommitReceiptV2['committed'] | null {
+  const record = toRecordValue(raw);
+  if (!record || typeof record.kind !== 'string') return null;
+  if (record.kind === 'ecdsa_ready') {
+    if (
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session']) &&
+      !hasExactKeys(record, ['kind', 'ecdsa', 'session', 'nearProvisioning'])
+    ) {
+      return null;
+    }
+    const ecdsa = parseWalletRegistrationSessionCommitEcdsa(record.ecdsa, receipt);
+    const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
+    if (!ecdsa || !session || session.tokens.kind !== 'evm_family_ecdsa') return null;
+    const nearProvisioning = parseNearPendingProjection(record.nearProvisioning);
+    if (record.nearProvisioning !== undefined && !nearProvisioning) return null;
+    return {
+      kind: 'ecdsa_ready',
+      ecdsa,
+      session,
+      ...(nearProvisioning ? { nearProvisioning } : {}),
+    };
+  }
+  if (record.kind !== 'near_ready') return null;
+  if (
+    !hasExactKeys(record, [
+      'kind',
+      'authorityScope',
+      'accountProvisioning',
+      'resolvedAccount',
+      'ed25519',
+      'session',
+      'nearProvisioning',
+    ])
+  ) {
+    return null;
+  }
+  const near = parseWalletRegistrationSessionCommitNear(record, receipt);
+  const session = parseRegistrationEstablishedSessionProjectionV2(record.session);
+  if (!near || !session || session.tokens.kind !== 'near_ed25519') return null;
+  return {
+    kind: 'near_ready',
+    authorityScope: near.authorityScope,
+    accountProvisioning: near.accountProvisioning,
+    resolvedAccount: near.resolvedAccount,
+    ed25519: near.ed25519,
+    session,
+    nearProvisioning: { status: 'near_ready' },
+  };
+}
+
+function parseWalletRegistrationSessionCommitEcdsa(
+  raw: unknown,
+  receipt: Record<string, unknown>,
+): WalletRegistrationEcdsaSessionCommitReceipt['ecdsa'] | null {
+  const record = toRecordValue(raw);
+  if (!record || !hasExactKeys(record, ['walletKeys', 'activation', 'bootstrap'])) {
+    return null;
+  }
+  const response = parseD1WalletRegistrationFinalizeReplayResponse({
+    ok: true,
+    kind: 'evm_family_ecdsa',
+    walletId: receipt.walletId,
+    authority: receipt.authority,
+    foundingAuthority: receipt.foundingAuthority,
+    foundingAuthMethod: receipt.foundingAuthMethod,
+    authMethod: receipt.authMethod,
+    ...(isRecordValue(receipt.authority) &&
+    isRecordValue(receipt.authority.verifier) &&
+    receipt.authority.verifier.kind === 'webauthn'
+      ? { rpId: receipt.authority.verifier.rpId }
+      : {}),
+    custodyKeyManifestDigestB64u: receipt.custodyKeyManifestDigestB64u,
+    ecdsa: { walletKeys: record.walletKeys },
+  });
+  if (!response || !response.ok || response.kind !== 'evm_family_ecdsa') {
+    return null;
+  }
+  let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
+  try {
+    activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation);
+  } catch {
+    return null;
+  }
+  const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
+  if (!bootstrap) return null;
+  return {
+    walletKeys: response.ecdsa.walletKeys,
+    activation,
+    bootstrap,
+  };
+}
+
+function parseWalletRegistrationSessionCommitNear(
+  record: Record<string, unknown>,
+  receipt: Record<string, unknown>,
+): {
+  readonly authorityScope: WalletRegistrationNearSessionCommitReceipt['authorityScope'];
+  readonly accountProvisioning: WalletRegistrationNearSessionCommitReceipt['accountProvisioning'];
+  readonly resolvedAccount: WalletRegistrationNearSessionCommitReceipt['resolvedAccount'];
+  readonly ed25519: WalletRegistrationNearSessionCommitReceipt['ed25519'];
+} | null {
+  const response = parseD1WalletRegistrationFinalizeReplayResponse({
+    ok: true,
+    kind: 'near_ed25519',
+    walletId: receipt.walletId,
+    authority: receipt.authority,
+    foundingAuthority: receipt.foundingAuthority,
+    foundingAuthMethod: receipt.foundingAuthMethod,
+    authMethod: receipt.authMethod,
+    ...(isRecordValue(receipt.authority) &&
+    isRecordValue(receipt.authority.verifier) &&
+    receipt.authority.verifier.kind === 'webauthn'
+      ? { rpId: receipt.authority.verifier.rpId }
+      : {}),
+    custodyKeyManifestDigestB64u: receipt.custodyKeyManifestDigestB64u,
+    authorityScope: record.authorityScope,
+    accountProvisioning: record.accountProvisioning,
+    resolvedAccount: record.resolvedAccount,
+    ed25519: record.ed25519,
+  });
+  if (!response || !response.ok || response.kind !== 'near_ed25519') return null;
+  return {
+    authorityScope: response.authorityScope,
+    accountProvisioning: response.accountProvisioning,
+    resolvedAccount: response.resolvedAccount,
+    ed25519: response.ed25519,
+  };
+}
+
+function parseNearPendingProjection(raw: unknown): { readonly status: 'near_pending' } | null {
+  const record = toRecordValue(raw);
+  return record && hasExactKeys(record, ['status']) && record.status === 'near_pending'
+    ? { status: 'near_pending' }
+    : null;
+}
+
 function parseWalletRegistrationActivateSideEffectRecord(
   raw: unknown,
 ): D1WalletRegistrationActivateSideEffectRecord | null {
-  if (
-    !isRecordValue(raw) ||
-    raw.operation !== 'registration_activate' ||
-    !isNonNegativeSafeInteger(raw.claimedAtMs)
-  ) {
-    return null;
-  }
-  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
-  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
-  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
-    return null;
-  }
-  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    return {
-      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      operation: 'registration_activate',
-      requestFingerprint,
-      preparedArtifactFingerprint,
-      claimedAtMs: raw.claimedAtMs,
-      prepared,
-    };
-  }
-  if (
-    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
-    !isNonNegativeSafeInteger(raw.completedAtMs)
-  ) {
-    return null;
-  }
-  const response = parseD1WalletRegistrationActivateTerminalResponse(raw.response);
-  if (!response) return null;
-  return {
-    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<
+    WalletRegistrationActivateResponseV2,
+    WalletRegistrationSessionCommitReceiptV2,
+    D1WalletRegistrationOperationPreparedV1
+  >(raw, {
     operation: 'registration_activate',
-    requestFingerprint,
-    preparedArtifactFingerprint,
-    claimedAtMs: raw.claimedAtMs,
-    completedAtMs: raw.completedAtMs,
-    prepared,
-    response,
-  };
+    parsePrepared: parseWalletRegistrationOperationPrepared,
+    parseReceipt: parseWalletRegistrationSessionCommitReceipt,
+    parseLegacyResponse: parseD1WalletRegistrationActivateTerminalResponse,
+  });
+  if (record === null || !registrationReceiptMatchesJournal(record)) return null;
+  return record;
 }
 
 /**
@@ -1219,47 +1362,43 @@ function parseWalletRegistrationActivateSideEffectRecord(
 function parseWalletRegistrationNearProvisioningSideEffectRecord(
   raw: unknown,
 ): D1WalletRegistrationNearProvisioningSideEffectRecord | null {
-  if (
-    !isRecordValue(raw) ||
-    raw.operation !== 'near_provisioning' ||
-    !isNonNegativeSafeInteger(raw.claimedAtMs)
-  ) {
-    return null;
-  }
-  const requestFingerprint = parseSideEffectFingerprint(raw.requestFingerprint);
-  const preparedArtifactFingerprint = parseSideEffectFingerprint(raw.preparedArtifactFingerprint);
-  const prepared = parseWalletRegistrationOperationPrepared(raw.prepared);
-  if (requestFingerprint === null || preparedArtifactFingerprint === null || prepared === null) {
-    return null;
-  }
-  if (raw.kind === 'router_ab_ed25519_yao_registration_side_effect_claim_v1') {
-    return {
-      kind: 'router_ab_ed25519_yao_registration_side_effect_claim_v1',
-      operation: 'near_provisioning',
-      requestFingerprint,
-      preparedArtifactFingerprint,
-      claimedAtMs: raw.claimedAtMs,
-      prepared,
-    };
-  }
-  if (
-    raw.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v1' ||
-    !isNonNegativeSafeInteger(raw.completedAtMs)
-  ) {
-    return null;
-  }
-  const response = parseD1WalletRegistrationFinalizeTerminalResponse(raw.response);
-  if (!response) return null;
-  return {
-    kind: 'router_ab_ed25519_yao_registration_side_effect_completion_v1',
+  const record = parseRouterAbEd25519YaoRegistrationSideEffectRecordV2WithLegacy<
+    WalletRegistrationFinalizeResponse,
+    WalletRegistrationSessionCommitReceiptV2,
+    D1WalletRegistrationOperationPreparedV1
+  >(raw, {
     operation: 'near_provisioning',
-    requestFingerprint,
-    preparedArtifactFingerprint,
-    claimedAtMs: raw.claimedAtMs,
-    completedAtMs: raw.completedAtMs,
-    prepared,
-    response,
-  };
+    parsePrepared: parseWalletRegistrationOperationPrepared,
+    parseReceipt: parseWalletRegistrationSessionCommitReceipt,
+    parseLegacyResponse: parseD1WalletRegistrationFinalizeTerminalResponse,
+  });
+  if (record === null || !registrationReceiptMatchesJournal(record)) return null;
+  return record;
+}
+
+function registrationReceiptMatchesJournal<T>(
+  record: RouterAbEd25519YaoRegistrationSideEffectRecordV2<
+    WalletRegistrationSessionCommitReceiptV2,
+    D1WalletRegistrationOperationPreparedV1,
+    T
+  >,
+): boolean {
+  if (record.kind !== 'router_ab_ed25519_yao_registration_side_effect_completion_v2') return true;
+  const receipt = record.receipt;
+  if (
+    receipt.operation !== record.operation ||
+    receipt.operationFingerprint !== record.requestFingerprint
+  ) {
+    return false;
+  }
+  if (receipt.committed.kind === 'error') return true;
+  if (!('walletAuthMethodId' in receipt)) return false;
+  if (receipt.walletAuthMethodId !== record.prepared.walletAuthMethodId) return false;
+  if (receipt.committed.kind === 'near_pending') return true;
+  return (
+    'foundingAuthority' in receipt &&
+    receipt.foundingAuthority.authorityId === record.prepared.walletAuthorityId
+  );
 }
 
 function parsePreparedSponsoredNearAccountCreation(
@@ -2647,8 +2786,7 @@ export function createCloudflareD1RouterApiAuthService(
       walletAuthorityStore: assembly.walletAuthorityStore,
       webAuthnStore: assembly.webAuthnStore,
       googleRecovery: assembly.walletRecoveryGoogleEmailOtp,
-      emailOtpRegistrationEnrollmentFinalizer:
-        assembly.emailOtpRegistrationEnrollmentFinalizer,
+      emailOtpRegistrationEnrollmentFinalizer: assembly.emailOtpRegistrationEnrollmentFinalizer,
       logger: normalizeLogger(),
     }),
     executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(

@@ -772,10 +772,30 @@ function parseWalletRegistrationRouteTimingName(
   raw: unknown,
 ): WalletRegistrationRouteDiagnostics['entries'][number]['name'] | null {
   switch (raw) {
+    case 'registrationIntentLoadMs':
+    case 'registrationIntentDigestMs':
+    case 'registrationIntentConsumeMs':
+    case 'registrationAttemptGateMs':
+    case 'registrationPreparationPersistMs':
+    case 'registrationPreparationLoadMs':
+    case 'registrationPreparationConsumeMs':
+    case 'registrationPreparationScopeCheckMs':
+    case 'registrationAuthorityVerifyMs':
+    case 'registrationEcdsaPrepareMs':
+    case 'registrationCeremonyPersistMs':
+    case 'registerPrepareTotalMs':
+    case 'registerStartTotalMs':
+    case 'registrationEcdsaRespondMs':
+    case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationEcdsaBootstrapVerifyMs':
+    case 'sponsoredNearAccountCreateMs':
+    case 'registrationKeygenMs':
     case 'registrationEmailOtpEnrollmentPlanMs':
+    case 'relaySessionMintMs':
+    case 'relayGoogleEmailOtpActivationPlanMs':
     case 'relayPersistenceMs':
+    case 'registrationFinalizeReplayCacheMs':
     case 'registerFinalizeTotalMs':
       return raw;
     default:
@@ -791,7 +811,8 @@ function parseWalletRegistrationRouteDiagnostics(
     !record ||
     record.kind !== 'wallet_registration_route_diagnostics_v1' ||
     record.route !== 'wallets_register_finalize' ||
-    !Array.isArray(record.entries)
+    !Array.isArray(record.entries) ||
+    !hasExactKeys(record, ['kind', 'route', 'entries'])
   ) {
     return null;
   }
@@ -799,7 +820,13 @@ function parseWalletRegistrationRouteDiagnostics(
   for (const rawEntry of record.entries) {
     const entry = toRecordValue(rawEntry);
     const name = parseWalletRegistrationRouteTimingName(entry?.name);
-    if (!entry || !name || typeof entry.durationMs !== 'number' || entry.durationMs < 0) {
+    if (
+      !entry ||
+      !hasExactKeys(entry, ['name', 'durationMs']) ||
+      !name ||
+      typeof entry.durationMs !== 'number' ||
+      entry.durationMs < 0
+    ) {
       return null;
     }
     entries.push({ name, durationMs: entry.durationMs });
@@ -809,6 +836,11 @@ function parseWalletRegistrationRouteDiagnostics(
     route: 'wallets_register_finalize',
     entries,
   };
+}
+
+function hasExactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(record);
+  return actual.length === expected.length && expected.every((key) => actual.includes(key));
 }
 
 export function parseD1WalletRegistrationFinalizeTerminalResponse(
