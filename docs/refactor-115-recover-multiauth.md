@@ -4,8 +4,12 @@ Status: the Passkey/Email-origin by Passkey/Google-target 2x2 recovery contract
 landed in `7310b703f`. Commit `d3c242eac` subsequently made successful
 preparation continue directly into the selected target flow. On 2026-08-28 the
 four matrix cases, an admitted Passkey finalization retry, and Google
-post-commit response-loss replay passed locally.
-Combined-inventory, linked-authority, step-up, export, dual-target
+post-commit response-loss replay passed locally. Commit `b5507d7ae` corrected
+recovery-authority Email OTP dispatch to ordinary unlock and landed four
+recovery-to-sibling-method operating contracts across both founding families
+and both recovery targets. Those new contracts still need an independently
+recorded run. Combined-inventory, preservation of pre-existing linked
+authorities, direct recovered-target step-up/export, dual-target
 cancellation/conflict/replay, and post-promotion reload acceptance remain in
 the worklist below.
 
@@ -176,6 +180,19 @@ Revocation stays an explicit owner operation after recovery.
 Finalization installs the recovered-device authority and target method. The
 user then signs in through the normal target path. Only normal login mints the
 fresh exact-method Wallet Session.
+
+### Recovery authorities use ordinary unlock
+
+Authority provenance owns unlock dispatch. `wallet_registration` and
+`wallet_recovery` authorities were established by the current device and use
+ordinary unlock. Only `device_link` authorities use linked unlock and its
+installed-authority lifecycle. Factor family and founding-wallet family do not
+change that choice.
+
+Every method later added to a recovery authority inherits ordinary unlock. A
+recovery authority has no linked-device installation package or link session,
+so routing it through linked unlock creates an unreachable prerequisite rather
+than a recovery path.
 
 ## User Flow
 
@@ -463,6 +480,9 @@ prerequisite one terminal publish boundary.
     user activation their real implementation requires. Async preparation and
     iframe-to-host messaging cannot turn a supported target into a popup-blocked
     or activation-denied dead end.
+20. A recovery authority and every sibling method added to it use ordinary
+    unlock. Only `device_link` provenance may enter linked unlock or consult
+    linked-device installation state.
 
 ## Implementation Phases
 
@@ -550,6 +570,8 @@ either target moves.
 - [x] Install the exact IndexedDB authority, method, and locked selection in one
       transaction.
 - [x] Continue through normal Passkey or Google/Email login.
+- [x] Dispatch `wallet_recovery` authorities through ordinary unlock and keep
+      linked unlock exclusive to `device_link` provenance.
 - [ ] Persist a redacted, non-discoverable post-promotion resume record before
       the in-memory operation can be lost. Resume the same committed recovery
       operation after reload without consuming another code.
@@ -566,7 +588,14 @@ either target moves.
       immediately after server promotion and at every local publication
       boundary.
 - [x] Prove NEAR, Tempo, and Arc/EVM signing after login.
-- [ ] Prove step-up and Ed25519/ECDSA export under the recovered method.
+- [ ] Prove step-up and Ed25519/ECDSA export through the recovered target method
+      itself. The `b5507d7ae` contracts exercise a sibling method added to the
+      recovery authority and do not close this target-method requirement.
+- [ ] Run and record the four landed recovered-authority sibling-method paths:
+      both founding families through both recovery targets, then add the other
+      method, lock/reload, ordinary-unlock, sign both families, export both
+      families, exhaust budget, and step up. Assert that no path enters linked
+      unlock.
 - [ ] Prove every pre-existing method and linked device still operates.
 - [x] Prove both targets reject a consumed code and report that it has already
       been used.
@@ -679,6 +708,10 @@ boundary.
   The coordinator still owns a separate in-memory
   `promoted_pending_continuity` stage, which is the reload gap tracked in Phase
   4.
+- `googleEmailOtpUnlockExecution` dispatches `wallet_registration` and
+  `wallet_recovery` provenance to ordinary unlock and reserves linked unlock
+  for `device_link`. The intended recovery contracts now cover adding and
+  operating the sibling method on a recovered authority.
 - Device linking's signer-material reservation is not a reuse candidate. It is
   built on a source-device re-share contribution, and recovery has no source
   device. Registration's founding-authority builder is the closer model.
@@ -735,6 +768,8 @@ R115 is complete when:
 - the user can recover with Passkey or Google SSO with Email OTP;
 - recovery binds to an exact existing method and custody envelope;
 - recovery creates a fresh authority and method without revoking anything;
+- the recovery authority and methods added to it use ordinary unlock, while
+  linked unlock remains exclusive to linked-device authorities;
 - both targets preserve public wallet and signer identities;
 - a post-promotion reload resumes the same redacted operation and keeps the
   wallet hidden until local continuity is complete;
