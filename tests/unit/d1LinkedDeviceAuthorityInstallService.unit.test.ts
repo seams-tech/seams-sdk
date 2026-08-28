@@ -567,6 +567,7 @@ async function buildHarness(
     },
     permissions: buildSigningOnlyPermissionsV1(),
     signerManifest: targetManifest,
+    emailOtpEnrollment: null,
     ed25519ExportRootPackage: null,
     sourceContribution: [sourceContribution],
     ordinarySignerMaterialRecipientRequests: [
