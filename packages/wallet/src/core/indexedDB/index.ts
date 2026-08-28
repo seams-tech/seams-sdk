@@ -15,6 +15,23 @@ export type { SeamsWalletDBConfig } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
 export {
+  assertPendingWalletRegistrationIdentity,
+  buildPendingWalletRegistrationCommitV1,
+  parsePendingWalletRegistrationCommitAppStateRow,
+  parsePendingWalletRegistrationCommitStorageRow,
+  parsePendingWalletRegistrationCommitV1,
+  pendingWalletRegistrationCommitAppStateKey,
+  toPendingWalletRegistrationCommitAppStateRow,
+  toPendingWalletRegistrationCommitStorageRow,
+} from './pendingWalletRegistrationCommit';
+export type {
+  PendingWalletRegistrationActivationReferenceV1,
+  PendingWalletRegistrationCommitAuthV1,
+  PendingWalletRegistrationCommitStorageRow,
+  PendingWalletRegistrationCommitV1,
+  PendingWalletRegistrationLocalMaterialV1,
+} from './pendingWalletRegistrationCommit';
+export {
   LaneSealedHolderMaterialRepository,
   laneSealedHolderMaterialRepository,
   laneSealedHolderStoreKeyV1,

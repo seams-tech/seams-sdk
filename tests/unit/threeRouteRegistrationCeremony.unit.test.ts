@@ -117,6 +117,7 @@ async function ceremonyArgs(overrides: Record<string, unknown> = {}) {
     resolveActivateEmailOtp: async () => ({ enrollment: null, walletCustodyFactorJson: null }),
     registrationTiming: null,
     confirmRecoveryCodesBackedUp: async () => undefined,
+    persistPendingCommit: async () => undefined,
     startDeferredNearCustody: async () => ({}),
     ...overrides,
   } as never;
@@ -152,9 +153,14 @@ const MIXED_RESPOND = {
 test('a mixed plan starts the NEAR custody join before activate is called', async () => {
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
   const callsAtStart: string[] = [];
+  let pendingCommitPersistedBeforeActivate = false;
   try {
     await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({
+        persistPendingCommit: async () => {
+          expect(routes.calls).toEqual(['respond']);
+          pendingCommitPersistedBeforeActivate = true;
+        },
         startDeferredNearCustody: () => {
           callsAtStart.push(...routes.calls);
           return Promise.resolve({});
@@ -165,6 +171,7 @@ test('a mixed plan starts the NEAR custody join before activate is called', asyn
     routes.restore();
   }
   expect(callsAtStart).toEqual(['respond']);
+  expect(pendingCommitPersistedBeforeActivate).toBe(true);
   expect(routes.calls).toContain('activate');
 });
 

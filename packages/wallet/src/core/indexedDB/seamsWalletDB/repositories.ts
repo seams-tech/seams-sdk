@@ -96,6 +96,12 @@ import {
   toIndexedDbChainTargetKey,
 } from '../normalization';
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
+import {
+  parsePendingWalletRegistrationCommitAppStateRow,
+  pendingWalletRegistrationCommitAppStateKey,
+  toPendingWalletRegistrationCommitAppStateRow,
+  type PendingWalletRegistrationCommitV1,
+} from '../pendingWalletRegistrationCommit';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 import {
   parseStoredExactWalletSessionAuthorizationWithOperationCredential,
@@ -3499,6 +3505,60 @@ export class SeamsWalletRepositories {
     if (!normalizedKey) return;
     await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
       await ctx.store(SEAMS_WALLET_STORES.appState).put({ key: normalizedKey, value });
+    });
+  }
+
+  /* Keep pending commits in the existing private app-state store: opening a
+     new schema version currently rebuilds every object store. The namespaced
+     rows never participate in profile discovery. */
+  async putPendingWalletRegistrationCommit(
+    record: PendingWalletRegistrationCommitV1,
+  ): Promise<void> {
+    const row = toPendingWalletRegistrationCommitAppStateRow(record);
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      await ctx.store(SEAMS_WALLET_STORES.appState).put(row);
+    });
+  }
+
+  async getPendingWalletRegistrationCommit(input: {
+    registrationCeremonyId: string;
+    operation: PendingWalletRegistrationCommitV1['operation'];
+  }): Promise<PendingWalletRegistrationCommitV1 | null> {
+    const registrationCeremonyId = toTrimmedString(input.registrationCeremonyId || '');
+    if (!registrationCeremonyId) return null;
+    const db = await this.manager.getDB();
+    const raw = await db.get(
+      SEAMS_WALLET_STORES.appState,
+      pendingWalletRegistrationCommitAppStateKey({
+        registrationCeremonyId,
+        operation: input.operation,
+      }),
+    );
+    return parsePendingWalletRegistrationCommitAppStateRow(raw)?.record || null;
+  }
+
+  async listPendingWalletRegistrationCommits(): Promise<PendingWalletRegistrationCommitV1[]> {
+    const db = await this.manager.getDB();
+    const rawRows = (await db.getAll(SEAMS_WALLET_STORES.appState)) as unknown[];
+    return rawRows.flatMap((raw) => {
+      const parsed = parsePendingWalletRegistrationCommitAppStateRow(raw);
+      return parsed ? [parsed.record] : [];
+    });
+  }
+
+  async deletePendingWalletRegistrationCommit(input: {
+    registrationCeremonyId: string;
+    operation: PendingWalletRegistrationCommitV1['operation'];
+  }): Promise<void> {
+    const registrationCeremonyId = toTrimmedString(input.registrationCeremonyId || '');
+    if (!registrationCeremonyId) return;
+    await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      await ctx.store(SEAMS_WALLET_STORES.appState).delete(
+        pendingWalletRegistrationCommitAppStateKey({
+          registrationCeremonyId,
+          operation: input.operation,
+        }),
+      );
     });
   }
 

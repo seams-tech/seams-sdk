@@ -24,6 +24,7 @@
     "unit/nearClient.test.ts",
     "unit/passkeyEd25519YaoLocalMaterialBinding.unit.test.ts",
     "unit/passkeyClientDB.deviceSelection.test.ts",
+    "unit/pendingWalletRegistrationCommit.unit.test.ts",
     "unit/safari-fallbacks.test.ts",
     "unit/signingUseCaseServices.unit.test.ts",
     "unit/walletSessionExpiry.invalidationIdempotency.unit.test.ts",
