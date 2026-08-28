@@ -474,6 +474,19 @@ Keep backend-test cleanup in a separate commit from browser replacement and
 mock-suite deletion. This makes obsolete-test removal reviewable and prevents a
 green E2E path from hiding lost boundary coverage.
 
+#### Completed audit
+
+The post-cutover audit deleted the standalone D1 repeat-reconciliation test.
+The billing operating path now owns that exact positive outcome through the
+real browser, Router, D1 ledger, receipt, PDF, reload, and repeated
+reconciliation flow. Existing D1 event-replay assertions remain.
+
+All other reviewed backend tests retain authority over at least one invariant
+outside the five browser paths: request parsing, RBAC, tenant isolation,
+idempotent state transitions, audit metadata, provider matching, webhook
+signature and cursor boundaries, sealed-secret storage, atomic D1 accounting,
+refunds and disputes, retry claims, observability, or failure recovery.
+
 ## CI Gate
 
 Add `pnpm test:console` as a required pull-request and merge-queue job in
@@ -547,7 +560,7 @@ any product assertion runs.
 - [x] Add the required CI gate.
 - [x] Delete the three mocked browser files and their exclusive helpers.
 - [x] Update `tests/README.md` and the root testing documentation.
-- [ ] Audit exact backend happy-path duplication in a separate commit.
+- [x] Audit exact backend happy-path duplication in a separate commit.
 
 ## Acceptance Criteria
 
