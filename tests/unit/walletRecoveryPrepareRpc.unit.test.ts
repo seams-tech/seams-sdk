@@ -62,7 +62,7 @@ test('prepare posts the code-authorized R115 target request', async () => {
   expect(result).toEqual({ kind: 'refused' });
 });
 
-test('prepare preserves the three exact failure classifications', async () => {
+test('prepare preserves the four exact failure classifications', async () => {
   const refused = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
     target: PASSKEY_TARGET,
@@ -77,6 +77,13 @@ test('prepare preserves the three exact failure classifications', async () => {
     reservationId: RESERVATION_ID,
     fetchImpl: respondWith(409, { ok: false, code: 'recovery_conflict' }),
   });
+  const consumed = await prepareWalletRecoveryWithCode({
+    relayUrl: 'https://relay.localhost',
+    target: PASSKEY_TARGET,
+    recoveryCodeB64u: 'QUJDREVG',
+    reservationId: RESERVATION_ID,
+    fetchImpl: respondWith(401, { ok: false, code: 'recovery_code_used' }),
+  });
   const uncertain = await prepareWalletRecoveryWithCode({
     relayUrl: 'https://relay.localhost',
     target: PASSKEY_TARGET,
@@ -87,6 +94,7 @@ test('prepare preserves the three exact failure classifications', async () => {
 
   expect(refused).toEqual({ kind: 'refused' });
   expect(conflict).toEqual({ kind: 'retryable_conflict' });
+  expect(consumed).toEqual({ kind: 'consumed' });
   expect(uncertain).toEqual({ kind: 'transport_uncertain' });
 });
 

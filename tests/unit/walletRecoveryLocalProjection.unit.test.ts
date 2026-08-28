@@ -21,7 +21,7 @@ async function recoveryAuthorityProjectionFixture(label: string) {
   return await buildLinkedDeviceManagementAuthorityFixture({
     label,
     permissions: buildFullOwnerDelegatedWalletAuthorityV1().permissions,
-    provenance: 'wallet_registration',
+    provenance: 'wallet_recovery',
     identity: {
       walletId: WALLET_ID,
       authorityId: 'wallet-authority:recovery',
@@ -248,7 +248,9 @@ test.describe('wallet recovery local continuity', () => {
     );
   });
 
-  test('reuses the same reservation after a retryable prepare conflict', async ({ page }) => {
+  test('reuses the same reservation across target changes after a retryable prepare conflict', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { WalletRecoveryCoordinator } = await import(paths.walletRecovery);
@@ -268,12 +270,14 @@ test.describe('wallet recovery local continuity', () => {
             context,
             relayUrl: 'https://relay.example.test',
             recoveryCode: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789',
+            target: { kind: 'passkey', rpId: 'wallet.example.localhost' },
             signal: new AbortController().signal,
           });
           const second = await coordinator.prepareWithCode({
             context,
             relayUrl: 'https://relay.example.test',
             recoveryCode: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345-6789',
+            target: { kind: 'google_email_otp', googleProvider: 'google' },
             signal: new AbortController().signal,
           });
           return {

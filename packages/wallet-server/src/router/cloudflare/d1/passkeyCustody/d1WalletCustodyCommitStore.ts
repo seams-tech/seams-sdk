@@ -27,10 +27,7 @@ import {
   type DerivedWalletRecoveryKeyId,
 } from '@shared/wallet-recovery/recoveryKeyId';
 import { alphabetizeStringify, sha256HexUtf8 } from '@shared/utils/digests';
-import {
-  buildFullOwnerPermissionsV1,
-  type ActiveWalletAuthorityV1,
-} from '@shared/authorization';
+import { buildFullOwnerPermissionsV1, type ActiveWalletAuthorityV1 } from '@shared/authorization';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
@@ -58,13 +55,12 @@ import {
 import type { EmailOtpWalletEnrollmentRecord } from '../../../../core/EmailOtpStores';
 import { parseEmailOtpWalletEnrollmentRow } from '../emailOtp/d1EmailOtpRecords';
 import {
+  parseWalletRecoveryGoogleEmailOtpAttemptRecord,
+  walletRecoveryGoogleEmailOtpFinalizationInput,
   walletRecoveryGoogleEmailOtpAttemptKey,
   type WalletRecoveryGoogleEmailOtpFinalizationInput,
 } from './d1WalletRecoveryGoogleEmailOtpRecords';
-import {
-  emailOtpDeviceEnrollmentId,
-  WALLET_EMAIL_OTP_ACTIONS,
-} from '@shared/utils/emailOtpDomain';
+import { emailOtpDeviceEnrollmentId, WALLET_EMAIL_OTP_ACTIONS } from '@shared/utils/emailOtpDomain';
 
 type ActivePasskeyWalletAuthMethodRecordV2 = Extract<
   WalletAuthMethodRecordV2,
@@ -89,8 +85,7 @@ function recoverySignerActivationsMatchContinuity(input: {
   const recoveryEcdsa = input.recovery.ecdsa;
   const continuityEcdsa = input.continuity.ecdsa;
   if (
-    alphabetizeStringify(recoveryEcdsa ?? null) !==
-    alphabetizeStringify(continuityEcdsa ?? null)
+    alphabetizeStringify(recoveryEcdsa ?? null) !== alphabetizeStringify(continuityEcdsa ?? null)
   ) {
     return false;
   }
@@ -526,13 +521,15 @@ export class CloudflareD1WalletCustodyCommitStore {
       );
   }
 
-  private prepareRecoveryCodeLocatorDeleteStatement(input: {
+  /** Retains the locator tombstone while `changes()` proves it existed in the atomic commit. */
+  private prepareRecoveryCodeLocatorConsumeStatement(input: {
     readonly walletId: WalletId;
     readonly recoveryKeyId: DerivedWalletRecoveryKeyId;
   }): D1PreparedStatementLike {
     return this.database
       .prepare(
-        `DELETE FROM wallet_recovery_code_locators
+        `UPDATE wallet_recovery_code_locators
+            SET locator_b64u = locator_b64u
           WHERE namespace = ?1
             AND org_id = ?2
             AND project_id = ?3
@@ -550,13 +547,17 @@ export class CloudflareD1WalletCustodyCommitStore {
       );
   }
 
-  private prepareWalletRecoveryGoogleEmailOtpAttemptDeleteStatement(input: {
+  private prepareWalletRecoveryGoogleEmailOtpAttemptFinalizeStatement(input: {
     readonly recovery: WalletRecoveryGoogleEmailOtpFinalizationInput;
     readonly expectedVersion: string;
+    readonly finalizedAtMs: number;
   }): D1PreparedStatementLike {
     return this.database
       .prepare(
-        `DELETE FROM router_ab_yao_versioned_json_records
+        `UPDATE router_ab_yao_versioned_json_records
+            SET version = version + 1,
+                record_json = json_set(record_json, '$.state', 'finalized'),
+                updated_at_ms = ?20
           WHERE namespace = ?1
             AND org_id = ?2
             AND project_id = ?3
@@ -601,6 +602,7 @@ export class CloudflareD1WalletCustodyCommitStore {
         input.recovery.providerSubject,
         input.recovery.verifiedEmail,
         String(input.recovery.ownerProofBindingDigest),
+        input.finalizedAtMs,
       );
   }
 
@@ -665,12 +667,12 @@ export class CloudflareD1WalletCustodyCommitStore {
     return parseEmailOtpWalletEnrollmentRow(row);
   }
 
-  private async walletRecoveryGoogleEmailOtpAttemptExists(
-    recoveryOperationId: WalletRecoveryOperationId,
+  private async walletRecoveryGoogleEmailOtpFinalizedAttemptMatches(
+    recovery: WalletRecoveryGoogleEmailOtpFinalizationInput,
   ): Promise<boolean> {
     const row = await this.database
       .prepare(
-        `SELECT 1
+        `SELECT record_json
            FROM router_ab_yao_versioned_json_records
           WHERE namespace = ?1
             AND org_id = ?2
@@ -685,11 +687,25 @@ export class CloudflareD1WalletCustodyCommitStore {
         this.scope.projectId,
         this.scope.envId,
         `wallet-recovery-google-email-otp:${walletRecoveryGoogleEmailOtpAttemptKey(
-          recoveryOperationId,
+          recovery.recoveryOperationId,
         )}`,
       )
-      .first<{ readonly one?: unknown }>();
-    return row !== null;
+      .first<{ readonly record_json?: unknown }>();
+    if (!row) return false;
+    let raw: unknown = row.record_json;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        return false;
+      }
+    }
+    const attempt = parseWalletRecoveryGoogleEmailOtpAttemptRecord(raw);
+    return (
+      attempt?.state === 'finalized' &&
+      alphabetizeStringify(walletRecoveryGoogleEmailOtpFinalizationInput(attempt)) ===
+        alphabetizeStringify(recovery)
+    );
   }
 
   private async walletRecoveryGoogleEmailOtpChallengeExists(challengeId: string): Promise<boolean> {
@@ -997,8 +1013,7 @@ export class CloudflareD1WalletCustodyCommitStore {
     if (
       input.authority.state !== 'active' ||
       input.authority.provenance.kind !== 'wallet_recovery' ||
-      input.authority.provenance.continuityAuthorityId !==
-        input.continuityAuthority.authorityId ||
+      input.authority.provenance.continuityAuthorityId !== input.continuityAuthority.authorityId ||
       input.authority.authorityId === input.continuityAuthority.authorityId ||
       input.authority.principal.deviceId === input.continuityAuthority.principal.deviceId
     ) {
@@ -1011,7 +1026,10 @@ export class CloudflareD1WalletCustodyCommitStore {
       alphabetizeStringify(input.authority.permissions) !==
       alphabetizeStringify(buildFullOwnerPermissionsV1())
     ) {
-      return { kind: 'inconsistent', reason: 'recovery authority must have full-owner permissions' };
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery authority must have full-owner permissions',
+      };
     }
     if (
       !recoverySignerActivationsMatchContinuity({
@@ -1109,9 +1127,8 @@ export class CloudflareD1WalletCustodyCommitStore {
       },
       record: input.authenticatorCommit.binding,
     });
-    const walletAuthMethodStatements = this.walletAuthMethodStore.prepareV2InsertStatements(
-      targetMethod,
-    );
+    const walletAuthMethodStatements =
+      this.walletAuthMethodStore.prepareV2InsertStatements(targetMethod);
     let stored: CloudflareD1VersionedJsonRecordBatchPutResultV1;
     try {
       stored = await this.records.putManyWithAdditionalStatements(
@@ -1132,7 +1149,7 @@ export class CloudflareD1WalletCustodyCommitStore {
           bindingStatement,
           input.authenticatorCommit.challengeDeleteStatement,
           this.database.prepare(WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD),
-          this.prepareRecoveryCodeLocatorDeleteStatement({
+          this.prepareRecoveryCodeLocatorConsumeStatement({
             walletId,
             recoveryKeyId: input.recoveryKeyId,
           }),
@@ -1140,8 +1157,8 @@ export class CloudflareD1WalletCustodyCommitStore {
         ],
       );
     } catch {
-      /* Insert-only target rows and both delete guards roll back every part of
-         the batch. The held reservation remains retryable after a race. */
+      /* Insert-only target rows and both consume guards roll back every part
+         of the batch. The held reservation remains retryable after a race. */
       return { kind: 'conflict' };
     }
     if (stored.kind === 'version_mismatch') {
@@ -1172,8 +1189,9 @@ export class CloudflareD1WalletCustodyCommitStore {
         authorityRead !== null &&
         alphabetizeStringify(authorityRead) === alphabetizeStringify(input.authority);
       const sameMethod =
-        methodRead !== null && alphabetizeStringify(methodRead) === alphabetizeStringify(targetMethod);
-      if (alreadyConsumed && sameEnvelope && sameAuthority && sameMethod && !locatorRead) {
+        methodRead !== null &&
+        alphabetizeStringify(methodRead) === alphabetizeStringify(targetMethod);
+      if (alreadyConsumed && sameEnvelope && sameAuthority && sameMethod && locatorRead) {
         return {
           kind: 'already_committed',
           envelopeStoreVersion: envelopeRead.version,
@@ -1227,7 +1245,8 @@ export class CloudflareD1WalletCustodyCommitStore {
     if (!recoverySet) return { kind: 'conflict' };
     const consumed = recoverySet.record.manifestKekWraps.filter(
       (wrap) =>
-        wrap.lifecycle.state === 'consumed' && wrap.lifecycle.reservationId === recovery.reservationId,
+        wrap.lifecycle.state === 'consumed' &&
+        wrap.lifecycle.reservationId === recovery.reservationId,
     );
     if (consumed.length !== 1) return { kind: 'conflict' };
     const recoveryKeyId = consumed[0]?.recoveryKeyId;
@@ -1235,7 +1254,7 @@ export class CloudflareD1WalletCustodyCommitStore {
     const envelopeKey = passkeyCustodyEnvelopeRecordKey(
       passkeyCustodyEnvelopeLocatorOf(replacement),
     );
-    const [envelopeRead, authority, method, enrollment, attemptExists, challengeExists] =
+    const [envelopeRead, authority, method, enrollment, finalizedAttemptMatches, challengeExists] =
       await Promise.all([
         this.records.read(envelopeKey),
         this.walletAuthorityStore.readById(recovery.targetAuthorityId),
@@ -1243,7 +1262,7 @@ export class CloudflareD1WalletCustodyCommitStore {
           walletAuthMethodId: recovery.targetWalletAuthMethodId,
         }),
         this.readEmailOtpEnrollment(walletId),
-        this.walletRecoveryGoogleEmailOtpAttemptExists(recovery.recoveryOperationId),
+        this.walletRecoveryGoogleEmailOtpFinalizedAttemptMatches(recovery),
         this.walletRecoveryGoogleEmailOtpChallengeExists(recovery.challengeId),
       ]);
     const locator = await this.readRecoveryCodeLocatorByRecoveryKey({ walletId, recoveryKeyId });
@@ -1277,17 +1296,15 @@ export class CloudflareD1WalletCustodyCommitStore {
       (recovery.targetEnrollment.kind === 'existing'
         ? enrollment.enrollmentId === recovery.targetEnrollment.enrollmentId &&
           enrollment.enrollmentSealKeyVersion === recovery.targetEnrollment.enrollmentSealKeyVersion
-        : enrollment.enrollmentId === emailOtpDeviceEnrollmentId(
-            String(walletId),
-            recovery.providerSubject,
-          ));
+        : enrollment.enrollmentId ===
+          emailOtpDeviceEnrollmentId(String(walletId), recovery.providerSubject));
     if (
       sameEnvelope &&
       sameAuthority &&
       sameMethod &&
       sameEnrollment &&
-      !locator &&
-      !attemptExists &&
+      locator !== null &&
+      finalizedAttemptMatches &&
       !challengeExists
     ) {
       return { kind: 'already_committed', envelopeStoreVersion: envelopeRead.version };
@@ -1402,7 +1419,10 @@ export class CloudflareD1WalletCustodyCommitStore {
         wrap.recoveryKeyId === input.recoveryKeyId,
     );
     if (matchingConsumptions.length !== 1) {
-      return { kind: 'inconsistent', reason: 'recovery Email commit must consume its reserved code' };
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery Email commit must consume its reserved code',
+      };
     }
 
     const envelopeKey = passkeyCustodyEnvelopeRecordKey(
@@ -1419,9 +1439,8 @@ export class CloudflareD1WalletCustodyCommitStore {
       },
       authority: input.authority,
     });
-    const walletAuthMethodStatements = this.walletAuthMethodStore.prepareV2InsertStatements(
-      targetMethod,
-    );
+    const walletAuthMethodStatements =
+      this.walletAuthMethodStore.prepareV2InsertStatements(targetMethod);
     let stored: CloudflareD1VersionedJsonRecordBatchPutResultV1;
     try {
       stored = await this.records.putManyWithAdditionalStatements(
@@ -1438,12 +1457,13 @@ export class CloudflareD1WalletCustodyCommitStore {
           ...input.enrollmentCommit.statements,
           ...walletAuthMethodStatements,
           this.prepareWalletRecoveryGoogleEmailOtpChallengeDeleteStatement({ recovery }),
-          this.prepareWalletRecoveryGoogleEmailOtpAttemptDeleteStatement({
+          this.prepareWalletRecoveryGoogleEmailOtpAttemptFinalizeStatement({
             recovery,
             expectedVersion: input.recoveryAttemptStoreVersion,
+            finalizedAtMs: input.authority.updatedAtMs,
           }),
           this.database.prepare(WALLET_RECOVERY_GOOGLE_EMAIL_OTP_ATTEMPT_CAS_GUARD),
-          this.prepareRecoveryCodeLocatorDeleteStatement({
+          this.prepareRecoveryCodeLocatorConsumeStatement({
             walletId,
             recoveryKeyId: input.recoveryKeyId,
           }),

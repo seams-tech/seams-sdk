@@ -36,6 +36,13 @@ const recoveryOrigins: readonly RecoveryOrigin[] = [
 
 const recoveryTarget: IntendedRecoveryTargetKind = 'google_email_otp';
 
+test('a code held by an active Google recovery reports that it was already used', async ({
+  harness,
+}) => {
+  await harness.registerPasskeyWallet();
+  await harness.assertReservedRecoveryCodeReportedAsUsed();
+});
+
 for (const origin of recoveryOrigins) {
   test(`a fresh browser recovers a ${origin.name} wallet with Google and Email OTP, signs, and refuses reuse`, async ({
     harness,
@@ -50,9 +57,27 @@ for (const origin of recoveryOrigins) {
     await harness.signNearTransaction('post_unlock');
     await harness.signTempoAndArcEvmConcurrently('post_unlock');
     await origin.assertExistingInventory?.(harness);
-    await harness.assertConsumedRecoveryCodeRefusedGenerically(recoveryTarget);
+    await harness.assertConsumedRecoveryCodeReportedAsUsed(recoveryTarget);
   });
 }
+
+test('a committed Google recovery survives a lost finalization response', async ({ harness }) => {
+  await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
+  await harness.signTempoTransaction('post_registration');
+  await harness.recoverGoogleEmailOtpWalletAfterLostFinalizationResponse();
+  await harness.assertRecoveryAuthorityIsAdditive(recoveryTarget);
+  await harness.assertConsumedRecoveryCodeReportedAsUsed(recoveryTarget);
+});
+
+test('a Google-recovered wallet can add a passkey from its unlocked authority', async ({
+  harness,
+}) => {
+  await harness.registerEmailOtpWallet();
+  await harness.awaitNearReady();
+  await harness.recoverGoogleEmailOtpWalletFromFreshBrowser();
+  await harness.addPasskeyAuthMethod();
+});
 
 test('an older passkey does not block adding a passkey to a Google recovery authority', async ({
   harness,

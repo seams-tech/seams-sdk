@@ -1234,7 +1234,7 @@ async function prepareRecoveryForRoute(
 }
 
 export async function createWalletRecoveryRegistrationOptions(input: {
-  readonly webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'writeChallenge' | 'readBindingRows'>;
+  readonly webAuthnStore: Pick<CloudflareD1WebAuthnStore, 'writeChallenge'>;
   readonly walletId: WalletId;
   readonly reservationId: RecoveryCodeReservationId;
   readonly recoveryOperationId: WalletRecoveryOperationId;
@@ -1280,16 +1280,6 @@ export async function createWalletRecoveryRegistrationOptions(input: {
     createdAtMs: input.nowMs,
     expiresAtMs: input.expiresAtMs,
   });
-  const bindings = await input.webAuthnStore.readBindingRows({
-    userId: String(input.walletId),
-    rpId: input.rpId,
-  });
-  const excludeCredentials = bindings
-    .filter((binding) => String(binding.rpId) === String(input.rpId))
-    .map((binding) => ({
-      type: 'public-key' as const,
-      id: String(binding.credentialIdB64u),
-    }));
   return {
     kind: 'ready',
     options: {
@@ -1322,7 +1312,9 @@ export async function createWalletRecoveryRegistrationOptions(input: {
           },
         },
       },
-      excludeCredentials,
+      // Recovery installs an additive authority. Credentials owned by sibling
+      // authorities must remain usable without blocking its new passkey.
+      excludeCredentials: [],
     },
   };
 }
@@ -1423,7 +1415,10 @@ async function finalizeGoogleEmailOtpRecoveryForRoute(
   }
 
   const stored = await googleRecovery.readAttempt(request.recoveryOperationId);
-  if (stored.kind !== 'present' || stored.value.state !== 'otp_verified') {
+  if (
+    stored.kind !== 'present' ||
+    (stored.value.state !== 'otp_verified' && stored.value.state !== 'finalized')
+  ) {
     return { kind: 'refused', reason: 'the verified recovery operation is unavailable' };
   }
   const attempt = stored.value;
