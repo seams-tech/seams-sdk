@@ -1153,7 +1153,7 @@ seams-auth-menu-surface {
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  border: 3px solid rgba(255, 255, 255, 0.15);
+  border: 3px solid var(--w3a-colors-borderPrimary);
   border-top-color: var(--w3a-colors-primary);
   animation: w3a-spin 0.9s linear infinite;
 }

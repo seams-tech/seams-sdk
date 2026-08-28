@@ -597,6 +597,8 @@ test.describe('wallet-host Lit auth menu surface', () => {
       return {
         spinnerAnimations: spinnerStyle.animationName,
         spinnerPlayState: spinnerStyle.animationPlayState,
+        spinnerTrack: spinnerStyle.borderRightColor,
+        cardBorder: getComputedStyle(root).borderTopColor,
         resizeSeconds: `${Number.parseFloat(resizeToken) / 1000}s`,
         rootTransition: getComputedStyle(root).transitionDuration,
         switcherTransition: getComputedStyle(switcher).transitionDuration,
@@ -608,6 +610,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     // freezes it.
     expect(waiting.spinnerAnimations).toContain('w3a-spin');
     expect(waiting.spinnerPlayState).not.toContain('paused');
+    expect(waiting.spinnerTrack).toBe(waiting.cardBorder);
     // Assert the shared token, not a literal: the invariant is that every part
     // of the box settles on ONE duration. A part left on its own timing splits
     // one movement into two, which is the bug this guards. Retuning the
