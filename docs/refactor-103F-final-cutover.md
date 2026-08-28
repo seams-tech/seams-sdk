@@ -1908,13 +1908,16 @@ Documentation:
 
 ### Phase 0 — Baseline, simplify the change surface, and remove persisted plaintext
 
-- [ ] Record the baseline commit SHA and `git status --short`. Identify which
+- Phase 0 baseline evidence: [`refactor-103F-phase0-evidence.md`](./refactor-103F-phase0-evidence.md)
+  and [`refactor-103F-phase0-production-files.txt`](./refactor-103F-phase0-production-files.txt).
+
+- [x] Record the baseline commit SHA and `git status --short`. Identify which
       pre-existing working-tree changes belong to R103F before counting or
       editing them.
-- [ ] Save the exact tracked production-file list and its total line count,
+- [x] Save the exact tracked production-file list and its total line count,
       excluding SQL, tests, generated artifacts, and documentation. Reuse that
       same file list for the completion delta.
-- [ ] Build the preparatory liveness ledger for each large R103F target. Record
+- [x] Build the preparatory liveness ledger for each large R103F target. Record
       proof for `obsolete_or_unreachable` paths and separately report deleted,
       moved, and net live production lines.
 - [ ] Delete only proved dead or obsolete code. Preserve every temporary rollout
@@ -1974,7 +1977,7 @@ Documentation:
       `pnpm test:intended:external` only when deliberately validating an
       already-running composed service stack, and label that evidence
       separately.
-- [ ] Establish a green focused baseline for
+- [x] Establish a green focused baseline for
       `tests/unit/authMenuPasskeyContinuation.unit.test.ts`. The last recorded
       baseline at `67bac04e9` was 13 of 17. Commit `8856e0c98` added selected
       account-display coverage, so rerun the current committed test inventory
@@ -1990,7 +1993,7 @@ Documentation:
       `tests/unit/authMenuRecoveryContinuation.unit.test.ts`: six of six cases
       pass at `67bac04e9`, covering automatic Passkey/Google continuation,
       retry, cancellation, and irreversible finalization.
-- [ ] Repair the valid stale authority fixture in
+- [x] Repair the valid stale authority fixture in
       `tests/unit/walletRecoverySourceSelection.unit.test.ts` before using it as
       an R115 baseline. Ten of thirteen focused source-selection/finalization/
       wire cases pass; the three source-selection failures still build the
@@ -2019,7 +2022,7 @@ Documentation:
       installation, and reach normal exact-method login with no second recovery
       code. Missing local recovery state must fail closed during ordinary
       unlock rather than being repaired there.
-- [ ] Repair the valid stale fixture in
+- [x] Repair the valid stale fixture in
       `tests/unit/passkeyCustodyRouteService.unit.test.ts` before using it as a
       recovery baseline. Its inline envelope-store stub predates
       `listWalletCredentialActivity`, so the challenge-replay case currently
