@@ -5,9 +5,10 @@ type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
 
 const runtimePromises: Partial<Record<WalletHostRuntimeKind, Promise<WalletHostRuntimeModule>>> =
   {};
-let registrationPreparationPromise:
-  | Promise<typeof import('./registrationPreparationPreload')>
-  | null = null;
+let registrationPreparationPromise: Promise<
+  typeof import('./registrationPreparationPreload')
+> | null = null;
+let recoveryCodeSurfacePromise: Promise<void> | null = null;
 
 export function loadWalletHostRuntime(
   route: RuntimeWalletHostRoute,
@@ -19,6 +20,15 @@ export function loadWalletHostRuntime(
 export async function preloadWalletHostRegistrationSurface(): Promise<void> {
   runtimePromises.near ??= loadRuntimeForKind('near');
   await Promise.all([runtimePromises.near, preloadRegistrationPreparation()]);
+}
+
+export async function preloadWalletHostRecoveryCodeSurface(): Promise<void> {
+  runtimePromises.email_otp ??= loadRuntimeForKind('email_otp');
+  recoveryCodeSurfacePromise ??= Promise.all([
+    runtimePromises.email_otp,
+    import('../../../core/signingEngine/uiConfirm/ui/lit-components/RecoveryCodeBackup/host'),
+  ]).then(() => undefined);
+  await recoveryCodeSurfacePromise;
 }
 
 async function preloadRegistrationPreparation(): Promise<void> {
