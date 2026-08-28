@@ -71,10 +71,6 @@ type WalletPublicIdentity = {
   readonly ecdsaKeys: readonly string[];
 };
 
-type RegisteredEmailOwnerIdentity = WalletPublicIdentity & {
-  readonly emailAddress: string;
-};
-
 type AuthenticatedOwnerSnapshot = {
   readonly credentialIdB64u: string;
   readonly walletAuthMethodId: string;
@@ -882,102 +878,6 @@ async function directRegisterWalletInBrowser(input: {
   }
 }
 
-type IntendedEmailOtpUnlockBrowserRequest =
-  | {
-      readonly kind: 'request_challenge';
-      readonly requestId: string;
-      readonly walletId: string;
-      readonly walletAuthMethodId: string;
-    }
-  | {
-      readonly kind: 'complete_unlock';
-      readonly requestId: string;
-      readonly walletId: string;
-      readonly walletAuthMethodId: string;
-      readonly email: string;
-      readonly providerSubjectId: string;
-      readonly challengeId: string;
-      readonly otpCode: string;
-      readonly relayUrl: string;
-    };
-
-async function runIntendedEmailOtpUnlockActionInBrowser(
-  input: IntendedEmailOtpUnlockBrowserRequest,
-): Promise<Record<string, unknown>> {
-  return await new Promise<Record<string, unknown>>((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      window.removeEventListener('seams:intended-email-otp-unlock-result', onResult);
-      reject(new Error('Intended Email OTP unlock action timed out'));
-    }, 60_000);
-    function onResult(event: Event): void {
-      if (!(event instanceof CustomEvent) || !event.detail || typeof event.detail !== 'object') {
-        return;
-      }
-      const result = event.detail as Record<string, unknown>;
-      if (result.requestId !== input.requestId) return;
-      window.clearTimeout(timeout);
-      window.removeEventListener('seams:intended-email-otp-unlock-result', onResult);
-      if (result.ok === true) resolve(result);
-      else reject(new Error(String(result.error || 'Intended Email OTP unlock failed')));
-    }
-    window.addEventListener('seams:intended-email-otp-unlock-result', onResult);
-    window.dispatchEvent(
-      new CustomEvent('seams:intended-email-otp-unlock-request', { detail: input }),
-    );
-  });
-}
-
-async function unlockAddressEmailOtpWallet(input: {
-  readonly context: BrowserContext;
-  readonly page: Page;
-  readonly routerOrigin: string;
-  readonly walletAuthMethodId: string;
-  readonly walletId: string;
-}): Promise<void> {
-  const config = directRegistrationConfig();
-  const emailAddress = linkedTargetEmailAddress(input.walletId);
-  const challengeRequestId = `linked-email-challenge:${input.walletAuthMethodId}`;
-  const challengeResult = await input.page.evaluate(runIntendedEmailOtpUnlockActionInBrowser, {
-    kind: 'request_challenge',
-    requestId: challengeRequestId,
-    walletId: input.walletId,
-    walletAuthMethodId: input.walletAuthMethodId,
-  });
-  const challengeId = requireStringField(
-    challengeResult,
-    'challengeId',
-    'Intended Email OTP unlock challenge',
-  );
-  const otpCode = await readEmailOtpOutboxCode({
-    context: input.context,
-    walletId: input.walletId,
-    routerOrigin: input.routerOrigin,
-    challengeId,
-    challengeSubjectId: emailAddress,
-  });
-  await input.page.evaluate(runIntendedEmailOtpUnlockActionInBrowser, {
-    kind: 'complete_unlock',
-    requestId: `linked-email-unlock:${input.walletAuthMethodId}`,
-    walletId: input.walletId,
-    walletAuthMethodId: input.walletAuthMethodId,
-    email: emailAddress,
-    providerSubjectId: emailAddress,
-    challengeId,
-    otpCode,
-    relayUrl: config.relayerUrl,
-  });
-  await input.page
-    .locator('.w3a-profile-button-morphable')
-    .waitFor({ state: 'visible', timeout: 120_000 });
-  if ((await readActiveWalletId(input.page)) !== input.walletId) {
-    throw new Error('Address-backed Email OTP unlock returned the wrong wallet');
-  }
-}
-
-function linkedTargetEmailAddress(walletId: string): string {
-  return `device-link-${walletId.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}@example.test`;
-}
-
 async function registerWalletWithSignerProfileInBrowser(
   page: Page,
   input: DirectRegistrationInput,
@@ -1593,6 +1493,7 @@ async function unlockEmailOtpWallet(
   walletId: string,
   profile: SignerProfile,
   routerOrigin: string,
+  challengeSubjectId?: string,
 ): Promise<void> {
   await authenticateEmailOtpInHostedMenu({
     page,
@@ -1601,6 +1502,7 @@ async function unlockEmailOtpWallet(
     walletId,
     profile,
     routerOrigin,
+    ...(challengeSubjectId ? { challengeSubjectId } : {}),
   });
   if ((await readActiveWalletId(page)) !== walletId) {
     throw new Error('Email OTP unlock returned the wrong wallet');
@@ -1737,7 +1639,7 @@ async function registerEmailOwnerForProfile(
   page: Page,
   context: BrowserContext,
   profile: SignerProfile,
-): Promise<RegisteredEmailOwnerIdentity> {
+): Promise<WalletPublicIdentity> {
   emailLinkedDeviceStage(`registering ${profile} Email OTP owner`);
   await page.goto(appOrigin, { waitUntil: 'domcontentloaded' });
   const config = directRegistrationConfig();
@@ -1778,7 +1680,7 @@ async function registerEmailOwnerForProfile(
     throw new Error('Profile Email OTP registration activated a different wallet in the app');
   }
   emailLinkedDeviceStage(`${profile} Email OTP owner registered`);
-  return { ...identity, emailAddress: plan.authMethod.email.trim().toLowerCase() };
+  return identity;
 }
 
 async function unlockLinkedPasskeyWallet(
@@ -3505,16 +3407,13 @@ async function setupEmailLinkedOwnerPair(
       ? passkeyOwner.routerOrigin
       : new URL(directRegistrationConfig().relayerUrl).origin;
     let publicIdentity: WalletPublicIdentity;
-    let sourceEmailAddress: string | null = null;
     if (passkeyOwner) {
       publicIdentity = passkeyOwner.publicIdentity;
     } else if (profile === 'combined') {
       publicIdentity = await registerEmailOwner(ownerPage, ownerContext);
-      sourceEmailAddress = requireGoogleEmailAddress();
     } else {
       const emailOwner = await registerEmailOwnerForProfile(ownerPage, ownerContext, profile);
       publicIdentity = emailOwner;
-      sourceEmailAddress = emailOwner.emailAddress;
     }
     await assertSignerProfileActions(ownerPage, profile);
     if (sourceFactor === 'email_otp') {
@@ -3554,10 +3453,7 @@ async function setupEmailLinkedOwnerPair(
         response.status() === 200,
       { timeout: linkedDeviceTransitionTimeoutMs },
     );
-    const targetEmail = passkeyOwner
-      ? linkedTargetEmailAddress(publicIdentity.walletId)
-      : sourceEmailAddress;
-    if (!targetEmail) throw new Error('Email linked-device source email is unavailable');
+    const targetEmail = requireGoogleEmailAddress();
     const qrDataUrl = await linkedDeviceFailureMonitor.race(
       openDevice2Qr(device2Page, 'Email code', ` ${targetEmail.toUpperCase()} `),
     );
@@ -3864,23 +3760,14 @@ async function setupEmailLinkedOwnerPair(
     await lockWallet(device2Page);
     await device2Page.reload({ waitUntil: 'domcontentloaded' });
     emailLinkedDeviceStage('unlocking Device 2 after reload');
-    if (passkeyOwner) {
-      await unlockAddressEmailOtpWallet({
-        page: device2Page,
-        context: device2Context,
-        walletId: publicIdentity.walletId,
-        walletAuthMethodId: String(targetCredential.walletAuthMethodId),
-        routerOrigin,
-      });
-    } else {
-      await unlockEmailOtpWallet(
-        device2Page,
-        device2Context,
-        publicIdentity.walletId,
-        profile,
-        routerOrigin,
-      );
-    }
+    await unlockEmailOtpWallet(
+      device2Page,
+      device2Context,
+      publicIdentity.walletId,
+      profile,
+      routerOrigin,
+      passkeyOwner ? requireGoogleEmailAddress() : undefined,
+    );
     emailLinkedDeviceStage('Device 2 unlock complete');
     await assertSignerProfileActions(device2Page, profile);
     emailLinkedDeviceStage('Device 2 owner controls enabled');
@@ -4447,7 +4334,7 @@ async function assertPasskeyOwnerEmailTargetPath(
     context: pair.device2Context,
     walletId: pair.publicIdentity.walletId,
     routerOrigin: pair.routerOrigin,
-    challengeSubjectId: linkedTargetEmailAddress(pair.publicIdentity.walletId),
+    challengeSubjectId: requireGoogleEmailAddress(),
   } as const;
   await assertSignerProfileActions(pair.device2Page, profile);
   const inventory = await readActiveLinkedDeviceInventory(pair.ownerPage);

@@ -21,7 +21,6 @@ import { useDemoNearActions } from './hooks/useDemoNearActions';
 import { useDemoTempoFundingStatus } from './hooks/useDemoTempoFundingStatus';
 import { useDemoThresholdSigners } from './hooks/useDemoThresholdSigners';
 import './DemoPage.css';
-import { useIntendedEmailOtpUnlockBridge } from './useIntendedEmailOtpUnlockBridge';
 
 const CIRCLE_FAUCET_URL = 'https://faucet.circle.com/';
 
@@ -37,7 +36,6 @@ export const DemoPage: React.FC = () => {
     },
     seams,
   } = useSeams();
-  useIntendedEmailOtpUnlockBridge(seams);
 
   const signingHeading =
     currentAuthMethod.kind === 'selected' && currentAuthMethod.binding.kind === 'email_otp'
