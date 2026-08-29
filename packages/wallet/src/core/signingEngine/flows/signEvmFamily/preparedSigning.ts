@@ -152,10 +152,10 @@ function summarizeEcdsaAvailableLane(
     ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
     state: lane.state,
     source: lane.source,
-    walletSessionId: lane.authorization?.projection.walletSessionId,
+    walletSessionId: lane.authorization?.operationCredential.walletSessionId,
     materialActivationId: lane.materialActivation.activationId,
-    remainingUses: lane.authorization?.status.remainingUses,
-    expiresAtMs: lane.authorization?.status.expiresAtMs,
+    remainingUses: lane.remainingUses,
+    expiresAtMs: lane.expiresAtMs,
   };
 }
 

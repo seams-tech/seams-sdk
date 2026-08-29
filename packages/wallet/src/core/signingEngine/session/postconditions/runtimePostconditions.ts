@@ -19,7 +19,6 @@ import type {
   ReusableWalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { walletSessionAuthorizationIdForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
 
@@ -72,9 +71,7 @@ type RestorableUsableRuntimeLane = Extract<
   readonly material: RestorableRuntimeLaneMaterial;
 };
 
-export type UsableRuntimeLane =
-  | ActiveUsableRuntimeLane
-  | RestorableUsableRuntimeLane;
+export type UsableRuntimeLane = ActiveUsableRuntimeLane | RestorableUsableRuntimeLane;
 
 export type WalletRuntimeInventory = {
   walletId: string;
@@ -221,17 +218,11 @@ function readEcdsaUseCaseReadyLane(args: {
   if (!lane.authorization || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
-  const authorizationProjection = lane.authorization.projection;
-  const authorizationId = walletSessionAuthorizationIdForCurve(
-    authorizationProjection,
-    'ecdsa',
-  );
-  if (!authorizationId) return 'lane_inventory_mismatch';
   return {
     state: lane.state,
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
-    authorizationId,
+    authorizationId: lane.authorization.session.authorizationId,
     materialActivationId: String(lane.materialActivation.activationId),
     remainingSignatureUses,
     expiresAtMs,
