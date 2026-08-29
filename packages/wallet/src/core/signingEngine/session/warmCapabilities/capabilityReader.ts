@@ -12,7 +12,7 @@ import {
 import type { WarmSessionCapabilityReader } from './types';
 import type { ExactEcdsaWalletSessionAuthorizationResolver } from '../material/ecdsaSigningCapability';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
 
 export type WarmSessionCapabilityReaderSealInput = {
@@ -56,7 +56,7 @@ export type WarmSessionCapabilityReaderFactoryDeps = Omit<
   resolveActiveEcdsaWalletSessionAuthorization?: ExactEcdsaWalletSessionAuthorizationResolver;
   resolveActiveEd25519WalletSessionAuthorization?: (
     walletId: WalletId,
-  ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
+  ) => Promise<ExactNearEd25519WalletSessionAuthorization | null>;
 };
 
 const UNCONFIGURED_WARM_SESSION_CAPABILITY_READER_DEPS: WarmSessionCapabilityReaderFactoryDeps = {

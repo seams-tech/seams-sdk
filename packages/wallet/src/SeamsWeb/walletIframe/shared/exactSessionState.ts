@@ -23,7 +23,6 @@ import type {
   WalletAuthenticationState,
 } from '@/core/types/seams';
 import {
-  mpcMaterialActivationRefsEqual,
   parseCapabilityInstanceRef,
   parseWalletAuthMethodId,
   parseWalletId,
@@ -40,6 +39,7 @@ import type {
   ActiveWalletSessionV1,
   WalletSessionOperationCredentialV1,
 } from '@shared/device-linking/contracts';
+import { activeWalletSessionV1RecordsEqual } from '@shared/device-linking/activeWalletSession';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletSessionAuthorizationExactActiveReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
@@ -1436,58 +1436,9 @@ function walletIframeStatusMatchesAuthorization(
     case 'capability_unavailable':
       return (
         status.expiresAtMs === authorization.expiresAtMs &&
-        activeWalletSessionRecordsMatch(status.authorization, authorization)
+        activeWalletSessionV1RecordsEqual(status.authorization, authorization)
       );
   }
-}
-
-function activeWalletSessionRecordsMatch(
-  left: ActiveWalletSessionV1,
-  right: ActiveWalletSessionV1,
-): boolean {
-  if (
-    left.kind !== right.kind ||
-    left.walletId !== right.walletId ||
-    left.authorityId !== right.authorityId ||
-    left.authMethodId !== right.authMethodId ||
-    left.authorizationId !== right.authorizationId ||
-    left.quotaId !== right.quotaId ||
-    left.authorityDigestB64u !== right.authorityDigestB64u ||
-    left.authorityRevocationEpoch !== right.authorityRevocationEpoch ||
-    left.issuedAtMs !== right.issuedAtMs ||
-    left.expiresAtMs !== right.expiresAtMs ||
-    left.capabilitySubjects.length !== right.capabilitySubjects.length
-  ) {
-    return false;
-  }
-  for (let index = 0; index < left.capabilitySubjects.length; index += 1) {
-    const leftSubject = left.capabilitySubjects[index];
-    const rightSubject = right.capabilitySubjects[index];
-    if (!leftSubject || !rightSubject || leftSubject.kind !== rightSubject.kind) return false;
-    switch (leftSubject.kind) {
-      case 'sign':
-      case 'export_keys':
-        if (
-          rightSubject.kind !== leftSubject.kind ||
-          rightSubject.keyFamily !== leftSubject.keyFamily ||
-          !mpcMaterialActivationRefsEqual(
-            leftSubject.materialActivation,
-            rightSubject.materialActivation,
-          )
-        ) {
-          return false;
-        }
-        break;
-      case 'link_devices':
-      case 'revoke_devices':
-        if (rightSubject.kind !== leftSubject.kind) return false;
-        break;
-      default:
-        leftSubject satisfies never;
-        return false;
-    }
-  }
-  return true;
 }
 
 function exactSessionStateFromStatus(input: {

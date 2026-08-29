@@ -335,8 +335,8 @@ function selectedEd25519LaneForTransactionCandidate(
     nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
     signerSlot: candidate.signerSlot,
     auth: candidate.auth,
-    walletSessionId: candidate.authorization.walletSessionId,
-    quotaId: candidate.authorization.quotaId,
+    walletSessionId: candidate.authorization.operationCredential.walletSessionId,
+    quotaId: candidate.authorization.session.quotaId,
     thresholdSessionId: candidate.thresholdSessionId,
   });
 }
@@ -427,8 +427,8 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
       nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
       signerSlot: candidate.signerSlot,
       auth: candidate.auth,
-      walletSessionId: candidate.authorization.walletSessionId,
-      quotaId: candidate.authorization.quotaId,
+      walletSessionId: candidate.authorization.operationCredential.walletSessionId,
+      quotaId: candidate.authorization.session.quotaId,
       thresholdSessionId: candidate.thresholdSessionId,
     });
   }
@@ -685,9 +685,7 @@ function selectedEvmFamilyLaneFromCandidate(args: {
   return selectedLaneFromCandidate(args.candidate) as SelectedEcdsaLane;
 }
 
-function transactionCandidatesAllowedByAuthPolicy<
-  TCandidate extends { candidate: LaneCandidate },
->(
+function transactionCandidatesAllowedByAuthPolicy<TCandidate extends { candidate: LaneCandidate }>(
   intent: TransactionSigningIntent,
   candidates: readonly TCandidate[],
 ): readonly TCandidate[] {

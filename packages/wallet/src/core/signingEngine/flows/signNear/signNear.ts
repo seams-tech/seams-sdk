@@ -385,8 +385,8 @@ function summarizeNearEd25519Lane(lane: AvailableEd25519SigningLane): Record<str
     source: lane.source || 'unknown',
     ...(lane.authorizationState === 'authorized'
       ? {
-          walletSessionId: lane.authorization.walletSessionId,
-          quotaId: lane.authorization.quotaId,
+          walletSessionId: lane.authorization.operationCredential.walletSessionId,
+          quotaId: lane.authorization.session.quotaId,
         }
       : {}),
     thresholdSessionId: lane.thresholdSessionId,
@@ -505,10 +505,10 @@ function walletSessionStatusIdentityFromNearPreparation(
   preparation: NearEd25519YaoSigningPreparation,
 ): WalletSessionStatusIdentity | null {
   if (preparation.authorization.kind !== 'authorized') return null;
-  const projection = preparation.authorization.authorization.projection;
+  const authorization = preparation.authorization.authorization;
   return {
-    walletSessionId: projection.walletSessionId,
-    quotaId: projection.quotaId,
+    walletSessionId: authorization.operationCredential.walletSessionId,
+    quotaId: authorization.session.quotaId,
   };
 }
 
@@ -1350,11 +1350,10 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     selectedLane: selectedLane.lane,
   });
   if (initialMaterialBoundary.preparation.authorization.kind === 'authorized') {
-    const authorization =
-      initialMaterialBoundary.preparation.authorization.authorization.projection;
+    const authorization = initialMaterialBoundary.preparation.authorization.authorization;
     if (
-      selectedLane.lane.walletSessionId !== authorization.walletSessionId ||
-      selectedLane.lane.quotaId !== authorization.quotaId
+      selectedLane.lane.walletSessionId !== authorization.operationCredential.walletSessionId ||
+      selectedLane.lane.quotaId !== authorization.session.quotaId
     ) {
       availableLanes = await readNearEd25519AvailableSigningLanes({
         deps: args.deps,
@@ -1370,8 +1369,8 @@ async function prepareNearEd25519TransactionSigningSession(args: {
       if (
         !refreshedLane ||
         !selectedEd25519LanesHaveSameSignerAndAuth(selectedLane.lane, refreshedLane.lane) ||
-        refreshedLane.lane.walletSessionId !== authorization.walletSessionId ||
-        refreshedLane.lane.quotaId !== authorization.quotaId
+        refreshedLane.lane.walletSessionId !== authorization.operationCredential.walletSessionId ||
+        refreshedLane.lane.quotaId !== authorization.session.quotaId
       ) {
         throw new Error(
           '[SigningEngine][near] material restoration changed the Wallet Session without an exact refreshed lane',
