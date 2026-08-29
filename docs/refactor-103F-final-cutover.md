@@ -814,7 +814,8 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
 - [x] Convert ECDSA pool-fill admission in `thresholdEcdsa.ts`. Pool fill now
       requires the exact ECDSA operation credential and resolves every runtime
       binding from the credential's active authority material; the parallel
-      opaque-binding branch was deleted.
+      opaque-binding branch was deleted, and the downstream presign runtime no
+      longer derives its input type from `OpaqueOwnerWalletSessionBinding`.
 - [x] Convert recovery warm-session authorization in
       `routerAbEd25519YaoRecoveryWalletSessionAuthorization.ts`. Bootstrap now
       requires the exact Ed25519 signing credential, resolves its active
