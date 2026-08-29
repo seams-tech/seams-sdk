@@ -320,8 +320,6 @@ import type {
   VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type {
-  IssueReusableWalletSessionInput,
-  IssuedReusableWalletSession,
   IssuedOpaqueWalletSessionToken,
   OpaqueWalletSessionCurve,
   OpaqueOwnerWalletSessionBinding,
@@ -1584,14 +1582,6 @@ export interface RouterApiAuthorizationSessionService {
   issueDirectWalletSessionAuthorizationV2(
     input: IssueDirectWalletSessionAuthorizationV2Input,
   ): Promise<DirectV2IssueResult>;
-  issueReusableWalletSession(
-    input: IssueReusableWalletSessionInput,
-  ): Promise<IssuedReusableWalletSession>;
-  issueWalletSessionAuthorizationV2FromReusableSession(input: {
-    readonly reusableWalletSession: IssuedReusableWalletSession;
-    readonly authority: ActiveWalletAuthorityV1;
-    readonly walletAuthMethodId: WalletAuthMethodId;
-  }): Promise<IssuedWalletSessionAuthorizationV2>;
   issueOpaqueWalletSessionToken(input: {
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly tenantId: TenantId;

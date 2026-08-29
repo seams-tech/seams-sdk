@@ -2440,13 +2440,6 @@ function createD1AuthorizationSessionRouteService(
       assembly.authorizationService.issueDirectWalletSessionAuthorizationV2.bind(
         assembly.authorizationService,
       ),
-    issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
-      assembly.authorizationService,
-    ),
-    issueWalletSessionAuthorizationV2FromReusableSession:
-      assembly.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession.bind(
-        assembly.authorizationService,
-      ),
     issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
       assembly.authorizationService,
     ),

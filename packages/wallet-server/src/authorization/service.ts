@@ -24,14 +24,11 @@ import type {
   WalletSessionAuthorizationV2MintLookup,
   WalletSessionAuthorizationV2MintRead,
   WalletSessionIssuanceResponseFamilyV1,
-  WalletSessionAuthorization,
   WalletSessionAuthorizationV2,
   VerifiedOwnerProof,
 } from './domain';
 import {
   buildActiveWalletSessionQuota,
-  buildAuthorizedOperation,
-  buildWalletSessionAuthorization,
   buildWalletSessionAuthorizationV2,
   buildWalletSessionCapabilitySubjectsV1,
   buildPersistedActiveWalletSessionAuthorizationV2,
@@ -132,18 +129,6 @@ export interface AuthorizationGrantPort {
     readonly walletAuthMethodId: WalletAuthMethodId;
     readonly nowMs: number;
   }): Promise<void>;
-  putWalletSessionAuthorization(input: {
-    readonly session: WalletSessionAuthorization;
-    readonly quota: ActiveWalletSessionQuota;
-  }): Promise<void>;
-  readWalletSessionAuthorizationByMint(input: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletId: WalletId;
-    readonly authority: WalletAuthAuthorityRef;
-    readonly mintId: ReusableWalletSessionMintId;
-    readonly nowMs: number;
-  }): Promise<IssuedReusableWalletSession | null>;
   putWalletSessionAuthorizationV2(input: {
     readonly session: WalletSessionAuthorizationV2;
     readonly quota: ActiveWalletSessionQuota;
@@ -251,17 +236,6 @@ export type AuthorizationServicePorts = {
   readonly audit: object;
 };
 
-export type IssueReusableWalletSessionInput = {
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly walletId: WalletId;
-  readonly authority: WalletAuthAuthorityRef;
-  readonly mintId: ReusableWalletSessionMintId;
-  readonly remainingUses: number;
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-};
-
 export type IssueWalletSessionAuthorizationV2Input = {
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
@@ -279,55 +253,6 @@ export type IssueDirectWalletSessionAuthorizationV2Input =
     readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
     readonly responseFamily: WalletSessionIssuanceResponseFamilyV1;
   };
-
-export type IssuedReusableWalletSession = {
-  readonly session: WalletSessionAuthorization;
-  readonly quota: ActiveWalletSessionQuota;
-};
-
-type ReusableWalletSessionV2ProjectionInput = {
-  readonly reusableWalletSession: IssuedReusableWalletSession;
-  readonly authority: ActiveWalletAuthorityV1;
-  readonly walletAuthMethodId: WalletAuthMethodId;
-};
-
-function projectReusableWalletSessionV2(
-  input: ReusableWalletSessionV2ProjectionInput,
-): IssuedWalletSessionAuthorizationV2 {
-  const reusable = input.reusableWalletSession;
-  if (
-    reusable.session.walletId !== input.authority.walletId ||
-    reusable.session.authority.walletId !== input.authority.walletId ||
-    reusable.session.authority.walletAuthMethodId !== input.walletAuthMethodId
-  ) {
-    throw new Error('Reusable Wallet Session does not match the active V2 authority');
-  }
-  const session = buildWalletSessionAuthorizationV2({
-    tenantId: reusable.session.tenantId,
-    principalId: reusable.session.principalId,
-    walletId: reusable.session.walletId,
-    authorityId: input.authority.authorityId,
-    walletAuthMethodId: input.walletAuthMethodId,
-    authorityDigestB64u: input.authority.authorityDigestB64u,
-    authorityRevocationEpoch: input.authority.revocationEpoch,
-    mintId: reusable.session.mintId,
-    authorizationId: reusable.session.authorizationId,
-    walletSessionId: reusable.session.walletSessionId,
-    quotaId: reusable.session.quotaId,
-    capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(input.authority),
-    createdAtMs: reusable.session.createdAtMs,
-    expiresAtMs: reusable.session.expiresAtMs,
-  });
-  const quota = buildActiveWalletSessionQuota({
-    tenantId: reusable.quota.tenantId,
-    principalId: reusable.quota.principalId,
-    walletSessionId: reusable.quota.walletSessionId,
-    quotaId: reusable.quota.quotaId,
-    remainingUses: reusable.quota.remainingUses,
-    expiresAtMs: reusable.quota.expiresAtMs,
-  });
-  return { session, quota };
-}
 
 export type OpaqueWalletSessionCurve = 'ecdsa' | 'ed25519';
 
@@ -758,54 +683,6 @@ export class AuthorizationService {
     return await this.ports.authorizedOperations.completeAuthorizedOperation(input);
   }
 
-  async issueReusableWalletSession(
-    input: IssueReusableWalletSessionInput,
-  ): Promise<IssuedReusableWalletSession> {
-    const authorizationId = parseRequired(
-      await deriveReusableWalletSessionId(input, 'authorization'),
-      parseWalletSessionAuthorizationId,
-    );
-    const walletSessionId = parseRequired(
-      await deriveReusableWalletSessionId(input, 'wallet_session'),
-      parseWalletSessionId,
-    );
-    const quotaId = parseRequired(
-      await deriveReusableWalletSessionId(input, 'quota'),
-      parseMpcWalletSigningQuotaId,
-    );
-    const session = buildWalletSessionAuthorization({
-      tenantId: input.tenantId,
-      principalId: input.principalId,
-      walletId: input.walletId,
-      authority: input.authority,
-      mintId: input.mintId,
-      authorizationId,
-      walletSessionId,
-      quotaId,
-      createdAtMs: input.issuedAtMs,
-      expiresAtMs: input.expiresAtMs,
-    });
-    const quota = buildActiveWalletSessionQuota({
-      tenantId: session.tenantId,
-      principalId: session.principalId,
-      walletSessionId,
-      quotaId,
-      remainingUses: input.remainingUses,
-      expiresAtMs: session.expiresAtMs,
-    });
-    await this.ports.grants.putWalletSessionAuthorization({ session, quota });
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationByMint({
-      tenantId: input.tenantId,
-      principalId: input.principalId,
-      walletId: input.walletId,
-      authority: input.authority,
-      mintId: input.mintId,
-      nowMs: input.issuedAtMs,
-    });
-    if (!persisted) throw new Error('Issued Wallet Session authorization was not persisted');
-    return persisted;
-  }
-
   async issueWalletSessionAuthorizationV2(
     input: IssueWalletSessionAuthorizationV2Input,
   ): Promise<IssuedWalletSessionAuthorizationV2> {
@@ -901,45 +778,6 @@ export class AuthorizationService {
       token,
       walletSessionId: input.session.walletSessionId,
     };
-  }
-
-  /**
-   * Persists the V2 authority projection for a registration session after its
-   * founding authority is committed. The bearer session keeps its identity so
-   * owner request authentication and the V2 source read observe one session.
-   */
-  async issueWalletSessionAuthorizationV2FromReusableSession(input: {
-    readonly reusableWalletSession: IssuedReusableWalletSession;
-    readonly authority: ActiveWalletAuthorityV1;
-    readonly walletAuthMethodId: WalletAuthMethodId;
-  }): Promise<IssuedWalletSessionAuthorizationV2> {
-    const projected = projectReusableWalletSessionV2(input);
-    await this.ports.grants.putWalletSessionAuthorizationV2(projected);
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
-      expected: projected.session,
-      nowMs: input.reusableWalletSession.session.createdAtMs,
-    });
-    if (!persisted) {
-      throw new Error('Promoted V2 Wallet Session authorization was not persisted');
-    }
-    return persisted;
-  }
-
-  async refreshWalletSessionAuthorizationV2FromReusableSession(input: {
-    readonly reusableWalletSession: IssuedReusableWalletSession;
-    readonly authority: ActiveWalletAuthorityV1;
-    readonly walletAuthMethodId: WalletAuthMethodId;
-  }): Promise<IssuedWalletSessionAuthorizationV2> {
-    const projected = projectReusableWalletSessionV2(input);
-    await this.ports.grants.replaceWalletSessionAuthorizationV2AuthorityProjection(projected);
-    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
-      expected: projected.session,
-      nowMs: input.reusableWalletSession.session.createdAtMs,
-    });
-    if (!persisted) {
-      throw new Error('Refreshed V2 Wallet Session authority projection was not persisted');
-    }
-    return persisted;
   }
 
   async refreshWalletSessionAuthorizationV2AuthorityProjection(input: {
@@ -1184,17 +1022,6 @@ export class AuthorizationService {
     });
   }
 
-  async readWalletSessionAuthorizationByMint(input: {
-    readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly walletId: WalletId;
-    readonly authority: WalletAuthAuthorityRef;
-    readonly mintId: ReusableWalletSessionMintId;
-    readonly nowMs: number;
-  }): Promise<IssuedReusableWalletSession | null> {
-    return await this.ports.grants.readWalletSessionAuthorizationByMint(input);
-  }
-
   parseEvidenceRequirement(value: unknown): ParseAuthorizationEvidenceRequirementResult {
     return this.ports.policy.parseEvidenceRequirement(value);
   }
@@ -1205,27 +1032,6 @@ export class AuthorizationService {
   ): AuthorizationEvidenceRequirementEvaluation {
     return this.ports.policy.evaluateEvidenceRequirement(requirement, evidenceSet);
   }
-}
-
-async function deriveReusableWalletSessionId(
-  input: IssueReusableWalletSessionInput,
-  kind: 'authorization' | 'wallet_session' | 'quota',
-): Promise<string> {
-  const digest = base64UrlEncode(
-    await sha256BytesUtf8(
-      [
-        'seams:reusable-wallet-session-issuance:v1',
-        kind,
-        input.tenantId,
-        input.principalId,
-        input.walletId,
-        input.authority.authorityDigest,
-        input.mintId,
-      ].join('\0'),
-    ),
-  );
-  const prefix = kind === 'authorization' ? 'wlt' : kind === 'wallet_session' ? 'wls' : 'wsq';
-  return `${prefix}_${digest}`;
 }
 
 async function deriveWalletSessionAuthorizationV2Id(
