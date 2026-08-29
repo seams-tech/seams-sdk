@@ -159,6 +159,7 @@ test.describe('Wallet iframe handshake', () => {
           code: err?.code,
           name: err?.name,
           message: err?.message,
+          expectedProtocolVersion: err?.expectedProtocolVersion,
           receivedProtocolVersion: err?.receivedProtocolVersion,
         };
       }
@@ -167,7 +168,8 @@ test.describe('Wallet iframe handshake', () => {
     expect(result.ok).toBe(false);
     expect(result.code).toBe('WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH');
     expect(result.name).toBe('WalletIframeProtocolVersionMismatchError');
-    expect(result.message).toContain('expected 2.0.0, received 2.0.0');
+    expect(result.message).toContain('expected 3.0.0, received 2.0.0');
+    expect(result.expectedProtocolVersion).toBe('3.0.0');
     expect(result.receivedProtocolVersion).toBe('2.0.0');
 
     const readyState = await page.evaluate(() => {
