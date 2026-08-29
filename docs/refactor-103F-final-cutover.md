@@ -631,9 +631,10 @@ Required shaping work:
       I6 changes those paths.
 - [ ] Extract exact-session reader logic from `login.ts` and
       `BrowserSigningSurface.ts` as I8 converts their callers.
-- [ ] Regenerate the exact `readActiveForWallet` consumer inventory before I8.
-      The previous checkpoint found 44 call sites across 18 production consumer
-      files; the generated current list controls the conversion work.
+- [x] Regenerate the exact `readActiveForWallet` consumer inventory before I8.
+      The current tree has 40 executable uses across 18 production consumer
+      files: 37 direct reads and three bound ports. The generated current list
+      below controls the conversion work.
 - [ ] Record the final V2 issue, persistence, read, admission, retirement, and
       replay APIs that remain after deletion so the closure search distinguishes
       the intended exact surface from a missed legacy replacement.
