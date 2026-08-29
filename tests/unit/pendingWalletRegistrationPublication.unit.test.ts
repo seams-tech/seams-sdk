@@ -4,6 +4,7 @@ import {
   buildEcdsaActivationPublicationFixture,
   buildEmailNearProvisioningPublicationFixture,
   buildMixedActivationPublicationFixture,
+  buildPasskeyNearProvisioningProductionPublicationFixture,
   buildPasskeyNearProvisioningPublicationFixture,
 } from './helpers/pendingWalletRegistrationPublication.fixtures';
 import type { PendingWalletRegistrationPublicationFixture } from './helpers/pendingWalletRegistrationPublication.fixtures';
@@ -210,6 +211,129 @@ test.describe('pending registration publication', () => {
     expect(result.firstError).toContain('key material');
     expect(result.afterFailure).toEqual({ pending: true, profile: false, authority: false });
     expect(result.afterRetry).toEqual({ pending: false, profile: true });
+  });
+
+  test('retries the production Ed25519 batch without exposing a partial wallet', async ({
+    page,
+  }) => {
+    const fixture = await buildPasskeyNearProvisioningProductionPublicationFixture();
+    const result = await page.evaluate(
+      async ({ paths, input: publicationInput, nearProfileId }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`pending-production-publication-${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        await db.putPendingWalletRegistrationCommit(publicationInput.pending);
+        let firstError: string | null = null;
+        try {
+          await db.publishPendingWalletRegistrationCommit({
+            ...publicationInput,
+            registration: {
+              ...publicationInput.registration,
+              keyMaterials: publicationInput.registration.keyMaterials.filter(
+                (keyMaterial: { readonly keyKind?: string }) =>
+                  keyMaterial.keyKind !== 'threshold_share_v1',
+              ),
+            },
+          });
+        } catch (caught) {
+          firstError = caught instanceof Error ? caught.message : String(caught);
+        }
+        const afterFailure = {
+          pending:
+            (await db.getPendingWalletRegistrationCommit({
+              registrationCeremonyId: publicationInput.request.registrationCeremonyId,
+              operation: publicationInput.request.operation,
+            })) !== null,
+          walletProfile: (await db.getProfile(publicationInput.request.walletId)) !== null,
+          nearProfile: (await db.getProfile(nearProfileId)) !== null,
+          authMethod:
+            (await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId)) !== null,
+          authority:
+            (await db.getWalletAuthority(
+              publicationInput.foundingAuthority.authority.authorityId,
+            )) !== null,
+          selection: (await db.listWalletSelections()).some(
+            (selection: { readonly walletId?: string }) =>
+              selection.walletId === publicationInput.request.walletId,
+          ),
+          walletAccounts: (await db.listChainAccountsByProfile(publicationInput.request.walletId))
+            .length,
+          nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
+          walletSigners: (
+            await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
+          ).length,
+          nearSigners: (await db.listAccountSignersByProfile({ profileId: nearProfileId })).length,
+          keyMaterials: (await db.listKeyMaterialByProfile(nearProfileId)).length,
+        };
+        await db.publishPendingWalletRegistrationCommit(publicationInput);
+        const afterRetry = {
+          pending:
+            (await db.getPendingWalletRegistrationCommit({
+              registrationCeremonyId: publicationInput.request.registrationCeremonyId,
+              operation: publicationInput.request.operation,
+            })) !== null,
+          walletProfile: (await db.getProfile(publicationInput.request.walletId)) !== null,
+          nearProfile: (await db.getProfile(nearProfileId)) !== null,
+          authMethod:
+            (await db.getWalletAuthMethodV2(publicationInput.request.walletAuthMethodId)) !== null,
+          authority:
+            (await db.getWalletAuthority(
+              publicationInput.foundingAuthority.authority.authorityId,
+            )) !== null,
+          selection: (await db.listWalletSelections()).some(
+            (selection: { readonly walletId?: string }) =>
+              selection.walletId === publicationInput.request.walletId,
+          ),
+          walletAccounts: (await db.listChainAccountsByProfile(publicationInput.request.walletId))
+            .length,
+          nearAccounts: (await db.listChainAccountsByProfile(nearProfileId)).length,
+          walletSigners: (
+            await db.listAccountSignersByProfile({ profileId: publicationInput.request.walletId })
+          ).length,
+          nearSigners: (await db.listAccountSignersByProfile({ profileId: nearProfileId })).length,
+          keyMaterials: (await db.listKeyMaterialByProfile(nearProfileId)).length,
+        };
+        seamsWalletDB.close();
+        return { firstError, afterFailure, afterRetry };
+      },
+      {
+        paths: IMPORT_PATHS,
+        input: fixture.input,
+        nearProfileId: 'near-profile:publication.testnet',
+      },
+    );
+
+    expect(result.firstError).toContain('key material');
+    expect(result.afterFailure).toEqual({
+      pending: true,
+      walletProfile: false,
+      nearProfile: false,
+      authMethod: false,
+      authority: false,
+      selection: false,
+      walletAccounts: 0,
+      nearAccounts: 0,
+      walletSigners: 0,
+      nearSigners: 0,
+      keyMaterials: 0,
+    });
+    expect(result.afterRetry).toEqual({
+      pending: false,
+      walletProfile: true,
+      nearProfile: true,
+      authMethod: true,
+      authority: true,
+      selection: true,
+      walletAccounts: 1,
+      nearAccounts: 1,
+      walletSigners: 1,
+      nearSigners: 1,
+      keyMaterials: 2,
+    });
   });
 
   test('publishes Email OTP provider and registration-authority identity atomically', async ({
