@@ -263,34 +263,12 @@ export type ThresholdEd25519SessionTokenInputs =
     }
   | AuthorizeErr;
 
-type ThresholdEd25519LegacySessionInputs = Exclude<
-  ThresholdEd25519SessionTokenInputs,
-  { readonly kind: 'wallet_session_operation_credential_v1' }
->;
-
-export function validateRouterAbEd25519WalletSessionTokenInputs(input: {
-  body: unknown;
-  headers: Record<string, string | string[] | undefined>;
-  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-  nowMs?: () => number;
-  operationKind: Extract<
-    WalletSessionAuthorizationV2RequestedOperation,
-    { readonly keyFamily: 'ed25519' }
-  >['operationKind'];
-}): Promise<ThresholdEd25519SessionTokenInputs>;
-export function validateRouterAbEd25519WalletSessionTokenInputs(input: {
-  body: unknown;
-  headers: Record<string, string | string[] | undefined>;
-  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-  nowMs?: () => number;
-  operationKind?: never;
-}): Promise<ThresholdEd25519LegacySessionInputs>;
 export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   nowMs?: () => number;
-  operationKind?: Extract<
+  operationKind: Extract<
     WalletSessionAuthorizationV2RequestedOperation,
     { readonly keyFamily: 'ed25519' }
   >['operationKind'];
@@ -307,87 +285,36 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   const token = extractBearerCredential(input.headers);
   if (!token) return walletSessionFailure('wallet_session_missing');
   const nowMs = input.nowMs || Date.now;
-  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_found' };
-  let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
+  let resolution: WalletSessionOperationCredentialResolution;
   try {
-    if (input.operationKind !== undefined) {
-      v2Resolution = await resolveWalletSessionOperationCredentialAdmission({
-        authorizationSessions,
-        token,
-        nowMs: nowMs(),
-        operation: { keyFamily: 'ed25519', operationKind: input.operationKind },
-      });
-    }
-    if (v2Resolution.kind === 'rejected') {
-      return walletSessionFailure('wallet_session_scope_mismatch');
-    }
-    if (v2Resolution.kind === 'admitted') {
-      if (v2Resolution.admission.curve !== 'ed25519') {
-        return walletSessionFailure('wallet_session_scope_mismatch');
-      }
-      return {
-        ok: true,
-        kind: 'wallet_session_operation_credential_v1',
-        admission: v2Resolution.admission,
-        context: v2Resolution.admission.context,
-        body: isPlainObject(input.body) ? input.body : {},
-      };
-    }
-    admission = await resolveOpaqueOwnerWalletSessionAdmission({
+    resolution = await resolveWalletSessionOperationCredentialAdmission({
       authorizationSessions,
       token,
-      curve: 'ed25519',
       nowMs: nowMs(),
+      operation: { keyFamily: 'ed25519', operationKind: input.operationKind },
     });
   } catch {
     return walletSessionFailure('wallet_session_unavailable');
   }
-  if (!admission || admission.curve !== 'ed25519') {
+  if (resolution.kind === 'rejected') {
+    return walletSessionFailure('wallet_session_scope_mismatch');
+  }
+  if (resolution.kind === 'not_found') {
     return {
       ok: false,
       code: 'wallet_session_invalid',
       message: walletSessionFailureMessage('wallet_session_invalid'),
     };
   }
-  const resolved = admission.resolved;
-  const binding = admission.binding;
-  if (
-    binding.walletId !== resolved.authorization.walletId ||
-    binding.walletSessionId !== resolved.authorization.walletSessionId ||
-    binding.authorizationId !== resolved.authorization.authorizationId ||
-    binding.quotaId !== resolved.authorization.quotaId ||
-    binding.thresholdExpiresAtMs !== resolved.authorization.expiresAtMs
-  ) {
+  if (resolution.admission.curve !== 'ed25519') {
     return walletSessionFailure('wallet_session_scope_mismatch');
   }
-  const authorityRef = await walletAuthAuthorityRef({ authority: binding.authority });
-  if (String(authorityRef.authorityDigest) !== String(resolved.authorization.authorityDigest)) {
-    return walletSessionFailure('wallet_session_scope_mismatch');
-  }
-  const principal = parsePrincipalId(
-    binding.authority.factor.kind === 'email_otp'
-      ? binding.authority.factor.providerUserId
-      : binding.walletId,
-  );
-  if (!principal.ok || principal.value !== resolved.authorization.principalId) {
-    return walletSessionFailure('wallet_session_scope_mismatch');
-  }
-  if (binding.thresholdExpiresAtMs <= nowMs()) {
-    return {
-      ok: false,
-      code: 'wallet_session_expired',
-      message: walletSessionFailureMessage('wallet_session_expired'),
-    };
-  }
-
-  const body = isPlainObject(input.body) ? input.body : {};
   return {
     ok: true,
-    kind: 'owner_wallet_session',
-    admission,
-    binding: admission.binding,
-    walletSessionAuth: admission.walletSessionAuth,
-    body,
+    kind: 'wallet_session_operation_credential_v1',
+    admission: resolution.admission,
+    context: resolution.admission.context,
+    body: isPlainObject(input.body) ? input.body : {},
   };
 }
 
@@ -409,34 +336,12 @@ export type ThresholdEcdsaSessionInputs =
     }
   | AuthorizeErr;
 
-type ThresholdEcdsaLegacySessionInputs = Exclude<
-  ThresholdEcdsaSessionInputs,
-  { readonly kind: 'wallet_session_operation_credential_v1' }
->;
-
-export function validateRouterAbEcdsaDerivationWalletSessionInputs(input: {
-  body: unknown;
-  headers: Record<string, string | string[] | undefined>;
-  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-  nowMs?: () => number;
-  operationKind: Extract<
-    WalletSessionAuthorizationV2RequestedOperation,
-    { readonly keyFamily: 'ecdsa_secp256k1' }
-  >['operationKind'];
-}): Promise<ThresholdEcdsaSessionInputs>;
-export function validateRouterAbEcdsaDerivationWalletSessionInputs(input: {
-  body: unknown;
-  headers: Record<string, string | string[] | undefined>;
-  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-  nowMs?: () => number;
-  operationKind?: never;
-}): Promise<ThresholdEcdsaLegacySessionInputs>;
 export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   nowMs?: () => number;
-  operationKind?: Extract<
+  operationKind: Extract<
     WalletSessionAuthorizationV2RequestedOperation,
     { readonly keyFamily: 'ecdsa_secp256k1' }
   >['operationKind'];
@@ -453,91 +358,36 @@ export async function validateRouterAbEcdsaDerivationWalletSessionInputs(input: 
   const token = extractBearerCredential(input.headers);
   if (!token) return walletSessionFailure('wallet_session_missing');
   const nowMs = input.nowMs || Date.now;
-  let v2Resolution: WalletSessionOperationCredentialResolution = { kind: 'not_found' };
-  let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
+  let resolution: WalletSessionOperationCredentialResolution;
   try {
-    if (input.operationKind !== undefined) {
-      v2Resolution = await resolveWalletSessionOperationCredentialAdmission({
-        authorizationSessions,
-        token,
-        nowMs: nowMs(),
-        operation: { keyFamily: 'ecdsa_secp256k1', operationKind: input.operationKind },
-      });
-    }
-    if (v2Resolution.kind === 'rejected') {
-      return walletSessionFailure('wallet_session_scope_mismatch');
-    }
-    if (v2Resolution.kind === 'admitted') {
-      if (v2Resolution.admission.curve !== 'ecdsa') {
-        return walletSessionFailure('wallet_session_scope_mismatch');
-      }
-      return {
-        ok: true,
-        kind: 'wallet_session_operation_credential_v1',
-        admission: v2Resolution.admission,
-        context: v2Resolution.admission.context,
-        body: isPlainObject(input.body) ? input.body : {},
-      };
-    }
-    admission = await resolveOpaqueOwnerWalletSessionAdmission({
+    resolution = await resolveWalletSessionOperationCredentialAdmission({
       authorizationSessions,
       token,
-      curve: 'ecdsa',
       nowMs: nowMs(),
+      operation: { keyFamily: 'ecdsa_secp256k1', operationKind: input.operationKind },
     });
   } catch {
     return walletSessionFailure('wallet_session_unavailable');
   }
-  if (!admission || admission.curve !== 'ecdsa') {
+  if (resolution.kind === 'rejected') {
+    return walletSessionFailure('wallet_session_scope_mismatch');
+  }
+  if (resolution.kind === 'not_found') {
     return {
       ok: false,
       code: 'wallet_session_invalid',
       message: walletSessionFailureMessage('wallet_session_invalid'),
     };
   }
-  const resolved = admission.resolved;
-  const binding = admission.binding;
-  if (
-    binding.walletId !== resolved.authorization.walletId ||
-    binding.walletSessionId !== resolved.authorization.walletSessionId ||
-    binding.authorizationId !== resolved.authorization.authorizationId ||
-    binding.quotaId !== resolved.authorization.quotaId ||
-    binding.thresholdExpiresAtMs !== resolved.authorization.expiresAtMs ||
-    resolved.authorization.walletAuthMethodId === null ||
-    binding.walletAuthAuthorityRef.walletAuthMethodId !== resolved.authorization.walletAuthMethodId
-  ) {
+  if (resolution.admission.curve !== 'ecdsa') {
     return walletSessionFailure('wallet_session_scope_mismatch');
   }
-  if (
-    String(binding.walletAuthAuthorityRef.authorityDigest) !==
-    String(resolved.authorization.authorityDigest)
-  ) {
-    return walletSessionFailure('wallet_session_scope_mismatch');
-  }
-  const principalSubject =
-    binding.authSource.kind === 'oidc_provider'
-      ? binding.authSource.providerSubject
-      : binding.walletId;
-  const principal = parsePrincipalId(principalSubject);
-  if (!principal.ok || principal.value !== resolved.authorization.principalId) {
-    return walletSessionFailure('wallet_session_scope_mismatch');
-  }
-  if (binding.thresholdExpiresAtMs <= nowMs()) {
-    return {
-      ok: false,
-      code: 'wallet_session_expired',
-      message: walletSessionFailureMessage('wallet_session_expired'),
-    };
-  }
-
-  const body = isPlainObject(input.body) ? input.body : {};
   return {
     ok: true,
-    kind: 'owner_wallet_session',
-    admission,
-    binding: admission.binding,
-    walletSessionAuth: admission.walletSessionAuth,
-    body,
+    kind: 'wallet_session_operation_credential_v1',
+    admission: resolution.admission,
+    context: resolution.admission.context,
+    body: isPlainObject(input.body) ? input.body : {},
   };
 }
 
