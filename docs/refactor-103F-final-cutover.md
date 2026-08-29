@@ -38,13 +38,13 @@ R103F retires:
 This document is authoritative at system boundaries. It does not freeze
 call-site counts, line counts, commit structure, or historical test results.
 The compiler and the closure searches enumerate concrete consumers while the
-implementation is in progress. Every temporary compatibility path named here
-has a removal gate. Document and production line counts are diagnostic only;
-neither is a completion criterion.
+implementation is in progress. The final branch contains no temporary adapter
+or compatibility path. Document and production line counts are
+diagnostic only; neither is a completion criterion.
 
-The invariants, boundary matrix, implementation phases, rollout state machine,
-and closure ledger are coordinated views in this one plan. The detailed
-inventory supplies task-level status beneath those views.
+The invariants, boundary matrix, implementation phases, and closure ledger are
+coordinated views in this one plan. The detailed inventory supplies task-level
+status beneath those views.
 
 ### Boundary-local versions
 
@@ -265,12 +265,12 @@ aborting the exact install.
     same-authority browser record without rotating session, quota, mint, or
     credential identity.
 14. Current browser readers quarantine known legacy rows and preserve unknown
-    future rows. The precursor and final SDKs both reach explicit terminal UI
-    states under version skew.
+    future rows. Every unsupported row reaches an explicit terminal UI state.
 15. The host SDK and iframe agree on `WALLET_PROTOCOL_VERSION` before adopting
     the port or exchanging Wallet Session data.
-16. Compatibility remains confined to the named request, IndexedDB, and D1
-    persistence boundaries. Each compatibility branch is deleted at its gate.
+16. Cutover parsing remains confined to the named request, IndexedDB, and D1
+    persistence boundaries. The final closure search finds no V1 request or
+    runtime compatibility branch.
 17. Applied migrations remain byte-for-byte unchanged. The final schema has no
     V1 table, trigger, view, or alias.
 
@@ -282,24 +282,24 @@ Typed call sites are enumerated by narrowing or deleting the old types and APIs.
 The temporary implementation appendix owns exact file/call-site lists while a
 phase is active.
 
-| ID | Boundary | Producer(s) | Consumers | Replay / recovery | Persistence and final shape | Compatibility and deletion gate | Primary proof |
+| ID | Boundary | Producer(s) | Consumers | Replay / recovery | Persistence and final shape | Code-cutover action | Primary proof |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| B1 | D1 authorization persistence | Direct issuer and authority-activation CAS | Admission, status, quota, replay, revocation, hosted children | Full-scope mint replay returns committed identity | V2 authorization, quota, and primary digest commit atomically | Bridge workers may read V1 tables; delete after zero active V1 state and exact-only workers | Failure injection plus migration checks |
-| B2 | Session issuance | Registration, unlock, refresh, sync, linked activation, post-recovery login | Browser installers, signing runtimes, status | `issued` / `already_committed`; unlock replaces unreachable committed session | Direct V2 response and credential digest | Registration old-response adapter only; delete when pending-commit clients own replay | Issuance matrix and same-mint tests |
-| B3 | Registration completion | Registration activation and deferred provisioning | Registration client, replay route, local discovery/install transaction | Pending local commit plus credential-free committed projection | `WalletRegistrationSessionCommitReceiptV2`; bounded adapter digests live only in the temporary replay table | Adapter attaches ephemeral V1 bearer; delete its table and resolver when `already_committed` is authoritative | Lost response through immediate signing |
-| B4 | Operation admission | Primary and hosted credential resolvers | Both curve validators, pool fill, seal, preflight, warm recovery, step-up | Authorized-operation replay resolves the same exact context | Required V2 credential reader and typed admission union | Bridge request resolver accepts issued V1 bearers; delete after credential and pending-operation drain | Both curves reject fallback |
+| B1 | D1 authorization persistence | Direct issuer and authority-activation CAS | Admission, status, quota, replay, revocation, hosted children | Full-scope mint replay returns committed identity | V2 authorization, quota, and primary digest commit atomically | Delete V1 tables, ports, and projections in the enforcement migration and source cutover | Failure injection plus migration checks |
+| B2 | Session issuance | Registration, unlock, refresh, sync, linked activation, post-recovery login | Browser installers, signing runtimes, status | `issued` / `already_committed`; unlock replaces unreachable committed session | Direct V2 response and credential digest | Convert every issuer directly; delete reusable-session issuers and response adapters | Issuance matrix and same-mint tests |
+| B3 | Registration completion | Registration activation and deferred provisioning | Registration client, replay route, local discovery/install transaction | Pending local commit plus credential-free committed projection | `WalletRegistrationSessionCommitReceiptV2` only | Delete credential-bearing receipts, bearer reconstruction, and replay-adapter storage | Lost response through immediate signing |
+| B4 | Operation admission | Primary and hosted credential resolvers | Both curve validators, pool fill, seal, preflight, warm recovery, step-up | Authorized-operation replay resolves the same exact context | Required V2 credential reader and typed admission union | Delete V1 credential resolution and `not_v2` from core admission | Both curves reject fallback |
 | B5 | Runtime material resolution | Capability-subject material repository | Router A/B requests, signing, export, pool fill | Re-resolution uses the same activation identity | Exact `MpcMaterialActivationRef` projection | No compatibility; delete or replace every opaque-binding consumer | No synthesized runtime IDs |
-| B6 | Status, quota, and source activity | Exact status and authorization stores | Browser reconciliation, quota, operation replay, lifecycle UI | Full digest-free projection repairs lost promotion response | Exact V2 scope and typed lifecycle | All-null-scope old-worker rows remain readable; delete after pending V1 operation count reaches zero | Full-scope replay and lifecycle tests |
-| B7 | Revocation and replacement | Method, authority, replacement, and budget CAS operations | Admission, status, hosted children, sibling sessions | Exhausted identity remains readable for typed step-up | Exact session, quota, and child lifecycle update together | V1 cleanup remains at bridge persistence boundary; delete after zero active V1 | Transaction tests |
-| B8 | Browser persistence | Registration, unlock, refresh, sync, recovery, device-link installers | Signing surface, login, readiness, step-up, management, public API | Bootstrap and exact status reconcile stale projections | One V6 record selected by exact tuple | Precursor writes V5 and readers contain late legacy writes; enable V6 after unmarked-client drain | Mixed-version IndexedDB tests |
-| B9 | Host SDK and iframe | Host CONNECT and iframe READY handshakes | Host applications, iframe router, hosted child cache | Version mismatch is terminal and retryable after upgrade | Matching protocol version and exact message shapes | No message adapter; known embeds upgrade before final iframe | Both skew directions fail closed |
-| B10 | Hosted handoff | Hosted issue and redemption routes | Iframe child cache and child-authorized HTTP routes | Single-use exchange; child resolves exact parent | Origin-bound `wsh_` digest record with parent FK | Existing V1 exchanges drain; delete after unconsumed count reaches zero | Origin, parent lifecycle, and primary-preservation tests |
-| B11 | Device-link activation | Device 2 preparation and server activation CAS | Local installer, runtime activation, acknowledgement | Activation replay returns original recipient-bound ciphertext and session | Exact session plus sealed delivery row | Existing pending link/session states remain retryable; delete V1 support after drain | Four factor paths plus loss/replay tests |
+| B6 | Status, quota, and source activity | Exact status and authorization stores | Browser reconciliation, quota, operation replay, lifecycle UI | Full digest-free projection repairs lost promotion response | Exact V2 scope and typed lifecycle | Reject partial legacy scope and delete V1 status/quota/source readers | Full-scope replay and lifecycle tests |
+| B7 | Revocation and replacement | Method, authority, replacement, and budget CAS operations | Admission, status, hosted children, sibling sessions | Exhausted identity remains readable for typed step-up | Exact session, quota, and child lifecycle update together | Delete V1 cleanup statements after all callers use exact retirement | Transaction tests |
+| B8 | Browser persistence | Registration, unlock, refresh, sync, recovery, device-link installers | Signing surface, login, readiness, step-up, management, public API | Bootstrap and exact status reconcile stale projections | One V6 record selected by exact tuple | Write V6 directly; quarantine V3/V4/V5 and delete their writers/read APIs | Mixed-version IndexedDB tests |
+| B9 | Host SDK and iframe | Host CONNECT and iframe READY handshakes | Host applications, iframe router, hosted child cache | Version mismatch is terminal and retryable after matching code is loaded | Matching protocol version and exact message shapes | Change both sides in one code cutover; keep no message adapter | Both skew directions fail closed |
+| B10 | Hosted handoff | Hosted issue and redemption routes | Iframe child cache and child-authorized HTTP routes | Single-use exchange; child resolves exact parent | Origin-bound `wsh_` digest record with parent FK | Delete V1 exchange shapes, curve fields, and token caches | Origin, parent lifecycle, and primary-preservation tests |
+| B11 | Device-link activation | Device 2 preparation and server activation CAS | Local installer, runtime activation, acknowledgement | Activation replay returns original recipient-bound ciphertext and session | Exact session plus sealed delivery row | Convert current pending states through the exact state machine and delete V1 session delivery | Four factor paths plus loss/replay tests |
 | B12 | Device-link acknowledgement | Device 2 durable intent and acknowledgement route | Delivery cleanup, allocation cleanup, link cleanup, bootstrap replay | Cleanup receipt authenticates replay after live-session deletion and completion | One idempotent acknowledgement lifecycle | Live link authenticates until deletion; retain the receipt through the bounded post-completion replay window | Crash after every transition |
 | B13 | Recovery | R115 finalization and replay | Local continuity publisher, ordinary exact login | Reload resumes committed target projection without another code | Additive server projection plus non-discoverable local commit | Existing response projection remains authoritative; local pending state publishes or fails closed | Interruption after promotion for both targets |
 | B14 | Material promotion | Authority-promotion CAS and exact status | Every affected server snapshot, browser sibling record, promoted runtime | Status read repairs a lost promotion response | Updated digest/subjects with stable session identities | No compatibility; runtime waits for complete reconciliation | Lost-response and sibling-method tests |
-| B15 | Management and read routes | Request credential resolver | Route policy matrix consumers | Each replay retains the original exact scope and assurance | Exact admission context only in core services | Request boundary accepts issued V1 during drain; delete with V1 credential resolver | Route policy tests |
-| B16 | Public/shared types | Server responses, IndexedDB parsers, iframe protocol | SDK, browser, generated bindings, tests | Boundary parsers reject removed and cross-family shapes | Exact server, credential, browser, and iframe unions | Rollout-stage parsers only; delete after final SDK and exact-only worker | Type fixtures and closure searches |
+| B15 | Management and read routes | Request credential resolver | Route policy matrix consumers | Each replay retains the original exact scope and assurance | Exact admission context only in core services | Convert every route and delete the V1 request resolver | Route policy tests |
+| B16 | Public/shared types | Server responses, IndexedDB parsers, iframe protocol | SDK, browser, generated bindings, tests | Boundary parsers reject removed and cross-family shapes | Exact server, credential, browser, and iframe unions | Delete temporary parsers, aliases, fixtures, and messages | Type fixtures and closure searches |
 
 ### Route policy matrix
 
@@ -324,7 +324,7 @@ No route may infer an auth method from wallet-wide uniqueness. Device-link
 approval takes its source method from the authenticated exact credential.
 Scanning a QR code does not add a Device 1 method chooser.
 
-### Untyped and deployment-visible inventories
+### Untyped and persistence-visible inventories
 
 The type system enumerates typed TypeScript consumers. These inventories remain
 explicit because compilation cannot prove their closure.
@@ -347,15 +347,14 @@ explicit because compilation cannot prove their closure.
 
 | State | Cutover treatment |
 | --- | --- |
-| `reusable_wallet_sessions` | Drain active rows, then drop table, indexes, and triggers |
-| `opaque_wallet_session_tokens` | Retire exposed usable bearers, drain remaining rows, then drop |
-| `registration_replay_opaque_wallet_session_tokens_v1` | Keep adapter digests for at most five minutes, require active parent session/quota, then require zero rows and drop with the adapter |
+| `reusable_wallet_sessions` | Drop the table, indexes, triggers, ports, and readers in the enforcement cutover |
+| `opaque_wallet_session_tokens` | Drop the table and delete every bearer issuer/resolver |
+| `registration_replay_opaque_wallet_session_tokens_v1` | Drop the temporary table and delete its adapter issuer/resolver/tests |
 | V2 rows with null credential digest | Treat as unusable; retire before enforcement |
-| All-null-scope pending operations | Read through the bridge boundary until their count reaches zero |
-| V1 hosted exchanges | Permit bounded redemption, then require zero unconsumed rows |
-| V1-only quotas | Retain while referenced; delete unreferenced rows during enforcement |
+| All-null-scope pending operations | Reject during migration preflight or normalize to fully scoped V2 rows in code |
+| V1 hosted exchanges | Delete V1 exchange tables, request shapes, and redemption code |
+| V1-only quotas | Delete unreferenced rows during enforcement |
 | Registration completion rows | Rewrite to credential-free receipts or delete when replay state is unnecessary |
-| Capability-tagged receipts | Normalize to final `already_committed`, then require zero tags |
 | Linked sealed deliveries | Retain until exact acknowledgement tombstones ciphertext |
 | Acknowledgement cleanup receipts | Retain through bounded replay completion/expiry |
 
@@ -369,8 +368,7 @@ explicit because compilation cannot prove their closure.
 | Router A/B and worker messages | Dynamic discriminators and handlers are searched separately from imports |
 | Route registration and assembly | Every issuing and admitting route maps to B2, B4, or B15 |
 | Generated bindings | Regenerate or update exact shapes; search generated entrypoints for legacy fields |
-| Shared IndexedDB tabs | Precursor, final, malformed, legacy, and unknown-future records are exercised |
-| Deployed clients and workers | Rollout gates cover old clients, old tabs, old workers, and host/iframe skew independently |
+| Shared IndexedDB | Final, malformed, legacy, and unknown-future records are exercised |
 
 Exact file and symbol lists for these rows may live in the temporary
 implementation appendix. They are regenerated from the current tree and removed
@@ -399,46 +397,19 @@ validates that projection against its pending record, atomically publishes the
 profile, authenticator, authority, method, signer/account state, and selection,
 then runs exact-method unlock.
 
-One bounded compatibility release deploys the receipt writer, strict parser,
-and old-client response adapter together. The adapter reconstructs the stable
-committed projection and signs a V1 bearer in memory with a maximum five-minute
-lifetime. Its digest is stored in a dedicated registration-replay adapter table
-bound to the receipt operation, exact V1 session, quota, authority, auth method,
-curve, and runtime binding. The ordinary opaque-token table keeps its existing
-one-token-per-wallet-session/curve invariant, and a late original response or
-another old tab is not invalidated by replay response ordering. Adapter-token
-resolution requires the parent session and quota to remain active and rejects
-the token after its own earlier expiry. Session retirement, auth-method cleanup,
-identity lookup, and expiry cleanup cover both token tables. Plaintext is never
-persisted. Concurrent identical replay returns usable responses; conflicting
-replay fails closed. Bearer bytes may differ while the fingerprint and committed
-projection remain stable. The legacy response's top-level `expiresAtMs` reports
-the adapter bearer expiry so an old client never persists the underlying session
-lifetime as the bearer's usable lifetime. The adapter table, its resolver, and
-its tests are deleted together when the pending-commit client owns terminal
-replay.
+The final code has no old-client response adapter. It never reconstructs a V1
+bearer, persists an adapter digest, or returns a credential-bearing replay
+shape. Any temporary registration-replay adapter table, resolver, issuer, and
+tests already added during implementation are deleted in the cutover.
 
-Existing successful registration completion rows under both activation and
-deferred-provisioning prefixes may contain plaintext V1 bearers. These are
+Existing successful completion rows under the
 `wallet-registration-activate:` and
-`wallet-registration-near-provisioning:` records in
-`router_ab_yao_versioned_json_records`. A bounded D1 remediation command must:
-
-1. run only after no old completion writer serves traffic and the maximum
-   in-flight request window has elapsed;
-2. select only the two known registration prefixes;
-3. parse known completion shapes without logging row bodies;
-4. hash each bearer through the production digest function and retire a matching
-   usable V1 session/token;
-5. rewrite the row to the credential-free receipt or delete it when replay state
-   is unnecessary;
-6. preserve unrelated records and abort on unknown or unmappable shapes; and
-7. record before/after counts and repeat the zero-credential query after the
-   in-flight window.
-
-D1 backup/time-travel retention is recorded separately. The exposure remains
-open until affected credentials are retired or expired across retained copies,
-or an approved platform purge completes.
+`wallet-registration-near-provisioning:` prefixes are handled only by the D1
+cutover migration. Known credential-bearing shapes are rewritten to the strict
+credential-free receipt when their committed projection is complete; rows that
+cannot support replay are deleted. Unknown shapes abort the migration fixture.
+Tests prove that no completion row, receipt parser, log, or response replay
+contains a primary or hosted credential.
 
 ### Device-link credential delivery and cleanup
 
@@ -495,39 +466,18 @@ Loss of the recipient handle or delivery expiry resumes the durable local
 authority installation and runs exact-method unlock. It does not reseal the
 committed credential or start a second link.
 
-### Shared IndexedDB and SDK/iframe release boundaries
+### Shared IndexedDB and SDK/iframe boundaries
 
-The precursor SDK consumes the direct exact issuer response, persists the
-existing V5 representation, and preserves unknown future Wallet Session rows.
-It reaches `upgrade_required` when its own usable session cannot continue.
+The final SDK consumes direct exact issuer responses and writes V6 records
+immediately. No client-capability marker or capability-tagged replay receipt is
+part of the final protocol.
 
-Every session-issuing boundary temporarily requires:
-
-```ts
-walletSessionClientCapability:
-  'direct_exact_response_future_record_tolerant'
-```
-
-The capability proves that the client parses the direct response and preserves
-future IndexedDB versions. It is normalized at request boundaries, remains
-outside ceremony and mint fingerprints, and is recorded in durable operation
-receipts only to preserve replay response family. Missing or changed replay
-capability returns a typed protocol mismatch without rotating credentials.
-
-After capability enforcement, unmarked clients may use existing sessions during
-the bounded drain and cannot mint, refresh, or replace them. The first V6 write
-waits for the last unmarked session lifetime to drain or an approved
-invalidation. Before deleting the capability parser, every tagged durable
-receipt is normalized to the final credential-free `already_committed`
-projection and the tagged count reaches zero.
-
-Final readers quarantine V3/V4/V5 rows observed during bootstrap or install,
-including late writes by an already-open precursor tab. R103F retains the
-current IndexedDB keyPath and does not bump `SEAMS_WALLET_DB_VERSION` while its
-upgrade function deletes every object store. A keyPath change requires
-`versionchange` and remains outside this cutover. A precursor that sees an
-unknown future row reaches `upgrade_required`; it never reports that row as
-`corrupt`.
+Readers quarantine V3/V4/V5 rows observed during bootstrap or install. R103F
+retains the current IndexedDB keyPath and does not bump
+`SEAMS_WALLET_DB_VERSION` while its upgrade function deletes every object
+store. A keyPath change requires `versionchange` and remains outside this
+cutover. Unknown future rows reach `upgrade_required`; they are never reported
+as `corrupt`.
 
 Registration, unlock, sync, recovery, and link responses may retain family-
 specific signer-runtime bootstrap metadata. Those bootstraps contain no Wallet
@@ -535,16 +485,15 @@ Session bearer. One exact browser record authenticates the capability subjects;
 each bootstrap remains bound to its own material activation and threshold
 runtime identity.
 
-The npm host SDK and deployed iframe also form a release boundary. CONNECT
-carries the host protocol version. The iframe validates it before adopting the
-port. READY carries the iframe version, which the host validates before marking
-the connection ready. Either skew direction returns
+The npm host SDK and iframe change together in the code cutover. CONNECT carries
+the host protocol version. The iframe validates it before adopting the port.
+READY carries the iframe version, which the host validates before marking the
+connection ready. Either skew direction returns
 `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` before Wallet Session data crosses the
 `postMessage` boundary. On a bad CONNECT version, the iframe reports its own
 version through the transferred port, closes the port, and never adopts it.
-This lets SDKs with the current READY validator fail with the stable mismatch;
-older SDKs without that validation still receive no adopted channel. Known
-embedding applications must upgrade with the final iframe.
+Both directions retain the stable mismatch behavior in tests; no message
+adapter remains.
 
 ### Hosted child credentials
 
@@ -553,7 +502,7 @@ credential digest, application and wallet origins, expiry, and lifecycle. The
 exchange code is single-use. Child expiry never exceeds parent expiry.
 
 Issue requires the actual request `Origin` to equal `appOrigin`. The requested
-`walletOrigin` must equal authenticated tenant deployment metadata or an
+`walletOrigin` must equal authenticated tenant wallet-origin metadata or an
 explicit server-side allowlist entry. Redemption and child-authorized HTTP calls
 require the actual request `Origin` to equal the stored `walletOrigin`. The
 iframe accepts the child only when its adopted parent `MessageEvent.origin`
@@ -717,20 +666,19 @@ Primary files:
       same rollback-and-retry behavior through the production batch builder.
 - [x] Replace activation and deferred-provisioning completion rows with
       `WalletRegistrationSessionCommitReceiptV2`.
-- [ ] Use one committed installation projection for compatibility replay and
-      final pending-commit recovery.
-- [ ] Keep one bounded old-client adapter that attaches a V1 bearer only in
-      memory; delete it when `already_committed` becomes authoritative.
-- [x] Add a dedicated adapter-only digest table with a maximum five-minute token
-      lifetime and exact receipt/session/quota/method/runtime binding. Extend
-      resolution and cleanup without weakening the ordinary opaque-token
-      table's unique wallet-session/curve constraint.
+- [ ] Use one committed installation projection for terminal replay and final
+      pending-commit recovery.
+- [ ] Delete the old-client replay adapter, its V1 bearer reconstruction, and
+      every adapter-only resolver and test.
+- [ ] Drop `registration_replay_opaque_wallet_session_tokens_v1` in the
+      enforcement migration and delete its service/store surface.
 - [x] Update Route 3 comments and tests from byte-identical bearer output to
       stable fingerprint and committed-projection identity.
 - [x] Make the receipt parser reject bearer fields, credential-bearing
       bootstraps, local secrets, and generic persisted response payloads.
-- [ ] Remediate historical completion rows under both registration prefixes
-      and retire any mapped usable bearer before rewriting or deletion.
+- [ ] Rewrite complete historical registration rows to the credential-free
+      receipt or delete replay-incomplete rows in the cutover migration; test
+      both known prefixes and unknown-shape abort.
 - [ ] Update material promotion so the authority CAS refreshes every affected
       non-retired V2 snapshot while preserving session identity.
 - [ ] Extend authenticated exact status to return the complete digest-free
@@ -789,10 +737,10 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       `authServicePort.ts`; the production assembly and every exact admission
       consumer now call one non-optional port.
 - [x] Delete `WalletSessionOperationCredentialResolution.kind === 'not_v2'`;
-      an absent exact digest returns `not_found`, while only the named bridge
-      request resolvers continue to the bounded V1 persistence lookup.
-- [ ] Keep `resolveOpaqueOwnerWalletSessionAdmission` reachable only from the
-      bridge request resolver, then delete it at R4.
+      an absent exact digest returns `not_found`. Remaining request-boundary V1
+      resolvers are tracked explicitly for deletion below.
+- [ ] Delete `resolveOpaqueOwnerWalletSessionAdmission` and its request-boundary
+      callers after their exact replacements land.
 - [x] Delete the Ed25519 validator's V1-token fallback. Exact absence returns
       `wallet_session_invalid` without probing the V1 resolver.
 - [x] Delete the ECDSA validator's V1-token fallback. Exact absence returns
@@ -871,14 +819,14 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       method-unavailable, and capability-unavailable results from persistence.
 - [ ] Convert fully scoped `isAuthorizedOperationSourceActive` rows to V2 exact
       lookup.
-- [ ] Retain the all-null-scope V1 branch only for pending rows written by old
-      workers and delete it at R4.
+- [ ] Delete the all-null-scope V1 source-activity branch and reject partial or
+      unscoped pending rows.
 - [ ] Replace quota lookup through `reusable_wallet_sessions` with the V2
       authorization's `quota_id`.
 - [ ] Populate `linked_scope_org_id`, `linked_scope_project_id`, and
       `linked_scope_env_id` on every new grant and reject partial scope.
-- [ ] Supersede the applied exact-only `0024` trigger with the additive bridge
-      trigger, then remove the V1 branch during enforcement.
+- [ ] Replace the additive bridge trigger with an exact-only enforcement
+      trigger requiring complete V2 scope.
 - [ ] Require authorized-operation replay to resolve the exact authorization
       that admitted first execution and reject scope, method, authority, quota,
       capability, or material disagreement.
@@ -1051,7 +999,7 @@ Primary files:
       parent Wallet Session ID, one hosted child credential, and its expiry.
 - [ ] Remove `curve` and `walletSessionToken` from exact hosted wire shapes.
 - [ ] Require issue request Origin to equal `appOrigin`.
-- [ ] Require requested `walletOrigin` to equal authenticated tenant deployment
+- [ ] Require requested `walletOrigin` to equal authenticated tenant wallet-origin
       metadata or a server allowlist entry.
 - [ ] Require redemption and child-authorized HTTP Origin to equal stored
       `walletOrigin`, and all supplied origins to equal the exchange row.
@@ -1114,7 +1062,7 @@ Primary files:
 - [ ] Delete `persistActiveWalletSessionAuthorizationCurve` and
       `persistActiveWalletSessionAuthorizationFromRegistration`.
 - [ ] Delete the V3 ECDSA bootstrap projection.
-- [x] Correct the V5 precursor so its physical `wallet_session_id` is the
+- [x] Correct the V5 boundary so its physical `wallet_session_id` is the
       operation credential's Wallet Session ID, reject key/credential drift,
       and preserve same-wallet sibling methods during exact replacement.
 - [x] Make the existing V3 and V5 writer boundaries preserve unknown future
@@ -1136,12 +1084,8 @@ Primary files:
       future rows, and contain late legacy writes in every reader/install.
 - [ ] Remove only obsolete Wallet Session rows; preserve every unrelated wallet,
       authority, method, signer-material, export-root, and recovery-code store.
-- [ ] Publish the future-row-tolerant precursor before any V6 production write.
-- [x] Define the exact rollout client-capability literal and boundary parser;
-      reject omission separately from invalid, aliased, or non-canonical values.
-- [ ] Add the temporary client capability to every issuance boundary, record
-      replay family, drain unmarked issuance, normalize tagged receipts, and
-      delete the capability.
+- [ ] Delete `walletSessionClientCapability`, its response-family tags,
+      request parsers, persistence columns, fixtures, and migration-era code.
 - [ ] Retain the existing DB version and keyPath while the general upgrade
       function remains destructive.
 
@@ -1154,9 +1098,9 @@ Convert every reader or legacy writer:
 - [ ] `SigningSessionCoordinator.ts`;
 - [ ] `PasskeyMpcSessionManager.ts`;
 - [ ] `session/availability/readiness.ts`;
-- [ ] `clientSessionPersistence.ts`;
-- [ ] `ecdsaLoginPrefill.ts`;
-- [ ] `routerAbEd25519WalletSessionState.ts`;
+- [x] `clientSessionPersistence.ts`;
+- [x] `ecdsaLoginPrefill.ts`;
+- [x] `routerAbEd25519WalletSessionState.ts`;
 - [ ] `signingFlowRuntime.ts`;
 - [ ] `emailOtpSigningSession.ts`;
 - [ ] `emailOtp/ecdsaLogin.ts`;
@@ -1203,10 +1147,8 @@ Primary persistence files:
 - [ ] Bump `WALLET_PROTOCOL_VERSION`, add the host version to CONNECT, validate
       before iframe port adoption, and retain host READY validation.
 - [ ] Return `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` for either skew direction.
-- [ ] Publish the matching host SDK and upgrade every known embedding
-      application with the final iframe release.
-- [ ] Inventory every known host-SDK embed and record its coordinated upgrade
-      owner before the final iframe deployment.
+- [ ] Change the host SDK and iframe protocol together and prove both mismatch
+      directions without retaining a message adapter.
 - [ ] Replace `ActiveWalletSessionV1` plus separately transported credentials
       with the identity-coupled exact browser boundary type.
 - [ ] Delete `registration_established_wallet_session_v1`,
@@ -1275,44 +1217,31 @@ R103F adds no second deletion task for them. Migration `0026` rebuilds
 `wallet_authorities` and recreates the `0024` trigger, so the additive bridge
 migration replaces the post-`0026` definition.
 
-Before creating that bridge migration, determine which persistent environments
-applied `0024` and record any old-worker all-null-scope claim exposure window.
-The replacement must work both where `0024`/`0026` already ran and where they
-appear earlier in the same clean-database migration batch.
-
 At the current checkpoint `0028`, `0029`, and `0030` are landed. The next file
 number is allocated only after reconciling landed and pending migrations from
 concurrent workstreams and is rechecked after each rebase. Applied files are
 never renamed to resolve an allocation race.
 
-R103F adds two logical migration stages plus the bounded Phase 0 adapter and R1
-rollout-metadata schemas. Migration `0029` follows `0028` in immutable history,
-so R0 applies both additive files before deploying the adapter-aware worker.
-Migration `0030` adds nullable client-capability and response-family columns for
-bridge reads while requiring new direct issuers to populate both through their
-typed persistence boundary. It lands before the R1 capability-gated worker.
-Applying `0028` alone does not enable the bridge worker or direct exact response
-family. The later enforcement and deletion stage may receive a non-contiguous
-file number.
+Migrations `0029` and `0030` record temporary implementation paths that the
+final cutover removes: replay-adapter storage and client-capability metadata.
+They remain immutable history. The enforcement migration drops or rebuilds
+their schema surfaces and may receive a non-contiguous file number.
 
 ### Temporary registration replay adapter migration
 
-Migration `0029` adds the digest-only
-`registration_replay_opaque_wallet_session_tokens_v1` boundary. It requires an
-active exact V1 parent session and quota, binds authority and auth method, caps
-token expiry at five minutes and the parent expiry, and contains no bearer
-plaintext. New-worker readiness manifests require it. Auth-method cleanup,
-hosted redemption cleanup, identity resolution, and logical parent retirement
-cover its rows. The enforcement/deletion migration drops it only after the old-
-client adapter is absent from every serving worker and its row count is zero.
+Migration `0029` added the digest-only
+`registration_replay_opaque_wallet_session_tokens_v1` boundary. It remains
+immutable history. The enforcement migration drops the table, and production
+TypeScript deletes every issuer, resolver, cleanup branch, and adapter-only
+test.
 
 ### Additive bridge migration
 
-The bridge migration:
+The already-applied bridge migration:
 
-- replaces the post-R115 exact-only authorized-operation trigger with a rolling
-  boundary that accepts fully scoped V2 rows, temporarily accepts all-null-scope
-  V1 rows from old workers, and rejects partial scope;
+- replaced the post-R115 exact-only authorized-operation trigger with a
+  temporary boundary that accepts fully scoped V2 rows and all-null-scope V1
+  rows while rejecting partial scope;
 - adds V2 hosted child-credential and exchange tables;
 - adds `linked_device_wallet_session_credential_deliveries_v1` with exact
   composite foreign keys, unique digest/link identities, recipient binding,
@@ -1321,22 +1250,16 @@ The bridge migration:
   validating any existing runtime-created table;
 - preserves valid V2 rows with non-null credential digests;
 - classifies null-digest V2 rows as unusable; and
-- leaves V1 tables present for the bridge deployment.
-
-The migration and deployment preflight report counts for active V1 sessions,
-usable V2 sessions, null-digest V2 rows, ordinary opaque tokens, registration-
-replay adapter tokens, pending V1-authorized operations, unconsumed V1 hosted
-exchanges, V1-only quotas, tagged rollout receipts, and credential-bearing
-completion records.
+- leaves V1 tables for the enforcement migration to remove.
 
 ### Enforcement and deletion migration
 
-This migration runs only after every serving worker is exact-only and the V1
-drain gates pass. It:
+This migration completes the repository cutover. It:
 
-- aborts when active V1 sessions, registration-replay adapter tokens, pending
-  V1-authorized operations, unconsumed V1 hosted exchanges, or tagged rollout
-  receipts remain;
+- rewrites or deletes known credential-bearing registration completion rows
+  and aborts on unknown shapes;
+- deletes V1 sessions, adapter tokens, pending V1-authorized operations, and V1
+  hosted exchanges according to their named owning tables;
 - retires null-digest and logically expired duplicate V2 rows;
 - aborts when multiple usable credential-bearing rows remain for an exact tuple;
 - rebuilds `wallet_session_authorizations_v2` with a required active credential
@@ -1361,34 +1284,6 @@ After deletion, update the required-table manifests in:
   and
 - `packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts`.
 
-## Rollout state machine
-
-| Stage | Enter action | Supported state | Exit gate |
-| --- | --- | --- | --- |
-| R0 — Credential-safe registration | Deploy credential-free receipt writer, parser, and old-client adapter | Existing clients receive a legacy-shaped ephemeral response; completion rows contain no plaintext bearer and adapter digests live only in the bounded dedicated table | Old writer revisions quiesced; historical rows remediated; repeated zero-credential query passes |
-| R1 — Storage-tolerant precursor | Publish precursor SDK; deploy and enforce client capability | Direct V2 response persists as V5; future rows are preserved | Final unmarked issuance time recorded; maximum unmarked session lifetime drained or invalidated |
-| R2 — Bridge | Apply additive migration and deploy bridge worker | New issuance and operations use V2; boundary compatibility accepts existing V1 state | Representative exact operating path passes; matching host SDK/iframe ready |
-| R3 — Final browser and protocol | Publish final SDK, upgrade known embeds, deploy matching iframe, enable V6 | Precursor and final tabs coexist under shared-store rules | No unsupported embed is expected to continue; V6 bootstrap and skew tests pass |
-| R4 — Exact-only worker | Quiesce predecessor workers; drain V1 sessions, pending operations, and hosted exchanges; normalize tagged receipts | Only exact TypeScript paths serve traffic | All legacy counters are zero; every serving revision is exact-only |
-| R5 — Schema deletion | Apply enforcement/deletion migration | Exact code and schema only | Foreign-key check, duplicate preflight, clean database, and deployed-history database pass |
-
-Hard stops:
-
-- R0 remediation waits until every credential-bearing completion writer is
-  quiesced.
-- The first V6 production write waits for the R1 storage gate.
-- The final iframe waits for the matching SDK and known embed upgrades.
-- The exact-only worker waits for tagged receipt normalization and V1 drain.
-- The deletion migration waits for the exact-only worker deployment.
-- The enforcement/deletion file stays outside any branch consumed by the
-  apply-all-pending migration workflow until its drain gate passes.
-- Migration preflight aborts on an unmappable credential, unknown remediation
-  shape, usable exact-tuple duplicate, or foreign-key-check result.
-
-Completed historical operations may replay without a source-activity lookup.
-Pending old-worker rows use the temporary all-null-scope persistence branch until
-R4. The bridge never projects a V1 bearer into a V2 credential.
-
 ## Implementation phases
 
 ### Phase 0 — Secure registration persistence
@@ -1397,21 +1292,19 @@ R4. The bridge never projects a V1 bearer into a V2 credential.
       committed installation projection.
 - [x] Replace both registration completion journals with
       `WalletRegistrationSessionCommitReceiptV2`.
-- [ ] Deploy the writer, parser, and bounded old-client adapter together.
 - [x] Update registration replay from byte-identical bearer output to stable
       fingerprint and committed-projection identity.
-- [ ] Quiesce old writers and run the bounded historical remediation.
-- [ ] Prove repeated zero-credential counts and record backup/time-travel
-      disposition.
+- [ ] Delete the old-client adapter and its digest table/service surface.
+- [ ] Prove terminal replay and stored completion rows contain no Wallet
+      Session credential.
 
-Exit: no active writer persists Wallet Session credentials, historical active
-rows are remediated, and a current registration path still reaches immediate
-signing.
+Exit: no code path persists or reconstructs registration Wallet Session
+credentials, and a current registration path still reaches immediate signing.
 
 ### Phase 1 — Land the exact issuer and one vertical path
 
-- [x] Apply the additive bridge migration to clean and deployed-history
-      databases.
+- [x] Apply the additive bridge migration to clean and current-history database
+      fixtures.
 - [x] Implement one direct issuer that atomically commits the V2 authorization,
       quota, and primary credential digest.
 - [x] Narrow V2 mint replay and implement `issued` / `already_committed`.
@@ -1441,18 +1334,17 @@ remaining consumers are converted.
 - [ ] Implement hosted child credentials and exact parent lifecycle handling.
 - [ ] Update material promotion and exact status readback.
 
-Exit: every new server session is direct V2, and core server services receive
-only exact admission contexts. Temporary V1 support exists solely at the bridge
-request and persistence boundaries.
+Exit: every server session is direct V2, and core server services receive only
+exact admission contexts. No V1 request or persistence resolver remains.
 
 ### Phase 3 — Convert browser, SDK, recovery, and device linking
 
-- [ ] Implement the storage-tolerant precursor and client capability on every
+- [ ] Delete the temporary client capability and response-family tags from every
       issuance boundary.
 - [ ] Define the V6 builder/parser and make `replaceExactActive` the only active
       install API.
-- [ ] Delete V3 writers and curve-token selection; convert V4/V5 response
-      normalization to V6 after the storage gate.
+- [ ] Delete V3 writers and curve-token selection; normalize every exact
+      response directly to V6.
 - [ ] Replace wallet-wide active-session reads with an exact selected tuple,
       credential-bound identity, or intentional multi-record result. Let type
       errors and the closure search enumerate remaining callers.
@@ -1471,21 +1363,10 @@ Exit: the final client reads and writes only V6 active records, supported mixed
 versions reach terminal UI states, and device-link/recovery interruption paths
 resume without creating a second authority or ceremony.
 
-### Phase 4 — Deploy, drain, and delete V1
+### Phase 4 — Delete V1 and verify the cutover
 
-- [ ] Record the maximum lifetime of V1 sessions, ordinary and registration-
-      replay adapter tokens, hosted exchanges, pending operation claims,
-      response replay, capability-tagged receipts, and acknowledgement cleanup
-      receipts. Any unbounded lifetime requires an explicit normalization or
-      invalidation gate.
-- [ ] Execute rollout stages R1 through R4 and record each zero-state gate.
-- [ ] Delete the registration adapter when `already_committed` owns terminal
-      replay.
-- [ ] Normalize every tagged durable receipt, then delete the temporary client
-      capability and parser.
-- [ ] Delete the bridge V1 request and persistence resolvers after session,
-      operation, and hosted-exchange drains reach zero.
-- [ ] Deploy the exact-only worker and confirm every serving revision.
+- [ ] Delete the registration adapter and temporary client capability.
+- [ ] Delete every V1 request and persistence resolver.
 - [ ] Apply the enforcement/deletion migration and update table manifests.
 - [ ] Delete remaining V1 stores, ports, services, parsers, types, browser
       records, fixtures, guards, and obsolete documentation.
@@ -1494,7 +1375,8 @@ resume without creating a second authority or ceremony.
       delete them unless they preserve a clear domain boundary.
 - [ ] Run the closure ledger and focused acceptance matrix.
 
-Exit: production code and schema contain only the exact Wallet Session model.
+Exit: repository code and schema contain only the exact Wallet Session model,
+and the closure ledger plus acceptance matrix pass.
 
 ## Verification
 
@@ -1571,13 +1453,14 @@ Remaining causal baseline work:
 - [x] `tests/unit/walletSessionStatusExactAdmission.unit.test.ts`, proving the
       exact quota projection, tuple mismatch, fail-closed absence, and zero V1
       credential/status reads
-- [ ] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`
+- [x] `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts`, including
+      selected-authority binding and sibling-quota substitution rejection
 - [x] `tests/unit/registrationEstablishedWalletSessionProjection.unit.test.ts`
 - [x] `tests/unit/walletRegistrationActivateRoute.unit.test.ts`, covering direct
       issuance, credential-free same-mint replay, and strict response parsing
-- [x] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
-      required direct-client capability, exact session/credential response,
-      retired-bearer rejection, and ECDSA material binding
+- [ ] `tests/unit/routerAbEcdsaExactActivationWire.unit.test.ts`, covering the
+      exact session/credential response, retired-bearer rejection, ECDSA
+      material binding, and removal of client-capability fields
 - [x] `tests/unit/syncAccount.yaoOrchestration.unit.test.ts`
 - [x] `tests/unit/routerAbEd25519YaoRecoveryWalletSessionAuthorization.unit.test.ts`,
       proving exact active-material admission, threshold-session substitution
@@ -1629,7 +1512,7 @@ Remaining causal baseline work:
 - [x] `tests/unit/walletHostOwnerAuthority.unit.test.ts`, proving owner approval
       uses the selected exact tuple and requires a matching unexpired export-root
       capability for delegated key export
-- [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
+- [x] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
 - [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
 - [ ] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
@@ -1688,16 +1571,11 @@ Remaining causal baseline work:
 - [x] Direct-V2 atomic issuance failure and replay tests.
 - [x] Registration receipt tests proving activation and deferred provisioning
       persist no bearer, child credential, or credential-bearing response.
-- [x] Registration remediation tests for both prefixes: known-shape rewrite or
-      deletion, unrelated-row preservation, mapped-bearer retirement,
-      unknown/unmappable abort, old-writer quiescence, and repeated zero count.
-- [x] Compatibility-adapter test proving stable fingerprint/projection with an
-      in-memory V1 bearer whose bytes may differ; delete the test with the
-      adapter.
-- [x] Adapter-table tests proving identical retries remain usable despite
-      response reordering, conflicting replay fails closed, adapter expiry does
-      not retire the parent session, parent retirement and method cleanup reject
-      adapter tokens, and no plaintext enters durable storage.
+- [ ] Registration cutover-migration tests for both prefixes: known-shape
+      credential-free rewrite or deletion, unrelated-row preservation, and
+      unknown/unmappable abort.
+- [ ] Delete compatibility-adapter and adapter-table tests with their production
+      issuers, resolvers, fixtures, and migration-era manifests.
 - [x] Contract update proving Route 3, service comments, and staging assertions
       no longer promise byte-identical credential-bearing replay.
 - [ ] `already_committed` replay test proving no credential fabrication and
@@ -1728,16 +1606,9 @@ Remaining causal baseline work:
       preservation, and late V3/V4/V5 writes.
 - [ ] Exact-reader tests with two active sibling methods across signing, export,
       funding, refresh, management, readiness, and source claims.
-- [ ] Bootstrap quarantine test for a legacy row written after initial cleanup
-      by an already-open old tab.
-- [ ] Shared-IndexedDB skew tests for future-row preservation, terminal
-      `upgrade_required`, late precursor writes, and final-reader containment.
-- [ ] Issuance-gate test proving an unmarked client cannot mint, refresh, or
-      replace after the drain clock begins.
-- [ ] Direct-response precursor matrix covering every issuance boundary,
-      response-family replay, V5 normalization, and missing/changed capability.
-- [ ] Rollout-receipt normalization test covering known tags, unknown-tag abort,
-      credential-free output, and zero final count.
+- [ ] Bootstrap quarantine test for observed V3/V4/V5 rows.
+- [ ] Shared-IndexedDB tests for future-row preservation, terminal
+      `upgrade_required`, legacy-row quarantine, and final-reader containment.
 - [ ] Typed lifecycle tests for missing, expired, exhausted, retired,
       method-revoked, authority-revoked, and capability-unavailable results.
 - [ ] Authorized-operation full-scope claim and exact replay tests.
@@ -1756,9 +1627,9 @@ Remaining causal baseline work:
 - [ ] Additive recovery tests for both targets and source inventories, strict
       committed projections, interruption after promotion, local publication,
       preservation of existing access paths, and one normal exact login.
-- [ ] Rolling-deploy migration tests for old-worker all-null scope, fully scoped
-      V2, partial-scope rejection, and pending V1 replay.
-- [x] Clean-database and deployed-history migration tests covering abort on
+- [ ] Exact-enforcement migration tests for fully scoped V2 plus rejection of
+      partial-scope and unscoped pending rows.
+- [x] Clean-database and current-history migration tests covering abort on
       usable duplicates, deterministic retirement of unusable/expired rows, and
       zero foreign-key-check results.
 - [ ] Update Router A/B Wallet Session claim fixture helpers.
@@ -1782,10 +1653,10 @@ Remaining causal baseline work:
 | Recovery | Both targets preserve all prior access paths; interruption after promotion resumes local continuity without another code; normal login issues one exact session |
 | Hosted handoff | Child works only for authoritative stored origins, shares parent quota, preserves primary credential, and fails with parent lifecycle |
 | Promotion | Every affected same-authority server and browser projection updates before runtime activation; lost response reconciles through exact status |
-| Shared IndexedDB | Precursor preserves future rows; final reader contains late V3/V4/V5 writes; empty, exact, legacy, malformed, and future states reach explicit UI |
+| Shared IndexedDB | Final readers quarantine V3/V4/V5, preserve future rows, and make empty, exact, legacy, malformed, and future states reach explicit UI |
 | SDK/iframe protocol | Old/new skew fails in both directions before port adoption or readiness |
-| Migration | Clean and deployed-history databases pass; usable duplicates and foreign-key results abort deletion |
-| Closure | Every boundary matrix row is final, every temporary path has crossed its removal gate, and all legacy searches are clean |
+| Migration | Clean and current-history database fixtures pass; usable duplicates and foreign-key results abort deletion |
+| Closure | Every boundary matrix row is final, every temporary path is deleted, and all legacy searches are clean |
 
 Run the narrowest focused units, type fixtures, and intended-behaviour contracts
 that cover the changed rows. Broader repository gates follow only when the user
@@ -1834,19 +1705,16 @@ The singular Router A/B `reusable_wallet_session` discriminator and the applied
 `consume_reusable_wallet_session` quota discriminator remain frozen protocol
 vocabulary. Console-session JWT types also remain.
 
-Database closure requires:
+Database closure is proved on clean and current-history migration fixtures:
 
-- zero active V1 sessions, ordinary opaque tokens, and registration-replay
-  adapter tokens;
-- zero pending V1-authorized operations;
-- zero unconsumed V1 hosted exchanges;
-- zero active null-digest V2 sessions;
-- zero tagged rollout receipts;
-- zero credential-bearing completion records;
-- zero usable exact-tuple duplicates;
-- zero foreign-key-check results; and
-- absence of V1 tables, triggers, views, and aliases after enforcement.
+- no V1 session, opaque-token, replay-adapter, or hosted-exchange table remains;
+- no unscoped pending operation remains;
+- no active null-digest V2 session remains;
+- no credential-bearing completion row remains;
+- no usable exact-tuple duplicate remains;
+- `PRAGMA foreign_key_check` returns zero rows; and
+- no V1 trigger, view, or alias remains after enforcement.
 
 R103F is complete when every boundary-matrix row is in its final state, every
-temporary compatibility path has been deleted at its named gate, the acceptance
-matrix passes, and the code and database closure ledgers are clean.
+temporary compatibility path has been deleted, the acceptance matrix passes,
+and the code and database closure ledgers are clean.
