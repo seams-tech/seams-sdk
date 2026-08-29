@@ -230,20 +230,6 @@ export type ActiveWalletSessionQuota = {
   readonly expiresAtMs: number;
 };
 
-export type WalletSessionAuthorization = {
-  readonly kind: 'wallet_session_authorization';
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly walletId: WalletId;
-  readonly authority: WalletAuthAuthorityRef;
-  readonly mintId: WalletSessionMintId;
-  readonly authorizationId: WalletSessionAuthorizationId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
-  readonly createdAtMs: number;
-  readonly expiresAtMs: number;
-};
-
 export type WalletSessionCapabilitySubjectV1 =
   | {
       readonly kind: 'sign';
@@ -1213,40 +1199,6 @@ export function buildActiveWalletSessionQuota(
     walletSessionId: fields.walletSessionId,
     quotaId: fields.quotaId,
     remainingUses: fields.remainingUses,
-    expiresAtMs: fields.expiresAtMs,
-  };
-}
-
-export function buildWalletSessionAuthorization(
-  fields: Omit<WalletSessionAuthorization, 'kind'>,
-): WalletSessionAuthorization {
-  requireOrderedTimes(fields.createdAtMs, fields.expiresAtMs, 'reusable Wallet Session');
-  if (fields.authority.walletId !== fields.walletId) {
-    throw new Error('reusable Wallet Session authority must identify the exact wallet');
-  }
-  const authorizationId = String(fields.authorizationId);
-  const walletSessionId = String(fields.walletSessionId);
-  const quotaId = String(fields.quotaId);
-  if (
-    authorizationId === walletSessionId ||
-    authorizationId === quotaId ||
-    walletSessionId === quotaId
-  ) {
-    throw new Error(
-      'authorization, Wallet Session, and quota identities must be pairwise distinct',
-    );
-  }
-  return {
-    kind: 'wallet_session_authorization',
-    tenantId: fields.tenantId,
-    principalId: fields.principalId,
-    walletId: fields.walletId,
-    authority: fields.authority,
-    mintId: fields.mintId,
-    authorizationId: fields.authorizationId,
-    walletSessionId: fields.walletSessionId,
-    quotaId: fields.quotaId,
-    createdAtMs: fields.createdAtMs,
     expiresAtMs: fields.expiresAtMs,
   };
 }

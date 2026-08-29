@@ -121,7 +121,7 @@ async function seedEcdsaMaterial(
   policyEnvId: string,
 ): Promise<EcdsaMaterialActivationScope> {
   const signer = createWalletEcdsaSignerRecord({
-    walletId: authorization.reusableWalletSession.walletId,
+    walletId: authorization.walletSessionIdentity.walletId,
     now: authorization.session.createdAtMs,
     materialActivationCapability: String(authorization.authorizedOperation.operation.capabilityId),
   });
