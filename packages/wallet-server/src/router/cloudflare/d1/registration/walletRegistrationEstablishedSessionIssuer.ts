@@ -89,16 +89,16 @@ type RegistrationEstablishedSessionIssuanceDependencies = {
   readonly walletAuthMethods: RegistrationEstablishedSessionIssuerWalletAuthMethodReader;
 };
 
-function requireReusableWalletSessionPrincipalId(value: string): PrincipalId {
+function requireWalletSessionPrincipalId(value: string): PrincipalId {
   const parsed = parsePrincipalId(value);
   if (!parsed.ok) {
-    throw new Error(`Reusable Wallet Session principal is invalid: ${parsed.error.message}`);
+    throw new Error(`Wallet Session principal is invalid: ${parsed.error.message}`);
   }
   return parsed.value;
 }
 
-export function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): PrincipalId {
-  return requireReusableWalletSessionPrincipalId(
+export function walletSessionPrincipalId(authority: WalletAuthAuthority): PrincipalId {
+  return requireWalletSessionPrincipalId(
     isEmailOtpWalletAuthAuthority(authority)
       ? String(authority.factor.providerUserId)
       : String(authority.walletId),
@@ -116,7 +116,7 @@ export async function buildRegistrationOwnerProof(input: {
   const factorId = parseAuthFactorId(`registration:${input.registrationCeremonyId}`);
   if (!factorId.ok) throw new Error(factorId.error.message);
   const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
-  const principalId = reusableWalletSessionPrincipalId(input.authority);
+  const principalId = walletSessionPrincipalId(input.authority);
   const origin = parseSessionOrigin(input.expectedOrigin);
   const verifiedAtMs = Date.now();
   const evidenceDigest = parseDigestB64u(
@@ -194,7 +194,7 @@ async function readDirectRegistrationAuthorization(input: {
 }): Promise<IssuedWalletSessionAuthorizationV2> {
   const mintRead = await input.authorizationService.readWalletSessionAuthorizationV2ByMint({
     tenantId: input.authorizationTenantId,
-    principalId: reusableWalletSessionPrincipalId(input.authority),
+    principalId: walletSessionPrincipalId(input.authority),
     walletId: walletIdFromString(String(input.authority.walletId)),
     authorityId: input.committed.authorityId,
     walletAuthMethodId: input.committed.walletAuthMethodId,
@@ -440,7 +440,7 @@ export async function assertDirectWalletSessionOwnerProof(input: {
   if (
     input.proof.tenantId !== input.tenantId ||
     input.proof.walletId !== input.authority.walletId ||
-    input.proof.principalId !== reusableWalletSessionPrincipalId(input.authority) ||
+    input.proof.principalId !== walletSessionPrincipalId(input.authority) ||
     input.proof.authority.walletId !== authorityRef.walletId ||
     input.proof.authority.authorityDigest !== authorityRef.authorityDigest ||
     input.proof.authority.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
@@ -494,7 +494,7 @@ export async function issueDirectRegistrationEstablishedEcdsaSession(
   });
   const directIssue = await input.authorizationService.issueDirectWalletSessionAuthorizationV2({
     tenantId: input.authorizationTenantId,
-    principalId: reusableWalletSessionPrincipalId(input.authority),
+    principalId: walletSessionPrincipalId(input.authority),
     walletId: walletIdFromString(String(input.authority.walletId)),
     authority: activeRegistration.authority,
     walletAuthMethodId: activeRegistration.walletAuthMethodId,
@@ -576,7 +576,7 @@ export async function issueDirectRegistrationEstablishedEd25519Session(
   });
   const directIssue = await input.authorizationService.issueDirectWalletSessionAuthorizationV2({
     tenantId: input.authorizationTenantId,
-    principalId: reusableWalletSessionPrincipalId(input.authority),
+    principalId: walletSessionPrincipalId(input.authority),
     walletId: walletIdFromString(String(input.authority.walletId)),
     authority: activeRegistration.authority,
     walletAuthMethodId: activeRegistration.walletAuthMethodId,
