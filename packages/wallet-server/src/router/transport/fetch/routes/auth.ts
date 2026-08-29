@@ -2,6 +2,7 @@ import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
+import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../../../framework/authServicePort';
 import {
   parseAuthIdentityMutationRequest,
   parseAuthProviderActionPath,
@@ -12,19 +13,40 @@ import {
 } from '../../../auth/authRequestValidation';
 
 function assertNeverAuthProviderAction(route: never): never {
-  throw new Error(`Unsupported auth provider action: ${String((route as any)?.kind || '')}`);
+  throw new Error(`Unsupported auth provider action: ${String(route)}`);
 }
 
 function assertNeverAuthIdentityMutation(route: never): never {
-  throw new Error(`Unsupported auth identity mutation: ${String((route as any)?.kind || '')}`);
+  throw new Error(`Unsupported auth identity mutation: ${String(route)}`);
 }
 
-export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response | null> {
-  const requireWalletSession = async (): Promise<
-    { ok: true; walletId: string } | { ok: false; response: Response }
-  > => {
-    const token = extractBearerCredential(ctx.request.headers);
-    if (!token) {
+type RequiredExactWalletSession =
+  | { readonly ok: true; readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext }
+  | { readonly ok: false; readonly response: Response };
+
+async function requireExactWalletSession(
+  ctx: FetchRouterApiContext,
+): Promise<RequiredExactWalletSession> {
+  const token = extractBearerCredential(ctx.request.headers);
+  if (!token) {
+    return {
+      ok: false,
+      response: json(
+        { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+        { status: 401 },
+      ),
+    };
+  }
+  try {
+    const context =
+      await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+        {
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          token,
+          nowMs: Date.now(),
+        },
+      );
+    if (!context) {
       return {
         ok: false,
         response: json(
@@ -33,70 +55,61 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         ),
       };
     }
-    try {
-      const nowMs = Date.now();
-      const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-        tenantId: ctx.service.authorizationSessions.tenantId,
-        token,
-        curve: 'ecdsa',
-        nowMs,
-      });
-      const resolved =
-        ecdsa ??
-        (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-          tenantId: ctx.service.authorizationSessions.tenantId,
-          token,
-          curve: 'ed25519',
-          nowMs,
-        }));
-      if (!resolved) {
-        return {
-          ok: false,
-          response: json(
-            { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
-            { status: 401 },
-          ),
-        };
-      }
-      return { ok: true, walletId: resolved.authorization.walletId };
-    } catch {
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: 'wallet_session_unavailable', message: 'Wallet Session is unavailable' },
-          { status: 503 },
-        ),
-      };
-    }
-  };
-
-  async function requirePasskeyStepUp(input: {
-    walletId: string;
-    stepUp: AuthPasskeyStepUpRequest;
-  }): Promise<{ ok: true } | { ok: false; response: Response }> {
-    const result = await ctx.service.webAuthn.verifyWebAuthnLogin(input.stepUp);
-    if (!result.ok) {
-      return {
-        ok: false,
-        response: json(result, { status: result.code === 'internal' ? 500 : 400 }),
-      };
-    }
-    if (String(result.userId).trim() !== input.walletId) {
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: 'forbidden', message: 'Step-up user mismatch' },
-          { status: 403 },
-        ),
-      };
-    }
-    return { ok: true };
+    return { ok: true, context };
+  } catch {
+    return {
+      ok: false,
+      response: json(
+        { ok: false, code: 'wallet_session_unavailable', message: 'Wallet Session is unavailable' },
+        { status: 503 },
+      ),
+    };
   }
+}
 
+async function requireExactPasskeyStepUp(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+  readonly stepUp: AuthPasskeyStepUpRequest;
+}): Promise<{ readonly ok: true } | { readonly ok: false; readonly response: Response }> {
+  const result = await input.ctx.service.webAuthn.verifyWebAuthnLogin(input.stepUp);
+  if (!result.ok) {
+    return {
+      ok: false,
+      response: json(result, { status: result.code === 'internal' ? 500 : 400 }),
+    };
+  }
+  const walletId = String(input.context.authorization.session.walletId);
+  if (String(result.userId).trim() !== walletId) {
+    return {
+      ok: false,
+      response: json(
+        { ok: false, code: 'forbidden', message: 'Step-up user mismatch' },
+        { status: 403 },
+      ),
+    };
+  }
+  if (
+    result.walletAuthMethodId !== input.context.authMethod.walletAuthMethodId ||
+    result.walletAuthorityId !== input.context.authority.authorityId
+  ) {
+    return {
+      ok: false,
+      response: json(
+        { ok: false, code: 'forbidden', message: 'Step-up authority mismatch' },
+        { status: 403 },
+      ),
+    };
+  }
+  return { ok: true };
+}
+
+export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === '/auth/identities') {
-    const sess = await requireWalletSession();
+    const sess = await requireExactWalletSession(ctx);
     if (!sess.ok) return sess.response;
-    const out = await ctx.service.identity.listIdentities({ userId: sess.walletId });
+    const walletId = String(sess.context.authorization.session.walletId);
+    const out = await ctx.service.identity.listIdentities({ userId: walletId });
     return json(out, { status: out.ok ? 200 : out.code === 'internal' ? 500 : 400 });
   }
 
@@ -110,13 +123,18 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
     }
 
     const command = parsed.request;
-    const sess = await requireWalletSession();
+    const sess = await requireExactWalletSession(ctx);
     if (!sess.ok) return sess.response;
+    const walletId = String(sess.context.authorization.session.walletId);
 
     const stepUpRequest = command.request.stepUp;
-    const stepUp = await requirePasskeyStepUp({ walletId: sess.walletId, stepUp: stepUpRequest });
+    const stepUp = await requireExactPasskeyStepUp({
+      ctx,
+      context: sess.context,
+      stepUp: stepUpRequest,
+    });
     if (!stepUp.ok) return stepUp.response;
-    await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: sess.walletId });
+    await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId });
 
     switch (command.kind) {
       case 'link': {
@@ -129,14 +147,14 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         const subject = verified.providerSubject;
 
         const linked = await ctx.service.identity.linkIdentity({
-          userId: sess.walletId,
+          userId: walletId,
           subject,
           allowMoveIfSoleIdentity: true,
         });
         if (!linked.ok) {
           return json(linked, { status: linked.code === 'internal' ? 500 : 400 });
         }
-        const identities = await ctx.service.identity.listIdentities({ userId: sess.walletId });
+        const identities = await ctx.service.identity.listIdentities({ userId: walletId });
         return json(
           {
             ok: true,
@@ -161,11 +179,11 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         { status: 400 },
       );
     }
-    const out = await ctx.service.identity.unlinkIdentity({ userId: sess.walletId, subject });
+    const out = await ctx.service.identity.unlinkIdentity({ userId: walletId, subject });
     if (!out.ok) {
       return json(out, { status: out.code === 'internal' ? 500 : 400 });
     }
-    const identities = await ctx.service.identity.listIdentities({ userId: sess.walletId });
+    const identities = await ctx.service.identity.listIdentities({ userId: walletId });
     const baseBody = {
       ok: true,
       unlinked: true,
@@ -244,9 +262,7 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         providerSubject: result.providerSubject,
         email: result.email,
         accountMode: parsed.request.accountMode,
-        ...(parsed.request.loginWalletId
-          ? { loginWalletId: parsed.request.loginWalletId }
-          : {}),
+        ...(parsed.request.loginWalletId ? { loginWalletId: parsed.request.loginWalletId } : {}),
         runtimePolicyScope: runtimePolicyScope.scope,
         restartRegistrationOffer: parsed.request.restartRegistrationOffer,
       });
