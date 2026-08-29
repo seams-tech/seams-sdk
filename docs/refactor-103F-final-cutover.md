@@ -1092,7 +1092,7 @@ Primary files:
 Convert every reader or legacy writer:
 
 - [ ] `BrowserSigningSurface.ts`;
-- [ ] `login.ts`;
+- [x] `login.ts`;
 - [ ] registration legacy persistence in `registration.ts`;
 - [ ] recovery/sync legacy persistence in `syncAccount.ts`;
 - [x] `SigningSessionCoordinator.ts`;
@@ -1124,7 +1124,7 @@ cannot accept wallet identity alone.
 
 Remove exact-first/V1 fallback from:
 
-- [ ] `login.ts`;
+- [x] `login.ts`;
 - [ ] `walletIframe/shared/exactSessionState.ts`;
 - [ ] wallet iframe host auth handlers;
 - [ ] wallet iframe client router handlers; and
