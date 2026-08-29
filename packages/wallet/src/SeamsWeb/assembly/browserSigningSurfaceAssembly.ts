@@ -486,7 +486,7 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
     };
   }
   const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
-  if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
+  if (!relayerUrl) throw new Error('Exact Wallet Session status requires a relayer URL');
   const exactAuthorization = await readExactWalletSessionAuthorization(walletId);
   if (exactAuthorization.kind !== 'found') {
     return {
@@ -505,7 +505,7 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
     quotaId: exactAuthorization.record.quotaId,
   });
   if (status.status !== 'active') {
-    return { kind: 'inactive', reason: `Reusable Wallet Session is ${status.status}` };
+    return { kind: 'inactive', reason: `Exact Wallet Session is ${status.status}` };
   }
   const authorizationNowMs = Date.now();
   if (exactAuthorization.record.expiresAtMs <= authorizationNowMs) {

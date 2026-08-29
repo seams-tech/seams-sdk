@@ -378,7 +378,7 @@ function assertPreparedMaterialBindingMatchesOperation(args: {
   }
 }
 
-/** Prepared against an active reusable Wallet Session. Only this branch owns a
+/** Prepared against an active exact Wallet Session. Only this branch owns a
  * `SelectedEcdsaLane`: a selected lane carries the authorization that made it
  * selectable, so it cannot describe auth-neutral material. */
 export type AuthorizedEvmFamilyEcdsaSigningSession = {

@@ -118,7 +118,9 @@ export function buildReadySecp256k1SigningMaterial(
   switch (args.authorization.kind) {
     case 'reusable_wallet_session': {
       if (args.credential.kind !== 'reusable_wallet_session') {
-        throw new Error('[multichain] reusable authorization requires an opaque Wallet Session');
+        throw new Error(
+          '[multichain] exact Wallet Session authorization requires its operation credential',
+        );
       }
       return { ...base, authorization: args.authorization, credential: args.credential };
     }

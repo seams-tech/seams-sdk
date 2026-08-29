@@ -93,8 +93,8 @@ export type HydratedSecp256k1SigningMaterialResolution =
 
 /** Ready ECDSA signing material, assembled from each fact's canonical owner:
  * the manifest names the material and its public facts, the exact durable
- * runtime supplies normal-signing state, policy scope, and transport, and any
- * reusable Wallet Session remains a separate authorization input.
+ * runtime supplies normal-signing state, policy scope, and transport, and the
+ * exact Wallet Session remains a separate authorization input.
  *
  * Nothing is decoded out of the opaque Wallet Session token. The facts it authorizes are owned by
  * the manifest and durable material record, which are correlated before this
@@ -274,12 +274,10 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       args.capability.manifest.activation.materialActivation,
     )
   ) {
-    throw new Error(
-      'Reusable Wallet Session authorization wallet does not match hydrated material',
-    );
+    throw new Error('Exact Wallet Session authorization wallet does not match hydrated material');
   }
   if (operationCredential.token.trim().length === 0) {
-    throw new Error('Reusable Wallet Session authorization is unavailable');
+    throw new Error('Exact Wallet Session authorization is unavailable');
   }
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,

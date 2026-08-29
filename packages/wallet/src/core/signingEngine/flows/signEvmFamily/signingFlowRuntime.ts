@@ -357,7 +357,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
   signingOperation?: SigningOperationContext;
   onSigningOperationTransition?: SigningOperationTransitionObserver;
-  // The exact material identity, whether or not a reusable Wallet Session
+  // The exact material identity, whether or not an exact Wallet Session
   // authorizes it. Everything below is resolved from wallet, chain target and
   // material activation.
   getEcdsaSigningLaneIdentity: () => ExactEcdsaSigningLaneIdentity;
