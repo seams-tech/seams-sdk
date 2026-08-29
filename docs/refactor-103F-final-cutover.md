@@ -748,7 +748,10 @@ and both credential-bearing registration replay functions are deleted.
 - [x] Make operation kind required for reusable-operation admission. Every
       production caller supplies a family-specific operation kind and the
       optional overload was deleted.
-- [ ] Delete the `operationKind === null` ECDSA branch.
+- [x] Delete the `operationKind === null` ECDSA branch. Strict
+      post-registration signing now requires the exact
+      `evm.sign_transaction` credential, while export requires the exact
+      `evm.export_key` operation step-up; the opaque-session fallback is gone.
 - [x] Convert operation step-up identity resolution in
       `routerAbPrivateSigningWorker.ts`. Step-up now admits only the exact V2
       credential for the requested key family and operation kind, binds the
@@ -1106,6 +1109,11 @@ Convert every reader or legacy writer:
 - [x] Canonical Wallet Session status: resolve the unlocked selected
       authority/method, read its exact V6 record, authenticate status with the
       stored operation credential, and reject mismatched session/quota identity;
+- [x] Owner-lane scope resolution: require the unlocked selected
+      wallet/authority/auth-method tuple, validate its exact active V6 record,
+      and fail closed for missing selection, identity drift, expiry, corruption,
+      persistence failure, or a future record version. The former wallet-wide
+      registration/recovery and missing-selection fallbacks are deleted;
 - [x] `clientSessionPersistence.ts`;
 - [x] `ecdsaLoginPrefill.ts`;
 - [x] `routerAbEd25519WalletSessionState.ts`;
