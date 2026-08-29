@@ -597,14 +597,112 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
       },
     });
 
-    const replacement = await service.issueDirectWalletSessionAuthorizationV2({
+    const replacementInput = {
       ...firstInput,
       mintId: requiredMintId('unlock:v2-direct-issuance:replacement'),
       issuedAtMs: 350,
       expiresAtMs: 550,
+    } as const;
+    await temporary.database.exec(`
+      CREATE TRIGGER r103f_fail_direct_v2_session_insert
+      BEFORE INSERT ON wallet_session_authorizations_v2
+      BEGIN
+        SELECT RAISE(ABORT, 'injected direct V2 session insert failure');
+      END;
+    `);
+    await expect(service.issueDirectWalletSessionAuthorizationV2(replacementInput)).rejects.toThrow(
+      /injected direct V2 session insert failure/,
+    );
+    const afterFailedReplacement = await temporary.database
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*)
+              FROM wallet_session_authorizations_v2
+             WHERE namespace = ?
+               AND tenant_id = ?
+               AND wallet_id = ?
+               AND authority_id = ?
+               AND wallet_auth_method_id = ?) AS session_count,
+           (SELECT COUNT(*)
+              FROM authorization_wallet_session_quotas
+             WHERE namespace = ?
+               AND tenant_id = ?) AS quota_count,
+           session.retired_at_ms AS predecessor_retired_at_ms,
+           quota.remaining_uses AS predecessor_remaining_uses,
+           quota.lifecycle_kind AS predecessor_lifecycle_kind
+         FROM wallet_session_authorizations_v2 AS session
+         JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = session.namespace
+          AND quota.tenant_id = session.tenant_id
+          AND quota.quota_id = session.quota_id
+        WHERE session.namespace = ?
+          AND session.tenant_id = ?
+          AND session.mint_id = ?`,
+      )
+      .bind(
+        namespace,
+        firstInput.tenantId,
+        String(firstInput.walletId),
+        String(firstInput.authority.authorityId),
+        String(firstInput.walletAuthMethodId),
+        namespace,
+        firstInput.tenantId,
+        namespace,
+        firstInput.tenantId,
+        String(firstInput.mintId),
+      )
+      .first<{
+        readonly session_count: number;
+        readonly quota_count: number;
+        readonly predecessor_retired_at_ms: number | null;
+        readonly predecessor_remaining_uses: number;
+        readonly predecessor_lifecycle_kind: string;
+      }>();
+    expect(afterFailedReplacement).toEqual({
+      session_count: 1,
+      quota_count: 1,
+      predecessor_retired_at_ms: null,
+      predecessor_remaining_uses: 3,
+      predecessor_lifecycle_kind: 'active',
     });
+    await temporary.database.exec('DROP TRIGGER r103f_fail_direct_v2_session_insert;');
+
+    const replacement = await service.issueDirectWalletSessionAuthorizationV2(replacementInput);
     expect(replacement.kind).toBe('issued');
     if (replacement.kind !== 'issued') throw new Error('replacement direct issuance did not issue');
+
+    const replacementCredentialBeforeReplay = await temporary.database
+      .prepare(
+        `SELECT operation_credential_hash
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ? AND tenant_id = ? AND authorization_id = ?`,
+      )
+      .bind(namespace, firstInput.tenantId, String(replacement.session.authorizationId))
+      .first<{ readonly operation_credential_hash: string }>();
+    const replacementReplay = await service.issueDirectWalletSessionAuthorizationV2(
+      replacementInput,
+    );
+    expect(replacementReplay).toMatchObject({
+      kind: 'already_committed',
+      authorizationId: replacement.session.authorizationId,
+      walletSessionId: replacement.session.walletSessionId,
+      quotaId: replacement.session.quotaId,
+      next: 'unlock_exact_method',
+    });
+    const replacementCredentialAfterReplay = await temporary.database
+      .prepare(
+        `SELECT operation_credential_hash
+           FROM wallet_session_authorizations_v2
+          WHERE namespace = ? AND tenant_id = ? AND authorization_id = ?`,
+      )
+      .bind(namespace, firstInput.tenantId, String(replacement.session.authorizationId))
+      .first<{ readonly operation_credential_hash: string }>();
+    expect(replacementCredentialBeforeReplay).toEqual({
+      operation_credential_hash: await digestOpaqueCredentialForTest(
+        replacement.operationCredential.token,
+      ),
+    });
+    expect(replacementCredentialAfterReplay).toEqual(replacementCredentialBeforeReplay);
 
     const rows = await temporary.database
       .prepare(
