@@ -4,6 +4,7 @@ import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-s
 import {
   buildActiveMethodBoundEmailOtpCustodyEnvelopeFixture,
   buildActiveMethodBoundPasskeyCustodyEnvelopeFixture,
+  buildWalletCustodyCommitPayloadFixture,
   CIPHERTEXT_B64U,
   VALID_SECP256K1_PUBLIC_KEY_B64U,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -219,6 +220,8 @@ function testWebAuthnAssertionCredential(credentialIdB64u: string) {
 class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   readonly kind = 'router_ab_ed25519_yao_product_registration_runtime_v1' as const;
   readonly signingWorkerId = TEST_YAO_SIGNING_WORKER_ID;
+  constructor(readonly registeredPublicKeyB64u: string) {}
+
   private admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1 | null = null;
   private consumerBinding: string | null = null;
   private consumedActivation: Extract<
@@ -286,7 +289,7 @@ class TestEd25519YaoAddSignerRuntime implements RouterAbEd25519YaoProductRegistr
           deriver_b_client_package: yaoClientPackage('deriver_b', 22),
           public_receipt: {
             transcript: yaoBytes(11),
-            registered_public_key: yaoBytes(12),
+            registered_public_key: Array.from(base64UrlDecode(this.registeredPublicKeyB64u)),
             joined_client_commitment: yaoBytes(13),
             joined_signing_worker_commitment: yaoBytes(14),
             signing_worker_verifying_share: yaoBytes(14),
@@ -886,6 +889,18 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker' },
     });
     const strictRegistration = new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort();
+    const custodyCommit = buildWalletCustodyCommitPayloadFixture({
+      walletId: String(walletId),
+      keySet: 'evm_family_ecdsa_v1',
+    });
+    if (!custodyCommit.clientRootPublicKey33B64u) {
+      throw new Error('ECDSA custody fixture did not provide a client root public key');
+    }
+    const custodyKeySet = {
+      kind: 'evm_family_ecdsa_v1' as const,
+      keyManifestDigestB64u: custodyCommit.keyManifestDigestB64u,
+      clientRootPublicKey33B64u: custodyCommit.clientRootPublicKey33B64u,
+    };
     await insertSignerWallet({ database, ...scope, walletId });
     /* An add-signer needs an active full-owner source with live custody, the
        same as an addition does. */
@@ -1048,6 +1063,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       addSignerCeremonyId: started.addSignerCeremonyId,
       idempotencyKey: 'strict-ecdsa-add-signer-finalize',
       ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+      custodyKeySet,
     };
     const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(finalizeRequest);
     if (!finalized.ok) throw new Error(finalized.message);
@@ -1073,6 +1089,7 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
         addSignerCeremonyId: finalizeRequest.addSignerCeremonyId,
         idempotencyKey: 'strict-ecdsa-add-signer-conflict',
         ecdsa: { expectedKeyHandles: [activated.ecdsa.bootstrap.keyHandle] },
+        custodyKeySet,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'idempotency_conflict' });
     await expect(
@@ -1106,8 +1123,16 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
     const walletId = walletIdFromString('ed25519-yao-add-signer.testnet');
     const rpId = 'example.com';
     const credentialIdB64u = 'Y3JlZGVudGlhbC0x';
+    const custodyCommit = buildWalletCustodyCommitPayloadFixture({
+      walletId: String(walletId),
+      keySet: 'near_ed25519_v1',
+      origin: 'join',
+    });
+    if (!custodyCommit.registeredPublicKeyB64u) {
+      throw new Error('Ed25519 custody fixture did not provide a registered public key');
+    }
     const durableObjects = new RecordingDurableObjectNamespace();
-    const yaoRuntime = new TestEd25519YaoAddSignerRuntime();
+    const yaoRuntime = new TestEd25519YaoAddSignerRuntime(custodyCommit.registeredPublicKeyB64u);
     const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
       config: {
         ROUTER_AB_NORMAL_SIGNING_WORKER_ID: TEST_YAO_SIGNING_WORKER_ID,
@@ -1225,6 +1250,11 @@ test('partitioned D1 finalizes and replays Ed25519 Yao add-signer without reques
           lifecycle_id: started.addSignerCeremonyId,
           session_id: TEST_YAO_SESSION_ID,
         },
+      },
+      custodyKeySet: {
+        kind: 'near_ed25519_v1' as const,
+        keyManifestDigestB64u: custodyCommit.keyManifestDigestB64u,
+        registeredPublicKeyB64u: custodyCommit.registeredPublicKeyB64u,
       },
     };
     const finalized = await service.walletAuthMethods.finalizeWalletAddSigner(exactFinalize);
