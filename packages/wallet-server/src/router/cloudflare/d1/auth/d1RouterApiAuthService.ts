@@ -350,6 +350,7 @@ function createD1LinkedDeviceComposition(input: {
   readonly authorizationStore: Pick<
     CloudflareD1AuthorizationStore,
     | 'prepareWalletSessionAuthorizationV2Statements'
+    | 'prepareRevokeReusableWalletSessionsForAuthority'
     | 'readOpaqueWalletSessionTokenByIdentity'
     | 'readActiveWalletSessionAuthorizationV2ByIdentity'
   >;

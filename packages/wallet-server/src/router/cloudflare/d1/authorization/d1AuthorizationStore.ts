@@ -1,4 +1,9 @@
-import { parseWalletAuthMethodId, type WalletAuthMethodId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  type WalletAuthorityId,
+  type WalletAuthMethodId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import {
   CAPABILITY_KINDS,
   parseAuthorizationAuditEventId,
@@ -500,6 +505,93 @@ export class CloudflareD1AuthorizationStore
       exhaustQuotas,
       supersedeSessions,
     ];
+  }
+
+  prepareRevokeReusableWalletSessionsForAuthority(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: WalletId;
+    readonly authorityId: WalletAuthorityId;
+    readonly nowMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    requirePositiveInteger(input.nowMs, 'authority session revocation time');
+    const remainingMethodFilter = `
+      SELECT 1
+        FROM wallet_auth_methods AS remaining_method
+       WHERE remaining_method.namespace = ?
+         AND remaining_method.org_id = ?
+         AND remaining_method.project_id = ?
+         AND remaining_method.env_id = ?
+         AND remaining_method.wallet_id = ?
+         AND remaining_method.wallet_authority_id = ?
+         AND remaining_method.status = 'active'`;
+    const remainingMethodBindings = [
+      this.namespace,
+      this.walletSignerScope.orgId,
+      this.walletSignerScope.projectId,
+      this.walletSignerScope.envId,
+      input.walletId,
+      input.authorityId,
+    ] as const;
+    const exhaustExactQuotas = this.database
+      .prepare(
+        `UPDATE authorization_wallet_session_quotas
+            SET remaining_uses = 0,
+                lifecycle_kind = 'exhausted'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND lifecycle_kind = 'active'
+            AND quota_id IN (
+              SELECT session.quota_id
+                FROM wallet_session_authorizations_v2 AS session
+               WHERE session.namespace = ?
+                 AND session.org_id = ?
+                 AND session.project_id = ?
+                 AND session.env_id = ?
+                 AND session.tenant_id = ?
+                 AND session.wallet_id = ?
+                 AND session.authority_id = ?
+                 AND session.retired_at_ms IS NULL
+                 AND NOT EXISTS (${remainingMethodFilter})
+            )`,
+      )
+      .bind(
+        this.namespace,
+        input.tenantId,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.walletId,
+        input.authorityId,
+        ...remainingMethodBindings,
+      );
+    const retireExactSessions = this.database
+      .prepare(
+        `UPDATE wallet_session_authorizations_v2
+            SET retired_at_ms = MAX(issued_at_ms, ?)
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND authority_id = ?
+            AND retired_at_ms IS NULL
+            AND NOT EXISTS (${remainingMethodFilter})`,
+      )
+      .bind(
+        input.nowMs,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.walletId,
+        input.authorityId,
+        ...remainingMethodBindings,
+      );
+    return [exhaustExactQuotas, retireExactSessions];
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(

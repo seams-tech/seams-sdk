@@ -11,7 +11,12 @@ import {
   type ActiveWalletAuthorityV1,
   type PendingWalletAuthorityV1,
 } from '@shared/authorization/walletAuthority';
-import { parseDeviceId } from '@shared/authorization/capabilityKinds';
+import {
+  parseDeviceId,
+  parsePrincipalId,
+  parseTenantId,
+  type TenantId,
+} from '@shared/authorization/capabilityKinds';
 import { parseExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import {
   parseWalletAuthMethodId,
@@ -19,7 +24,6 @@ import {
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
-  type WalletAuthMethodId,
   type WalletAuthorityId,
   type WalletId,
 } from '@shared/utils/domainIds';
@@ -41,6 +45,8 @@ import {
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { buildExactWalletSessionAuthorizationFixture } from './helpers/exactWalletSessionAuthorization.fixtures';
 
 const scope: D1WalletAuthorityStoreScope = {
   namespace: 'wallet-authority-store-test',
@@ -70,6 +76,8 @@ type AuthorityFixtureOptions = {
   readonly activeAtMs?: number;
 };
 
+type AuthorityTestDatabase = ReturnType<typeof createTemporaryD1Database>['database'];
+
 function requireParsed<T>(
   result:
     | { readonly ok: true; readonly value: T }
@@ -77,6 +85,58 @@ function requireParsed<T>(
 ): T {
   if (result.ok) return result.value;
   throw new Error(result.error.message);
+}
+
+function buildActiveSiblingAuthMethod(
+  fixture: AuthorityFixture,
+): Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }> {
+  return buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: requireParsed(parseWalletAuthMethodId('auth-method:authority-sibling')),
+    walletId: fixture.walletId,
+    walletAuthorityId: fixture.authorityId,
+    kind: 'passkey',
+    status: 'active',
+    rpId: fixture.activeAuthMethod.rpId,
+    credentialIdB64u: requireParsed(
+      parseWebAuthnCredentialIdB64u('credential:authority-store-sibling'),
+    ),
+    credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(19)),
+    counter: 0,
+    createdAtMs: 21,
+    updatedAtMs: 21,
+    activatedAtMs: 21,
+  });
+}
+
+async function readExactAuthoritySessionLifecycle(input: {
+  readonly database: AuthorityTestDatabase;
+  readonly tenantId: TenantId;
+}) {
+  return await input.database
+    .prepare(
+      `SELECT session.authority_id,
+              session.wallet_auth_method_id,
+              session.retired_at_ms,
+              quota.remaining_uses,
+              quota.lifecycle_kind
+         FROM wallet_session_authorizations_v2 AS session
+         JOIN authorization_wallet_session_quotas AS quota
+           ON quota.namespace = session.namespace
+          AND quota.tenant_id = session.tenant_id
+          AND quota.quota_id = session.quota_id
+        WHERE session.namespace = ?
+          AND session.tenant_id = ?
+        ORDER BY session.authority_id, session.wallet_auth_method_id`,
+    )
+    .bind(scope.namespace, input.tenantId)
+    .all<{
+      readonly authority_id: string;
+      readonly wallet_auth_method_id: string;
+      readonly retired_at_ms: number | null;
+      readonly remaining_uses: number;
+      readonly lifecycle_kind: string;
+    }>();
 }
 
 function buildEd25519SignerManifest(label: string): ReturnType<
@@ -491,6 +551,174 @@ test('revokes one authority method and protects the final active wallet method',
       state: 'active',
       revocationEpoch: 0,
     });
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('authority session fence waits for the final sibling and preserves unrelated V2 sessions', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    const authorityStore = new D1WalletAuthorityStore({
+      database: temporary.database,
+      scope,
+      ensureSchema: false,
+    });
+    const authMethodStore = new D1WalletAuthMethodStore({
+      database: temporary.database,
+      ...scope,
+      ensureSchema: false,
+    });
+    const authorizationStore = new CloudflareD1AuthorizationStore({
+      database: temporary.database,
+      namespace: scope.namespace,
+      walletSignerScope: scope,
+    });
+    const target = await buildAuthorityFixture({ label: 'authority-session-target' });
+    const unrelated = await buildAuthorityFixture({ label: 'authority-session-unrelated' });
+    for (const fixture of [target, unrelated]) {
+      await authorityStore.commitPendingAuthority({
+        authority: fixture.pendingAuthority,
+        authMethod: fixture.pendingAuthMethod,
+      });
+      await authorityStore.activatePendingAuthority({
+        pendingAuthority: fixture.pendingAuthority,
+        activeAuthority: fixture.activeAuthority,
+        pendingAuthMethod: fixture.pendingAuthMethod,
+        activeAuthMethod: fixture.activeAuthMethod,
+      });
+    }
+    const siblingMethod = buildActiveSiblingAuthMethod(target);
+    await authMethodStore.putV2(siblingMethod);
+
+    const tenantId = requireParsed(parseTenantId(scope.orgId));
+    const principalId = requireParsed(parsePrincipalId('principal:authority-session-fence'));
+    const targetSession = buildExactWalletSessionAuthorizationFixture({
+      label: 'authority-session-target',
+      tenantId,
+      principalId,
+      authority: target.activeAuthority,
+      walletAuthMethodId: target.activeAuthMethod.walletAuthMethodId,
+      issuedAtMs: 25,
+      expiresAtMs: 100,
+      remainingUses: 3,
+    });
+    const siblingSession = buildExactWalletSessionAuthorizationFixture({
+      label: 'authority-session-sibling',
+      tenantId,
+      principalId,
+      authority: target.activeAuthority,
+      walletAuthMethodId: siblingMethod.walletAuthMethodId,
+      issuedAtMs: 26,
+      expiresAtMs: 100,
+      remainingUses: 4,
+    });
+    const unrelatedSession = buildExactWalletSessionAuthorizationFixture({
+      label: 'authority-session-unrelated',
+      tenantId,
+      principalId,
+      authority: unrelated.activeAuthority,
+      walletAuthMethodId: unrelated.activeAuthMethod.walletAuthMethodId,
+      issuedAtMs: 27,
+      expiresAtMs: 100,
+      remainingUses: 5,
+    });
+    await authorizationStore.putWalletSessionAuthorizationV2(targetSession);
+    await authorizationStore.putWalletSessionAuthorizationV2(siblingSession);
+    await authorizationStore.putWalletSessionAuthorizationV2(unrelatedSession);
+
+    await expect(
+      authorityStore.revokeWalletAuthMethod({
+        walletId: target.walletId,
+        authorityId: target.authorityId,
+        walletAuthMethodId: target.activeAuthMethod.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: 0,
+        requestedAtMs: 30,
+        sessionRevocationStatements:
+          authorizationStore.prepareRevokeReusableWalletSessionsForAuthority({
+            tenantId,
+            walletId: target.walletId,
+            authorityId: target.authorityId,
+            nowMs: 30,
+          }),
+      }),
+    ).resolves.toMatchObject({
+      kind: 'revoked_method',
+      authority: { state: 'active' },
+    });
+    expect(
+      (await readExactAuthoritySessionLifecycle({ database: temporary.database, tenantId }))
+        .results,
+    ).toEqual([
+      {
+        authority_id: String(target.authorityId),
+        wallet_auth_method_id: String(siblingMethod.walletAuthMethodId),
+        retired_at_ms: null,
+        remaining_uses: 4,
+        lifecycle_kind: 'active',
+      },
+      {
+        authority_id: String(target.authorityId),
+        wallet_auth_method_id: String(target.activeAuthMethod.walletAuthMethodId),
+        retired_at_ms: null,
+        remaining_uses: 3,
+        lifecycle_kind: 'active',
+      },
+      {
+        authority_id: String(unrelated.authorityId),
+        wallet_auth_method_id: String(unrelated.activeAuthMethod.walletAuthMethodId),
+        retired_at_ms: null,
+        remaining_uses: 5,
+        lifecycle_kind: 'active',
+      },
+    ]);
+
+    await expect(
+      authorityStore.revokeWalletAuthMethod({
+        walletId: target.walletId,
+        authorityId: target.authorityId,
+        walletAuthMethodId: siblingMethod.walletAuthMethodId,
+        expectedAuthorityRevocationEpoch: 0,
+        requestedAtMs: 31,
+        sessionRevocationStatements:
+          authorizationStore.prepareRevokeReusableWalletSessionsForAuthority({
+            tenantId,
+            walletId: target.walletId,
+            authorityId: target.authorityId,
+            nowMs: 31,
+          }),
+      }),
+    ).resolves.toMatchObject({
+      kind: 'revoked_method',
+      authority: { state: 'revoked', revocationEpoch: 1 },
+    });
+    expect(
+      (await readExactAuthoritySessionLifecycle({ database: temporary.database, tenantId }))
+        .results,
+    ).toEqual([
+      {
+        authority_id: String(target.authorityId),
+        wallet_auth_method_id: String(siblingMethod.walletAuthMethodId),
+        retired_at_ms: 31,
+        remaining_uses: 0,
+        lifecycle_kind: 'exhausted',
+      },
+      {
+        authority_id: String(target.authorityId),
+        wallet_auth_method_id: String(target.activeAuthMethod.walletAuthMethodId),
+        retired_at_ms: 31,
+        remaining_uses: 0,
+        lifecycle_kind: 'exhausted',
+      },
+      {
+        authority_id: String(unrelated.authorityId),
+        wallet_auth_method_id: String(unrelated.activeAuthMethod.walletAuthMethodId),
+        retired_at_ms: null,
+        remaining_uses: 5,
+        lifecycle_kind: 'active',
+      },
+    ]);
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
   }
