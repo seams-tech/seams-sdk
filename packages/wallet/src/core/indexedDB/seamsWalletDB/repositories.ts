@@ -299,6 +299,8 @@ type WalletSelectionRow = {
 export type LocalAuthorityInstallationInputV1 = {
   readonly authority: PendingWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
+  readonly profile: UpsertProfileInput;
+  readonly authenticator: ProfileAuthenticatorRecord | null;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   readonly exportRoot: WalletAuthorityExportRootRecordV1 | null;
   readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -388,6 +390,8 @@ type ValidatedFoundingWalletAuthorityInputV1 = PersistFoundingWalletAuthorityInp
 type ValidatedLocalAuthorityInstallationInput = {
   readonly authority: PendingWalletAuthorityV1;
   readonly authMethod: Extract<WalletAuthMethodRecordV2, { status: 'pending_local_install' }>;
+  readonly profile: UpsertProfileInput;
+  readonly authenticator: ProfileAuthenticatorRecord | null;
   readonly signerMaterials: readonly WalletAuthoritySignerMaterialRecordV1[];
   readonly exportRoot: WalletAuthorityExportRootRecordV1 | null;
   readonly receipt: LocalAuthorityInstallationReceiptV1;
@@ -2012,6 +2016,54 @@ function parseLocalAuthorityInstallationInput(
     if (!authMethod || authMethod.status !== 'pending_local_install') {
       throw new Error('authMethod must be a pending_local_install V2 record');
     }
+    if (!isRecord(input.profile)) {
+      throw new Error('profile must be an object');
+    }
+    const profileId = toTrimmedString(input.profile.profileId || '');
+    if (!profileId || profileId !== String(authority.walletId)) {
+      throw new Error('profile identity does not match authority');
+    }
+    const defaultSignerSlot =
+      input.profile.defaultSignerSlot === undefined
+        ? 1
+        : parseNonNegativeSafeInteger(input.profile.defaultSignerSlot, 'profile.defaultSignerSlot');
+    if (defaultSignerSlot < 1) {
+      throw new Error('profile.defaultSignerSlot must be a positive safe integer');
+    }
+    const profile: UpsertProfileInput = {
+      profileId,
+      defaultSignerSlot,
+      ...(input.profile.passkeyCredential
+        ? { passkeyCredential: input.profile.passkeyCredential }
+        : {}),
+      ...(input.profile.preferences ? { preferences: input.profile.preferences } : {}),
+      ...(input.profile.nearProvisioning
+        ? { nearProvisioning: input.profile.nearProvisioning }
+        : {}),
+    };
+    const authenticator =
+      input.authenticator === null ? null : normalizeAuthenticatorRecord(input.authenticator);
+    if (authMethod.kind === 'passkey') {
+      const passkeyCredential = profile.passkeyCredential;
+      if (
+        !passkeyCredential ||
+        passkeyCredential.id !== authMethod.credentialIdB64u ||
+        passkeyCredential.rawId !== authMethod.credentialIdB64u
+      ) {
+        throw new Error('profile passkey credential does not match authMethod');
+      }
+      if (
+        !authenticator ||
+        authenticator.profileId !== profileId ||
+        authenticator.signerSlot !== defaultSignerSlot ||
+        authenticator.credentialId !== authMethod.credentialIdB64u ||
+        base64UrlEncode(authenticator.credentialPublicKey) !== authMethod.credentialPublicKeyB64u
+      ) {
+        throw new Error('profile authenticator does not match authMethod');
+      }
+    } else if (authenticator !== null || profile.passkeyCredential !== undefined) {
+      throw new Error('Email OTP installation cannot include passkey profile records');
+    }
     if (!Array.isArray(input.signerMaterials)) {
       throw new Error('signerMaterials must be an array');
     }
@@ -2095,6 +2147,8 @@ function parseLocalAuthorityInstallationInput(
       value: {
         authority,
         authMethod,
+        profile,
+        authenticator,
         signerMaterials,
         exportRoot,
         receipt,
@@ -2822,8 +2876,9 @@ export class SeamsWalletRepositories {
     }
     return this.manager.runTransaction(
       [
-        SEAMS_WALLET_STORES.walletAuthorities,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletAuthMethods,
+        SEAMS_WALLET_STORES.walletAuthorities,
         SEAMS_WALLET_STORES.walletAuthoritySignerMaterials,
         SEAMS_WALLET_STORES.walletAuthorityExportRoots,
         SEAMS_WALLET_STORES.walletAuthorityInstallationReceipts,
@@ -3229,6 +3284,25 @@ export class SeamsWalletRepositories {
     input: ValidatedLocalAuthorityInstallationInput,
     ctx: SeamsWalletTransactionContext,
   ): Promise<LocalAuthorityInstallationResultV1> {
+    const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
+    const profileRaw = await profileStore.get(input.profile.profileId);
+    const existingProfile = profileRaw === undefined ? null : parseProfileRow(profileRaw);
+    if (profileRaw !== undefined && !existingProfile) {
+      return { kind: 'integrity_error', reason: 'wallet profile row is invalid' };
+    }
+    const authenticatorStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
+    const authenticatorRow = input.authenticator
+      ? walletAuthMethodRowFromAuthenticator(input.authenticator)
+      : null;
+    const authenticatorRaw = authenticatorRow
+      ? await authenticatorStore.get(authenticatorRow.wallet_auth_method_id)
+      : undefined;
+    const existingAuthenticatorRow =
+      authenticatorRaw === undefined ? null : parseWalletAuthMethodStorageRow(authenticatorRaw);
+    const existingAuthenticator =
+      existingAuthenticatorRow?.kind === 'passkey' && existingAuthenticatorRow.status === 'active'
+        ? existingAuthenticatorRow.authenticator
+        : null;
     const selectionStore = ctx.store(SEAMS_WALLET_STORES.walletSelections);
     const selectionRaw = await selectionStore.get(input.authority.walletId);
     const selection =
@@ -3302,12 +3376,18 @@ export class SeamsWalletRepositories {
     const anyExisting =
       authorityRaw !== undefined ||
       authMethodRaw !== undefined ||
+      profileRaw !== undefined ||
+      authenticatorRaw !== undefined ||
       signerMaterialRaws.some(rawValueIsPresent) ||
       exportRootRaw !== undefined ||
       receiptRaw !== undefined;
     const allExisting =
       authorityRaw !== undefined &&
       authMethodRaw !== undefined &&
+      profileRaw !== undefined &&
+      (input.authenticator === null
+        ? authenticatorRaw === undefined
+        : authenticatorRaw !== undefined) &&
       signerMaterialRaws.every(rawValueIsPresent) &&
       (input.exportRoot === null ? exportRootRaw === undefined : exportRootRaw !== undefined) &&
       receiptRaw !== undefined;
@@ -3317,6 +3397,7 @@ export class SeamsWalletRepositories {
         !allExisting ||
         !existingAuthority ||
         !existingAuthMethod ||
+        !existingProfile ||
         !existingReceipt
       ) {
         return {
@@ -3327,11 +3408,26 @@ export class SeamsWalletRepositories {
       if (
         !walletAuthorityRecordsMatch(existingAuthority.record, input.authority) ||
         !walletAuthMethodRecordsMatch(existingAuthMethod.record, input.authMethod) ||
+        existingProfile.profileId !== input.profile.profileId ||
+        existingProfile.defaultSignerSlot !== (input.profile.defaultSignerSlot ?? 1) ||
+        (input.profile.passkeyCredential !== undefined &&
+          (existingProfile.passkeyCredential?.id !== input.profile.passkeyCredential.id ||
+            existingProfile.passkeyCredential.rawId !== input.profile.passkeyCredential.rawId)) ||
         !localAuthorityInstallationReceiptsMatch(existingReceipt, input.receipt)
       ) {
         return {
           kind: 'integrity_error',
           reason: 'local authority replay conflicts with stored records',
+        };
+      }
+      if (
+        input.authenticator &&
+        (!existingAuthenticator ||
+          !rollbackRecordsEqual(existingAuthenticator, input.authenticator))
+      ) {
+        return {
+          kind: 'integrity_error',
+          reason: 'stored profile authenticator conflicts with replay',
         };
       }
       for (let index = 0; index < input.signerMaterials.length; index += 1) {
@@ -3360,6 +3456,10 @@ export class SeamsWalletRepositories {
       return { kind: 'idempotent_replay', receipt: existingReceipt };
     }
 
+    await profileStore.put(profileRow(input.profile, existingProfile || undefined));
+    if (authenticatorRow) {
+      await authenticatorStore.put(authenticatorRow);
+    }
     await authorityStore.put(walletAuthorityStorageRow(input.authority));
     await authMethodStore.put(walletAuthMethodV2StorageRow(input.authMethod));
     for (const material of input.signerMaterials) {
