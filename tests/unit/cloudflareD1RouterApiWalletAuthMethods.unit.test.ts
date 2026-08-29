@@ -546,13 +546,13 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     });
     expect(refreshed, JSON.stringify(refreshed)).toMatchObject({
       ok: true,
-      sessionKind: 'issued_wallet_session_v1',
+      sessionKind: 'issued_exact_wallet_session',
       walletId,
       thresholdSessionId: currentThresholdSessionId,
       remainingUses: 1,
     });
     if (!refreshed.ok) throw new Error(refreshed.message);
-    if (refreshed.sessionKind !== 'issued_wallet_session_v1') {
+    if (refreshed.sessionKind !== 'issued_exact_wallet_session') {
       throw new Error('budget refresh must issue a fresh Wallet Session');
     }
     expect(refreshed.walletSessionId).not.toBe(currentWalletSessionId);

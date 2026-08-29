@@ -39,7 +39,7 @@ import {
   type DirectV2IssueResult,
 } from '../../../../authorization/domain';
 import type { AuthorizationService } from '../../../../authorization/service';
-import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import { projectRouterAbEd25519YaoExactWalletSession } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { SessionAdapter } from '../../../framework/routerApi';
 import {
   computeRegistrationIntentDigestB64u,
@@ -2546,7 +2546,7 @@ export class CloudflareD1WalletRegistrationService {
             readonly remainingUses: number;
             readonly walletSessionCredential: Extract<
               RouterAbEd25519YaoWalletSessionCredentialV1,
-              { readonly kind: 'issued_wallet_session_v1' }
+              { readonly kind: 'issued_exact_wallet_session' }
             >;
           }
         | {
@@ -2558,7 +2558,7 @@ export class CloudflareD1WalletRegistrationService {
             readonly remainingUses: number;
             readonly walletSessionCredential: Extract<
               RouterAbEd25519YaoWalletSessionCredentialV1,
-              { readonly kind: 'reused_wallet_session_v2' }
+              { readonly kind: 'already_committed_exact_wallet_session' }
             >;
           };
       switch (request.kind) {
@@ -2603,7 +2603,7 @@ export class CloudflareD1WalletRegistrationService {
                 expiresAtMs: directIssue.session.expiresAtMs,
                 remainingUses,
                 walletSessionCredential: {
-                  kind: 'issued_wallet_session_v1',
+                  kind: 'issued_exact_wallet_session',
                   operationCredential: directIssue.operationCredential,
                 },
               };
@@ -2621,7 +2621,7 @@ export class CloudflareD1WalletRegistrationService {
           sessionIdentity = {
             kind: 'same_wallet_session_curve_mint_v1' as const,
             ...request.existingWalletSession,
-            walletSessionCredential: { kind: 'reused_wallet_session_v2' },
+            walletSessionCredential: { kind: 'already_committed_exact_wallet_session' },
           };
           break;
       }
@@ -2666,7 +2666,7 @@ export class CloudflareD1WalletRegistrationService {
           };
           break;
       }
-      const session = await mintRouterAbEd25519YaoWalletSessionV1({
+      const session = await projectRouterAbEd25519YaoExactWalletSession({
         signingWorkerId: yaoRuntime.signingWorkerId,
         sessionInput,
       });
@@ -2687,13 +2687,13 @@ export class CloudflareD1WalletRegistrationService {
         runtimePolicyScope,
         routerAbNormalSigning,
       } as const;
-      return session.sessionKind === 'issued_wallet_session_v1'
+      return session.sessionKind === 'issued_exact_wallet_session'
         ? {
             ...refreshed,
-            sessionKind: 'issued_wallet_session_v1',
+            sessionKind: 'issued_exact_wallet_session',
             operationCredential: session.operationCredential,
           }
-        : { ...refreshed, sessionKind: 'reused_wallet_session_v2' };
+        : { ...refreshed, sessionKind: 'already_committed_exact_wallet_session' };
     } catch (error: unknown) {
       return {
         ok: false,
@@ -2934,7 +2934,7 @@ export class CloudflareD1WalletRegistrationService {
                 expiresAtMs,
                 remainingUses: issuedRemainingUses,
                 walletSessionCredential: {
-                  kind: 'issued_wallet_session_v1',
+                  kind: 'issued_exact_wallet_session',
                   operationCredential: directIssue.operationCredential,
                 },
               };
@@ -2980,12 +2980,12 @@ export class CloudflareD1WalletRegistrationService {
           }
           walletSessionIdentity = {
             ...requestedIdentity,
-            walletSessionCredential: { kind: 'reused_wallet_session_v2' },
+            walletSessionCredential: { kind: 'already_committed_exact_wallet_session' },
           };
           break;
         }
       }
-      const session = await mintRouterAbEd25519YaoWalletSessionV1({
+      const session = await projectRouterAbEd25519YaoExactWalletSession({
         signingWorkerId: yaoRuntime.signingWorkerId,
         sessionInput: {
           kind: 'verified_wallet_unlock_v1',

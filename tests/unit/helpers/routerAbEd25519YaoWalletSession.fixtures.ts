@@ -33,10 +33,10 @@ export function buildIssuedRouterAbEd25519YaoWalletSessionCredentialFixture(
   walletSessionId: string = ROUTER_AB_ED25519_YAO_WALLET_SESSION_FIXTURE_ID,
 ): Extract<
   RouterAbEd25519YaoWalletSessionCredentialV1,
-  { readonly kind: 'issued_wallet_session_v1' }
+  { readonly kind: 'issued_exact_wallet_session' }
 > {
   return {
-    kind: 'issued_wallet_session_v1',
+    kind: 'issued_exact_wallet_session',
     operationCredential: parseWalletSessionOperationCredentialV1({
       kind: 'opaque_wallet_session_operation_credential_v1',
       token: `wst_${'A'.repeat(43)}`,

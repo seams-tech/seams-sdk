@@ -681,11 +681,11 @@ type ProvisionWarmEd25519CapabilitySuccessResultBase = {
 /** Warm-session callers receive an exact credential even when the issuer reused a session. */
 export type ProvisionWarmEd25519CapabilitySuccessResult =
   | (ProvisionWarmEd25519CapabilitySuccessResultBase & {
-      sessionKind: 'issued_wallet_session_v1';
+      sessionKind: 'issued_exact_wallet_session';
       operationCredential: WalletSessionOperationCredentialV1;
     })
   | (ProvisionWarmEd25519CapabilitySuccessResultBase & {
-      sessionKind: 'reused_wallet_session_v2';
+      sessionKind: 'already_committed_exact_wallet_session';
       operationCredential: WalletSessionOperationCredentialV1;
     });
 

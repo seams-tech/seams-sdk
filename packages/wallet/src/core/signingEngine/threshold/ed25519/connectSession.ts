@@ -42,11 +42,11 @@ type ConnectEd25519SessionSuccessBase = {
 
 export type ConnectEd25519SessionResult =
   | (ConnectEd25519SessionSuccessBase & {
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     })
   | (ConnectEd25519SessionSuccessBase & {
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly operationCredential?: never;
     })
   | {
@@ -244,7 +244,7 @@ export async function connectEd25519Session(args: {
     passkeyPrfFirstB64u: prfFirstB64u,
   };
   switch (minted.sessionKind) {
-    case 'issued_wallet_session_v1':
+    case 'issued_exact_wallet_session':
       if (minted.operationCredential.walletSessionId !== minted.walletSessionId) {
         return {
           ok: false,
@@ -257,7 +257,7 @@ export async function connectEd25519Session(args: {
         sessionKind: minted.sessionKind,
         operationCredential: minted.operationCredential,
       };
-    case 'reused_wallet_session_v2':
+    case 'already_committed_exact_wallet_session':
       return { ...successBase, sessionKind: minted.sessionKind };
     default:
       return assertNeverEd25519WalletSessionMintKind(minted);

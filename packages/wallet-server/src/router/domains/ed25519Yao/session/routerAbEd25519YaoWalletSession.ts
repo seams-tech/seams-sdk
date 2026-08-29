@@ -190,11 +190,11 @@ type RouterAbEd25519YaoBudgetRefreshSessionV1 = {
 
 export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
   | (RouterAbEd25519YaoBudgetRefreshSessionV1 & {
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     })
   | (RouterAbEd25519YaoBudgetRefreshSessionV1 & {
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly operationCredential?: never;
     })
   | RouterAbEd25519YaoAlreadyCommittedResponseV1

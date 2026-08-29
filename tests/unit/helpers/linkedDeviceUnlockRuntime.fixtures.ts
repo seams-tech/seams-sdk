@@ -546,7 +546,7 @@ export async function buildLinkedDeviceUnlockRuntimeFixture(): Promise<LinkedDev
       kind: 'router_ab_ed25519_normal_signing_v1',
       signingWorkerId: 'worker:linked-runtime',
     },
-    sessionKind: 'issued_wallet_session_v1',
+    sessionKind: 'issued_exact_wallet_session',
     operationCredential,
   };
   const factorSecretB64u = base64UrlEncode(factorSecret);

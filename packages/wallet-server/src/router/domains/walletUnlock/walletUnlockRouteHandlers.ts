@@ -685,7 +685,7 @@ function projectPasskeyEd25519WalletSession(
     runtimePolicyScope: session.runtimePolicyScope,
     routerAbNormalSigning: session.routerAbNormalSigning,
     sessionKind: session.sessionKind,
-    ...(session.sessionKind === 'issued_wallet_session_v1'
+    ...(session.sessionKind === 'issued_exact_wallet_session'
       ? { operationCredential: session.operationCredential }
       : {}),
   };
@@ -700,7 +700,7 @@ function walletUnlockEcdsaOperationCredential(input: {
   readonly ed25519Session: WalletRegistrationEd25519YaoBootstrapSession;
   readonly activeOperationCredential: WalletSessionOperationCredentialV1 | null;
 }): WalletSessionOperationCredentialV1 | null {
-  if (input.ed25519Session.sessionKind === 'issued_wallet_session_v1') {
+  if (input.ed25519Session.sessionKind === 'issued_exact_wallet_session') {
     return input.ed25519Session.operationCredential;
   }
   const active = input.activeOperationCredential;

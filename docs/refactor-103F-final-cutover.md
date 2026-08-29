@@ -1655,8 +1655,10 @@ Remaining causal baseline work:
 - [ ] Exact-reader tests with two active sibling methods across signing, export,
       funding, refresh, management, readiness, and source claims.
 - [ ] Bootstrap quarantine test for observed V3/V4/V5 rows.
-- [ ] Shared-IndexedDB tests for future-row preservation, terminal
-      `upgrade_required`, legacy-row quarantine, and final-reader containment.
+- [x] Shared-IndexedDB tests for future-row preservation, terminal
+      `upgrade_required`, legacy-row quarantine, and final-reader containment;
+      `tests/unit/walletSessionOperationCredential.unit.test.ts` covers direct
+      reads, exact selected-method reads, and replacement.
 - [x] Typed lifecycle tests for missing, expired, exhausted, retired,
       method-revoked, authority-revoked, and capability-unavailable results.
       `tests/unit/walletSessionStatusExactLifecycle.unit.test.ts` proves them
