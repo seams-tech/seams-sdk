@@ -169,7 +169,7 @@ function createPorts(
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'test-key-material' },
           linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
           devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-          emailOtpReleasePublicKey65B64u: base64UrlEncode(new Uint8Array(65).fill(4)),
+          deliveryRecipientPublicKey65B64u: base64UrlEncode(new Uint8Array(65).fill(4)),
         };
       },
       async openEmailOtpFactorReleaseV1() {

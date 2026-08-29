@@ -521,9 +521,9 @@ export function createRouterApiRouteDefinitions(
     ),
     apiCredentialRoute(
       'linked_device_target_preparation',
-      'GET',
+      'POST',
       '/wallet/device-linking/v1/sessions/:linkSessionId/target-preparation',
-      'Prepare a linked-device target Passkey ceremony',
+      'Prepare a linked-device target ceremony and delivery recipient',
       {
         plane: 'api_credentials',
         credentials: ['publishable_key'],

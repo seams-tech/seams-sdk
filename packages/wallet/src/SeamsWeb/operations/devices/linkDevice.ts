@@ -486,7 +486,7 @@ export class LinkDeviceFlow {
   private readonly flowId: string;
   private session: DeviceLinkingSession | null = null;
   private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
-  private emailOtpReleasePublicKey65B64u: string | null = null;
+  private deliveryRecipientPublicKey65B64u: string | null = null;
   private resealedExportRoot:
     | import('./deviceLinkingEd25519ExportRoot').DeviceLinkingResealedEd25519ExportRootV1
     | null = null;
@@ -546,7 +546,7 @@ export class LinkDeviceFlow {
         throw new LinkDeviceFlowSupersededError();
       }
       this.keyMaterialHandle = keyMaterial.handle;
-      this.emailOtpReleasePublicKey65B64u = keyMaterial.emailOtpReleasePublicKey65B64u;
+      this.deliveryRecipientPublicKey65B64u = keyMaterial.deliveryRecipientPublicKey65B64u;
       const issuedAtMs = Date.now();
       const linkSessionId = createLinkSessionId();
       const qrData = buildDevice2QrSessionPayloadV1({
@@ -742,6 +742,7 @@ export class LinkDeviceFlow {
     }
     const preparation = await this.requireAuthenticatedTransport().getTargetPreparationV1({
       linkSessionId,
+      deliveryRecipientPublicKey65B64u: this.requireDeliveryRecipientPublicKey65B64u(),
     });
     return {
       walletId: preparation.walletId,
@@ -893,6 +894,7 @@ export class LinkDeviceFlow {
     this.assertCurrentRun(runEpoch);
     const preparation = await authenticatedTransport.getTargetPreparationV1({
       linkSessionId: event.linkSessionId,
+      deliveryRecipientPublicKey65B64u: this.requireDeliveryRecipientPublicKey65B64u(),
     });
     this.assertCurrentRun(runEpoch);
     this.assertTargetPreparationMatchesSession({
@@ -951,7 +953,7 @@ export class LinkDeviceFlow {
     if (!isEmailOtpTargetPreparation(input.preparation)) {
       throw new Error('Email OTP session returned a non-Email OTP target preparation');
     }
-    if (!this.keyMaterialHandle || !this.session || !this.emailOtpReleasePublicKey65B64u) {
+    if (!this.keyMaterialHandle || !this.session || !this.deliveryRecipientPublicKey65B64u) {
       throw new Error('Email OTP target key material is unavailable');
     }
     if (!this.options.options?.onTargetFactorRequired) {
@@ -1046,7 +1048,7 @@ export class LinkDeviceFlow {
   ): Promise<void> {
     try {
       this.assertCurrentRun(context.runEpoch);
-      const workerEphemeralPublicKey65B64u = this.emailOtpReleasePublicKey65B64u;
+      const workerEphemeralPublicKey65B64u = this.deliveryRecipientPublicKey65B64u;
       if (!workerEphemeralPublicKey65B64u) {
         throw new Error('Email OTP factor-release recipient is unavailable');
       }
@@ -1763,6 +1765,8 @@ export class LinkDeviceFlow {
       input.preparation.linkSessionId !== input.linkSessionId ||
       String(input.preparation.deviceId) !== String(input.state.deviceId) ||
       input.preparation.targetFactor.kind !== sessionTargetFactor.kind ||
+      input.preparation.deliveryRecipientPublicKey65B64u !==
+        this.requireDeliveryRecipientPublicKey65B64u() ||
       input.preparation.expiresAtMs <= Date.now()
     ) {
       throw new Error('linked-device target preparation does not match the claimed session');
@@ -1965,6 +1969,13 @@ export class LinkDeviceFlow {
   private requireKeyMaterialHandleV1(): DeviceLinkingKeyMaterialHandleV1 {
     if (!this.keyMaterialHandle) throw new Error('device-link key material is unavailable');
     return this.keyMaterialHandle;
+  }
+
+  private requireDeliveryRecipientPublicKey65B64u(): string {
+    if (!this.deliveryRecipientPublicKey65B64u) {
+      throw new Error('device-link delivery recipient is unavailable');
+    }
+    return this.deliveryRecipientPublicKey65B64u;
   }
 
   private requireOrdinarySignerMaterialRecipientPreparationV1(): DeviceLinkingOrdinarySignerMaterialRecipientPreparationV1 {
@@ -2191,7 +2202,7 @@ export class LinkDeviceFlow {
       await discard;
       if (this.keyMaterialHandle === handle) {
         this.keyMaterialHandle = null;
-        this.emailOtpReleasePublicKey65B64u = null;
+        this.deliveryRecipientPublicKey65B64u = null;
         this.authenticatedTransport = null;
       }
     } finally {

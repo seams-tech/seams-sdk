@@ -253,6 +253,8 @@ type LinkedDeviceTargetPreparationBaseV1 = {
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  /** Device 2's worker-owned P-256 recipient for committed credential delivery. */
+  readonly deliveryRecipientPublicKey65B64u: string;
   /** Allocated by the server before target-factor verification. */
   readonly walletAuthMethodId: WalletAuthMethodId;
   /** `null` is the explicit ECDSA-only/no-export-root branch. */
@@ -306,6 +308,13 @@ export type LinkedDeviceTargetPreparationV1 =
       readonly passkeyConfigurationDigestB64u?: never;
       readonly baseWalletAuthMethodId?: never;
     });
+
+/** Device 2 publishes the worker-owned credential delivery recipient. */
+export type LinkedDeviceTargetPreparationRequestV1 = {
+  readonly kind: 'linked_device_target_preparation_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly deliveryRecipientPublicKey65B64u: string;
+};
 
 /** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
 export type LinkedDeviceWebAuthnRegistrationV1 = {
@@ -787,6 +796,8 @@ export type VerifiedLinkInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly targetDeviceId: DeviceId;
+  /** Authenticated P-256 recipient retained by the target worker. */
+  readonly deliveryRecipientPublicKey65B64u: string;
   readonly sourceAuthority: VerifiedSourceAuthorityV1;
   readonly targetFactor: VerifiedTargetFactorV1;
   readonly permissions: CanonicalDelegatedWalletPermissionSetV1;

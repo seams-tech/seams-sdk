@@ -130,6 +130,7 @@ export async function buildVerifiedLinkInputV1(
     linkSessionId: input.registration.linkSessionId,
     enrollmentId: input.registration.enrollmentId,
     targetDeviceId: parseTargetDeviceId(input.registration.deviceId),
+    deliveryRecipientPublicKey65B64u: input.preparation.deliveryRecipientPublicKey65B64u,
     sourceAuthority,
     targetFactor,
     permissions: input.approval.permission.permissions,

@@ -31,6 +31,8 @@ const WALLET_KEY_ID = required(parseWalletKeyId('wallet-key:target-preparation-t
 const RP_ID = required(parseWebAuthnRpId('wallet.example.test'));
 const TARGET_EMAIL = required(parseVerifiedEmailAddress('owner@example.test'));
 const PASSKEY_CONFIGURATION_DIGEST = parseDigestB64u('-_FGSvFbB5YyBu0DYdUOH-clwdy5pelU3m_l9jzbsZ0');
+const DELIVERY_RECIPIENT_PUBLIC_KEY_65_B64U =
+  'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function recipientRequirement(): {
   readonly kind: 'ordinary_signer_material_recipient_requirement_v1';
@@ -74,6 +76,7 @@ export function buildPasskeyTargetPreparationFixtureV1(): Extract<
     walletId: WALLET_ID,
     enrollmentId: ENROLLMENT_ID,
     deviceId: DEVICE_ID,
+    deliveryRecipientPublicKey65B64u: DELIVERY_RECIPIENT_PUBLIC_KEY_65_B64U,
     walletAuthMethodId,
     ed25519ExportRoot: null,
     targetFactor: { kind: 'passkey_prf' },
@@ -134,6 +137,7 @@ export function buildEmailOtpTargetPreparationFixtureV1(): Extract<
     walletId: WALLET_ID,
     enrollmentId: ENROLLMENT_ID,
     deviceId: DEVICE_ID,
+    deliveryRecipientPublicKey65B64u: DELIVERY_RECIPIENT_PUBLIC_KEY_65_B64U,
     walletAuthMethodId,
     ed25519ExportRoot: null,
     targetFactor: { kind: 'email_otp' },

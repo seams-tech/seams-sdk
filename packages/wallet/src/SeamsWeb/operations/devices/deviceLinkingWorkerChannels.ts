@@ -170,7 +170,7 @@ function parseHandle(value: unknown): DeviceLinkingKeyMaterialHandleV1 {
 function parseCreateResult(value: unknown): DeviceLinkingKeyMaterialBundleV1 {
   const record = exactRecord(
     value,
-    ['handleId', 'linkPublicKeyB64u', 'devicePublicKeyB64u', 'emailOtpReleasePublicKey65B64u'],
+    ['handleId', 'linkPublicKeyB64u', 'devicePublicKeyB64u', 'deliveryRecipientPublicKey65B64u'],
     'device-linking key create response',
   );
   return {
@@ -180,10 +180,10 @@ function parseCreateResult(value: unknown): DeviceLinkingKeyMaterialBundleV1 {
     },
     linkPublicKeyB64u: parseLinkDevicePublicKeyB64u(record.linkPublicKeyB64u),
     devicePublicKeyB64u: parseLinkDevicePublicKeyB64u(record.devicePublicKeyB64u),
-    emailOtpReleasePublicKey65B64u: parseFixedB64u(
-      record.emailOtpReleasePublicKey65B64u,
+    deliveryRecipientPublicKey65B64u: parseFixedB64u(
+      record.deliveryRecipientPublicKey65B64u,
       65,
-      'emailOtpReleasePublicKey65B64u',
+      'deliveryRecipientPublicKey65B64u',
     ),
   };
 }

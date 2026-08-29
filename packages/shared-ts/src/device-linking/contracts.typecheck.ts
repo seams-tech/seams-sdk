@@ -210,6 +210,8 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletId,
   enrollmentId,
   deviceId,
+  deliveryRecipientPublicKey65B64u:
+    'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   walletAuthMethodId,
   ed25519ExportRoot: null,
   targetFactor: { kind: 'passkey_prf' },
@@ -461,6 +463,8 @@ const verifiedLinkInput = {
   linkSessionId,
   enrollmentId,
   targetDeviceId,
+  deliveryRecipientPublicKey65B64u:
+    'BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   sourceAuthority: verifiedSourceAuthority,
   targetFactor: verifiedPasskeyTarget,
   permissions: permissionSet,
