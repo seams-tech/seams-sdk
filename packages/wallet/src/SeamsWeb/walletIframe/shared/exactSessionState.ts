@@ -13,7 +13,6 @@ import {
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
-  ReusableWalletSessionState,
   WalletSession,
   WalletSessionAppIdentity,
   WalletSessionCapabilityLaneReadiness,
@@ -24,7 +23,6 @@ import type {
 } from '@/core/types/seams';
 import {
   parseCapabilityInstanceRef,
-  parseWalletAuthMethodId,
   parseWalletId,
   type WalletAuthMethodId,
   type WalletId,
@@ -314,14 +312,15 @@ export function parseWalletSessionFromBoundary(
   expectedWalletId?: unknown,
 ): WalletSession {
   const record = requireRecord(value, 'Wallet Session');
+  if (Object.prototype.hasOwnProperty.call(record, 'reusableWalletSession')) {
+    throw new Error('Wallet Session contains removed reusable-session fields');
+  }
   const appIdentity = parseWalletSessionAppIdentity(record.appIdentity);
   const authentication = parseWalletAuthenticationState(record.authentication);
-  const reusableWalletSession = parseReusableWalletSession(record.reusableWalletSession);
   const capabilityProjection = parseWalletSessionCapabilityProjection(record.capabilityProjection);
   const parsed: WalletSession = {
     appIdentity,
     authentication,
-    reusableWalletSession,
     capabilityProjection,
     nonceDiagnostics: parseNullableNonceDiagnostics(record.nonceDiagnostics),
   };
@@ -434,123 +433,6 @@ function parseWalletSessionAppIdentity(value: unknown): WalletSessionAppIdentity
     default:
       throw new Error('Wallet Session appIdentity kind is invalid');
   }
-}
-
-function parseReusableWalletSession(value: unknown): ReusableWalletSessionState {
-  const record = requireRecord(value, 'reusable Wallet Session');
-  switch (record.kind) {
-    case 'absent':
-      return { kind: 'absent' };
-    case 'active':
-      return {
-        kind: 'active',
-        ...parseReusableWalletSessionIdentityWithExpiry(record),
-        // R109C: only an active session names the exact credential it was
-        // issued to; a retired one is addressed by its authorization id.
-        walletAuthMethodId: requireParsedWalletAuthMethodId(
-          record.walletAuthMethodId,
-          'walletAuthMethodId',
-        ),
-        remainingUses: requirePositiveSafeInteger(record.remainingUses, 'remainingUses'),
-      };
-    case 'exhausted':
-      if (record.remainingUses !== 0) {
-        throw new Error('Exhausted Wallet Session remainingUses must be zero');
-      }
-      return {
-        kind: 'exhausted',
-        ...parseReusableWalletSessionIdentityWithExpiry(record),
-        remainingUses: 0,
-      };
-    case 'expired':
-      return {
-        kind: 'expired',
-        ...parseReusableWalletSessionIdentityWithExpiry(record),
-        detectedAtMs: requirePositiveSafeInteger(record.detectedAtMs, 'detectedAtMs'),
-      };
-    case 'missing': {
-      const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
-      const walletSessionId = parseWalletSessionId(record.walletSessionId);
-      if (!authorizationId.ok) throw new Error('Reusable authorization ID is invalid');
-      if (!walletSessionId.ok) throw new Error('Reusable Wallet Session ID is invalid');
-      if (!isWalletAuthMethod(record.authMethod)) {
-        throw new Error('Reusable Wallet Session auth method is invalid');
-      }
-      return {
-        kind: 'missing',
-        walletId: requireWalletId(record.walletId),
-        authorizationId: authorizationId.value,
-        walletSessionId: walletSessionId.value,
-        authMethod: record.authMethod,
-      };
-    }
-    case 'superseded':
-      return {
-        kind: 'superseded',
-        ...parseReusableWalletSessionIdentity(record),
-        detectedAtMs: requirePositiveSafeInteger(record.detectedAtMs, 'detectedAtMs'),
-      };
-    case 'unavailable':
-      if (record.reason !== 'persistence_unavailable') {
-        throw new Error('Unavailable Wallet Session reason is invalid');
-      }
-      return {
-        kind: 'unavailable',
-        walletId: requireWalletId(record.walletId),
-        reason: record.reason,
-      };
-    case 'invalid':
-      return {
-        kind: 'invalid',
-        walletId: requireWalletId(record.walletId),
-        reason: requireInvalidWalletSessionReason(record.reason),
-      };
-    default:
-      throw new Error('Reusable Wallet Session kind is invalid');
-  }
-}
-
-/** Who the session belongs to. Separate from its budget, because a superseded
- * session still names its wallet and factor but no longer has an expiry that
- * governs anything. */
-function parseReusableWalletSessionIdentity(
-  record: Record<string, unknown>,
-): Pick<
-  Extract<ReusableWalletSessionState, { kind: 'active' }>,
-  'walletId' | 'authorizationId' | 'walletSessionId' | 'authMethod'
-> {
-  const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
-  const walletSessionId = parseWalletSessionId(record.walletSessionId);
-  if (!authorizationId.ok) throw new Error('Reusable authorization ID is invalid');
-  if (!walletSessionId.ok) throw new Error('Reusable Wallet Session ID is invalid');
-  assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
-  if (!isWalletAuthMethod(record.authMethod)) {
-    throw new Error('Reusable Wallet Session auth method is invalid');
-  }
-  return {
-    walletId: requireWalletId(record.walletId),
-    authorizationId: authorizationId.value,
-    walletSessionId: walletSessionId.value,
-    authMethod: record.authMethod,
-  };
-}
-
-function requireParsedWalletAuthMethodId(value: unknown, field: string): WalletAuthMethodId {
-  const parsed = parseWalletAuthMethodId(requireNonEmptyString(value, field));
-  if (!parsed.ok) throw new Error(`${field} is not a wallet auth method id`);
-  return parsed.value;
-}
-
-function parseReusableWalletSessionIdentityWithExpiry(
-  record: Record<string, unknown>,
-): Pick<
-  Extract<ReusableWalletSessionState, { kind: 'active' }>,
-  'walletId' | 'authorizationId' | 'walletSessionId' | 'authMethod' | 'expiresAtMs'
-> {
-  return {
-    ...parseReusableWalletSessionIdentity(record),
-    expiresAtMs: requirePositiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
-  };
 }
 
 function parseWalletSessionCapabilityProjection(value: unknown): WalletSessionCapabilityProjection {
@@ -1225,18 +1107,6 @@ function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null
     case 'anonymous':
       break;
   }
-  switch (session.reusableWalletSession.kind) {
-    case 'active':
-    case 'exhausted':
-    case 'expired':
-    case 'superseded':
-    case 'missing':
-    case 'unavailable':
-    case 'invalid':
-      return session.reusableWalletSession.walletId;
-    case 'absent':
-      break;
-  }
   if (session.capabilityProjection.kind === 'resolved') {
     return session.capabilityProjection.subjectSet.walletId;
   }
@@ -1253,8 +1123,6 @@ function walletSessionWalletIdsAgree(session: WalletSession, walletId: WalletId)
   if (session.appIdentity.kind !== 'anonymous' && session.appIdentity.walletId !== walletId) {
     return false;
   }
-  const reusable = session.reusableWalletSession;
-  if (reusable.kind !== 'absent' && reusable.walletId !== walletId) return false;
   const projection = session.capabilityProjection;
   if (projection.kind !== 'resolved') return true;
   if (projection.subjectSet.walletId !== walletId) return false;
@@ -1280,22 +1148,6 @@ function requireIdentityResolveFailure(value: unknown): WalletSessionIdentityRes
       return value;
     default:
       throw new Error('Wallet Session identity resolve failure is invalid');
-  }
-}
-
-function requireInvalidWalletSessionReason(
-  value: unknown,
-): Extract<ReusableWalletSessionState, { kind: 'invalid' }>['reason'] {
-  switch (value) {
-    case 'malformed':
-    case 'identity_mismatch':
-    case 'ambiguous_wallet_session':
-    case 'auth_method_mismatch':
-      return value;
-    default:
-      // `lifecycle_mismatch` is gone: replacement crosses the boundary as the
-      // `superseded` kind, not as an invalid reason.
-      throw new Error('Invalid Wallet Session reason is invalid');
   }
 }
 

@@ -16,12 +16,6 @@ import {
   parseWalletAuthMethodId,
   parseWalletAuthorityBindingDigest,
 } from '@shared/utils/domainIds';
-import {
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-  type WalletSessionAuthorizationId,
-  type WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import {
   buildPasskeyAuthScope,
@@ -44,19 +38,9 @@ export type ResolvedWalletSessionAppIdentityFixtureInput = {
   readonly thresholdEcdsaPublicKeyB64u?: string | null;
 };
 
-export type ReusableWalletSessionFixtureInput = ResolvedWalletSessionAppIdentityFixtureInput & {
-  readonly authorizationId?: string;
-  readonly walletSessionId?: string;
-  readonly walletAuthMethodId?: string;
+export type WalletSessionFixtureInput = ResolvedWalletSessionAppIdentityFixtureInput & {
   readonly authMethod?: WalletAuthMethod;
-  readonly expiresAtMs?: number;
 };
-
-function fixtureAuthorizationId(value?: string): WalletSessionAuthorizationId {
-  const parsed = parseWalletSessionAuthorizationId(value ?? 'wallet-session-authorization-fixture');
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
 
 function fixtureWalletAuthMethodId(value?: string) {
   const parsed = parseWalletAuthMethodId(value ?? 'wallet-auth-method:session-fixture');
@@ -99,168 +83,30 @@ export function resolvedWalletSessionAppIdentityFixture(
   };
 }
 
-export function activeWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput & {
-    readonly remainingUses?: number;
-  } = {},
-): WalletSession {
+export function activeWalletSessionFixture(input: WalletSessionFixtureInput = {}): WalletSession {
   const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
   return {
     appIdentity,
     authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
-    reusableWalletSession: {
-      kind: 'active',
-      walletId: appIdentity.walletId,
-      authorizationId: fixtureAuthorizationId(input.authorizationId),
-      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
-      walletAuthMethodId: fixtureWalletAuthMethodId(input.walletAuthMethodId),
-      authMethod: input.authMethod ?? 'passkey',
-      remainingUses: input.remainingUses ?? 3,
-      expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
-    },
     capabilityProjection: { kind: 'not_requested' },
     nonceDiagnostics: null,
   };
 }
 
 export function activeWalletSessionWithNonceDiagnosticsFixture(
-  input: ReusableWalletSessionFixtureInput = {},
+  input: WalletSessionFixtureInput = {},
 ): WalletSession {
   const active = activeWalletSessionFixture(input);
   return {
     appIdentity: active.appIdentity,
     authentication: active.authentication,
-    reusableWalletSession: active.reusableWalletSession,
     capabilityProjection: active.capabilityProjection,
     nonceDiagnostics: walletSessionNonceDiagnosticsFixture(),
   };
 }
 
-export function exhaustedWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
-  return {
-    appIdentity,
-    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
-    reusableWalletSession: {
-      kind: 'exhausted',
-      walletId: appIdentity.walletId,
-      authorizationId: fixtureAuthorizationId(input.authorizationId),
-      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
-      authMethod: input.authMethod ?? 'passkey',
-      remainingUses: 0,
-      expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
-export function expiredWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput & {
-    readonly detectedAtMs?: number;
-  } = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
-  const detectedAtMs = input.detectedAtMs ?? Date.now();
-  return {
-    appIdentity,
-    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
-    reusableWalletSession: {
-      kind: 'expired',
-      walletId: appIdentity.walletId,
-      authorizationId: fixtureAuthorizationId(input.authorizationId),
-      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
-      authMethod: input.authMethod ?? 'passkey',
-      expiresAtMs: input.expiresAtMs ?? detectedAtMs - 1,
-      detectedAtMs,
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
-export function missingWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
-  return {
-    appIdentity,
-    authentication: authenticatedWalletFixture(appIdentity.walletId),
-    reusableWalletSession: {
-      kind: 'missing',
-      walletId: appIdentity.walletId,
-      authorizationId: fixtureAuthorizationId(input.authorizationId),
-      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
-      authMethod: input.authMethod ?? 'passkey',
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
-export function unavailableWalletSessionFixture(
-  input: ResolvedWalletSessionAppIdentityFixtureInput = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
-  return {
-    appIdentity,
-    authentication: authenticatedWalletFixture(appIdentity.walletId),
-    reusableWalletSession: {
-      kind: 'unavailable',
-      walletId: appIdentity.walletId,
-      reason: 'persistence_unavailable',
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
-/** A reusable Wallet Session whose authority or lifecycle was replaced. The
- * wallet is still the user's; only this session is stale, so it carries the
- * identity it had and no budget. */
-export function supersededWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput & {
-    readonly detectedAtMs?: number;
-  } = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
-  return {
-    appIdentity,
-    authentication: authenticatedWalletFixture(appIdentity.walletId, input.authMethod),
-    reusableWalletSession: {
-      kind: 'superseded',
-      walletId: appIdentity.walletId,
-      authorizationId: fixtureAuthorizationId(input.authorizationId),
-      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
-      authMethod: input.authMethod ?? 'passkey',
-      detectedAtMs: input.detectedAtMs ?? 1_777_777_777_000,
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
-export function invalidWalletSessionFixture(
-  input: ResolvedWalletSessionAppIdentityFixtureInput = {},
-): WalletSession {
-  const appIdentity = resolvedWalletSessionAppIdentityFixture(input);
-  return {
-    appIdentity,
-    authentication: authenticatedWalletFixture(appIdentity.walletId),
-    reusableWalletSession: {
-      kind: 'invalid',
-      walletId: appIdentity.walletId,
-      reason: 'malformed',
-    },
-    capabilityProjection: { kind: 'not_requested' },
-    nonceDiagnostics: null,
-  };
-}
-
 export function restorableEcdsaWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
+  input: WalletSessionFixtureInput = {},
 ): WalletSession {
   return ecdsaWalletSessionFixture(input, {
     kind: 'pending',
@@ -269,13 +115,13 @@ export function restorableEcdsaWalletSessionFixture(
 }
 
 export function readyEcdsaWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
+  input: WalletSessionFixtureInput = {},
 ): WalletSession {
   return ecdsaWalletSessionFixture(input, { kind: 'ready' });
 }
 
 export function authorizationRequiredEcdsaWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
+  input: WalletSessionFixtureInput = {},
 ): WalletSession {
   return ecdsaWalletSessionFixture(input, {
     kind: 'authorization_required',
@@ -284,7 +130,7 @@ export function authorizationRequiredEcdsaWalletSessionFixture(
 }
 
 export function supersededEcdsaWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
+  input: WalletSessionFixtureInput = {},
 ): WalletSession {
   return ecdsaWalletSessionFixture(input, {
     kind: 'superseded',
@@ -293,13 +139,13 @@ export function supersededEcdsaWalletSessionFixture(
 }
 
 export function failedEcdsaWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput = {},
+  input: WalletSessionFixtureInput = {},
 ): WalletSession {
   return ecdsaWalletSessionFixture(input, { kind: 'failed', reason: 'missing' });
 }
 
 function ecdsaWalletSessionFixture(
-  input: ReusableWalletSessionFixtureInput,
+  input: WalletSessionFixtureInput,
   readiness: WalletSessionCapabilityLaneReadiness,
 ): WalletSession {
   const active = activeWalletSessionFixture(input);
@@ -331,7 +177,6 @@ function ecdsaWalletSessionFixture(
   return {
     appIdentity: active.appIdentity,
     authentication: active.authentication,
-    reusableWalletSession: active.reusableWalletSession,
     capabilityProjection: {
       kind: 'resolved',
       subjectSet: {
@@ -366,7 +211,6 @@ export function anonymousWalletSessionFixture(): WalletSession {
   return {
     appIdentity: { kind: 'anonymous' },
     authentication: { kind: 'signed_out' },
-    reusableWalletSession: { kind: 'absent' },
     capabilityProjection: { kind: 'not_requested' },
     nonceDiagnostics: null,
   };
@@ -382,14 +226,6 @@ function authenticatedWalletFixture(walletId: WalletId, authMethod?: WalletAuthM
 
 function fixtureWalletId(value?: string): WalletId {
   return walletIdFromString(value || 'wallet-session-fixture');
-}
-
-function fixtureWalletSessionId(value?: string): WalletSessionId {
-  const parsed = parseWalletSessionId(value || 'wallet-session-fixture');
-  if (!parsed.ok) {
-    throw new Error(`invalid Wallet Session fixture id: ${value}`);
-  }
-  return parsed.value;
 }
 
 function walletSessionNonceDiagnosticsFixture(): NonceCoordinatorDiagnostics {

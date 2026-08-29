@@ -23,7 +23,7 @@ test('restores the passkey Ed25519 warm session after a refreshed worker loses i
       materialActivation: record.ed25519Restore.materialActivation,
     }),
   );
-  const walletSessionJwt = renewedAuthorization.walletSessionTokens.ed25519.walletSessionJwt;
+  const walletSessionToken = renewedAuthorization.operationCredential.token;
   const walletSessionState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime,
     authorization: renewedAuthorization,
@@ -64,7 +64,7 @@ test('restores the passkey Ed25519 warm session after a refreshed worker loses i
         authMethod: 'passkey',
         walletId: record.walletId,
         relayerUrl: record.relayerUrl,
-        walletSessionJwt,
+        walletSessionToken,
         ed25519Restore: {
           nearAccountId: record.ed25519Restore.nearAccountId,
           nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,

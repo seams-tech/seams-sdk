@@ -183,7 +183,6 @@ test.describe('wallet session profile identity restore', () => {
             session.appIdentity.kind === 'resolved'
               ? session.appIdentity.nearOperationalPublicKey
               : null,
-          walletSessionKind: session.reusableWalletSession.kind,
         };
       },
       { paths: IMPORT_PATHS, availableLanes },
@@ -194,7 +193,6 @@ test.describe('wallet session profile identity restore', () => {
       walletId: 'refresh-wallet-profile-identity',
       nearAccountId: 'refresh-profile.testnet',
       publicKey: 'ed25519:refresh-profile-public-key',
-      walletSessionKind: 'absent',
     });
   });
 
@@ -290,7 +288,6 @@ test.describe('wallet session profile identity restore', () => {
             session.appIdentity.kind === 'resolved'
               ? session.appIdentity.nearOperationalPublicKey
               : null,
-          walletSessionKind: session.reusableWalletSession.kind,
         };
       },
       { paths: IMPORT_PATHS, availableLanes },
@@ -304,7 +301,6 @@ test.describe('wallet session profile identity restore', () => {
       walletId: 'refresh-last-profile-wallet',
       nearAccountId: 'refresh-last-profile.testnet',
       publicKey: 'ed25519:refresh-last-profile-public-key',
-      walletSessionKind: 'absent',
     });
   });
 
@@ -418,7 +414,6 @@ test.describe('wallet session profile identity restore', () => {
             session.appIdentity.kind === 'resolved'
               ? session.appIdentity.nearOperationalPublicKey
               : null,
-          walletSessionKind: session.reusableWalletSession.kind,
         };
       },
       { paths: IMPORT_PATHS, availableLanes },
@@ -432,7 +427,6 @@ test.describe('wallet session profile identity restore', () => {
       walletId: 'refresh-near-profile-wallet',
       nearAccountId: 'refresh-near-profile.testnet',
       publicKey: 'ed25519:refresh-near-profile-public-key',
-      walletSessionKind: 'absent',
     });
   });
 
@@ -534,7 +528,6 @@ test.describe('wallet session profile identity restore', () => {
             appIdentityKind: session.appIdentity.kind,
             walletId:
               session.appIdentity.kind === 'anonymous' ? '' : String(session.appIdentity.walletId),
-            walletSessionKind: session.reusableWalletSession.kind,
             warningCount: warnings.length,
           };
         } finally {
@@ -550,7 +543,6 @@ test.describe('wallet session profile identity restore', () => {
       resolutionReason: 'missing_requested_capability_subject',
       appIdentityKind: 'resolved',
       walletId: 'refresh-empty-wallet-selection',
-      walletSessionKind: 'absent',
       warningCount: 0,
     });
   });
