@@ -65,7 +65,6 @@ import {
   parseWalletSessionId,
   WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type MpcWalletSigningQuotaId,
-  type PrincipalId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
@@ -792,22 +791,13 @@ function parseReusableWalletSessionStatusBody(body: unknown): {
   };
 }
 
-type WalletSessionStatusAuthorization =
-  | {
-      readonly kind: 'reusable';
-      readonly walletId: string;
-      readonly principalId: PrincipalId;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-    }
-  | {
-      readonly kind: 'exact_v2';
-      readonly walletId: string;
-      readonly walletSessionId: WalletSessionId;
-      readonly quotaId: MpcWalletSigningQuotaId;
-      readonly remainingUses: number;
-      readonly expiresAtMs: number;
-    };
+type WalletSessionStatusAuthorization = {
+  readonly walletId: string;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly remainingUses: number;
+  readonly expiresAtMs: number;
+};
 
 function walletSessionStatusInvalidResponse(body: {
   readonly walletSessionId: WalletSessionId;
@@ -858,42 +848,15 @@ async function readAndValidateWalletSessionStatusAuthorization(
       token: bearerToken,
       nowMs,
     });
-  if (exactV2) {
-    return {
-      ok: true,
-      authorization: {
-        kind: 'exact_v2',
-        walletId: String(exactV2.authorization.session.walletId),
-        walletSessionId: exactV2.authorization.session.walletSessionId,
-        quotaId: exactV2.authorization.session.quotaId,
-        remainingUses: exactV2.authorization.quota.remainingUses,
-        expiresAtMs: exactV2.authorization.quota.expiresAtMs,
-      },
-    };
-  }
-  const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-    tenantId: ctx.service.authorizationSessions.tenantId,
-    token: bearerToken,
-    curve: 'ecdsa',
-    nowMs,
-  });
-  const walletSession =
-    ecdsa ??
-    (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token: bearerToken,
-      curve: 'ed25519',
-      nowMs,
-    }));
-  if (!walletSession) return walletSessionStatusInvalidResponse(body);
+  if (!exactV2) return walletSessionStatusInvalidResponse(body);
   return {
     ok: true,
     authorization: {
-      kind: 'reusable',
-      walletId: walletSession.authorization.walletId,
-      principalId: walletSession.authorization.principalId,
-      walletSessionId: walletSession.authorization.walletSessionId,
-      quotaId: walletSession.authorization.quotaId,
+      walletId: String(exactV2.authorization.session.walletId),
+      walletSessionId: exactV2.authorization.session.walletSessionId,
+      quotaId: exactV2.authorization.session.quotaId,
+      remainingUses: exactV2.authorization.quota.remainingUses,
+      expiresAtMs: exactV2.authorization.quota.expiresAtMs,
     },
   };
 }
@@ -928,69 +891,16 @@ export async function handleReusableWalletSessionStatus(
       { status: 403 },
     );
   }
-  if (validated.authorization.kind === 'exact_v2') {
-    return json(
-      {
-        ok: true,
-        status: validated.authorization.remainingUses === 0 ? 'exhausted' : 'active',
-        walletSessionId: validated.authorization.walletSessionId,
-        quotaId: validated.authorization.quotaId,
-        remainingUses: validated.authorization.remainingUses,
-        expiresAtMs: validated.authorization.expiresAtMs,
-      },
-      { status: 200 },
-    );
-  }
-  const nowMs = Date.now();
-  const result = await ctx.service.authorizationSessions.readReusableWalletSessionStatus({
-    tenantId: ctx.service.authorizationSessions.tenantId,
-    principalId: validated.authorization.principalId,
-    walletSessionId: body.walletSessionId,
-    quotaId: body.quotaId,
-    nowMs,
-  });
-  switch (result.kind) {
-    case 'active':
-    case 'exhausted':
-      return json(
-        {
-          ok: true,
-          status: result.kind,
-          walletSessionId: result.walletSessionId,
-          quotaId: result.quotaId,
-          remainingUses: result.remainingUses,
-          expiresAtMs: result.expiresAtMs,
-        },
-        { status: 200 },
-      );
-    case 'expired':
-      return json(
-        {
-          ok: true,
-          status: result.kind,
-          walletSessionId: result.walletSessionId,
-          quotaId: result.quotaId,
-          expiresAtMs: result.expiresAtMs,
-        },
-        { status: 200 },
-      );
-    case 'superseded':
-    case 'missing':
-    case 'invalid':
-      return json(
-        {
-          ok: true,
-          status: result.kind,
-          walletSessionId: result.walletSessionId,
-          quotaId: result.quotaId,
-        },
-        { status: 200 },
-      );
-  }
-  result satisfies never;
   return json(
-    { ok: false, code: 'internal', message: 'Invalid Wallet Session status' },
-    { status: 500 },
+    {
+      ok: true,
+      status: validated.authorization.remainingUses === 0 ? 'exhausted' : 'active',
+      walletSessionId: validated.authorization.walletSessionId,
+      quotaId: validated.authorization.quotaId,
+      remainingUses: validated.authorization.remainingUses,
+      expiresAtMs: validated.authorization.expiresAtMs,
+    },
+    { status: 200 },
   );
 }
 
