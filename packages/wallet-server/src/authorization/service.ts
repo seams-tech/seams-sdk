@@ -40,6 +40,7 @@ import {
   parseHostedWalletSeamsSessionExchangeNonce,
   parseHostedWalletSessionCredentialId,
   parseHostedWalletSessionOperationCredentialV1,
+  parsePrimaryWalletSessionOperationCredentialToken,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
 } from './domain';
@@ -1099,10 +1100,15 @@ export class AuthorizationService {
     readonly token: string;
     readonly nowMs: number;
   }): Promise<ExactWalletSessionStatusV2> {
-    if (!/^wst_[A-Za-z0-9_-]{43}$/.test(input.token)) return { kind: 'missing' };
+    let token: ReturnType<typeof parsePrimaryWalletSessionOperationCredentialToken>;
+    try {
+      token = parsePrimaryWalletSessionOperationCredentialToken(input.token);
+    } catch {
+      return { kind: 'missing' };
+    }
     return await this.ports.grants.readExactWalletSessionStatusByOperationCredential({
       tenantId: input.tenantId,
-      tokenHash: await digestOpaqueValue(input.token),
+      tokenHash: await digestOpaqueValue(token),
       nowMs: input.nowMs,
     });
   }

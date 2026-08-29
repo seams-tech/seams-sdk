@@ -166,7 +166,12 @@ function parseObservedStatusFacts(
   } catch {
     return null;
   }
-  if (authorization.quotaId !== identity.quotaId) return null;
+  if (
+    authorization.quotaId !== identity.quotaId ||
+    authorization.expiresAtMs !== value.expiresAtMs
+  ) {
+    return null;
+  }
   return {
     remainingUses: value.remainingUses,
     expiresAtMs: value.expiresAtMs,
