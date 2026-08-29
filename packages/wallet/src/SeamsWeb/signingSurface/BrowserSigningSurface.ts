@@ -1622,14 +1622,60 @@ async function resolveNearEd25519WalletSessionTokenForSigning(args: {
   return token;
 }
 
-async function resolveNearEd25519WalletSessionTokenForStepUp(args: {
-  walletId: WalletId;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+function operationStepUpProofMatchesSelectedWalletAuthMethod(args: {
+  readonly walletId: WalletId;
+  readonly proof: Ed25519OperationStepUpProof;
+  readonly selected: Extract<ResolveSelectedWalletAuthorityResultV1, { readonly kind: 'resolved' }>;
+}): boolean {
+  const { selection, authMethod, authority } = args.selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== args.walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletId !== args.walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authority.walletId !== args.walletId
+  ) {
+    return false;
+  }
+  switch (args.proof.kind) {
+    case 'passkey':
+      return (
+        authMethod.kind === WALLET_AUTH_METHODS.passkey &&
+        args.proof.authority.walletId === args.walletId &&
+        args.proof.authority.bindingId === authMethod.walletAuthMethodId &&
+        args.proof.authority.factor.credentialIdB64u === authMethod.credentialIdB64u &&
+        args.proof.authority.verifier.rpId === authMethod.rpId
+      );
+    case 'email_otp':
+      return (
+        authMethod.kind === WALLET_AUTH_METHODS.emailOtp &&
+        args.proof.authorityRef.walletId === args.walletId &&
+        args.proof.authorityRef.walletAuthMethodId === authMethod.walletAuthMethodId
+      );
+    default:
+      args.proof satisfies never;
+      throw new Error('[SigningEngine][near] unsupported operation step-up proof');
+  }
+}
+
+export async function resolveExactNearEd25519WalletSessionTokenForStepUp(args: {
+  readonly walletId: WalletId;
+  readonly proof: Ed25519OperationStepUpProof;
 }): Promise<OpaqueWalletSessionToken> {
   const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(args.walletId));
   if (selected.kind !== 'resolved') {
     const detail = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
     throw new Error(`[SigningEngine][near] selected Wallet Authority is ${selected.kind}${detail}`);
+  }
+  if (
+    !operationStepUpProofMatchesSelectedWalletAuthMethod({
+      walletId: args.walletId,
+      proof: args.proof,
+      selected,
+    })
+  ) {
+    throw new Error('[SigningEngine][near] operation step-up authority does not match selection');
   }
   const operation = await resolveWalletAuthorityOperation({
     selected: { authMethod: selected.authMethod, authority: selected.authority },
@@ -1640,11 +1686,42 @@ async function resolveNearEd25519WalletSessionTokenForStepUp(args: {
       `[SigningEngine][near] selected Wallet Authority rejected signing (${operation.reason.kind})`,
     );
   }
-  return await resolveNearEd25519WalletSessionTokenForSigning({
-    walletId: args.walletId,
-    authorization: args.authorization,
-    materialActivation: operation.value.materialActivation,
-  });
+  const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+    await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId: args.walletId,
+      authorityId: selected.authority.authorityId,
+      authMethodId: selected.authMethod.walletAuthMethodId,
+    }),
+    '[SigningEngine][near] exact Wallet Session requires a newer client',
+  );
+  const hasSigningSubject =
+    exactSession?.record.capabilitySubjects.filter(
+      (subject) =>
+        subject.kind === 'sign' &&
+        subject.keyFamily === 'ed25519' &&
+        mpcMaterialActivationRefsEqual(
+          subject.materialActivation,
+          operation.value.materialActivation,
+        ),
+    ).length === 1;
+  if (
+    !exactSession ||
+    exactSession.record.walletId !== args.walletId ||
+    exactSession.record.authorityId !== selected.authority.authorityId ||
+    exactSession.record.authMethodId !== selected.authMethod.walletAuthMethodId ||
+    exactSession.record.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
+    exactSession.record.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
+    exactSession.record.expiresAtMs <= Date.now() ||
+    !hasSigningSubject
+  ) {
+    throw new Error(
+      '[SigningEngine][near] exact Wallet Session is unavailable for operation step-up',
+    );
+  }
+  return requireOpaqueWalletSessionToken(
+    exactSession.operationCredential.token,
+    '[SigningEngine][near] exact Wallet Session token',
+  );
 }
 
 async function walletSessionStateFromExactEd25519Runtime(
@@ -2115,20 +2192,6 @@ function assertNeverSdkLifecycleEventName(value: never): never {
   throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
 }
 
-async function resolveBrowserPasskeyOperationStepUpCredential(args: {
-  walletId: WalletId;
-}): Promise<RouterAbOwnerNormalSigningCredential> {
-  const read = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
-  if (read.kind !== 'found') {
-    throw new Error('Wallet Session projection is unavailable for NEAR step-up');
-  }
-  const walletSessionToken = await resolveNearEd25519WalletSessionTokenForStepUp({
-    walletId: args.walletId,
-    authorization: read.projection,
-  });
-  return { kind: 'wallet_session_opaque', walletSessionToken };
-}
-
 export class BrowserSigningSurface {
   // Kept as fields for low-level tests that intentionally access internals.
   private readonly touchConfirm: UiConfirmRuntimeBridgePort;
@@ -2435,26 +2498,11 @@ export class BrowserSigningSurface {
     relayerUrl: string;
     proof: Ed25519OperationStepUpProof;
   }): Promise<RouterAbOwnerNormalSigningCredential> {
-    switch (args.proof.kind) {
-      case 'passkey':
-        return await resolveBrowserPasskeyOperationStepUpCredential({
-          walletId: args.walletId,
-        });
-      case 'email_otp': {
-        const authorization = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
-        if (authorization.kind !== 'found') {
-          throw new Error('[SigningEngine][near] Email OTP Wallet Session is unavailable');
-        }
-        const walletSessionToken = await resolveNearEd25519WalletSessionTokenForStepUp({
-          walletId: args.walletId,
-          authorization: authorization.projection,
-        });
-        return { kind: 'wallet_session_opaque', walletSessionToken };
-      }
-      default:
-        args.proof satisfies never;
-        throw new Error('[SigningEngine][near] unsupported operation step-up proof');
-    }
+    const walletSessionToken = await resolveExactNearEd25519WalletSessionTokenForStepUp({
+      walletId: args.walletId,
+      proof: args.proof,
+    });
+    return { kind: 'wallet_session_opaque', walletSessionToken };
   }
 
   private async ensureSealedRefreshStartupParity(): Promise<void> {
