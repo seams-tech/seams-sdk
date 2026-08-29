@@ -107,7 +107,20 @@ function expectCredentialFreeRegistrationJournal(
   for (const field of PERSISTED_REGISTRATION_CREDENTIAL_FIELDS) {
     expect(fieldNames.has(field), `persisted registration field: ${field}`).toBe(false);
   }
-  expect(JSON.stringify(raw)).not.toContain(ephemeralBearer);
+  const serialized = JSON.stringify(raw);
+  expect(serialized).not.toContain(ephemeralBearer);
+  expect(serialized).not.toMatch(/"(?:wst|wsh)_[A-Za-z0-9_-]+"/);
+}
+
+function expectCredentialFreeRegistrationReplay(raw: unknown, ephemeralBearer: string): void {
+  const fieldNames = new Set<string>();
+  collectObjectFieldNames(raw, fieldNames);
+  for (const field of PERSISTED_REGISTRATION_CREDENTIAL_FIELDS) {
+    expect(fieldNames.has(field), `registration replay field: ${field}`).toBe(false);
+  }
+  const serialized = JSON.stringify(raw);
+  expect(serialized).not.toContain(ephemeralBearer);
+  expect(serialized).not.toMatch(/"(?:wst|wsh)_[A-Za-z0-9_-]+"/);
 }
 
 /**
@@ -867,6 +880,17 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
     );
     expect(replayed).toEqual(activated);
 
+    const activationCompletion = await readRegistrationJournalRecord({
+      database,
+      scope: ED_SCOPE,
+      recordKey: `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`,
+    });
+    expectCredentialFreeRegistrationJournal(
+      activationCompletion,
+      'registration_activate',
+      setup.signedSetup,
+    );
+
     if (!yaoCredential.activationSessionId || !yaoCredential.registeredPublicKeyB64u) {
       throw new Error('Yao activation result is missing its deferred provisioning identity');
     }
@@ -874,26 +898,27 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       walletId: setup.walletId,
       keySet: 'near_ed25519_v1',
     });
+    const nearProvisioningRequest = {
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      idempotencyKey: 'ed25519-e2e-provisioning',
+      ed25519: {
+        activationReference: {
+          lifecycle_id: setup.registrationCeremonyId,
+          session_id: yaoCredential.activationSessionId,
+        },
+      },
+      walletCustodyCommit: {
+        walletId: custodyJoinFixture.walletId,
+        keySet: custodyJoinFixture.keySet,
+        keyManifestDigestB64u: custodyJoinFixture.keyManifestDigestB64u,
+        registeredPublicKeyB64u: yaoCredential.registeredPublicKeyB64u,
+      },
+      verifier: signer,
+      session: signer,
+    };
     const provisioned = await service.walletRegistration.completeWalletRegistrationNearProvisioning(
-      {
-        registrationCeremonyId: setup.registrationCeremonyId,
-        signedSetup: setup.signedSetup,
-        idempotencyKey: 'ed25519-e2e-provisioning',
-        ed25519: {
-          activationReference: {
-            lifecycle_id: setup.registrationCeremonyId,
-            session_id: yaoCredential.activationSessionId,
-          },
-        },
-        walletCustodyCommit: {
-          walletId: custodyJoinFixture.walletId,
-          keySet: custodyJoinFixture.keySet,
-          keyManifestDigestB64u: custodyJoinFixture.keyManifestDigestB64u,
-          registeredPublicKeyB64u: yaoCredential.registeredPublicKeyB64u,
-        },
-        verifier: signer,
-        session: signer,
-      } as never,
+      nearProvisioningRequest as never,
     );
     if (!provisioned.ok) {
       throw new Error(`near provisioning: ${provisioned.code}: ${provisioned.message}`);
@@ -908,14 +933,37 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
     if (provisioned.registrationEstablishedSession.kind !== 'issued') {
       throw new Error('deferred provisioning did not issue a Wallet Session');
     }
-    const provisioningTokens = provisioned.registrationEstablishedSession.session.tokens;
+    const issuedProvisioningSession = provisioned.registrationEstablishedSession.session;
+    const provisioningTokens = issuedProvisioningSession.tokens;
     if (provisioningTokens.kind !== 'near_ed25519') {
       throw new Error('deferred provisioning did not issue a NEAR session');
     }
     expectCredentialFreeRegistrationJournal(
       provisioningCompletion,
       'near_provisioning',
-      setup.signedSetup,
+      issuedProvisioningSession.operationCredential.token,
+    );
+
+    const replayedProvisioning =
+      await service.walletRegistration.completeWalletRegistrationNearProvisioning(
+        nearProvisioningRequest as never,
+      );
+    if (!replayedProvisioning.ok) {
+      throw new Error(
+        `near provisioning replay: ${replayedProvisioning.code}: ${replayedProvisioning.message}`,
+      );
+    }
+    if (replayedProvisioning.registrationEstablishedSession.kind !== 'already_committed') {
+      throw new Error('deferred provisioning replay did not return its committed projection');
+    }
+    expect(replayedProvisioning.registrationEstablishedSession).toEqual({
+      kind: 'already_committed',
+      session: projectRegistrationEstablishedSessionV2(issuedProvisioningSession),
+      next: 'unlock_exact_method',
+    });
+    expectCredentialFreeRegistrationReplay(
+      replayedProvisioning.registrationEstablishedSession,
+      issuedProvisioningSession.operationCredential.token,
     );
   } finally {
     cleanupTemporaryD1Database(tempDir);

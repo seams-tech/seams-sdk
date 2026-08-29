@@ -1351,8 +1351,9 @@ After deletion, update the required-table manifests in:
 - [x] Update registration replay from byte-identical bearer output to stable
       fingerprint and committed-projection identity.
 - [x] Delete the old-client adapter and its digest table/service surface.
-- [ ] Prove terminal replay and stored completion rows contain no Wallet
-      Session credential.
+- [x] Prove terminal replay and stored completion rows contain no Wallet
+      Session credential (`walletRegistrationActivateRoute.unit.test.ts`
+      covers both completion prefixes and exact committed-projection replay).
 
 Exit: no code path persists or reconstructs registration Wallet Session
 credentials, and a current registration path still reaches immediate signing.
