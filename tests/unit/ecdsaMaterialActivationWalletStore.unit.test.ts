@@ -8,6 +8,7 @@ import { buildAuthorizedOperation } from '../../packages/wallet-server/src/autho
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseRouterAbMpcMaterialActivationRef,
+  routerAbMpcMaterialActivationRefFromWire,
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
@@ -15,6 +16,7 @@ import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPri
 import {
   buildRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
@@ -26,6 +28,10 @@ import {
 import { buildPasskeyWalletSessionIssuanceFixture } from './helpers/authorizationCore.fixtures';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 
 type MaterialActivationField = keyof RouterAbMpcMaterialActivationRefWire;
 
@@ -81,6 +87,7 @@ type RouteSideEffects = {
   audits: number;
   quotaWrites: number;
   runtimeCalls: number;
+  opaqueReads: number;
 };
 
 function emptyRouteSideEffects(): RouteSideEffects {
@@ -93,6 +100,7 @@ function emptyRouteSideEffects(): RouteSideEffects {
     audits: 0,
     quotaWrites: 0,
     runtimeCalls: 0,
+    opaqueReads: 0,
   };
 }
 
@@ -100,16 +108,46 @@ function digest(seed: number): string {
   return parseDigestB64u(Buffer.from(new Uint8Array(32).fill(seed)).toString('base64url'));
 }
 
+async function buildExactOperationStepUpSessionFixture(input: {
+  readonly signer: ReturnType<typeof createWalletEcdsaSignerRecord>;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly nowMs: number;
+}) {
+  const walletId = String(input.signer.walletId);
+  return await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'operation-step-up',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ecdsa_secp256k1',
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(input.materialActivation),
+    identity: {
+      walletId,
+      authorityId: 'authority:material-activation',
+      walletAuthMethodId: 'wallet-auth-method:material-activation',
+      rpId: 'app.example.test',
+    },
+    tenantId: input.signer.runtimePolicyScope.orgId,
+    principalId: 'principal-material-activation',
+    expiresAtMs: input.nowMs + 50_000,
+    ecdsaSigner: {
+      walletKeyId: 'wallet-key:material-activation',
+      thresholdPublicKey33B64u: input.signer.walletKey.thresholdEcdsaPublicKeyB64u,
+      evmAddress: input.signer.walletKey.thresholdOwnerAddress,
+    },
+  });
+}
+
 async function stepUpRouteFixture(input: {
   signer: ReturnType<typeof createWalletEcdsaSignerRecord>;
   requestedActivation: RouterAbMpcMaterialActivationRefWire;
   sideEffects: RouteSideEffects;
   materialResolutionQueue?: readonly RouterAbMpcMaterialActivationRefWire[];
+  credentialMaterialResolutionQueue?: readonly RouterAbMpcMaterialActivationRefWire[];
 }): Promise<FetchRouterApiContext> {
   const nowMs = Date.now();
   const walletId = String(input.signer.walletId);
   const sessionFixture = await buildPasskeyWalletSessionIssuanceFixture({
-    tenantId: 'tenant-material-activation',
+    tenantId: input.signer.runtimePolicyScope.orgId,
     principalId: 'principal-material-activation',
     walletId,
     walletAuthMethodId: 'wallet-auth-method:material-activation',
@@ -119,7 +157,13 @@ async function stepUpRouteFixture(input: {
     expiresAtMs: nowMs + 50_000,
   });
   const capability = input.signer.walletKey.publicCapability;
+  const exactSession = await buildExactOperationStepUpSessionFixture({
+    signer: input.signer,
+    materialActivation: capability.material_activation,
+    nowMs,
+  });
   const materialResolutionQueue = [...(input.materialResolutionQueue ?? [])];
+  const credentialMaterialResolutionQueue = [...(input.credentialMaterialResolutionQueue ?? [])];
   const requestBody = {
     kind: 'router_ab_ecdsa_operation_step_up_v1',
     operation: {
@@ -179,12 +223,7 @@ async function stepUpRouteFixture(input: {
       body: JSON.stringify(requestBody),
     },
   );
-  const runtimePolicyScope = {
-    orgId: 'tenant-material-activation',
-    projectId: 'project-material-activation',
-    envId: 'env-material-activation',
-    signingRootVersion: input.signer.walletKey.signingRootVersion,
-  };
+  const runtimePolicyScope = input.signer.runtimePolicyScope;
   const rawClaims = buildRouterAbEcdsaWalletSessionClaimsFixture({
     walletId,
     keyHandle: input.signer.walletKey.keyHandle,
@@ -211,6 +250,9 @@ async function stepUpRouteFixture(input: {
     logger: normalizeLogger(),
     service: {
       walletRegistration: {
+        async listWalletEcdsaCustodyContinuity() {
+          return [input.signer];
+        },
         async resolveEcdsaMaterialActivation({ materialActivation }) {
           const queued = materialResolutionQueue.shift();
           if (queued) {
@@ -220,6 +262,11 @@ async function stepUpRouteFixture(input: {
               keyHandle: input.signer.walletKey.keyHandle,
               relayerKeyId: input.signer.walletKey.relayerKeyId,
               participantIds: input.signer.walletKey.participantIds,
+              runtimePolicyScope,
+              routerAbEcdsaDerivationNormalSigning: {
+                kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+                scope: requestBody.operation.normal_signing_scope,
+              },
             };
           }
           return sameRouterAbMpcMaterialActivationRef(
@@ -232,6 +279,11 @@ async function stepUpRouteFixture(input: {
                 keyHandle: input.signer.walletKey.keyHandle,
                 relayerKeyId: input.signer.walletKey.relayerKeyId,
                 participantIds: input.signer.walletKey.participantIds,
+                runtimePolicyScope,
+                routerAbEcdsaDerivationNormalSigning: {
+                  kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
+                  scope: requestBody.operation.normal_signing_scope,
+                },
               }
             : {
                 ok: false,
@@ -247,32 +299,25 @@ async function stepUpRouteFixture(input: {
       },
       authorizationSessions: {
         tenantId: sessionFixture.session.tenantId,
-        async resolveOpaqueWalletSessionToken() {
+        async readWalletSessionAuthorizationV2ByOperationCredential() {
+          const queuedMaterialActivation = credentialMaterialResolutionQueue.shift();
+          const resolvedSession = queuedMaterialActivation
+            ? await buildExactOperationStepUpSessionFixture({
+                signer: input.signer,
+                materialActivation: queuedMaterialActivation,
+                nowMs,
+              })
+            : exactSession;
           return {
-            kind: 'resolved_opaque_wallet_session_token' as const,
-            curve: 'ecdsa' as const,
-            binding: rawClaims,
-            authorization: {
-              tenantId: sessionFixture.session.tenantId,
-              principalId: sessionFixture.session.principalId,
-              walletId: input.signer.walletId,
-              authorityDigest: sessionFixture.authorityRef.authorityDigest,
-              authorizationId: 'authorization-material-activation',
-              walletSessionId: 'wallet-session-material-activation',
-              quotaId: 'quota-material-activation',
-              expiresAtMs: nowMs + 50_000,
-            },
-            quota: {
-              kind: 'active_wallet_session_quota' as const,
-              tenantId: sessionFixture.session.tenantId,
-              principalId: sessionFixture.session.principalId,
-              walletSessionId: 'wallet-session-material-activation',
-              quotaId: 'quota-material-activation',
-              lifecycle: 'active' as const,
-              remainingUses: 3,
-              expiresAtMs: nowMs + 50_000,
-            },
+            authorization: resolvedSession.issuedSession,
+            authority: resolvedSession.authority,
+            authMethod: resolvedSession.authMethod,
+            retiredAtMs: null,
           };
+        },
+        async resolveOpaqueWalletSessionToken() {
+          input.sideEffects.opaqueReads += 1;
+          throw new Error('operation step-up must not probe the opaque Wallet Session store');
         },
       },
       authorizedOperations: {
@@ -474,7 +519,7 @@ test('operation step-up admits one authorized operation for the exact canonical 
     }),
   );
 
-  expect(response?.status).toBe(200);
+  expect(response?.status, response ? await response.clone().text() : 'missing response').toBe(200);
   expect(sideEffects.proofVerifications).toBe(1);
   expect(sideEffects.evidenceWrites).toBe(1);
   expect(sideEffects.admissions).toBe(1);
@@ -482,6 +527,7 @@ test('operation step-up admits one authorized operation for the exact canonical 
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
+  expect(sideEffects.opaqueReads).toBe(0);
 });
 
 test('operation step-up rejects a material replacement before proof, evidence, or admission', async () => {
@@ -494,7 +540,7 @@ test('operation step-up rejects a material replacement before proof, evidence, o
     await stepUpRouteFixture({
       signer,
       requestedActivation: canonicalActivation,
-      materialResolutionQueue: [canonicalActivation, replacementActivation],
+      credentialMaterialResolutionQueue: [canonicalActivation, replacementActivation],
       sideEffects,
     }),
   );
@@ -733,7 +779,6 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     const body =
       testCase.pathname === ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH
         ? {
-            sessionKind: 'jwt',
             count: 1,
             poolFill: {
               kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
@@ -747,7 +792,6 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
             ...(testCase.authorizationKind === 'operation_step_up' ? { operation } : {}),
           }
         : {
-            sessionKind: 'jwt',
             presignSessionId: 'presign-session-hostile',
             stage: 'triples',
             authorization,
@@ -791,7 +835,10 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     ctx.pathname = testCase.pathname;
 
     const response = await handleThresholdEcdsa(ctx);
-    expect(response?.status, testCase.name).toBe(403);
+    expect(
+      response?.status,
+      `${testCase.name}: ${response ? await response.clone().text() : 'missing response'}`,
+    ).toBe(403);
     expect(sideEffects, testCase.name).toEqual(emptyRouteSideEffects());
   }
 });
@@ -813,7 +860,6 @@ test('operation step-up pool fill rejects a material replacement before claim or
   };
   const operation = grantBody.operation;
   const body = {
-    sessionKind: 'jwt',
     count: 1,
     poolFill: {
       kind: 'router_ab_ecdsa_derivation_signing_worker_pool',
@@ -841,6 +887,6 @@ test('operation step-up pool fill rejects a material replacement before claim or
   ctx.pathname = ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH;
 
   const response = await handleThresholdEcdsa(ctx);
-  expect(response?.status).toBe(403);
+  expect(response?.status, response ? await response.clone().text() : 'missing response').toBe(403);
   expect(sideEffects).toEqual(emptyRouteSideEffects());
 });
