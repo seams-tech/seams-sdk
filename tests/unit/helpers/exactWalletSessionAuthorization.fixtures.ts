@@ -26,6 +26,10 @@ function required<T>(
 
 export function buildExactWalletSessionAuthorizationFixture(input: {
   readonly label: string;
+  readonly walletSessionLabel?: string;
+  readonly authorizationLabel?: string;
+  readonly quotaLabel?: string;
+  readonly mintLabel?: string;
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
   readonly authority: ActiveWalletAuthorityV1;
@@ -34,8 +38,12 @@ export function buildExactWalletSessionAuthorizationFixture(input: {
   readonly expiresAtMs: number;
   readonly remainingUses: number;
 }): IssuedWalletSessionAuthorizationV2 {
-  const walletSessionId = required(parseWalletSessionId(`wallet-session:${input.label}`));
-  const quotaId = required(parseMpcWalletSigningQuotaId(`quota:${input.label}`));
+  const walletSessionId = required(
+    parseWalletSessionId(`wallet-session:${input.walletSessionLabel ?? input.label}`),
+  );
+  const quotaId = required(
+    parseMpcWalletSigningQuotaId(`quota:${input.quotaLabel ?? input.label}`),
+  );
   const session = buildWalletSessionAuthorizationV2({
     tenantId: input.tenantId,
     principalId: input.principalId,
@@ -44,9 +52,9 @@ export function buildExactWalletSessionAuthorizationFixture(input: {
     walletAuthMethodId: input.walletAuthMethodId,
     authorityDigestB64u: input.authority.authorityDigestB64u,
     authorityRevocationEpoch: input.authority.revocationEpoch,
-    mintId: required(parseReusableWalletSessionMintId(`mint:${input.label}`)),
+    mintId: required(parseReusableWalletSessionMintId(`mint:${input.mintLabel ?? input.label}`)),
     authorizationId: required(
-      parseWalletSessionAuthorizationId(`authorization:${input.label}`),
+      parseWalletSessionAuthorizationId(`authorization:${input.authorizationLabel ?? input.label}`),
     ),
     walletSessionId,
     quotaId,

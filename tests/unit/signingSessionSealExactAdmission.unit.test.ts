@@ -30,10 +30,6 @@ class AuthorizationSessionsFixture implements RouterApiAuthorizationSessionServi
     this.tenantId = context?.authorization.session.tenantId ?? fallback.value;
   }
 
-  async issueReusableWalletSession(): Promise<never> {
-    return await unsupportedAuthorizationSessionOperation();
-  }
-
   async issueOpaqueWalletSessionToken(): Promise<never> {
     return await unsupportedAuthorizationSessionOperation();
   }

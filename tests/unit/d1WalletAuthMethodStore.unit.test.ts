@@ -4,8 +4,9 @@ import {
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorization,
 } from '../../packages/wallet-server/src/authorization/domain';
-import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import type { WalletSessionAuthorization } from '../../packages/wallet-server/src/authorization/domain';
+import type { ActiveWalletSessionQuota } from '../../packages/wallet-server/src/authorization/domain';
 import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { buildWalletAuthMethodRecordV2 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWalletAuthMethodId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -34,6 +35,70 @@ async function countRows(database: D1DatabaseLike, table: string): Promise<numbe
     .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
     .first<{ readonly count?: unknown }>();
   return Number(row?.count ?? 0);
+}
+
+async function seedLegacyWalletSession(
+  database: D1DatabaseLike,
+  namespace: string,
+  session: WalletSessionAuthorization,
+  quota: ActiveWalletSessionQuota,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO authorization_wallet_session_quotas (
+        namespace,
+        tenant_id,
+        quota_id,
+        wallet_session_id,
+        principal_id,
+        remaining_uses,
+        lifecycle_kind,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+    )
+    .bind(
+      namespace,
+      String(quota.tenantId),
+      String(quota.quotaId),
+      String(quota.walletSessionId),
+      String(quota.principalId),
+      quota.remainingUses,
+      quota.expiresAtMs,
+    )
+    .run();
+  await database
+    .prepare(
+      `INSERT INTO reusable_wallet_sessions (
+        namespace,
+        tenant_id,
+        authorization_id,
+        wallet_session_id,
+        principal_id,
+        wallet_id,
+        authority_digest,
+        wallet_auth_method_id,
+        mint_id,
+        quota_id,
+        lifecycle_kind,
+        created_at_ms,
+        expires_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+    )
+    .bind(
+      namespace,
+      String(session.tenantId),
+      String(session.authorizationId),
+      String(session.walletSessionId),
+      String(session.principalId),
+      String(session.walletId),
+      String(session.authority.authorityDigest),
+      String(session.authority.walletAuthMethodId),
+      String(session.mintId),
+      String(session.quotaId),
+      session.createdAtMs,
+      session.expiresAtMs,
+    )
+    .run();
 }
 
 function buildRecoverySourceAuthMethod(
@@ -106,12 +171,7 @@ test('recovery revocation fences the exact source Wallet Session atomically', as
       remainingUses: 10,
       expiresAtMs: session.expiresAtMs,
     });
-    const authorization = new CloudflareD1AuthorizationStore({
-      database: temporary.database,
-      namespace: TEST_SCOPE.namespace,
-      walletSignerScope: TEST_SCOPE,
-    });
-    await authorization.putWalletSessionAuthorization({ session, quota });
+    await seedLegacyWalletSession(temporary.database, TEST_SCOPE.namespace, session, quota);
     await temporary.database
       .prepare(
         `INSERT INTO opaque_wallet_session_tokens (
