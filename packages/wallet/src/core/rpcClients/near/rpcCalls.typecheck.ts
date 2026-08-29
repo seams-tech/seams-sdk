@@ -1,10 +1,21 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { PasskeyWalletUnlockInputWithEcdsaActivation } from './rpcCalls';
+import type {
+  PasskeyWalletUnlockEd25519Session,
+  PasskeyWalletUnlockInputWithEcdsaActivation,
+} from './rpcCalls';
 import { verifyPasskeyWalletUnlock } from './rpcCalls';
 
 declare const credential: WebAuthnAuthenticationCredential;
 declare const activationPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
+declare const ed25519Session: PasskeyWalletUnlockEd25519Session;
+
+if (ed25519Session.sessionKind === 'issued_wallet_session_v1') {
+  ed25519Session.operationCredential.token satisfies string;
+} else {
+  // @ts-expect-error Reused sessions are credential-free at this boundary.
+  ed25519Session.operationCredential.token;
+}
 
 const activatedInput: PasskeyWalletUnlockInputWithEcdsaActivation = {
   type: 'passkey_assertion',
