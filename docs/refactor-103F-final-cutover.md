@@ -1537,7 +1537,7 @@ Remaining causal baseline work:
       active-authority/active-method projections and cross-wallet rejection
 - [x] `tests/unit/walletRecoveryGoogleEmailOtpFinalizeRoute.unit.test.ts`,
       preserving strict Email recovery projection and server-owned enrollment
-- [ ] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, covering
+- [x] `tests/unit/walletRecoveryLocalProjection.unit.test.ts`, covering
       interruption and reload across local publication boundaries
 - [x] `tests/unit/authMenuRecoveryContinuation.unit.test.ts`, preserving
       automatic continuation, target-ready retry, and non-cancellable
