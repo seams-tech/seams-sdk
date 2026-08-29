@@ -56,7 +56,10 @@ test.describe('owner-scoped available signing lanes', () => {
             },
             {
               listSealedRecordsForWallet: async () => records,
-              readActiveWalletSessionAuthorization: async () => authorization,
+              readActiveWalletSessionAuthorization: async () => ({
+                kind: 'found',
+                authorization,
+              }),
             },
           );
         const withSibling = await read([ownerA, ownerB]);
@@ -126,7 +129,10 @@ test.describe('owner-scoped available signing lanes', () => {
             },
             {
               listSealedRecordsForWallet: async () => records,
-              readActiveWalletSessionAuthorization: async () => authorization,
+              readActiveWalletSessionAuthorization: async () => ({
+                kind: 'found',
+                authorization,
+              }),
             },
           );
         const withRetired = await read([retired, current]);
@@ -191,7 +197,10 @@ test.describe('owner-scoped available signing lanes', () => {
           },
           {
             listSealedRecordsForWallet: async () => [ownerA, ownerB],
-            readActiveWalletSessionAuthorization: async () => authorizationB,
+            readActiveWalletSessionAuthorization: async () => ({
+              kind: 'found',
+              authorization: authorizationB,
+            }),
           },
         );
         return {

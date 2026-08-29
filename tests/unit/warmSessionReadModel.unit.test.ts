@@ -9,10 +9,7 @@ import {
   toWarmSessionClaimFromStatusResult,
 } from '@/core/signingEngine/session/warmCapabilities/readModel';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
-import {
-  activeEvmFamilyWalletSessionAuthorizationFixture,
-  ecdsaCapabilityHydrationLookupFixture,
-} from './helpers/ecdsaCapabilityManifest.fixtures';
+import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildEmailOtpEcdsaSealedRuntimeRecordFixture,
   buildPasskeyEd25519AuthorizationProjectionFixture,
@@ -21,6 +18,7 @@ import {
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+import { canonicalEcdsaAvailableLane } from './helpers/availableSigningLanes.fixtures';
 
 /** Manifest plus the sealed record that correlates with it, resolved through
  * production correlation rather than assembled by hand. */
@@ -178,8 +176,13 @@ test.describe('warmSessionReadModel', () => {
   });
 
   test('resolves ECDSA seal transport from the sealed runtime and active authorization', () => {
-    const { runtime, manifest } = resolvedEcdsaRuntime();
-    const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({ manifest });
+    const { runtime } = resolvedEcdsaRuntime();
+    const authorization = canonicalEcdsaAvailableLane({
+      walletId: String(runtime.walletId),
+      chainTarget: runtime.chainTarget,
+      thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+      authMethod: 'email_otp',
+    }).authorization;
 
     expect(
       resolveEcdsaSealTransport({
@@ -198,7 +201,7 @@ test.describe('warmSessionReadModel', () => {
       walletId: String(runtime.walletId),
       chainTarget: runtime.chainTarget,
       relayerUrl: runtime.relayerUrl,
-      walletSessionJwt: String(authorization.projection.walletSessionJwt),
+      walletSessionToken: authorization.operationCredential.token,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         'signing-session-seal-kek-2026-02-r1',
       ),

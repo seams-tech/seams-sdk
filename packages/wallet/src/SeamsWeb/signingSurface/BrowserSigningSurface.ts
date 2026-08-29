@@ -5353,25 +5353,6 @@ export class BrowserSigningSurface {
     if (!mpcMaterialActivationRefsEqual(publicLane.materialActivation, args.materialActivation)) {
       throw new Error('[SigningEngine][ed25519-export] linked public lane activation changed');
     }
-    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
-    if (authorizationRead.kind !== 'found') {
-      throw new Error(
-        `[SigningEngine][ed25519-export] active Wallet Session authorization is ${authorizationRead.kind}`,
-      );
-    }
-    const authorization = authorizationRead.projection;
-    const authorizationId = walletSessionAuthorizationIdForCurve(authorization, 'ed25519');
-    const thresholdSessionId = walletSessionThresholdSessionIdForCurve(authorization, 'ed25519');
-    if (
-      authorization.expiresAtMs <= Date.now() ||
-      authorization.walletSessionId !== exactSession.operationCredential.walletSessionId ||
-      authorizationId !== exactSession.record.authorizationId ||
-      String(thresholdSessionId) !== String(args.laneIdentity.thresholdSessionId)
-    ) {
-      throw new Error(
-        '[SigningEngine][ed25519-export] linked Ed25519 Wallet Session identity changed',
-      );
-    }
     const factorAuthority = await walletAuthAuthorityRef({
       authority: {
         walletId: authMethod.walletId,
@@ -5387,8 +5368,8 @@ export class BrowserSigningSurface {
       },
     });
     if (
-      factorAuthority.authorityDigest !== authorization.authority.authorityDigest ||
-      factorAuthority.walletAuthMethodId !== authorization.authority.walletAuthMethodId
+      String(factorAuthority.authorityDigest) !== String(authority.authorityDigestB64u) ||
+      factorAuthority.walletAuthMethodId !== authMethod.walletAuthMethodId
     ) {
       throw new Error('[SigningEngine][ed25519-export] Passkey Wallet Session authority changed');
     }
@@ -5489,7 +5470,7 @@ export class BrowserSigningSurface {
         kind: 'passkey_ed25519_yao_export_context_v1',
         selectedLaneMaterialActivation: args.materialActivation,
         material,
-        authorization,
+        authorization: exactSession,
         relayerUrl: args.relayerUrl,
         rpId: authMethod.rpId,
         walletCustodyEnvelope: exportRoot.envelope,
