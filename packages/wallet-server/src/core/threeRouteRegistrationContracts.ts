@@ -58,12 +58,14 @@ import type {
  * - Each route binds its own canonical `PublicDigest32` over that route's
  *   canonical encoded bytes; no signed payload satisfies a route it was not
  *   minted for.
- * - Route 3's completion row is a credential-free commit receipt. The first
- *   response attaches its ephemeral bearer after the receipt CAS; the bounded
- *   old-client replay adapter reconstructs the stable public projection and
- *   signs a fresh short-lived V1 bearer in memory. A conflicting fingerprint
- *   returns the typed conflict.
- * - No compatibility route, legacy field, or dual-write path.
+ * - Route 3's completion row stores the credential-free committed projection
+ *   and request fingerprint. The first response attaches its bearer after the
+ *   receipt CAS; each exact retry reconstructs that stable projection and
+ *   signs a fresh bounded V1 bearer. The replay response advertises the
+ *   adapter bearer's expiry, while the receipt projection retains the parent
+ *   session expiry. A conflicting fingerprint returns the typed conflict.
+ * - Legacy compatibility is confined to response assembly and adapter digest
+ *   persistence; the V2 wire contract has no legacy fields or dual-write.
  */
 
 declare const signedSetupPayloadBrand: unique symbol;

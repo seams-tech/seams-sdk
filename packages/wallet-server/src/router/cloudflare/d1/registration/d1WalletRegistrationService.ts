@@ -3936,12 +3936,14 @@ export class CloudflareD1WalletRegistrationService {
    * its own failure window.
    *
    * Here the operation row is the only one. Its claim is the activation claim,
-   * and its completion record holds one credential-free session receipt. The
-   * first response receives its ephemeral bearer after the receipt CAS; a
-   * retry reconstructs the public projection and signs a fresh bearer without
-   * repeating any custody effect. A conflicting fingerprint is refused before
-   * execution; an ambiguous outcome after the custody call stays `uncertain`
-   * rather than being guessed either way.
+   * and its completion record holds one credential-free session receipt plus
+   * the request fingerprint. The first response receives its bearer after the
+   * receipt CAS; each exact retry reconstructs the committed projection and
+   * signs a fresh bounded V1 bearer without repeating any custody effect. The
+   * replay response carries the adapter bearer expiry; the receipt projection
+   * keeps the parent session expiry. A conflicting fingerprint is refused
+   * before execution; an ambiguous outcome after the custody call stays
+   * `uncertain` rather than being guessed either way.
    */
   async activateWalletRegistration(
     input: WalletRegistrationActivateInput,
