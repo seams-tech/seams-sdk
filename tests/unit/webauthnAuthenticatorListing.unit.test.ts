@@ -1,12 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import { listWebAuthnAuthenticatorsForUserWithStores } from '../../packages/wallet-server/src/core/authService/webauthn';
 import { handleWebAuthnAuthenticators } from '../../packages/wallet-server/src/router/transport/fetch/routes/webauthnAuthenticators';
 import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
 import type { RouterApiServiceBag } from '../../packages/wallet-server/src/router/framework/authServicePort';
 import { coerceRouterLogger } from '../../packages/wallet-server/src/router/framework/logger';
-import {
-  cleanupTemporaryD1Database,
-} from '../helpers/sqliteD1';
+import { cleanupTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   createWebAuthnAuthenticatorListingStores,
   ICLOUD_KEYCHAIN_AAGUID,
@@ -15,9 +14,50 @@ import {
   WEBAUTHN_DEVICE_USER_AGENTS,
   type WebAuthnAuthenticatorListingStores,
 } from './helpers/webauthnAuthenticatorListing.fixtures';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const WALLET_ID = 'listing-wallet.testnet';
 const RP_ID = 'wallet.example.test';
+
+async function exactWalletSessionAdmission() {
+  const exact = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'webauthn-authenticator-listing',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    expiresAtMs: Date.now() + 60_000,
+    identity: {
+      walletId: WALLET_ID,
+      authorityId: 'authority:webauthn-authenticator-listing',
+      walletAuthMethodId: 'wallet-auth-method:webauthn-authenticator-listing',
+      rpId: RP_ID,
+    },
+  });
+  return {
+    authorization: exact.issuedSession,
+    authority: exact.authority,
+    authMethod: exact.authMethod,
+    retiredAtMs: null,
+  };
+}
+
+function routeContext(service: RouterApiServiceBag): FetchRouterApiContext {
+  const url = new URL(`https://router.example.test/webauthn/authenticators?rpId=${RP_ID}`);
+  return {
+    request: new Request(url, {
+      method: 'GET',
+      headers: { authorization: 'Bearer wallet-session-operation-credential' },
+    }),
+    url,
+    pathname: '/webauthn/authenticators',
+    method: 'GET',
+    runtime: { kind: 'inline' },
+    service,
+    opts: {} as FetchRouterApiContext['opts'],
+    logger: coerceRouterLogger(undefined),
+    routeDefinitions: [],
+  };
+}
 
 /**
  * Two owner passkeys with captured metadata, one binding whose authenticator
@@ -192,13 +232,18 @@ test('GET /webauthn/authenticators serves the metadata the service contract prom
   const stores = createWebAuthnAuthenticatorListingStores();
   try {
     await seedListingFixture(stores);
+    const exactAdmission = await exactWalletSessionAdmission();
+    let legacyReads = 0;
 
     const service = {
       authorizationSessions: {
         tenantId: 'tenant-listing',
-        async resolveOpaqueWalletSessionToken(input: { readonly curve: string }) {
-          if (input.curve !== 'ecdsa') return null;
-          return { authorization: { walletId: WALLET_ID } };
+        async readWalletSessionAuthorizationV2ByOperationCredential() {
+          return exactAdmission;
+        },
+        async resolveOpaqueWalletSessionToken() {
+          legacyReads += 1;
+          return null;
         },
       },
       webAuthn: {
@@ -216,23 +261,10 @@ test('GET /webauthn/authenticators serves the metadata the service contract prom
       },
     } as unknown as RouterApiServiceBag;
 
-    const url = new URL(`https://router.example.test/webauthn/authenticators?rpId=${RP_ID}`);
-    const response = await handleWebAuthnAuthenticators({
-      request: new Request(url, {
-        method: 'GET',
-        headers: { authorization: 'Bearer wallet-session-token' },
-      }),
-      url,
-      pathname: '/webauthn/authenticators',
-      method: 'GET',
-      runtime: { kind: 'inline' },
-      service,
-      opts: {} as FetchRouterApiContext['opts'],
-      logger: coerceRouterLogger(undefined),
-      routeDefinitions: [],
-    });
+    const response = await handleWebAuthnAuthenticators(routeContext(service));
 
     expect(response?.status).toBe(200);
+    expect(legacyReads).toBe(0);
     const body = (await response?.json()) as {
       readonly ok: boolean;
       readonly authenticators: readonly {
@@ -284,4 +316,30 @@ test('GET /webauthn/authenticators serves the metadata the service contract prom
   } finally {
     cleanupTemporaryD1Database(stores.temporaryDatabase.tempDir);
   }
+});
+
+test('GET /webauthn/authenticators fails closed when the exact session is absent', async () => {
+  let legacyReads = 0;
+  const service = {
+    authorizationSessions: {
+      tenantId: 'tenant-listing',
+      async readWalletSessionAuthorizationV2ByOperationCredential() {
+        return null;
+      },
+      async resolveOpaqueWalletSessionToken() {
+        legacyReads += 1;
+        return null;
+      },
+    },
+    webAuthn: {
+      async listWebAuthnAuthenticatorsForUser() {
+        throw new Error('authenticator listing must not run without exact admission');
+      },
+    },
+  } as unknown as RouterApiServiceBag;
+
+  const response = await handleWebAuthnAuthenticators(routeContext(service));
+
+  expect(response?.status).toBe(401);
+  expect(legacyReads).toBe(0);
 });
