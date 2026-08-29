@@ -2782,7 +2782,13 @@ export class SeamsWalletRepositories {
     const authorityRaw = await authorityStore.get(input.authority.authorityId);
     const authMethodRaw = await authMethodStore.get(input.authMethod.walletAuthMethodId);
     const receiptRaw = await receiptStore.get(input.authority.authorityId);
-    const sessionRaw = await sessionStore.get(input.walletSession.authorizationId);
+    const sessionAtWalletSessionKey = await sessionStore.get(
+      input.operationCredential.walletSessionId,
+    );
+    const sessionRaw =
+      sessionAtWalletSessionKey === undefined
+        ? await sessionStore.get(input.walletSession.authorizationId)
+        : sessionAtWalletSessionKey;
     const existingAuthority =
       authorityRaw === undefined ? null : parseWalletAuthorityStorageRow(authorityRaw);
     const existingAuthMethod =

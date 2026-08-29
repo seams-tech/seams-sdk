@@ -100,11 +100,19 @@ test.describe('R103E link-session contracts', () => {
     });
     const stored = toStoredExactWalletSessionAuthorizationRowV5(record, operationCredential);
 
+    expect(stored.wallet_session_id).toBe(walletSessionId.value);
+    expect(stored.wallet_session_id).not.toBe(record.authorizationId);
     expect(
       parseStoredExactWalletSessionAuthorizationWithOperationCredential(
         JSON.parse(JSON.stringify(stored)),
       ),
     ).toEqual({ record, operationCredential });
+    expect(
+      parseStoredExactWalletSessionAuthorizationWithOperationCredential({
+        ...stored,
+        wallet_session_id: record.authorizationId,
+      }),
+    ).toBeNull();
   });
 
   test('round-trips the QR payload through its strict wire parser', () => {
