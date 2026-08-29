@@ -24,6 +24,91 @@ import {
   requireParsedDomainId,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
+type RegistrationTestDatabase = ReturnType<typeof createTemporaryD1Database>['database'];
+
+type RegistrationJournalScope = {
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly projectId: string;
+  readonly envId: string;
+};
+
+const PERSISTED_REGISTRATION_CREDENTIAL_FIELDS = [
+  'walletSessionToken',
+  'primaryOperationCredential',
+  'childOperationCredential',
+  'operationCredential',
+  'clientRootProof',
+  'passkeyBootstrapAuthorization',
+  'response',
+] as const;
+
+async function readRegistrationJournalRecord(input: {
+  readonly database: RegistrationTestDatabase;
+  readonly scope: RegistrationJournalScope;
+  readonly recordKey: string;
+}): Promise<unknown> {
+  const row = await input.database
+    .prepare(
+      `SELECT record_json
+         FROM router_ab_yao_versioned_json_records
+        WHERE namespace = ?1
+          AND org_id = ?2
+          AND project_id = ?3
+          AND env_id = ?4
+          AND record_key = ?5`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.recordKey,
+    )
+    .first<{ readonly record_json?: unknown }>();
+  if (typeof row?.record_json !== 'string') {
+    throw new Error(`registration journal row is missing: ${input.recordKey}`);
+  }
+  return JSON.parse(row.record_json);
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function collectObjectFieldNames(value: unknown, fieldNames: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectObjectFieldNames(entry, fieldNames);
+    return;
+  }
+  if (!isRecordValue(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    fieldNames.add(key);
+    collectObjectFieldNames(child, fieldNames);
+  }
+}
+
+function expectCredentialFreeRegistrationJournal(
+  raw: unknown,
+  operation: 'registration_activate' | 'near_provisioning',
+  ephemeralBearer: string,
+): void {
+  if (!isRecordValue(raw) || !isRecordValue(raw.receipt)) {
+    throw new Error('registration journal row is not a completion receipt');
+  }
+  expect(raw.kind).toBe('router_ab_ed25519_yao_registration_side_effect_completion_v2');
+  expect(raw.operation).toBe(operation);
+  expect(raw.receipt.kind).toBe('wallet_registration_session_commit_receipt_v2');
+  expect(raw.receipt.operation).toBe(operation);
+
+  const fieldNames = new Set<string>();
+  collectObjectFieldNames(raw, fieldNames);
+  for (const field of PERSISTED_REGISTRATION_CREDENTIAL_FIELDS) {
+    expect(fieldNames.has(field), `persisted registration field: ${field}`).toBe(false);
+  }
+  expect(JSON.stringify(raw)).not.toContain(ephemeralBearer);
+}
+
 /**
  * Refactor 94C. `/wallets/register/activate` folds activation and
  * finalization into one irreversible step behind a single Gateway operation
@@ -265,36 +350,29 @@ test('identical activate retries return the committed projection with fresh boun
     const firstSuccess = requireEcdsaActivateSuccess(first);
     const custodyCallsAfterFirst = strictRegistration.activateCalls;
 
-    const operationRow = await database
-      .prepare(
-        `SELECT record_json
-           FROM router_ab_yao_versioned_json_records
-          WHERE namespace = ?1
-            AND org_id = ?2
-            AND project_id = ?3
-            AND env_id = ?4
-            AND record_key = ?5`,
-      )
-      .bind(
-        SCOPE.namespace,
-        SCOPE.orgId,
-        SCOPE.projectId,
-        SCOPE.envId,
-        `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`,
-      )
-      .first<{ readonly record_json?: unknown }>();
-    if (!operationRow?.record_json) throw new Error('activation completion row is missing');
-    const completion = JSON.parse(String(operationRow.record_json)) as {
-      readonly requestFingerprint: string;
-      readonly receipt: {
-        readonly operationFingerprint: string;
-        readonly committed: {
-          readonly session: { readonly expiresAtMs: number };
-        };
-      };
-    };
+    const completion = await readRegistrationJournalRecord({
+      database,
+      scope: SCOPE,
+      recordKey: `wallet-registration-activate:registration-activate:${setup.registrationCeremonyId}:${activateRequest.idempotencyKey}`,
+    });
+    expectCredentialFreeRegistrationJournal(
+      completion,
+      'registration_activate',
+      firstSuccess.registrationEstablishedSession.tokens.ecdsa.walletSessionToken,
+    );
+    if (!isRecordValue(completion) || !isRecordValue(completion.receipt)) {
+      throw new Error('activation completion receipt is missing');
+    }
+    const requestFingerprint = completion.requestFingerprint;
+    const receipt = completion.receipt;
+    if (typeof requestFingerprint !== 'string' || !isRecordValue(receipt.committed)) {
+      throw new Error('activation completion identity is missing');
+    }
+    if (!isRecordValue(receipt.committed.session)) {
+      throw new Error('activation completion session projection is missing');
+    }
     expect(completion.receipt.operationFingerprint).toBe(completion.requestFingerprint);
-    expect(completion.receipt.committed.session.expiresAtMs).toBe(
+    expect(receipt.committed.session.expiresAtMs).toBe(
       firstSuccess.registrationEstablishedSession.expiresAtMs,
     );
 
@@ -341,7 +419,7 @@ test('identical activate retries return the committed projection with fresh boun
         SCOPE.namespace,
         service.authorizationSessions.tenantId,
         setup.registrationCeremonyId,
-        completion.requestFingerprint,
+        requestFingerprint,
       )
       .all<{ readonly token_expires_at_ms?: unknown }>();
     expect(replayTokenRows.results?.map((row) => Number(row.token_expires_at_ms))).toEqual(
@@ -601,6 +679,8 @@ function derivingYaoRuntime(capture?: {
   registrationBearerToken: string | null;
   /** The session the deferred leg must present to claim the Yao result. */
   activationSessionId?: readonly number[] | null;
+  /** The public identity the deferred custody join must bind to. */
+  registeredPublicKeyB64u?: string | null;
 }) {
   let delegate: Awaited<ReturnType<typeof createActivatedFinalizeYaoRuntimeFixture>> | null = null;
   const runtime = {
@@ -616,7 +696,12 @@ function derivingYaoRuntime(capture?: {
       delegate = await createActivatedFinalizeYaoRuntimeFixture({
         admissionRequest: input.admissionRequest,
       });
-      if (capture) capture.activationSessionId = delegate.activationResult.binding.session_id;
+      if (capture) {
+        capture.activationSessionId = delegate.activationResult.binding.session_id;
+        capture.registeredPublicKeyB64u = base64UrlEncode(
+          Uint8Array.from(delegate.activationResult.public_receipt.registered_public_key),
+        );
+      }
       return { ok: true as const, value: delegate.admissionReceipt };
     },
     async consumeActivated(request: never) {
@@ -644,7 +729,11 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
     });
     const signer = fakeGatewaySigner();
-    const yaoCredential = { registrationBearerToken: null as string | null };
+    const yaoCredential = {
+      registrationBearerToken: null as string | null,
+      activationSessionId: null as readonly number[] | null,
+      registeredPublicKeyB64u: null as string | null,
+    };
     const service = createCloudflareD1RouterApiAuthService({
       database: database as never,
       ...ED_SCOPE,
@@ -718,6 +807,54 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       activateRequest as never,
     );
     expect(replayed).toEqual(activated);
+
+    if (!yaoCredential.activationSessionId || !yaoCredential.registeredPublicKeyB64u) {
+      throw new Error('Yao activation result is missing its deferred provisioning identity');
+    }
+    const custodyJoinFixture = buildWalletCustodyCommitPayloadFixture({
+      walletId: setup.walletId,
+      keySet: 'near_ed25519_v1',
+    });
+    const provisioned = await service.walletRegistration.completeWalletRegistrationNearProvisioning(
+      {
+        registrationCeremonyId: setup.registrationCeremonyId,
+        signedSetup: setup.signedSetup,
+        idempotencyKey: 'ed25519-e2e-provisioning',
+        ed25519: {
+          activationReference: {
+            lifecycle_id: setup.registrationCeremonyId,
+            session_id: yaoCredential.activationSessionId,
+          },
+        },
+        walletCustodyCommit: {
+          walletId: custodyJoinFixture.walletId,
+          keySet: custodyJoinFixture.keySet,
+          keyManifestDigestB64u: custodyJoinFixture.keyManifestDigestB64u,
+          registeredPublicKeyB64u: yaoCredential.registeredPublicKeyB64u,
+        },
+        verifier: signer,
+        session: signer,
+      } as never,
+    );
+    if (!provisioned.ok) {
+      throw new Error(`near provisioning: ${provisioned.code}: ${provisioned.message}`);
+    }
+    expect(provisioned.nearProvisioning).toEqual({ status: 'near_ready' });
+
+    const provisioningCompletion = await readRegistrationJournalRecord({
+      database,
+      scope: ED_SCOPE,
+      recordKey: `wallet-registration-near-provisioning:near-provisioning:${setup.registrationCeremonyId}:ed25519-e2e-provisioning`,
+    });
+    const provisioningTokens = provisioned.registrationEstablishedSession.tokens;
+    if (provisioningTokens.kind !== 'near_ed25519') {
+      throw new Error('deferred provisioning did not issue a NEAR session');
+    }
+    expectCredentialFreeRegistrationJournal(
+      provisioningCompletion,
+      'near_provisioning',
+      provisioningTokens.ed25519.walletSessionToken,
+    );
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
