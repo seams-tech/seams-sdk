@@ -807,7 +807,10 @@ budget-refresh and linked-activation `issue_wallet_session_v1` branches, and
       Seal removal now accepts only an exact signing operation credential,
       resolves the admitted family's active material, derives the authoritative
       threshold-session identity, and never probes the opaque-token store.
-- [ ] Convert Ed25519 reuse of an ECDSA V1 session in `thresholdEd25519.ts`.
+- [x] Convert Ed25519 reuse of an ECDSA session in `thresholdEd25519.ts`.
+      Reuse now requires the exact ECDSA signing credential, the owning active
+      Passkey method, matching runtime policy, and authoritative active ECDSA
+      material; exact absence never probes the opaque-token store.
 - [x] Convert ECDSA pool-fill admission in `thresholdEcdsa.ts`. Pool fill now
       requires the exact ECDSA operation credential and resolves every runtime
       binding from the credential's active authority material; the parallel
@@ -1576,6 +1579,9 @@ Remaining causal baseline work:
       signer families bind seal authorization to active material and the exact
       threshold-session identity, with mismatch and missing-credential paths
       failing without legacy-store reads
+- [x] `tests/unit/thresholdEd25519EcdsaSessionReuseExactAdmission.unit.test.ts`,
+      proving exact ECDSA-to-Ed25519 reuse, runtime-policy and sibling-method
+      isolation, and fail-closed absence without opaque-token reads
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
 - [x] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`,
       proving exact `/near/public-keys` admission and missing-session rejection
