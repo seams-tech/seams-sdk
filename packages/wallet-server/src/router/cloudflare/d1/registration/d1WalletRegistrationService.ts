@@ -11,6 +11,7 @@ import {
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
@@ -33,6 +34,10 @@ import {
   type ExactAdministeredSignerManifestV1,
 } from '@shared/device-linking/delegatedActivationPlan';
 import type { VerifiedOwnerProof } from '../../../../authorization/factorEvidence';
+import {
+  WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
+  type DirectV2IssueResult,
+} from '../../../../authorization/domain';
 import type { AuthorizationService } from '../../../../authorization/service';
 import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { SessionAdapter } from '../../../framework/routerApi';
@@ -258,6 +263,7 @@ import {
   buildRouterAbEd25519YaoProductAdmissionRequestV1,
   createRouterAbEd25519YaoMaterialActivationRefV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
+  type RouterAbEd25519YaoWalletSessionCredentialV1,
   type RouterAbEd25519YaoWalletSessionMintInputV1,
 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
@@ -266,6 +272,7 @@ import {
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
 } from '../../../domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type {
+  RouterAbEd25519YaoAlreadyCommittedResponseV1,
   RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshResponseV1,
   RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
@@ -1218,6 +1225,65 @@ function requireReusableWalletSessionMintId(value: string): ReusableWalletSessio
   if (!parsed.ok)
     throw new Error(`Reusable Wallet Session mint identity is invalid: ${parsed.error.message}`);
   return parsed.value;
+}
+
+function assertNeverEd25519WalletSessionIssue(value: never): never {
+  throw new Error(`Unsupported Ed25519 Yao Wallet Session issuance: ${String(value)}`);
+}
+
+/**
+ * A committed mint has no reachable credential, so the caller is told to
+ * unlock the exact auth method rather than being handed a second bearer for
+ * the same session.
+ */
+function ed25519AlreadyCommittedWalletSessionResponse(
+  committed: Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }>,
+): RouterAbEd25519YaoAlreadyCommittedResponseV1 {
+  return {
+    ok: false,
+    code: 'already_committed',
+    message: 'Ed25519 Wallet Session is already committed; unlock the exact auth method',
+    next: committed.next,
+    committed: {
+      kind: 'already_committed_wallet_session_v1',
+      walletId: committed.walletId,
+      authorityId: committed.authorityId,
+      walletAuthMethodId: committed.walletAuthMethodId,
+      mintId: committed.mintId,
+      authorizationId: committed.authorizationId,
+      walletSessionId: committed.walletSessionId,
+      quotaId: committed.quotaId,
+    },
+  };
+}
+
+/**
+ * The bearer issuer used to re-check the owner proof against the session
+ * binding it signed. Direct issuance writes no such binding, so the same claim
+ * is asserted here before the exact session is committed.
+ */
+async function assertEd25519WalletSessionOwnerProof(input: {
+  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+  readonly tenantId: TenantId;
+  readonly authority: WalletAuthAuthority;
+  readonly activeAuthority: ActiveWalletAuthorityV1;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): Promise<void> {
+  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+  if (
+    input.proof.tenantId !== input.tenantId ||
+    input.proof.walletId !== input.authority.walletId ||
+    input.proof.principalId !== reusableWalletSessionPrincipalId(input.authority) ||
+    input.proof.authority.walletId !== authorityRef.walletId ||
+    input.proof.authority.authorityDigest !== authorityRef.authorityDigest ||
+    input.proof.authority.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
+    input.activeAuthority.walletId !== input.authority.walletId ||
+    input.activeAuthority.state !== 'active' ||
+    input.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
+    input.proof.expiresAtMs <= Date.now()
+  ) {
+    throw new Error('Owner proof does not authorize direct Ed25519 Wallet Session issuance');
+  }
 }
 
 function registrationWalletAuthAuthority(input: {
@@ -2500,6 +2566,10 @@ export class CloudflareD1WalletRegistrationService {
             readonly walletSessionId: WalletSessionId;
             readonly quotaId: MpcWalletSigningQuotaId;
             readonly remainingUses: number;
+            readonly walletSessionCredential: Extract<
+              RouterAbEd25519YaoWalletSessionCredentialV1,
+              { readonly kind: 'issued_wallet_session_v1' }
+            >;
           }
         | {
             readonly kind: 'same_wallet_session_curve_mint_v1';
@@ -2508,6 +2578,10 @@ export class CloudflareD1WalletRegistrationService {
             readonly quotaId: MpcWalletSigningQuotaId;
             readonly expiresAtMs: number;
             readonly remainingUses: number;
+            readonly walletSessionCredential: Extract<
+              RouterAbEd25519YaoWalletSessionCredentialV1,
+              { readonly kind: 'reused_wallet_session_v2' }
+            >;
           };
       switch (request.kind) {
         case 'router_ab_ed25519_yao_budget_refresh_v1': {
@@ -2516,35 +2590,58 @@ export class CloudflareD1WalletRegistrationService {
             DEFAULT_WALLET_SESSION_REMAINING_USES,
             policy.remainingUses,
           );
-          const mintId = requireReusableWalletSessionMintId(authorization.verifiedChallengeId);
-          const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
+          await assertEd25519WalletSessionOwnerProof({
+            proof: authorization.proof,
             tenantId: this.authorizationTenantId,
-            principalId: reusableWalletSessionPrincipalId(authority),
-            walletId: authority.walletId,
-            authority: await walletAuthAuthorityRef({ authority }),
-            mintId,
-            remainingUses,
-            issuedAtMs,
-            expiresAtMs,
-          });
-          await this.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
-            reusableWalletSession,
-            authority: activeAuthority.authority,
+            authority,
+            activeAuthority: activeAuthority.authority,
             walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
           });
-          sessionIdentity = {
-            kind: 'same_identity_budget_refresh_v1' as const,
-            authorizationId: reusableWalletSession.session.authorizationId,
-            walletSessionId: reusableWalletSession.quota.walletSessionId,
-            quotaId: reusableWalletSession.quota.quotaId,
-            remainingUses,
-          };
+          /* A refresh replaces the same method's session under a fresh mint;
+             the direct issuer retires the predecessor and closes its quota in
+             the successor transaction. */
+          const directIssue =
+            await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
+              tenantId: this.authorizationTenantId,
+              principalId: reusableWalletSessionPrincipalId(authority),
+              walletId: activeAuthority.authority.walletId,
+              authority: activeAuthority.authority,
+              walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+              mintId: requireReusableWalletSessionMintId(authorization.verifiedChallengeId),
+              remainingUses,
+              issuedAtMs,
+              expiresAtMs,
+              walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+              responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
+            });
+          switch (directIssue.kind) {
+            case 'issued':
+              sessionIdentity = {
+                kind: 'same_identity_budget_refresh_v1' as const,
+                authorizationId: directIssue.session.authorizationId,
+                walletSessionId: directIssue.quota.walletSessionId,
+                quotaId: directIssue.quota.quotaId,
+                remainingUses,
+                walletSessionCredential: {
+                  kind: 'issued_wallet_session_v1',
+                  operationCredential: directIssue.operationCredential,
+                },
+              };
+              break;
+            case 'already_committed':
+              return ed25519AlreadyCommittedWalletSessionResponse(directIssue);
+            case 'protocol_mismatch':
+              return { ok: false, code: directIssue.code, message: directIssue.message };
+            default:
+              return assertNeverEd25519WalletSessionIssue(directIssue);
+          }
           break;
         }
         case 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1':
           sessionIdentity = {
             kind: 'same_wallet_session_curve_mint_v1' as const,
             ...request.existingWalletSession,
+            walletSessionCredential: { kind: 'reused_wallet_session_v2' },
           };
           break;
       }
@@ -2565,7 +2662,7 @@ export class CloudflareD1WalletRegistrationService {
             participantIds: exactParticipantIds,
             runtimePolicyScope,
             keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
-            proof: authorization.proof,
+            walletSessionCredential: sessionIdentity.walletSessionCredential,
           };
           break;
         case 'same_wallet_session_curve_mint_v1':
@@ -2584,19 +2681,15 @@ export class CloudflareD1WalletRegistrationService {
             participantIds: exactParticipantIds,
             runtimePolicyScope,
             keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
-            proof: authorization.proof,
+            walletSessionCredential: sessionIdentity.walletSessionCredential,
           };
           break;
       }
-      const minted = await mintRouterAbEd25519YaoWalletSessionV1({
-        opaqueWalletSessions: this.authorizationService,
-        tenantId: this.authorizationTenantId,
+      const session = await mintRouterAbEd25519YaoWalletSessionV1({
         signingWorkerId: yaoRuntime.signingWorkerId,
         sessionInput,
       });
-      if (!minted.ok) return minted;
-      const session = minted.session;
-      return {
+      const refreshed = {
         ok: true,
         walletId: session.walletId,
         nearAccountId: session.nearAccountId,
@@ -2612,8 +2705,14 @@ export class CloudflareD1WalletRegistrationService {
         remainingUses: session.remainingUses,
         runtimePolicyScope,
         routerAbNormalSigning,
-        walletSessionToken: session.walletSessionToken,
-      };
+      } as const;
+      return session.sessionKind === 'issued_wallet_session_v1'
+        ? {
+            ...refreshed,
+            sessionKind: 'issued_wallet_session_v1',
+            operationCredential: session.operationCredential,
+          }
+        : { ...refreshed, sessionKind: 'reused_wallet_session_v2' };
     } catch (error: unknown) {
       return {
         ok: false,
@@ -2814,36 +2913,57 @@ export class CloudflareD1WalletRegistrationService {
         readonly quotaId: MpcWalletSigningQuotaId;
         readonly expiresAtMs: number;
         readonly remainingUses: number;
+        readonly walletSessionCredential: RouterAbEd25519YaoWalletSessionCredentialV1;
       };
       switch (request.walletSessionIdentity.kind) {
         case 'issue_wallet_session_v1': {
           const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
-          const reusableRemainingUses = Math.min(
+          const issuedRemainingUses = Math.min(
             DEFAULT_WALLET_SESSION_REMAINING_USES,
             remainingUses,
           );
-          const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
+          await assertEd25519WalletSessionOwnerProof({
+            proof: request.proof,
             tenantId: this.authorizationTenantId,
-            principalId: reusableWalletSessionPrincipalId(authority),
-            walletId: walletIdFromString(walletId),
-            authority: await walletAuthAuthorityRef({ authority }),
-            mintId: requireReusableWalletSessionMintId(verifiedChallengeId),
-            remainingUses: reusableRemainingUses,
-            issuedAtMs,
-            expiresAtMs,
-          });
-          await this.authorizationService.issueWalletSessionAuthorizationV2FromReusableSession({
-            reusableWalletSession,
-            authority: activeAuthority.authority,
+            authority,
+            activeAuthority: activeAuthority.authority,
             walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
           });
-          walletSessionIdentity = {
-            authorizationId: reusableWalletSession.session.authorizationId,
-            walletSessionId: reusableWalletSession.quota.walletSessionId,
-            quotaId: reusableWalletSession.quota.quotaId,
-            expiresAtMs,
-            remainingUses: reusableRemainingUses,
-          };
+          const directIssue =
+            await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
+              tenantId: this.authorizationTenantId,
+              principalId: reusableWalletSessionPrincipalId(authority),
+              walletId: activeAuthority.authority.walletId,
+              authority: activeAuthority.authority,
+              walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+              mintId: requireReusableWalletSessionMintId(verifiedChallengeId),
+              remainingUses: issuedRemainingUses,
+              issuedAtMs,
+              expiresAtMs,
+              walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
+              responseFamily: WALLET_UNLOCK_EXACT_RESPONSE_FAMILY_V1,
+            });
+          switch (directIssue.kind) {
+            case 'issued':
+              walletSessionIdentity = {
+                authorizationId: directIssue.session.authorizationId,
+                walletSessionId: directIssue.quota.walletSessionId,
+                quotaId: directIssue.quota.quotaId,
+                expiresAtMs,
+                remainingUses: issuedRemainingUses,
+                walletSessionCredential: {
+                  kind: 'issued_wallet_session_v1',
+                  operationCredential: directIssue.operationCredential,
+                },
+              };
+              break;
+            case 'already_committed':
+              return ed25519AlreadyCommittedWalletSessionResponse(directIssue);
+            case 'protocol_mismatch':
+              return { ok: false, code: directIssue.code, message: directIssue.message };
+            default:
+              return assertNeverEd25519WalletSessionIssue(directIssue);
+          }
           break;
         }
         case 'reuse_wallet_session_v2': {
@@ -2876,13 +2996,14 @@ export class CloudflareD1WalletRegistrationService {
               message: 'Linked Ed25519 Wallet Session identity is unavailable',
             };
           }
-          walletSessionIdentity = requestedIdentity;
+          walletSessionIdentity = {
+            ...requestedIdentity,
+            walletSessionCredential: { kind: 'reused_wallet_session_v2' },
+          };
           break;
         }
       }
-      const minted = await mintRouterAbEd25519YaoWalletSessionV1({
-        opaqueWalletSessions: this.authorizationService,
-        tenantId: this.authorizationTenantId,
+      const session = await mintRouterAbEd25519YaoWalletSessionV1({
         signingWorkerId: yaoRuntime.signingWorkerId,
         sessionInput: {
           kind: 'verified_wallet_unlock_v1',
@@ -2899,11 +3020,9 @@ export class CloudflareD1WalletRegistrationService {
           keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
           expiresAtMs: walletSessionIdentity.expiresAtMs,
           remainingUses: walletSessionIdentity.remainingUses,
-          proof: request.proof,
+          walletSessionCredential: walletSessionIdentity.walletSessionCredential,
         },
       });
-      if (!minted.ok) return minted;
-      const session = minted.session;
       return { ok: true, session, capability: issuedCapability };
     } catch (error: unknown) {
       return {

@@ -35,6 +35,7 @@ import {
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 const ED25519_WALLET_SESSION_MINT_TIMEOUT_MS = 15_000;
 
@@ -110,6 +111,35 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
 }
 
 /**
+ * A refresh that issued a new Wallet Session carries its own primary
+ * credential. A same-session curve mint reuses the session the caller already
+ * holds, so it carries none and the caller keeps the credential it sent.
+ */
+function ed25519WalletSessionMintCredentialToken(input: {
+  readonly data: { readonly sessionKind?: string; readonly operationCredential?: unknown };
+  readonly walletSessionId: WalletSessionId;
+  readonly existingWalletSessionToken: string;
+}): string {
+  if (input.data.sessionKind === 'issued_wallet_session_v1') {
+    const issued = parseWalletSessionOperationCredentialV1(input.data.operationCredential);
+    if (issued.walletSessionId !== input.walletSessionId) {
+      throw new Error('Wallet Session mint credential does not identify its session');
+    }
+    return issued.token;
+  }
+  if (input.data.sessionKind !== 'reused_wallet_session_v2') {
+    throw new Error('Wallet Session mint returned an unsupported session kind');
+  }
+  if (input.data.operationCredential !== undefined) {
+    throw new Error('Reused Wallet Session must not carry its own credential');
+  }
+  if (!input.existingWalletSessionToken) {
+    throw new Error('Reused Wallet Session mint requires the credential the caller already holds');
+  }
+  return input.existingWalletSessionToken;
+}
+
+/**
  * Ed25519 Wallet Session mint.
  *
  * `threshold_session_policy_webauthn` sends a WebAuthn assertion whose challenge
@@ -170,7 +200,8 @@ export async function mintEd25519WalletSession(args: {
     expiresAt: string;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
-    walletSessionToken: string;
+    sessionKind: string;
+    operationCredential: unknown;
     code: string;
     message: string;
   }>;
@@ -182,9 +213,10 @@ export async function mintEd25519WalletSession(args: {
     const existingWalletSessionToken = String(args.existingWalletSessionToken || '').trim();
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
     const bearerToken = existingWalletSessionToken || publishableKey;
-    const projectEnvironmentId = !existingWalletSessionToken && publishableKey
-      ? String(args.projectEnvironmentId || '').trim() || undefined
-      : undefined;
+    const projectEnvironmentId =
+      !existingWalletSessionToken && publishableKey
+        ? String(args.projectEnvironmentId || '').trim() || undefined
+        : undefined;
     timeoutId = setTimeout(
       abortEd25519WalletSessionMint,
       ED25519_WALLET_SESSION_MINT_TIMEOUT_MS,
@@ -250,6 +282,23 @@ export async function mintEd25519WalletSession(args: {
         message: 'Wallet Session mint returned invalid authorization identity',
       };
     }
+    let walletSessionToken: string;
+    try {
+      walletSessionToken = ed25519WalletSessionMintCredentialToken({
+        data,
+        walletSessionId: walletSessionId.value,
+        existingWalletSessionToken,
+      });
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'invalid_response',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Wallet Session mint returned an invalid operation credential',
+      };
+    }
     return {
       ok: data.ok === true,
       ...(thresholdSessionId?.ok ? { thresholdSessionId: thresholdSessionId.value } : {}),
@@ -259,7 +308,7 @@ export async function mintEd25519WalletSession(args: {
       expiresAtMs,
       remainingUses: data.remainingUses,
       ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),
-    walletSessionToken: data.walletSessionToken,
+      walletSessionToken,
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),
     };
@@ -350,9 +399,7 @@ export type Ed25519OperationStepUpAuthorizationRequest =
         }
       | {
           proof: Ed25519EmailOtpOperationStepUpProof;
-          materialRecovery:
-            | Ed25519NoMaterialRecoveryRequest
-            | Ed25519EmailOtpFactorReleaseRequest;
+          materialRecovery: Ed25519NoMaterialRecoveryRequest | Ed25519EmailOtpFactorReleaseRequest;
         }
     );
 
@@ -617,8 +664,7 @@ export async function issueEd25519OperationStepUpAuthorization(
         materialRecovery.kind === 'email_otp_factor_release_v1'
           ? {
               kind: materialRecovery.kind,
-              worker_ephemeral_public_key_65_b64u:
-                materialRecovery.workerEphemeralPublicKey65B64u,
+              worker_ephemeral_public_key_65_b64u: materialRecovery.workerEphemeralPublicKey65B64u,
             }
           : materialRecovery,
     },

@@ -30,6 +30,7 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type {
   RouterAbEcdsaDerivationActivationCommitQueryResultV1,
   RouterAbEcdsaDerivationActivationPrepareResultV1,
@@ -870,9 +871,7 @@ export type EmailOtpWalletRegistrationFinalizeAuthMethod = Extract<
   { kind: typeof WALLET_AUTH_METHODS.emailOtp }
 >;
 
-export type WalletRegistrationEd25519YaoBootstrapSession = {
-  sessionKind: 'opaque';
-  walletSessionToken: string;
+type WalletRegistrationEd25519YaoBootstrapSessionIdentity = {
   walletId: WalletId;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -889,6 +888,22 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
+
+/**
+ * The Ed25519 Yao view of one exact Wallet Session. A session this response
+ * just issued carries its own primary operation credential; a session it
+ * reuses carries none, because the credential was delivered once by the
+ * issuing response and a committed digest cannot reproduce plaintext.
+ */
+export type WalletRegistrationEd25519YaoBootstrapSession =
+  | (WalletRegistrationEd25519YaoBootstrapSessionIdentity & {
+      sessionKind: 'issued_wallet_session_v1';
+      operationCredential: WalletSessionOperationCredentialV1;
+    })
+  | (WalletRegistrationEd25519YaoBootstrapSessionIdentity & {
+      sessionKind: 'reused_wallet_session_v2';
+      operationCredential?: never;
+    });
 
 export type WalletEd25519YaoSignerPublicResult = {
   signerSlot: number;

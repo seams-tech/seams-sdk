@@ -39,9 +39,7 @@ import type {
   DirectV2IssueResult,
   IssuedWalletSessionAuthorizationV2,
 } from '../../../authorization/domain';
-import type {
-  WalletSessionOperationCredentialV1,
-} from '@shared/device-linking/contracts';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../core/registrationContracts';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import type {
@@ -200,8 +198,8 @@ export type WalletUnlockEcdsaAuthorization =
       readonly proof: WalletSessionOwnerProof;
     }
   | {
-      readonly kind: 'reuse_ed25519_wallet_session';
-      readonly walletSessionToken: string;
+      readonly kind: 'reuse_wallet_session_operation_credential_v1';
+      readonly operationCredential: WalletSessionOperationCredentialV1;
       readonly proof: WalletSessionOwnerProof;
     };
 
@@ -527,16 +525,20 @@ function walletUnlockScopeMismatchResponse(): WalletUnlockProvisionedCapabilityR
   };
 }
 
-function walletUnlockSessionFailureResponse(input: {
-  readonly result: { readonly ok: false; readonly code: string; readonly message: string };
-}): WalletUnlockProvisionedCapabilityResult {
-  return {
-    ok: false,
-    response: {
-      status: thresholdEd25519StatusCode(input.result),
-      body: input.result,
-    },
-  };
+/**
+ * A committed Ed25519 mint cannot hand over a second credential, so the
+ * rejection carries the committed identity and the exact-method continuation
+ * instead of a session.
+ */
+function walletUnlockEd25519SessionFailureResponse(
+  result: Exclude<
+    Awaited<ReturnType<RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']>>,
+    { readonly ok: true }
+  >,
+): WalletUnlockRouteResponse {
+  return result.code === 'already_committed'
+    ? { status: 409, body: result }
+    : { status: thresholdEd25519StatusCode(result), body: result };
 }
 
 async function provisionEmailOtpEd25519YaoCapability(input: {
@@ -578,7 +580,9 @@ async function provisionEmailOtpEd25519YaoCapability(input: {
     },
     input.authorization.proof,
   );
-  if (!provisioned.ok) return walletUnlockSessionFailureResponse({ result: provisioned });
+  if (!provisioned.ok) {
+    return { ok: false, response: walletUnlockEd25519SessionFailureResponse(provisioned) };
+  }
   return {
     ok: true,
     value: {
@@ -657,13 +661,7 @@ async function provisionPasskeyEd25519YaoSession(input: {
       : { kind: 'issue_wallet_session_v1' },
   });
   if (!provisioned.ok) {
-    return {
-      ok: false,
-      response: {
-        status: thresholdEd25519StatusCode(provisioned),
-        body: provisioned,
-      },
-    };
+    return { ok: false, response: walletUnlockEd25519SessionFailureResponse(provisioned) };
   }
   return { ok: true, session: provisioned.session };
 }
@@ -686,7 +684,37 @@ function projectPasskeyEd25519WalletSession(
     remainingUses: session.remainingUses,
     runtimePolicyScope: session.runtimePolicyScope,
     routerAbNormalSigning: session.routerAbNormalSigning,
-    walletSessionToken: session.walletSessionToken,
+    sessionKind: session.sessionKind,
+    ...(session.sessionKind === 'issued_wallet_session_v1'
+      ? { operationCredential: session.operationCredential }
+      : {}),
+  };
+}
+
+/**
+ * The exact credential that authorizes the follow-on ECDSA activation. A
+ * freshly issued Ed25519 session carries its own; a reused one shares the
+ * credential the unlock response already delivered for that same session.
+ */
+function walletUnlockEcdsaOperationCredential(input: {
+  readonly ed25519Session: WalletRegistrationEd25519YaoBootstrapSession;
+  readonly activeOperationCredential: WalletSessionOperationCredentialV1 | null;
+}): WalletSessionOperationCredentialV1 | null {
+  if (input.ed25519Session.sessionKind === 'issued_wallet_session_v1') {
+    return input.ed25519Session.operationCredential;
+  }
+  const active = input.activeOperationCredential;
+  return active && active.walletSessionId === input.ed25519Session.walletSessionId ? active : null;
+}
+
+function walletUnlockEcdsaCredentialUnavailableResponse(): WalletUnlockRouteResponse {
+  return {
+    status: 409,
+    body: {
+      ok: false,
+      code: 'capability_unavailable',
+      message: 'ECDSA activation requires the exact Wallet Session operation credential',
+    },
   };
 }
 
@@ -991,14 +1019,16 @@ export async function handleWalletUnlockVerifyRoute(input: {
   body: unknown;
   origin?: string;
   service: RouterApiWalletUnlockService;
-  resolveEmailOtpCustody: (input: {
-    readonly walletId: string;
-    readonly enrollmentId: string;
-    readonly enrollmentSealKeyVersion: string;
-  } & (
-    | { readonly kind: 'factor' }
-    | { readonly kind: 'wallet_auth_method'; readonly walletAuthMethodId: WalletAuthMethodId }
-  )) => Promise<WalletUnlockEmailOtpCustodyLookup>;
+  resolveEmailOtpCustody: (
+    input: {
+      readonly walletId: string;
+      readonly enrollmentId: string;
+      readonly enrollmentSealKeyVersion: string;
+    } & (
+      | { readonly kind: 'factor' }
+      | { readonly kind: 'wallet_auth_method'; readonly walletAuthMethodId: WalletAuthMethodId }
+    ),
+  ) => Promise<WalletUnlockEmailOtpCustodyLookup>;
   resolvePasskeyCustody: (input: {
     readonly walletId: string;
     readonly rpId: string;
@@ -1224,17 +1254,27 @@ export async function handleWalletUnlockVerifyRoute(input: {
       linkedWalletSession: activeWalletSession,
     });
     if (!ed25519Session.ok) return ed25519Session.response;
+    let ecdsaAuthorization: WalletUnlockEcdsaAuthorization = {
+      kind: 'verified_wallet_unlock',
+      proof: authorization.proof,
+    };
+    if (ed25519Session.session) {
+      const operationCredential = walletUnlockEcdsaOperationCredential({
+        ed25519Session: ed25519Session.session,
+        activeOperationCredential,
+      });
+      if (!operationCredential) return walletUnlockEcdsaCredentialUnavailableResponse();
+      ecdsaAuthorization = {
+        kind: 'reuse_wallet_session_operation_credential_v1',
+        operationCredential,
+        proof: authorization.proof,
+      };
+    }
     const ecdsaSession: WalletUnlockEcdsaSessionResult = passkeyCustody
       ? await provisionFirstEcdsaWalletSession({
           context: input.ecdsaSession,
           verifiedWalletId: userId,
-          authorization: ed25519Session.session
-            ? {
-                kind: 'reuse_ed25519_wallet_session',
-                walletSessionToken: ed25519Session.session.walletSessionToken,
-                proof: authorization.proof,
-              }
-            : { kind: 'verified_wallet_unlock', proof: authorization.proof },
+          authorization: ecdsaAuthorization,
         })
       : { ok: true, activation: null, activationReceipt: null, continuity: null };
     if (!ecdsaSession.ok) return ecdsaSession.response;
@@ -1503,9 +1543,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
         unlocked: true,
         unlockBackend,
         userId: result.userId,
-        ...(verifiedAuthorityProjection
-          ? { verifiedAuthorityProjection }
-          : {}),
+        ...(verifiedAuthorityProjection ? { verifiedAuthorityProjection } : {}),
         ...(emailOtpCustody ? { walletCustody: emailOtpCustody.projection } : {}),
         ...(activeWalletSession
           ? {
@@ -1534,12 +1572,17 @@ export async function handleWalletUnlockVerifyRoute(input: {
     linkedWalletSession: activeWalletSession,
   });
   if (!capabilityResult.ok) return capabilityResult.response;
+  const ed25519OperationCredential = walletUnlockEcdsaOperationCredential({
+    ed25519Session: capabilityResult.value.session,
+    activeOperationCredential,
+  });
+  if (!ed25519OperationCredential) return walletUnlockEcdsaCredentialUnavailableResponse();
   const ecdsaSession = await provisionFirstEcdsaWalletSession({
     context: input.ecdsaSession,
     verifiedWalletId: result.walletId,
     authorization: {
-      kind: 'reuse_ed25519_wallet_session',
-      walletSessionToken: capabilityResult.value.session.walletSessionToken,
+      kind: 'reuse_wallet_session_operation_credential_v1',
+      operationCredential: ed25519OperationCredential,
       proof: authorization.proof,
     },
   });

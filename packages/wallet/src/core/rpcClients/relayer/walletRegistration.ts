@@ -33,9 +33,7 @@ import {
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
-import type {
-  RegistrationEstablishedSessionResultV2,
-} from '@shared/utils/registrationEstablishedSession';
+import type { RegistrationEstablishedSessionResultV2 } from '@shared/utils/registrationEstablishedSession';
 import { parseRegistrationEstablishedSessionResultV2 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseCanonicalEcdsaServerActivationRequest,
@@ -605,6 +603,11 @@ export type WalletRegistrationEd25519YaoActivationReference = {
   session_id: RouterAbEd25519YaoBytes32V1;
 };
 
+/**
+ * The client view of one exact Wallet Session. The response branch that issued
+ * the session and the branch that reused it are resolved at the parse
+ * boundary, so every consumer holds the one credential that admits it.
+ */
 export type WalletRegistrationEd25519YaoBootstrapSession = {
   sessionKind: 'opaque';
   walletSessionToken: string;
