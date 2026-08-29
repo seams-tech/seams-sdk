@@ -907,21 +907,6 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
         parsed.walletId,
         authMethodId,
       );
-    const deleteRegistrationReplayTokens = this.database
-      .prepare(
-        `DELETE FROM registration_replay_opaque_wallet_session_tokens_v1
-          WHERE namespace = ?
-            AND tenant_id = ?
-            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.namespace,
-        this.scope.orgId,
-        parsed.walletId,
-        authMethodId,
-      );
     const exhaustQuotas = this.database
       .prepare(
         `UPDATE authorization_wallet_session_quotas
@@ -955,7 +940,6 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
       update,
       guard,
       deleteTokens,
-      deleteRegistrationReplayTokens,
       exhaustQuotas,
       supersedeSessions,
     ];
@@ -1353,21 +1337,6 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
         String(expected.walletId),
         authMethodId,
       );
-    const deleteRegistrationReplayTokens = this.database
-      .prepare(
-        `DELETE FROM registration_replay_opaque_wallet_session_tokens_v1
-          WHERE namespace = ?
-            AND tenant_id = ?
-            AND wallet_session_id IN (SELECT session.wallet_session_id ${sessionFilter})`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.namespace,
-        this.scope.orgId,
-        String(expected.walletId),
-        authMethodId,
-      );
     const exhaustQuotas = this.database
       .prepare(
         `UPDATE authorization_wallet_session_quotas
@@ -1401,7 +1370,6 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore, WalletAut
       update,
       guard,
       deleteTokens,
-      deleteRegistrationReplayTokens,
       exhaustQuotas,
       supersedeSessions,
     ];
