@@ -1085,7 +1085,7 @@ function createCoordinator(overrides?: {
               ? {
                   ...bootstrap.session,
                   authorizationId: exactAuthorization.record.authorizationId,
-                  walletSessionId: exactAuthorization.record.walletSessionId,
+                  walletSessionId: exactAuthorization.operationCredential.walletSessionId,
                   quotaId: exactAuthorization.record.quotaId,
                   expiresAtMs: exactAuthorization.record.expiresAtMs,
                   walletSession: exactAuthorization.record,
