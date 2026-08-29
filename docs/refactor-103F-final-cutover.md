@@ -719,7 +719,7 @@ Primary files:
 - `packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence.ts`
 - `packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary.ts`
 - `packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts`
-- `packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationEstablishedSessionIssuer.ts`
+- `packages/wallet-server/src/router/cloudflare/d1/registration/walletRegistrationEstablishedSessionIssuer.ts`
 - `packages/wallet-server/src/router/transport/fetch/routes/syncAccountBootstrap.ts`
 - `packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts`
 - `packages/wallet-server/src/core/threeRouteRegistrationContracts.ts`
@@ -1073,10 +1073,10 @@ Primary files:
       future row as `upgrade_required`; a matching future row dominates V5,
       while an unrelated sibling method remains readable and malformed known
       V5 remains fail closed.
-- [ ] Define one branch-specific V6 builder and one strict parser requiring
+- [x] Define one branch-specific V6 builder and one strict parser requiring
       exact identities, subjects, lifecycle, and primary credential.
-- [ ] Reject session/credential mismatch at parsing and before IndexedDB write.
-- [ ] Preserve `wallet_session_id` as the Wallet Session keyPath, store
+- [x] Reject session/credential mismatch at parsing and before IndexedDB write.
+- [x] Preserve `wallet_session_id` as the Wallet Session keyPath, store
       `authorization_id` separately, and cross-check both.
 - [ ] Make exact `replaceExactActive` the only active install API with
       same-method retirement and sibling preservation in one transaction.
@@ -1600,9 +1600,9 @@ Remaining causal baseline work:
       cleanup that preserves pre-existing records.
 - [ ] Migration-owned linked-install schema parity test after runtime DDL
       deletion.
-- [ ] Exact-record type/parser fixtures for required fields and
+- [x] Exact-record type/parser fixtures for required fields and
       session/credential coupling.
-- [ ] `replaceExactActive` test covering same-method retirement, sibling
+- [x] `replaceExactActive` test covering same-method retirement, sibling
       preservation, and late V3/V4/V5 writes.
 - [ ] Exact-reader tests with two active sibling methods across signing, export,
       funding, refresh, management, readiness, and source claims.
