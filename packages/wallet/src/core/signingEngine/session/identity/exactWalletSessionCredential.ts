@@ -23,7 +23,10 @@ import {
   type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
-import type { WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import {
   mpcMaterialActivationRefsEqual,
@@ -93,6 +96,7 @@ export type ResolveExactWalletSessionCredentialInput = {
   readonly walletId: WalletId;
   readonly authMethod: SignerAuthMethod;
   readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
   readonly requiredSigningSubject: RequiredExactWalletSessionSigningSubject;
   readonly expiry: ExactWalletSessionExpiryRequirement;
 };
@@ -244,6 +248,7 @@ export async function resolveExactWalletSessionOperationCredential(
     session.authMethodId !== selected.authMethod.walletAuthMethodId ||
     session.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
     session.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
+    session.quotaId !== input.quotaId ||
     operationCredential.walletSessionId !== input.walletSessionId ||
     operationCredential.token.trim().length === 0
   ) {
