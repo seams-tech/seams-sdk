@@ -636,7 +636,7 @@ test('authority session fence waits for the final sibling and preserves unrelate
         expectedAuthorityRevocationEpoch: 0,
         requestedAtMs: 30,
         sessionRevocationStatements:
-          authorizationStore.prepareRevokeReusableWalletSessionsForAuthority({
+          authorizationStore.prepareRetireWalletSessionAuthorizationsV2ForAuthority({
             tenantId,
             walletId: target.walletId,
             authorityId: target.authorityId,
@@ -682,7 +682,7 @@ test('authority session fence waits for the final sibling and preserves unrelate
         expectedAuthorityRevocationEpoch: 0,
         requestedAtMs: 31,
         sessionRevocationStatements:
-          authorizationStore.prepareRevokeReusableWalletSessionsForAuthority({
+          authorizationStore.prepareRetireWalletSessionAuthorizationsV2ForAuthority({
             tenantId,
             walletId: target.walletId,
             authorityId: target.authorityId,

@@ -372,7 +372,7 @@ export class CloudflareD1AuthorizationStore
     ];
   }
 
-  prepareRevokeReusableWalletSessionsForAuthority(input: {
+  prepareRetireWalletSessionAuthorizationsV2ForAuthority(input: {
     readonly tenantId: TenantId;
     readonly walletId: WalletId;
     readonly authorityId: WalletAuthorityId;
