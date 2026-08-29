@@ -8,8 +8,12 @@ const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 
 const HOST_HTML = buildWalletServiceHtml('/_test-sdk/esm/sdk');
+const HOST_HTML_WITH_SUSPENDED_ANIMATION_FRAMES = HOST_HTML.replace(
+  '<body>',
+  '<body><script>window.requestAnimationFrame = () => 1;</script>',
+);
 
-test('reveals the recovery summary while the full wallet runtime is still loading', async ({
+test('reveals the recovery summary without a child animation frame or the full wallet runtime', async ({
   page,
 }) => {
   let fullWalletRuntimeRequested = false;
@@ -24,7 +28,11 @@ test('reveals the recovery summary while the full wallet runtime is still loadin
   });
   await page.goto('about:blank');
   await injectImportMap(page);
-  await registerWalletServiceRoute(page, HOST_HTML, WALLET_SERVICE_ROUTE);
+  await registerWalletServiceRoute(
+    page,
+    HOST_HTML_WITH_SUSPENDED_ANIMATION_FRAMES,
+    WALLET_SERVICE_ROUTE,
+  );
 
   await page.evaluate(
     async ({ walletOrigin }) => {
