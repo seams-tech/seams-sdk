@@ -21,15 +21,12 @@ import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import type {
-  RegistrationEstablishedSession,
   RegistrationEstablishedSessionV2,
 } from '@shared/utils/registrationEstablishedSession';
 
 export type WalletSessionAuthorizationProjectionWriter = Pick<
   WalletSessionAuthorizationRepository,
-  | 'createOrMergeExactActive'
-  | 'upsertActiveWithCurveMerge'
-  | 'writeExactWithOperationCredential'
+  'upsertActiveWithCurveMerge' | 'writeExactWithOperationCredential'
 >;
 
 type WalletSessionAuthorizationCurvePersistenceInputBase = {
@@ -94,75 +91,6 @@ export async function persistActiveWalletSessionAuthorizationCurve(
     expiresAtMs: args.expiresAtMs,
   });
   return writer.upsertActiveWithCurveMerge({ incoming: active, writtenAtMs: Date.now() });
-}
-
-function registrationSessionTokenBundle(
-  session: RegistrationEstablishedSession,
-): WalletSessionAuthorizationTokenBundle {
-  switch (session.tokens.kind) {
-    case 'near_ed25519':
-      return {
-        kind: 'near_ed25519',
-        ed25519: {
-          authorizationId: session.authorizationId,
-          walletSessionToken: requireOpaqueWalletSessionToken(
-            session.tokens.ed25519.walletSessionToken,
-          ),
-          thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
-        },
-      };
-    case 'evm_family_ecdsa':
-      return {
-        kind: 'evm_family_ecdsa',
-        ecdsa: {
-          authorizationId: session.authorizationId,
-          walletSessionToken: requireOpaqueWalletSessionToken(
-            session.tokens.ecdsa.walletSessionToken,
-          ),
-          thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
-        },
-      };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return {
-        kind: 'near_ed25519_and_evm_family_ecdsa',
-        ed25519: {
-          authorizationId: session.authorizationId,
-          walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ed25519.walletSessionToken),
-          thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
-        },
-        ecdsa: {
-          authorizationId: session.authorizationId,
-          walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ecdsa.walletSessionToken),
-          thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
-        },
-      };
-    default:
-      return assertNeverRegistrationSessionTokens(session.tokens);
-  }
-}
-
-function assertNeverRegistrationSessionTokens(value: never): never {
-  throw new Error(`Unknown registration-established token bundle: ${String(value)}`);
-}
-
-export async function persistActiveWalletSessionAuthorizationFromRegistration(
-  writer: WalletSessionAuthorizationProjectionWriter,
-  args: {
-    readonly authority: WalletAuthAuthorityRef;
-    readonly authMethod: WalletAuthMethod;
-    readonly session: RegistrationEstablishedSession;
-  },
-): Promise<ActiveWalletSessionAuthorizationProjection> {
-  const active = buildActiveWalletSessionAuthorizationProjection({
-    walletId: args.session.walletId,
-    walletSessionId: args.session.walletSessionId,
-    quotaId: args.session.quotaId,
-    walletSessionTokens: registrationSessionTokenBundle(args.session),
-    authMethod: args.authMethod,
-    authority: args.authority,
-    expiresAtMs: args.session.expiresAtMs,
-  });
-  return writer.createOrMergeExactActive({ incoming: active, mergedAtMs: Date.now() });
 }
 
 export async function persistActiveWalletSessionAuthorizationFromDirectRegistration(
