@@ -87,6 +87,7 @@ import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/rela
 import { hydrateWalletExecutionLane } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { readEmailOtpProviderSubjectForWalletV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import { readExactWalletSessionAuthorization } from './createBrowserRecoveryPublicDeps';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -166,10 +167,7 @@ export function createBrowserCanonicalWalletSessionStatusReader(
 ) {
   return createCanonicalWalletSessionStatusReader({
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
-    readAuthorization: async (walletId) => {
-      const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
-      return read.kind === 'found' ? read.projection : null;
-    },
+    readAuthorization: readExactWalletSessionAuthorization,
   });
 }
 
