@@ -33,8 +33,8 @@ import {
   signingRootScopeFromRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import type {
-  RegistrationEstablishedEd25519Session,
-  RegistrationEstablishedSession,
+  RegistrationEstablishedEd25519SessionProjectionV2,
+  RegistrationEstablishedSessionV2,
 } from '@shared/utils/registrationEstablishedSession';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { assertNever } from './registrationTiming';
@@ -147,8 +147,8 @@ export function registrationEd25519MaterialFacts(args: {
 }
 
 export function registrationEstablishedEd25519Session(
-  session: RegistrationEstablishedSession,
-): RegistrationEstablishedEd25519Session {
+  session: RegistrationEstablishedSessionV2,
+): RegistrationEstablishedEd25519SessionProjectionV2 {
   switch (session.tokens.kind) {
     case 'near_ed25519':
     case 'near_ed25519_and_evm_family_ecdsa':
@@ -161,7 +161,7 @@ export function registrationEstablishedEd25519Session(
 }
 
 export async function buildRegistrationEmailOtpEd25519SessionState(args: {
-  registrationEstablishedSession: RegistrationEstablishedSession;
+  registrationEstablishedSession: RegistrationEstablishedSessionV2;
   walletId: WalletId;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -199,7 +199,7 @@ export async function buildRegistrationEmailOtpEd25519SessionState(args: {
     signingRootId: signingRoot.signingRootId,
     signingRootVersion,
     routerAbNormalSigning: token.routerAbNormalSigning,
-    walletSessionToken: token.walletSessionToken,
+    walletSessionToken: args.registrationEstablishedSession.operationCredential.token,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {

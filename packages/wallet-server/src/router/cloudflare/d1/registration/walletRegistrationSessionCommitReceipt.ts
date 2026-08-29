@@ -12,7 +12,8 @@ import type {
   WalletRegistrationSessionCommitReceiptV2,
 } from '../../../../core/threeRouteRegistrationContracts';
 import type {
-  RegistrationEstablishedSession,
+  RegistrationEstablishedSessionV2,
+  RegistrationEstablishedSessionResultV2,
   RegistrationEstablishedSessionProjectionV2,
 } from '@shared/utils/registrationEstablishedSession';
 import {
@@ -32,7 +33,7 @@ import { parseWalletCustodyRegistrationOutcome } from '@shared/passkey-custody';
 export type WalletRegistrationNearProvisioningFinalizeResponse =
   | WalletRegistrationFinalizeResponse
   | (Extract<WalletRegistrationFinalizeSuccess, { readonly kind: 'near_ed25519' }> & {
-      readonly registrationEstablishedSession: RegistrationEstablishedSession;
+      readonly registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
     });
 
 export type RegistrationCommitExecution<T> =
@@ -59,87 +60,35 @@ export function legacyRegistrationCommit<T>(response: T): RegistrationCommitExec
 }
 
 export function projectRegistrationEstablishedSessionV2(
-  session: RegistrationEstablishedSession,
+  session: RegistrationEstablishedSessionV2,
 ): RegistrationEstablishedSessionProjectionV2 {
-  switch (session.tokens.kind) {
-    case 'evm_family_ecdsa':
-      return {
-        kind: 'registration_established_wallet_session_projection_v2',
-        walletId: session.walletId,
-        authorizationId: session.authorizationId,
-        walletSessionId: session.walletSessionId,
-        quotaId: session.quotaId,
-        expiresAtMs: session.expiresAtMs,
-        remainingUses: session.remainingUses,
-        tokens: {
-          kind: 'evm_family_ecdsa',
-          ecdsa: {
-            sessionKind: 'credential_free_projection_v2',
-            thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
-            keyHandle: session.tokens.ecdsa.keyHandle,
-            runtimePolicyScope: session.tokens.ecdsa.runtimePolicyScope,
-            routerAbEcdsaDerivationNormalSigning:
-              session.tokens.ecdsa.routerAbEcdsaDerivationNormalSigning,
-          },
-        },
-      };
-    case 'near_ed25519':
-      return {
-        kind: 'registration_established_wallet_session_projection_v2',
-        walletId: session.walletId,
-        authorizationId: session.authorizationId,
-        walletSessionId: session.walletSessionId,
-        quotaId: session.quotaId,
-        expiresAtMs: session.expiresAtMs,
-        remainingUses: session.remainingUses,
-        tokens: {
-          kind: 'near_ed25519',
-          ed25519: {
-            sessionKind: 'credential_free_projection_v2',
-            thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
-            nearAccountId: session.tokens.ed25519.nearAccountId,
-            nearEd25519SigningKeyId: session.tokens.ed25519.nearEd25519SigningKeyId,
-            runtimePolicyScope: session.tokens.ed25519.runtimePolicyScope,
-            routerAbNormalSigning: session.tokens.ed25519.routerAbNormalSigning,
-          },
-        },
-      };
-    case 'near_ed25519_and_evm_family_ecdsa':
-      return {
-        kind: 'registration_established_wallet_session_projection_v2',
-        walletId: session.walletId,
-        authorizationId: session.authorizationId,
-        walletSessionId: session.walletSessionId,
-        quotaId: session.quotaId,
-        expiresAtMs: session.expiresAtMs,
-        remainingUses: session.remainingUses,
-        tokens: {
-          kind: 'near_ed25519_and_evm_family_ecdsa',
-          ecdsa: {
-            sessionKind: 'credential_free_projection_v2',
-            thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
-            keyHandle: session.tokens.ecdsa.keyHandle,
-            runtimePolicyScope: session.tokens.ecdsa.runtimePolicyScope,
-            routerAbEcdsaDerivationNormalSigning:
-              session.tokens.ecdsa.routerAbEcdsaDerivationNormalSigning,
-          },
-          ed25519: {
-            sessionKind: 'credential_free_projection_v2',
-            thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
-            nearAccountId: session.tokens.ed25519.nearAccountId,
-            nearEd25519SigningKeyId: session.tokens.ed25519.nearEd25519SigningKeyId,
-            runtimePolicyScope: session.tokens.ed25519.runtimePolicyScope,
-            routerAbNormalSigning: session.tokens.ed25519.routerAbNormalSigning,
-          },
-        },
-      };
+  return {
+    kind: 'registration_established_wallet_session_projection_v2',
+    walletId: session.walletId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    expiresAtMs: session.expiresAtMs,
+    remainingUses: session.remainingUses,
+    tokens: session.tokens,
+  };
+}
+
+function projectRegistrationEstablishedSessionResultV2(
+  result: RegistrationEstablishedSessionResultV2,
+): RegistrationEstablishedSessionProjectionV2 {
+  switch (result.kind) {
+    case 'issued':
+      return projectRegistrationEstablishedSessionV2(result.session);
+    case 'already_committed':
+      return result.session;
     default:
-      return assertNeverRegistrationSessionTokens(session.tokens);
+      return assertNeverRegistrationSessionResult(result);
   }
 }
 
-function assertNeverRegistrationSessionTokens(value: never): never {
-  throw new Error(`Unsupported registration session token projection: ${String(value)}`);
+function assertNeverRegistrationSessionResult(value: never): never {
+  throw new Error(`Unsupported registration session result: ${String(value)}`);
 }
 
 export function projectWalletRegistrationSessionCommitReceiptV2(input: {
@@ -203,8 +152,11 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
     if (response.foundingAuthMethod.walletAuthMethodId !== response.authority.bindingId) {
       throw new Error('ECDSA registration commit receipt has mismatched auth-method identity');
     }
-    assertRegistrationCommitSessionTiming(
+    const establishedSessionProjection = projectRegistrationEstablishedSessionResultV2(
       response.registrationEstablishedSession,
+    );
+    assertRegistrationCommitSessionTiming(
+      establishedSessionProjection,
       input.execution.issuedAtMs,
     );
     return {
@@ -214,13 +166,13 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
       foundingAuthMethod: response.foundingAuthMethod,
       mintId: registrationEstablishedMintId(input.registrationCeremonyId),
       issuedAtMs: input.execution.issuedAtMs,
-      expiresAtMs: response.registrationEstablishedSession.expiresAtMs,
+      expiresAtMs: establishedSessionProjection.expiresAtMs,
       custodyKeyManifestDigestB64u: response.custodyKeyManifestDigestB64u,
       ...(response.walletCustody ? { walletCustody: response.walletCustody } : {}),
       committed: {
         kind: 'ecdsa_ready',
         ecdsa: response.ecdsa,
-        session: projectRegistrationEstablishedSessionV2(response.registrationEstablishedSession),
+        session: establishedSessionProjection,
         ...(response.nearProvisioning ? { nearProvisioning: response.nearProvisioning } : {}),
       },
     };
@@ -234,8 +186,11 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
   if (response.foundingAuthMethod.walletAuthMethodId !== response.authority.bindingId) {
     throw new Error('NEAR registration commit receipt has mismatched auth-method identity');
   }
-  assertRegistrationCommitSessionTiming(
+  const establishedSessionProjection = projectRegistrationEstablishedSessionResultV2(
     response.registrationEstablishedSession,
+  );
+  assertRegistrationCommitSessionTiming(
+    establishedSessionProjection,
     input.execution.issuedAtMs,
   );
   return {
@@ -245,7 +200,7 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
     foundingAuthMethod: response.foundingAuthMethod,
     mintId: registrationEstablishedMintId(input.registrationCeremonyId),
     issuedAtMs: input.execution.issuedAtMs,
-    expiresAtMs: response.registrationEstablishedSession.expiresAtMs,
+    expiresAtMs: establishedSessionProjection.expiresAtMs,
     custodyKeyManifestDigestB64u: response.custodyKeyManifestDigestB64u,
     ...(response.walletCustody ? { walletCustody: response.walletCustody } : {}),
     committed: {
@@ -254,7 +209,7 @@ export function projectWalletRegistrationSessionCommitReceiptV2(input: {
       accountProvisioning: response.accountProvisioning,
       resolvedAccount: response.resolvedAccount,
       ed25519: response.ed25519,
-      session: projectRegistrationEstablishedSessionV2(response.registrationEstablishedSession),
+      session: establishedSessionProjection,
       nearProvisioning: { status: 'near_ready' },
     },
   };
@@ -568,7 +523,7 @@ function assertNeverCommittedReceipt(value: never): never {
 }
 
 function assertRegistrationCommitSessionTiming(
-  session: RegistrationEstablishedSession,
+  session: Pick<RegistrationEstablishedSessionProjectionV2, 'expiresAtMs' | 'remainingUses'>,
   issuedAtMs: number,
 ): void {
   if (

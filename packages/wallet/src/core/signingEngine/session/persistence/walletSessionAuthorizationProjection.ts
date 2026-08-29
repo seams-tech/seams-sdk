@@ -3,6 +3,7 @@ import {
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationRepository,
   type WalletSessionAuthorizationTokenBundle,
+  type ActiveWalletSessionV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -19,11 +20,16 @@ import type {
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
-import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
+import type {
+  RegistrationEstablishedSession,
+  RegistrationEstablishedSessionV2,
+} from '@shared/utils/registrationEstablishedSession';
 
 export type WalletSessionAuthorizationProjectionWriter = Pick<
   WalletSessionAuthorizationRepository,
-  'createOrMergeExactActive' | 'upsertActiveWithCurveMerge'
+  | 'createOrMergeExactActive'
+  | 'upsertActiveWithCurveMerge'
+  | 'writeExactWithOperationCredential'
 >;
 
 type WalletSessionAuthorizationCurvePersistenceInputBase = {
@@ -157,6 +163,16 @@ export async function persistActiveWalletSessionAuthorizationFromRegistration(
     expiresAtMs: args.session.expiresAtMs,
   });
   return writer.createOrMergeExactActive({ incoming: active, mergedAtMs: Date.now() });
+}
+
+export async function persistActiveWalletSessionAuthorizationFromDirectRegistration(
+  writer: Pick<WalletSessionAuthorizationRepository, 'writeExactWithOperationCredential'>,
+  session: RegistrationEstablishedSessionV2,
+): Promise<ActiveWalletSessionV1> {
+  return writer.writeExactWithOperationCredential({
+    record: session.walletSession,
+    operationCredential: session.operationCredential,
+  });
 }
 
 export async function persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(

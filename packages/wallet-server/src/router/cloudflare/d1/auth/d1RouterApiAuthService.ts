@@ -1,42 +1,26 @@
-import {
-  parseRouterAbEcdsaDerivationNormalSigningStateV1,
-  parseRouterAbEcdsaRegistrationActivationReceiptV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseRegistrationEstablishedSessionProjectionV2,
-  type RegistrationEstablishedEcdsaSession,
-  type RegistrationEstablishedEd25519Session,
-  type RegistrationEstablishedSession,
+  parseRegistrationEstablishedSessionResultV2,
 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseDeviceId,
-  parseMpcWalletSigningQuotaId,
   parsePrincipalId,
   parseReusableWalletSessionMintId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
   type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 import {
-  parseThresholdEcdsaSessionId,
-  parseThresholdEd25519SessionId,
-  parseWalletId,
   parseWalletAuthMethodId,
   parseWalletAuthorityId,
 } from '@shared/utils/domainIds';
-import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import {
   computeWalletAuthMethodRevokeOperationFingerprintV1,
-  parseNearEd25519SigningKeyId,
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
-import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
-import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
-import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type {
   WalletRegistrationActivateResponseV2,
   WalletRegistrationSessionCommitReceiptV2,
@@ -903,11 +887,6 @@ function parseWalletRegistrationOperationPrepared(
   };
 }
 
-type RegistrationEstablishedSessionIdentity = Pick<
-  RegistrationEstablishedSession,
-  'walletId' | 'authorizationId' | 'walletSessionId' | 'quotaId' | 'expiresAtMs'
->;
-
 function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
   const allowed = new Set(keys);
   return Object.keys(record).every((key) => allowed.has(key));
@@ -915,194 +894,6 @@ function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): 
 
 function hasExactKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
   return Object.keys(record).length === keys.length && hasOnlyKeys(record, keys);
-}
-
-function parseOpaqueWalletSessionToken(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const token = raw.trim();
-  return token.startsWith('wst_') && token.length > 20 ? token : null;
-}
-
-function parseRegistrationEstablishedEcdsaToken(
-  raw: unknown,
-): RegistrationEstablishedEcdsaSession | null {
-  if (
-    !isRecordValue(raw) ||
-    !hasOnlyKeys(raw, [
-      'walletSessionToken',
-      'thresholdSessionId',
-      'keyHandle',
-      'runtimePolicyScope',
-      'routerAbEcdsaDerivationNormalSigning',
-    ])
-  ) {
-    return null;
-  }
-  try {
-    const thresholdSessionId = parseThresholdEcdsaSessionId(raw.thresholdSessionId);
-    if (!thresholdSessionId.ok) return null;
-    const walletSessionToken = parseOpaqueWalletSessionToken(raw.walletSessionToken);
-    if (!walletSessionToken) return null;
-    const keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
-    const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
-    const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      raw.routerAbEcdsaDerivationNormalSigning,
-    );
-    if (!routerAbEcdsaDerivationNormalSigning) return null;
-    return {
-      sessionKind: 'opaque',
-      walletSessionToken,
-      thresholdSessionId: thresholdSessionId.value,
-      keyHandle,
-      runtimePolicyScope,
-      routerAbEcdsaDerivationNormalSigning,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseRegistrationEstablishedEd25519Token(
-  raw: unknown,
-): RegistrationEstablishedEd25519Session | null {
-  if (
-    !isRecordValue(raw) ||
-    !hasOnlyKeys(raw, [
-      'walletSessionToken',
-      'thresholdSessionId',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-    ])
-  ) {
-    return null;
-  }
-  try {
-    const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
-    if (!thresholdSessionId.ok) return null;
-    const walletSessionToken = parseOpaqueWalletSessionToken(raw.walletSessionToken);
-    if (!walletSessionToken) return null;
-    const implicitNearAccountId = parseImplicitNearAccountId(raw.nearAccountId);
-    const namedNearAccountId = parseNamedNearAccountId(raw.nearAccountId);
-    const nearAccountId = implicitNearAccountId.ok
-      ? implicitNearAccountId.value
-      : namedNearAccountId.ok
-        ? namedNearAccountId.value
-        : null;
-    if (!nearAccountId) return null;
-    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(raw.nearEd25519SigningKeyId);
-    const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
-    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
-    if (!routerAbNormalSigning) return null;
-    return {
-      sessionKind: 'opaque',
-      walletSessionToken,
-      thresholdSessionId: thresholdSessionId.value,
-      nearAccountId,
-      nearEd25519SigningKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseRegistrationEstablishedSessionForD1(
-  raw: unknown,
-  expectedWalletId: RegistrationEstablishedSession['walletId'],
-): RegistrationEstablishedSession | null {
-  if (
-    !isRecordValue(raw) ||
-    !hasOnlyKeys(raw, [
-      'kind',
-      'walletId',
-      'authorizationId',
-      'walletSessionId',
-      'quotaId',
-      'expiresAtMs',
-      'remainingUses',
-      'tokens',
-    ])
-  ) {
-    return null;
-  }
-  if (raw.kind !== 'registration_established_wallet_session_v1') {
-    return null;
-  }
-  const walletId = parseWalletId(raw.walletId);
-  const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
-  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
-  if (
-    !walletId.ok ||
-    walletId.value !== expectedWalletId ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    new Set([authorizationId.value, walletSessionId.value, quotaId.value]).size !== 3
-  ) {
-    return null;
-  }
-  if (
-    typeof raw.expiresAtMs !== 'number' ||
-    !Number.isSafeInteger(raw.expiresAtMs) ||
-    raw.expiresAtMs <= 0 ||
-    typeof raw.remainingUses !== 'number' ||
-    !Number.isSafeInteger(raw.remainingUses) ||
-    raw.remainingUses <= 0
-  ) {
-    return null;
-  }
-  const identity: RegistrationEstablishedSessionIdentity = {
-    walletId: walletId.value,
-    authorizationId: authorizationId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    expiresAtMs: raw.expiresAtMs,
-  };
-  if (!isRecordValue(raw.tokens) || typeof raw.tokens.kind !== 'string') {
-    return null;
-  }
-  let tokens: RegistrationEstablishedSession['tokens'];
-  if (raw.tokens.kind === 'evm_family_ecdsa') {
-    if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa'])) {
-      return null;
-    }
-    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa);
-    if (!ecdsa) {
-      return null;
-    }
-    tokens = { kind: 'evm_family_ecdsa', ecdsa };
-  } else if (raw.tokens.kind === 'near_ed25519') {
-    if (!hasOnlyKeys(raw.tokens, ['kind', 'ed25519'])) {
-      return null;
-    }
-    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519);
-    if (!ed25519) {
-      return null;
-    }
-    tokens = { kind: 'near_ed25519', ed25519 };
-  } else if (raw.tokens.kind === 'near_ed25519_and_evm_family_ecdsa') {
-    if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa', 'ed25519'])) {
-      return null;
-    }
-    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa);
-    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519);
-    if (!ecdsa || !ed25519) {
-      return null;
-    }
-    tokens = { kind: 'near_ed25519_and_evm_family_ecdsa', ecdsa, ed25519 };
-  } else {
-    return null;
-  }
-  return {
-    kind: 'registration_established_wallet_session_v1',
-    ...identity,
-    remainingUses: raw.remainingUses,
-    tokens,
-  };
 }
 
 /**
@@ -1145,13 +936,16 @@ function parseD1WalletRegistrationActivateTerminalResponse(
   if (!stored || !isRecordValue(stored.bootstrap)) {
     return null;
   }
-  const registrationEstablishedSession = parseRegistrationEstablishedSessionForD1(
+  const parsedRegistrationEstablishedSession = parseRegistrationEstablishedSessionResultV2(
     raw.registrationEstablishedSession,
-    commit.walletId,
   );
-  if (!registrationEstablishedSession) {
+  if (
+    !parsedRegistrationEstablishedSession ||
+    parsedRegistrationEstablishedSession.session.walletId !== commit.walletId
+  ) {
     return null;
   }
+  const registrationEstablishedSession = parsedRegistrationEstablishedSession;
   let activation: ReturnType<typeof parseRouterAbEcdsaRegistrationActivationReceiptV1>;
   try {
     activation = parseRouterAbEcdsaRegistrationActivationReceiptV1(stored.activation);

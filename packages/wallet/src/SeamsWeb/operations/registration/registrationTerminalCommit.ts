@@ -41,7 +41,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
-import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
+import { persistActiveWalletSessionAuthorizationFromDirectRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import {
   buildEmailOtpAuthContext,
   type ThresholdEcdsaEmailOtpAuthContext,
@@ -49,9 +49,7 @@ import {
 import {
   isEmailOtpWalletAuthAuthority,
   parseEmailOtpWalletAuthAuthority,
-  walletAuthAuthorityRef,
   type EmailOtpWalletAuthAuthority,
-  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { RegistrationTimingRecorder, assertNever, roundDurationMs } from './registrationTiming';
 import {
@@ -426,19 +424,6 @@ function requireCanonicalRegistrationString(value: string, label: string): strin
   return value;
 }
 
-async function registrationPersistenceWalletSessionAuthority(
-  plan: RegistrationPersistencePlan,
-): Promise<WalletAuthAuthorityRef> {
-  switch (plan.auth.kind) {
-    case 'passkey':
-      return plan.ecdsa.session.authority;
-    case 'email_otp':
-      return walletAuthAuthorityRef({ authority: plan.auth.authority });
-    default:
-      return assertNever(plan.auth);
-  }
-}
-
 async function finalizeRegistrationEcdsaSessions(args: {
   context: RegistrationWebContext;
   relayerUrl: string;
@@ -509,11 +494,10 @@ async function persistRegistrationEcdsaPlan(args: {
       roundDurationMs(startedAt),
     );
   }
-  await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
-    authority: await registrationPersistenceWalletSessionAuthority(args.plan),
-    authMethod: registrationPersistenceAuthMethod(args.plan.auth),
-    session: args.plan.ecdsa.session.registrationEstablishedSession,
-  });
+  await persistActiveWalletSessionAuthorizationFromDirectRegistration(
+    walletSessionAuthorizations,
+    args.plan.ecdsa.session.registrationEstablishedSession,
+  );
 }
 
 function registrationEcdsaPlanPersistenceWork(

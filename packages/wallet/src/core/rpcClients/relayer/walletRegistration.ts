@@ -34,10 +34,9 @@ import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/uti
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import type {
-  RegistrationEstablishedEcdsaSession,
-  RegistrationEstablishedEd25519Session,
-  RegistrationEstablishedSession,
+  RegistrationEstablishedSessionResultV2,
 } from '@shared/utils/registrationEstablishedSession';
+import { parseRegistrationEstablishedSessionResultV2 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseCanonicalEcdsaServerActivationRequest,
   type CanonicalEcdsaServerActivationRequest,
@@ -58,6 +57,7 @@ import type {
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -2000,286 +2000,21 @@ export type WalletRegistrationActivateResponseV2 =
       never
     > & {
       ecdsa: ActivateTerminalEcdsaPayload;
-      registrationEstablishedSession: RegistrationEstablishedSession;
+      registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
       nearProvisioning?: { status: 'pending' };
     })
   | WalletRegistrationActivateEd25519PendingV2;
 
-function parseRegistrationEstablishedSession(
+function parseRegistrationEstablishedSessionResult(
   value: unknown,
   expectedWalletId: WalletId,
-): RegistrationEstablishedSession {
+): RegistrationEstablishedSessionResultV2 {
   const responseName = 'Wallet registration established session';
-  const record = requireResponseRecord({
-    responseName,
-    field: 'registrationEstablishedSession',
-    value,
-  });
-  assertExactResponseKeys(
-    record,
-    [
-      'kind',
-      'walletId',
-      'authorizationId',
-      'walletSessionId',
-      'quotaId',
-      'expiresAtMs',
-      'remainingUses',
-      'tokens',
-    ],
-    responseName,
-  );
-  if (record.kind !== 'registration_established_wallet_session_v1') {
-    throw new Error(`${responseName} kind is invalid`);
+  const parsed = parseRegistrationEstablishedSessionResultV2(value);
+  if (parsed === null || parsed.session.walletId !== expectedWalletId) {
+    throw new Error(`${responseName} direct session result is invalid`);
   }
-  const walletId = parseWalletId(record.walletId);
-  if (!walletId.ok || walletId.value !== expectedWalletId) {
-    throw new Error(`${responseName} wallet identity is invalid`);
-  }
-  const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
-  const walletSessionId = parseWalletSessionId(record.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
-  if (!authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
-    throw new Error(`${responseName} identity is invalid`);
-  }
-  const expiresAtMs = requireResponseSafeInteger({
-    responseName,
-    field: 'expiresAtMs',
-    value: record.expiresAtMs,
-    minimum: 1,
-  });
-  const remainingUses = requireResponseSafeInteger({
-    responseName,
-    field: 'remainingUses',
-    value: record.remainingUses,
-    minimum: 1,
-  });
-  const tokens = requireResponseRecord({ responseName, field: 'tokens', value: record.tokens });
-  if (tokens.kind === 'evm_family_ecdsa') {
-    const ecdsa = parseRegistrationEstablishedEcdsaSession(tokens.ecdsa, {
-      responseName,
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-    });
-    assertExactResponseKeys(tokens, ['kind', 'ecdsa'], `${responseName} tokens`);
-    return {
-      kind: 'registration_established_wallet_session_v1',
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-      remainingUses,
-      tokens: { kind: 'evm_family_ecdsa', ecdsa },
-    };
-  }
-  if (tokens.kind === 'near_ed25519') {
-    const ed25519 = parseRegistrationEstablishedEd25519Session(tokens.ed25519, {
-      responseName,
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-    });
-    assertExactResponseKeys(tokens, ['kind', 'ed25519'], `${responseName} tokens`);
-    return {
-      kind: 'registration_established_wallet_session_v1',
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-      remainingUses,
-      tokens: { kind: 'near_ed25519', ed25519 },
-    };
-  }
-  if (tokens.kind === 'near_ed25519_and_evm_family_ecdsa') {
-    const ecdsa = parseRegistrationEstablishedEcdsaSession(tokens.ecdsa, {
-      responseName,
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-    });
-    const ed25519 = parseRegistrationEstablishedEd25519Session(tokens.ed25519, {
-      responseName,
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-    });
-    assertExactResponseKeys(tokens, ['kind', 'ecdsa', 'ed25519'], `${responseName} tokens`);
-    return {
-      kind: 'registration_established_wallet_session_v1',
-      walletId: walletId.value,
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-      expiresAtMs,
-      remainingUses,
-      tokens: { kind: 'near_ed25519_and_evm_family_ecdsa', ecdsa, ed25519 },
-    };
-  }
-  throw new Error(`${responseName} token kind is invalid`);
-}
-
-function parseRegistrationEstablishedEcdsaSession(
-  value: unknown,
-  identity: {
-    responseName: string;
-    walletId: WalletId;
-    authorizationId: WalletSessionAuthorizationId;
-    walletSessionId: WalletSessionId;
-    quotaId: MpcWalletSigningQuotaId;
-    expiresAtMs: number;
-  },
-): RegistrationEstablishedEcdsaSession {
-  const record = requireResponseRecord({
-    responseName: identity.responseName,
-    field: 'tokens.ecdsa',
-    value,
-  });
-  assertExactResponseKeys(
-    record,
-    [
-      'sessionKind',
-      'walletSessionToken',
-      'thresholdSessionId',
-      'keyHandle',
-      'runtimePolicyScope',
-      'routerAbEcdsaDerivationNormalSigning',
-    ],
-    `${identity.responseName} ECDSA token`,
-  );
-  if (record.sessionKind !== 'opaque') {
-    throw new Error(`${identity.responseName} ECDSA token session kind is invalid`);
-  }
-  const walletSessionToken = requireOpaqueWalletSessionToken(
-    requireResponseString({
-      responseName: identity.responseName,
-      field: 'tokens.ecdsa.walletSessionToken',
-      value: record.walletSessionToken,
-    }),
-    'tokens.ecdsa.walletSessionToken',
-  );
-  const thresholdSessionId = parseThresholdEcdsaSessionId(record.thresholdSessionId);
-  if (!thresholdSessionId.ok) {
-    throw new Error(`${identity.responseName} ECDSA threshold session is invalid`);
-  }
-  const keyHandle = parseThresholdEcdsaKeyHandle(
-    requireResponseString({
-      responseName: identity.responseName,
-      field: 'tokens.ecdsa.keyHandle',
-      value: record.keyHandle,
-    }),
-  );
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(record.runtimePolicyScope);
-  if (!runtimePolicyScope) {
-    throw new Error(`${identity.responseName} ECDSA runtime policy is invalid`);
-  }
-  const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(
-    record.routerAbEcdsaDerivationNormalSigning,
-  );
-  return {
-    sessionKind: 'opaque',
-    walletSessionToken,
-    thresholdSessionId: thresholdSessionId.value,
-    keyHandle,
-    runtimePolicyScope,
-    routerAbEcdsaDerivationNormalSigning: normalSigning,
-  };
-}
-
-function parseRegistrationEstablishedEd25519Session(
-  value: unknown,
-  identity: {
-    responseName: string;
-    walletId: WalletId;
-    authorizationId: WalletSessionAuthorizationId;
-    walletSessionId: WalletSessionId;
-    quotaId: MpcWalletSigningQuotaId;
-    expiresAtMs: number;
-  },
-): RegistrationEstablishedEd25519Session {
-  const record = requireResponseRecord({
-    responseName: identity.responseName,
-    field: 'tokens.ed25519',
-    value,
-  });
-  assertExactResponseKeys(
-    record,
-    [
-      'sessionKind',
-      'walletSessionToken',
-      'thresholdSessionId',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-    ],
-    `${identity.responseName} Ed25519 token`,
-  );
-  if (record.sessionKind !== 'opaque') {
-    throw new Error(`${identity.responseName} Ed25519 token session kind is invalid`);
-  }
-  const walletSessionToken = requireOpaqueWalletSessionToken(
-    requireResponseString({
-      responseName: identity.responseName,
-      field: 'tokens.ed25519.walletSessionToken',
-      value: record.walletSessionToken,
-    }),
-    'tokens.ed25519.walletSessionToken',
-  );
-  const thresholdSessionId = parseThresholdEd25519SessionId(record.thresholdSessionId);
-  if (!thresholdSessionId.ok) {
-    throw new Error(`${identity.responseName} Ed25519 threshold session is invalid`);
-  }
-  const nearAccountId = requireResponseString({
-    responseName: identity.responseName,
-    field: 'tokens.ed25519.nearAccountId',
-    value: record.nearAccountId,
-  });
-  if (!parseImplicitNearAccountId(nearAccountId).ok && !parseNamedNearAccountId(nearAccountId).ok) {
-    throw new Error(`${identity.responseName} Ed25519 NEAR account is invalid`);
-  }
-  const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(
-    requireResponseString({
-      responseName: identity.responseName,
-      field: 'tokens.ed25519.nearEd25519SigningKeyId',
-      value: record.nearEd25519SigningKeyId,
-    }),
-  );
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(record.runtimePolicyScope);
-  if (!runtimePolicyScope) {
-    throw new Error(`${identity.responseName} Ed25519 runtime policy is invalid`);
-  }
-  const normalSigning = requireRouterAbEd25519NormalSigningState(record.routerAbNormalSigning);
-  let parsedNearAccountId;
-  const parsedImplicitNearAccountId = parseImplicitNearAccountId(nearAccountId);
-  if (parsedImplicitNearAccountId.ok) {
-    parsedNearAccountId = parsedImplicitNearAccountId.value;
-  } else {
-    const parsedNamedNearAccountId = parseNamedNearAccountId(nearAccountId);
-    if (!parsedNamedNearAccountId.ok) {
-      throw new Error(`${identity.responseName} Ed25519 NEAR account is invalid`);
-    }
-    parsedNearAccountId = parsedNamedNearAccountId.value;
-  }
-  return {
-    sessionKind: 'opaque',
-    walletSessionToken,
-    thresholdSessionId: thresholdSessionId.value,
-    nearAccountId: parsedNearAccountId,
-    nearEd25519SigningKeyId,
-    runtimePolicyScope,
-    routerAbNormalSigning: normalSigning,
-  };
+  return parsed;
 }
 
 /**
@@ -2433,7 +2168,7 @@ function parseWalletRegistrationActivateResponseV2(
   if (!finalized.ok || finalized.kind !== 'evm_family_ecdsa') {
     throw new Error(`${responseName} did not return an activated ECDSA wallet`);
   }
-  const registrationEstablishedSession = parseRegistrationEstablishedSession(
+  const registrationEstablishedSession = parseRegistrationEstablishedSessionResult(
     rawEstablishedSession,
     finalized.walletId,
   );
@@ -2486,6 +2221,7 @@ function walletRegistrationActivateBody(
     kind: args.signerPlanKind,
     signedSetup: args.signedSetup,
     idempotencyKey: args.idempotencyKey,
+    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
   };
   if (args.ecdsa) body.ecdsa = args.ecdsa;
   if (args.emailOtpEnrollment) body.emailOtpEnrollment = args.emailOtpEnrollment;
@@ -2521,7 +2257,7 @@ export async function activateWalletRegistration(
  */
 export type WalletRegistrationNearProvisioningResponseV2 =
   | (Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }> & {
-      registrationEstablishedSession: RegistrationEstablishedSession;
+      registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
       nearProvisioning: { status: 'near_ready' };
     })
   | {
@@ -2608,7 +2344,7 @@ function parseWalletRegistrationNearProvisioningResponseV2(
   return {
     ...finalized,
     nearProvisioning: { status: 'near_ready' },
-    registrationEstablishedSession: parseRegistrationEstablishedSession(
+    registrationEstablishedSession: parseRegistrationEstablishedSessionResult(
       registrationEstablishedSession,
       finalized.walletId,
     ),
@@ -2640,6 +2376,7 @@ export async function completeWalletRegistrationNearProvisioning(args: {
     registrationCeremonyId: args.registrationCeremonyId,
     signedSetup: args.signedSetup,
     idempotencyKey: args.idempotencyKey,
+    walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
     ed25519: args.ed25519,
   };
 

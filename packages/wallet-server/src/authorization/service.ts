@@ -1,4 +1,5 @@
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type {
   ActiveWalletSessionQuota,
   AuthorizedOperation,
@@ -72,7 +73,6 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { ThresholdEd25519AuthorityScope } from '../core/types';
-import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import { parseWalletSessionOperationCredentialV1 } from '@shared/device-linking/parsers';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
@@ -965,6 +965,56 @@ export class AuthorizationService {
       throw new Error('Refreshed V2 Wallet Session authority projection was not persisted');
     }
     return persisted;
+  }
+
+  async refreshWalletSessionAuthorizationV2AuthorityProjection(input: {
+    readonly existing: IssuedWalletSessionAuthorizationV2;
+    readonly authority: ActiveWalletAuthorityV1;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+  }): Promise<IssuedWalletSessionAuthorizationV2> {
+    const current = input.existing.session;
+    if (
+      current.walletId !== input.authority.walletId ||
+      current.authorityId !== input.authority.authorityId ||
+      current.walletAuthMethodId !== input.walletAuthMethodId
+    ) {
+      throw new Error('Direct V2 Wallet Session authority projection identity does not match');
+    }
+    const session = buildWalletSessionAuthorizationV2({
+      tenantId: current.tenantId,
+      principalId: current.principalId,
+      walletId: current.walletId,
+      authorityId: current.authorityId,
+      walletAuthMethodId: current.walletAuthMethodId,
+      authorityDigestB64u: input.authority.authorityDigestB64u,
+      authorityRevocationEpoch: input.authority.revocationEpoch,
+      mintId: current.mintId,
+      authorizationId: current.authorizationId,
+      walletSessionId: current.walletSessionId,
+      quotaId: current.quotaId,
+      capabilitySubjects: buildWalletSessionCapabilitySubjectsV1(input.authority),
+      createdAtMs: current.createdAtMs,
+      expiresAtMs: current.expiresAtMs,
+    });
+    const persisted = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
+      expected: current,
+      nowMs: Date.now(),
+    });
+    if (!persisted) {
+      throw new Error('Direct V2 Wallet Session authority projection is unavailable');
+    }
+    await this.ports.grants.replaceWalletSessionAuthorizationV2AuthorityProjection({
+      session,
+      quota: persisted.quota,
+    });
+    const refreshed = await this.ports.grants.readWalletSessionAuthorizationV2ByAuthorizationId({
+      expected: session,
+      nowMs: Date.now(),
+    });
+    if (!refreshed) {
+      throw new Error('Direct V2 Wallet Session authority projection was not refreshed');
+    }
+    return refreshed;
   }
 
   async prepareWalletSessionAuthorizationV2(

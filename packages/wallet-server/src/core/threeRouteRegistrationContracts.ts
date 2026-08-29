@@ -21,8 +21,9 @@ import type {
 } from './registrationContracts';
 import type {
   RegistrationEstablishedSessionProjectionV2,
-  RegistrationEstablishedSession,
+  RegistrationEstablishedSessionResultV2,
 } from '@shared/utils/registrationEstablishedSession';
+import type { WalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethodId, WalletId } from '@shared/utils/domainIds';
 import type { ReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
@@ -59,10 +60,11 @@ import type {
  *   canonical encoded bytes; no signed payload satisfies a route it was not
  *   minted for.
  * - Route 3's completion row stores the credential-free committed projection
- *   and request fingerprint. The first response attaches its bearer after the
- *   receipt CAS; each exact retry reconstructs that stable projection and
- *   signs a fresh bounded V1 bearer. The replay response advertises the
- *   adapter bearer's expiry, while the receipt projection retains the parent
+ *   and request fingerprint. A direct-capability first response carries the
+ *   ephemeral primary credential after the receipt CAS; exact retry returns
+ *   `already_committed` with the stable projection and no credential. The
+ *   bounded old-client adapter remains a separate request-boundary concern.
+ *   The receipt projection retains the parent
  *   session expiry. A conflicting fingerprint returns the typed conflict.
  * - Legacy compatibility is confined to response assembly and adapter digest
  *   persistence; the V2 wire contract has no legacy fields or dual-write.
@@ -356,6 +358,7 @@ type WalletRegistrationActivateRequestBaseV2 = {
   registrationCeremonyId: string;
   signedSetup: SignedSetupPayloadB64u;
   idempotencyKey: ActivateIdempotencyKey;
+  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 export type ActivateEcdsaWorkV2 = {
@@ -435,7 +438,7 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
 export type WalletRegistrationActivateResponseV2 =
   | (DistributiveOmit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
-      registrationEstablishedSession: RegistrationEstablishedSession;
+      registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'near_pending' };
     })
@@ -473,13 +476,14 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
   idempotencyKey: ActivateIdempotencyKey;
   ed25519: Extract<WalletRegistrationFinalizeRequest, { kind: 'near_ed25519' }>['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
+  walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 type WalletRegistrationNearProvisioningSuccessV2 = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true; kind: 'near_ed25519' }
 > & {
-  registrationEstablishedSession: RegistrationEstablishedSession;
+  registrationEstablishedSession: RegistrationEstablishedSessionResultV2;
   nearProvisioning: { status: 'near_ready' };
 };
 

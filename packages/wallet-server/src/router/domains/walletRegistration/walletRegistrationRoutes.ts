@@ -6,6 +6,7 @@ import type {
   WalletRegistrationSetupResponseV2,
 } from '../../../core/threeRouteRegistrationContracts';
 import type { RouterAbEcdsaRegistrationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { parseWalletSessionClientCapabilityV1 } from '@shared/authorization/capabilityKinds';
 import type { WalletRegistrationAuthorityInput } from '../../../core/registrationContracts';
 import { resolvePublishableKeyApiCredentialAuth } from '../../auth/routerApiCredentialAuth';
 import { extractRouterApiEnvironmentId } from '../../auth/routerApiKeyAuth';
@@ -2300,6 +2301,16 @@ export async function handleRouterApiWalletRegistrationActivate(
   if (!signedSetup) return routeError(400, 'invalid_body', 'signedSetup is required');
   const idempotencyKey = String(body.idempotencyKey || '').trim();
   if (!idempotencyKey) return routeError(400, 'invalid_body', 'idempotencyKey is required');
+  const parsedWalletSessionClientCapability = parseWalletSessionClientCapabilityV1(
+    body.walletSessionClientCapability,
+  );
+  if (!parsedWalletSessionClientCapability.ok) {
+    return routeError(
+      400,
+      'invalid_body',
+      parsedWalletSessionClientCapability.error.message,
+    );
+  }
   const planKind = String(body.kind || '').trim();
   if (
     planKind !== 'evm_family_ecdsa' &&
@@ -2361,6 +2372,7 @@ export async function handleRouterApiWalletRegistrationActivate(
       registrationCeremonyId,
       signedSetup,
       idempotencyKey,
+      walletSessionClientCapability: parsedWalletSessionClientCapability.value,
       planKind,
       ...(parsedActivation ? { ecdsa: parsedActivation } : {}),
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
@@ -2426,6 +2438,16 @@ export async function handleRouterApiWalletRegistrationNearProvisioning(
       'registrationCeremonyId, signedSetup and idempotencyKey are required',
     );
   }
+  const parsedWalletSessionClientCapability = parseWalletSessionClientCapabilityV1(
+    body.walletSessionClientCapability,
+  );
+  if (!parsedWalletSessionClientCapability.ok) {
+    return routeError(
+      400,
+      'invalid_body',
+      parsedWalletSessionClientCapability.error.message,
+    );
+  }
   const ed25519 = isPlainObject(body.ed25519) ? body.ed25519 : null;
   if (!ed25519) {
     return routeError(400, 'invalid_body', 'ed25519 activation reference is required');
@@ -2435,6 +2457,7 @@ export async function handleRouterApiWalletRegistrationNearProvisioning(
       registrationCeremonyId,
       signedSetup,
       idempotencyKey,
+      walletSessionClientCapability: parsedWalletSessionClientCapability.value,
       ed25519,
       emailOtpEnrollment: body.emailOtpEnrollment,
       ...(body.walletCustodyCommit !== undefined
