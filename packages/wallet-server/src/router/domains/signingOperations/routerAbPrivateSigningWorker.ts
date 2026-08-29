@@ -126,7 +126,6 @@ type RouterAbAcceptedAuthorizedOperationBindingV1 =
       readonly kind: 'gateway_owner_wallet_session';
       readonly subjectId: string;
       readonly accountId: string;
-      readonly authorizationSessionId: string;
       readonly authorizationId: string;
       readonly walletSessionId: string;
       readonly quotaId: string;
@@ -239,7 +238,6 @@ function buildRouterAbAcceptedAuthorizedOperationV1(input: {
           kind: 'gateway_owner_wallet_session' as const,
           subject_id: input.binding.subjectId,
           account_id: input.binding.accountId,
-          authorization_session_id: input.binding.authorizationSessionId,
           authorization_id: input.binding.authorizationId,
           wallet_session_id: input.binding.walletSessionId,
           quota_id: input.binding.quotaId,
@@ -1189,7 +1187,7 @@ type RouterAbNormalSigningEffectClaimV1 =
 function validateRouterAbNormalSigningEffectClaim(
   claim: RouterAbNormalSigningEffectClaimV1,
   scope: RouterAbEd25519NormalSigningScopeV2,
-  authorizationSessionId: string,
+  authorization: RouterAbPrivateSigningAuthorizationContext,
 ): void {
   requirePrivateSigningString(
     claim.authorized_operation_id,
@@ -1216,7 +1214,8 @@ function validateRouterAbNormalSigningEffectClaim(
   );
   if (
     scope.authorization.kind !== 'operation_step_up' ||
-    claim.authorization_session_id !== authorizationSessionId
+    authorization.kind !== 'operation_step_up' ||
+    claim.authorization_session_id !== authorization.authorizationSessionId
   ) {
     throw new Error('Operation step-up effect claim does not match request scope');
   }
@@ -1831,8 +1830,7 @@ function privateSigningTrustedAdmission(input: {
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly subjectId: string;
   readonly accountId: string;
-  readonly sessionId: string;
-  readonly authorizationKind: RouterAbEd25519NormalSigningAuthorizationV2['kind'];
+  readonly authorization: RouterAbPrivateSigningAuthorizationContext;
   readonly requestId: string;
   readonly intentDigest: RouterAbPublicDigest32V1Wire;
   readonly trustedSourceDigest: RouterAbPublicDigest32V1Wire;
@@ -1844,16 +1842,16 @@ function privateSigningTrustedAdmission(input: {
       environment: input.runtimePolicyScope.envId,
       account_id: input.accountId,
       auth:
-        input.authorizationKind === 'reusable_wallet_session'
+        input.authorization.kind === 'reusable_wallet_session'
           ? {
               auth: 'owner_wallet_session',
               subject_id: input.subjectId,
-              wallet_session_id: input.sessionId,
+              wallet_session_id: input.authorization.walletSessionId,
             }
           : {
               auth: 'owner_operation_step_up',
               subject_id: input.subjectId,
-              authorization_session_id: input.sessionId,
+              authorization_session_id: input.authorization.authorizationSessionId,
             },
       trusted_source_digest: input.trustedSourceDigest,
       intent_digest: input.intentDigest,
@@ -1865,28 +1863,75 @@ function privateSigningTrustedAdmission(input: {
   };
 }
 
+type RouterAbPrivateSigningAuthorizationContext =
+  | {
+      readonly kind: 'reusable_wallet_session';
+      readonly runtimePolicyScope: RuntimePolicyScope;
+      readonly subjectId: string;
+      readonly walletSessionId: string;
+    }
+  | {
+      readonly kind: 'operation_step_up';
+      readonly runtimePolicyScope: RuntimePolicyScope;
+      readonly subjectId: string;
+      readonly authorizationSessionId: string;
+    };
+
+function privateSigningAuthorizationContextFromAuthorization(
+  authorization:
+    | RouterAbEd25519PrivateSigningAuthorization
+    | RouterAbEcdsaPrivateSigningAuthorization,
+): RouterAbPrivateSigningAuthorizationContext {
+  switch (authorization.kind) {
+    case 'wallet_session_operation_credential_v1':
+      return {
+        kind: 'reusable_wallet_session',
+        runtimePolicyScope: authorization.runtimePolicyScope,
+        subjectId: authorization.principalId,
+        walletSessionId: authorization.walletSessionId,
+      };
+    case 'operation_step_up':
+      return {
+        kind: 'operation_step_up',
+        runtimePolicyScope: authorization.session.runtimePolicyScope,
+        subjectId: authorization.session.principalId,
+        authorizationSessionId: authorization.session.sessionId,
+      };
+  }
+}
+
+function validatePrivateSigningAuthorizationContext(
+  authorization: RouterAbNormalSigningAuthorizationWire,
+  context: RouterAbPrivateSigningAuthorizationContext,
+): void {
+  if (authorization.kind !== context.kind) {
+    throw new Error('Router A/B private authorization branch does not match request');
+  }
+  if (
+    authorization.kind === 'reusable_wallet_session' &&
+    context.kind === 'reusable_wallet_session' &&
+    authorization.wallet_session_id !== context.walletSessionId
+  ) {
+    throw new Error('Router A/B private Wallet Session does not match request');
+  }
+}
+
 function privateSigningAuthorizationContext(
   scope: RouterAbEd25519NormalSigningScopeV2,
   authorization: RouterAbEd25519PrivateSigningAuthorization,
-): {
-  readonly runtimePolicyScope: RuntimePolicyScope;
-  readonly subjectId: string;
-  readonly authorizationSessionId: string;
-} {
+): RouterAbPrivateSigningAuthorizationContext {
+  const context = privateSigningAuthorizationContextFromAuthorization(authorization);
   if (
-    authorization.kind === 'wallet_session_operation_credential_v1' &&
+    context.kind === 'reusable_wallet_session' &&
     scope.authorization.kind === 'reusable_wallet_session'
   ) {
-    if (scope.authorization.wallet_session_id !== authorization.walletSessionId) {
+    if (scope.authorization.wallet_session_id !== context.walletSessionId) {
       throw new Error('Router A/B Ed25519 scope authorization does not match exact session');
     }
-    return {
-      runtimePolicyScope: authorization.runtimePolicyScope,
-      subjectId: authorization.principalId,
-      authorizationSessionId: authorization.walletSessionId,
-    };
+    return context;
   }
   if (
+    context.kind === 'operation_step_up' &&
     authorization.kind === 'operation_step_up' &&
     scope.authorization.kind === 'operation_step_up'
   ) {
@@ -1896,11 +1941,7 @@ function privateSigningAuthorizationContext(
     ) {
       throw new Error('Router A/B Ed25519 step-up scope does not match the wallet authorization');
     }
-    return {
-      runtimePolicyScope: authorization.session.runtimePolicyScope,
-      subjectId: authorization.session.principalId,
-      authorizationSessionId: authorization.session.sessionId,
-    };
+    return context;
   }
   throw new Error('Router A/B Ed25519 authorization branch does not match verified binding');
 }
@@ -1930,11 +1971,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
   const signingContext = privateSigningAuthorizationContext(scope, input.authorization);
   const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
   if (input.phase === 'finalize') {
-    validateRouterAbNormalSigningEffectClaim(
-      input.effectClaim,
-      scope,
-      signingContext.authorizationSessionId,
-    );
+    validateRouterAbNormalSigningEffectClaim(input.effectClaim, scope, signingContext);
     const prepareBinding = requirePrivateSigningRecord(
       input.body.prepare_binding,
       'prepare_binding',
@@ -1964,10 +2001,10 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
         account_id: scope.account_id,
         subject_id: signingContext.subjectId,
         authorization:
-          scope.authorization.kind === 'reusable_wallet_session'
+          signingContext.kind === 'reusable_wallet_session'
             ? {
                 kind: 'reusable_wallet_session',
-                wallet_session_id: scope.authorization.wallet_session_id,
+                wallet_session_id: signingContext.walletSessionId,
               }
             : {
                 kind: 'operation_step_up',
@@ -1985,8 +2022,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
         runtimePolicyScope: signingContext.runtimePolicyScope,
         subjectId: signingContext.subjectId,
         accountId: scope.account_id,
-        sessionId: signingContext.authorizationSessionId,
-        authorizationKind: scope.authorization.kind,
+        authorization: signingContext,
         requestId: scope.request_id,
         intentDigest,
         trustedSourceDigest,
@@ -2020,8 +2056,7 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
     runtimePolicyScope: signingContext.runtimePolicyScope,
     subjectId: signingContext.subjectId,
     accountId: scope.account_id,
-    sessionId: signingContext.authorizationSessionId,
-    authorizationKind: scope.authorization.kind,
+    authorization: signingContext,
     requestId: scope.request_id,
     intentDigest: material.intentDigest,
     trustedSourceDigest,
@@ -2036,10 +2071,10 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
       account_id: scope.account_id,
       subject_id: signingContext.subjectId,
       authorization:
-        scope.authorization.kind === 'reusable_wallet_session'
+        signingContext.kind === 'reusable_wallet_session'
           ? {
               kind: 'reusable_wallet_session',
-              wallet_session_id: scope.authorization.wallet_session_id,
+              wallet_session_id: signingContext.walletSessionId,
             }
           : {
               kind: 'operation_step_up',
@@ -2072,35 +2107,19 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
   headers: Record<string, string | string[] | undefined>;
   materialSource?: RouterAbNormalSigningMaterialSourceV1;
 }): Promise<RouterAbEcdsaDerivationPrivateSigningWorkerBody> {
-  const runtimePolicyScope =
-    input.authorization.kind === 'wallet_session_operation_credential_v1'
-      ? input.authorization.runtimePolicyScope
-      : input.authorization.session.runtimePolicyScope;
-  const subjectId =
-    input.authorization.kind === 'wallet_session_operation_credential_v1'
-      ? input.authorization.principalId
-      : input.authorization.session.principalId;
-  const authorizationSessionId =
-    input.authorization.kind === 'wallet_session_operation_credential_v1'
-      ? input.authorization.walletSessionId
-      : input.authorization.session.sessionId;
+  const signingContext = privateSigningAuthorizationContextFromAuthorization(input.authorization);
   const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
   if (input.phase === 'prepare') {
     const request = parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body);
+    validatePrivateSigningAuthorizationContext(request.authorization, signingContext);
     const requestDigest = await routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1(request);
     return {
       request,
       trusted_admission: privateSigningTrustedAdmission({
-        runtimePolicyScope,
-        subjectId,
+        runtimePolicyScope: signingContext.runtimePolicyScope,
+        subjectId: signingContext.subjectId,
         accountId: request.scope.wallet_id,
-        sessionId:
-          authorizationSessionId ||
-          routerAbEcdsaDerivationActiveStateId({
-            kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-            scope: request.scope,
-          }),
-        authorizationKind: request.authorization.kind,
+        authorization: signingContext,
         requestId: request.request_id,
         intentDigest: requestDigest,
         trustedSourceDigest,
@@ -2115,21 +2134,16 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
     };
   }
   const request = parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body);
+  validatePrivateSigningAuthorizationContext(request.authorization, signingContext);
   const requestDigest =
     await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(request);
   return {
     request,
     trusted_admission: privateSigningTrustedAdmission({
-      runtimePolicyScope,
-      subjectId,
+      runtimePolicyScope: signingContext.runtimePolicyScope,
+      subjectId: signingContext.subjectId,
       accountId: request.scope.wallet_id,
-      sessionId:
-        authorizationSessionId ||
-        routerAbEcdsaDerivationActiveStateId({
-          kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
-          scope: request.scope,
-        }),
-      authorizationKind: request.authorization.kind,
+      authorization: signingContext,
       requestId: request.request_id,
       intentDigest: requestDigest,
       trustedSourceDigest,

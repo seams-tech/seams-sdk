@@ -796,7 +796,7 @@ and both credential-bearing registration replay functions are deleted.
       the durable challenge or change the protocol-receipt authorization path.
 - [x] Resolve the capability subject's exact material activation before either
       curve constructs a Router A/B request.
-- [ ] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
+- [x] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
       material resolver or delete its consumer, including
       `thresholdSessionId`, `participantIds`, `keyManifestDigestB64u`,
       `relayerKeyId`, `runtimePolicyScope`, `keyHandle`, and

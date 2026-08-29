@@ -918,7 +918,12 @@ test('reusable signing forwards the authoritative ECDSA threshold session identi
   const response = await handleThresholdEcdsa(ctx);
   expect(response?.status, response ? await response.clone().text() : 'missing response').toBe(200);
   const authorizedOperation = forwardedBody?.authorized_operation as
-    | { readonly binding?: { readonly threshold_session_id?: unknown } }
+    | {
+        readonly binding?: {
+          readonly threshold_session_id?: unknown;
+          readonly authorization_session_id?: unknown;
+        };
+      }
     | undefined;
   expect(authorizedOperation?.binding?.threshold_session_id).toBe(
     routerAbEcdsaDerivationActiveStateId({
@@ -927,6 +932,7 @@ test('reusable signing forwards the authoritative ECDSA threshold session identi
     }),
   );
   expect(authorizedOperation?.binding?.threshold_session_id).not.toBe(walletSessionId);
+  expect(authorizedOperation?.binding).not.toHaveProperty('authorization_session_id');
 });
 
 test('operation step-up rejects a material replacement before proof, evidence, or admission', async () => {

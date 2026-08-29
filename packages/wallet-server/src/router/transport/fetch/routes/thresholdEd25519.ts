@@ -199,7 +199,6 @@ function buildEd25519GatewayOwnerWalletSessionBinding(
     kind: 'gateway_owner_wallet_session' as const,
     subjectId: String(session.principalId),
     accountId: String(session.walletId),
-    authorizationSessionId: String(session.authorizationId),
     authorizationId: String(session.authorizationId),
     walletSessionId: String(session.walletSessionId),
     quotaId: String(session.quotaId),
@@ -224,7 +223,6 @@ type RouterAbEd25519AuthorizedOperationWire = {
         readonly kind: 'gateway_owner_wallet_session';
         readonly subject_id: string;
         readonly account_id: string;
-        readonly authorization_session_id: string;
         readonly authorization_id: string;
         readonly wallet_session_id: string;
         readonly quota_id: string;
@@ -265,7 +263,6 @@ type RouterAbEd25519AuthorizedOperationWireInput =
         readonly kind: 'gateway_owner_wallet_session';
         readonly subjectId: string;
         readonly accountId: string;
-        readonly authorizationSessionId: string;
         readonly authorizationId: string;
         readonly walletSessionId: string;
         readonly quotaId: string;
@@ -340,7 +337,6 @@ function buildRouterAbEd25519AuthorizedOperationWire(
           kind: 'gateway_owner_wallet_session',
           subject_id: input.binding.subjectId,
           account_id: input.binding.accountId,
-          authorization_session_id: input.binding.authorizationSessionId,
           authorization_id: input.binding.authorizationId,
           wallet_session_id: input.binding.walletSessionId,
           quota_id: input.binding.quotaId,

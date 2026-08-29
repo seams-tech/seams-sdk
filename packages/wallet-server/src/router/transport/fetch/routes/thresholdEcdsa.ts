@@ -186,7 +186,6 @@ type RouterAbEcdsaAuthorizedOperationWire = {
         readonly kind: 'gateway_owner_wallet_session';
         readonly subject_id: string;
         readonly account_id: string;
-        readonly authorization_session_id: string;
         readonly authorization_id: string;
         readonly wallet_session_id: string;
         readonly quota_id: string;
@@ -247,7 +246,6 @@ type RouterAbEcdsaAuthorizedOperationWireInput =
         readonly kind: 'gateway_owner_wallet_session';
         readonly subjectId: string;
         readonly accountId: string;
-        readonly authorizationSessionId: string;
         readonly authorizationId: string;
         readonly walletSessionId: string;
         readonly quotaId: string;
@@ -324,7 +322,6 @@ function buildRouterAbEcdsaAuthorizedOperationWire(
           kind: 'gateway_owner_wallet_session',
           subject_id: input.binding.subjectId,
           account_id: input.binding.accountId,
-          authorization_session_id: input.binding.authorizationSessionId,
           authorization_id: input.binding.authorizationId,
           wallet_session_id: input.binding.walletSessionId,
           quota_id: input.binding.quotaId,
@@ -554,7 +551,6 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
         kind: 'gateway_owner_wallet_session',
         subjectId: String(session.principalId),
         accountId: String(session.walletId),
-        authorizationSessionId: String(session.authorizationId),
         authorizationId: String(session.authorizationId),
         walletSessionId: String(session.walletSessionId),
         quotaId: String(session.quotaId),
