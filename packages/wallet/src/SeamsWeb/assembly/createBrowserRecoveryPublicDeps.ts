@@ -1,5 +1,5 @@
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
-import { walletSessionAuthorizations } from '@/core/indexedDB';
+import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import type {
   PasskeyMpcExportPort,
   PasskeyMpcSessionPort,
@@ -14,8 +14,11 @@ import type { RuntimePorts } from '@/core/platform';
 import type { WalletSessionActivationDeps } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { RecoveryPublicDeps } from '@/core/signingEngine/flows/recovery/public';
 import { createCanonicalWalletSessionStatusReader } from '@/core/signingEngine/session/lifecycle/canonicalWalletSessionStatus';
-import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
-import { readClientWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/clientSessionPersistence';
+import {
+  readClientWalletSessionAuthorization,
+  type ClientWalletSessionAuthorizationPersistenceDeps,
+  type ReadClientWalletSessionAuthorizationRequest,
+} from '@/core/signingEngine/session/persistence/clientSessionPersistence';
 import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import type { PersistedAvailableSigningLanesDeps } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import {
@@ -28,6 +31,24 @@ import {
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+
+const clientWalletSessionAuthorizationPersistenceDeps: ClientWalletSessionAuthorizationPersistenceDeps =
+  {
+    resolveSelectedWalletAuthority:
+      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
+    readExactActiveForWallet: walletSessionAuthorizations.readExactActiveForWallet.bind(
+      walletSessionAuthorizations,
+    ),
+  };
+
+async function readBrowserClientWalletSessionAuthorization(
+  request: ReadClientWalletSessionAuthorizationRequest,
+) {
+  return await readClientWalletSessionAuthorization(
+    clientWalletSessionAuthorizationPersistenceDeps,
+    request,
+  );
+}
 
 export function createBrowserRecoveryPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -106,7 +127,7 @@ export function createBrowserRecoveryPublicDeps(args: {
     resolvePasskeyEd25519YaoExportContext: args.resolvePasskeyEd25519YaoExportContext,
     resolveEmailOtpEd25519YaoExportContext: args.resolveEmailOtpEd25519YaoExportContext,
     sessionLifecycle: {
-      readAuthorization: async (request) => await readClientWalletSessionAuthorization(request),
+      readAuthorization: readBrowserClientWalletSessionAuthorization,
       invalidateExpiredAuthorization: async (request) => {
         const result = await args.getSigningSessionCoordinator().invalidateExpiredWalletSession({
           state: request.state,

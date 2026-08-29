@@ -42,8 +42,13 @@ test('persists and rereads one exact Wallet Session operation credential row', a
         authorityId: activeWalletSession.authorityId,
         authMethodId: activeWalletSession.authMethodId,
       });
+      const exactActive = await repository.readExactActiveForWallet({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      });
       const exact = await repository.readExact(walletSessionId);
-      return { raw, legacyKeyRaw, reread, exact, operationCredential };
+      return { raw, legacyKeyRaw, reread, exactActive, exact, operationCredential };
     },
     {
       activeWalletSession: fixture.activeWalletSession,
@@ -63,6 +68,7 @@ test('persists and rereads one exact Wallet Session operation credential row', a
     record: fixture.activeWalletSession,
     operationCredential: result.operationCredential,
   });
+  expect(result.exactActive).toEqual(result.reread);
 });
 
 test('same-wallet sibling exact sessions coexist and read by their exact method', async ({
@@ -334,7 +340,7 @@ test('rejects a corrupt matching exact V5 Wallet Session row', async ({ page }) 
   const fixture = await buildLinkedDeviceUnlockRuntimeFixture();
   await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
-  const errorMessage = await page.evaluate(
+  const result = await page.evaluate(
     async ({ activeWalletSession, walletSessionId }) => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -368,15 +374,23 @@ test('rejects a corrupt matching exact V5 Wallet Session row', async ({ page }) 
           walletSessionId: 'wallet-session:wrong-key',
         },
       });
+      const exactActive = await repository.readExactActiveForWallet({
+        walletId: activeWalletSession.walletId,
+        authorityId: activeWalletSession.authorityId,
+        authMethodId: activeWalletSession.authMethodId,
+      });
       try {
         await repository.readExactWithOperationCredential({
           walletId: activeWalletSession.walletId,
           authorityId: activeWalletSession.authorityId,
           authMethodId: activeWalletSession.authMethodId,
         });
-        return null;
+        return { exactActive, errorMessage: null };
       } catch (error) {
-        return error instanceof Error ? error.message : String(error);
+        return {
+          exactActive,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        };
       }
     },
     {
@@ -385,7 +399,8 @@ test('rejects a corrupt matching exact V5 Wallet Session row', async ({ page }) 
     },
   );
 
-  expect(errorMessage).toBe('Stored Wallet Session authorization v5 is corrupt');
+  expect(result.exactActive).toEqual({ kind: 'corrupt' });
+  expect(result.errorMessage).toBe('Stored Wallet Session authorization v5 is corrupt');
 });
 
 test('returns upgrade_required and preserves a future exact Wallet Session row', async ({
