@@ -11,11 +11,12 @@ use signer_core::ed25519_yao_derivation::{
     Ed25519YaoDeriverAServerContributionV1, Ed25519YaoDeriverBDerivationRootV1,
     Ed25519YaoDeriverBServerContributionV1, Ed25519YaoStableKeyDerivationContextV1,
 };
-use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    evaluate_partial, evaluate_partial_with_dleq_proof, verify_partial_dleq_proof, PrfContext,
-    PrfDleqProof, PrfPartial, PrfPartialProofBundle, PrfPartialWire, PrfPurpose, SigningRootShare,
-    SigningRootShareCommitment, SuiteId, ThresholdPolicy, ThresholdShareId, ValidatedThresholdSet,
+    complete_ed25519_deriver_a_target_v1, complete_ed25519_deriver_b_target_v1,
+    prepare_ed25519_deriver_a_target_v1, prepare_ed25519_deriver_b_target_v1,
+    Ed25519DeriverAToBTargetProofBundleV1, Ed25519DeriverBToATargetProofBundleV1,
+    PreparedEd25519DeriverATargetV1, PreparedEd25519DeriverBTargetV1, SigningRootShare,
+    SigningRootShareCommitment, ThresholdShareId,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -23,8 +24,7 @@ type PrefaceHpke = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
 
 const WIRE_MAGIC: &[u8; 8] = b"R120PRF1";
 const HPKE_INFO: &[u8] = b"seams/r120/ed25519-role-target-preface/v1";
-const PROOF_PLAINTEXT_LEN: usize =
-    PrfPartialWire::LEN + SigningRootShareCommitment::LEN + PrfDleqProof::LEN;
+const PROOF_PLAINTEXT_LEN: usize = Ed25519DeriverAToBTargetProofBundleV1::LEN;
 const HPKE_TAG_LEN: usize = 16;
 const CIPHERTEXT_LEN: usize = PROOF_PLAINTEXT_LEN + HPKE_TAG_LEN;
 const AAD_LEN: usize = 130;
@@ -123,17 +123,13 @@ impl_wire_bundle!(DeriverBToAProofBundle);
 /// Deriver A state after producing its single outbound proof bundle.
 pub(crate) struct PreparedDeriverA {
     binding: PrefaceBinding,
-    local_partial: Zeroizing<[u8; PrfPartialWire::LEN]>,
-    context: PrfContext,
-    expected_peer_commitment: [u8; SigningRootShareCommitment::LEN],
+    target: PreparedEd25519DeriverATargetV1,
 }
 
 /// Deriver B state after producing its single outbound proof bundle.
 pub(crate) struct PreparedDeriverB {
     binding: PrefaceBinding,
-    local_partial: Zeroizing<[u8; PrfPartialWire::LEN]>,
-    context: PrfContext,
-    expected_peer_commitment: [u8; SigningRootShareCommitment::LEN],
+    target: PreparedEd25519DeriverBTargetV1,
 }
 
 /// Benchmark-only role-target preface failure.
@@ -200,22 +196,22 @@ pub(crate) fn prepare_deriver_a(
     stable_context: &Ed25519YaoStableKeyDerivationContextV1,
     binding: PrefaceBinding,
 ) -> Result<(PreparedDeriverA, DeriverAToBProofBundle), PrefaceError> {
-    require_role_share(share, A_SHARE_ID)?;
-    require_expected_commitment(&expected_peer_commitment, B_SHARE_ID)?;
     require_stable_context(stable_context, binding)?;
-    let local_context = target_context(PrfPurpose::Ed25519DeriverAContributionRoot, stable_context);
-    let outgoing_context =
-        target_context(PrfPurpose::Ed25519DeriverBContributionRoot, stable_context);
-    let local_partial = evaluate_partial(share, &local_context).map_err(|_| PrefaceError::Proof)?;
-    let outgoing = proof_bundle(share, &outgoing_context)?;
-    let wire = seal_bundle(ROLE_A, ROLE_B, binding, &outgoing, &RECIPIENT_B_IKM)?;
+    let commitment = SigningRootShareCommitment::from_bytes(expected_peer_commitment)
+        .map_err(|_| PrefaceError::InvalidShare)?;
+    let mut rng = proof_rng()?;
+    let (target, outgoing) =
+        prepare_ed25519_deriver_a_target_v1(share, commitment, &stable_context.encode(), &mut rng)
+            .map_err(|_| PrefaceError::Proof)?;
+    let wire = seal_bundle(
+        ROLE_A,
+        ROLE_B,
+        binding,
+        outgoing.as_bytes(),
+        &RECIPIENT_B_IKM,
+    )?;
     Ok((
-        PreparedDeriverA {
-            binding,
-            local_partial: Zeroizing::new(PrfPartialWire::from_partial(&local_partial).to_bytes()),
-            context: local_context,
-            expected_peer_commitment,
-        },
+        PreparedDeriverA { binding, target },
         DeriverAToBProofBundle(wire),
     ))
 }
@@ -227,22 +223,22 @@ pub(crate) fn prepare_deriver_b(
     stable_context: &Ed25519YaoStableKeyDerivationContextV1,
     binding: PrefaceBinding,
 ) -> Result<(PreparedDeriverB, DeriverBToAProofBundle), PrefaceError> {
-    require_role_share(share, B_SHARE_ID)?;
-    require_expected_commitment(&expected_peer_commitment, A_SHARE_ID)?;
     require_stable_context(stable_context, binding)?;
-    let local_context = target_context(PrfPurpose::Ed25519DeriverBContributionRoot, stable_context);
-    let outgoing_context =
-        target_context(PrfPurpose::Ed25519DeriverAContributionRoot, stable_context);
-    let local_partial = evaluate_partial(share, &local_context).map_err(|_| PrefaceError::Proof)?;
-    let outgoing = proof_bundle(share, &outgoing_context)?;
-    let wire = seal_bundle(ROLE_B, ROLE_A, binding, &outgoing, &RECIPIENT_A_IKM)?;
+    let commitment = SigningRootShareCommitment::from_bytes(expected_peer_commitment)
+        .map_err(|_| PrefaceError::InvalidShare)?;
+    let mut rng = proof_rng()?;
+    let (target, outgoing) =
+        prepare_ed25519_deriver_b_target_v1(share, commitment, &stable_context.encode(), &mut rng)
+            .map_err(|_| PrefaceError::Proof)?;
+    let wire = seal_bundle(
+        ROLE_B,
+        ROLE_A,
+        binding,
+        outgoing.as_bytes(),
+        &RECIPIENT_A_IKM,
+    )?;
     Ok((
-        PreparedDeriverB {
-            binding,
-            local_partial: Zeroizing::new(PrfPartialWire::from_partial(&local_partial).to_bytes()),
-            context: local_context,
-            expected_peer_commitment,
-        },
+        PreparedDeriverB { binding, target },
         DeriverBToAProofBundle(wire),
     ))
 }
@@ -254,17 +250,18 @@ pub(crate) fn complete_deriver_a(
     stable_context: &Ed25519YaoStableKeyDerivationContextV1,
 ) -> Result<Ed25519YaoDeriverAServerContributionV1, PrefaceError> {
     require_stable_context(stable_context, prepared.binding)?;
-    let output = open_verify_and_combine(
+    let plaintext = open_bundle(
         incoming.as_bytes(),
         ROLE_B,
         ROLE_A,
         prepared.binding,
         &RECIPIENT_A_IKM,
-        &prepared.local_partial,
-        &prepared.context,
-        &prepared.expected_peer_commitment,
-        B_SHARE_ID,
     )?;
+    let incoming = Ed25519DeriverBToATargetProofBundleV1::from_slice(&plaintext)
+        .map_err(|_| PrefaceError::Proof)?;
+    let output = complete_ed25519_deriver_a_target_v1(prepared.target, &incoming)
+        .map_err(|_| PrefaceError::Proof)?
+        .into_secret_bytes();
     derive_ed25519_yao_deriver_a_server_contribution_v1(
         &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes(output),
         stable_context,
@@ -279,17 +276,18 @@ pub(crate) fn complete_deriver_b(
     stable_context: &Ed25519YaoStableKeyDerivationContextV1,
 ) -> Result<Ed25519YaoDeriverBServerContributionV1, PrefaceError> {
     require_stable_context(stable_context, prepared.binding)?;
-    let output = open_verify_and_combine(
+    let plaintext = open_bundle(
         incoming.as_bytes(),
         ROLE_A,
         ROLE_B,
         prepared.binding,
         &RECIPIENT_B_IKM,
-        &prepared.local_partial,
-        &prepared.context,
-        &prepared.expected_peer_commitment,
-        A_SHARE_ID,
     )?;
+    let incoming = Ed25519DeriverAToBTargetProofBundleV1::from_slice(&plaintext)
+        .map_err(|_| PrefaceError::Proof)?;
+    let output = complete_ed25519_deriver_b_target_v1(prepared.target, &incoming)
+        .map_err(|_| PrefaceError::Proof)?
+        .into_secret_bytes();
     derive_ed25519_yao_deriver_b_server_contribution_v1(
         &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes(output),
         stable_context,
@@ -327,27 +325,6 @@ fn benchmark_share(id: u16, scalar: u8) -> Result<SigningRootShare, PrefaceError
     .map_err(|_| PrefaceError::InvalidShare)
 }
 
-fn require_role_share(share: &SigningRootShare, expected_id: u16) -> Result<(), PrefaceError> {
-    if share.id().get().get() == expected_id {
-        Ok(())
-    } else {
-        Err(PrefaceError::InvalidShare)
-    }
-}
-
-fn require_expected_commitment(
-    bytes: &[u8; SigningRootShareCommitment::LEN],
-    expected_id: u16,
-) -> Result<(), PrefaceError> {
-    let commitment =
-        SigningRootShareCommitment::from_bytes(*bytes).map_err(|_| PrefaceError::InvalidShare)?;
-    if commitment.id().get().get() == expected_id {
-        Ok(())
-    } else {
-        Err(PrefaceError::InvalidShare)
-    }
-}
-
 fn require_stable_context(
     stable_context: &Ed25519YaoStableKeyDerivationContextV1,
     binding: PrefaceBinding,
@@ -357,25 +334,6 @@ fn require_stable_context(
     } else {
         Err(PrefaceError::InvalidBinding)
     }
-}
-
-fn target_context(
-    purpose: PrfPurpose,
-    stable_context: &Ed25519YaoStableKeyDerivationContextV1,
-) -> PrfContext {
-    PrfContext::new(
-        SuiteId::Ristretto255Sha512,
-        purpose,
-        stable_context.encode(),
-    )
-}
-
-fn proof_bundle(
-    share: &SigningRootShare,
-    context: &PrfContext,
-) -> Result<PrfPartialProofBundle, PrefaceError> {
-    let mut rng = proof_rng()?;
-    evaluate_partial_with_dleq_proof(share, context, &mut rng).map_err(|_| PrefaceError::Proof)
 }
 
 fn proof_rng() -> Result<ProofRng, PrefaceError> {
@@ -399,41 +357,11 @@ fn random_nonce() -> Result<[u8; 16], PrefaceError> {
     Ok(nonce)
 }
 
-fn encode_plaintext(bundle: &PrfPartialProofBundle) -> Zeroizing<[u8; PROOF_PLAINTEXT_LEN]> {
-    let mut plaintext = Zeroizing::new([0_u8; PROOF_PLAINTEXT_LEN]);
-    let partial_end = PrfPartialWire::LEN;
-    let commitment_end = partial_end + SigningRootShareCommitment::LEN;
-    plaintext[..partial_end]
-        .copy_from_slice(&PrfPartialWire::from_partial(&bundle.partial).to_bytes());
-    plaintext[partial_end..commitment_end].copy_from_slice(&bundle.commitment.to_bytes());
-    plaintext[commitment_end..].copy_from_slice(&bundle.proof.to_bytes());
-    plaintext
-}
-
-fn decode_plaintext(
-    plaintext: &[u8],
-) -> Result<(PrfPartial, SigningRootShareCommitment, PrfDleqProof), PrefaceError> {
-    if plaintext.len() != PROOF_PLAINTEXT_LEN {
-        return Err(PrefaceError::InvalidWire);
-    }
-    let partial_end = PrfPartialWire::LEN;
-    let commitment_end = partial_end + SigningRootShareCommitment::LEN;
-    let partial = PrfPartialWire::decode_slice(&plaintext[..partial_end])
-        .and_then(|wire| wire.to_partial())
-        .map_err(|_| PrefaceError::InvalidWire)?;
-    let commitment =
-        SigningRootShareCommitment::from_slice(&plaintext[partial_end..commitment_end])
-            .map_err(|_| PrefaceError::InvalidWire)?;
-    let proof = PrfDleqProof::from_slice(&plaintext[commitment_end..])
-        .map_err(|_| PrefaceError::InvalidWire)?;
-    Ok((partial, commitment, proof))
-}
-
 fn seal_bundle(
     source: u8,
     target: u8,
     binding: PrefaceBinding,
-    bundle: &PrfPartialProofBundle,
+    plaintext: &[u8; PROOF_PLAINTEXT_LEN],
     recipient_ikm: &[u8; 32],
 ) -> Result<[u8; WIRE_LEN], PrefaceError> {
     let mut wire = [0_u8; WIRE_LEN];
@@ -446,14 +374,13 @@ fn seal_bundle(
     )?;
     let (_, public_key) = DhKemX25519HkdfSha256::derive_key_pair(recipient_ikm)
         .map_err(|_| PrefaceError::Encryption)?;
-    let plaintext = encode_plaintext(bundle);
     let mut rng = hpke_rng()?;
     let (encapsulated_key, ciphertext) = PrefaceHpke::seal_base(
         &mut rng,
         &public_key,
         HPKE_INFO,
         &wire[..AAD_LEN],
-        plaintext.as_ref(),
+        plaintext,
     )
     .map_err(|_| PrefaceError::Encryption)?;
     if encapsulated_key.as_ref().len() != ENCAPSULATED_KEY_LEN || ciphertext.len() != CIPHERTEXT_LEN
@@ -486,25 +413,20 @@ fn write_aad(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn open_verify_and_combine(
+fn open_bundle(
     wire: &[u8; WIRE_LEN],
     expected_source: u8,
     expected_target: u8,
     binding: PrefaceBinding,
     recipient_ikm: &[u8; 32],
-    local_partial_wire: &[u8; PrfPartialWire::LEN],
-    context: &PrfContext,
-    expected_peer_commitment: &[u8; SigningRootShareCommitment::LEN],
-    expected_peer_share_id: u16,
-) -> Result<[u8; 32], PrefaceError> {
+) -> Result<Zeroizing<Vec<u8>>, PrefaceError> {
     validate_aad(&wire[..AAD_LEN], expected_source, expected_target, binding)?;
     let encapsulated_key =
         DhKemX25519HkdfSha256::enc_from_bytes(&wire[AAD_LEN..AAD_LEN + ENCAPSULATED_KEY_LEN])
             .map_err(|_| PrefaceError::Encryption)?;
     let (private_key, _) = DhKemX25519HkdfSha256::derive_key_pair(recipient_ikm)
         .map_err(|_| PrefaceError::Encryption)?;
-    let plaintext = PrefaceHpke::open_base(
+    PrefaceHpke::open_base(
         &encapsulated_key,
         &private_key,
         HPKE_INFO,
@@ -512,24 +434,7 @@ fn open_verify_and_combine(
         &wire[AAD_LEN + ENCAPSULATED_KEY_LEN..],
     )
     .map(Zeroizing::new)
-    .map_err(|_| PrefaceError::Encryption)?;
-    let (peer_partial, peer_commitment, peer_proof) = decode_plaintext(&plaintext)?;
-    if peer_partial.id().get().get() != expected_peer_share_id
-        || peer_commitment.to_bytes() != *expected_peer_commitment
-    {
-        return Err(PrefaceError::InvalidShare);
-    }
-    verify_partial_dleq_proof(&peer_commitment, &peer_partial, context, &peer_proof)
-        .map_err(|_| PrefaceError::Proof)?;
-    let local_partial = PrfPartialWire::decode(*local_partial_wire)
-        .and_then(|wire| wire.to_partial())
-        .map_err(|_| PrefaceError::Proof)?;
-    let policy = ThresholdPolicy::from_u16s(2, 2).map_err(|_| PrefaceError::Proof)?;
-    let partials = ValidatedThresholdSet::from_partials(policy, vec![local_partial, peer_partial])
-        .map_err(|_| PrefaceError::Proof)?;
-    combine_partials(&partials, context)
-        .map(|output| output.into_bytes())
-        .map_err(|_| PrefaceError::Proof)
+    .map_err(|_| PrefaceError::Encryption)
 }
 
 fn validate_aad(
@@ -561,7 +466,7 @@ mod tests {
         derive_ed25519_yao_deriver_b_server_contribution_v1,
     };
     use threshold_prf::reference::evaluate_direct_reference;
-    use threshold_prf::SigningRootScalar;
+    use threshold_prf::{PrfContext, PrfPurpose, SigningRootScalar, SuiteId};
 
     fn binding(stable_context: &Ed25519YaoStableKeyDerivationContextV1) -> PrefaceBinding {
         PrefaceBinding::new([0x51; 32], stable_context, [0x61; 32]).expect("binding")
@@ -576,6 +481,17 @@ mod tests {
 
     fn commitment(share: &SigningRootShare) -> [u8; SigningRootShareCommitment::LEN] {
         SigningRootShareCommitment::from_share(share).to_bytes()
+    }
+
+    fn target_context(
+        purpose: PrfPurpose,
+        stable_context: &Ed25519YaoStableKeyDerivationContextV1,
+    ) -> PrfContext {
+        PrfContext::new(
+            SuiteId::Ristretto255Sha512,
+            purpose,
+            stable_context.encode(),
+        )
     }
 
     #[test]

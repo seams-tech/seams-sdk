@@ -585,6 +585,9 @@ fn map_threshold_error(error: ThresholdPrfError) -> RouterAbDerivationError {
         ThresholdPrfError::InvalidDleqProof => {
             RouterAbDerivationErrorCode::OutputVerificationFailed
         }
+        ThresholdPrfError::RefreshContinuityMismatch | ThresholdPrfError::InvalidKnowledgeProof => {
+            RouterAbDerivationErrorCode::OutputVerificationFailed
+        }
         ThresholdPrfError::InvalidScalarEncoding
         | ThresholdPrfError::InvalidPointEncoding
         | ThresholdPrfError::InvalidPartialEncoding
@@ -594,7 +597,12 @@ fn map_threshold_error(error: ThresholdPrfError) -> RouterAbDerivationError {
         | ThresholdPrfError::InvalidThresholdSubset
         | ThresholdPrfError::TranscriptLengthOverflow
         | ThresholdPrfError::InvalidCommitmentEncoding
-        | ThresholdPrfError::InvalidDleqProofEncoding => {
+        | ThresholdPrfError::InvalidDleqProofEncoding
+        | ThresholdPrfError::InvalidRefreshRole
+        | ThresholdPrfError::InvalidRefreshContribution
+        | ThresholdPrfError::RefreshNoOp
+        | ThresholdPrfError::InvalidRootCommitment
+        | ThresholdPrfError::InvalidKnowledgeProofEncoding => {
             RouterAbDerivationErrorCode::MalformedInput
         }
     };

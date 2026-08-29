@@ -6,6 +6,17 @@
 
 use vstd::prelude::*;
 
+/// Fixed Deriver A share identifier in the R120 two-party root policy.
+pub const TWO_PARTY_DERIVER_A_SHARE_ID: u16 = 1;
+/// Fixed Deriver B share identifier in the R120 two-party root policy.
+pub const TWO_PARTY_DERIVER_B_SHARE_ID: u16 = 2;
+/// Fixed public commitment wire width used by the R120 refresh primitive.
+pub const TWO_PARTY_REFRESH_COMMITMENT_WIRE_LEN: usize = 34;
+/// Fixed recipient-specific contribution wire width used by the R120 refresh primitive.
+pub const TWO_PARTY_REFRESH_CONTRIBUTION_WIRE_LEN: usize = 36;
+/// Fixed root-share knowledge-proof wire width used by the R120 refresh primitive.
+pub const TWO_PARTY_ROOT_SHARE_KNOWLEDGE_PROOF_WIRE_LEN: usize = 64;
+
 verus! {
 
 #[derive(PartialEq, Eq)]
@@ -30,6 +41,21 @@ pub struct SigningRootShareWireSpec {
 pub struct PrfPartialProofBundleIdsSpec {
     pub partial_id: u16,
     pub commitment_id: u16,
+}
+
+pub open spec fn fixed_two_party_policy_spec() -> ThresholdPolicySpec {
+    ThresholdPolicySpec {
+        threshold: 2nat,
+        share_count: 2nat,
+    }
+}
+
+pub open spec fn deriver_a_share_id_spec() -> u16 {
+    TWO_PARTY_DERIVER_A_SHARE_ID
+}
+
+pub open spec fn deriver_b_share_id_spec() -> u16 {
+    TWO_PARTY_DERIVER_B_SHARE_ID
 }
 
 pub open spec fn max_share_count_spec() -> nat {
@@ -59,6 +85,18 @@ pub open spec fn dleq_proof_wire_width_bytes_spec() -> nat {
 pub open spec fn proof_bundle_wire_width_bytes_spec() -> nat {
     partial_wire_width_bytes_spec() + share_commitment_wire_width_bytes_spec()
         + dleq_proof_wire_width_bytes_spec()
+}
+
+pub open spec fn two_party_refresh_commitment_wire_width_bytes_spec() -> nat {
+    TWO_PARTY_REFRESH_COMMITMENT_WIRE_LEN as nat
+}
+
+pub open spec fn two_party_refresh_contribution_wire_width_bytes_spec() -> nat {
+    TWO_PARTY_REFRESH_CONTRIBUTION_WIRE_LEN as nat
+}
+
+pub open spec fn two_party_root_share_knowledge_proof_wire_width_bytes_spec() -> nat {
+    TWO_PARTY_ROOT_SHARE_KNOWLEDGE_PROOF_WIRE_LEN as nat
 }
 
 pub open spec fn is_field_element_spec(value: u8) -> bool {
@@ -156,6 +194,30 @@ pub open spec fn validate_proof_bundle_id_binding_spec(
         && bundle.partial_id == bundle.commitment_id
 }
 
+pub open spec fn two_party_refresh_next_a_spec(current_a: int, rho: int) -> int {
+    current_a + rho
+}
+
+pub open spec fn two_party_refresh_next_b_spec(current_b: int, rho: int) -> int {
+    current_b + 2int * rho
+}
+
+pub open spec fn two_party_root_spec(deriver_a: int, deriver_b: int) -> int {
+    2int * deriver_a - deriver_b
+}
+
+pub open spec fn validate_two_party_refresh_spec(
+    current_a: int,
+    current_b: int,
+    rho: int,
+) -> bool {
+    current_a != 0int
+        && current_b != 0int
+        && rho != 0int
+        && two_party_refresh_next_a_spec(current_a, rho) != 0int
+        && two_party_refresh_next_b_spec(current_b, rho) != 0int
+}
+
 pub uninterp spec fn reconstruct_generated_root_2_spec(
     policy: ThresholdPolicySpec,
     root: u8,
@@ -233,6 +295,65 @@ pub proof fn wire_widths_are_fixed()
         share_commitment_wire_width_bytes_spec() == 34nat,
         dleq_proof_wire_width_bytes_spec() == 64nat,
         proof_bundle_wire_width_bytes_spec() == 164nat,
+        two_party_refresh_commitment_wire_width_bytes_spec() == 34nat,
+        two_party_refresh_contribution_wire_width_bytes_spec() == 36nat,
+        two_party_root_share_knowledge_proof_wire_width_bytes_spec() == 64nat,
+{
+}
+
+pub proof fn fixed_two_party_share_ids_are_canonical()
+    ensures
+        deriver_a_share_id_spec() == 1u16,
+        deriver_b_share_id_spec() == 2u16,
+        deriver_a_share_id_spec() != deriver_b_share_id_spec(),
+        validate_threshold_subset_2_spec(
+            fixed_two_party_policy_spec(),
+            deriver_a_share_id_spec(),
+            deriver_b_share_id_spec(),
+        ),
+{
+}
+
+pub proof fn two_party_refresh_preserves_root(current_a: int, current_b: int, rho: int)
+    ensures
+        2int * (current_a + rho) - (current_b + 2int * rho)
+            == 2int * current_a - current_b,
+        two_party_root_spec(
+            two_party_refresh_next_a_spec(current_a, rho),
+            two_party_refresh_next_b_spec(current_b, rho),
+        ) == two_party_root_spec(current_a, current_b),
+{
+}
+
+pub proof fn two_party_refresh_rejects_no_op(current_a: int, current_b: int, rho: int)
+    requires
+        rho == 0int,
+    ensures
+        !validate_two_party_refresh_spec(current_a, current_b, rho),
+{
+}
+
+pub proof fn two_party_refresh_rejects_zero_next_a(
+    current_a: int,
+    current_b: int,
+    rho: int,
+)
+    requires
+        two_party_refresh_next_a_spec(current_a, rho) == 0int,
+    ensures
+        !validate_two_party_refresh_spec(current_a, current_b, rho),
+{
+}
+
+pub proof fn two_party_refresh_rejects_zero_next_b(
+    current_a: int,
+    current_b: int,
+    rho: int,
+)
+    requires
+        two_party_refresh_next_b_spec(current_b, rho) == 0int,
+    ensures
+        !validate_two_party_refresh_spec(current_a, current_b, rho),
 {
 }
 

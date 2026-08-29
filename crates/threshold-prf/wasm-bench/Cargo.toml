@@ -11,8 +11,12 @@ name = "threshold_prf_wasm_bench"
 path = "src/lib.rs"
 
 [dependencies]
+ed25519-dalek = { version = "2.1", default-features = false }
 getrandom = { version = "0.2", features = ["js"] }
 rand_chacha = "0.3"
+rand_chacha_09 = { package = "rand_chacha", version = "0.9", default-features = false }
 rand_core = "0.6"
+rand_core_09 = { package = "rand_core", version = "0.9.5" }
+router-ab-core = { path = "../../router-ab-core" }
 threshold-prf = { path = ".." }
 wasm-bindgen = "0.2"

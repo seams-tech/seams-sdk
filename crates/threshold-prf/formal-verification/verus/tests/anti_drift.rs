@@ -4,12 +4,14 @@ use serde::Deserialize;
 use threshold_prf::reference::evaluate_direct_reference;
 use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    evaluate_partial as evaluate_partial, generate_signing_root,
-    split_signing_root as split_signing_root, PrfPartialWire as PrfPartialWire,
-    SigningRootShareWire as SigningRootShareWire, ThresholdPolicy as ThresholdPolicy,
-    ValidatedThresholdSet as ValidatedThresholdSet,
+    apply_two_party_root_share_refresh, evaluate_partial, generate_signing_root,
+    split_signing_root, PrfPartialWire, RootShareKnowledgeProof, RootShareRefreshCoefficient,
+    RootShareRefreshCoefficientCommitment, SigningRootShare, SigningRootShareWire, ThresholdPolicy,
+    ThresholdPrfError, TwoPartyDeriverRole, TwoPartyRootShareCommitments, ValidatedThresholdSet,
+    VerifiedRootShareRefreshContribution,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
+use threshold_prf_verus::model as mirror;
 
 #[derive(Debug, Deserialize)]
 struct ProtocolCorpus {
@@ -57,6 +59,100 @@ struct ProtocolPartialVector {
 struct ThresholdOutputVector {
     ids: Vec<u16>,
     output_hex: String,
+}
+
+fn scalar_bytes(value: u8) -> [u8; 32] {
+    let mut bytes = [0_u8; 32];
+    bytes[0] = value;
+    bytes
+}
+
+fn fixed_refresh_share(role: TwoPartyDeriverRole, scalar: u8) -> SigningRootShare {
+    SigningRootShare::from_canonical_bytes(role.share_id(), scalar_bytes(scalar))
+        .expect("fixed refresh share is canonical")
+}
+
+fn fixed_refresh_coefficient(role: TwoPartyDeriverRole, scalar: u8) -> RootShareRefreshCoefficient {
+    RootShareRefreshCoefficient::from_canonical_bytes(role, scalar_bytes(scalar))
+        .expect("fixed refresh coefficient is canonical and non-zero")
+}
+
+fn verified_refresh_contribution(
+    coefficient: &RootShareRefreshCoefficient,
+    recipient: TwoPartyDeriverRole,
+) -> VerifiedRootShareRefreshContribution {
+    coefficient
+        .commitment()
+        .verify_contribution(coefficient.contribution_for(recipient))
+        .expect("production refresh contribution verifies against its commitment")
+}
+
+fn apply_refresh_for_role(
+    current: &SigningRootShare,
+    recipient: TwoPartyDeriverRole,
+    coefficient_a: &RootShareRefreshCoefficient,
+    coefficient_b: &RootShareRefreshCoefficient,
+) -> Result<SigningRootShare, ThresholdPrfError> {
+    apply_two_party_root_share_refresh(
+        current,
+        verified_refresh_contribution(coefficient_a, recipient),
+        verified_refresh_contribution(coefficient_b, recipient),
+    )
+}
+
+#[test]
+fn refresh_model_constants_match_production_roles_and_wires() {
+    assert_eq!(
+        mirror::TWO_PARTY_DERIVER_A_SHARE_ID,
+        TwoPartyDeriverRole::DeriverA.share_id().get().get()
+    );
+    assert_eq!(
+        mirror::TWO_PARTY_DERIVER_B_SHARE_ID,
+        TwoPartyDeriverRole::DeriverB.share_id().get().get()
+    );
+    assert_eq!(
+        mirror::TWO_PARTY_REFRESH_COMMITMENT_WIRE_LEN,
+        RootShareRefreshCoefficientCommitment::LEN
+    );
+    assert_eq!(
+        mirror::TWO_PARTY_REFRESH_CONTRIBUTION_WIRE_LEN,
+        threshold_prf::RootShareRefreshContributionWire::LEN
+    );
+    assert_eq!(
+        mirror::TWO_PARTY_ROOT_SHARE_KNOWLEDGE_PROOF_WIRE_LEN,
+        RootShareKnowledgeProof::LEN
+    );
+}
+
+#[test]
+fn refresh_formula_matches_production_share_updates_and_continuity() {
+    let current_a = fixed_refresh_share(TwoPartyDeriverRole::DeriverA, 41);
+    let current_b = fixed_refresh_share(TwoPartyDeriverRole::DeriverB, 13);
+    let coefficient_a = fixed_refresh_coefficient(TwoPartyDeriverRole::DeriverA, 5);
+    let coefficient_b = fixed_refresh_coefficient(TwoPartyDeriverRole::DeriverB, 7);
+    let next_a = apply_refresh_for_role(
+        &current_a,
+        TwoPartyDeriverRole::DeriverA,
+        &coefficient_a,
+        &coefficient_b,
+    )
+    .expect("production derives next A share");
+    let next_b = apply_refresh_for_role(
+        &current_b,
+        TwoPartyDeriverRole::DeriverB,
+        &coefficient_a,
+        &coefficient_b,
+    )
+    .expect("production derives next B share");
+
+    assert_eq!(next_a.to_bytes(), scalar_bytes(53));
+    assert_eq!(next_b.to_bytes(), scalar_bytes(37));
+
+    let current_commitments =
+        TwoPartyRootShareCommitments::from_shares(&current_a, &current_b).unwrap();
+    let next_commitments = TwoPartyRootShareCommitments::from_shares(&next_a, &next_b).unwrap();
+    threshold_prf::verify_two_party_root_share_refresh(&current_commitments, &next_commitments)
+        .expect("production continuity check accepts the modelled refresh");
 }
 
 #[test]
@@ -143,9 +239,7 @@ fn assert_vector_matches_production(vector: &ProtocolVector) {
             .collect();
         let partial_set = ValidatedThresholdSet::from_partials(policy, selected).unwrap();
         assert_eq!(
-            combine_partials(&partial_set, &context)
-                .unwrap()
-                .as_bytes(),
+            combine_partials(&partial_set, &context).unwrap().as_bytes(),
             &decode_hex_32(&output_vector.output_hex)
         );
     }

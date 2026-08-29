@@ -5,11 +5,6 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::Identity;
 use rand_core::{CryptoRng, RngCore};
-#[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
-use router_ab_ecdsa_client_protocol::{
-    verify_ecdsa_prf_public_dleq_proof_v1, EcdsaClientProtocolError, EcdsaPrfPublicContextV1,
-    EcdsaPrfPublicProofBundleV1, EcdsaPrfPurposeV1,
-};
 use sha2::{Digest, Sha512};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -190,6 +185,10 @@ impl SigningRootShareCommitment {
     /// Returns the compressed canonical commitment point bytes.
     pub fn to_compressed(&self) -> [u8; 32] {
         self.point.compress().to_bytes()
+    }
+
+    pub(crate) fn point(&self) -> RistrettoPoint {
+        self.point
     }
 
     /// Returns the fixed-width canonical commitment bytes.
@@ -443,33 +442,9 @@ pub fn verify_partial_dleq_proof(
     context: &PrfContext,
     proof: &PrfDleqProof,
 ) -> ThresholdPrfResult<()> {
-    #[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
-    {
-        let public_context = ecdsa_public_context_from_threshold_context(context);
-        let public_bundle = EcdsaPrfPublicProofBundleV1 {
-            partial_wire: PrfPartialWire::from_partial(partial).to_bytes(),
-            commitment_wire: commitment.to_bytes(),
-            proof_wire: proof.to_bytes(),
-        };
-        return match verify_ecdsa_prf_public_dleq_proof_v1(&public_context, &public_bundle) {
-            Ok(()) => Ok(()),
-            Err(EcdsaClientProtocolError::ContextMismatch) => {
-                Err(ThresholdPrfError::ContextMismatch)
-            }
-            Err(
-                EcdsaClientProtocolError::InvalidShape
-                | EcdsaClientProtocolError::HpkeFailed
-                | EcdsaClientProtocolError::InvalidDleqProof,
-            ) => Err(ThresholdPrfError::InvalidDleqProof),
-        };
-    }
-    #[cfg(feature = "r120-benchmark-role-target-purposes")]
-    {
-        verify_generic_partial_dleq_proof(commitment, partial, context, proof)
-    }
+    verify_generic_partial_dleq_proof(commitment, partial, context, proof)
 }
 
-#[cfg(feature = "r120-benchmark-role-target-purposes")]
 fn verify_generic_partial_dleq_proof(
     commitment: &SigningRootShareCommitment,
     partial: &PrfPartial,
@@ -499,25 +474,6 @@ fn verify_generic_partial_dleq_proof(
         Ok(())
     } else {
         Err(ThresholdPrfError::InvalidDleqProof)
-    }
-}
-
-#[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
-fn ecdsa_public_context_from_threshold_context(context: &PrfContext) -> EcdsaPrfPublicContextV1 {
-    EcdsaPrfPublicContextV1 {
-        purpose: ecdsa_public_purpose_from_threshold_purpose(&context.purpose),
-        context_bytes: context.context_bytes.clone(),
-    }
-}
-
-#[cfg(not(feature = "r120-benchmark-role-target-purposes"))]
-fn ecdsa_public_purpose_from_threshold_purpose(
-    purpose: &crate::context::PrfPurpose,
-) -> EcdsaPrfPurposeV1 {
-    match purpose {
-        crate::context::PrfPurpose::RouterAbEcdsaDerivationYServer => EcdsaPrfPurposeV1::YServer,
-        crate::context::PrfPurpose::RouterAbXClientBaseV1 => EcdsaPrfPurposeV1::XClientBase,
-        crate::context::PrfPurpose::RouterAbXServerBaseV1 => EcdsaPrfPurposeV1::XServerBase,
     }
 }
 

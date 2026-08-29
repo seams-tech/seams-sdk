@@ -528,6 +528,7 @@ dependencies = [
  "ed25519",
  "sha2 0.10.9",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -1176,12 +1177,17 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "hex",
+ "hmac 0.12.1",
+ "hpke-ng",
  "rand_chacha 0.3.1",
+ "rand_chacha 0.9.0",
  "rand_core 0.6.4",
+ "rand_core 0.9.5",
  "router-ab-ecdsa-client-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "threshold-prf",
  "ts-rs",
  "zeroize",
@@ -1200,6 +1206,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "subtle",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -1441,7 +1448,6 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
- "router-ab-ecdsa-client-protocol",
  "sha2 0.10.9",
  "subtle",
  "zeroize",
@@ -1673,6 +1679,7 @@ checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
 dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
+ "serde",
  "zeroize",
 ]
 

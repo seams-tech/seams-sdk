@@ -28,7 +28,7 @@ fn context(label: &[u8]) -> PrfContext {
     )
 }
 
-fn production_purpose_cases() -> [(PrfPurpose, &'static str); 3] {
+fn production_purpose_cases() -> [(PrfPurpose, &'static str); 5] {
     [
         (
             PrfPurpose::RouterAbEcdsaDerivationYServer,
@@ -41,6 +41,14 @@ fn production_purpose_cases() -> [(PrfPurpose, &'static str); 3] {
         (
             PrfPurpose::RouterAbXServerBaseV1,
             "router-ab/x_server_base/v1",
+        ),
+        (
+            PrfPurpose::Ed25519DeriverAContributionRoot,
+            "router-ab-ed25519-yao/deriver-a-contribution-root/v1",
+        ),
+        (
+            PrfPurpose::Ed25519DeriverBContributionRoot,
+            "router-ab-ed25519-yao/deriver-b-contribution-root/v1",
         ),
     ]
 }
@@ -154,7 +162,6 @@ fn verified_dleq_bundles_combine_to_direct_reference() {
     );
 }
 
-#[cfg(feature = "r120-benchmark-role-target-purposes")]
 #[test]
 fn ed25519_role_target_outputs_are_distinct_raw_and_verified() {
     let policy = ThresholdPolicy::from_u16s(2, 2).expect("valid 2-of-2 policy");

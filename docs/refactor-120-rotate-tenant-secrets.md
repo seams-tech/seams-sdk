@@ -12,10 +12,17 @@ Status: proposed implementation plan. Phase 0 has established provisional local
 feasibility for the role-targeted threshold-PRF design. Production architecture
 selection remains gated on the deployed same-account and cross-account cohorts,
 Workers resource evidence, and the signed selection record. The refresh
-protocol is unimplemented. Rust protocol, benchmark, Deriver-store, and
-lifecycle work may proceed after Phase 0 selection while Refactor 103F is
-implemented. Shared wallet-server integration and production activation follow
-the R103F gates defined below.
+cryptographic core, tenant-root identity primitives, role-targeted Ed25519 Rust
+protocol, signed and recipient-encrypted refresh-message core, and WASM
+self-check adapters are implemented. Role-local distributed root generation,
+signed creation evidence, the byte-exact ECDSA stable-context type, and
+native/WASM share-refresh invariance vectors are also implemented. The existing
+production ECDSA threshold-PRF adapter still consumes its pre-R120 ceremony
+context. Runtime wire adapters, the orchestrated creation and refresh
+ceremonies, Deriver stores, control-plane lifecycle, and production integration
+remain unimplemented. R120-owned cryptographic work may proceed while Refactor
+103F is implemented. Shared wallet-server integration and production
+activation follow the R103F gates defined below.
 
 ## Outcome
 
@@ -641,6 +648,12 @@ tenant-root boundary and keeps their encoding unchanged. The tenant identity is
 already represented cryptographically by its unique root. Adding deployment,
 lineage, epoch, ceremony, or retry metadata to this stable input would make
 refresh change derived wallet material and is forbidden.
+
+The additive Rust boundary, exact-byte parity vector, and direct 2-of-2
+share-refresh invariance vectors are implemented. The invariance vectors cover
+`x_client_base`, `x_server_base`, and `y_server` natively and through the WASM
+self-check. Switching the existing production adapter from its ceremony-bound
+context to these stable bytes remains behind the R103F integration gate.
 
 Custody uses a separate record:
 
@@ -1440,14 +1453,15 @@ valid test needing update, obsolete test or fixture, or environment failure.
 Frozen generated artifacts must include their regeneration command and an
 anti-drift check.
 
-Preparation, benchmark-only Ed25519 candidate work, Rust protocol work,
+Preparation, benchmark work, R120-owned cryptographic Rust/WASM primitives,
 role-private migrations, and tenant-root lifecycle work may proceed while R103F
-is active. Production Ed25519 protocol work waits for the candidate gate. R120
-changes to R103F-owned shared files wait for the R103F Phase 2 exit and a
-recorded B4/B5 API snapshot. Updates to final browser, device-link, iframe, and
-shared fixture surfaces wait for the R103F Phase 3 exit. The R120 branch rebases
-before either integration point; it does not preserve an interim R103F shape
-through a wrapper or compatibility union.
+is active. The deployed architecture-selection gate still controls production
+transport integration and activation. R120 changes to R103F-owned shared files
+wait for the R103F Phase 2 exit and a recorded B4/B5 API snapshot. Updates to
+final browser, device-link, iframe, generated bindings, and shared fixture
+surfaces wait for the R103F Phase 3 exit. The R120 branch rebases before either
+integration point; it does not preserve an interim R103F shape through a
+wrapper or compatibility union.
 
 ### Preparation exit gate
 
@@ -1509,9 +1523,10 @@ Phase 0 execution status on 2026-08-29:
   threshold-PRF candidate through deployed validation. The joined-root Yao
   circuit remains outside the plan.
 
-- The role-target purposes and generic proof verifier exist only behind the
-  `r120-benchmark-role-target-purposes` feature. The default threshold-PRF build
-  retains the current production purpose set and ECDSA public verifier.
+- The fixed role-target purposes and generic proof verifier are now normal
+  `threshold-prf` primitives. The temporary feature split and production
+  dependency on the ECDSA client adapter are deleted. The ECDSA adapter remains
+  a dev-only parity oracle, and its existing public verifier/finalizer tests pass.
 - The benchmark compares the current and candidate profiles in one Worker
   build. Both feed byte-identical fixed server contributions, client inputs,
   output coins, ceremony, chunk profile, and Yao implementation into the
@@ -1579,18 +1594,27 @@ Phase 0 execution status on 2026-08-29:
   per-role CPU, sampled memory P999, the 25% finite-limit headroom check, raw
   artifact publication, and the signed selection record remain required. The
   first observation is retained, while cold-isolate incidence is explicitly
-  unobservable at the selected platform boundary. Do not start Phase 1 until
-  those gates pass.
+  unobservable at the selected platform boundary. Do not start production
+  transport integration, stores, or lifecycle activation until those gates
+  pass. Pure R120-owned cryptographic primitives may continue under the frozen
+  role-target design.
 
 ### Phase 1: add per-tenant root custody
 
-- [ ] Add the frozen tenant-root identity, role-share, backup-policy, creation,
-      refresh, restore, and retirement state types.
+- [x] Add the frozen tenant-root identity, identity digest, custody-lineage ID,
+      and positive monotonic share-epoch primitives with strict serde boundaries.
+- [ ] Add the role-share, backup-policy, creation, refresh, restore, and
+      retirement lifecycle state types.
 - [ ] Add independent Deriver A and B private stores and role-local current-epoch
       backup adapters.
-- [ ] Add distributed tenant-root creation with commitments and proofs.
-- [ ] Add dedicated tenant recovery resharing, role encryption, and the signed
-      public recovery manifest.
+- [x] Add role-local distributed tenant-root share generation, commitments,
+      transcript-bound knowledge proofs, signed installation evidence, and a
+      native/WASM creation vector.
+- [ ] Orchestrate distributed tenant-root creation through the role runtimes and
+      control-plane activation lifecycle.
+- [ ] Orchestrate dedicated tenant recovery resharing from the active shares.
+- [x] Add the native role-encrypted recovery packages, externally trusted
+      signatures, and signed public recovery manifest.
 - [ ] Map each authenticated tenant to one physical root pair.
 - [ ] Add one server-resolved tenant-root adapter keyed only by authenticated
       deployment configuration; reject Wallet Session, authorization,
@@ -1605,44 +1629,140 @@ Phase 0 execution status on 2026-08-29:
 
 ### Phase 2: implement ECDSA transparent refresh
 
-- [ ] Split stable derivation context from custody binding.
+- [x] Add the independent `StableTenantDerivationContextV2` cryptographic
+      boundary and prove byte equality with the existing ECDSA stable-key
+      context.
+- [x] Prove refreshed 2-of-2 shares reproduce identical `x_client_base`,
+      `x_server_base`, and `y_server` outputs in native Rust and WASM.
+- [ ] Switch the existing production threshold-PRF adapter from its
+      ceremony-bound input to `StableTenantDerivationContextV2` after the R103F
+      shared-boundary gate.
 - [ ] Remove `RootShareEpoch` from threshold-PRF input bytes.
 - [ ] Introduce `TenantRootShareEpoch` only in tenant-root custody bindings and
       preserve existing durable `RootShareEpoch` values.
-- [ ] Add the contributory two-party zero-share refresh protocol.
-- [ ] Add root-continuity commitments and proof-of-installation.
+- [x] Add the contributory two-party zero-share refresh algebra and its exact
+      source/recipient-bound commitment and secret-contribution wires.
+- [x] Add public root-continuity commitments and transcript-bound role-share
+      knowledge-proof primitives.
+- [x] Bind the refresh and knowledge-proof primitives to exact role-signed
+      commitment, recipient-encrypted contribution, and role-signed
+      installation-evidence messages covering the operation, tenant identity,
+      custody lineage, epochs, session, nonce, expiry, roles, commitments, and
+      role key IDs.
+- [ ] Add the runtime one-use replay store, two-role commit barrier, encrypted
+      wire boundary parser, and abort/restart coordination around those exact
+      cryptographic messages.
 - [ ] After R103F Phase 2, integrate the stable root identity check with the
       final B4/B5 material resolver without decoding
       `MpcMaterialActivationRef` or reconstructing either identity from the
       other.
-- [ ] Add mixed-epoch, replay, substitution, abort, and restart vectors.
+- [x] Add cryptographic mixed-epoch, replay-session, role, recipient-key,
+      coefficient-commitment, peer-commitment, signature, root, and restart
+      substitution vectors.
+- [ ] Add lifecycle abort and crash-restart vectors at every persisted message
+      transition.
 
 ### Phase 3: replace the Ed25519 derivation profile
 
-- [ ] Add fixed A-target and B-target `PrfPurpose` variants with `Raw32` output;
+- [x] Add fixed A-target and B-target `PrfPurpose` variants with `Raw32` output;
       accept no purpose string or target selector from a request.
-- [ ] Separate generic threshold-PRF DLEQ verification from the current
+- [x] Separate generic threshold-PRF DLEQ verification from the current
       ECDSA-only public-purpose adapter and preserve the ECDSA wire contract.
-- [ ] Add exact source/target protocol types: B may send only an A-target bundle
-      to A, and A may send only a B-target bundle to B. Make the reverse
+- [x] Add exact source/target inner protocol types: B may send only an A-target
+      bundle to A, and A may send only a B-target bundle to B. Make the reverse
       directions and mixed payload combinations unrepresentable.
 - [ ] Bind the stable PRF context separately from the epoch-bound custody,
       recipient, session, nonce, expiry, and replay transcript.
-- [ ] Combine each output only inside its target Deriver, convert it through a
+- [x] Combine each output only inside its target Deriver, convert it through a
       role-specific zeroizing capability, and run the existing contribution KDF
       locally without persistent output caching.
-- [ ] Preserve current Yao role inputs, recipient package outputs, circuit
+- [x] Preserve current Yao role inputs, recipient package outputs, circuit
       manifest, digest, schedule, schemas, table bytes, and circuit-cache
       identity exactly.
 - [ ] Version the outer Ed25519 derivation protocol, pair-session identity,
       proof-bundle payloads, generated server bindings, and vectors.
-- [ ] Add cross-runtime and formal evidence for purpose separation, fixed
-      direction, exact 2-of-2 combine, refresh invariance, arbitrary-context
-      denial, and unchanged Yao artifacts.
+- [x] Add native/WASM frozen-vector and executable algebra evidence for purpose
+      separation, fixed direction, exact 2-of-2 combine, refresh invariance, and
+      unchanged Yao artifacts.
+- [ ] Replace the abstract reconstruction axioms with a scalar-field proof and
+      run the complete Verus proof under the pinned toolchain.
+- [ ] Enforce arbitrary-context denial at the server-resolved outer protocol
+      boundary after the R103F integration gate; the generic threshold primitive
+      intentionally accepts already-validated context bytes.
 - [ ] Regenerate only changed Router A/B server bindings from R103F's final
       shared types; prove V6 browser, WASM/SDK, and host/iframe shapes unchanged.
 - [ ] Delete the deployment-share-hash Ed25519 root adapter when the
       role-targeted profile activates.
+
+Cryptographic Rust/WASM execution status on 2026-08-30:
+
+- `threshold-prf` now owns exact 2-of-2 contributory refresh, public root
+  continuity, role-local distributed root creation, transcript-bound
+  share-knowledge proofs, fixed role-target purposes, directional inner proof
+  bundles, and distinct zeroizing A-target and B-target output capabilities.
+- The Cloudflare benchmark delegates DLEQ verification and exact 2-of-2 combine
+  to that production-shaped core. Its 342-byte encrypted envelope and existing
+  role-local contribution KDF outputs remain pinned by the benchmark tests.
+- `threshold-prf-wasm-bench` exports distributed-creation,
+  refresh/continuity/knowledge-proof, ECDSA refresh-invariance, and Ed25519
+  role-target checks against frozen expected share and PRF output bytes. It also
+  exercises the exact signed
+  commit-before-contribution stage, bidirectional HPKE contribution exchange,
+  signed installation proofs, and public-root continuity. These compile for
+  `wasm32-unknown-unknown` and introduce no SDK, browser, wallet-custody, or
+  R103F-owned generated shape.
+- `router-ab-core` owns canonical tenant-root creation/refresh transcripts,
+  exact role-signed coefficient commitments, verified commit-stage
+  capabilities, fixed X25519/HKDF-SHA-256/AES-256-GCM contribution envelopes,
+  and role-signed installation evidence. Runtime decoding, replay persistence,
+  commit-barrier state, and activation remain later lifecycle work.
+- `router-ab-core` now also owns the tenant-controlled recovery cryptographic
+  path. It freezes canonical descriptors, separate A/B HPKE packages, role and
+  control-plane signatures rooted only in an external trust bundle, exact
+  recipient-key proof of control, verified one-role package opening, and a
+  destination-bound `SEAMSRI1` import envelope. Recovery-package secrets are
+  available only through the signed-manifest verification path. The strict
+  artifact parsers are the only public deserialization boundary. Package opening
+  rejects zero shares and shares that do not match the signed public commitment.
+- Recipient proof of control reuses the exact enrolled recovery-recipient key
+  type. Destination import keys remain a separate type because they are
+  short-lived, role-local restore capabilities. The native import path requires
+  a manifest-verified source share and an exact destination expectation created
+  before decryption; decoded envelope metadata cannot authorize itself. It never
+  combines the A and B shares.
+- Creation and refresh finalization accept only role-signature-verified
+  installation evidence. Every X25519 public or encapsulated key rejects zero,
+  high-bit, modulus, and reduced field-element aliases before HPKE decoding.
+  Production sealing APIs consume caller-supplied cryptographic RNGs, and local
+  Ed25519 signing keys use zeroization-enabled storage.
+- The Node WASM harness now invokes all five R120 self-check exports immediately
+  after loading the generated module. The post-audit optimized run measured
+  187.424 microseconds for 2-of-3 evaluation/combine, 280.754 microseconds for
+  3-of-5 evaluation/combine, 177.670 microseconds for DLEQ proving, 178.104
+  microseconds for DLEQ verification, and 676.053 microseconds for verified
+  3-of-5 combine. These figures cover local cryptography rather than Worker
+  transport.
+- The Verus model and its production anti-drift tests freeze A/B share IDs, wire
+  widths, the exact `2*(A+rho)-(B+2*rho)=2*A-B` continuity equation, and
+  no-op/zero-next rejection. This is executable algebra and anti-drift evidence;
+  reconstruction remains an abstract trusted seam rather than a scalar-field
+  proof. Full Verus verification also remains blocked locally because the pinned
+  Rust 1.94.0 toolchain is unavailable.
+- Full `threshold-prf`, `router-ab-core`, and Cloudflare benchmark tests pass.
+  `cargo yao-fv anti-drift` passes all six production/generator comparisons.
+  The broader `cargo yao-fv all` run passed its reference, vector,
+  cross-language, artifact, reconciliation, and signed-record readiness stages,
+  then stopped at the review-subject governance step because that step requires
+  a clean checkout.
+- The existing repository constant-time qualification passes at O0 and O3.
+  Focused optimized ARM64 assembly for this tranche contains no division in the
+  threshold refresh core. Router division instructions occur only in public JSON
+  sorting and numeric parsing. Manual data-flow review found no division,
+  early-exit secret comparison, or secret-indexed lookup on the valid recovery,
+  proof, refresh, or import paths. The standalone analyzer could not compile the
+  Cargo modules in this environment because its selected
+  `aarch64-unknown-linux-gnu` standard library is not installed; the Cargo-built
+  optimized assembly is the recorded fallback evidence.
 
 ### Phase 4: add lifecycle and operations
 
@@ -1815,11 +1935,13 @@ Refactor 120 is complete when:
 
 ## Remaining Evidence Gates
 
-One deliberate architecture-selection gate remains before production coding:
+One deliberate architecture-selection gate remains before production transport,
+storage, lifecycle, and activation work:
 the role-targeted threshold-PRF preface must pass Phase 0. A passing record
 freezes that design. A failure stops Refactor 120 and reopens the Ed25519
 architecture through an explicit plan amendment; it does not authorize the
-joined-root circuit implicitly.
+joined-root circuit implicitly. The implemented R120-owned cryptographic
+primitives remain pre-activation code until that record passes.
 
 Phase 1 also waits for the canonical schemas, vectors, type fixtures, boundary
 inventory, baseline classification, and red tests named by the preparation

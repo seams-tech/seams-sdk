@@ -7,6 +7,7 @@
 
 mod context;
 mod diagnostics;
+mod ecdsa_stable_context;
 mod ecdsa_threshold_prf;
 mod ecdsa_threshold_prf_backend;
 mod error;
@@ -14,13 +15,21 @@ mod leakage;
 mod material;
 mod scope;
 mod signer_plaintext;
+mod tenant_root;
+mod tenant_root_protocol;
+mod tenant_root_recovery_artifacts;
+mod tenant_root_recovery_recipient_proof;
+mod tenant_root_refresh_transport;
+mod tenant_root_restore_import;
 mod transcript;
 mod wire;
+mod x25519_canonical;
 
 pub use self::context::{
     context_digest_v1, AccountScope, DerivationContext, RequestKind, RootShareEpoch,
 };
 pub use self::diagnostics::redacted_diagnostic;
+pub use self::ecdsa_stable_context::StableTenantDerivationContextV2;
 pub use self::ecdsa_threshold_prf::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
     MpcPrfCombinePlanV1, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1, MpcPrfOutputPurposeV1,
@@ -53,6 +62,53 @@ pub use self::scope::{ExportScope, RefreshScope, RegistrationScope, RequestScope
 pub use self::signer_plaintext::{
     decode_signer_input_plaintext_v1, encode_signer_input_plaintext_v1, SignerInputPlaintextV1,
     SignerInputQuorumPolicyV1,
+};
+pub use self::tenant_root::{
+    TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootIdentityV1,
+    TenantRootShareEpoch,
+};
+pub use self::tenant_root_protocol::{
+    verify_tenant_root_creation_evidence_v1, verify_tenant_root_refresh_evidence_v1,
+    TenantRootCeremonyContextV1, TenantRootCeremonyEpochsV1, TenantRootCeremonyNonceV1,
+    TenantRootCeremonySessionIdV1, TenantRootProtocolDigestV1,
+    TenantRootShareInstallationEvidenceV1, TenantRootShareInstallationTranscriptV1,
+    VerifiedTenantRootShareInstallationEvidenceV1,
+};
+pub use self::tenant_root_recovery_artifacts::{
+    decode_tenant_root_recovery_manifest_v1, decode_tenant_root_recovery_package_v1,
+    seal_tenant_root_recovery_package_v1, sign_tenant_root_recovery_manifest_v1,
+    verify_and_open_tenant_root_recovery_role_package_v1, TenantRootRecoveryDescriptorDigestV1,
+    TenantRootRecoveryDescriptorV1, TenantRootRecoveryManifestV1,
+    TenantRootRecoveryPackageDigestV1, TenantRootRecoveryPackageHeaderV1,
+    TenantRootRecoveryPackageV1, TenantRootRecoveryRecipientFingerprintV1,
+    TenantRootRecoveryRecipientKeypairV1, TenantRootRecoveryRecipientPublicKeyV1,
+    TenantRootRecoveryRoleDescriptorV1, TenantRootRecoverySetId,
+    TenantRootRecoveryTrustedVerifyingKeysV1, VerifiedTenantRootRecoveryRoleShareV1,
+    TENANT_ROOT_RECOVERY_MANIFEST_MAX_BYTES, TENANT_ROOT_RECOVERY_MANIFEST_MIME_TYPE,
+    TENANT_ROOT_RECOVERY_PACKAGE_MAX_BYTES, TENANT_ROOT_RECOVERY_PACKAGE_MIME_TYPE,
+};
+pub use self::tenant_root_recovery_recipient_proof::{
+    confirm_tenant_root_recovery_recipient_proof_v1,
+    decode_tenant_root_recovery_recipient_proof_v1, open_tenant_root_recovery_recipient_proof_v1,
+    seal_tenant_root_recovery_recipient_proof_v1, verify_tenant_root_recovery_recipient_proof_v1,
+    TenantRootRecoveryRecipientProofBindingV1, TenantRootRecoveryRecipientProofConfirmationV1,
+    TenantRootRecoveryRecipientProofEnvelopeV1, TenantRootRecoveryRecipientProofSecretV1,
+    TENANT_ROOT_RECOVERY_RECIPIENT_PROOF_MAX_BYTES,
+};
+pub use self::tenant_root_refresh_transport::{
+    open_tenant_root_refresh_contribution_v1, seal_tenant_root_refresh_contribution_v1,
+    TenantRootEncryptedRefreshContributionV1, TenantRootRefreshCommitmentTranscriptV1,
+    TenantRootRefreshContributionAadDigestV1, TenantRootRefreshContributionAadV1,
+    TenantRootRefreshHpkeKeypairV1, TenantRootRefreshHpkePublicKeyV1,
+    TenantRootSignedRefreshCommitmentV1, TenantRootSignedRefreshContributionV1,
+    TenantRootSignedShareInstallationEvidenceV1, VerifiedTenantRootRefreshCommitmentV1,
+};
+pub use self::tenant_root_restore_import::{
+    ExpectedTenantRootRestoreImportV1, ImportedTenantRootRecoveryRoleShareV1,
+    TenantRootRestoreDestinationFingerprintV1, TenantRootRestoreImportBindingV1,
+    TenantRootRestoreImportEnvelopeV1, TenantRootRestoreImportKeypairV1,
+    TenantRootRestoreImportPublicKeyV1, TenantRootRestoreSessionIdV1,
+    TENANT_ROOT_RESTORE_IMPORT_MAX_BYTES,
 };
 pub use self::transcript::{
     transcript_binding_digest, transcript_digest_v1, IndexedSignerBinding, QuorumPolicy,
