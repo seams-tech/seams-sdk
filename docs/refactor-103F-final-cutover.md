@@ -1169,7 +1169,7 @@ Remove exact-first/V1 fallback from:
 - [ ] `walletIframe/shared/exactSessionState.ts`;
 - [ ] wallet iframe host auth handlers;
 - [ ] wallet iframe client router handlers; and
-- [ ] `BrowserSigningSurface.ts` lock/retirement cleanup.
+- [x] `BrowserSigningSurface.ts` lock/retirement cleanup.
 
 Primary persistence files:
 
