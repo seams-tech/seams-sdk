@@ -1200,7 +1200,7 @@ Primary persistence files:
       `RegistrationEstablishedSessionTokens`, and `walletSessionTokenForCurve`.
 - [ ] Delete `ActiveWalletSession` aliases that do not denote the exact
       projection.
-- [ ] Delete wallet-specific JWT marker/decoder code after its last diagnostic
+- [x] Delete wallet-specific JWT marker/decoder code after its last diagnostic
       caller; preserve console-session JWT types.
 - [ ] Preserve the frozen Router A/B `reusable_wallet_session` discriminator,
       ECDSA export-share authorization kind, and
