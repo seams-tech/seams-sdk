@@ -298,6 +298,7 @@ import {
   type WalletRegistrationNearProvisioningFinalizeResponse,
 } from './walletRegistrationSessionCommitReceipt';
 import {
+  assertDirectWalletSessionOwnerProof,
   buildRegistrationOwnerProof,
   issueDirectRegistrationEstablishedEd25519Session,
   issueDirectRegistrationEstablishedEcdsaSession,
@@ -1262,30 +1263,6 @@ function ed25519AlreadyCommittedWalletSessionResponse(
  * binding it signed. Direct issuance writes no such binding, so the same claim
  * is asserted here before the exact session is committed.
  */
-async function assertEd25519WalletSessionOwnerProof(input: {
-  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-  readonly tenantId: TenantId;
-  readonly authority: WalletAuthAuthority;
-  readonly activeAuthority: ActiveWalletAuthorityV1;
-  readonly walletAuthMethodId: WalletAuthMethodId;
-}): Promise<void> {
-  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
-  if (
-    input.proof.tenantId !== input.tenantId ||
-    input.proof.walletId !== input.authority.walletId ||
-    input.proof.principalId !== reusableWalletSessionPrincipalId(input.authority) ||
-    input.proof.authority.walletId !== authorityRef.walletId ||
-    input.proof.authority.authorityDigest !== authorityRef.authorityDigest ||
-    input.proof.authority.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
-    input.activeAuthority.walletId !== input.authority.walletId ||
-    input.activeAuthority.state !== 'active' ||
-    input.walletAuthMethodId !== authorityRef.walletAuthMethodId ||
-    input.proof.expiresAtMs <= Date.now()
-  ) {
-    throw new Error('Owner proof does not authorize direct Ed25519 Wallet Session issuance');
-  }
-}
-
 function registrationWalletAuthAuthority(input: {
   readonly authority: StoredRegistrationAuthority;
   readonly walletAuthMethodId: WalletAuthMethodId;
@@ -2590,12 +2567,13 @@ export class CloudflareD1WalletRegistrationService {
             DEFAULT_WALLET_SESSION_REMAINING_USES,
             policy.remainingUses,
           );
-          await assertEd25519WalletSessionOwnerProof({
+          await assertDirectWalletSessionOwnerProof({
             proof: authorization.proof,
             tenantId: this.authorizationTenantId,
             authority,
             activeAuthority: activeAuthority.authority,
             walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+            nowMs: issuedAtMs,
           });
           /* A refresh replaces the same method's session under a fresh mint;
              the direct issuer retires the predecessor and closes its quota in
@@ -2922,12 +2900,13 @@ export class CloudflareD1WalletRegistrationService {
             DEFAULT_WALLET_SESSION_REMAINING_USES,
             remainingUses,
           );
-          await assertEd25519WalletSessionOwnerProof({
+          await assertDirectWalletSessionOwnerProof({
             proof: request.proof,
             tenantId: this.authorizationTenantId,
             authority,
             activeAuthority: activeAuthority.authority,
             walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+            nowMs: issuedAtMs,
           });
           const directIssue =
             await this.authorizationService.issueDirectWalletSessionAuthorizationV2({

@@ -104,7 +104,6 @@ import {
   parseCapabilityOperationId,
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
 } from '@shared/authorization/capabilityKinds';
 import { buildCapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import { buildEvmEcdsaMpcOperationRef } from '@shared/authorization/capabilityKinds';
