@@ -885,7 +885,7 @@ Live status/source symbols include `readAndValidateWalletSessionStatusAuthorizat
       proves the fence and isolation.
 - [x] Retire hosted children in the same owning auth-method, authority, or
       same-method successor CAS.
-- [ ] Transition a consumed quota to exhausted through V2 while retaining exact
+- [x] Transition a consumed quota to exhausted through V2 while retaining exact
       identity for typed status and step-up.
 - [x] Delete the unused `hasActiveWalletSessionsForAuthMethod`; its only
       implementation queried `reusable_wallet_sessions`, and no production or
