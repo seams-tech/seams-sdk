@@ -22,16 +22,19 @@ import {
   type LinkedDeviceEcdsaSourcePreservingActivationReceiptV1,
 } from '@shared/device-linking/sourceContribution';
 import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   OrdinaryEcdsaSignerMaterialReservationPreparationV1,
   OrdinaryEd25519SignerMaterialReservationPreparationV1,
 } from '../../../packages/wallet-server/src/core/signingMaterial/ordinaryInactiveSignerMaterialReservation';
+import type { WalletAuthoritySignerMaterialRecordV1 } from '../../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   buildMpcMaterialActivationRef,
   parseMpcMaterialActivationId,
   type MpcMaterialActivationRef,
+  type WalletAuthMethodId,
+  type WalletAuthorityId,
 } from '@shared/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixtures';
 
@@ -54,6 +57,28 @@ export function buildOrdinaryEd25519SignerFixture(label: string): ExactAdministe
     throw new Error('ordinary Ed25519 signer fixture has the wrong family');
   }
   return signer;
+}
+
+export function buildOrdinaryEd25519SignerMaterialRecordFixture(args: {
+  readonly authorityId: WalletAuthorityId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly sealedMaterialB64u: string;
+  readonly sealedMaterialDigestB64u: DigestB64u;
+}): Extract<
+  WalletAuthoritySignerMaterialRecordV1,
+  { readonly kind: 'wallet_authority_signer_material_v1'; readonly keyFamily: 'ed25519' }
+> {
+  return {
+    kind: 'wallet_authority_signer_material_v1',
+    authorityId: args.authorityId,
+    walletAuthMethodId: args.walletAuthMethodId,
+    activationId: args.materialActivation.activationId,
+    keyFamily: 'ed25519',
+    materialActivation: args.materialActivation,
+    sealedMaterialB64u: args.sealedMaterialB64u,
+    sealedMaterialDigestB64u: args.sealedMaterialDigestB64u,
+  };
 }
 
 export function buildOrdinaryEcdsaSignerFixture(label: string): ExactAdministeredEcdsaSignerV1 {
