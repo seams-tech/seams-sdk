@@ -1261,9 +1261,7 @@ export async function handleWalletRecoveryGoogleEmailOtpFinalize(
           status: 200,
           body: {
             ok: true,
-            storeVersion: result.storeVersion,
-            authority: result.authority,
-            authMethod: result.authMethod,
+            projection: result.projection,
           },
         });
       case 'conflict':
@@ -1666,9 +1664,7 @@ export async function handleWalletRecoveryFinalize(
         status: 200,
         body: {
           ok: true,
-          storeVersion: result.storeVersion,
-          authority: result.authority,
-          authMethod: result.authMethod,
+          projection: result.projection,
         },
       });
     case 'conflict':

@@ -31,6 +31,7 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   parseWalletRecoveryOperationId,
+  parseEmailOtpProviderUserId,
   type WalletAuthMethodId,
   type WalletAuthorityBindingDigest,
   type WalletAuthorityId,
@@ -39,7 +40,10 @@ import {
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
-import { isHostWithinRpId, originHostnameOrEmpty } from '../../../../core/authService/webauthnOidcHelpers';
+import {
+  isHostWithinRpId,
+  originHostnameOrEmpty,
+} from '../../../../core/authService/webauthnOidcHelpers';
 import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -88,8 +92,16 @@ import type {
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import type { D1WalletAuthorityStore } from '../wallet/d1WalletAuthorityStore';
-import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import {
+  isActiveRecoveredWalletAuthorityV1,
+  walletAuthorityDigestsMatchV1,
+  type ActiveWalletAuthorityV1,
+} from '@shared/authorization/walletAuthority';
 import type { WalletRecoveryTargetV1 } from '@shared/wallet-recovery/walletRecoveryTarget';
+import {
+  buildWalletRecoveryCommittedProjectionV1,
+  type WalletRecoveryCommittedProjectionV1,
+} from '@shared/wallet-recovery/walletRecoveryCommittedProjection';
 import {
   projectWalletUnlockKeyManifestV1,
   projectWalletRecoveryPreparationKeyManifestV1,
@@ -166,14 +178,22 @@ export type WalletCustodyEnvelopeOwnershipUpgradeResult =
 type WalletRecoveryRouteFinalizationResult =
   | {
       readonly kind: 'promoted';
-      readonly storeVersion: string;
-      readonly authority: ActiveWalletAuthorityV1;
-      readonly authMethod: Extract<
-        WalletAuthMethodRecordV2,
-        { readonly kind: 'passkey'; readonly status: 'active' }
+      readonly projection: Extract<
+        WalletRecoveryCommittedProjectionV1,
+        { readonly kind: 'passkey' }
       >;
     }
   | Exclude<WalletRecoveryFinalizationResult, { readonly kind: 'promoted' }>;
+
+type WalletRecoveryGoogleEmailOtpRouteFinalizationResult =
+  | {
+      readonly kind: 'promoted';
+      readonly projection: Extract<
+        WalletRecoveryCommittedProjectionV1,
+        { readonly kind: 'google_email_otp' }
+      >;
+    }
+  | Exclude<WalletRecoveryGoogleEmailOtpFinalizationResult, { readonly kind: 'promoted' }>;
 
 export interface RouterApiPasskeyCustodyService {
   readVerifiedFactorCustody(request: {
@@ -292,7 +312,7 @@ export interface RouterApiPasskeyCustodyService {
    */
   finalizeGoogleEmailOtpRecovery(
     request: WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
-  ): Promise<WalletRecoveryGoogleEmailOtpFinalizationResult>;
+  ): Promise<WalletRecoveryGoogleEmailOtpRouteFinalizationResult>;
 
   /**
    * Records that the owner confirmed saving their recovery codes.
@@ -383,11 +403,11 @@ export type WalletRecoveryContinuityAnchor = {
   readonly envelope: ActivePasskeyCustodyEnvelopeRecord;
 };
 
-type ActivePasskeyCustodyEnvelopeRecord = Omit<
-  PasskeyCustodyEnvelopeRecord,
-  'lifecycle'
-> & {
-  readonly lifecycle: Extract<PasskeyCustodyEnvelopeRecord['lifecycle'], { readonly state: 'active' }>;
+type ActivePasskeyCustodyEnvelopeRecord = Omit<PasskeyCustodyEnvelopeRecord, 'lifecycle'> & {
+  readonly lifecycle: Extract<
+    PasskeyCustodyEnvelopeRecord['lifecycle'],
+    { readonly state: 'active' }
+  >;
 };
 
 export type WalletRecoveryAuthoritySelection = ActiveWalletAuthorityV1;
@@ -406,9 +426,7 @@ export function selectWalletRecoveryContinuityAnchor(input: {
 }): WalletRecoveryContinuityAnchor | undefined {
   const authoritiesById = new Map(
     input.authorities
-      .filter(
-        (authority) => authority.state === 'active' && authority.walletId === input.walletId,
-      )
+      .filter((authority) => authority.state === 'active' && authority.walletId === input.walletId)
       .map((authority) => [String(authority.authorityId), authority]),
   );
   const candidates: WalletRecoveryContinuityAnchor[] = [];
@@ -499,11 +517,7 @@ async function readWalletRecoveryAuthoritySelections(input: {
   );
   const selections: WalletRecoveryAuthoritySelection[] = [];
   for (const authority of authorities) {
-    if (
-      !authority ||
-      authority.state !== 'active' ||
-      authority.walletId !== input.walletId
-    ) {
+    if (!authority || authority.state !== 'active' || authority.walletId !== input.walletId) {
       continue;
     }
     selections.push(authority);
@@ -700,9 +714,8 @@ export function createD1PasskeyCustodyRouteService(assembly: {
       }
     },
     readVerifiedEmailOtpMethodCustody: async (request) => {
-      const envelope = await assembly.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod(
-        request,
-      );
+      const envelope =
+        await assembly.passkeyCustodyEnvelopes.lookupEnvelopeForWalletAuthMethod(request);
       if (envelope.kind !== 'active') return envelope;
       try {
         const manifest = await resolveWalletRecoveryKeyManifestV1({
@@ -908,7 +921,10 @@ export function createD1PasskeyCustodyRouteService(assembly: {
     ),
 
     finalizeRecovery: finalizeRecoveryForRoute.bind(undefined, assembly),
-    finalizeGoogleEmailOtpRecovery: finalizeGoogleEmailOtpRecoveryForRoute.bind(undefined, assembly),
+    finalizeGoogleEmailOtpRecovery: finalizeGoogleEmailOtpRecoveryForRoute.bind(
+      undefined,
+      assembly,
+    ),
 
     acknowledgeRecoveryBackup: async (request) => {
       const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
@@ -1374,12 +1390,17 @@ async function finalizeRecoveryForRoute(
   if (
     !authority ||
     authority.state !== 'active' ||
+    !isActiveRecoveredWalletAuthorityV1(authority) ||
     authority.walletId !== request.walletId ||
     !authMethod ||
     authMethod.kind !== 'passkey' ||
     authMethod.status !== 'active' ||
     authMethod.walletId !== request.walletId ||
     authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.walletAuthMethodId !== request.targetWalletAuthMethodId ||
+    authority.authorityId !== request.targetAuthorityId ||
+    authority.principal.deviceId !== request.targetDeviceId ||
+    authority.provenance.recoveryOperationId !== request.recoveryOperationId ||
     authMethod.credentialIdB64u !== result.credential.credentialIdB64u ||
     authMethod.credentialPublicKeyB64u !== result.credential.credentialPublicKeyB64u ||
     authMethod.counter !== result.credential.counter
@@ -1388,9 +1409,17 @@ async function finalizeRecoveryForRoute(
   }
   return {
     kind: 'promoted',
-    storeVersion: result.storeVersion,
-    authority,
-    authMethod,
+    projection: buildWalletRecoveryCommittedProjectionV1({
+      kind: 'passkey',
+      storeVersion: result.storeVersion,
+      walletId: request.walletId,
+      recoveryOperationId: request.recoveryOperationId,
+      targetDeviceId: request.targetDeviceId,
+      targetAuthorityId: request.targetAuthorityId,
+      targetWalletAuthMethodId: request.targetWalletAuthMethodId,
+      authority,
+      authMethod,
+    }),
   };
 }
 
@@ -1407,7 +1436,7 @@ async function finalizeGoogleEmailOtpRecoveryForRoute(
     >[0]['dependencies']['enrollmentFinalizer'];
   },
   request: WalletRecoveryGoogleEmailOtpRouteFinalizationRequest,
-): Promise<WalletRecoveryGoogleEmailOtpFinalizationResult> {
+): Promise<WalletRecoveryGoogleEmailOtpRouteFinalizationResult> {
   const googleRecovery = assembly.googleRecovery;
   const enrollmentFinalizer = assembly.emailOtpRegistrationEnrollmentFinalizer;
   if (!googleRecovery || !enrollmentFinalizer) {
@@ -1433,7 +1462,7 @@ async function finalizeGoogleEmailOtpRecoveryForRoute(
   });
   if (emailOtpEnrollment.kind !== 'ready') return emailOtpEnrollment;
 
-  return await googleRecovery.finalizeRecovery({
+  const result = await googleRecovery.finalizeRecovery({
     recovery,
     replacementEnvelope: request.replacementEnvelope,
     emailOtpEnrollment: emailOtpEnrollment.enrollment,
@@ -1446,6 +1475,49 @@ async function finalizeGoogleEmailOtpRecoveryForRoute(
       enrollmentFinalizer,
     },
   });
+  if (result.kind !== 'promoted') return result;
+  if (
+    result.authority.state !== 'active' ||
+    !isActiveRecoveredWalletAuthorityV1(result.authority) ||
+    result.authority.walletId !== recovery.walletId ||
+    result.authority.authorityId !== recovery.targetAuthorityId ||
+    result.authority.principal.deviceId !== recovery.targetDeviceId ||
+    result.authority.provenance.recoveryOperationId !== recovery.recoveryOperationId ||
+    result.authMethod.walletId !== recovery.walletId ||
+    result.authMethod.walletAuthorityId !== recovery.targetAuthorityId ||
+    result.authMethod.walletAuthMethodId !== recovery.targetWalletAuthMethodId
+  ) {
+    throw new Error('recovery promotion authority projection is unavailable');
+  }
+  if (!(await walletAuthorityDigestsMatchV1(result.authority))) {
+    throw new Error('recovery promotion authority digest is invalid');
+  }
+  const providerSubject = parseEmailOtpProviderUserId(recovery.providerSubject);
+  if (!providerSubject.ok) {
+    throw new Error('recovery provider subject projection is unavailable');
+  }
+  return {
+    kind: 'promoted',
+    projection: buildWalletRecoveryCommittedProjectionV1({
+      kind: 'google_email_otp',
+      storeVersion: result.storeVersion,
+      walletId: recovery.walletId,
+      recoveryOperationId: recovery.recoveryOperationId,
+      targetDeviceId: recovery.targetDeviceId,
+      targetAuthorityId: recovery.targetAuthorityId,
+      targetWalletAuthMethodId: recovery.targetWalletAuthMethodId,
+      authority: result.authority,
+      authMethod: result.authMethod,
+      providerSubject: providerSubject.value,
+      emailHashHex: result.authMethod.emailHashHex,
+      registrationAuthorityId: result.authMethod.registrationAuthorityId,
+      enrollment: {
+        kind: 'email_otp_enrollment_reference_v1',
+        enrollmentId: result.enrollment.enrollmentId,
+        enrollmentSealKeyVersion: result.enrollment.enrollmentSealKeyVersion,
+      },
+    }),
+  };
 }
 
 type GoogleEmailOtpEnrollmentForRouteResult =
@@ -1455,7 +1527,10 @@ type GoogleEmailOtpEnrollmentForRouteResult =
         CloudflareD1WalletRecoveryGoogleEmailOtpService['finalizeRecovery']
       >[0]['emailOtpEnrollment'];
     }
-  | Extract<WalletRecoveryGoogleEmailOtpFinalizationResult, { readonly kind: 'enrollment_rejected' }>;
+  | Extract<
+      WalletRecoveryGoogleEmailOtpFinalizationResult,
+      { readonly kind: 'enrollment_rejected' }
+    >;
 
 function googleEmailOtpEnrollmentForRoute(input: {
   readonly recovery: WalletRecoveryGoogleEmailOtpFinalizationInput;
