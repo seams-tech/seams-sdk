@@ -35,7 +35,6 @@ test.describe('wallet iframe Wallet Session boundary', () => {
   test('parses and reconstructs the requested active Wallet Session', () => {
     const input = activeWalletSessionWithNonceDiagnosticsFixture({
       walletId: 'iframe-wallet',
-      walletSessionId: 'iframe-wallet-session',
     });
 
     expect(
@@ -43,10 +42,6 @@ test.describe('wallet iframe Wallet Session boundary', () => {
         {
           ...input,
           walletSessionJwt: 'must-not-cross',
-          reusableWalletSession: {
-            ...input.reusableWalletSession,
-            privateKey: 'must-not-cross',
-          },
         },
         'iframe-wallet',
       ),
@@ -61,13 +56,52 @@ test.describe('wallet iframe Wallet Session boundary', () => {
     );
   });
 
-  test('rejects disagreement between app and reusable-session wallet identities', () => {
+  test('rejects removed reusable-session boundary fields', () => {
     const input = activeWalletSessionFixture({ walletId: 'canonical-wallet' });
+    expect(() =>
+      parseWalletSessionFromBoundary({
+        ...input,
+        reusableWalletSession: { kind: 'active' },
+      }),
+    ).toThrow('removed reusable-session fields');
+  });
+
+  test('rejects disagreement between app and capability projection wallet identities', () => {
+    const input = readyEcdsaWalletSessionFixture({ walletId: 'canonical-wallet' });
+    if (input.capabilityProjection.kind !== 'resolved') {
+      throw new Error('ECDSA fixture must resolve a capability projection');
+    }
+    const subject = input.capabilityProjection.subjectSet.subjects[0];
+    const capability = input.capabilityProjection.capabilities[0];
+    if (!subject || subject.kind !== 'evm_family_ecdsa_wallet') {
+      throw new Error('ECDSA fixture must contain an ECDSA subject');
+    }
+    if (!capability || capability.kind !== 'evm_family_ecdsa') {
+      throw new Error('ECDSA fixture must contain an ECDSA capability');
+    }
+    const corruptedSubject = {
+      ...subject,
+      walletId: 'different-wallet',
+      authority: {
+        ...subject.authority,
+        walletId: 'different-wallet',
+      },
+    };
     const corrupted = {
       ...input,
-      reusableWalletSession: {
-        ...input.reusableWalletSession,
-        walletId: 'different-wallet',
+      capabilityProjection: {
+        ...input.capabilityProjection,
+        subjectSet: {
+          ...input.capabilityProjection.subjectSet,
+          walletId: 'different-wallet',
+          subjects: [corruptedSubject],
+        },
+        capabilities: [
+          {
+            ...capability,
+            subject: corruptedSubject,
+          },
+        ],
       },
     };
 
@@ -90,7 +124,6 @@ test.describe('wallet iframe Wallet Session boundary', () => {
     const parsed = parseWalletSessionFromBoundary(
       restorableEcdsaWalletSessionFixture({
         walletId: 'iframe-wallet',
-        walletSessionId: 'iframe-wallet-session',
       }),
       'iframe-wallet',
     );

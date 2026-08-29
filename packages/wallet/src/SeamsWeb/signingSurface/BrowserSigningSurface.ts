@@ -15,7 +15,6 @@ import {
 } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import type {
   AppearanceConfig,
-  ReusableWalletSessionState,
   SigningSessionStatus,
   SeamsConfigsReadonly,
   WalletAuthenticationState,
@@ -740,9 +739,7 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
 
 function unavailableEmailOtpExportAuthorizationFromStatus(
   status: Exclude<
-    Awaited<
-      ReturnType<ReturnType<typeof createRelayerReusableWalletSessionStatusPort>['read']>
-    >,
+    Awaited<ReturnType<ReturnType<typeof createRelayerReusableWalletSessionStatusPort>['read']>>,
     { readonly status: 'active' }
   >,
 ): EmailOtpEd25519ExportAuthorizationReadResultV1 {
@@ -3373,197 +3370,6 @@ export class BrowserSigningSurface {
     }
     const reason = selected.kind === 'integrity_error' ? `: ${selected.reason}` : '';
     throw new Error(`[SigningEngine] selected Wallet Authority is ${selected.kind}${reason}`);
-  }
-
-  async readReusableWalletSessionState(
-    walletId: WalletId | string,
-  ): Promise<ReusableWalletSessionState> {
-    const parsedWalletId = parseWalletId(walletId);
-    if (!parsedWalletId.ok) {
-      throw new Error(parsedWalletId.error.message);
-    }
-    const exactWalletId = parsedWalletId.value;
-    let selected: Awaited<ReturnType<typeof IndexedDBManager.resolveSelectedWalletAuthority>>;
-    try {
-      selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(exactWalletId));
-    } catch {
-      return {
-        kind: 'unavailable',
-        walletId: exactWalletId,
-        reason: 'persistence_unavailable',
-      };
-    }
-    switch (selected.kind) {
-      case 'missing_selection':
-        return { kind: 'absent' };
-      case 'missing_auth_method':
-      case 'missing_authority':
-      case 'integrity_error':
-        return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
-      case 'resolved':
-        break;
-    }
-    const { selection, authMethod, authority } = selected;
-    if (
-      selection.walletId !== exactWalletId ||
-      selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
-      selection.lockState !== 'unlocked' ||
-      authMethod.walletId !== exactWalletId ||
-      authMethod.walletAuthorityId !== authority.authorityId ||
-      authMethod.status !== 'active' ||
-      authority.walletId !== exactWalletId ||
-      authority.state !== 'active'
-    ) {
-      return {
-        kind: 'invalid',
-        walletId: exactWalletId,
-        reason: 'auth_method_mismatch',
-      };
-    }
-    const read = await walletSessionAuthorizations.readExactActiveForWallet({
-      walletId: exactWalletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    });
-    switch (read.kind) {
-      case 'missing':
-        return { kind: 'absent' };
-      case 'corrupt':
-        return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
-      case 'persistence_unavailable':
-        return {
-          kind: 'unavailable',
-          walletId: exactWalletId,
-          reason: 'persistence_unavailable',
-        };
-      case 'upgrade_required':
-        throw new WalletSessionAuthorizationUpgradeRequiredError(
-          '[SigningEngine] Wallet Session authorization requires a newer client',
-        );
-      case 'found':
-        break;
-    }
-    const { record: authorization, operationCredential } = read;
-    if (
-      authorization.walletId !== exactWalletId ||
-      authorization.authorityId !== authority.authorityId ||
-      authorization.authMethodId !== authMethod.walletAuthMethodId ||
-      authorization.authorityDigestB64u !== authority.authorityDigestB64u ||
-      authorization.authorityRevocationEpoch !== authority.revocationEpoch
-    ) {
-      return {
-        kind: 'invalid',
-        walletId: exactWalletId,
-        authorizationId: authorization.authorizationId,
-        reason: 'identity_mismatch',
-      };
-    }
-    const nowMs = Date.now();
-    if (authorization.expiresAtMs <= nowMs) {
-      return {
-        kind: 'expired',
-        walletId: exactWalletId,
-        authorizationId: authorization.authorizationId,
-        walletSessionId: operationCredential.walletSessionId,
-        authMethod: authMethod.kind,
-        expiresAtMs: authorization.expiresAtMs,
-        detectedAtMs: nowMs,
-      };
-    }
-    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
-    if (!relayerUrl) {
-      return {
-        kind: 'unavailable',
-        walletId: exactWalletId,
-        reason: 'persistence_unavailable',
-      };
-    }
-    const status = await createRelayerReusableWalletSessionStatusPort({
-      relayerUrl,
-      operationCredential,
-    })
-      .read({
-        walletSessionId: operationCredential.walletSessionId,
-        quotaId: authorization.quotaId,
-      })
-      .catch(() => null);
-    if (!status) {
-      return {
-        kind: 'unavailable',
-        walletId: exactWalletId,
-        reason: 'persistence_unavailable',
-      };
-    }
-    switch (status.status) {
-      case 'active':
-        return {
-          kind: 'active',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          walletSessionId: operationCredential.walletSessionId,
-          authMethod: authMethod.kind,
-          walletAuthMethodId: authMethod.walletAuthMethodId,
-          remainingUses: status.remainingUses,
-          expiresAtMs: status.expiresAtMs,
-        };
-      case 'exhausted':
-        return {
-          kind: 'exhausted',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          walletSessionId: operationCredential.walletSessionId,
-          authMethod: authMethod.kind,
-          remainingUses: 0,
-          expiresAtMs: status.expiresAtMs,
-        };
-      case 'expired':
-        return {
-          kind: 'expired',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          walletSessionId: operationCredential.walletSessionId,
-          authMethod: authMethod.kind,
-          expiresAtMs: status.expiresAtMs,
-          detectedAtMs: nowMs,
-        };
-      case 'missing':
-        return {
-          kind: 'missing',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          walletSessionId: operationCredential.walletSessionId,
-          authMethod: authMethod.kind,
-        };
-      case 'superseded':
-        return {
-          kind: 'superseded',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          walletSessionId: operationCredential.walletSessionId,
-          authMethod: authMethod.kind,
-          detectedAtMs: nowMs,
-        };
-      // The authorization exists but its authority, method, or capability no
-      // longer resolves: the local record is stale, not merely unverified.
-      case 'authority_unavailable':
-      case 'method_unavailable':
-      case 'capability_unavailable':
-        return {
-          kind: 'superseded',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          walletSessionId: operationCredential.walletSessionId,
-          authMethod: authMethod.kind,
-          detectedAtMs: nowMs,
-        };
-      case 'invalid':
-        return {
-          kind: 'invalid',
-          walletId: exactWalletId,
-          authorizationId: authorization.authorizationId,
-          reason: 'identity_mismatch',
-        };
-    }
   }
 
   readWalletAuthenticationState(): WalletAuthenticationState {

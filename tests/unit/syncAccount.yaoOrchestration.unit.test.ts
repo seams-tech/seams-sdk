@@ -428,11 +428,12 @@ function syncOptionsResponse(
 ): Record<string, unknown> {
   const replacement = scenario.optionsCalls > 1;
   const optionsWalletId = scenario.optionsWalletId ?? requestedWalletId;
-  const credentialIds = replacement && scenario.replacementCredentialIds
-    ? scenario.replacementCredentialIds
-    : optionsWalletId
-      ? [CREDENTIAL_ID]
-      : [];
+  const credentialIds =
+    replacement && scenario.replacementCredentialIds
+      ? scenario.replacementCredentialIds
+      : optionsWalletId
+        ? [CREDENTIAL_ID]
+        : [];
   return {
     ok: true,
     challengeId: replacement ? 'sync-challenge-id-replacement' : 'sync-challenge-id',
@@ -936,10 +937,6 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
 
   async getWarmThresholdEcdsaSessionStatus(): Promise<null> {
     return null;
-  }
-
-  async readReusableWalletSessionState(): Promise<never> {
-    throw new Error('reusable wallet session state is outside the syncAccount fixture');
   }
 
   async listWarmThresholdEcdsaSessionStatuses(): Promise<[]> {
