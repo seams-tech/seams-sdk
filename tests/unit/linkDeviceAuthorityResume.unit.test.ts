@@ -47,11 +47,11 @@ import type {
   DeviceLinkingAuthorityInstallationPortV1,
   DeviceLinkingKeyMaterialHandleV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
-import type { WalletAuthoritySignerMaterialRecordV1 } from '@/core/indexedDB';
 import {
   buildOrdinaryEd25519ActivationReceiptFixture,
   buildOrdinaryEd25519ClientMaterialFixture,
   buildOrdinaryEd25519SignerFixture,
+  buildOrdinaryEd25519SignerMaterialRecordFixture,
   buildOrdinaryMaterialActivationFixture,
 } from './helpers/ordinarySignerMaterialReservation.fixtures';
 import { sdkEsmPath, setupBasicPasskeyTest } from '../setup';
@@ -161,16 +161,13 @@ function buildResumeFixture(label: string): ResumeFixture {
   if (pendingAuthMethod.status !== 'pending_local_install') {
     throw new Error('resume fixture auth method is not pending');
   }
-  const signerMaterial: WalletAuthoritySignerMaterialRecordV1 = {
-    kind: 'wallet_authority_signer_material_v1',
+  const signerMaterial = buildOrdinaryEd25519SignerMaterialRecordFixture({
     authorityId,
     walletAuthMethodId: authMethodId,
-    activationId: materialActivation.activationId,
-    keyFamily: 'ed25519',
     materialActivation,
     sealedMaterialB64u: 'sealed-material-resume',
     sealedMaterialDigestB64u: digest,
-  };
+  });
   const clientMaterial = buildOrdinaryEd25519ClientMaterialFixture(label);
   const committed: CommittedAuthorityPackagesV1 = {
     kind: 'committed_authority_packages_v1',
