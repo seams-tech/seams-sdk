@@ -4699,7 +4699,7 @@ function parseEmailOtpEd25519YaoBootstrapSessionCredential(
   if (!walletSessionId.ok) {
     throw new Error('Email OTP Ed25519 Yao recovery Wallet Session identity is invalid');
   }
-  if (obj.sessionKind === 'issued_wallet_session_v1') {
+  if (obj.sessionKind === 'issued_exact_wallet_session') {
     const issued = parseWalletSessionOperationCredentialV1(obj.operationCredential);
     if (issued.walletSessionId !== walletSessionId.value) {
       throw new Error('Email OTP Ed25519 credential does not identify its Wallet Session');
@@ -4712,7 +4712,7 @@ function parseEmailOtpEd25519YaoBootstrapSessionCredential(
     }
     return;
   }
-  if (obj.sessionKind !== 'reused_wallet_session_v2') {
+  if (obj.sessionKind !== 'already_committed_exact_wallet_session') {
     throw new Error('Email OTP Ed25519 Yao recovery session kind is invalid');
   }
   if (obj.operationCredential !== undefined) {

@@ -628,11 +628,11 @@ export type WalletRegistrationEd25519YaoSignerRuntimeBootstrap = {
  */
 export type WalletRegistrationEd25519YaoBootstrapSession =
   | (WalletRegistrationEd25519YaoSignerRuntimeBootstrap & {
-      sessionKind: 'issued_wallet_session_v1';
+      sessionKind: 'issued_exact_wallet_session';
       operationCredential: WalletSessionOperationCredentialV1;
     })
   | (WalletRegistrationEd25519YaoSignerRuntimeBootstrap & {
-      sessionKind: 'reused_wallet_session_v2';
+      sessionKind: 'already_committed_exact_wallet_session';
       operationCredential?: never;
     });
 

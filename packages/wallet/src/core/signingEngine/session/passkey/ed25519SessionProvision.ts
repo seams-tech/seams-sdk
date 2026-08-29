@@ -157,7 +157,7 @@ function resolveEd25519ProvisionOperationCredential(args: {
   existingWalletSessionToken: string | undefined;
 }): ResolvedEd25519ProvisionCredential {
   switch (args.connected.sessionKind) {
-    case 'issued_wallet_session_v1':
+    case 'issued_exact_wallet_session':
       if (args.connected.operationCredential.walletSessionId !== args.connected.walletSessionId) {
         return {
           ok: false,
@@ -169,7 +169,7 @@ function resolveEd25519ProvisionOperationCredential(args: {
         ok: true,
         operationCredential: args.connected.operationCredential,
       };
-    case 'reused_wallet_session_v2': {
+    case 'already_committed_exact_wallet_session': {
       if (args.protocol.kind !== 'exact' || !args.existingWalletSessionToken) {
         return {
           ok: false,

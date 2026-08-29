@@ -125,7 +125,7 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
 export type Ed25519WalletSessionMintSuccess =
   | {
       readonly ok: true;
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
@@ -137,7 +137,7 @@ export type Ed25519WalletSessionMintSuccess =
     }
   | {
       readonly ok: true;
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly thresholdSessionId: ThresholdEd25519SessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
@@ -322,7 +322,7 @@ export async function mintEd25519WalletSession(args: {
       remainingUses,
       runtimePolicyScope,
     };
-    if (data.sessionKind === 'issued_wallet_session_v1') {
+    if (data.sessionKind === 'issued_exact_wallet_session') {
       let operationCredential: WalletSessionOperationCredentialV1;
       try {
         operationCredential = parseWalletSessionOperationCredentialV1(data.operationCredential);
@@ -343,7 +343,10 @@ export async function mintEd25519WalletSession(args: {
       }
       return { ...base, sessionKind: data.sessionKind, operationCredential };
     }
-    if (data.sessionKind !== 'reused_wallet_session_v2' || data.operationCredential !== undefined) {
+    if (
+      data.sessionKind !== 'already_committed_exact_wallet_session' ||
+      data.operationCredential !== undefined
+    ) {
       return {
         ok: false,
         code: 'invalid_response',

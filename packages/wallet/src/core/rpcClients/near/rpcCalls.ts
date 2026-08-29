@@ -329,11 +329,11 @@ type PasskeyWalletUnlockEd25519SessionBase = {
 
 export type PasskeyWalletUnlockEd25519Session =
   | (PasskeyWalletUnlockEd25519SessionBase & {
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     })
   | (PasskeyWalletUnlockEd25519SessionBase & {
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly operationCredential?: never;
     });
 
@@ -557,11 +557,11 @@ function parsePasskeySessionEcdsaCustodyContinuity(
 
 type PasskeyWalletUnlockEd25519SessionCredential =
   | {
-      readonly sessionKind: 'issued_wallet_session_v1';
+      readonly sessionKind: 'issued_exact_wallet_session';
       readonly operationCredential: WalletSessionOperationCredentialV1;
     }
   | {
-      readonly sessionKind: 'reused_wallet_session_v2';
+      readonly sessionKind: 'already_committed_exact_wallet_session';
       readonly operationCredential?: never;
     };
 
@@ -575,14 +575,14 @@ function parseEd25519SessionCredential(input: {
   readonly unlockCredential: unknown;
 }): PasskeyWalletUnlockEd25519SessionCredential {
   const sessionKind = input.raw.sessionKind;
-  if (sessionKind === 'issued_wallet_session_v1') {
+  if (sessionKind === 'issued_exact_wallet_session') {
     const issued = parseWalletSessionOperationCredentialV1(input.raw.operationCredential);
     if (issued.walletSessionId !== input.walletSessionId) {
       throw new Error('Wallet unlock Ed25519 credential does not identify its session');
     }
     return { sessionKind, operationCredential: issued };
   }
-  if (sessionKind !== 'reused_wallet_session_v2') {
+  if (sessionKind !== 'already_committed_exact_wallet_session') {
     throw new Error('Wallet unlock returned an unsupported Ed25519 session kind');
   }
   if (input.raw.operationCredential !== undefined) {

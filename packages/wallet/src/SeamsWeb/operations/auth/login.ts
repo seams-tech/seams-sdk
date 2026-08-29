@@ -1700,7 +1700,7 @@ function resolveLoginEd25519ProvisionScope(args: {
 
 type IssuedPasskeyUnlockEd25519Session = Extract<
   PasskeyWalletUnlockEd25519Session,
-  { readonly sessionKind: 'issued_wallet_session_v1' }
+  { readonly sessionKind: 'issued_exact_wallet_session' }
 >;
 
 type PasskeyUnlockEd25519Connection = IssuedPasskeyUnlockEd25519Session & {
@@ -1747,12 +1747,12 @@ function passkeyUnlockEd25519Connection(args: {
     throw new Error('[login] verified unlock returned an invalid Ed25519 Wallet Session');
   }
   switch (session.sessionKind) {
-    case 'issued_wallet_session_v1':
+    case 'issued_exact_wallet_session':
       if (session.operationCredential.walletSessionId !== session.walletSessionId) {
         throw new Error('[login] verified unlock returned a mismatched Ed25519 credential');
       }
       return { ok: true, ...session, passkeyPrfFirstB64u };
-    case 'reused_wallet_session_v2':
+    case 'already_committed_exact_wallet_session':
       throw new Error(
         '[login] verified unlock reused an Ed25519 Wallet Session; exact-method unlock is required',
       );
@@ -2934,7 +2934,7 @@ function linkedDeviceEd25519SessionFromPasskeyUnlock(args: {
     throw new Error('[login] linked Passkey Ed25519 credentials identify different sessions');
   }
   if (
-    session.sessionKind === 'issued_wallet_session_v1' &&
+    session.sessionKind === 'issued_exact_wallet_session' &&
     session.operationCredential.walletSessionId !== args.operationCredential.walletSessionId
   ) {
     throw new Error('[login] linked Passkey Ed25519 credentials identify different sessions');
