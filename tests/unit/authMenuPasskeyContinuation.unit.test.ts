@@ -19,7 +19,6 @@ import {
 import {
   buildHostedAuthMenuExternalAuthResolution,
   buildHostedAuthMenuOpenRequest,
-  hostedAuthMenuExternalAuthRequestIdFromBoundary,
   hostedAuthMenuSessionIdFromBoundary,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
@@ -47,9 +46,7 @@ function pendingLoginPreparation(): Promise<never> {
 
 const UNAVAILABLE_RECOVERY_PORT: HostedRecoveryPort = {
   targetFor: (kind: WalletRecoveryTargetV1['kind']) =>
-    kind === 'passkey'
-      ? { kind, rpId: 'wallet.example.test' }
-      : { kind, googleProvider: 'google' },
+    kind === 'passkey' ? { kind, rpId: 'wallet.example.test' } : { kind, googleProvider: 'google' },
   prepare: async () => ({ kind: 'refused' }),
   createPasskey: async () => ({ kind: 'refused' }),
   finalize: async () => ({ kind: 'refused' }),
