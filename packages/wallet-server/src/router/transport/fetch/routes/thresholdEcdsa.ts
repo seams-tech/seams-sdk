@@ -88,9 +88,9 @@ import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseEcdsaAuthorizationSessionId,
+  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type PrincipalId,
   type EcdsaAuthorizationSessionId,
-  type WalletSessionClientCapabilityV1,
 } from '@shared/authorization/capabilityKinds';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking/contracts';
 import {
@@ -2845,7 +2845,6 @@ type StrictEcdsaDirectWalletSessionAuthorization = {
   readonly authorizationSessionId: EcdsaAuthorizationSessionId;
   readonly authorityRef: WalletAuthAuthorityRef;
   readonly authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 };
 
 type StrictEcdsaSessionActivationAuthorization =
@@ -2867,7 +2866,6 @@ async function authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session(inp
   readonly walletId: string;
   readonly walletSessionToken: string;
   readonly proof: VerifiedOwnerWalletSessionProof;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<StrictEcdsaSessionActivationAuthorization> {
   let admission: OpaqueOwnerWalletSessionAdmissionValue | null;
   try {
@@ -2949,7 +2947,6 @@ async function authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session(inp
     authorizationSessionId: authorizationSessionId.value,
     authorityRef: await walletAuthAuthorityRef({ authority: binding.authority }),
     authSource,
-    walletSessionClientCapability: input.walletSessionClientCapability,
   };
 }
 
@@ -2977,7 +2974,6 @@ function strictEcdsaAuthSourceFromAuthority(
 async function authorizeStrictEcdsaSessionActivation(input: {
   readonly walletId: string;
   readonly proof: VerifiedOwnerWalletSessionProof;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<StrictEcdsaDirectWalletSessionAuthorization | WalletSessionBoundaryFailure> {
   if (String(input.proof.walletId) !== input.walletId) {
     return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
@@ -2994,7 +2990,6 @@ async function authorizeStrictEcdsaSessionActivation(input: {
     authorizationSessionId: authorizationSessionId.value,
     authorityRef: input.proof.authority,
     authSource: input.proof.authSource,
-    walletSessionClientCapability: input.walletSessionClientCapability,
   };
 }
 
@@ -3003,14 +2998,12 @@ async function authorizeStrictEcdsaSessionActivationFromEd25519(input: {
   readonly walletId: string;
   readonly walletSessionToken: string;
   readonly proof: VerifiedOwnerWalletSessionProof;
-  readonly walletSessionClientCapability: WalletSessionClientCapabilityV1;
 }): Promise<StrictEcdsaSessionActivationAuthorization> {
   return authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session({
     ctx: input.ctx,
     walletId: input.walletId,
     walletSessionToken: input.walletSessionToken,
     proof: input.proof,
-    walletSessionClientCapability: input.walletSessionClientCapability,
   });
 }
 
@@ -3139,7 +3132,6 @@ export async function handleStrictEcdsaSessionActivation(
           walletId: request.public_capability.client_id,
           walletSessionToken: input.walletSessionToken,
           proof: input.proof,
-          walletSessionClientCapability: request.wallet_session_client_capability,
         })
       : input.source === 'wallet_session_operation_credential_v1'
         ? await authorizeStrictEcdsaSessionActivationFromOperationCredential({
@@ -3151,7 +3143,6 @@ export async function handleStrictEcdsaSessionActivation(
         : await authorizeStrictEcdsaSessionActivation({
             walletId: request.public_capability.client_id,
             proof: input.proof,
-            walletSessionClientCapability: request.wallet_session_client_capability,
           });
   if (!authorized.ok) {
     return json(authorized, {
@@ -3291,7 +3282,7 @@ export async function handleStrictEcdsaSessionActivation(
         remainingUses: activated.session.remainingUses,
         issuedAtMs: activated.session.expiresAtMs - request.session_policy.ttl_ms,
         expiresAtMs: activated.session.expiresAtMs,
-        walletSessionClientCapability: authorized.walletSessionClientCapability,
+        walletSessionClientCapability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         responseFamily: WALLET_ECDSA_ACTIVATION_EXACT_RESPONSE_FAMILY_V1,
       });
     if (directIssue.kind === 'protocol_mismatch') {

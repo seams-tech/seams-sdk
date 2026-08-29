@@ -63,7 +63,6 @@ import { isPlainObject } from '@shared/utils/validation';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
-  WALLET_SESSION_CLIENT_CAPABILITY_V1,
   type MpcWalletSigningQuotaId,
   type TenantId,
   type WalletSessionId,
@@ -668,7 +667,6 @@ export async function authorWalletUnlockEcdsaRequest(
     value: {
       request: {
         kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
-        wallet_session_client_capability: WALLET_SESSION_CLIENT_CAPABILITY_V1,
         public_capability: first.walletKey.publicCapability,
         session_policy: policy.session_policy,
       },
