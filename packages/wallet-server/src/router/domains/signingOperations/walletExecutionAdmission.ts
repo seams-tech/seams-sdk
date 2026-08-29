@@ -19,6 +19,7 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
+  type WalletAuthorityId,
   type WalletId,
   type WalletKeyId,
 } from '@shared/utils/domainIds';
@@ -139,6 +140,13 @@ export type WalletSessionAuthorizationV2RequestedOperation =
       readonly operationKind: WalletSessionAuthorizationV2EcdsaOperationKind;
     };
 
+export type WalletSessionAuthorizationV2AdministrationOperation = {
+  readonly kind: 'link_devices';
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+};
+
 export type WalletSessionAuthorizationV2AdmissionError =
   | 'invalid_time'
   | 'authorization_retired'
@@ -179,6 +187,85 @@ export type WalletSessionAuthorizationV2AdmissionResult =
       readonly error: WalletSessionAuthorizationV2AdmissionError;
     };
 
+export type WalletSessionAuthorizationV2AdministrationAdmissionResult =
+  | {
+      readonly ok: true;
+      readonly operationKind: 'link_devices';
+      readonly authorityId: WalletAuthorityId;
+    }
+  | {
+      readonly ok: false;
+      readonly error: WalletSessionAuthorizationV2AdmissionError;
+    };
+
+type WalletSessionAuthorizationV2OperationIdentity = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+};
+
+function validateWalletSessionAuthorizationV2Context(input: {
+  readonly authorization: WalletSessionAuthorizationV2;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: WalletAuthMethodRecordV2;
+  readonly operation: WalletSessionAuthorizationV2OperationIdentity;
+  readonly retiredAtMs: number | null;
+  readonly nowMs: number;
+}): WalletSessionAuthorizationV2AdmissionError | null {
+  if (!isPositiveSafeInteger(input.nowMs)) return 'invalid_time';
+  if (input.retiredAtMs !== null) return 'authorization_retired';
+  if (input.authorization.expiresAtMs <= input.nowMs) return 'authorization_expired';
+  if (
+    input.authorization.tenantId !== input.operation.tenantId ||
+    input.authorization.principalId !== input.operation.principalId
+  ) {
+    return 'operation_identity_mismatch';
+  }
+  if (
+    input.authorization.walletId !== input.operation.walletId ||
+    input.authority.walletId !== input.operation.walletId
+  ) {
+    return 'wallet_mismatch';
+  }
+  if (input.authority.state !== 'active') return 'authority_inactive';
+  if (input.authorization.authorityId !== input.authority.authorityId) {
+    return 'authority_mismatch';
+  }
+  if (input.authorization.authorityDigestB64u !== input.authority.authorityDigestB64u) {
+    return 'authority_digest_mismatch';
+  }
+  if (input.authorization.authorityRevocationEpoch !== input.authority.revocationEpoch) {
+    return 'authority_revocation_epoch_mismatch';
+  }
+  if (input.authMethod.status !== 'active') return 'auth_method_inactive';
+  if (
+    input.authorization.walletAuthMethodId !== input.authMethod.walletAuthMethodId ||
+    input.authMethod.walletId !== input.authority.walletId ||
+    input.authMethod.walletAuthorityId !== input.authority.authorityId
+  ) {
+    return 'auth_method_mismatch';
+  }
+  return null;
+}
+
+function validateWalletSessionAuthorizationV2CapabilitySubjects(input: {
+  readonly authorization: WalletSessionAuthorizationV2;
+  readonly authority: ActiveWalletAuthorityV1;
+}): WalletSessionAuthorizationV2AdmissionError | null {
+  let expectedSubjects: WalletSessionAuthorizationV2['capabilitySubjects'];
+  try {
+    expectedSubjects = buildWalletSessionCapabilitySubjectsV1(input.authority);
+  } catch {
+    return 'capability_subject_mismatch';
+  }
+  return walletSessionCapabilitySubjectsV1Equal(
+    input.authorization.capabilitySubjects,
+    expectedSubjects,
+  )
+    ? null
+    : 'capability_subject_mismatch';
+}
+
 export function resolveWalletSessionAuthorizationV2Admission(input: {
   readonly authorization: WalletSessionAuthorizationV2;
   readonly authority: ActiveWalletAuthorityV1;
@@ -187,63 +274,15 @@ export function resolveWalletSessionAuthorizationV2Admission(input: {
   readonly retiredAtMs: number | null;
   readonly nowMs: number;
 }): WalletSessionAuthorizationV2AdmissionResult {
-  if (!isPositiveSafeInteger(input.nowMs)) return admissionRefused('invalid_time');
-  if (input.retiredAtMs !== null) return admissionRefused('authorization_retired');
-  if (input.authorization.expiresAtMs <= input.nowMs) {
-    return admissionRefused('authorization_expired');
-  }
-  if (
-    input.authorization.tenantId !== input.operation.tenantId ||
-    input.authorization.principalId !== input.operation.principalId
-  ) {
-    return admissionRefused('operation_identity_mismatch');
-  }
-  if (
-    input.authorization.walletId !== input.operation.walletId ||
-    input.authority.walletId !== input.operation.walletId
-  ) {
-    return admissionRefused('wallet_mismatch');
-  }
-  if (input.authority.state !== 'active') return admissionRefused('authority_inactive');
-  if (input.authorization.authorityId !== input.authority.authorityId) {
-    return admissionRefused('authority_mismatch');
-  }
-  if (input.authorization.authorityDigestB64u !== input.authority.authorityDigestB64u) {
-    return admissionRefused('authority_digest_mismatch');
-  }
-  if (input.authorization.authorityRevocationEpoch !== input.authority.revocationEpoch) {
-    return admissionRefused('authority_revocation_epoch_mismatch');
-  }
-  if (input.authMethod.status !== 'active') return admissionRefused('auth_method_inactive');
-  if (
-    input.authorization.walletAuthMethodId !== input.authMethod.walletAuthMethodId ||
-    input.authMethod.walletId !== input.authority.walletId ||
-    input.authMethod.walletAuthorityId !== input.authority.authorityId
-  ) {
-    return admissionRefused('auth_method_mismatch');
-  }
+  const contextError = validateWalletSessionAuthorizationV2Context(input);
+  if (contextError) return admissionRefused(contextError);
 
   const requirement = requiredWalletSessionAuthorizationV2Capability(input.operation);
   if (!input.authority.permissions.includes(requirement.permission)) {
     return admissionRefused('permission_mismatch');
   }
-  let expectedSubjects: readonly [
-    WalletSessionCapabilitySubjectV1,
-    ...WalletSessionCapabilitySubjectV1[],
-  ];
-  try {
-    expectedSubjects = buildWalletSessionCapabilitySubjectsV1(input.authority);
-  } catch {
-    return admissionRefused('capability_subject_mismatch');
-  }
-  if (
-    !walletSessionCapabilitySubjectsV1Equal(
-      input.authorization.capabilitySubjects,
-      expectedSubjects,
-    )
-  ) {
-    return admissionRefused('capability_subject_mismatch');
-  }
+  const capabilityError = validateWalletSessionAuthorizationV2CapabilitySubjects(input);
+  if (capabilityError) return admissionRefused(capabilityError);
   const signer = resolveWalletSessionAuthorizationV2Signer(
     input.authority,
     input.operation.keyFamily,
@@ -284,6 +323,40 @@ export function resolveWalletSessionAuthorizationV2Admission(input: {
       };
     default:
       return assertNeverWalletSessionAuthorizationV2Operation(input.operation);
+  }
+}
+
+export function resolveWalletSessionAuthorizationV2AdministrationAdmission(input: {
+  readonly authorization: WalletSessionAuthorizationV2;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: WalletAuthMethodRecordV2;
+  readonly operation: WalletSessionAuthorizationV2AdministrationOperation;
+  readonly retiredAtMs: number | null;
+  readonly nowMs: number;
+}): WalletSessionAuthorizationV2AdministrationAdmissionResult {
+  const contextError = validateWalletSessionAuthorizationV2Context(input);
+  if (contextError) return admissionRefused(contextError);
+  switch (input.operation.kind) {
+    case 'link_devices': {
+      if (!input.authority.permissions.includes('link_devices')) {
+        return admissionRefused('permission_mismatch');
+      }
+      const capabilityError = validateWalletSessionAuthorizationV2CapabilitySubjects(input);
+      if (capabilityError) return admissionRefused(capabilityError);
+      const subject = input.authorization.capabilitySubjects.find(
+        (candidate) => candidate.kind === 'link_devices',
+      );
+      if (!subject || subject.authorityId !== input.authority.authorityId) {
+        return admissionRefused('capability_subject_mismatch');
+      }
+      return {
+        ok: true,
+        operationKind: 'link_devices',
+        authorityId: input.authority.authorityId,
+      };
+    }
+    default:
+      return assertNeverWalletSessionAuthorizationV2AdministrationOperation(input.operation.kind);
   }
 }
 
@@ -405,6 +478,12 @@ function admissionRefused(
 
 function assertNeverWalletSessionAuthorizationV2Operation(value: never): never {
   throw new Error(`Unsupported Wallet Session authorization V2 operation: ${String(value)}`);
+}
+
+function assertNeverWalletSessionAuthorizationV2AdministrationOperation(value: never): never {
+  throw new Error(
+    `Unsupported Wallet Session authorization V2 administration operation: ${String(value)}`,
+  );
 }
 
 export async function prepareOwnerWalletExecution(input: {

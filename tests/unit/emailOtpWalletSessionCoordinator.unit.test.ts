@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
+import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import { type EmailOtpRoutePlan } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -54,12 +55,18 @@ import {
   buildWalletAuthAuthorityRefForAuthorityFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
-import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  isEmailOtpWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import { buildActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   activeEvmFamilyWalletSessionAuthorizationFixture,
   canonicalEvmFamilyEcdsaSigningCapabilityFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import { buildEmailOtpEcdsaWalletSessionFixture } from './helpers/linkedDeviceManagement.fixtures';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import { resolveActiveEcdsaCapabilityRuntime } from '@/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
@@ -73,6 +80,62 @@ const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
   'signing-session-seal-kek-test-r1',
 );
 const originalResolveSelectedWalletAuthority = IndexedDBManager.resolveSelectedWalletAuthority;
+
+type CanonicalEcdsaCapabilityFixture = Awaited<
+  ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
+>;
+
+type ResolvedSelectedWalletAuthority = Extract<
+  ResolveSelectedWalletAuthorityResultV1,
+  { readonly kind: 'resolved' }
+>;
+
+async function buildExactEmailOtpRestoreAuthorizationFixture(args: {
+  readonly label: string;
+  readonly capability: CanonicalEcdsaCapabilityFixture;
+  readonly expiresAtMs: number;
+}): Promise<{
+  readonly selected: ResolvedSelectedWalletAuthority;
+  readonly read: WalletSessionAuthorizationExactOperationCredentialReadResult;
+}> {
+  if (!isEmailOtpWalletAuthAuthority(args.capability.authority)) {
+    throw new Error('[fixture] expected an Email OTP capability authority');
+  }
+  const factorAuthority = args.capability.authority;
+  const session = await buildEmailOtpEcdsaWalletSessionFixture({
+    label: args.label,
+    walletId: String(args.capability.manifest.signer.walletId),
+    walletAuthMethodId: String(factorAuthority.bindingId),
+    materialActivation: args.capability.manifest.activation.materialActivation,
+    providerUserId: String(factorAuthority.factor.providerUserId),
+    emailHashHex: factorAuthority.verifier.emailHashHex,
+    expiresAtMs: args.expiresAtMs,
+  });
+  const authority = buildActiveWalletAuthorityV1({
+    ...session.authority,
+    authorityDigestB64u: parseDigestB64u(
+      String(args.capability.manifest.signer.authority.authorityDigest),
+    ),
+  });
+  return {
+    selected: {
+      kind: 'resolved',
+      selection: session.selection,
+      authMethod: session.authMethod,
+      authority,
+      signerMaterials: [],
+      exportRoot: null,
+    },
+    read: {
+      kind: 'found',
+      record: {
+        ...session.activeWalletSession,
+        authorityDigestB64u: authority.authorityDigestB64u,
+      },
+      operationCredential: session.operationCredential,
+    },
+  };
+}
 
 async function resolveMissingSelectedWalletAuthorityFixture(): Promise<ResolveSelectedWalletAuthorityResultV1> {
   return { kind: 'missing_selection' };
@@ -754,7 +817,11 @@ function createCoordinator(overrides?: {
   provisionEmailOtpEcdsaExplicitExportSession?: (request: any) => Promise<any>;
   acquireSigningSessionRestoreLease?: (args: any) => Promise<any>;
   releaseSigningSessionRestoreLease?: (lease: any) => Promise<void>;
-  readActiveWalletSessionAuthorization?: () => Promise<any>;
+  resolveSelectedWalletAuthority?: (
+    walletId: string,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
+  readExactWalletSessionAuthorization?: () =>
+    Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
   listActiveEcdsaCapabilityManifestsForWallet?: () => Promise<
     readonly ActiveEcdsaCapabilityManifest[]
   >;
@@ -941,6 +1008,8 @@ function createCoordinator(overrides?: {
     signerWorkerManager: worker as any,
     getRpId: overrides?.getRpId || (() => 'localhost'),
     getSignerWorkerContext: () => worker as any,
+    resolveSelectedWalletAuthority:
+      overrides?.resolveSelectedWalletAuthority || resolveMissingSelectedWalletAuthorityFixture,
     loadWalletCustodyEd25519Material: absentWalletCustodyEd25519Material,
     restoreWalletCustodyEcdsaContinuity: noopRestoreWalletCustodyEcdsaContinuity,
     withThresholdEcdsaSigningQueue: (args) =>
@@ -948,16 +1017,8 @@ function createCoordinator(overrides?: {
         queueByKey: thresholdEcdsaSigningQueueByKey,
         ...args,
       }),
-    readActiveWalletSessionAuthorization:
-      overrides?.readActiveWalletSessionAuthorization ||
-      (async () => ({
-        kind: 'found',
-        projection: activeEvmFamilyWalletSessionAuthorizationFixture({
-          walletId: TEST_SUBJECT_ID,
-          authority: buildWalletAuthAuthorityRefFixture({ walletId: TEST_SUBJECT_ID }),
-          authMethod: 'email_otp',
-        }).projection,
-      })),
+    readExactWalletSessionAuthorization:
+      overrides?.readExactWalletSessionAuthorization || (async () => ({ kind: 'missing' })),
     commitEvmFamilyThresholdEcdsaSessions: async (args) => {
       ecdsaCommitCalls.push(args);
       return {
@@ -1014,8 +1075,24 @@ function createCoordinator(overrides?: {
         if (!backendBinding || backendBinding.materialKind !== 'role_local_worker_handle') {
           throw new Error('test provisionThresholdEcdsaSession expected worker-owned material');
         }
+        const exactAuthorization = overrides?.readExactWalletSessionAuthorization
+          ? await overrides.readExactWalletSessionAuthorization()
+          : { kind: 'missing' as const };
         return {
           ...bootstrap,
+          session:
+            exactAuthorization.kind === 'found'
+              ? {
+                  ...bootstrap.session,
+                  authorizationId: exactAuthorization.record.authorizationId,
+                  walletSessionId: exactAuthorization.record.walletSessionId,
+                  quotaId: exactAuthorization.record.quotaId,
+                  expiresAtMs: exactAuthorization.record.expiresAtMs,
+                  walletSession: exactAuthorization.record,
+                  operationCredential: exactAuthorization.operationCredential,
+                  walletSessionToken: exactAuthorization.operationCredential.token,
+                }
+              : bootstrap.session,
           thresholdEcdsaKeyRef: {
             ...bootstrap.thresholdEcdsaKeyRef,
             backendBinding: {
@@ -1640,22 +1717,22 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
   test('explicit signing restore rehydrates session-retained ECDSA Email OTP material from sealed refresh record', async () => {
     const expiresAtMs = Date.now() + 60_000;
-    const manifest = (await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp')).manifest;
+    const capability = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+    const manifest = capability.manifest;
     const tempoChainTarget = manifest.signer.scope.targetMemberships[0];
     const sealedRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
       manifest,
       expiresAtMs,
       thresholdSessionId: 'ecdsa-session',
     });
+    const exactAuthorization = await buildExactEmailOtpRestoreAuthorizationFixture({
+      label: 'rehydrate-session-retained',
+      capability,
+      expiresAtMs,
+    });
     const { coordinator, workerCalls, ecdsaCommitCalls } = createCoordinator({
-      readActiveWalletSessionAuthorization: async () => ({
-        kind: 'found',
-        projection: activeEvmFamilyWalletSessionAuthorizationFixture({
-          walletId: toWalletId(sealedRecord.walletId),
-          authority: manifest.signer.authority,
-          authMethod: 'email_otp',
-        }).projection,
-      }),
+      resolveSelectedWalletAuthority: async () => exactAuthorization.selected,
+      readExactWalletSessionAuthorization: async () => exactAuthorization.read,
       listActiveEcdsaCapabilityManifestsForWallet: async () => [manifest],
       resolveCurrentEcdsaCapabilityRuntime: async ({ walletId, chainTarget }) => {
         const resolution = resolveExactEcdsaSealedRuntime({
@@ -1838,22 +1915,22 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
   test('explicit signing restore restores sealed ECDSA Email OTP session from durable metadata', async () => {
     const expiresAtMs = Date.now() + 60_000;
-    const manifest = (await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp')).manifest;
+    const capability = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+    const manifest = capability.manifest;
     const tempoChainTarget = manifest.signer.scope.targetMemberships[0];
     const sealedRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
       manifest,
       expiresAtMs,
       thresholdSessionId: 'ecdsa-session',
     });
+    const exactAuthorization = await buildExactEmailOtpRestoreAuthorizationFixture({
+      label: 'restore-durable-metadata',
+      capability,
+      expiresAtMs,
+    });
     const { coordinator, workerCalls, ecdsaCommitCalls } = createCoordinator({
-      readActiveWalletSessionAuthorization: async () => ({
-        kind: 'found',
-        projection: activeEvmFamilyWalletSessionAuthorizationFixture({
-          walletId: toWalletId(sealedRecord.walletId),
-          authority: manifest.signer.authority,
-          authMethod: 'email_otp',
-        }).projection,
-      }),
+      resolveSelectedWalletAuthority: async () => exactAuthorization.selected,
+      readExactWalletSessionAuthorization: async () => exactAuthorization.read,
       listActiveEcdsaCapabilityManifestsForWallet: async () => [manifest],
       resolveCurrentEcdsaCapabilityRuntime: async ({ walletId, chainTarget }) => {
         const resolution = resolveExactEcdsaSealedRuntime({
