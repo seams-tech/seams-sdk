@@ -1035,7 +1035,10 @@ Primary files:
       audience-bound child credential.
 - [ ] Convert Email factor-release `wallet_session` admission.
 - [ ] Convert `/auth/identities` link/unlink admission.
-- [ ] Convert `/near/public-keys` admission.
+- [x] Convert `/near/public-keys` admission. The route resolves the presented
+      operation credential through the exact V2 authorization, derives the
+      wallet from that projection, and fails closed without probing either
+      legacy curve-token store.
 - [ ] Convert `/webauthn/authenticators` admission.
 - [ ] Convert custody-envelope ownership upgrade admission.
 - [ ] Convert registration funding/session admission.
@@ -1532,7 +1535,10 @@ Remaining causal baseline work:
 - [x] `tests/unit/ecdsaV2PoolFillAdmission.unit.test.ts`, proving linked ECDSA
       pool fill admits the exact operation credential without V1 fallback
 - [x] `tests/unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts`
-- [ ] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`
+- [x] `tests/unit/nearPublicApi.walletSessionAuthorization.unit.test.ts`,
+      proving exact `/near/public-keys` admission and missing-session rejection
+      never read the legacy opaque-token resolver while preserving the existing
+      client projection checks
 - [ ] `tests/unit/walletHostOwnerAuthority.unit.test.ts`
 - [ ] `tests/unit/walletSessionOperationCredential.unit.test.ts`
 - [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
