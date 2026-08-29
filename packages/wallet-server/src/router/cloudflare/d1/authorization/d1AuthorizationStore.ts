@@ -372,6 +372,61 @@ export class CloudflareD1AuthorizationStore
     readonly nowMs: number;
   }): readonly D1PreparedStatementLike[] {
     requirePositiveInteger(input.nowMs, 'auth-method session revocation time');
+    const exhaustExactQuotas = this.database
+      .prepare(
+        `UPDATE authorization_wallet_session_quotas
+            SET remaining_uses = 0,
+                lifecycle_kind = 'exhausted'
+          WHERE namespace = ?
+            AND tenant_id = ?
+            AND lifecycle_kind = 'active'
+            AND quota_id IN (
+              SELECT quota_id
+                FROM wallet_session_authorizations_v2
+               WHERE namespace = ?
+                 AND org_id = ?
+                 AND project_id = ?
+                 AND env_id = ?
+                 AND tenant_id = ?
+                 AND wallet_id = ?
+                 AND wallet_auth_method_id = ?
+                 AND retired_at_ms IS NULL
+            )`,
+      )
+      .bind(
+        this.namespace,
+        input.tenantId,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.walletId,
+        input.walletAuthMethodId,
+      );
+    const retireExactSessions = this.database
+      .prepare(
+        `UPDATE wallet_session_authorizations_v2
+            SET retired_at_ms = MAX(issued_at_ms, ?)
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND tenant_id = ?
+            AND wallet_id = ?
+            AND wallet_auth_method_id = ?
+            AND retired_at_ms IS NULL`,
+      )
+      .bind(
+        input.nowMs,
+        this.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.walletId,
+        input.walletAuthMethodId,
+      );
     const sessionFilter = `
       FROM reusable_wallet_sessions AS session
       WHERE session.namespace = ?
@@ -437,7 +492,14 @@ export class CloudflareD1AuthorizationStore
             AND lifecycle_kind = 'active'`,
       )
       .bind(this.namespace, input.tenantId, input.walletId, input.walletAuthMethodId);
-    return [deleteTokens, deleteRegistrationReplayTokens, exhaustQuotas, supersedeSessions];
+    return [
+      exhaustExactQuotas,
+      retireExactSessions,
+      deleteTokens,
+      deleteRegistrationReplayTokens,
+      exhaustQuotas,
+      supersedeSessions,
+    ];
   }
 
   async putIssuedHostedWalletSeamsSessionExchange(
