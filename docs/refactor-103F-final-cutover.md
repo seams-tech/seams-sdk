@@ -924,7 +924,7 @@ Primary files:
       The parallel opaque-owner projection branches are deleted.
 - [x] Add the P-256 ECDH delivery recipient to target preparation and bind it to
       the verified link.
-- [ ] Persist Device 2 profile, authenticator, method/factor, authority,
+- [x] Persist Device 2 profile, authenticator, method/factor, authority,
       signer-material state, receipt, and selection as one invisible
       `pending_local_install` transaction before activation.
 - [ ] Make local pending replay idempotent by receipt identity and terminal
