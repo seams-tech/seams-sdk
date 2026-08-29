@@ -182,10 +182,7 @@ import {
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
   parseRouterAbEd25519YaoExportAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import {
-  type WalletRegistrationEd25519YaoBootstrapSession,
-  type WalletRegistrationEd25519YaoSignerRuntimeBootstrap,
-} from '@/core/rpcClients/relayer/walletRegistration';
+import { type WalletRegistrationEd25519YaoSignerRuntimeBootstrap } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
@@ -4693,25 +4690,11 @@ function parseEmailOtpEd25519YaoWorkerMaterialActivation(value: unknown): MpcMat
   return parsed.value;
 }
 
-type EmailOtpEd25519YaoBootstrapSessionCredential =
-  | {
-      readonly sessionKind: 'issued_wallet_session_v1';
-      readonly operationCredential: WalletSessionOperationCredentialV1;
-    }
-  | {
-      readonly sessionKind: 'reused_wallet_session_v2';
-      readonly operationCredential?: never;
-    };
-
-/**
- * Validates the exact response branch and rejects credentials bound to a
- * different Wallet Session. The reused branch already delivered its
- * credential through the surrounding unlock response.
- */
+/** Validate the direct issuer response before reducing it to runtime facts. */
 function parseEmailOtpEd25519YaoBootstrapSessionCredential(
   obj: Record<string, unknown>,
   source: EmailOtpEd25519YaoBootstrapSessionCredentialSource,
-): EmailOtpEd25519YaoBootstrapSessionCredential {
+): void {
   const walletSessionId = parseWalletSessionId(obj.walletSessionId);
   if (!walletSessionId.ok) {
     throw new Error('Email OTP Ed25519 Yao recovery Wallet Session identity is invalid');
@@ -4727,15 +4710,10 @@ function parseEmailOtpEd25519YaoBootstrapSessionCredential(
         throw new Error('Email OTP Ed25519 unlock credentials identify different Wallet Sessions');
       }
     }
-    return { sessionKind: obj.sessionKind, operationCredential: issued };
+    return;
   }
   if (obj.sessionKind !== 'reused_wallet_session_v2') {
     throw new Error('Email OTP Ed25519 Yao recovery session kind is invalid');
-  }
-  if (source.kind === 'resolved_worker_payload') {
-    throw new Error(
-      'Email OTP Ed25519 Yao worker bootstrap requires the exact issued operation credential',
-    );
   }
   if (obj.operationCredential !== undefined) {
     throw new Error('Reused Ed25519 Wallet Session must not carry its own credential');
@@ -4746,45 +4724,76 @@ function parseEmailOtpEd25519YaoBootstrapSessionCredential(
       throw new Error('Email OTP Ed25519 session reuses another Wallet Session');
     }
   }
-  return { sessionKind: obj.sessionKind };
+}
+
+function assertCredentialFreeEmailOtpEd25519YaoBootstrapSession(
+  obj: Record<string, unknown>,
+): void {
+  if (obj.sessionKind !== undefined || obj.operationCredential !== undefined) {
+    throw new Error(
+      'Email OTP Ed25519 Yao runtime bootstrap must not carry a Wallet Session credential',
+    );
+  }
 }
 
 type EmailOtpEd25519YaoBootstrapSessionCredentialSource =
   /** The unlock response, whose issued branch carries its own credential. */
   | { readonly kind: 'wallet_unlock_response'; readonly unlockCredential: unknown }
-  /** A worker message, already resolved to one credential by the client. */
+  /** A worker message, which carries only credential-free runtime facts. */
   | { readonly kind: 'resolved_worker_payload' };
 
 function parseEmailOtpEd25519YaoBootstrapSession(
   value: unknown,
   source: EmailOtpEd25519YaoBootstrapSessionCredentialSource,
-): WalletRegistrationEd25519YaoBootstrapSession {
+): WalletRegistrationEd25519YaoSignerRuntimeBootstrap {
   const obj = workerPayloadObject(value);
   if (!obj) throw new Error('Email OTP Ed25519 Yao recovery session is required');
   rejectUnknownEmailOtpYaoFields(
     obj,
-    [
-      'sessionKind',
-      'operationCredential',
-      'walletId',
-      'nearAccountId',
-      'nearEd25519SigningKeyId',
-      'authorityScope',
-      'thresholdSessionId',
-      'authorizationId',
-      'walletSessionId',
-      'quotaId',
-      'expiresAtMs',
-      'participantIds',
-      'remainingUses',
-      'signingRootId',
-      'signingRootVersion',
-      'runtimePolicyScope',
-      'routerAbNormalSigning',
-    ],
+    source.kind === 'wallet_unlock_response'
+      ? [
+          'sessionKind',
+          'operationCredential',
+          'walletId',
+          'nearAccountId',
+          'nearEd25519SigningKeyId',
+          'authorityScope',
+          'thresholdSessionId',
+          'authorizationId',
+          'walletSessionId',
+          'quotaId',
+          'expiresAtMs',
+          'participantIds',
+          'remainingUses',
+          'signingRootId',
+          'signingRootVersion',
+          'runtimePolicyScope',
+          'routerAbNormalSigning',
+        ]
+      : [
+          'walletId',
+          'nearAccountId',
+          'nearEd25519SigningKeyId',
+          'authorityScope',
+          'thresholdSessionId',
+          'authorizationId',
+          'walletSessionId',
+          'quotaId',
+          'expiresAtMs',
+          'participantIds',
+          'remainingUses',
+          'signingRootId',
+          'signingRootVersion',
+          'runtimePolicyScope',
+          'routerAbNormalSigning',
+        ],
     'ed25519YaoRecovery.session',
   );
-  const credential = parseEmailOtpEd25519YaoBootstrapSessionCredential(obj, source);
+  if (source.kind === 'wallet_unlock_response') {
+    parseEmailOtpEd25519YaoBootstrapSessionCredential(obj, source);
+  } else {
+    assertCredentialFreeEmailOtpEd25519YaoBootstrapSession(obj);
+  }
   const authorityScope = workerPayloadObject(obj.authorityScope);
   if (!authorityScope) {
     throw new Error('Email OTP Ed25519 Yao recovery authority scope is required');
@@ -4848,7 +4857,7 @@ function parseEmailOtpEd25519YaoBootstrapSession(
     ),
     routerAbNormalSigning,
   };
-  return { ...base, ...credential };
+  return base;
 }
 
 type EmailOtpEd25519YaoMaterialActivationParser = (value: unknown) => MpcMaterialActivationRef;

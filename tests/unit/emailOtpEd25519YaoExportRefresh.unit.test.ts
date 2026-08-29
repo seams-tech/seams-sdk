@@ -6,6 +6,11 @@ import {
   exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from '@/core/signingEngine/flows/recovery/ed25519YaoExportFlow';
+import {
+  resolveWalletCustodyEd25519ExportContextV1,
+  type ExactWalletSessionAuthorizationForEd25519ExportV1,
+} from '@/core/signingEngine/session/emailOtp/ed25519ExportContext';
+import type { LoadedWalletCustodyEd25519MaterialV1 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { exactEd25519ExportMaterialIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { UserConfirmDecision } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
@@ -17,25 +22,22 @@ import {
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
-import {
-  buildActiveWalletSessionAuthorizationProjection,
-  type ActiveWalletSessionAuthorizationProjection,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-} from '@shared/authorization/capabilityKinds';
+import { buildFullOwnerPermissionsV1 } from '@shared/authorization/delegatedAuthority';
 import {
   buildEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { buildWalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
 const NEAR_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('email-otp-export-refresh-key');
 const PROVIDER_SUBJECT_ID = 'google:email-otp-export-refresh';
+const EMAIL_HASH_HEX = 'a'.repeat(64);
 const THRESHOLD_SESSION_ID_RESULT = parseThresholdEd25519SessionId(
   'threshold-email-otp-export-refresh',
 );
@@ -43,9 +45,7 @@ if (!THRESHOLD_SESSION_ID_RESULT.ok) {
   throw new Error(THRESHOLD_SESSION_ID_RESULT.error.message);
 }
 const THRESHOLD_SESSION_ID = THRESHOLD_SESSION_ID_RESULT.value;
-const WALLET_SESSION_ID = 'wallet-session-email-otp-export-refresh';
-const QUOTA_ID = 'quota-email-otp-export-refresh';
-const AUTHORIZATION_ID = 'wallet-session-authorization-email-otp-export-refresh';
+const PARTICIPANT_IDS = [1, 2] as const;
 const AUTHORIZATION_EXPIRES_AT_MS = 1_900_000_000_000;
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-email-otp-export-refresh',
@@ -83,46 +83,72 @@ const CAPABILITY = {
   registrationContinuity: { kind: 'recovery' as const },
 } as const;
 
-function ed25519AuthorizationToken(authorization: ActiveWalletSessionAuthorizationProjection) {
-  if (authorization.walletSessionTokens.kind === 'evm_family_ecdsa') {
-    throw new Error('Email OTP export fixture has no Ed25519 token');
-  }
-  return authorization.walletSessionTokens.ed25519;
+function ed25519AuthorizationToken(
+  authorization: ExactWalletSessionAuthorizationForEd25519ExportV1,
+) {
+  return authorization.operationCredential;
 }
 
 function durableWalletSessionToken(): string {
-  return 'opaque-wallet-session-token:email-otp-export-refresh';
+  return `wst_${base64UrlEncode(
+    new Uint8Array(32).fill(('email-otp-export-refresh'.length % 254) + 1),
+  )}`;
 }
 
-async function durableAuthorization() {
-  const authorizationId = parseWalletSessionAuthorizationId(AUTHORIZATION_ID);
-  const walletSessionId = parseWalletSessionId(WALLET_SESSION_ID);
-  const quotaId = parseMpcWalletSigningQuotaId(QUOTA_ID);
-  if (!authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
-    throw new Error('invalid Email OTP export authorization fixture identity');
-  }
-  const authority = buildEmailOtpWalletAuthAuthority({
-    walletId: WALLET_ID,
-    provider: 'google',
-    providerUserId: PROVIDER_SUBJECT_ID,
-    emailHashHex: 'email-otp-export-refresh-hash',
-  });
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: WALLET_ID,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: authorizationId.value,
-        walletSessionToken: durableWalletSessionToken(),
-        thresholdSessionId: THRESHOLD_SESSION_ID,
-      },
-    },
-    authMethod: 'email_otp',
-    authority: await walletAuthAuthorityRef({ authority }),
+const FACTOR_AUTHORITY = buildEmailOtpWalletAuthAuthority({
+  walletId: WALLET_ID,
+  provider: 'google',
+  providerUserId: PROVIDER_SUBJECT_ID,
+  emailHashHex: EMAIL_HASH_HEX,
+});
+
+async function durableAuthorization(): Promise<ExactWalletSessionAuthorizationForEd25519ExportV1> {
+  const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'email-otp-export-refresh',
+    permissions: buildFullOwnerPermissionsV1(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    materialActivation: MATERIAL_ACTIVATION,
     expiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
+    identity: {
+      walletId: String(WALLET_ID),
+      authorityId: 'authority:email-otp-export-refresh',
+      walletAuthMethodId: String(FACTOR_AUTHORITY.bindingId),
+      rpId: 'email-otp-export-refresh.example.test',
+    },
   });
+  const selectedAuthMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: FACTOR_AUTHORITY.bindingId,
+    walletId: fixture.authority.walletId,
+    walletAuthorityId: fixture.authority.authorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex: EMAIL_HASH_HEX,
+    registrationAuthorityId: 'registration-authority:email-otp-export-refresh',
+    createdAtMs: fixture.authMethod.createdAtMs,
+    updatedAtMs: fixture.authMethod.updatedAtMs,
+    activatedAtMs: fixture.authMethod.activatedAtMs,
+  });
+  if (selectedAuthMethod.kind !== 'email_otp' || selectedAuthMethod.status !== 'active') {
+    throw new Error('Email OTP export fixture changed auth-method branch');
+  }
+  return {
+    selectedAuthority: fixture.authority,
+    selectedAuthMethod,
+    factorAuthority: FACTOR_AUTHORITY,
+    record: fixture.activeWalletSession,
+    operationCredential: fixture.operationCredential,
+    status: {
+      status: 'active',
+      walletSessionId: fixture.operationCredential.walletSessionId,
+      quotaId: fixture.activeWalletSession.quotaId,
+      remainingUses: 3,
+      expiresAtMs: fixture.activeWalletSession.expiresAtMs,
+      quotaLifecycle: 'active',
+      authorization: fixture.activeWalletSession,
+    },
+  };
 }
 
 function buildLaneIdentity() {
@@ -226,7 +252,7 @@ class EmailOtpEd25519ExportRefreshHarness {
     this.exportCalls += 1;
     expect(this.viewerLoadingBeforeExport).toBe(true);
     this.exportedCapability = args.exportContext.material.capability;
-    expect(ed25519AuthorizationToken(args.exportContext.authorization).walletSessionToken).toBe(
+    expect(ed25519AuthorizationToken(args.exportContext.authorization).token).toBe(
       durableWalletSessionToken(),
     );
     return {
@@ -265,6 +291,114 @@ class EmailOtpEd25519ExportRefreshHarness {
     };
   }
 }
+
+function coldWalletCustodyMaterial(): LoadedWalletCustodyEd25519MaterialV1 {
+  return {
+    binding: {
+      kind: 'wallet_custody_ed25519_active_client_v1',
+      applicationBindingDigestB64u: 'application-binding-digest',
+      registeredPublicKeyB64u: base64UrlEncode(Uint8Array.from(CAPABILITY.registeredPublicKey)),
+      participantIds: PARTICIPANT_IDS,
+      stateEpoch: '1',
+      walletId: String(WALLET_ID),
+      nearAccountId: String(NEAR_ACCOUNT_ID),
+      nearEd25519SigningKeyId: String(NEAR_SIGNING_KEY_ID),
+      signerSlot: 1,
+      signingWorkerId: CAPABILITY.lifecycle.signingWorkerId,
+      signingWorkerVerifyingShareB64u: 'worker-verifying-share',
+    },
+    sealed: {
+      ciphertextB64u: 'sealed-ciphertext',
+      nonceB64u: 'sealed-nonce',
+    },
+  };
+}
+
+function coldRecoveryCapabilityResponse() {
+  return {
+    ...CAPABILITY,
+    materialActivation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
+    registrationContinuity: {
+      kind: 'recovery' as const,
+      activationTranscript: [1, 2, 3],
+    },
+  };
+}
+
+test('cold Email OTP Ed25519 export authenticates with an exact credential without embedding it', async () => {
+  const authorization = await durableAuthorization();
+  let authorizationHeader = '';
+  const result = await resolveWalletCustodyEd25519ExportContextV1({
+    subject: buildLaneIdentity(),
+    expectedMaterialActivation: MATERIAL_ACTIVATION,
+    readExactWalletSessionAuthorization: async () => ({
+      kind: 'found' as const,
+      authorization,
+    }),
+    resolveActiveCapability: () => null,
+    loadWalletCustodyMaterial: async () => ({
+      kind: 'found' as const,
+      material: coldWalletCustodyMaterial(),
+    }),
+    relayerUrl: 'https://relay.example.test',
+    fetch: async (_url, request) => {
+      authorizationHeader = String(
+        request?.headers && new Headers(request.headers).get('Authorization'),
+      );
+      return new Response(
+        JSON.stringify({
+          kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
+          walletId: String(WALLET_ID),
+          nearAccountId: String(NEAR_ACCOUNT_ID),
+          nearEd25519SigningKeyId: String(NEAR_SIGNING_KEY_ID),
+          signerSlot: 1,
+          thresholdSessionId: String(THRESHOLD_SESSION_ID),
+          walletSessionId: String(authorization.operationCredential.walletSessionId),
+          quotaId: String(authorization.record.quotaId),
+          signingWorkerId: CAPABILITY.lifecycle.signingWorkerId,
+          thresholdExpiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
+          participantIds: PARTICIPANT_IDS,
+          authority: {
+            ...(await buildEmailOtpWalletAuthAuthority({
+              walletId: WALLET_ID,
+              provider: 'google',
+              providerUserId: PROVIDER_SUBJECT_ID,
+              emailHashHex: EMAIL_HASH_HEX,
+            })),
+          },
+          authorityRef: await walletAuthAuthorityRef({
+            authority: authorization.factorAuthority,
+          }),
+          authorityScope: {
+            kind: 'email_otp',
+            provider: 'google',
+            providerUserId: PROVIDER_SUBJECT_ID,
+          },
+          runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: CAPABILITY.lifecycle.signingWorkerId,
+          },
+          capability: coldRecoveryCapabilityResponse(),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+    activateRecoveredCapability: async () => {},
+  });
+
+  expect(authorizationHeader).toBe(`Bearer ${durableWalletSessionToken()}`);
+  if (result.material.kind !== 'sealed_custody') {
+    throw new Error('cold export fixture did not resolve sealed custody');
+  }
+  expect(result.material.bootstrap.session).not.toHaveProperty('sessionKind');
+  expect(result.material.bootstrap.session).not.toHaveProperty('operationCredential');
+  expect(result.material.bootstrap.session).not.toHaveProperty('walletSessionToken');
+  expect(result.material.bootstrap.session.remainingUses).toBe(authorization.status.remainingUses);
+  expect(JSON.stringify(result.material.bootstrap.session)).not.toContain(
+    durableWalletSessionToken(),
+  );
+});
 
 test('page-refresh Email OTP Ed25519 export resolves durable context without passkey recovery', async () => {
   const harness = new EmailOtpEd25519ExportRefreshHarness();

@@ -45,6 +45,7 @@ import type {
 import type { ExactNearEd25519WalletSessionAuthorization } from '../material/nearEd25519YaoSigningPreparation';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 
 function authMethodForThresholdEcdsaSessionSource(
   source: ThresholdEcdsaSessionStoreSource,
@@ -602,7 +603,6 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
     publishableKey: string;
   };
   participantIds: readonly number[];
-  sessionKind: 'opaque';
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -668,7 +668,7 @@ export type MintedEd25519WalletSessionAuthority = {
   walletSessionToken: string;
 };
 
-export type ProvisionWarmEd25519CapabilitySuccessResult = {
+type ProvisionWarmEd25519CapabilitySuccessResultBase = {
   ok: true;
   thresholdSessionId: ThresholdEd25519SessionId;
   walletSessionId: WalletSessionId;
@@ -677,8 +677,18 @@ export type ProvisionWarmEd25519CapabilitySuccessResult = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  walletSessionToken: string;
 };
+
+/** Warm-session callers receive an exact credential even when the issuer reused a session. */
+export type ProvisionWarmEd25519CapabilitySuccessResult =
+  | (ProvisionWarmEd25519CapabilitySuccessResultBase & {
+      sessionKind: 'issued_wallet_session_v1';
+      operationCredential: WalletSessionOperationCredentialV1;
+    })
+  | (ProvisionWarmEd25519CapabilitySuccessResultBase & {
+      sessionKind: 'reused_wallet_session_v2';
+      operationCredential: WalletSessionOperationCredentialV1;
+    });
 
 export type ProvisionWarmEd25519CapabilityFailureResult = {
   ok: false;

@@ -7,9 +7,7 @@ import type {
   Ed25519AuthorityScope,
 } from '../threshold/sessionPolicy';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import {
-  buildPasskeyWalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   buildEmailOtpAuthContextForCanonicalWallet,
   type EmailOtpAuthUse,
@@ -26,9 +24,9 @@ const passkeyWalletAuthAuthority = buildPasskeyWalletAuthAuthority({
   credentialIdB64u: 'credential-id',
 });
 const emailOtpAuthContext = buildEmailOtpAuthContextForCanonicalWallet({
-walletId: 'wallet.testnet',
-emailHashHex: 'email-hash',
-policy: 'session',
+  walletId: 'wallet.testnet',
+  emailHashHex: 'email-hash',
+  policy: 'session',
   retention: 'session',
   reason: 'login',
   provider: 'google',
@@ -57,7 +55,6 @@ const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],
-  sessionKind: 'opaque',
   source: 'email_otp',
   authority: { kind: 'wallet_auth_authority', authority: emailOtpAuthContext.authority },
   emailOtpAuthContext,
@@ -140,7 +137,6 @@ const invalidEmailOtpEd25519SessionPasskeyAuthorityArgs: ConnectEd25519SessionAr
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],
-  sessionKind: 'opaque',
   source: 'email_otp',
   authority: { kind: 'wallet_auth_authority', authority: passkeyWalletAuthAuthority },
   emailOtpAuthContext,

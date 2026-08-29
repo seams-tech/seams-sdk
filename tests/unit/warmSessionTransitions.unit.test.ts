@@ -13,9 +13,9 @@ import {
 import { canonicalEcdsaSealedRuntimeFixture } from './helpers/ecdsaOperationStepUp.fixtures';
 import { buildExactPasskeyEvmFamilyWalletSessionAuthorizationFromRuntimeFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 
 async function createEnvelope(): Promise<WarmSessionEnvelope> {
@@ -66,7 +66,12 @@ async function createEnvelope(): Promise<WarmSessionEnvelope> {
   if (!ed25519Runtime) {
     throw new Error('transition fixture requires exact Ed25519 sealed runtime');
   }
-  const ed25519Authorization = buildPasskeyEd25519AuthorizationProjectionFixture(ed25519Record);
+  const ed25519Authorization = availableLaneEd25519Authorization({
+    walletId: String(ed25519Runtime.walletId),
+    identitySeed: 'warm-transition',
+    authMethod: 'passkey',
+    expiresAtMs: ed25519Runtime.expiresAtMs,
+  });
   return {
     walletId: ed25519Runtime.walletId,
     capabilities: {

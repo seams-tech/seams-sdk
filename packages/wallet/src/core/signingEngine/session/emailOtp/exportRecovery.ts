@@ -252,10 +252,10 @@ export async function requestExportChallenge(
             routePlan,
           })
         : await requestEmailOtpChallengeWithRoutePlan(ports, {
-          kind: 'wallet_session',
-          walletId: args.walletSession.walletId,
-          routePlan,
-        });
+            kind: 'wallet_session',
+            walletId: args.walletSession.walletId,
+            routePlan,
+          });
   return challenge;
 }
 
@@ -322,10 +322,7 @@ function emailOtpEd25519WorkerExportMaterial(
 }
 
 export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
-  ports: Pick<
-    EmailOtpWorkerPorts,
-    'getSignerWorkerContext' | 'requireRelayUrl'
-  >,
+  ports: Pick<EmailOtpWorkerPorts, 'getSignerWorkerContext' | 'requireRelayUrl'>,
   args: {
     challengeId: string;
     otpCode: string;
@@ -350,7 +347,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         lane: {
           walletId: String(walletId),
           providerSubjectId: args.exportContext.lane.auth.providerSubjectId,
-          walletAuthMethodId: String(args.exportContext.authorization.authority.walletAuthMethodId),
+          walletAuthMethodId: String(args.exportContext.authorization.record.authMethodId),
           nearAccountId: String(args.exportContext.lane.signer.account.nearAccountId),
           nearEd25519SigningKeyId: String(args.exportContext.lane.signer.nearEd25519SigningKeyId),
           signerSlot: args.exportContext.lane.signer.signerSlot,
@@ -372,9 +369,12 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
       }
       try {
         await args.exportContext.material.activateRecoveredCapability({
-          activeClientHandle: result.activeClientHandle,
-          metadata: result.metadata,
-          bootstrap: result.bootstrap,
+          activation: {
+            activeClientHandle: result.activeClientHandle,
+            metadata: result.metadata,
+            bootstrap: result.bootstrap,
+          },
+          operationCredential: args.exportContext.authorization.operationCredential,
         });
       } catch (error) {
         await disposeWalletCustodyEd25519ActiveClientV1({

@@ -64,7 +64,6 @@ const invalidProvisionWithLooseLocalPrf = {
   nearAccountId: 'alice.testnet',
   relayerKeyId: 'ed25519:relayer',
   participantIds: [1, 2],
-  sessionKind: 'opaque',
   source: 'login',
   // @ts-expect-error Ed25519 provisioning requires discriminated auth instead of loose localPrfCredential.
   localPrfCredential: credential,

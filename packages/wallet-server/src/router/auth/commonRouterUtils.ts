@@ -1,23 +1,14 @@
 import type { ThresholdRuntimePolicyScope } from '../../core/types';
 import type { RouterApiAuthorizationSessionService } from '../framework/authServicePort';
 import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../framework/authServicePort';
-import {
-  type OpaqueOwnerWalletSessionBinding,
-  type ResolvedOpaqueWalletSessionToken,
-} from '../../authorization/service';
 import type {
   RouterApiProjectEnvironmentResolver,
   RouterApiPublishableKeyAuthAdapter,
 } from '../framework/routerApi';
 import { extractBearerCredential } from './routerApiKeyAuth';
 import {
-  type VerifiedOwnerEcdsaWalletSessionAuth,
-  type VerifiedOwnerEd25519WalletSessionAuth,
-} from './verifiedWalletSessionAuth';
-import {
   normalizeRuntimePolicyScope,
   normalizeRuntimePolicyScopeFields,
-  type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import {
   walletSessionFailure,
@@ -43,22 +34,6 @@ type AuthorizeErr = {
 function isPlainObject(input: unknown): input is PlainObject {
   return !!input && typeof input === 'object' && !Array.isArray(input);
 }
-
-export type OpaqueOwnerWalletSessionAdmission =
-  | {
-      readonly kind: 'owner_wallet_session';
-      readonly curve: 'ed25519';
-      readonly binding: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>;
-      readonly walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
-      readonly resolved: ResolvedOpaqueWalletSessionToken;
-    }
-  | {
-      readonly kind: 'owner_wallet_session';
-      readonly curve: 'ecdsa';
-      readonly binding: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>;
-      readonly walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
-      readonly resolved: ResolvedOpaqueWalletSessionToken;
-    };
 
 export type WalletSessionOperationCredentialAdmission =
   | {
@@ -232,14 +207,6 @@ export async function resolveWalletSessionAdministrationAdmission(input: {
 export type ThresholdEd25519SessionTokenInputs =
   | {
       readonly ok: true;
-      readonly kind: 'owner_wallet_session';
-      admission: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ed25519' }>;
-      binding: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ed25519' }>['binding'];
-      walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
-      body: PlainObject;
-    }
-  | {
-      readonly ok: true;
       readonly kind: 'wallet_session_operation_credential_v1';
       readonly admission: Extract<
         WalletSessionOperationCredentialAdmission,
@@ -307,17 +274,12 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
 
 export type ThresholdEcdsaSessionInputs =
   | {
-      ok: true;
-      readonly kind: 'owner_wallet_session';
-      admission: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ecdsa' }>;
-      binding: Extract<OpaqueOwnerWalletSessionAdmission, { readonly curve: 'ecdsa' }>['binding'];
-      walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
-      body: PlainObject;
-    }
-  | {
       readonly ok: true;
       readonly kind: 'wallet_session_operation_credential_v1';
-      readonly admission: WalletSessionOperationCredentialAdmission;
+      readonly admission: Extract<
+        WalletSessionOperationCredentialAdmission,
+        { readonly curve: 'ecdsa' }
+      >;
       readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
       readonly body: PlainObject;
     }

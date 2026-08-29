@@ -31,7 +31,6 @@ import {
 import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
-  type WalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
@@ -53,7 +52,6 @@ import {
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
-  parseTenantId,
   EVM_ECDSA_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -171,92 +169,46 @@ async function resolveActiveEd25519OperationStepUpAuthority(
   }
 }
 
-function reusableWalletSessionPrincipalSubject(authority: WalletAuthAuthority): string {
-  switch (authority.factor.kind) {
-    case 'email_otp':
-      return authority.factor.providerUserId;
-    case 'passkey':
-      return authority.walletId;
-  }
-}
-
-type AcceptedEd25519ReusableWalletSessionAuthorization = Extract<
+type AcceptedEd25519WalletSessionAuthorization = Extract<
   Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
   {
     readonly ok: true;
-    readonly kind: 'reusable_wallet_session' | 'wallet_session_operation_credential_v1';
+    readonly kind: 'wallet_session_operation_credential_v1';
   }
 >;
 
 function ed25519ReusableWalletSessionIdentity(
-  authorization: AcceptedEd25519ReusableWalletSessionAuthorization,
+  authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  if (authorization.kind === 'wallet_session_operation_credential_v1') {
-    const session = authorization.validated.context.authorization.session;
-    return {
-      tenantId: session.tenantId,
-      principalId: session.principalId,
-      walletSessionId: session.walletSessionId,
-      authorizationId: session.authorizationId,
-      quotaId: session.quotaId,
-    };
-  }
-  const binding = authorization.validated.binding;
+  const session = authorization.validated.admission.context.authorization.session;
   return {
-    tenantId: requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId)),
-    principalId: requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
-    ),
-    walletSessionId: binding.walletSessionId,
-    authorizationId: binding.authorizationId,
-    quotaId: binding.quotaId,
+    tenantId: session.tenantId,
+    principalId: session.principalId,
+    walletSessionId: session.walletSessionId,
+    authorizationId: session.authorizationId,
+    quotaId: session.quotaId,
   };
 }
 
 function buildEd25519GatewayOwnerWalletSessionBinding(
-  authorization: AcceptedEd25519NormalSigningAuthorization,
+  authorization: AcceptedEd25519WalletSessionAuthorization,
 ) {
-  if (authorization.kind === 'wallet_session_operation_credential_v1') {
-    const session = authorization.validated.context.authorization.session;
-    const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
-    return {
-      kind: 'gateway_owner_wallet_session' as const,
-      subjectId: String(session.principalId),
-      accountId: String(session.walletId),
-      authorizationSessionId: String(session.authorizationId),
-      authorizationId: String(session.authorizationId),
-      walletSessionId: String(session.walletSessionId),
-      quotaId: String(session.quotaId),
-      thresholdSessionId: authorization.activeMaterial.exportIdentity.scope.threshold_session_id,
-      orgId: runtimePolicyScope.orgId,
-      projectId: runtimePolicyScope.projectId,
-      environment: runtimePolicyScope.envId,
-      signingWorkerId: authorization.activeMaterial.signingWorkerId,
-      expiresAtMs: session.expiresAtMs,
-    };
-  }
-  if (authorization.kind !== 'reusable_wallet_session') {
-    throw new Error('Ed25519 Gateway owner Wallet Session requires owner authorization');
-  }
-  const binding = authorization.validated.binding;
-  const runtimePolicyScope = binding.runtimePolicyScope;
-  if (!runtimePolicyScope) {
-    throw new Error('Ed25519 Wallet Session runtime policy scope is required');
-  }
+  const session = authorization.validated.admission.context.authorization.session;
+  const runtimePolicyScope = authorization.activeMaterial.runtimePolicyScope;
   return {
     kind: 'gateway_owner_wallet_session' as const,
-    subjectId: binding.subjectId,
-    accountId: binding.walletId,
-    authorizationSessionId: binding.walletSessionId,
-    authorizationId: binding.authorizationId,
-    walletSessionId: binding.walletSessionId,
-    quotaId: binding.quotaId,
-    thresholdSessionId: binding.thresholdSessionId,
+    subjectId: String(session.principalId),
+    accountId: String(session.walletId),
+    authorizationSessionId: String(session.authorizationId),
+    authorizationId: String(session.authorizationId),
+    walletSessionId: String(session.walletSessionId),
+    quotaId: String(session.quotaId),
+    thresholdSessionId: authorization.activeMaterial.exportIdentity.scope.threshold_session_id,
     orgId: runtimePolicyScope.orgId,
     projectId: runtimePolicyScope.projectId,
     environment: runtimePolicyScope.envId,
-    signingWorkerId: binding.routerAbNormalSigning.signingWorkerId,
-    expiresAtMs: binding.thresholdExpiresAtMs,
+    signingWorkerId: authorization.activeMaterial.signingWorkerId,
+    expiresAtMs: session.expiresAtMs,
   };
 }
 
@@ -824,7 +776,7 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
 async function authorizeEd25519ReusableWalletSessionOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: AcceptedEd25519ReusableWalletSessionAuthorization;
+  authorization: AcceptedEd25519WalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -841,25 +793,16 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
     if (!operation.ok) throw new Error(operation.message);
     const intent = isPlainObject(input.body.intent) ? input.body.intent : null;
     if (!intent) throw new Error('Ed25519 normal-signing intent is required');
+    const session = input.authorization.validated.admission.context.authorization.session;
     const privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
       phase: 'prepare',
       body: input.body,
-      authorization:
-        input.authorization.kind === 'wallet_session_operation_credential_v1'
-          ? {
-              kind: 'wallet_session_operation_credential_v1',
-              walletSessionId: String(
-                input.authorization.validated.context.authorization.session.walletSessionId,
-              ),
-              principalId: String(
-                input.authorization.validated.context.authorization.session.principalId,
-              ),
-              runtimePolicyScope: input.authorization.activeMaterial.runtimePolicyScope,
-            }
-          : {
-              kind: 'reusable_wallet_session',
-              binding: input.authorization.validated.binding,
-            },
+      authorization: {
+        kind: 'wallet_session_operation_credential_v1',
+        walletSessionId: String(session.walletSessionId),
+        principalId: String(session.principalId),
+        runtimePolicyScope: input.authorization.activeMaterial.runtimePolicyScope,
+      },
       headers: Object.fromEntries(input.ctx.request.headers.entries()),
     });
     if (!('admission_candidate' in privateBody)) {
@@ -1131,7 +1074,7 @@ function buildEd25519ReusableOperationEnvelope(
 async function validateEd25519ReusableAuthorizedOperation(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
-  authorization: AcceptedEd25519ReusableWalletSessionAuthorization;
+  authorization: AcceptedEd25519WalletSessionAuthorization;
 }): Promise<
   | {
       readonly ok: true;
@@ -1733,9 +1676,7 @@ async function issueEd25519OperationStepUpGrant(input: {
         subject: {
           kind: 'provider_identity',
           orgId: requireAuthorizationValue(parseOrgId(authenticated.session.tenantId)),
-          providerSubject: requireAuthorizationValue(
-            parseProviderSubject(proof.providerSubjectId),
-          ),
+          providerSubject: requireAuthorizationValue(parseProviderSubject(proof.providerSubjectId)),
           walletId: walletIdFromString(authenticated.session.walletId),
         },
         loginGrant: verified.loginGrant,
@@ -1904,13 +1845,7 @@ async function proxyEd25519OwnerLaneExecution(input: {
       { status: 400 },
     );
   }
-  const laneAuthorization =
-    input.authorization.kind === 'operation_step_up'
-      ? input.authorization.session.laneAuthorization
-      : {
-          kind: 'wallet_auth_method' as const,
-          walletAuthMethodId: input.authorization.validated.walletSessionAuth.walletAuthMethodId,
-        };
+  const laneAuthorization = input.authorization.session.laneAuthorization;
   return await proxyOwnerLaneAdmittedNormalSigningRequest({
     request: input.ctx.request,
     proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
