@@ -48,6 +48,7 @@ type DeviceFixture = {
     | {
         readonly kind: 'email_otp';
         readonly walletAuthMethodId: string;
+        readonly email: string;
       };
   readonly permission: {
     readonly kind: 'owner_equivalent_signing';
@@ -106,6 +107,7 @@ function emailOtpDeviceFixture(deviceId: string, state: DeviceState): DeviceFixt
     credential: {
       kind: 'email_otp',
       walletAuthMethodId: `email_otp:${WALLET_ID}:${'b'.repeat(64)}`,
+      email: 'owner@example.test',
     },
   };
 }
@@ -149,6 +151,7 @@ function ownerEmailOtpDeviceFixture(nowMs = Date.now()): OwnerDeviceFixture {
     credential: {
       kind: 'email_otp',
       walletAuthMethodId: `email_otp:${WALLET_ID}:${'b'.repeat(64)}`,
+      email: 'owner@example.test',
     },
     createdAtMs: nowMs - 86_400_000,
     lastActivityAtMs: nowMs - 1_800_000,
@@ -369,6 +372,7 @@ test.describe('linked devices modal lifecycle', () => {
     const dialog = page.getByRole('dialog', { name: 'Authentication methods' });
     await expect(dialog.getByText('Passkey', { exact: true })).toBeVisible();
     await expect(dialog.getByText('Email OTP', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('owner@example.test')).toBeVisible();
     await expect(dialog.getByRole('heading', { name: 'Add Passkey' })).toHaveCount(0);
     await expect(dialog.getByRole('heading', { name: 'Add Email OTP' })).toHaveCount(0);
   });
@@ -389,6 +393,7 @@ test.describe('linked devices modal lifecycle', () => {
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
     await expect(dialog.getByText('Device 1 · Phone passkey')).toBeVisible();
     await expect(dialog.getByText('Device 2 · Email OTP')).toBeVisible();
+    await expect(dialog.getByText('owner@example.test')).toBeVisible();
     await expect(dialog.getByText('Device 3 · Laptop passkey')).toBeVisible();
     await expect(
       dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Old passkey' }),

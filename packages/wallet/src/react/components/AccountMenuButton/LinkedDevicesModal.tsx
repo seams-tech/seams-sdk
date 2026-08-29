@@ -304,7 +304,7 @@ function credentialSecondaryDescription(
 ): string | null {
   switch (credential.kind) {
     case 'email_otp':
-      return null;
+      return String(credential.email);
     case 'passkey': {
       const metadata = credential.device;
       const provider = metadata.providerLabel ?? metadata.provider;
