@@ -34,7 +34,6 @@ import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
@@ -187,7 +186,7 @@ function requireDurablePasskeyExportContext(args: {
   ) {
     throw new Error('[SigningEngine][ed25519-export] durable Yao context activation mismatch');
   }
-  const walletSessionToken = walletSessionTokenForCurve(args.context.authorization, 'ed25519');
+  const walletSessionToken = args.context.authorization.operationCredential.token;
   if (!walletSessionToken) {
     throw new Error(
       '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
