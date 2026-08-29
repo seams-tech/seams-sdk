@@ -64,7 +64,6 @@ import {
   type WalletAuthMethodId,
   type WalletAuthorityId,
   type WalletRecoveryOperationId,
-  type WebAuthnRpId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import { parseDeviceId, type DeviceId } from '@shared/authorization/capabilityKinds';
@@ -764,14 +763,9 @@ export async function handleWalletCustodyCredentialsList(
 /**
  * Refactor 109C: binds a pre-109C custody envelope to the method that opened it.
  *
- * Authorized by the Wallet Session bearer alone, and deliberately so. The
- * session names the exact auth method it was minted through, which is the one
- * fact this operation needs — and it is a fact the caller already proved by
- * unlocking. Asking for a fresh assertion here would prompt the user for
- * permission to finish work their unlock had already done.
- *
- * A session minted before provenance was recorded carries no method, so it
- * cannot name an owner and is refused rather than guessed at.
+ * The exact operation credential names the auth method that opened the
+ * envelope. Unlock already proved that method, so finishing the ownership
+ * upgrade requires no second user assertion.
  */
 export async function handleWalletCustodyEnvelopeOwnershipUpgrade(
   ctx: FetchRouterApiContext,
@@ -795,37 +789,19 @@ export async function handleWalletCustodyEnvelopeOwnershipUpgrade(
       body: { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
     });
   }
-  const nowMs = Date.now();
-  const resolved =
-    (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
+  const exact =
+    await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
       tenantId: ctx.service.authorizationSessions.tenantId,
       token,
-      curve: 'ed25519',
-      nowMs,
-    })) ??
-    (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token,
-      curve: 'ecdsa',
-      nowMs,
-    }));
-  if (!resolved || String(resolved.authorization.walletId) !== String(parsedWalletId.value)) {
+      nowMs: Date.now(),
+    });
+  if (!exact || String(exact.authorization.session.walletId) !== String(parsedWalletId.value)) {
     return toFetchRouteResponse({
       status: 401,
       body: { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
     });
   }
-  const walletAuthMethodId = resolved.authorization.walletAuthMethodId;
-  if (walletAuthMethodId === null) {
-    return toFetchRouteResponse({
-      status: 403,
-      body: {
-        ok: false,
-        code: 'forbidden',
-        message: 'this Wallet Session does not name the auth method that minted it',
-      },
-    });
-  }
+  const walletAuthMethodId = exact.authMethod.walletAuthMethodId;
 
   const body = await readJsonObject(ctx.request);
   let envelope: PasskeyCustodyEnvelopeRecord;
