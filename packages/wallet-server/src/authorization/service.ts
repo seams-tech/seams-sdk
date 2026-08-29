@@ -1277,7 +1277,7 @@ async function deriveWalletSessionAuthorizationV2Id(
   return `${prefix}_${digest}`;
 }
 
-async function digestOpaqueValue(value: string) {
+export async function digestOpaqueValue(value: string) {
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(value)));
 }
 

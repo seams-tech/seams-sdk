@@ -11,6 +11,7 @@ export { AuthService } from './core/AuthService';
 export * from './authorization/domain';
 export * from './authorization/service';
 export * from './authorization/vaultProxyUse';
+export * from './router/cloudflare/d1/registration/d1RegistrationCredentialRemediation';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';
 export {
