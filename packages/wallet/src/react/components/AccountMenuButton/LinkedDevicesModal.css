@@ -36,6 +36,10 @@
   box-sizing: border-box;
 }
 
+.w3a-linked-devices-modal-content:focus {
+  outline: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .w3a-linked-devices-modal-content {
     animation: w3a-linked-devices-modal-content-enter 120ms ease-out both;
@@ -84,6 +88,11 @@
 .w3a-linked-devices-modal-close:hover {
   color: var(--w3a-colors-textPrimary);
   background: var(--w3a-colors-surface);
+}
+
+.w3a-linked-devices-modal-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .w3a-linked-devices-modal-body {
