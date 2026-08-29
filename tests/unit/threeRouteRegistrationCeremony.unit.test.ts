@@ -78,6 +78,18 @@ function stubSigningEngine(
           walletId: 'alice.testnet',
           keySet: 'evm_family_ecdsa_v1',
           keyManifestDigestB64u: FIXTURE_DIGEST32_B64U,
+          // serde-wasm-bindgen emits undefined-valued properties for every
+          // optional Rust field; the pending-commit boundary must canonicalize
+          // those away before its strict parser runs.
+          establishedCustody: undefined,
+          recoveryReplacementEnvelope: undefined,
+          registeredPublicKeyB64u: undefined,
+          ed25519LocalMaterialB64u: undefined,
+          ed25519LocalMaterialNonceB64u: undefined,
+          ed25519ApplicationBindingDigestB64u: undefined,
+          clientRootPublicKey33B64u: undefined,
+          ecdsaReadyStateBlobB64u: undefined,
+          ecdsaPublicFacts: undefined,
         },
       });
     },
