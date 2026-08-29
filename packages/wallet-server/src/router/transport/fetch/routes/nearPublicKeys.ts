@@ -2,9 +2,7 @@ import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 
-export async function handleNearPublicKeys(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleNearPublicKeys(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== '/near/public-keys') return null;
 
@@ -17,21 +15,15 @@ export async function handleNearPublicKeys(
       );
     }
     const nowMs = Date.now();
-    const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-      tenantId: ctx.service.authorizationSessions.tenantId,
-      token,
-      curve: 'ecdsa',
-      nowMs,
-    });
-    const walletSession =
-      ecdsa ??
-      (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
-        tenantId: ctx.service.authorizationSessions.tenantId,
-        token,
-        curve: 'ed25519',
-        nowMs,
-      }));
-    if (!walletSession) {
+    const exact =
+      await ctx.service.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential(
+        {
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          token,
+          nowMs,
+        },
+      );
+    if (!exact) {
       return json(
         { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
         { status: 401 },
@@ -39,7 +31,7 @@ export async function handleNearPublicKeys(
     }
 
     const result = await ctx.service.nearFunding.listNearPublicKeysForUser({
-      userId: walletSession.authorization.walletId,
+      userId: String(exact.authorization.session.walletId),
     });
     if (!result.ok) {
       const status =
