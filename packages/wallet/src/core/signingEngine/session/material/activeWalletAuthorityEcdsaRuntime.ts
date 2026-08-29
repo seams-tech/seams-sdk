@@ -149,6 +149,7 @@ export type ActiveWalletAuthorityEcdsaRuntimeBlockReason =
   | 'authority_inactive'
   | 'authority_identity_mismatch'
   | 'missing_wallet_session'
+  | 'upgrade_required'
   | 'wallet_session_inactive'
   | 'wallet_session_expired'
   | 'wallet_session_identity_mismatch'
@@ -636,7 +637,14 @@ export async function resolveActiveWalletAuthorityEcdsaRuntimeV1(
       error instanceof Error ? error.message : String(error),
     );
   }
-  if (!sessionWithCredential) return blocked('missing_wallet_session');
+  switch (sessionWithCredential.kind) {
+    case 'found':
+      break;
+    case 'missing':
+      return blocked('missing_wallet_session');
+    case 'upgrade_required':
+      return blocked('upgrade_required', 'Wallet Session authorization requires a newer client');
+  }
   const session = sessionWithCredential.record;
   const operationCredential = sessionWithCredential.operationCredential;
   if (session.expiresAtMs <= nowMs) return blocked('wallet_session_expired');
