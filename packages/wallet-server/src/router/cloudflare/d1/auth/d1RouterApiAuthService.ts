@@ -515,7 +515,6 @@ function createD1LinkedDeviceComposition(input: {
     });
     const verifiedLinkSourceReader = createD1LinkedDeviceVerifiedLinkSourceReaderV1({
       authorizationService: input.authorizationService,
-      ordinaryWalletSessions: input.authorizationStore,
       authorityStore,
       authMethodStore: input.walletAuthMethodStore,
       walletStore: input.walletStore,

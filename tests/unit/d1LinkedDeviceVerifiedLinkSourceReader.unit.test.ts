@@ -315,9 +315,11 @@ test('accepts duplicate ECDSA signer rows for one wallet-wide source identity', 
     remainingUses: 3,
     expiresAtMs: 10_000,
   });
+  let exactSessionAvailable = true;
   const reader = createD1LinkedDeviceVerifiedLinkSourceReaderV1({
     authorizationService: {
-      readWalletSessionAuthorizationV2ByIdentity: async () => ({ session, quota }),
+      readWalletSessionAuthorizationV2ByIdentity: async () =>
+        exactSessionAvailable ? { session, quota } : null,
     },
     authorityStore: { readById: async () => authority },
     authMethodStore: { readByIdV2: async () => authMethod },
@@ -328,15 +330,20 @@ test('accepts duplicate ECDSA signer rows for one wallet-wide source identity', 
     tenantId,
   });
 
-  const source = await reader.readVerifiedSourceV1({
+  const sourceRequest = {
     walletId,
     walletSessionId: String(walletSessionId),
     authorizationId: String(authorizationId),
-    keyFamily: 'ecdsa_secp256k1',
+    keyFamily: 'ecdsa_secp256k1' as const,
     requestedAtMs: 4_000,
-  });
+  };
+  const source = await reader.readVerifiedSourceV1(sourceRequest);
 
   expect(source.keyManifestDigestB64u).toBe(parseDigestB64u(signer.custodyKeyManifestDigestB64u));
+  exactSessionAvailable = false;
+  await expect(reader.readVerifiedSourceV1(sourceRequest)).rejects.toThrow(
+    'source exact Wallet Session is unavailable',
+  );
 });
 
 test('exposes both exact key families from a combined deferred source authority', async () => {
