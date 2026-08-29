@@ -34,6 +34,11 @@ import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/si
 import { WALLET_SESSION_CLIENT_CAPABILITY_V1 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { thresholdEcdsaChainTargetKey } from '../../packages/wallet-server/src/core/thresholdEcdsaChainTarget';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import {
+  parseDelegatedWalletPermissionSetV1,
+  buildSigningOnlyPermissionsV1,
+} from '../../packages/shared-ts/src/authorization/delegatedAuthority';
+import { buildLinkedDeviceManagementAuthorityFixture } from './helpers/linkedDeviceManagement.fixtures';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -158,6 +163,7 @@ function addAuthMethodInputFor(args: {
   session?: Record<string, unknown>;
   apiKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
+  authorizationSessions?: Record<string, unknown>;
   walletId?: string;
   walletAuthMethodId?: string;
   headers?: Record<string, string>;
@@ -184,6 +190,7 @@ function addAuthMethodInputFor(args: {
       session: args.session || {},
       publishableKeyAuth: args.apiKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
+      ...(args.authorizationSessions ? { authorizationSessions: args.authorizationSessions } : {}),
     },
   } as unknown as Parameters<typeof handleRouterApiWalletAddAuthMethodStart>[0];
 }
@@ -353,21 +360,36 @@ function ed25519AddSignerAdmissionRequest() {
   };
 }
 
-function addAuthMethodIntent(kind: 'passkey' | 'email_otp' = 'passkey'): AddAuthMethodIntentV1 {
-  return {
-    version: 'add_auth_method_intent_v1',
+function addAuthMethodIntent(
+  kind: 'passkey' | 'email_otp' = 'passkey',
+  caller: 'same_device_addition' | 'linked_device_ceremony' = 'same_device_addition',
+): AddAuthMethodIntentV1 {
+  const common = {
+    version: 'add_auth_method_intent_v1' as const,
     walletId: walletIdFromString('wallet_alice'),
     authMethod:
       kind === 'passkey'
-        ? { kind: 'passkey', rpId: RP_ID }
+        ? { kind: 'passkey' as const, rpId: RP_ID }
         : {
-            kind: 'email_otp',
+            kind: 'email_otp' as const,
             email: 'alice@example.test',
           },
     targetWalletAuthMethodId: walletAuthMethodId('wallet-auth-method:target'),
-    ...addAuthMethodIntentCaller(),
     nonceB64u: 'add-auth-method-nonce',
   };
+  if (caller === 'linked_device_ceremony') {
+    return { ...common, caller };
+  }
+  return {
+    ...common,
+    ...addAuthMethodIntentCaller(),
+  };
+}
+
+function linkDevicesOnlyPermissions() {
+  const parsed = parseDelegatedWalletPermissionSetV1(['link_devices']);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 test.describe('wallet registration route boundaries', () => {
@@ -877,6 +899,136 @@ test.describe('wallet registration route boundaries', () => {
       code: 'invalid_body',
       message: 'wallet_session auth carries no body facts',
     });
+  });
+
+  test('add-auth-method linked-device start admits an exact link_devices credential', async () => {
+    const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'route-exact',
+      permissions: linkDevicesOnlyPermissions(),
+      provenance: 'wallet_registration',
+      expiresAtMs: Date.now() + 60_000,
+      identity: {
+        walletId: 'wallet_alice',
+        authorityId: 'authority:route-exact',
+        walletAuthMethodId: 'auth-method:route-exact',
+        rpId: 'wallet.example.test',
+      },
+    });
+    const intent = addAuthMethodIntent('passkey', 'linked_device_ceremony');
+    const digest = await computeAddAuthMethodIntentDigestB64u(intent);
+    const token = String(fixture.operationCredential.token);
+    let exactReadInput: unknown = null;
+    let legacyReads = 0;
+    let serviceRequest: unknown = null;
+    const response = await handleRouterApiWalletAddAuthMethodStart(
+      addAuthMethodInputFor({
+        routeId: 'wallet_add_auth_method_start',
+        body: {
+          intent,
+          addAuthMethodIntentGrant: 'waig_1',
+          addAuthMethodIntentDigestB64u: digest,
+          auth: { kind: 'wallet_session' },
+          authority: { kind: 'passkey' },
+        },
+        headers: { authorization: `Bearer ${token}` },
+        authorizationSessions: {
+          tenantId: fixture.issuedSession.session.tenantId,
+          readWalletSessionAuthorizationV2ByOperationCredential: async (input: unknown) => {
+            exactReadInput = input;
+            return {
+              authorization: fixture.issuedSession,
+              authority: fixture.authority,
+              authMethod: fixture.authMethod,
+              retiredAtMs: null,
+            };
+          },
+          resolveOpaqueWalletSessionToken: async () => {
+            legacyReads += 1;
+            return null;
+          },
+        },
+        authService: {
+          startWalletAddAuthMethod: async (request: unknown) => {
+            serviceRequest = request;
+            return { ok: true };
+          },
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(legacyReads).toBe(0);
+    expect(exactReadInput).toMatchObject({
+      tenantId: fixture.issuedSession.session.tenantId,
+      token,
+      nowMs: expect.any(Number),
+    });
+    expect(serviceRequest).toMatchObject({
+      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
+      intent: {
+        caller: 'linked_device_ceremony',
+      },
+      auth: {
+        kind: 'wallet_session',
+        walletSessionId: fixture.issuedSession.session.walletSessionId,
+        authorizationId: fixture.issuedSession.session.authorizationId,
+        rpId: fixture.authMethod.rpId,
+        credentialIdB64u: fixture.authMethod.credentialIdB64u,
+      },
+    });
+  });
+
+  test('add-auth-method linked-device start rejects an exact session without link_devices', async () => {
+    const fixture = await buildLinkedDeviceManagementAuthorityFixture({
+      label: 'route-no-link',
+      permissions: buildSigningOnlyPermissionsV1(),
+      provenance: 'wallet_registration',
+      expiresAtMs: Date.now() + 60_000,
+      identity: {
+        walletId: 'wallet_alice',
+        authorityId: 'authority:route-no-link',
+        walletAuthMethodId: 'auth-method:route-no-link',
+        rpId: 'wallet.example.test',
+      },
+    });
+    const intent = addAuthMethodIntent('passkey', 'linked_device_ceremony');
+    const digest = await computeAddAuthMethodIntentDigestB64u(intent);
+    let serviceCalled = false;
+    const response = await handleRouterApiWalletAddAuthMethodStart(
+      addAuthMethodInputFor({
+        routeId: 'wallet_add_auth_method_start',
+        body: {
+          intent,
+          addAuthMethodIntentGrant: 'waig_1',
+          addAuthMethodIntentDigestB64u: digest,
+          auth: { kind: 'wallet_session' },
+          authority: { kind: 'passkey' },
+        },
+        headers: { authorization: `Bearer ${String(fixture.operationCredential.token)}` },
+        authorizationSessions: {
+          tenantId: fixture.issuedSession.session.tenantId,
+          readWalletSessionAuthorizationV2ByOperationCredential: async () => ({
+            authorization: fixture.issuedSession,
+            authority: fixture.authority,
+            authMethod: fixture.authMethod,
+            retiredAtMs: null,
+          }),
+        },
+        authService: {
+          startWalletAddAuthMethod: async () => {
+            serviceCalled = true;
+            return { ok: true };
+          },
+        },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(serviceCalled).toBe(false);
   });
 
   test('add-auth-method start validates digest and forwards normalized passkey authority', async () => {

@@ -63,9 +63,10 @@ import {
 import { findUnexpectedRouteKey } from '../../framework/routeRequestValidation';
 import {
   resolveActiveRuntimePolicyScopeForEnvironment,
-  resolveOpaqueOwnerWalletSessionAdmission,
+  resolveWalletSessionAdministrationAdmission,
   resolveWalletSessionOperationCredentialAdmission,
   resolveWalletSessionOperationCredentialAdmissionFromContext,
+  type WalletSessionAdministrationAdmission,
   type WalletSessionOperationCredentialAdmission,
 } from '../../auth/commonRouterUtils';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
@@ -843,19 +844,32 @@ async function parseWalletEcdsaInventoryBody(
   return { ok: false, code: 'invalid_body', message: 'auth.kind is unsupported' };
 }
 
-async function resolveRouteOpaqueOwnerWalletSession(
+async function resolveRouteExactWalletSessionAdministration(
   input: RouterApiWalletRegistrationInput,
-  curve: 'ecdsa' | 'ed25519',
-) {
+  walletId: WalletAddAuthMethodStartRequest['walletId'],
+): Promise<WalletSessionAdministrationAdmission | null> {
   const token = extractBearerCredential(input.headers);
   if (!token) return null;
+  let primaryToken: ReturnType<typeof parsePrimaryWalletSessionOperationCredentialToken>;
   try {
-    return await resolveOpaqueOwnerWalletSessionAdmission({
+    primaryToken = parsePrimaryWalletSessionOperationCredentialToken(token);
+  } catch {
+    return null;
+  }
+  try {
+    const resolution = await resolveWalletSessionAdministrationAdmission({
       authorizationSessions: input.services.authorizationSessions,
-      token,
-      curve,
+      token: primaryToken,
       nowMs: Date.now(),
+      operation: {
+        kind: 'link_devices',
+        walletId,
+      },
     });
+    if (resolution.kind !== 'admitted') {
+      return null;
+    }
+    return resolution.admission;
   } catch {
     return null;
   }
@@ -2619,14 +2633,6 @@ export async function handleRouterApiWalletAddSignerStart(
         verified.message || 'Invalid add-signer WebAuthn authorization',
       );
     }
-  } else {
-    const admission = await resolveRouteOpaqueOwnerWalletSession(input, 'ecdsa');
-    if (!admission || admission.curve !== 'ecdsa') {
-      return routeError(401, 'unauthorized', 'Opaque ECDSA Wallet Session is unavailable');
-    }
-    if (admission.binding.walletId !== walletId) {
-      return routeError(403, 'forbidden', 'Wallet session does not match walletId');
-    }
   }
   const result = await input.services.walletRegistration.startWalletAddSigner(parsedBody.value);
   return routeJson(result.ok ? 200 : 400, result);
@@ -2902,11 +2908,9 @@ export async function handleRouterApiWalletAddAuthMethodStart(
     }
     request = { ...parsedRequest, auth: verified.auth };
   } else if (parsedRequest.auth.kind === 'wallet_session') {
-    /* Only the linked-device ceremony may authorize with a reusable bearer
-       credential. A same-device addition names itself in its own intent and
-       must present a fresh operation-specific proof, so accepting a session
-       here would let a bearer token stand in for the assertion R109C
-       requires. */
+    /* Only a linked-device ceremony may authorize with an owner Wallet Session
+       credential. Same-device addition names itself in its intent and must
+       present a fresh operation-specific proof. */
     if (parsedRequest.intent.caller !== 'linked_device_ceremony') {
       return routeError(
         401,
@@ -2914,25 +2918,27 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         'Same-device add-auth-method requires a fresh source proof, not a Wallet Session',
       );
     }
-    /* R103 zero-prompt handoff: owner authority for the linked-device
-       ceremony start is the active owner Wallet Session presented as the
-       bearer credential. The session's own minting authority names the
-       passkey whose custody envelope the ceremony binds — the body supplied
-       none of these facts. */
-    const admission = await resolveRouteOpaqueOwnerWalletSession(input, 'ed25519');
-    if (!admission || admission.curve !== 'ed25519') {
+    /* R103 zero-prompt handoff: the exact V2 administration admission proves
+       the owner Wallet Session and its link_devices authority. The session's
+       own auth method names the passkey whose custody envelope the ceremony
+       binds; the body supplies none of these facts. */
+    const admission = await resolveRouteExactWalletSessionAdministration(
+      input,
+      parsedRequest.walletId,
+    );
+    if (!admission) {
       return routeError(
         401,
         'unauthorized',
         'Add-auth-method requires an active owner Wallet Session',
       );
     }
-    const binding = admission.binding;
-    if (String(binding.walletId) !== walletId) {
+    const { authorization, authMethod } = admission.context;
+    const session = authorization.session;
+    if (String(session.walletId) !== walletId) {
       return routeError(401, 'unauthorized', 'Owner Wallet Session names another wallet');
     }
-    const authority = binding.authority;
-    if (authority.factor?.kind !== 'passkey' || authority.verifier?.kind !== 'webauthn') {
+    if (authMethod.kind !== 'passkey') {
       return routeError(
         401,
         'unauthorized',
@@ -2943,10 +2949,10 @@ export async function handleRouterApiWalletAddAuthMethodStart(
       ...parsedRequest,
       auth: {
         kind: 'wallet_session',
-        walletSessionId: String(binding.walletSessionId),
-        authorizationId: String(binding.authorizationId),
-        rpId: authority.verifier.rpId,
-        credentialIdB64u: String(authority.factor.credentialIdB64u),
+        walletSessionId: session.walletSessionId,
+        authorizationId: session.authorizationId,
+        rpId: authMethod.rpId,
+        credentialIdB64u: authMethod.credentialIdB64u,
       },
     };
   } else {

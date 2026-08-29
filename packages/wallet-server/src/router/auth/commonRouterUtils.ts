@@ -16,8 +16,6 @@ import type {
 import { extractBearerCredential } from './routerApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  buildVerifiedEcdsaWalletSessionAuth,
-  buildVerifiedEd25519WalletSessionAuth,
   type VerifiedOwnerEcdsaWalletSessionAuth,
   type VerifiedOwnerEd25519WalletSessionAuth,
 } from './verifiedWalletSessionAuth';
@@ -61,7 +59,10 @@ import {
   type WalletSessionFailureCode,
 } from './walletSessionFailure';
 import {
+  resolveWalletSessionAuthorizationV2AdministrationAdmission,
   resolveWalletSessionAuthorizationV2Admission,
+  type WalletSessionAuthorizationV2AdministrationAdmissionResult,
+  type WalletSessionAuthorizationV2AdministrationOperation,
   type WalletSessionAuthorizationV2AdmissionResult,
   type WalletSessionAuthorizationV2RequestedOperation,
 } from '../domains/signingOperations/walletExecutionAdmission';
@@ -130,38 +131,6 @@ type WalletSessionOperationCredentialRequest =
       >,
       'keyFamily' | 'operationKind'
     >;
-
-/** Builds the route admission from the binding validated by the persistence boundary. */
-export function buildOpaqueOwnerWalletSessionAdmission(
-  resolved: ResolvedOpaqueWalletSessionToken,
-): OpaqueOwnerWalletSessionAdmission | null {
-  switch (resolved.curve) {
-    case 'ed25519': {
-      const binding = resolved.binding;
-      if (binding.curve !== 'ed25519') return null;
-      const walletAuthMethodId = resolved.authorization.walletAuthMethodId;
-      if (walletAuthMethodId === null) return null;
-      return {
-        kind: 'owner_wallet_session',
-        curve: 'ed25519',
-        binding,
-        walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(binding, walletAuthMethodId),
-        resolved,
-      };
-    }
-    case 'ecdsa': {
-      const binding = resolved.binding;
-      if (binding.curve !== 'ecdsa') return null;
-      return {
-        kind: 'owner_wallet_session',
-        curve: 'ecdsa',
-        binding,
-        walletSessionAuth: buildVerifiedEcdsaWalletSessionAuth(binding),
-        resolved,
-      };
-    }
-  }
-}
 
 export function resolveWalletSessionOperationCredentialAdmissionFromContext(input: {
   readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
@@ -235,19 +204,63 @@ export async function resolveWalletSessionOperationCredentialAdmission(input: {
   });
 }
 
-export async function resolveOpaqueOwnerWalletSessionAdmission(input: {
+export type WalletSessionAdministrationRequest = Pick<
+  WalletSessionAuthorizationV2AdministrationOperation,
+  'kind' | 'walletId'
+>;
+
+export type WalletSessionAdministrationAdmission = {
+  readonly kind: 'wallet_session_administration_v1';
+  readonly operationKind: 'link_devices';
+  readonly context: RouterApiWalletSessionAuthorizationV2AdmissionContext;
+  readonly admission: Extract<
+    WalletSessionAuthorizationV2AdministrationAdmissionResult,
+    { readonly ok: true }
+  >;
+};
+
+export type WalletSessionAdministrationResolution =
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'rejected' }
+  | { readonly kind: 'admitted'; readonly admission: WalletSessionAdministrationAdmission };
+
+export async function resolveWalletSessionAdministrationAdmission(input: {
   readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly token: string;
-  readonly curve: 'ecdsa' | 'ed25519';
   readonly nowMs: number;
-}): Promise<OpaqueOwnerWalletSessionAdmission | null> {
-  const resolved = await input.authorizationSessions.resolveOpaqueWalletSessionToken({
-    tenantId: input.authorizationSessions.tenantId,
-    token: input.token,
-    curve: input.curve,
+  readonly operation: WalletSessionAdministrationRequest;
+}): Promise<WalletSessionAdministrationResolution> {
+  const context =
+    await input.authorizationSessions.readWalletSessionAuthorizationV2ByOperationCredential({
+      tenantId: input.authorizationSessions.tenantId,
+      token: input.token,
+      nowMs: input.nowMs,
+    });
+  if (!context) return { kind: 'not_found' };
+  const session = context.authorization.session;
+  const admission = resolveWalletSessionAuthorizationV2AdministrationAdmission({
+    authorization: session,
+    authority: context.authority,
+    authMethod: context.authMethod,
+    operation: {
+      kind: input.operation.kind,
+      tenantId: session.tenantId,
+      principalId: session.principalId,
+      walletId: input.operation.walletId,
+    },
+    retiredAtMs: context.retiredAtMs,
     nowMs: input.nowMs,
   });
-  return resolved ? buildOpaqueOwnerWalletSessionAdmission(resolved) : null;
+  if (!admission.ok) return { kind: 'rejected' };
+  return {
+    kind: 'admitted',
+    admission: {
+      kind: 'wallet_session_administration_v1',
+      operationKind: admission.operationKind,
+      context,
+      admission,
+    },
+  };
 }
 
 export type ThresholdEd25519SessionTokenInputs =

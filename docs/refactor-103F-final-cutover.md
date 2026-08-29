@@ -742,8 +742,9 @@ and both credential-bearing registration replay functions are deleted.
 - [x] Delete `WalletSessionOperationCredentialResolution.kind === 'not_v2'`;
       an absent exact digest returns `not_found`. Remaining request-boundary V1
       resolvers are tracked explicitly for deletion below.
-- [ ] Delete `resolveOpaqueOwnerWalletSessionAdmission` and its request-boundary
-      callers after their exact replacements land.
+- [x] Delete `resolveOpaqueOwnerWalletSessionAdmission` and its request-boundary
+      callers; linked add-auth-method admission now uses the exact V2
+      `link_devices` administration path.
 - [x] Delete the Ed25519 validator's V1-token fallback. Exact absence returns
       `wallet_session_invalid` without probing the V1 resolver.
 - [x] Delete the ECDSA validator's V1-token fallback. Exact absence returns
@@ -806,8 +807,8 @@ Primary files:
 
 Live admission symbols include `WalletSessionOperationCredentialResolution`,
 `resolveWalletSessionOperationCredentialAdmission`,
-`resolveOpaqueOwnerWalletSessionAdmission`, `validateOwnerWalletSessionV1`,
-`resolveRouteOpaqueOwnerWalletSession`,
+`WalletSessionAdministrationResolution`,
+`resolveWalletSessionAdministrationAdmission`, `validateOwnerWalletSessionV1`,
 and `authorizeSigningSessionSealWithExactWalletSession`.
 
 ### I4 — Status, replay, quota, and source activity (B6)
