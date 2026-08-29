@@ -8,20 +8,17 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
+  thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   toWalletId,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ActiveWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationReadResult,
-} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { IndexedDBManager } from '@/core/indexedDB';
+import type { WalletAuthorityId, WalletAuthMethodId } from '@shared/utils/domainIds';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import {
-  requestRehydrateEmailOtpEcdsaWarmSessionMaterial,
-} from './workerRequests';
+import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   walletAuthAuthorityRef,
@@ -48,11 +45,19 @@ import type {
   ActiveEcdsaCapabilityRuntimeResolution,
   resolveActiveEcdsaCapabilityRuntime,
 } from '../material/activeEcdsaCapabilityRuntime';
+import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import {
+  buildCanonicalEvmFamilyEcdsaSigningCapability,
+  buildExactEvmFamilyWalletSessionAuthorization,
+  type BuildExactEvmFamilyWalletSessionAuthorizationInput,
+  type CanonicalEvmFamilyEcdsaSigningCapability,
+  type ExactEvmFamilyWalletSessionAuthorization,
+} from '../material/ecdsaSigningCapability';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   remainingUses: number;
   expiresAtMs: number;
 };
@@ -81,9 +86,11 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
     task: () => Promise<T>;
   }) => Promise<T>;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
-  readActiveWalletSessionAuthorization: (
-    walletId: WalletId,
-  ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
+  readExactWalletSessionAuthorization: (input: {
+    walletId: WalletId;
+    authorityId: WalletAuthorityId;
+    authMethodId: WalletAuthMethodId;
+  }) => Promise<WalletSessionAuthorizationExactOperationCredentialReadResult>;
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -96,7 +103,6 @@ export type EmailOtpEcdsaSealedRecoveryPorts = {
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    authorization: ActiveWalletSessionAuthorizationProjection;
   }>;
   resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
 };
@@ -108,8 +114,7 @@ export type EmailOtpEcdsaRestoreSource = {
   kind: 'sealed_record_restore';
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  thresholdSessionId: string;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
@@ -210,7 +215,7 @@ function requireEmailOtpEcdsaSealedTransportSource(
 
 function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
-  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorization: ExactEvmFamilyWalletSessionAuthorization;
 }): EmailOtpEcdsaRestoreSource {
   const { sealedRecord } = args;
   const transport = requireEmailOtpEcdsaSealedTransportSource(sealedRecord);
@@ -228,7 +233,6 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
     sealedRecord,
     emailOtpAuthContext: sealedRecordEmailOtpSessionAuthContext(sealedRecord.emailOtpAuthority),
     authorization: args.authorization,
-    thresholdSessionId: sealedRecord.thresholdSessionId,
     relayerUrl: sealedRecord.relayerUrl,
     chainTarget: sealedRecord.chainTarget,
     keyHandle: sealedRecord.keyHandle,
@@ -241,26 +245,90 @@ function buildSealedRecordEmailOtpEcdsaRestoreSource(args: {
   };
 }
 
+async function requireSelectedEmailOtpWalletAuthority(
+  walletId: WalletId,
+): Promise<BuildExactEvmFamilyWalletSessionAuthorizationInput['selected']> {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(String(walletId));
+  if (
+    selected.kind !== 'resolved' ||
+    selected.selection.lockState !== 'unlocked' ||
+    selected.selection.walletId !== walletId ||
+    selected.selection.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
+    selected.authMethod.kind !== 'email_otp' ||
+    selected.authMethod.status !== 'active' ||
+    selected.authMethod.walletId !== walletId ||
+    selected.authMethod.walletAuthorityId !== selected.authority.authorityId ||
+    selected.authority.state !== 'active' ||
+    selected.authority.walletId !== walletId
+  ) {
+    throw new Error('Email OTP sealed refresh selected authority is invalid');
+  }
+  return {
+    kind: 'resolved',
+    selection: selected.selection,
+    authMethod: selected.authMethod,
+    authority: selected.authority,
+    signerMaterials: selected.signerMaterials,
+    exportRoot: selected.exportRoot,
+  };
+}
+
+function requireEmailOtpRuntimeAuthority(
+  runtime: ExactEcdsaSealedRuntime,
+): EmailOtpWalletAuthAuthority {
+  if (runtime.authBinding.kind !== 'email_otp') {
+    throw new Error('Email OTP sealed refresh runtime is not Email OTP bound');
+  }
+  return runtime.authBinding.emailOtpAuthority;
+}
+
 export function requireEmailOtpSealedRestoreAuthorization(args: {
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
-  authorizationRead: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
+  authorizationRead: WalletSessionAuthorizationExactOperationCredentialReadResult;
+  selected: BuildExactEvmFamilyWalletSessionAuthorizationInput['selected'];
+  runtime: ExactEcdsaSealedRuntime;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
   nowMs: number;
-}): ActiveWalletSessionAuthorizationProjection {
+}): ExactEvmFamilyWalletSessionAuthorization {
   if (args.authorizationRead.kind !== 'found') {
     throw new Error(
       `Email OTP sealed refresh requires active Wallet Session authorization: ${args.authorizationRead.kind}`,
     );
   }
-  const authorization = args.authorizationRead.projection;
+  const { record, operationCredential } = args.authorizationRead;
+  if (args.runtime.kind !== 'exact_ecdsa_sealed_runtime_v1') {
+    throw new Error('Email OTP sealed refresh ECDSA runtime is unavailable');
+  }
   if (
-    authorization.authMethod !== 'email_otp' ||
-    authorization.walletId !== toWalletId(args.sealedRecord.walletId) ||
-    authorization.authority.authorityDigest !== args.sealedRecord.authority.authorityDigest ||
-    authorization.expiresAtMs <= args.nowMs
+    args.sealedRecord.authMethod !== 'email_otp' ||
+    record.walletId !== toWalletId(args.sealedRecord.walletId) ||
+    record.authorityId !== args.selected.authority.authorityId ||
+    record.authMethodId !== args.selected.authMethod.walletAuthMethodId ||
+    record.authorityDigestB64u !== args.selected.authority.authorityDigestB64u ||
+    record.authorityRevocationEpoch !== args.selected.authority.revocationEpoch ||
+    record.expiresAtMs <= args.nowMs ||
+    operationCredential.walletSessionId.trim().length === 0 ||
+    operationCredential.token.trim().length === 0 ||
+    args.runtime.walletId !== record.walletId ||
+    !thresholdEcdsaChainTargetsEqual(args.runtime.chainTarget, args.sealedRecord.chainTarget) ||
+    args.runtime.sealedRecord.thresholdSessionId !== args.sealedRecord.thresholdSessionId ||
+    args.runtime.sealedRecord.authMethod !== args.selected.authMethod.kind ||
+    args.runtime.authBinding.kind !== 'email_otp' ||
+    args.runtime.authBinding.emailOtpAuthority.bindingId !==
+      args.selected.authMethod.walletAuthMethodId ||
+    args.runtime.authBinding.emailOtpAuthority.walletId !== record.walletId
   ) {
     throw new Error('Email OTP sealed refresh Wallet Session authorization mismatch');
   }
-  return authorization;
+  return buildExactEvmFamilyWalletSessionAuthorization({
+    capability: args.capability,
+    selected: args.selected,
+    session: record,
+    operationCredential,
+    runtime: args.runtime,
+    walletSessionId: operationCredential.walletSessionId,
+    nowMs: args.nowMs,
+  });
 }
 
 export function createEmailOtpEcdsaSigningSessionMaterialRestorer(
@@ -296,25 +364,46 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
 ): Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
   const sealedRecord = args.sealedRecord;
   const materialActivation = sealedRecord.roleLocalMaterialRef.materialActivation;
-  const authorizationRead = await args.readActiveWalletSessionAuthorization(
-    toWalletId(sealedRecord.walletId),
-  );
+  const walletId = toWalletId(sealedRecord.walletId);
+  const currentBeforeRehydrate: ActiveEcdsaCapabilityRuntimeResolution =
+    await args.resolveCurrentEcdsaCapabilityRuntime({
+      walletId,
+      chainTarget: sealedRecord.chainTarget,
+    });
+  if (
+    currentBeforeRehydrate.kind !== 'resolved' ||
+    !mpcMaterialActivationRefsEqual(
+      currentBeforeRehydrate.runtime.materialActivation,
+      materialActivation,
+    )
+  ) {
+    throw new EmailOtpEcdsaSealedRestoreSupersededError('before_rehydrate');
+  }
+  const selected = await requireSelectedEmailOtpWalletAuthority(walletId);
+  const authorizationRead = await args.readExactWalletSessionAuthorization({
+    walletId,
+    authorityId: selected.authority.authorityId,
+    authMethodId: selected.authMethod.walletAuthMethodId,
+  });
+  const existingKey = await emailOtpSealedExistingKey(sealedRecord);
+  const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
+    authority: requireEmailOtpRuntimeAuthority(currentBeforeRehydrate.runtime),
+    manifest: currentBeforeRehydrate.manifest,
+    material: existingKey.persistedRoleLocalMaterial,
+  });
   const authorization = requireEmailOtpSealedRestoreAuthorization({
     sealedRecord,
     authorizationRead,
+    selected,
+    runtime: currentBeforeRehydrate.runtime,
+    capability,
     nowMs: Date.now(),
   });
-  const existingKey = await emailOtpSealedExistingKey(sealedRecord);
   const restoreSource = buildSealedRecordEmailOtpEcdsaRestoreSource({
     sealedRecord,
     authorization,
   });
-  const walletSessionToken = walletSessionTokenForCurve(restoreSource.authorization, 'ecdsa');
-  if (!walletSessionToken) {
-    throw new Error(
-      'Email OTP sealed refresh requires an active ECDSA Wallet Session authorization',
-    );
-  }
+  const walletSessionToken = restoreSource.authorization.operationCredential.token;
   if (emailOtpAuthContextRetention(restoreSource.emailOtpAuthContext) !== 'session') return null;
 
   const workerCtx = args.getSignerWorkerContext();
@@ -329,23 +418,10 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     throw new Error('Email OTP sealed refresh exhausted sealed record');
   }
   const expectedMaterialActivation = materialActivation;
-  const currentBeforeRehydrate: ActiveEcdsaCapabilityRuntimeResolution =
-    await args.resolveCurrentEcdsaCapabilityRuntime({
-      walletId: toWalletId(sealedRecord.walletId),
-      chainTarget: restoreSource.chainTarget,
-    });
-  if (
-    currentBeforeRehydrate.kind !== 'resolved' ||
-    !mpcMaterialActivationRefsEqual(
-      currentBeforeRehydrate.runtime.materialActivation,
-      expectedMaterialActivation,
-    )
-  ) {
-    throw new EmailOtpEcdsaSealedRestoreSupersededError('before_rehydrate');
-  }
+  const thresholdSessionId = restoreSource.authorization.runtime.sealedRecord.thresholdSessionId;
   const restored = await requestRehydrateEmailOtpEcdsaWarmSessionMaterial({
     workerCtx,
-    target: { kind: 'ecdsa', thresholdSessionId: restoreSource.thresholdSessionId },
+    target: { kind: 'ecdsa', thresholdSessionId },
     sealedSecretB64u: sealedRecord.sealedSecretB64u,
     remainingUses: sealedRecord.remainingUses,
     expiresAtMs: sealedRecord.expiresAtMs,
@@ -358,7 +434,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
       groupId: restoreSource.signingSessionSealGroupId,
     },
     restore: {
-      thresholdSessionId: restoreSource.thresholdSessionId,
+      thresholdSessionId,
       walletId: sealedRecord.walletId,
       keyHandle: restoreSource.keyHandle,
       chainTarget: restoreSource.chainTarget,
@@ -379,7 +455,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     buildEmailOtpRecoveredKeyActivation({
       existingKey,
       chainTarget: restoreSource.chainTarget,
-      thresholdSessionId: restoreSource.thresholdSessionId,
+      thresholdSessionId,
       ttlMs: Math.max(1, restored.expiresAtMs - Date.now()),
       remainingUses: restored.remainingUses,
       runtimePolicyScope: restoreSource.runtimePolicyScope,
@@ -407,16 +483,25 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     throw new EmailOtpEcdsaSealedRestoreSupersededError('before_commit');
   }
   const committed = await args.commitEvmFamilyThresholdEcdsaSessions({
-    walletId: toWalletId(sealedRecord.walletId),
+    walletId,
     chainTarget: restoreSource.chainTarget,
     bootstrap,
     source: 'email_otp',
     authority: existingKey.persistedRoleLocalMaterial.authority,
     emailOtpAuthContext: restoreSource.emailOtpAuthContext,
   });
+  const committedAuthorization = buildExactEvmFamilyWalletSessionAuthorization({
+    capability,
+    selected,
+    session: committed.bootstrap.session.walletSession,
+    operationCredential: committed.bootstrap.session.operationCredential,
+    runtime: currentBeforeCommit.runtime,
+    walletSessionId: committed.bootstrap.session.operationCredential.walletSessionId,
+    nowMs: Date.now(),
+  });
   return {
     bootstrap: committed.bootstrap,
-    authorization: committed.authorization,
+    authorization: committedAuthorization,
     remainingUses: committed.bootstrap.session.remainingUses,
     expiresAtMs: committed.bootstrap.session.expiresAtMs,
   };
