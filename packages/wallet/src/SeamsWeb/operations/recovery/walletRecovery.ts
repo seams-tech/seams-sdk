@@ -13,8 +13,6 @@ import {
   verifyWalletRecoveryGoogle,
   verifyWalletRecoveryEmailOtp,
   finalizeWalletRecoveryGoogleEmailOtp,
-  type WalletRecoveryGoogleVerifyResult,
-  type WalletRecoveryEmailOtpVerifyResult,
   type WalletRecoveryGoogleEmailOtpFinalizeResult,
   type WalletRecoveryEmailOtpEnrollmentMaterial,
 } from '@/core/rpcClients/relayer/walletRecoveryGoogleEmailOtp';
@@ -48,8 +46,6 @@ import {
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import type { ActiveRecoveredWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
-import type { WalletAuthMethodRecordV2 } from '@shared/utils/registrationIntent';
 import { decodeWalletRecoveryCode } from '@shared/wallet-recovery/recoveryCodes';
 import {
   parseRecoveryCodeReservationId,
@@ -160,8 +156,6 @@ type RecoveryEmailOtpReplacement = {
   readonly providerSubject: string;
   readonly verifiedEmail: string;
 };
-
-type RecoveryReplacement = RecoveryPasskeyReplacement | RecoveryEmailOtpReplacement;
 
 function isGooglePreparedWalletRecovery(
   prepared: PreparedWalletRecovery,
