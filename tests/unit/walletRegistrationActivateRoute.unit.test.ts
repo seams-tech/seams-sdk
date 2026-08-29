@@ -349,17 +349,6 @@ test('a conflicting activate retry is refused before any custody effect', async 
 
     expect(conflicting).toMatchObject({ ok: false, code: 'idempotency_conflict' });
     expect(strictRegistration.activateCalls).toBe(activateCallsAfterFirst);
-    const replayTokenRows = await database
-      .prepare(
-        `SELECT COUNT(*) AS count
-           FROM registration_replay_opaque_wallet_session_tokens_v1
-          WHERE namespace = ?1
-            AND tenant_id = ?2
-            AND registration_ceremony_id = ?3`,
-      )
-      .bind(SCOPE.namespace, service.authorizationSessions.tenantId, setup.registrationCeremonyId)
-      .first<{ readonly count?: unknown }>();
-    expect(Number(replayTokenRows?.count ?? 0)).toBe(0);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -433,22 +422,6 @@ test('identical activate retries return one credential-free committed projection
     );
     expect(replayedAgainProjection.session).toEqual(replayedProjection.session);
     expect('operationCredential' in replayedProjection).toBe(false);
-
-    const replayTokenRows = await database
-      .prepare(
-        `SELECT COUNT(*) AS count
-           FROM registration_replay_opaque_wallet_session_tokens_v1
-          WHERE namespace = ?1
-            AND tenant_id = ?2
-            AND registration_ceremony_id = ?3`,
-      )
-      .bind(
-        SCOPE.namespace,
-        service.authorizationSessions.tenantId,
-        setup.registrationCeremonyId,
-      )
-      .first<{ readonly count?: unknown }>();
-    expect(Number(replayTokenRows?.count ?? 0)).toBe(0);
 
     const parentRows = await database
       .prepare(

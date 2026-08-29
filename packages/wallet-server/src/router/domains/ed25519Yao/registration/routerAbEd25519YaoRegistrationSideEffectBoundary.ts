@@ -681,7 +681,7 @@ class RegistrationV2StoreAdapter<
         return await this.store.put(key, value, expectedVersion);
       case 'router_ab_ed25519_yao_registration_side_effect_completion_v1': {
         if (value.response.kind !== 'executed_response') {
-          throw new Error('registration side-effect cannot persist a replay adapter response');
+          throw new Error('registration side-effect cannot persist a replay response');
         }
         const receipt = requireReceipt(await this.projectReceipt(value.response.response));
         return await this.store.put(

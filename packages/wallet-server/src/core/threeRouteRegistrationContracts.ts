@@ -63,11 +63,9 @@ import type {
  *   and request fingerprint. A direct-capability first response carries the
  *   ephemeral primary credential after the receipt CAS; exact retry returns
  *   `already_committed` with the stable projection and no credential. The
- *   bounded old-client adapter remains a separate request-boundary concern.
- *   The receipt projection retains the parent
- *   session expiry. A conflicting fingerprint returns the typed conflict.
- * - Legacy compatibility is confined to response assembly and adapter digest
- *   persistence; the V2 wire contract has no legacy fields or dual-write.
+ *   receipt projection retains the parent session expiry. A conflicting
+ *   fingerprint returns the typed conflict.
+ * - The V2 wire contract has no legacy fields or dual-write.
  */
 
 declare const signedSetupPayloadBrand: unique symbol;
