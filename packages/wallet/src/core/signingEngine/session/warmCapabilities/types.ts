@@ -20,7 +20,6 @@ import type {
 } from '../identity/laneIdentity';
 import { laneCandidateStateFromRuntimePolicy } from '../identity/laneIdentity';
 import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../emailOtp/ecdsaSigningSessionAuthority';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
   EmailOtpEd25519SessionPolicyAuthority,

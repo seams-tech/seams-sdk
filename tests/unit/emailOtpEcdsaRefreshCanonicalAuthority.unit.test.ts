@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { buildEmailOtpEcdsaSigningSessionAuthority } from '@/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import { resolveCanonicalEmailOtpEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import type { ExactEcdsaExportLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import {
@@ -22,6 +21,7 @@ import {
   refreshEmailOtpSigningSession,
   type EmailOtpEcdsaSigningSessionDeps,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import { buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture } from './helpers/exactEvmFamilyWalletSessionAuthorization.fixtures';
 import { resolveThresholdEcdsaSigningQueueKey } from '@/core/signingEngine/threshold/ecdsa/signingQueue';
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
@@ -32,8 +32,15 @@ import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 // Wallet Session resolved independently. Refresh must not move the material
 // activation, and must never reach for recovery or device linking.
 
-function resolvedRuntime(overrides: { thresholdSessionId?: string } = {}) {
-  const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
+function resolvedRuntime(
+  overrides: {
+    manifest?: Awaited<
+      ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
+    >['manifest'];
+    thresholdSessionId?: string;
+  } = {},
+) {
+  const manifest = overrides.manifest ?? ecdsaCapabilityHydrationLookupFixture().active.manifest;
   const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
     manifest,
     ...(overrides.thresholdSessionId ? { thresholdSessionId: overrides.thresholdSessionId } : {}),
@@ -99,30 +106,6 @@ function activeCanonicalAuthorization(
     authority: active.authority,
     expiresAtMs: active.expiresAtMs,
   });
-}
-
-function activeRuntimeSigningSessionAuthority(
-  runtime: ReturnType<typeof resolvedRuntime>['runtime'],
-) {
-  if (runtime.authBinding.kind !== 'email_otp') {
-    throw new Error('Email OTP runtime fixture must carry an Email OTP authority');
-  }
-  const authorization = activeAuthorization('wallet-session-refresh');
-  if (authorization.walletSessionTokens.kind !== 'evm_family_ecdsa') {
-    throw new Error('ECDSA authorization fixture must carry an ECDSA token');
-  }
-  const authority = buildEmailOtpEcdsaSigningSessionAuthority({
-    authority: runtime.authBinding.emailOtpAuthority,
-    authLane: {
-      kind: 'signing_session',
-      walletSessionToken: authorization.walletSessionTokens.ecdsa.walletSessionToken,
-      thresholdSessionId: runtime.sealedRecord.thresholdSessionId,
-      curve: 'ecdsa',
-      chainTarget: runtime.chainTarget,
-    },
-  });
-  if (!authority) throw new Error('Email OTP runtime fixture must build a signing-session lane');
-  return authority;
 }
 
 function canonicalEmailOtpExportLaneFixture(args: {
@@ -245,8 +228,13 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
   });
 
   test('rechecks the exact activation inside its owner queue before consuming refresh', async () => {
-    const initial = resolvedRuntime();
-    const authority = activeRuntimeSigningSessionAuthority(initial.runtime);
+    const capability = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+    const initial = resolvedRuntime({ manifest: capability.manifest });
+    const exactAuthorization = await buildExactEmailOtpEvmFamilyWalletSessionAuthorizationFixture({
+      capability: capability.capability,
+      runtime: initial.runtime,
+      label: 'refresh-fence',
+    });
     let resolutionCalls = 0;
     let queueCalls = 0;
     let loginCalls = 0;
@@ -257,7 +245,7 @@ test.describe('Email OTP ECDSA refresh canonical authority', () => {
           return {
             manifest: initial.manifest,
             runtime: initial.runtime,
-            authority,
+            authority: exactAuthorization,
           };
         }
         throw new Error('capability disappeared while queued');
