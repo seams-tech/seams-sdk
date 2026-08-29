@@ -832,13 +832,13 @@ and `authorizeSigningSessionSealWithExactWalletSession`.
       `readExactWalletSessionStatusByOperationCredential` returns
       `ExactWalletSessionStatusV2`; exceptions remain reserved for corrupt rows,
       disagreeing columns, and broken foreign-key identity.
-- [ ] Convert fully scoped `isAuthorizedOperationSourceActive` rows to V2 exact
+- [x] Convert fully scoped `isAuthorizedOperationSourceActive` rows to V2 exact
       lookup.
 - [ ] Delete the all-null-scope V1 source-activity branch and reject partial or
       unscoped pending rows.
 - [ ] Replace quota lookup through `reusable_wallet_sessions` with the V2
       authorization's `quota_id`.
-- [ ] Populate `linked_scope_org_id`, `linked_scope_project_id`, and
+- [x] Populate `linked_scope_org_id`, `linked_scope_project_id`, and
       `linked_scope_env_id` on every new grant and reject partial scope.
 - [ ] Replace the additive bridge trigger with an exact-only enforcement
       trigger requiring complete V2 scope.
@@ -1115,7 +1115,7 @@ Convert every reader or legacy writer:
       contract proves the registration result remains immediately usable;
 - [x] `login.ts`;
 - [x] registration legacy persistence in `registration.ts`;
-- [ ] recovery/sync legacy persistence in `syncAccount.ts`;
+- [x] recovery/sync legacy persistence in `syncAccount.ts`;
 - [x] `SigningSessionCoordinator.ts`;
 - [x] `PasskeyMpcSessionManager.ts`;
 - [x] `session/availability/readiness.ts`;
@@ -1144,7 +1144,7 @@ Convert every reader or legacy writer:
 - [x] `emailOtp/ecdsaLogin.ts`: unlock/recovery publication now obtains its
       session authority from the selected exact tuple and rejects wallet-wide
       or mismatched authorization state;
-- [ ] `browserSigningSurfaceAssembly.ts`;
+- [x] `browserSigningSurfaceAssembly.ts`;
 - [x] `createBrowserRecoveryPublicDeps.ts`;
 - [x] `stepUpRuntime.ts`;
 - [x] `ed25519YaoWarmRecovery.ts`: Passkey warm recovery requires the unlocked
@@ -1399,7 +1399,7 @@ exact admission contexts. No V1 request or persistence resolver remains.
       continuity and normal exact login.
 - [ ] Reconcile all affected browser records after material promotion.
 - [x] Bump the host/iframe protocol and remove reusable-session message fields.
-- [ ] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
+- [x] Rename `ReusableWalletSessionMintId` to `WalletSessionMintId` without an
       alias; preserve stored and frozen wire field names.
 
 Exit: the final client reads and writes only V6 active records, supported mixed
