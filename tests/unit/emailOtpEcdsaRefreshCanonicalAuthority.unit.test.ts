@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  buildEmailOtpEcdsaSigningSessionAuthority,
-  resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability,
-} from '@/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
+import { buildEmailOtpEcdsaSigningSessionAuthority } from '@/core/signingEngine/session/emailOtp/ecdsaSigningSessionAuthority';
 import { resolveCanonicalEmailOtpEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import type { ExactEcdsaExportLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import {
@@ -175,58 +172,6 @@ function canonicalEmailOtpExportLaneFixture(args: {
 }
 
 test.describe('Email OTP ECDSA refresh canonical authority', () => {
-  test('builds a post-registration lane from the canonical capability without a sealed record', async () => {
-    const { capability, manifest } =
-      await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
-    const [chainTarget] = manifest.signer.scope.targetMemberships;
-    if (!chainTarget) throw new Error('ECDSA fixture must have a target membership');
-    const authorization = activeCanonicalAuthorization(manifest, 'ec-session-registration');
-    const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability({
-      capability,
-      authorization,
-      chainTarget,
-    });
-
-    expect(resolution.kind).toBe('ready');
-    if (resolution.kind !== 'ready') return;
-    expect(resolution.authority.authority).toEqual(capability.authority);
-    expect(resolution.authority.authLane.thresholdSessionId).toBe('ec-session-registration');
-    expect(resolution.authority.authLane.chainTarget).toEqual(chainTarget);
-  });
-
-  test('projects shared ECDSA material onto a sibling Tempo target', async () => {
-    const { capability, manifest } = await canonicalEvmFamilyEcdsaSigningCapabilityFixture(
-      'email_otp',
-      {
-        targetMemberships: [
-          {
-            kind: 'evm',
-            namespace: 'eip155',
-            chainId: 1,
-            networkSlug: 'ethereum',
-          },
-          {
-            kind: 'tempo',
-            chainId: 42431,
-            networkSlug: 'tempo-testnet',
-          },
-        ],
-      },
-    );
-    const tempoTarget = manifest.signer.scope.targetMemberships[1];
-    if (!tempoTarget) throw new Error('ECDSA fixture must have a sibling Tempo target');
-    const authorization = activeCanonicalAuthorization(manifest, 'ec-session-tempo');
-    const resolution = resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability({
-      capability,
-      authorization,
-      chainTarget: tempoTarget,
-    });
-
-    expect(resolution.kind).toBe('ready');
-    if (resolution.kind !== 'ready') return;
-    expect(resolution.authority.authLane.chainTarget).toEqual(tempoTarget);
-  });
-
   test('prepares immediate post-registration ECDSA export from canonical material', async () => {
     const { capability, manifest } = await canonicalEvmFamilyEcdsaSigningCapabilityFixture(
       'email_otp',

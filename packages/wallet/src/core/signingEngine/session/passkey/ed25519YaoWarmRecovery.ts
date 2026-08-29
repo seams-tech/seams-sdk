@@ -34,9 +34,7 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
-  buildActiveWalletSessionAuthorizationProjection,
   walletSessionAuthorizations,
-  type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationExactActiveReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
@@ -128,7 +126,7 @@ export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
   readonly selectedLaneMaterialActivation: MpcMaterialActivationRef;
   readonly material: PasskeyEd25519YaoExportMaterialV1;
-  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly authorization: ExactPasskeyWalletSessionAuthorization;
   readonly relayerUrl: string;
   readonly rpId: string;
   readonly walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
@@ -391,32 +389,6 @@ export async function requirePasskeyEd25519RestoreAuthorization(args: {
     return null;
   }
   return authorization;
-}
-
-function projectExactPasskeyWalletSessionAuthorization(args: {
-  readonly authorization: ExactPasskeyWalletSessionAuthorization;
-  readonly authority: WalletAuthAuthorityRef;
-  readonly thresholdSessionId: ThresholdEd25519SessionId;
-}): ActiveWalletSessionAuthorizationProjection {
-  // The export flow still consumes a projection-shaped context. Derive it from
-  // the exact record and lane identity without consulting the V3 store.
-  const { record, operationCredential } = args.authorization;
-  return buildActiveWalletSessionAuthorizationProjection({
-    walletId: record.walletId,
-    walletSessionId: operationCredential.walletSessionId,
-    quotaId: record.quotaId,
-    walletSessionTokens: {
-      kind: 'near_ed25519',
-      ed25519: {
-        authorizationId: record.authorizationId,
-        walletSessionToken: operationCredential.token,
-        thresholdSessionId: args.thresholdSessionId,
-      },
-    },
-    authMethod: 'passkey',
-    authority: args.authority,
-    expiresAtMs: record.expiresAtMs,
-  });
 }
 
 function ownerWarmRecoveryBootstrapRequest(
@@ -767,11 +739,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
         credentialIdB64u: descriptor.credentialIdB64u,
         capability: descriptor.capability,
       },
-      authorization: projectExactPasskeyWalletSessionAuthorization({
-        authorization,
-        authority: expectedAuthorityRef,
-        thresholdSessionId: input.subject.thresholdSessionId,
-      }),
+      authorization,
       relayerUrl: input.relayerUrl,
       rpId: exactRecord.record.ed25519Restore.rpId,
       walletCustodyEnvelope,

@@ -13,14 +13,14 @@ import { toAccountId } from '@/core/types/accountIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildEmailOtpEd25519SealedSessionRecordFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
-const AUTHORIZATION = buildPasskeyEd25519AuthorizationProjectionFixture(RECORD);
+const AUTHORIZATION = buildPasskeyExactEd25519AuthorizationFixture(RECORD);
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
   nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),

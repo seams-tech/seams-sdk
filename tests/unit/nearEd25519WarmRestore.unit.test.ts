@@ -4,7 +4,7 @@ import type { PasskeyMpcSessionPort } from '@/core/signingEngine/uiConfirm/uiCon
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
-  buildPasskeyEd25519AuthorizationProjectionFixture,
+  buildPasskeyExactEd25519AuthorizationFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
 
@@ -14,7 +14,7 @@ test('restores the passkey Ed25519 warm session after a refreshed worker loses i
   });
   const runtime = parseExactEd25519SealedSessionRuntime(record);
   if (!runtime) throw new Error('passkey Ed25519 sealed runtime fixture is invalid');
-  const renewedAuthorization = buildPasskeyEd25519AuthorizationProjectionFixture(
+  const renewedAuthorization = buildPasskeyExactEd25519AuthorizationFixture(
     buildPasskeyEd25519SealedSessionRecordFixture({
       walletId: record.walletId,
       nearAccountId: record.ed25519Restore.nearAccountId,
