@@ -924,6 +924,8 @@ function createWalletHostDeviceDomainConstructionV1(args: {
     http: platform.http,
     relayerUrl,
     walletSessions: walletSessionAuthorizations,
+    resolveSelectedWalletAuthority:
+      IndexedDBManager.resolveSelectedWalletAuthority.bind(IndexedDBManager),
     readWalletAuthenticationState: args.signingEngine.readWalletAuthenticationState.bind(
       args.signingEngine,
     ),

@@ -5,8 +5,12 @@ import {
   walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
+  type ActiveWalletSessionV1,
+  type WalletSessionOperationCredentialV1,
   type WalletSessionAuthorizationRepository,
+  WalletSessionAuthorizationUpgradeRequiredError,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
 import type { WalletAuthenticationState } from '@/core/types/seams';
 import type {
   DeviceLinkingOwnerAuthorizationPortV1,
@@ -44,8 +48,11 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly relayerUrl: string;
   readonly walletSessions: Pick<
     WalletSessionAuthorizationRepository,
-    'read' | 'readActiveForWallet'
+    'read' | 'readExactWithOperationCredential'
   >;
+  readonly resolveSelectedWalletAuthority: (
+    walletId: WalletId,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   /**
    * R103 zero-prompt handoff: reads the worker-held unlocked Ed25519 export-root
@@ -76,8 +83,11 @@ type WalletHostOwnerAuthorityContextV1 = {
   readonly baseUrl: string;
   readonly walletSessions: Pick<
     WalletSessionAuthorizationRepository,
-    'read' | 'readActiveForWallet'
+    'read' | 'readExactWithOperationCredential'
   >;
+  readonly resolveSelectedWalletAuthority: (
+    walletId: WalletId,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
@@ -89,8 +99,11 @@ function normalizeContext(input: {
   readonly relayerUrl: string;
   readonly walletSessions: Pick<
     WalletSessionAuthorizationRepository,
-    'read' | 'readActiveForWallet'
+    'read' | 'readExactWithOperationCredential'
   >;
+  readonly resolveSelectedWalletAuthority: (
+    walletId: WalletId,
+  ) => Promise<ResolveSelectedWalletAuthorityResultV1>;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly readUnlockedEd25519ExportRootCapabilityV1: (
     walletId: WalletId,
@@ -137,13 +150,13 @@ async function authorizeOwnerForLinkingV1(
      no Ed25519 lane - so an in-flight provisioning is awaited first. Best
      effort by design: the registry is page-local. */
   await awaitNearProvisioningInFlight(state.walletId);
-  const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
+  const session = await requireActiveWalletSessionForSelectedMethodV1(context, state.walletId);
   const body: LinkedDeviceOwnerAuthorizationRequestV1 =
     parseLinkedDeviceOwnerAuthorizationRequestV1({
       payload: input.payload,
       requestedAtMs: input.requestedAtMs,
     });
-  const response = await requestWithProjectionV1(context, projection, {
+  const response = await requestWithExactSessionV1(context, session, {
     method: 'POST',
     canonicalPath: OWNER_AUTHORIZATION_PATH,
     body,
@@ -151,7 +164,7 @@ async function authorizeOwnerForLinkingV1(
   if (response.status < 200 || response.status >= 300) {
     throw new Error(ownerRequestFailureMessage(response));
   }
-  const parsed = parseOwnerAuthorizationResponseV1(response.body, projection);
+  const parsed = parseOwnerAuthorizationResponseV1(response.body, session);
   const exportRootRequired =
     hasDelegatedWalletPermissionV1(input.payload.requestedPermission, 'export_keys') &&
     parsed.sourceSignerManifest.keyFamilies.some((family) => family === 'ed25519');
@@ -162,7 +175,8 @@ async function authorizeOwnerForLinkingV1(
     exportRootRequired &&
     (!ed25519ExportRootCapability ||
       ed25519ExportRootCapability.walletId !== String(state.walletId) ||
-      ed25519ExportRootCapability.walletSessionId !== String(projection.walletSessionId) ||
+      ed25519ExportRootCapability.walletSessionId !==
+        String(session.operationCredential.walletSessionId) ||
       ed25519ExportRootCapability.expiresAtMs <= Date.now())
   ) {
     throw walletUnlockRequiredV1();
@@ -203,37 +217,74 @@ async function requestManagementAsOwnerV1(
   context: WalletHostOwnerAuthorityContextV1,
   input: Parameters<WalletHostManagementRequestV1['request']>[0],
 ): ReturnType<WalletHostManagementRequestV1['request']> {
-  const projection = await requireActiveWalletSessionForWalletV1(context, input.walletId);
-  return await requestWithProjectionV1(context, projection, input);
+  const session = await requireActiveWalletSessionForSelectedMethodV1(context, input.walletId);
+  return await requestWithExactSessionV1(context, session, input);
 }
 
-async function requireActiveWalletSessionForWalletV1(
+type WalletHostExactOwnerSessionV1 = {
+  readonly record: ActiveWalletSessionV1;
+  readonly operationCredential: WalletSessionOperationCredentialV1;
+};
+
+async function requireActiveWalletSessionForSelectedMethodV1(
   context: WalletHostOwnerAuthorityContextV1,
   walletId: WalletId,
-): Promise<ActiveWalletSessionAuthorizationProjection> {
-  const read = await context.walletSessions.readActiveForWallet(walletId);
-  // One error per cause: this gate fails for reasons with different remedies
-  // (unlock again, versus stale local rows from an older build), and a single
-  // message made them indistinguishable in the field.
+): Promise<WalletHostExactOwnerSessionV1> {
+  const selected = await context.resolveSelectedWalletAuthority(walletId);
+  if (selected.kind !== 'resolved') {
+    throw walletUnlockRequiredV1();
+  }
+  const { selection, authMethod, authority } = selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletId !== walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.status !== 'active' ||
+    authority.walletId !== walletId ||
+    authority.state !== 'active'
+  ) {
+    throw walletUnlockRequiredV1();
+  }
+  const read = await context.walletSessions.readExactWithOperationCredential({
+    walletId,
+    authorityId: authority.authorityId,
+    authMethodId: authMethod.walletAuthMethodId,
+  });
   switch (read.kind) {
     case 'found':
       break;
     case 'missing':
       throw walletUnlockRequiredV1();
-    case 'corrupt':
-      throw new Error(
-        'Stored owner Wallet Session state is corrupt for this wallet — lock and unlock to replace it',
+    case 'upgrade_required':
+      throw new WalletSessionAuthorizationUpgradeRequiredError(
+        'Stored owner Wallet Session requires a newer client',
       );
-    case 'persistence_unavailable':
-      throw new Error('Owner Wallet Session storage is unavailable');
     default:
       read satisfies never;
       throw new Error('Unsupported owner Wallet Session read result');
   }
-  if (read.projection.status !== 'active' || read.projection.expiresAtMs <= Date.now()) {
+  if (
+    read.record.authorityDigestB64u !== authority.authorityDigestB64u ||
+    read.record.authorityRevocationEpoch !== authority.revocationEpoch ||
+    read.record.expiresAtMs <= Date.now()
+  ) {
     throw walletUnlockRequiredV1();
   }
-  return read.projection;
+  return read;
+}
+
+async function requestWithExactSessionV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  session: WalletHostExactOwnerSessionV1,
+  input: {
+    readonly method: 'GET' | 'POST';
+    readonly canonicalPath: string;
+    readonly body?: unknown;
+  },
+): Promise<{ readonly status: number; readonly body: unknown }> {
+  return await requestWithCredentialV1(context, session.operationCredential.token, input);
 }
 
 async function requestWithProjectionV1(
@@ -246,6 +297,18 @@ async function requestWithProjectionV1(
   },
 ): Promise<{ readonly status: number; readonly body: unknown }> {
   const walletSessionToken = preferredOwnerWalletSessionToken(projection);
+  return await requestWithCredentialV1(context, walletSessionToken, input);
+}
+
+async function requestWithCredentialV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  walletSessionToken: string,
+  input: {
+    readonly method: 'GET' | 'POST';
+    readonly canonicalPath: string;
+    readonly body?: unknown;
+  },
+): Promise<{ readonly status: number; readonly body: unknown }> {
   const response = await context.http.request({
     method: input.method,
     url: `${context.baseUrl}${input.canonicalPath}`,
@@ -278,7 +341,7 @@ function projectionContainsAuthorizationId(
 
 function parseOwnerAuthorizationResponseV1(
   raw: unknown,
-  projection: ActiveWalletSessionAuthorizationProjection,
+  session: WalletHostExactOwnerSessionV1,
 ): Omit<
   Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>>,
   'ed25519ExportRootCapability' | 'exportRootRequirement'
@@ -300,7 +363,7 @@ function parseOwnerAuthorizationResponseV1(
   }
   const source = parseLinkedDeviceOwnerAuthorizationSourceV1(authenticationRecord.source);
   const ownerAuthorization = parseLinkedDeviceOwnerAuthorizationSourceV1(record.ownerAuthorization);
-  assertWalletSessionSourceMatchesProjection(source, projection);
+  assertWalletSessionSourceMatchesExactSession(source, session);
   assertSameOwnerAuthorization(source, ownerAuthorization);
   const authentication: LinkSessionAuthenticationV1 = {
     kind: 'link_session_authenticated_request_v1',
@@ -308,7 +371,7 @@ function parseOwnerAuthorizationResponseV1(
     proofDigestB64u: parseDigestB64u(String(authenticationRecord.proofDigestB64u)),
   };
   const walletId = parseWalletId(String(record.walletId));
-  if (!walletId.ok || walletId.value !== projection.walletId) {
+  if (!walletId.ok || walletId.value !== session.record.walletId) {
     throw new Error('Owner authorization wallet identity changed');
   }
   return {
@@ -320,17 +383,17 @@ function parseOwnerAuthorizationResponseV1(
   };
 }
 
-function assertWalletSessionSourceMatchesProjection(
+function assertWalletSessionSourceMatchesExactSession(
   source: ReturnType<typeof parseLinkedDeviceOwnerAuthorizationSourceV1>,
-  projection: ActiveWalletSessionAuthorizationProjection,
+  session: WalletHostExactOwnerSessionV1,
 ): void {
   if (source.kind !== 'wallet_session') {
     throw new Error('Owner authorization did not return a Wallet Session source');
   }
-  if (source.walletSessionId !== projection.walletSessionId) {
+  if (source.walletSessionId !== session.operationCredential.walletSessionId) {
     throw new Error('Owner authorization Wallet Session id changed');
   }
-  if (!projectionContainsAuthorizationId(projection, source.authorizationId)) {
+  if (source.authorizationId !== session.record.authorizationId) {
     throw new Error('Owner authorization id changed');
   }
 }

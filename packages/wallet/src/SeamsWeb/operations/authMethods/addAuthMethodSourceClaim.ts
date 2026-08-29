@@ -25,10 +25,7 @@ export type AddAuthMethodSourceClaimResultV1 =
       readonly source: AddAuthMethodIntentSourceV1;
       /* Kept alongside the hashed claim so the proof uses the exact method
          named by that claim. */
-      readonly sourceAuthMethod: Extract<
-        WalletAuthMethodRecordV2,
-        { readonly status: 'active' }
-      >;
+      readonly sourceAuthMethod: Extract<WalletAuthMethodRecordV2, { readonly status: 'active' }>;
     }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
@@ -48,19 +45,44 @@ export async function resolveAddAuthMethodSourceClaimV1(
   if (selected.authority.state !== 'active') {
     return { kind: 'unavailable', reason: 'selected wallet authority is not active' };
   }
-  const session = await walletSessionAuthorizations.readActiveForWallet(walletId);
-  if (session.kind !== 'found') {
-    return { kind: 'unavailable', reason: `active Wallet Session is ${session.kind}` };
+  if (
+    selected.selection.lockState !== 'unlocked' ||
+    selected.selection.walletId !== walletId ||
+    selected.selection.walletAuthMethodId !== selected.authMethod.walletAuthMethodId ||
+    selected.authMethod.walletId !== walletId ||
+    selected.authMethod.walletAuthorityId !== selected.authority.authorityId ||
+    selected.authority.walletId !== walletId
+  ) {
+    return { kind: 'unavailable', reason: 'selected wallet authority identity is invalid' };
   }
-  /* The session has to belong to the method being used as the source. A
-     session minted by a sibling method would name a different authorization
-     than the proof, and the server's own check would reject it later — failing
-     here keeps the refusal where the mismatch is visible. */
-  if (session.projection.authority.walletAuthMethodId !== selected.authMethod.walletAuthMethodId) {
+
+  let session: Awaited<
+    ReturnType<typeof walletSessionAuthorizations.readExactWithOperationCredential>
+  >;
+  try {
+    session = await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId,
+      authorityId: selected.authority.authorityId,
+      authMethodId: selected.authMethod.walletAuthMethodId,
+    });
+  } catch {
+    return { kind: 'unavailable', reason: 'exact Wallet Session state is corrupt' };
+  }
+  if (session.kind !== 'found') {
     return {
       kind: 'unavailable',
-      reason: 'active Wallet Session was issued through a different auth method',
+      reason: `exact Wallet Session is ${session.kind}`,
     };
+  }
+  if (
+    session.record.walletId !== walletId ||
+    session.record.authorityId !== selected.authority.authorityId ||
+    session.record.authMethodId !== selected.authMethod.walletAuthMethodId ||
+    session.record.authorityDigestB64u !== selected.authority.authorityDigestB64u ||
+    session.record.authorityRevocationEpoch !== selected.authority.revocationEpoch ||
+    session.record.expiresAtMs <= Date.now()
+  ) {
+    return { kind: 'unavailable', reason: 'exact Wallet Session identity is invalid or expired' };
   }
   return {
     kind: 'resolved',
@@ -68,7 +90,7 @@ export async function resolveAddAuthMethodSourceClaimV1(
     source: {
       walletAuthorityId: selected.authMethod.walletAuthorityId,
       walletAuthMethodId: selected.authMethod.walletAuthMethodId,
-      walletSessionId: String(session.projection.walletSessionId),
+      walletSessionId: String(session.operationCredential.walletSessionId),
       authorityDigestB64u: String(selected.authority.authorityDigestB64u),
       revocationEpoch: selected.authority.revocationEpoch,
     },

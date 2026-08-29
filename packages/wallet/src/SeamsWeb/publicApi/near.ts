@@ -1,4 +1,3 @@
-import type { ActionResult } from '@/core/types/seams';
 import type {
   NearSignerCapability,
   NearSigningSurface,
@@ -30,8 +29,9 @@ import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSub
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   walletSessionAuthorizations,
-  walletSessionTokenForCurve,
+  type WalletCapabilitySubjectV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { IndexedDBManager } from '@/core/indexedDB';
 import type {
   NearAccountRef,
   WalletSessionRef,
@@ -66,18 +66,50 @@ function requireNearSigningCapability(
   });
 }
 
+function hasEd25519SigningSubject(subjects: readonly WalletCapabilitySubjectV1[]): boolean {
+  for (const subject of subjects) {
+    if (subject.kind === 'sign' && subject.keyFamily === 'ed25519') return true;
+  }
+  return false;
+}
+
 async function requireCurrentEd25519WalletSessionToken(
   walletSession: WalletSessionRef,
 ): Promise<string> {
-  const read = await walletSessionAuthorizations.readActiveForWallet(walletSession.walletId);
-  if (read.kind !== 'found' || read.projection.expiresAtMs <= Date.now()) {
+  const selected = await IndexedDBManager.resolveSelectedWalletAuthority(
+    String(walletSession.walletId),
+  );
+  if (selected.kind !== 'resolved') {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  const walletSessionToken = walletSessionTokenForCurve(read.projection, 'ed25519');
-  if (!walletSessionToken) {
+  const { selection, authMethod, authority } = selected;
+  if (
+    selection.lockState !== 'unlocked' ||
+    selection.walletId !== walletSession.walletId ||
+    selection.walletAuthMethodId !== authMethod.walletAuthMethodId ||
+    authMethod.walletId !== walletSession.walletId ||
+    authMethod.walletAuthorityId !== authority.authorityId ||
+    authMethod.status !== 'active' ||
+    authority.walletId !== walletSession.walletId ||
+    authority.state !== 'active'
+  ) {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  return walletSessionToken;
+  const read = await walletSessionAuthorizations.readExactWithOperationCredential({
+    walletId: walletSession.walletId,
+    authorityId: authority.authorityId,
+    authMethodId: authMethod.walletAuthMethodId,
+  });
+  if (
+    read.kind !== 'found' ||
+    read.record.authorityDigestB64u !== authority.authorityDigestB64u ||
+    read.record.authorityRevocationEpoch !== authority.revocationEpoch ||
+    read.record.expiresAtMs <= Date.now() ||
+    !hasEd25519SigningSubject(read.record.capabilitySubjects)
+  ) {
+    throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
+  }
+  return read.operationCredential.token;
 }
 
 export async function fundImplicitNearAccountFromCurrentSession(args: {
