@@ -50,6 +50,10 @@ import {
   parseCommittedSignerPackageSetV1,
 } from '@shared/device-linking/committedSignerPackages';
 import { buildLinkedDeviceApprovalV1 } from '@shared/device-linking/parsers';
+import {
+  computeWalletSessionInstallationReceiptDigestB64u,
+  computeWalletSessionOperationCredentialDigestB64u,
+} from '@shared/device-linking/digests';
 import { buildSourcePreservingEd25519ReservationRequestFixture } from './helpers/ordinarySourcePreservingReservation.fixtures';
 import {
   D1LinkedDeviceAuthorityInstallServiceV1,
@@ -100,6 +104,7 @@ type HarnessOptions = {
     | 'prepareWalletSessionAuthorizationV2'
     | 'issueWalletSessionAuthorizationV2'
     | 'issueWalletSessionAuthorizationV2OperationCredential'
+    | 'readWalletSessionAuthorizationV2ByMint'
   >;
   readonly authorizationStore?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['authorizationStore'];
   readonly materialActivation?: D1LinkedDeviceAuthorityInstallServiceOptionsV1['materialActivation'];
@@ -352,6 +357,12 @@ test('rolls back authority activation, converges on retry, and accepts the final
         authorityId: replay.authority.authorityId,
         packageSetDigestB64u: committed.packages.packageSetDigestB64u,
         authorizationId: replay.walletSession.session.authorizationId,
+        walletSessionId: replay.operationCredential.walletSessionId,
+        credentialDigestB64u: await computeWalletSessionOperationCredentialDigestB64u(
+          replay.operationCredential,
+        ),
+        installationReceiptDigestB64u:
+          await computeWalletSessionInstallationReceiptDigestB64u(receipt),
         acknowledgedAtMs: installedAtMs,
       },
       session: replay.session,
@@ -626,6 +637,7 @@ async function buildHarness(
       prepareWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
       issueWalletSessionAuthorizationV2: unsupportedAuthorizationOperation,
       issueWalletSessionAuthorizationV2OperationCredential: unsupportedAuthorizationOperation,
+      readWalletSessionAuthorizationV2ByMint: unsupportedAuthorizationOperation,
     },
     authorizationStore: options.authorizationStore ?? {
       prepareWalletSessionAuthorizationV2Statements: unsupportedAuthorizationStatements,

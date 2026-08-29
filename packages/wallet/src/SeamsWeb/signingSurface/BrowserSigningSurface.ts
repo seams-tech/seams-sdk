@@ -286,7 +286,7 @@ import {
   type OpaqueWalletSessionToken,
 } from '@shared/utils/sessionTokens';
 import { WalletSessionAuthorizationUpgradeRequiredError } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { createRelayerExactWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   type Ed25519OperationStepUpProof,
@@ -730,7 +730,7 @@ async function resolveExactEmailOtpEd25519ActivationAuthorization(args: {
 
 function unavailableEmailOtpExportAuthorizationFromStatus(
   status: Exclude<
-    Awaited<ReturnType<ReturnType<typeof createRelayerReusableWalletSessionStatusPort>['read']>>,
+    Awaited<ReturnType<ReturnType<typeof createRelayerExactWalletSessionStatusPort>['read']>>,
     { readonly status: 'active' }
   >,
 ): EmailOtpEd25519ExportAuthorizationReadResultV1 {
@@ -819,10 +819,10 @@ async function readExactEmailOtpEd25519ExportAuthorization(args: {
   }
   if (exact.record.expiresAtMs <= Date.now()) return { kind: 'expired' };
   let status: Awaited<
-    ReturnType<ReturnType<typeof createRelayerReusableWalletSessionStatusPort>['read']>
+    ReturnType<ReturnType<typeof createRelayerExactWalletSessionStatusPort>['read']>
   >;
   try {
-    status = await createRelayerReusableWalletSessionStatusPort({
+    status = await createRelayerExactWalletSessionStatusPort({
       relayerUrl: args.relayerUrl,
       operationCredential: exact.operationCredential,
     }).read({

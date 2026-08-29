@@ -610,8 +610,16 @@ input, or invents a new layer is deferred until its operating path works.
 - [x] Delete `readOpaqueWalletSessionTokenByIdentity`.
 - [x] Delete `issueOpaqueWalletSessionToken` and
       `resolveOpaqueWalletSessionToken` from the service and route port.
-- [ ] Delete `ResolvedOpaqueWalletSessionToken`, legacy curve-binding types,
+- [x] Delete `ResolvedOpaqueWalletSessionToken`, legacy curve-binding types,
       and pre-provenance runtime branches that depend on those APIs.
+
+I1 closure evidence (2026-08-30): exact-name searches across `packages`,
+`apps`, and `tests` found no named V1 persistence/service symbols,
+`ResolvedOpaqueWalletSessionToken`, curve-binding types, parser/runtime branches,
+or the stale `WalletSessionAuthorization` builder. The direct V2 issuer and
+exact V2 readers remain reachable from the registration, unlock, sync, hosted,
+status, device-link, and operation routes; the wallet-server type-check and
+focused authorization tests (19/19) pass.
 
 Primary files:
 
@@ -786,14 +794,14 @@ and both credential-bearing registration replay functions are deleted.
 - [x] Delete the opaque-bearer override from prepared recovery admission and
       receipt-backed execute/activate. A retired `wst_` bearer cannot bypass
       the durable challenge or change the protocol-receipt authorization path.
-- [ ] Resolve the capability subject's exact material activation before either
+- [x] Resolve the capability subject's exact material activation before either
       curve constructs a Router A/B request.
 - [ ] Assign every `OpaqueOwnerWalletSessionBinding` field to the authoritative
       material resolver or delete its consumer, including
       `thresholdSessionId`, `participantIds`, `keyManifestDigestB64u`,
       `relayerKeyId`, `runtimePolicyScope`, `keyHandle`, and
       `authorizationSessionId`.
-- [ ] Reject any path that substitutes a Wallet Session or authorization ID for
+- [x] Reject any path that substitutes a Wallet Session or authorization ID for
       a threshold runtime identity.
 
 Primary files:

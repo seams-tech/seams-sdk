@@ -7,6 +7,10 @@ import type {
   LocalAuthorityInstallationReceiptV1,
   VerifiedTargetFactorV1,
 } from '@shared/device-linking';
+import {
+  computeWalletSessionInstallationReceiptDigestB64u,
+  computeWalletSessionOperationCredentialDigestB64u,
+} from '@shared/device-linking/digests';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -377,6 +381,12 @@ export async function activateLinkedAuthorityV1(
           authorityId: active.authority.authorityId,
           packageSetDigestB64u: receipt.packageSetDigestB64u,
           authorizationId: active.walletSession.authorizationId,
+          walletSessionId: active.operationCredential.walletSessionId,
+          credentialDigestB64u: await computeWalletSessionOperationCredentialDigestB64u(
+            active.operationCredential,
+          ),
+          installationReceiptDigestB64u:
+            await computeWalletSessionInstallationReceiptDigestB64u(receipt),
           acknowledgedAtMs,
         },
       });

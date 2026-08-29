@@ -20,7 +20,7 @@ import {
   handleWalletRecoveryGoogleEmailOtpFinalize,
 } from './routes/passkeyCustody';
 import {
-  handleReusableWalletSessionStatus,
+  handleExactWalletSessionStatus,
   handleWalletEmailOtpChallenge,
   handleWalletEmailOtpFactorRelease,
   handleWalletEmailOtpDevCleanupGoogleRegistration,
@@ -388,7 +388,7 @@ export function createFetchRouter(
     handleExactWalletSigningSessionSeal,
     handleWebAuthnAuthenticators,
     handleNearPublicKeys,
-    handleReusableWalletSessionStatus,
+    handleExactWalletSessionStatus,
     handleHostedWalletSessionExchangeIssue,
     handleHostedWalletSessionExchangeRedeem,
     handleWalletUnlockChallenge,

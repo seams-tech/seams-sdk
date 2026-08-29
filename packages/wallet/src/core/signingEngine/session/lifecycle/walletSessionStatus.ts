@@ -6,7 +6,7 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { SelectedEd25519SigningSessionPlanningLane } from '../operationState/types';
-import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ExactWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type Ed25519WalletSessionStatusOwner = {
@@ -98,7 +98,7 @@ export function walletSessionStatusIdentityKey(identity: WalletSessionStatusIden
 }
 
 export function signingSessionStatusFromWalletSessionStatus(
-  status: ReusableWalletSessionStatus,
+  status: ExactWalletSessionStatus,
 ): SigningSessionStatus {
   const sessionId = String(status.walletSessionId);
   switch (status.status) {

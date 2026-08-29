@@ -783,7 +783,7 @@ async function emitEmailOtpWebhookDescriptor(
   });
 }
 
-function parseReusableWalletSessionStatusBody(body: unknown): {
+function parseExactWalletSessionStatusBody(body: unknown): {
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
 } | null {
@@ -880,11 +880,11 @@ function exactWalletSessionStatusResponseBody(
   }
 }
 
-export async function handleReusableWalletSessionStatus(
+export async function handleExactWalletSessionStatus(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/session/status') return null;
-  const request = parseReusableWalletSessionStatusBody(await readJson(ctx.request));
+  const request = parseExactWalletSessionStatusBody(await readJson(ctx.request));
   if (!request) {
     return json(
       {

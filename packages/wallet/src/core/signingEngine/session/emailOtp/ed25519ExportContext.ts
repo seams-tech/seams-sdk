@@ -14,7 +14,7 @@ import {
   type ActiveWalletSessionV1,
   type WalletSessionOperationCredentialV1,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import type { ReusableWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import type { ExactWalletSessionStatus } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { ActiveWalletAuthMethodV2 } from '@/core/signingEngine/session/identity/ownerLaneScope';
 import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
 import { activeWalletSessionV1RecordsEqual } from '@shared/device-linking/activeWalletSession';
@@ -48,7 +48,7 @@ import type {
 } from '@shared/passkey-custody';
 type EmailOtpEd25519LaneAuth = Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
 type ExactEmailOtpWalletSessionStatus = Extract<
-  ReusableWalletSessionStatus,
+  ExactWalletSessionStatus,
   { readonly status: 'active' }
 >;
 

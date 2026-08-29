@@ -1,5 +1,5 @@
 import type { WalletSessionAuthorizationExactActiveReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { createRelayerExactWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import {
@@ -45,7 +45,7 @@ export function createCanonicalWalletSessionStatusReader(
     }
     const relayerUrl = String(deps.relayerUrl || '').trim();
     if (!relayerUrl) return null;
-    const status = await createRelayerReusableWalletSessionStatusPort({
+    const status = await createRelayerExactWalletSessionStatusPort({
       relayerUrl,
       operationCredential: authorization.operationCredential,
     })

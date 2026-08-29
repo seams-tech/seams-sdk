@@ -3074,6 +3074,9 @@ const LOCAL_AUTHORITY_ACTIVATION_FINAL_ACK_FIELDS = [
   'authorityId',
   'packageSetDigestB64u',
   'authorizationId',
+  'walletSessionId',
+  'credentialDigestB64u',
+  'installationReceiptDigestB64u',
   'acknowledgedAtMs',
 ] as const;
 
@@ -3097,6 +3100,12 @@ export function parseLocalAuthorityActivationFinalAckV1(
       parseWalletSessionAuthorizationId,
       record.authorizationId,
       'authorizationId',
+    ),
+    walletSessionId: parseId(parseWalletSessionId, record.walletSessionId, 'walletSessionId'),
+    credentialDigestB64u: parseDigest(record.credentialDigestB64u, 'credentialDigestB64u'),
+    installationReceiptDigestB64u: parseDigest(
+      record.installationReceiptDigestB64u,
+      'installationReceiptDigestB64u',
     ),
     acknowledgedAtMs: parseUnixTime(record.acknowledgedAtMs, 'acknowledgedAtMs'),
   };

@@ -558,7 +558,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
         authorizationId: String(session.authorizationId),
         walletSessionId: String(session.walletSessionId),
         quotaId: String(session.quotaId),
-        thresholdSessionId: String(session.walletSessionId),
+        thresholdSessionId: authorization.admission.thresholdSessionId,
         orgId: runtimePolicyScope.orgId,
         projectId: runtimePolicyScope.projectId,
         environment: runtimePolicyScope.envId,
