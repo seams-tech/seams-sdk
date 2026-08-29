@@ -3,9 +3,12 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { deriveWalletRecoveryKeyLifecycleId } from '@shared/wallet-recovery/recoveryCodeReservation';
-import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
-import type { SessionAdapter } from '../../../framework/routerApi';
+import type {
+  RouterApiAuthorizationSessionService,
+  RouterApiWalletRegistrationService,
+} from '../../../framework/authServicePort';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import {
   resolveOpaqueOwnerWalletSessionAdmission,
@@ -13,6 +16,7 @@ import {
 } from '../../../auth/commonRouterUtils';
 import { walletSessionFailureMessage } from '../../../auth/walletSessionFailure';
 import { NEAR_ED25519_MPC_OPERATION_KINDS } from '@shared/authorization/capabilityKinds';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { PreparedEd25519RecoveryAdmissionV1 } from '../../passkeyCustody/walletRecoveryKeyManifest';
 import type {
   RouterAbEd25519YaoRecoveryAuthorizationAdapter,
@@ -38,7 +42,7 @@ export interface PreparedEd25519RecoveryAdmissionReaderV1 {
 export type RouterAbEd25519YaoRecoveryAuthorizationServicesV1 = {
   readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly preparedRecoveryAdmission: PreparedEd25519RecoveryAdmissionReaderV1;
-  readonly session: SessionAdapter;
+  readonly resolveEd25519MaterialActivation: RouterApiWalletRegistrationService['resolveEd25519MaterialActivation'];
 };
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -207,9 +211,15 @@ async function authorizeV2WarmBootstrap(input: {
     { readonly kind: 'bootstrap' }
   >;
   readonly services: RouterAbEd25519YaoRecoveryAuthorizationServicesV1;
-}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult | null> {
+}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult> {
   const token = extractBearerCredential(input.request.request.headers);
-  if (!token) return null;
+  if (!token) {
+    return authorizationFailure({
+      status: 401,
+      code: 'wallet_session_missing',
+      message: walletSessionFailureMessage('wallet_session_missing'),
+    });
+  }
   let resolution: Awaited<ReturnType<typeof resolveWalletSessionOperationCredentialAdmission>>;
   try {
     resolution = await resolveWalletSessionOperationCredentialAdmission({
@@ -228,7 +238,13 @@ async function authorizeV2WarmBootstrap(input: {
       message: walletSessionFailureMessage('wallet_session_unavailable'),
     });
   }
-  if (resolution.kind === 'not_found') return null;
+  if (resolution.kind === 'not_found') {
+    return authorizationFailure({
+      status: 401,
+      code: 'wallet_session_invalid',
+      message: walletSessionFailureMessage('wallet_session_invalid'),
+    });
+  }
   if (resolution.kind !== 'admitted' || resolution.admission.curve !== 'ed25519') {
     return authorizationFailure({
       status: 403,
@@ -236,7 +252,61 @@ async function authorizeV2WarmBootstrap(input: {
       message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
     });
   }
-  if (String(resolution.admission.context.authorization.session.walletId) !== input.request.body.walletId) {
+  const admission = resolution.admission;
+  const walletId = String(admission.context.authorization.session.walletId);
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    admission.admission.materialActivation,
+  );
+  let activeMaterial: Awaited<
+    ReturnType<RouterApiWalletRegistrationService['resolveEd25519MaterialActivation']>
+  >;
+  try {
+    activeMaterial = await input.services.resolveEd25519MaterialActivation({
+      walletId,
+      materialActivation,
+    });
+  } catch {
+    return authorizationFailure({
+      status: 503,
+      code: 'wallet_session_unavailable',
+      message: walletSessionFailureMessage('wallet_session_unavailable'),
+    });
+  }
+  if (!activeMaterial.ok) {
+    return authorizationFailure({
+      status: activeMaterial.code === 'internal' ? 503 : 403,
+      code:
+        activeMaterial.code === 'internal'
+          ? 'wallet_session_unavailable'
+          : 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage(
+        activeMaterial.code === 'internal'
+          ? 'wallet_session_unavailable'
+          : 'wallet_session_scope_mismatch',
+      ),
+    });
+  }
+  const request = input.request.body;
+  const identity = activeMaterial.exportIdentity;
+  const registeredPublicKeyB64u = base64UrlEncode(Uint8Array.from(identity.registered_public_key));
+  if (
+    walletId !== request.walletId ||
+    String(admission.admission.signer.walletId) !== walletId ||
+    registeredPublicKeyB64u !== admission.admission.signer.registeredPublicKeyB64u ||
+    !sameValue(activeMaterial.materialActivation, materialActivation) ||
+    !sameValue(identity.scope.material_activation, materialActivation) ||
+    identity.scope.account_id !== walletId ||
+    identity.application_binding.wallet_id !== walletId ||
+    activeMaterial.nearAccountId !== request.nearAccountId ||
+    identity.application_binding.near_ed25519_signing_key_id !== request.nearEd25519SigningKeyId ||
+    activeMaterial.signerSlot !== request.signerSlot ||
+    identity.application_binding.key_creation_signer_slot !== request.signerSlot ||
+    identity.scope.threshold_session_id !== request.thresholdSessionId ||
+    activeMaterial.signingWorkerId !== request.signingWorkerId ||
+    identity.scope.signing_worker_id !== request.signingWorkerId ||
+    !sameValue(activeMaterial.participantIds, request.participantIds) ||
+    !sameValue(identity.participant_ids, request.participantIds)
+  ) {
     return authorizationFailure({
       status: 403,
       code: 'wallet_session_scope_mismatch',
@@ -247,7 +317,7 @@ async function authorizeV2WarmBootstrap(input: {
     ok: true,
     authorization: {
       kind: 'wallet_session_v2',
-      context: resolution.admission.context,
+      context: admission.context,
     },
   };
 }
@@ -272,15 +342,7 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
     }
     switch (input.kind) {
       case 'bootstrap': {
-        const v2 = await authorizeV2WarmBootstrap({ request: input, services });
-        if (v2) return v2;
-        const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
-        if (opaque) return opaque;
-        return authorizationFailure({
-          status: 401,
-          code: 'wallet_session_missing',
-          message: walletSessionFailureMessage('wallet_session_missing'),
-        });
+        return await authorizeV2WarmBootstrap({ request: input, services });
       }
       case 'admit': {
         const opaque = await authorizeOpaqueOwnerRecovery({ request: input, services });
