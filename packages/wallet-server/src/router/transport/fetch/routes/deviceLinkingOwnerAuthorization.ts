@@ -9,11 +9,7 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  parseWalletSessionAuthorizationId,
-  parseWalletSessionId,
-} from '@shared/authorization/capabilityKinds';
-import { parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
+import { parseProviderSubject } from '@shared/utils/domainIds';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
   buildEmailOtpWalletAuthAuthority,
@@ -28,7 +24,6 @@ import {
 } from '../../../../core/ThresholdService/validation';
 import {
   buildDelegatedWalletAuthorityV1,
-  buildFullOwnerDelegatedWalletAuthorityV1,
   type DelegatedWalletAuthorityV1,
 } from '@shared/authorization/delegatedAuthority';
 import {
@@ -49,10 +44,6 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import type { ExactAdministeredSignerManifestV1 } from '@shared/device-linking/delegatedActivationPlan';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
-import {
-  validateRouterAbEcdsaDerivationWalletSessionInputs,
-  validateRouterAbEd25519WalletSessionTokenInputs,
-} from '../../../auth/commonRouterUtils';
 
 export const LINKED_DEVICE_OWNER_AUTHORIZATION_PATH_V1 =
   '/wallet/device-linking/v1/owner-authorization' as const;
@@ -173,7 +164,6 @@ export async function authenticateDeviceLinkingOwnerWalletSessionRequestV1(input
   const body = await readClonedJson(input.request);
   const headers = Object.fromEntries(input.request.headers.entries());
   const validated = await validateOwnerWalletSessionV1({
-    body,
     headers,
     authorizationSessions: input.authorizationSessions,
     nowV1,
@@ -270,7 +260,6 @@ type OwnerValidationResultV1 =
     };
 
 async function validateOwnerWalletSessionV1(input: {
-  readonly body: unknown;
   readonly headers: Record<string, string>;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly nowV1: () => number;
@@ -293,7 +282,7 @@ async function validateOwnerWalletSessionV1(input: {
     return denied('unauthorized', 'An active owner Wallet Session is required');
   }
   if (!context) {
-    return await validateFoundingOwnerWalletSessionV1(input);
+    return denied('unauthorized', 'An exact owner Wallet Session is required');
   }
 
   const owner = await ownerContextFromExactV2AuthorizationV1({
@@ -302,82 +291,6 @@ async function validateOwnerWalletSessionV1(input: {
   });
   if (!owner) return denied('invalid', 'Wallet Session identity or capability scope is invalid');
   return { kind: 'authorized', owner };
-}
-
-async function validateFoundingOwnerWalletSessionV1(input: {
-  readonly body: unknown;
-  readonly headers: Record<string, string>;
-  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-  readonly nowV1: () => number;
-}): Promise<OwnerValidationResultV1> {
-  const ed25519 = await validateRouterAbEd25519WalletSessionTokenInputs({
-    body: input.body,
-    headers: input.headers,
-    authorizationSessions: input.authorizationSessions,
-    nowMs: input.nowV1,
-  });
-  if (ed25519.ok) {
-    const walletId = parseWalletIdBoundary(ed25519.binding.walletId);
-    const walletSessionId = parseWalletSessionIdBoundary(ed25519.binding.walletSessionId);
-    const authorizationId = parseWalletSessionAuthorizationIdBoundary(
-      ed25519.binding.authorizationId,
-    );
-    if (!walletId || !walletSessionId || !authorizationId) {
-      return denied('invalid', 'Wallet Session identity is invalid');
-    }
-    return {
-      kind: 'authorized',
-      owner: {
-        walletId,
-        walletSessionId,
-        authorizationId,
-        expiresAtMs: ed25519.walletSessionAuth.expiresAtMs,
-        permission: buildFullOwnerDelegatedWalletAuthorityV1(),
-        keyManifestDigestB64u: ed25519.binding.keyManifestDigestB64u,
-        curve: 'ed25519',
-        authority: ed25519.binding.authority,
-        authorityScope: ed25519.binding.authorityScope,
-      },
-    };
-  }
-
-  const ecdsa = await validateRouterAbEcdsaDerivationWalletSessionInputs({
-    body: input.body,
-    headers: input.headers,
-    authorizationSessions: input.authorizationSessions,
-    nowMs: input.nowV1,
-  });
-  if (ecdsa.ok) {
-    const walletId = parseWalletIdBoundary(ecdsa.binding.walletId);
-    const walletSessionId = parseWalletSessionIdBoundary(ecdsa.binding.walletSessionId);
-    const authorizationId = parseWalletSessionAuthorizationIdBoundary(
-      ecdsa.binding.authorizationId,
-    );
-    if (!walletId || !walletSessionId || !authorizationId) {
-      return denied('invalid', 'Wallet Session identity is invalid');
-    }
-    return {
-      kind: 'authorized',
-      owner: {
-        walletId,
-        walletSessionId,
-        authorizationId,
-        expiresAtMs: ecdsa.walletSessionAuth.expiresAtMs,
-        permission: buildFullOwnerDelegatedWalletAuthorityV1(),
-        keyManifestDigestB64u: ecdsa.binding.keyManifestDigestB64u,
-        curve: 'ecdsa',
-        walletAuthAuthorityRef: ecdsa.binding.walletAuthAuthorityRef,
-        authSource: ecdsa.binding.authSource,
-      },
-    };
-  }
-  const code =
-    ed25519.code === 'wallet_session_expired' || ecdsa.code === 'wallet_session_expired'
-      ? 'expired'
-      : ed25519.code === 'wallet_session_invalid' || ecdsa.code === 'wallet_session_invalid'
-        ? 'invalid'
-        : 'unauthorized';
-  return denied(code, 'An active owner Wallet Session is required');
 }
 
 async function ownerContextFromExactV2AuthorizationV1(input: {
@@ -527,23 +440,6 @@ async function readClonedJson(request: Request): Promise<unknown> {
 async function requestBodyDigest(request: Request): Promise<DigestB64u> {
   const bytes = new Uint8Array(await request.clone().arrayBuffer());
   return parseDigestB64u(base64UrlEncode(await sha256Bytes(bytes)));
-}
-
-function parseWalletIdBoundary(raw: unknown): WalletId | null {
-  const parsed = parseWalletId(raw);
-  return parsed.ok ? parsed.value : null;
-}
-
-function parseWalletSessionIdBoundary(raw: unknown): WalletSessionId | null {
-  const parsed = parseWalletSessionId(raw);
-  return parsed.ok ? parsed.value : null;
-}
-
-function parseWalletSessionAuthorizationIdBoundary(
-  raw: unknown,
-): WalletSessionAuthorizationId | null {
-  const parsed = parseWalletSessionAuthorizationId(raw);
-  return parsed.ok ? parsed.value : null;
 }
 
 function denied(
