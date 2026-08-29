@@ -6,11 +6,18 @@ import {
 } from '@/core/signingEngine/session/emailOtp/ecdsaRecovery';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { normalizeSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type { ResolveSelectedWalletAuthorityResultV1 } from '@/core/indexedDB/seamsWalletDB/repositories';
+import type { WalletSessionAuthorizationExactOperationCredentialReadResult } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { buildActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
-  activeEvmFamilyWalletSessionAuthorizationFixture,
   canonicalEvmFamilyEcdsaSigningCapabilityFixture,
   ecdsaCapabilityHydrationLookupFixture,
 } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  buildEmailOtpEcdsaWalletSessionFixture,
+  type EmailOtpEcdsaWalletSessionFixture,
+} from './helpers/linkedDeviceManagement.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
 import { resolveExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -27,69 +34,129 @@ function deferred<T = void>(): {
   return { promise, resolve };
 }
 
-const ACTIVE_JWT = [
-  Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url'),
-  Buffer.from(
-    JSON.stringify({
-      kind: 'router_ab_ecdsa_derivation_wallet_session_v1',
-      walletId: 'ecdsa-manifest-fixture-wallet',
-      authorizationId: 'ecdsa-fixture-authorization',
-      walletSessionId: 'ecdsa-fixture-wallet-session',
-      quotaId: 'ecdsa-fixture-quota',
-      sid: 'ecdsa-fixture-authorization-session',
-      thresholdExpiresAtMs: 1_900_000_000_000,
-      exp: 1_900_000_000,
-    }),
-  ).toString('base64url'),
-  'current',
-].join('.');
+type CanonicalCapabilityFixture = Awaited<
+  ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
+>;
 
-function restoreFixture() {
-  const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
+type ResolvedSelectedWalletAuthority = Extract<
+  ResolveSelectedWalletAuthorityResultV1,
+  { readonly kind: 'resolved' }
+>;
+
+function selectedAuthorityFixture(args: {
+  readonly session: EmailOtpEcdsaWalletSessionFixture;
+  readonly authorityDigestB64u: string;
+}): ResolvedSelectedWalletAuthority {
+  const authority = buildActiveWalletAuthorityV1({
+    ...args.session.authority,
+    authorityDigestB64u: parseDigestB64u(args.authorityDigestB64u),
+  });
+  return {
+    kind: 'resolved',
+    selection: args.session.selection,
+    authMethod: args.session.authMethod,
+    authority,
+    signerMaterials: [],
+    exportRoot: null,
+  };
+}
+
+async function restoreFixtureFromCapability(capability: CanonicalCapabilityFixture) {
+  const manifest = capability.manifest;
   const storedRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest });
   const normalized = normalizeSealedRecoveryRecord(storedRecord);
   if (normalized.kind !== 'accepted' || normalized.record.authMethod !== 'email_otp') {
     throw new Error('fixture must normalize to an Email OTP ECDSA recovery record');
   }
-  const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({
+  const runtimeResolution = resolveExactEcdsaSealedRuntime({
     manifest,
-    authMethod: 'email_otp',
-    walletSessionJwt: ACTIVE_JWT,
-  }).projection;
-  return { authorization, sealedRecord: normalized.record, storedRecord };
+    walletId: toWalletId(String(manifest.signer.walletId)),
+    chainTarget: normalized.record.chainTarget,
+    sealedRecords: [storedRecord],
+  });
+  if (runtimeResolution.kind !== 'resolved') {
+    throw new Error(
+      `exact Email OTP ECDSA runtime fixture did not resolve: ${runtimeResolution.reason}`,
+    );
+  }
+  const session = await buildEmailOtpEcdsaWalletSessionFixture({
+    label: 'sealed-restore-authorization',
+    walletId: String(manifest.signer.walletId),
+    materialActivation: runtimeResolution.runtime.materialActivation,
+    providerUserId: `google:${String(manifest.signer.walletId)}`,
+    emailHashHex: 'email-hash',
+    expiresAtMs: 1_900_000_000_000,
+  });
+  const selected = selectedAuthorityFixture({
+    session,
+    authorityDigestB64u: String(manifest.signer.authority.authorityDigest),
+  });
+  const record = {
+    ...session.activeWalletSession,
+    authorityDigestB64u: selected.authority.authorityDigestB64u,
+  };
+  const authorizationRead: WalletSessionAuthorizationExactOperationCredentialReadResult = {
+    kind: 'found',
+    record,
+    operationCredential: session.operationCredential,
+  };
+  return {
+    capability: capability.capability,
+    selected,
+    authorizationRead,
+    sealedRecord: normalized.record,
+    storedRecord,
+    runtime: runtimeResolution.runtime,
+  };
 }
 
-test('Email OTP sealed restore uses the current active authorization bearer', () => {
-  const { authorization, sealedRecord, storedRecord } = restoreFixture();
-  expect(storedRecord.ecdsaRestore.walletSessionJwt).not.toBe(ACTIVE_JWT);
+async function restoreFixture() {
+  return await restoreFixtureFromCapability(
+    await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp'),
+  );
+}
+
+test('Email OTP sealed restore uses the current exact operation credential', async () => {
+  const { authorizationRead, capability, runtime, selected, sealedRecord, storedRecord } =
+    await restoreFixture();
+  if (authorizationRead.kind !== 'found') {
+    throw new Error('fixture must provide an exact Wallet Session authorization');
+  }
+  const operationCredentialToken = authorizationRead.operationCredential.token;
+  expect(storedRecord.ecdsaRestore.walletSessionJwt).not.toBe(operationCredentialToken);
 
   const resolved = requireEmailOtpSealedRestoreAuthorization({
     sealedRecord,
-    authorizationRead: { kind: 'found', projection: authorization },
+    authorizationRead,
+    selected,
+    runtime,
+    capability,
     nowMs: Date.now(),
   });
 
-  expect(resolved.walletSessionTokens.ecdsa.walletSessionJwt).toBe(ACTIVE_JWT);
+  expect(resolved.operationCredential.token).toBe(operationCredentialToken);
 });
 
-test('Email OTP sealed restore fails closed without active authorization', () => {
-  const { sealedRecord } = restoreFixture();
+test('Email OTP sealed restore fails closed without active authorization', async () => {
+  const { capability, runtime, selected, sealedRecord } = await restoreFixture();
   expect(() =>
     requireEmailOtpSealedRestoreAuthorization({
       sealedRecord,
       authorizationRead: { kind: 'missing' },
+      selected,
+      runtime,
+      capability,
       nowMs: Date.now(),
     }),
   ).toThrow('requires active Wallet Session authorization: missing');
 });
 
 test('queued ECDSA restore rejects a replacement before worker or durable side effects', async () => {
-  const initialManifest = (await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp'))
-    .manifest;
+  const initialCapability = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+  const initialFixture = await restoreFixtureFromCapability(initialCapability);
+  const initialManifest = initialCapability.manifest;
+  const initialStoredRecord = initialFixture.storedRecord;
   const replacementManifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
-  const initialStoredRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
-    manifest: initialManifest,
-  });
   const replacementStoredRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
     manifest: replacementManifest,
   });
@@ -117,11 +184,6 @@ test('queued ECDSA restore rejects a replacement before worker or durable side e
   if (initialResolution.kind !== 'resolved') {
     throw new Error('initial ECDSA sealed-runtime fixture must resolve');
   }
-  const authorization = activeEvmFamilyWalletSessionAuthorizationFixture({
-    manifest: initialManifest,
-    authMethod: 'email_otp',
-    walletSessionJwt: ACTIVE_JWT,
-  }).projection;
   let currentResolution = initialResolution;
   let workerCalls = 0;
   let provisionCalls = 0;
@@ -149,10 +211,8 @@ test('queued ECDSA restore rejects a replacement before worker or durable side e
         throw new Error('worker must not run after replacement');
       },
     }),
-    readActiveWalletSessionAuthorization: async () => ({
-      kind: 'found' as const,
-      projection: authorization,
-    }),
+    resolveSelectedWalletAuthority: async () => initialFixture.selected,
+    readExactWalletSessionAuthorization: async () => initialFixture.authorizationRead,
     provisionThresholdEcdsaSession: async () => {
       provisionCalls += 1;
       throw new Error('provisioning must not run after replacement');
