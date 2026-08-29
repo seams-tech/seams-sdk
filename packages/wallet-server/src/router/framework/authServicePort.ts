@@ -323,7 +323,6 @@ import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
   IssuedOpaqueWalletSessionToken,
-  RegistrationReplayOpaqueWalletSessionTokenInput,
   OpaqueWalletSessionCurve,
   OpaqueOwnerWalletSessionBinding,
   ResolvedOpaqueWalletSessionToken,
@@ -1604,9 +1603,6 @@ export interface RouterApiAuthorizationSessionService {
     readonly curve: OpaqueWalletSessionCurve;
     readonly binding: OpaqueOwnerWalletSessionBinding;
   }): Promise<IssuedOpaqueWalletSessionToken>;
-  readonly issueRegistrationReplayOpaqueWalletSessionToken: (
-    input: RegistrationReplayOpaqueWalletSessionTokenInput,
-  ) => Promise<IssuedOpaqueWalletSessionToken>;
   resolveOpaqueWalletSessionToken(input: {
     readonly tenantId: TenantId;
     readonly token: string;

@@ -8,7 +8,6 @@ import type { RouterApiWalletSessionAuthorizationV2AdmissionContext } from '../f
 import {
   type IssuedOpaqueWalletSessionToken,
   type OpaqueOwnerWalletSessionBinding,
-  type RegistrationReplayOpaqueWalletSessionTokenInput,
   type ResolvedOpaqueWalletSessionToken,
 } from '../../authorization/service';
 import type {
@@ -425,11 +424,6 @@ export type WalletSessionIssuanceResult =
 
 type WalletSessionIssuanceFailure = Extract<WalletSessionIssuanceResult, { ok: false }>;
 
-type RegistrationReplayIssuanceMetadata = Pick<
-  RegistrationReplayOpaqueWalletSessionTokenInput,
-  'registrationCeremonyId' | 'operation' | 'operationFingerprint'
->;
-
 type RouterAbOpaqueWalletSessionSigningInputCommon = {
   tenantId: TenantId;
   userId: unknown;
@@ -450,27 +444,12 @@ type RouterAbOpaqueWalletSessionSigningInputCommon = {
   sessionsDisabledMessage?: string;
 };
 
-type RouterAbOpaqueWalletSessionSigningInput =
-  | (RouterAbOpaqueWalletSessionSigningInputCommon & {
-      opaqueWalletSessions: Pick<
-        RouterApiAuthorizationSessionService,
-        'issueOpaqueWalletSessionToken'
-      >;
-      registrationReplay?: never;
-    })
-  | (RouterAbOpaqueWalletSessionSigningInputCommon & {
-      opaqueWalletSessions: Pick<
-        RouterApiAuthorizationSessionService,
-        'issueOpaqueWalletSessionToken'
-      > &
-        Required<
-          Pick<
-            RouterApiAuthorizationSessionService,
-            'issueRegistrationReplayOpaqueWalletSessionToken'
-          >
-        >;
-      registrationReplay: RegistrationReplayIssuanceMetadata;
-    });
+type RouterAbOpaqueWalletSessionSigningInput = RouterAbOpaqueWalletSessionSigningInputCommon & {
+  opaqueWalletSessions: Pick<
+    RouterApiAuthorizationSessionService,
+    'issueOpaqueWalletSessionToken'
+  >;
+};
 
 type OpaqueWalletSessionTokenIssueInput = {
   readonly tenantId: TenantId;
@@ -478,28 +457,11 @@ type OpaqueWalletSessionTokenIssueInput = {
   readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   readonly binding: OpaqueOwnerWalletSessionBinding;
   readonly invalidPayloadErrorMessage: string;
-} & (
-  | {
-      readonly opaqueWalletSessions: Pick<
-        RouterApiAuthorizationSessionService,
-        'issueOpaqueWalletSessionToken'
-      >;
-      readonly registrationReplay?: never;
-    }
-  | {
-      readonly opaqueWalletSessions: Pick<
-        RouterApiAuthorizationSessionService,
-        'issueOpaqueWalletSessionToken'
-      > &
-        Required<
-          Pick<
-            RouterApiAuthorizationSessionService,
-            'issueRegistrationReplayOpaqueWalletSessionToken'
-          >
-        >;
-      readonly registrationReplay: RegistrationReplayIssuanceMetadata;
-    }
-);
+  readonly opaqueWalletSessions: Pick<
+    RouterApiAuthorizationSessionService,
+    'issueOpaqueWalletSessionToken'
+  >;
+};
 
 export type RouterAbEd25519OpaqueWalletSessionSigningInput =
   RouterAbOpaqueWalletSessionSigningInput & {
@@ -958,22 +920,8 @@ async function issueOpaqueWalletSessionToken(
   }
   try {
     const consumedAtMs = Date.now();
-    let issued: IssuedOpaqueWalletSessionToken;
-    if (args.registrationReplay) {
-      issued = await args.opaqueWalletSessions.issueRegistrationReplayOpaqueWalletSessionToken({
-        tenantId: tenantId.value,
-        authorizationId: args.binding.authorizationId,
-        walletSessionId: args.binding.walletSessionId,
-        quotaId: args.binding.quotaId,
-        expiresAtMs: args.binding.thresholdExpiresAtMs,
-        proof: args.proof,
-        consumedAtMs,
-        curve: args.curve,
-        binding: args.binding,
-        ...args.registrationReplay,
-      });
-    } else {
-      issued = await args.opaqueWalletSessions.issueOpaqueWalletSessionToken({
+    const issued: IssuedOpaqueWalletSessionToken =
+      await args.opaqueWalletSessions.issueOpaqueWalletSessionToken({
         tenantId: tenantId.value,
         authorizationId: args.binding.authorizationId,
         walletSessionId: args.binding.walletSessionId,
@@ -984,7 +932,6 @@ async function issueOpaqueWalletSessionToken(
         curve: args.curve,
         binding: args.binding,
       });
-    }
     return {
       ok: true,
       authorizationKind: 'owner_wallet_session',
@@ -1048,17 +995,6 @@ export async function issueRouterAbEd25519OpaqueWalletSessionToken(
     authority: args.authority,
     binding: rawBinding,
   });
-  if (args.registrationReplay) {
-    return await issueOpaqueWalletSessionToken({
-      opaqueWalletSessions: args.opaqueWalletSessions,
-      tenantId: args.tenantId,
-      curve: 'ed25519',
-      proof: args.proof,
-      binding,
-      invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
-      registrationReplay: args.registrationReplay,
-    });
-  }
   return await issueOpaqueWalletSessionToken({
     opaqueWalletSessions: args.opaqueWalletSessions,
     tenantId: args.tenantId,
@@ -1110,17 +1046,6 @@ export async function issueRouterAbEcdsaDerivationOpaqueWalletSessionToken(
     runtimePolicyScope: runtimePolicyScope.value,
     binding: rawBinding,
   });
-  if (args.registrationReplay) {
-    return await issueOpaqueWalletSessionToken({
-      opaqueWalletSessions: args.opaqueWalletSessions,
-      tenantId: args.tenantId,
-      curve: 'ecdsa',
-      proof: args.proof,
-      binding,
-      invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
-      registrationReplay: args.registrationReplay,
-    });
-  }
   return await issueOpaqueWalletSessionToken({
     opaqueWalletSessions: args.opaqueWalletSessions,
     tenantId: args.tenantId,
