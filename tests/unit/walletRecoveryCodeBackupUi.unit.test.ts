@@ -78,24 +78,56 @@ async function openAccountMenuRecoveryDialog(page: Page): Promise<void> {
   await page.evaluate(
     async ({ moduleUrl, backupRequest }) => {
       const module = await import(moduleUrl);
-      const result = module.showWalletRecoveryCodesUi({
-        walletId: backupRequest.walletId,
-        loadStatus: async () => ({
-          kind: 'transport_failed' as const,
-          message: 'Recovery status is temporarily unavailable',
-        }),
-        loadPendingBackup: async () => {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
-          return backupRequest;
+      const measurements: unknown[] = [];
+      const result = module.showWalletRecoveryCodesUi(
+        {
+          walletId: backupRequest.walletId,
+          loadStatus: async () => ({
+            kind: 'transport_failed' as const,
+            message: 'Recovery status is temporarily unavailable',
+          }),
+          loadPendingBackup: async () => {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+            return backupRequest;
+          },
         },
-      });
-      (
-        window as unknown as { walletRecoveryBackupResult: Promise<unknown> }
-      ).walletRecoveryBackupResult = result;
+        {
+          kind: 'wallet_iframe',
+          requestId: 'recovery-summary-measurement-test',
+          postMeasurement: measurements.push.bind(measurements),
+        },
+      );
+      const testWindow = window as unknown as {
+        walletRecoveryBackupResult: Promise<unknown>;
+        walletRecoveryMeasurements: unknown[];
+      };
+      testWindow.walletRecoveryBackupResult = result;
+      testWindow.walletRecoveryMeasurements = measurements;
     },
     { moduleUrl: MODULE_URL, backupRequest: request('pending_backup_must_finish') },
   );
 }
+
+test('wallet-iframe recovery summary measures its intrinsic width from a narrow prior surface', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await openAccountMenuRecoveryDialog(page);
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  await expect
+    .poll(async () => {
+      return await page.evaluate(() => {
+        const measurements = (
+          window as unknown as {
+            walletRecoveryMeasurements: Array<{ widthCssPx?: number }>;
+          }
+        ).walletRecoveryMeasurements;
+        return measurements.at(-1)?.widthCssPx ?? 0;
+      });
+    })
+    .toBe(480);
+});
 
 test('account-menu recovery codes use one Lit dialog for summary, opening, and codes', async ({
   page,

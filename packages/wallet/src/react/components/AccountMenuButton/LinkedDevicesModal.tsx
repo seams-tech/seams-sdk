@@ -367,7 +367,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   const loadSeq = React.useRef(0);
   const seamsRef = React.useRef(seams);
   const dialogRef = React.useRef<HTMLDivElement>(null);
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const otpInputRef = React.useRef<HTMLInputElement>(null);
   const otpInputId = React.useId();
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
@@ -437,7 +436,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     if (!isOpen || !initialContentReady) return;
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeButtonRef.current?.focus();
+    dialogRef.current?.focus({ preventScroll: true });
     window.addEventListener('keydown', handleDialogKeyDown);
     return () => {
       window.removeEventListener('keydown', handleDialogKeyDown);
@@ -610,7 +609,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           tabIndex={-1}
         >
           <button
-            ref={closeButtonRef}
             type="button"
             className="w3a-linked-devices-modal-close"
             onClick={onClose}
