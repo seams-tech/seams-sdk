@@ -183,7 +183,6 @@ import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   persistActiveWalletSessionAuthorizationFromDirectRegistration,
-  persistActiveWalletSessionAuthorizationFromRegistration,
 } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import type {
   ActiveWalletSessionV1,
@@ -3826,7 +3825,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       ),
       signerSlot: finalized.ed25519.signerSlot,
     });
-    const registrationAuthorization = await persistActiveWalletSessionAuthorizationFromDirectRegistration(
+    await persistActiveWalletSessionAuthorizationFromDirectRegistration(
       walletSessionAuthorizations,
       registrationSession,
     );
