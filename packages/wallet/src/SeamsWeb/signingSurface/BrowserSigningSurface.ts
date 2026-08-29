@@ -283,6 +283,7 @@ import {
 import {
   buildActiveWalletSessionAuthorizationProjection,
   retireWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationUpgradeRequiredError,
   walletSessionAuthorizationIdForCurve,
   walletSessionThresholdSessionIdForCurve,
   walletSessionTokenForCurve,
@@ -333,7 +334,10 @@ import {
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
-import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  ActiveWalletSessionAuthorizationProjection,
+  WalletSessionAuthorizationExactOperationCredentialReadResult,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationCurve } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
@@ -1418,6 +1422,20 @@ async function requireExactEd25519SealedRuntimeForMaterialIdentity(args: {
   return runtimes[0];
 }
 
+function exactWalletSessionWithOperationCredentialOrThrow(
+  result: WalletSessionAuthorizationExactOperationCredentialReadResult,
+  message: string,
+): Extract<WalletSessionAuthorizationExactOperationCredentialReadResult, { kind: 'found' }> | null {
+  switch (result.kind) {
+    case 'found':
+      return result;
+    case 'missing':
+      return null;
+    case 'upgrade_required':
+      throw new WalletSessionAuthorizationUpgradeRequiredError(message);
+  }
+}
+
 async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
   walletId: WalletId;
   authorization: ActiveWalletSessionAuthorizationProjection;
@@ -1444,11 +1462,14 @@ async function resolveNearEd25519WalletSessionAuthorizationForSigning(args: {
     throw new Error('[SigningEngine][near] Wallet Session authority correlation changed');
   }
 
-  const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-    walletId: args.walletId,
-    authorityId: authority.authorityId,
-    authMethodId: authMethod.walletAuthMethodId,
-  });
+  const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+    await walletSessionAuthorizations.readExactWithOperationCredential({
+      walletId: args.walletId,
+      authorityId: authority.authorityId,
+      authMethodId: authMethod.walletAuthMethodId,
+    }),
+    '[SigningEngine][near] exact linked Wallet Session requires a newer client',
+  );
   if (
     authority.provenance.kind === 'wallet_registration' ||
     authority.provenance.kind === 'wallet_recovery'
@@ -2902,11 +2923,14 @@ export class BrowserSigningSurface {
         }
         return await resolveExactOwnerLaneScope({ authMethod, stores });
       }
-      const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-        walletId: parsedWalletId.value,
-        authorityId: authority.authorityId,
-        authMethodId: authMethod.walletAuthMethodId,
-      });
+      const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+        await walletSessionAuthorizations.readExactWithOperationCredential({
+          walletId: parsedWalletId.value,
+          authorityId: authority.authorityId,
+          authMethodId: authMethod.walletAuthMethodId,
+        }),
+        '[SigningEngine] selected Wallet Authority Wallet Session requires a newer client',
+      );
       const exactSessionFailure = !exactSession
         ? 'missing_exact_session'
         : exactSession.record.authorityDigestB64u !== authority.authorityDigestB64u
@@ -5181,11 +5205,14 @@ export class BrowserSigningSurface {
       throw new Error('[SigningEngine][ed25519-export] linked Ed25519 factor binding changed');
     }
 
-    const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-      walletId: args.walletId,
-      authorityId: authority.authorityId,
-      authMethodId: authMethod.walletAuthMethodId,
-    });
+    const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+      await walletSessionAuthorizations.readExactWithOperationCredential({
+        walletId: args.walletId,
+        authorityId: authority.authorityId,
+        authMethodId: authMethod.walletAuthMethodId,
+      }),
+      '[SigningEngine][ed25519-export] exact linked Wallet Session requires a newer client',
+    );
     let exactExportSubject = false;
     if (exactSession) {
       for (const subject of exactSession.record.capabilitySubjects) {
@@ -6481,11 +6508,14 @@ export class BrowserSigningSurface {
         metadata: unlock.metadata,
         authority,
       });
-      const exactSession = await walletSessionAuthorizations.readExactWithOperationCredential({
-        walletId: args.walletSession.walletId,
-        authorityId: unlock.recovery.verifiedAuthorityProjection.authority.authorityId,
-        authMethodId: unlock.recovery.verifiedAuthorityProjection.authMethod.walletAuthMethodId,
-      });
+      const exactSession = exactWalletSessionWithOperationCredentialOrThrow(
+        await walletSessionAuthorizations.readExactWithOperationCredential({
+          walletId: args.walletSession.walletId,
+          authorityId: unlock.recovery.verifiedAuthorityProjection.authority.authorityId,
+          authMethodId: unlock.recovery.verifiedAuthorityProjection.authMethod.walletAuthMethodId,
+        }),
+        '[SigningEngine][ed25519] exact Wallet Session requires a newer client',
+      );
       if (exactSession) {
         await establishUnlockedExportRootCapabilityWithWorkerV1(
           this.walletCustodyCeremonyTransportV1(),

@@ -46,6 +46,7 @@ export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V4,
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION_V5,
   WalletSessionAuthorizationRepository,
+  WalletSessionAuthorizationUpgradeRequiredError,
   buildActiveWalletSessionV1,
   buildActiveWalletSessionAuthorizationProjection,
   parseExactWalletSessionAuthorizationRecordV4,
@@ -68,6 +69,7 @@ export type {
   WalletSessionAuthorizationToken,
   WalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
+  WalletSessionAuthorizationExactOperationCredentialReadResult,
   WalletSessionAuthorizationRetirementReason,
 } from './seamsWalletDB/walletSessionAuthorizationStore';
 export type {
