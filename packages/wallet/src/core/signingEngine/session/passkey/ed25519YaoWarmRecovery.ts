@@ -238,7 +238,8 @@ function sealedRecordMatchesSubject(
     record.walletId === subject.walletId &&
     restore.nearAccountId === subject.nearAccountId &&
     restore.nearEd25519SigningKeyId === subject.nearEd25519SigningKeyId &&
-    restore.signerSlot === subject.signerSlot
+    restore.signerSlot === subject.signerSlot &&
+    record.thresholdSessionIds.ed25519 === subject.thresholdSessionId
   );
 }
 

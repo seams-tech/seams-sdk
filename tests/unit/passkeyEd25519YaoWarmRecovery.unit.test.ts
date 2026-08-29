@@ -199,7 +199,10 @@ async function missingPasskeyCustodyEnvelope(): Promise<null> {
   return null;
 }
 
-async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
+async function resolveRecord(
+  record: CurrentEd25519SealedSessionRecord,
+  subjectThresholdSessionId = THRESHOLD_SESSION_ID,
+) {
   let recoveryBootstrapCalls = 0;
   const result = await resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     {
@@ -209,7 +212,7 @@ async function resolveRecord(record: CurrentEd25519SealedSessionRecord) {
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
         signerSlot: 1,
-        thresholdSessionId: THRESHOLD_SESSION_ID,
+        thresholdSessionId: subjectThresholdSessionId,
         materialActivation: record.ed25519Restore.materialActivation,
       },
       relayerUrl: RELAYER_URL,
@@ -312,6 +315,19 @@ test('unexpired passkey material with no uses remains distinct from expiry', asy
   expect(resolved.result).toEqual({
     kind: 'capability_recovery_required',
     reason: 'sealed_session_exhausted',
+  });
+  expect(resolved.recoveryBootstrapCalls).toBe(0);
+});
+
+test('warm recovery rejects a threshold session substitution before authorization lookup', async () => {
+  const resolved = await resolveRecord(
+    buildSealedRecord({ expiresAtMs: NOW_MS + 60_000, remainingUses: 1 }),
+    'threshold-session-foreign',
+  );
+
+  expect(resolved.result).toEqual({
+    kind: 'capability_recovery_required',
+    reason: 'sealed_session_missing',
   });
   expect(resolved.recoveryBootstrapCalls).toBe(0);
 });
