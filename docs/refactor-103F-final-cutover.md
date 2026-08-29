@@ -1096,7 +1096,7 @@ Convert every reader or legacy writer:
 - [ ] registration legacy persistence in `registration.ts`;
 - [ ] recovery/sync legacy persistence in `syncAccount.ts`;
 - [x] `SigningSessionCoordinator.ts`;
-- [ ] `PasskeyMpcSessionManager.ts`;
+- [x] `PasskeyMpcSessionManager.ts`;
 - [x] `session/availability/readiness.ts`;
 - [x] `clientSessionPersistence.ts`;
 - [x] `ecdsaLoginPrefill.ts`;
@@ -1144,10 +1144,10 @@ Primary persistence files:
 - [ ] Delete reusable-session fields from the public `WalletSession` shape.
 - [ ] Delete curve-specific reusable-session signing-surface ports.
 - [ ] Delete legacy reusable-session iframe message fields.
-- [ ] Bump `WALLET_PROTOCOL_VERSION`, add the host version to CONNECT, validate
+- [x] Bump `WALLET_PROTOCOL_VERSION`, add the host version to CONNECT, validate
       before iframe port adoption, and retain host READY validation.
-- [ ] Return `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` for either skew direction.
-- [ ] Change the host SDK and iframe protocol together and prove both mismatch
+- [x] Return `WALLET_IFRAME_PROTOCOL_VERSION_MISMATCH` for either skew direction.
+- [x] Change the host SDK and iframe protocol together and prove both mismatch
       directions without retaining a message adapter.
 - [ ] Replace `ActiveWalletSessionV1` plus separately transported credentials
       with the identity-coupled exact browser boundary type.
@@ -1513,7 +1513,7 @@ Remaining causal baseline work:
       uses the selected exact tuple and requires a matching unexpired export-root
       capability for delegated key export
 - [x] `tests/unit/walletSessionOperationCredential.unit.test.ts`
-- [ ] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
+- [x] `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
 - [ ] `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
 - [ ] `tests/unit/ed25519YaoSealedRefreshPersistence.unit.test.ts`
 - [ ] `tests/unit/d1LinkedDeviceAuthorityInstallService.unit.test.ts`
@@ -1618,7 +1618,7 @@ Remaining causal baseline work:
 - [ ] Authority/material-promotion tests covering stable identities, all
       affected server snapshots, all same-authority browser records, and lost
       response readback.
-- [ ] Host/iframe protocol-skew tests in both directions with removed fields
+- [x] Host/iframe protocol-skew tests in both directions with removed fields
       rejected.
 - [ ] Targeted IndexedDB cleanup test proving unrelated stores survive.
 - [ ] Wallet-bootstrap test covering empty, exact, legacy, malformed, and future
